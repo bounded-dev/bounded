@@ -23,8 +23,24 @@ your shell. The version output identifies the source commit and marks builds
 made with uncommitted changes. Already initialized projects carry their own
 snapshot; they do not update when the installer changes.
 
-The public install channel is still pending. Local publishing does not send a
-package to a registry.
+Local publishing does not send a package to a registry.
+
+## Release to npm
+
+The CLI is published as [`bounded`](https://www.npmjs.com/package/bounded).
+From `agent/`, with every change committed:
+
+```bash
+npm version patch --no-git-tag-version   # or minor / major
+git commit -am "Release bounded <version>"
+npm publish
+npx bounded@latest --version
+```
+
+`npm publish` builds the distribution first, and the published
+`bounded --version` reports the commit it was built from. A build with
+uncommitted changes is marked `+working-tree`; do not publish one. npm asks
+for a browser sign-in to confirm each publish.
 
 ## Developer host setup
 

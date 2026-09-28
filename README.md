@@ -47,22 +47,21 @@ remembering every instruction.
 The longer-term direction is in [the vision](docs/VISION.md). The developer
 workflow is described in [its design note](docs/tn/TN-26-001-developer-stage-pipeline.md).
 
-## Try the local preview
+## Get started
 
-The CLI is packaged locally but has no public one-command install URL yet.
-From a harness checkout:
+The CLI is published on npm as [`bounded`](https://www.npmjs.com/package/bounded)
+and needs Node.js 22.18 or later. Install it once:
 
 ```bash
-cd agent
-npm ci
-npm run publish:local
-bounded --version
+npm install --global bounded
 ```
 
 Then open an empty directory (or one containing only `.git/`) in pi or Claude
-Code and ask the current agent to initialize Bounded there. The installed
-`bounded` command handles initialization and version reporting. The new
-project uses its own Bounded commands; for example:
+Code and ask the current agent to initialize Bounded there. The agent runs
+`bounded init` and walks you through product discovery. To set up from a
+terminal without an agent, run `npx bounded init --interactive`.
+
+The new project uses its own Bounded commands; for example:
 
 ```bash
 bash .bounded/harness/scripts/bounded setup
@@ -79,14 +78,12 @@ may edit it. The gates refuse when it differs from what the capabilities
 generate. Restore it yourself with
 `bash .bounded/harness/scripts/bounded sync-config`.
 
-For a terminal-led setup, `bounded init --interactive` asks for the technical
-selection directly.
 The initializer refuses an existing project before writing files. Today it
 can initialize a TypeScript web application, a backend service, SQLite
 persistence with versioned migrations, or a combination of these. It
 sets up the structure and toolchain; the agent designs and builds the actual
-product afterward. Public CLI distribution and updates to an already
-initialized project are future work.
+product afterward. Updating an already initialized project to a newer harness
+is future work.
 
 ## Explore the project
 
@@ -97,3 +94,7 @@ initialized project are future work.
 - [Architecture decisions](ADRs/README.md): short records of design choices.
 - [Contributing](docs/contributing.md): development setup, local publishing,
   and repo-only experiment commands.
+
+## License
+
+Bounded is released under the [MIT License](LICENSE).
