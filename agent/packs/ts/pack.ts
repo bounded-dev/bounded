@@ -249,6 +249,21 @@ export const deliverChecks = tsSockets.define<DeliverCheck>({
   },
 });
 
+/** A selected pack's deterministic project artifact generator. The architect
+ * invokes the shared gate; only composed packs contribute work to it. */
+export interface ArtifactGenerator {
+  readonly name: string;
+  readonly run: (cwd: string) => readonly string[];
+}
+
+export const artifactGenerators = tsSockets.define<ArtifactGenerator>({
+  id: "artifactGenerators",
+  description: "Selected packs' generators for reviewed, project-owned artifacts",
+  validate: (generator, contributor) =>
+    /^[a-z][a-z0-9-]*$/.test(generator.name) && typeof generator.run === "function"
+      ? undefined : `${contributor} supplied an invalid artifact generator`,
+});
+
 /**
  * The ts pack. Depends on nothing — it is the root of the TypeScript family —
  * and contributes nothing: its own rules are its gates' base config.
@@ -256,5 +271,5 @@ export const deliverChecks = tsSockets.define<DeliverCheck>({
 export const tsPack = definePack({
   name: TS_PACK,
   dependsOnPacks: [],
-  defines: [lintSrcRules, contractPurityOverrides, deliverChecks],
+  defines: [lintSrcRules, contractPurityOverrides, deliverChecks, artifactGenerators],
 });

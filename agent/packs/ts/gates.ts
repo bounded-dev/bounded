@@ -232,6 +232,17 @@ export const gates: readonly GateCommand[] = [
     },
   },
   {
+    name: "generate-artifacts",
+    tool: "generate_artifacts",
+    promptSnippet: "Generate selected packs' project artifacts after the builder changes their inputs.",
+    description: "Run deterministic artifact generators contributed by this project's selected capabilities. Call after the builder changes a generator input and before green_gate. Review the generated files before delivery.",
+    flags: [],
+    async run(cwd) {
+      const { runArtifactGenerators } = await import("./scripts/generate-artifacts.ts");
+      return runArtifactGenerators(cwd);
+    },
+  },
+  {
     name: "green-gate",
     tool: "green_gate",
     promptSnippet: "Gate the build: tests pass AND the project compiles.",

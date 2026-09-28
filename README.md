@@ -72,7 +72,8 @@ bash .bounded/harness/scripts/bounded gates --list
 For a terminal-led setup, `bounded init --interactive` asks for the technical
 selection directly.
 The initializer refuses an existing project before writing files. Today it
-can initialize a TypeScript web application, a backend service, or both. It
+can initialize a TypeScript web application, a backend service, SQLite
+persistence with versioned migrations, or a combination of these. It
 sets up the structure and toolchain; the agent designs and builds the actual
 product afterward. Public CLI distribution and updates to an already
 initialized project are future work.

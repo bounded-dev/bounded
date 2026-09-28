@@ -4,7 +4,7 @@ description: Developer-stage architect (TN-26-001). Owns one ticket end to end â
 systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: true
-tools: read, grep, find, ls, write, edit, remove, typecheck, subagent, git, sleep, mutation_score, contract_purity, design_gate, check_drift, red_gate, green_gate, sign_off, deliver
+tools: read, grep, find, ls, write, edit, remove, typecheck, subagent, git, sleep, mutation_score, contract_purity, design_gate, check_drift, red_gate, generate_artifacts, green_gate, sign_off, deliver
 subagentOnlyExtensions: ~/.pi/agent/hosts/pi/extensions/path-gate/architect.ts
 async: true
 ---
@@ -389,6 +389,13 @@ its own shadow project from the contracts and the tests, so it neither needs
 nor touches `src/`, and the builder keeps working while it runs. That is what
 makes the test-writer and the builder genuinely parallel â€” commission both once
 the freeze lands, in either order, and gate each as it returns.
+
+**Run selected artifact generators after the builder changes their inputs.**
+`generate_artifacts` invokes only generators contributed by this project's
+selected capabilities, records the invocation in the guard log, and writes
+their deterministic output. For a persistence capability, that means generating
+versioned migrations from the builder's schema. Review the generated files and
+route any needed correction back to the builder before `green_gate`.
 
 ## Three things about running the loop, not designing it
 

@@ -1,0 +1,19 @@
+{
+  "dependsOnPacks": ["ts"],
+  "pins": {
+    "dependencies": {
+      "@libsql/client": "0.18.0",
+      "drizzle-orm": "0.45.3"
+    },
+    "devDependencies": {
+      "drizzle-kit": "0.31.11",
+      "@types/node": "24.13.3"
+    }
+  },
+  "projectScripts": {
+    "db:generate": "drizzle-kit generate --config=src/db/drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=src/db/drizzle.config.ts",
+    "check:db": "node .bounded/harness/packs/ts-drizzle-sqlite/scripts/check-migrations.ts"
+  },
+  "projectInitScripts": ["scripts/new-database.ts"]
+}

@@ -234,6 +234,7 @@ export const GATE_TOOLS: readonly string[] = [
   "design_gate",
   "check_drift",
   "red_gate",
+  "generate_artifacts",
   "green_gate",
   // Green is not the terminal verdict: after it passes the architect records
   // what it saw reading both sides, and an empty list is a valid answer. Run 7
