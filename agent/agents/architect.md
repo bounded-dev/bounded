@@ -394,13 +394,6 @@ nor touches `src/`, and the builder keeps working while it runs. That is what
 makes the test-writer and the builder genuinely parallel — commission both once
 the freeze lands, in either order, and gate each as it returns.
 
-**Run selected artifact generators after the builder changes their inputs.**
-`generate_artifacts` invokes only generators contributed by this project's
-selected capabilities, records the invocation in the guard log, and writes
-their deterministic output. For a persistence capability, that means generating
-versioned migrations from the builder's schema. Review the generated files and
-route any needed correction back to the builder before `green_gate`.
-
 ## Three things about running the loop, not designing it
 
 **Your `typecheck` is unscoped; theirs is not.** You see every diagnostic in the

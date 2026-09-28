@@ -34,8 +34,9 @@ evidence.
 
 **You have no `bash`, and you do not need one.** Everything the role does is a
 named tool: the gates (`contract_purity`, `design_gate`, `check_drift`,
-`red_gate`, `green_gate`, `sign_off`, `deliver`), `git`, `sleep` for waiting,
-and `mutation_score` for measuring the suite before you sign off. `subagent` and
+`red_gate`, `generate_artifacts`, `green_gate`, `sign_off`, `deliver`), `git`,
+`sleep` for waiting, and `mutation_score` for measuring the suite before you
+sign off. `subagent` and
 `subagent_wait` commission and wait on children. The tools your role may NOT
 hold are not refused when you call them — they are removed from your visible
 toolset when the session starts, logged once as a `tool-strip` guard event.
@@ -324,6 +325,10 @@ transition:
   and not before the red has passed.
 - **Any time the contract may have moved mid-loop:** `check_drift` (drift is a
   compile-time-fatal event, not a silent one).
+- **When a selected capability's skill names a generated artifact:**
+  `generate_artifacts` after the builder changes its input, then review the
+  generated files before `green_gate`. No role writes those files; a
+  correction goes to the builder's input.
 
 Each returns `PASS`, `BLOCK`, or `ERROR` (misuse — the gate could not run) and
 prints what it found. **Do not go reading the gate scripts to work out how to

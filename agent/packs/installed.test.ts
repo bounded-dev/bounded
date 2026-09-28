@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { composePacks } from "../src/socket-registry.ts";
 import { installedPacks, INSTALLED_PACKS } from "./installed.ts";
-import { contractPurityOverrides, lintSrcRules, TS_PACK } from "./ts/pack.ts";
+import { artifactGenerators, contractPurityOverrides, contractSupportFiles, deliverChecks, lintSrcRules, TS_PACK } from "./ts/pack.ts";
+import { TS_DRIZZLE_SQLITE_PACK } from "./ts-drizzle-sqlite/pack.ts";
 import { TS_WEB_PACK } from "./ts-web/pack.ts";
 
 // The real composition, composed for real. socket-registry.test.ts proves the
@@ -20,8 +21,8 @@ describe("the harness's own composition", () => {
     expect(installedPacks()).toBe(installedPacks());
   });
 
-  test("composes ts before ts-web, because ts-web declares the edge", () => {
-    expect(installedPacks().packs).toEqual([TS_PACK, "ts-service", TS_WEB_PACK]);
+  test("composes ts before every pack that declares the edge to it", () => {
+    expect(installedPacks().packs).toEqual([TS_PACK, TS_DRIZZLE_SQLITE_PACK, "ts-service", TS_WEB_PACK]);
   });
 
   // The socket vocabulary is closed and curated (TN-26-005): a socket is born
@@ -32,6 +33,8 @@ describe("the harness's own composition", () => {
   test("the ts pack owns every socket, and nothing else defines one", () => {
     const sockets = installedPacks().sockets;
     expect(sockets.map((s) => s.id)).toEqual([
+      // ADR 2026-055: born with its consumer, the generate_artifacts gate.
+      "artifactGenerators",
       "contractPurityOverrides",
       // ADR 2026-046: born with its consumers, the scaffolder and red gate.
       "contractSupportFiles",
@@ -85,11 +88,22 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
   // TN-26-005's future work, exercised today against the real packs: a project
   // that composes only ts gets the ts gates and nothing web-flavoured. If this
   // ever needs more than a second argument, the design failed.
-  test("composing ts alone leaves both sockets defined and empty", () => {
+  test("composing ts alone leaves every socket defined and empty", () => {
     const registry = composePacks(INSTALLED_PACKS, [TS_PACK]);
     expect(registry.packs).toEqual([TS_PACK]);
     expect(registry.read(lintSrcRules)).toEqual([]);
     expect(registry.read(contractPurityOverrides)).toEqual([]);
+    expect(registry.read(deliverChecks)).toEqual([]);
+    expect(registry.read(contractSupportFiles)).toEqual([]);
+    expect(registry.read(artifactGenerators)).toEqual([]);
+  });
+
+  test("the migration generator exists only where ts-drizzle-sqlite is composed", () => {
+    const names = (packs: readonly string[]) => composePacks(INSTALLED_PACKS, packs).read(artifactGenerators).map((g) => g.name);
+    expect(names([TS_PACK, "ts-service", TS_WEB_PACK])).toEqual([]);
+    expect(names([TS_PACK, TS_DRIZZLE_SQLITE_PACK])).toEqual(["database-migration"]);
+    // It contributes no delivery check: its check rides the project's own `check`.
+    expect(composePacks(INSTALLED_PACKS, [TS_PACK, TS_DRIZZLE_SQLITE_PACK]).read(deliverChecks)).toEqual([]);
   });
 
   test("composing ts-web without ts is refused — the edge is not optional", () => {

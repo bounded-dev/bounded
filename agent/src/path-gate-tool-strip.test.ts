@@ -121,6 +121,7 @@ const FULL_TOOLSET = [
   "design_gate",
   "check_drift",
   "red_gate",
+  "generate_artifacts",
   "green_gate",
   "sign_off",
   "deliver",

@@ -7,8 +7,8 @@
 // today) fill them. The core learns that a pack declared a socket and another
 // pack filled it, and nothing more.
 //
-// FOUR SOCKETS — two for the gates that lint, one for the delivery pass, one
-// for the scaffolder and red gate:
+// FIVE SOCKETS — two for the gates that lint, one for the delivery pass, one
+// for the scaffolder and red gate, one for the artifact-generation gate:
 //
 //   lintSrcRules             extra rules for the src gate (implementation code)
 //   contractPurityOverrides  extra flat-config blocks for the contract gate
@@ -16,6 +16,8 @@
 //                            (ADR 2026-033)
 //   contractSupportFiles     canonical files a contract import asks for
 //                            (ADR 2026-046)
+//   artifactGenerators       deterministic generators the architect's
+//                            generate_artifacts gate runs (ADR 2026-055)
 //
 // The ts pack's OWN rules are not contributions. `SRC_RULE_IDS` and
 // `CONTRACT_RULE_IDS` stay hard-wired in their gates: the gate and the plugin
@@ -265,16 +267,31 @@ export const deliverChecks = tsSockets.define<DeliverCheck>({
   },
 });
 
-/** A selected pack's deterministic project artifact generator. The architect
- * invokes the shared gate; only composed packs contribute work to it. */
+// --- artifactGenerators (ADR 2026-055) --------------------------------------
+//
+// Born with its consumer, the `generate_artifacts` gate
+// (scripts/generate-artifacts.ts). Some project files are derived from files a
+// role writes and must never be hand-edited: a versioned migration derived
+// from a schema. No role has a shell to run the derivation, and no role may
+// write the output, so the architect calls one generic gate and each composed
+// pack contributes its generator. A project that composes no generator runs
+// none; the gate names no technology.
+
+/** A selected pack's deterministic project artifact generator. */
 export interface ArtifactGenerator {
+  /** Printed before each output line and logged; lowercase, dash-separated. */
   readonly name: string;
+  /** Write the derived files into the project at `cwd` and return what it
+   *  did, one line each. Throws, with a message a reader can act on, when it
+   *  cannot generate; the gate then blocks and writes nothing further. */
   readonly run: (cwd: string) => readonly string[];
 }
 
 export const artifactGenerators = tsSockets.define<ArtifactGenerator>({
   id: "artifactGenerators",
-  description: "Selected packs' generators for reviewed, project-owned artifacts",
+  description:
+    "Deterministic generators, contributed by packs that depend on ts, for project files derived " +
+    "from role-written inputs. The architect's generate_artifacts gate runs every composed one.",
   validate: (generator, contributor) =>
     /^[a-z][a-z0-9-]*$/.test(generator.name) && typeof generator.run === "function"
       ? undefined : `${contributor} supplied an invalid artifact generator`,

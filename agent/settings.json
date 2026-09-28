@@ -9,7 +9,8 @@
     "npm:betterwright@1.10.0",
     "./packs/ts",
     "./packs/ts-web",
-    "packs/ts-service"
+    "packs/ts-service",
+    "packs/ts-drizzle-sqlite"
   ],
   "subagents": {
     "disableBuiltins": true
