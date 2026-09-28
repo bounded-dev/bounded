@@ -1,8 +1,7 @@
 {
-  "name": "bounded-harness",
-  "version": "0.1.0",
-  "description": "The Bounded Harness \u2014 a coding-agent harness: extensions, skills, packs, and gates",
-  "private": true,
+  "name": "bounded",
+  "version": "2.0.0",
+  "description": "The Bounded Harness — a coding-agent harness: extensions, skills, packs, and gates",
   "type": "module",
   "bin": {
     "bounded": "scripts/bounded"
