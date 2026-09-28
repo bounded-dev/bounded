@@ -5,7 +5,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
+import { boundDefinitionInForce } from "./lead-hook.ts";
 import { installProjectClaude } from "./project-install.ts";
+import { BOOTSTRAP_RUNTIME, markDependenciesReady } from "../../test/support/bootstrap-project.ts";
 
 const SOURCE = fileURLToPath(new URL("../../", import.meta.url));
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), "path-gate-hook.ts");
@@ -25,7 +27,8 @@ function project(): { target: string; harness: string } {
     cpSync(join(SOURCE, "agents", `${role}.md`), dest);
   }
   cpSync(join(SOURCE, "skills", "developer-stage"), join(harness, "skills", "developer-stage"), { recursive: true });
-  for (const rel of ["hosts/claude-code/path-gate-hook.ts", "scripts/bounded"]) {
+  cpSync(join(SOURCE, "skills", "team-lead"), join(harness, "skills", "team-lead"), { recursive: true });
+  for (const rel of ["hosts/claude-code/path-gate-hook.ts", "scripts/bounded", "agents/scout.md", ...BOOTSTRAP_RUNTIME]) {
     const dest = join(harness, rel);
     mkdirSync(dirname(dest), { recursive: true });
     cpSync(join(SOURCE, rel), dest);
@@ -37,7 +40,8 @@ test("Claude Code discovery uses only project-relative paths and copied skills",
   const { target, harness } = project();
   installProjectClaude(target, harness);
   const settings = readFileSync(join(target, ".claude", "settings.json"), "utf8");
-  expect(settings).toContain("${CLAUDE_PROJECT_DIR}/.bounded/harness/hosts/claude-code/path-gate-hook.ts");
+  expect(settings).toContain("${CLAUDE_PROJECT_DIR}/.bounded/harness/hosts/claude-code/bootstrap-hook.ts");
+  expect(settings).not.toContain("path-gate-hook.ts");
   expect(settings).toContain("--project-local");
   expect(settings).not.toContain(target);
   expect(settings).not.toContain(SOURCE);
@@ -53,7 +57,19 @@ test("Claude Code discovery uses only project-relative paths and copied skills",
   expect(readFileSync(join(skill, "SKILL.md"), "utf8")).toBe(
     readFileSync(join(harness, "skills", "developer-stage", "SKILL.md"), "utf8"),
   );
-  expect(readFileSync(join(target, "CLAUDE.md"), "utf8")).toBe(readFileSync(join(target, "AGENTS.md"), "utf8"));
+  const instructions = readFileSync(join(target, "CLAUDE.md"), "utf8");
+  expect(instructions).toContain("# Bounded project entry");
+  expect(instructions).toContain("`bash .bounded/harness/scripts/bounded setup`");
+  expect(instructions).not.toContain("npm");
+  expect(instructions.endsWith(readFileSync(join(target, "AGENTS.md"), "utf8"))).toBe(true);
+  const scout = readFileSync(join(target, ".claude", "agents", "scout.md"), "utf8");
+  expect(scout).toContain("name: scout\n");
+  expect(scout).toContain("tools: Read, Grep, Glob");
+  expect(scout).toContain('hooks:\n  PreToolUse:\n    - matcher: ""\n      hooks:\n        - type: command\n');
+  expect(scout).toContain("--project-local --role scout");
+  expect(scout).not.toContain(target);
+  expect(boundDefinitionInForce(target, "scout")).toBe(true);
+  expect(existsSync(join(target, ".claude", "skills", "team-lead", "SKILL.md"))).toBe(true);
 });
 
 test("the stored hook command works from a nested working directory", () => {
@@ -61,6 +77,7 @@ test("the stored hook command works from a nested working directory", () => {
   const copiedHook = join(harness, "hosts", "claude-code", "path-gate-hook.ts");
   writeFileSync(copiedHook, "process.stdout.write(process.argv.slice(2).join('|'))\n");
   installProjectClaude(target, harness);
+  markDependenciesReady(target); // the bootstrap entry then hands every call to the full hook
   const settings = JSON.parse(readFileSync(join(target, ".claude", "settings.json"), "utf8")) as {
     hooks: { PreToolUse: { hooks: { command: string }[] }[] };
   };
@@ -69,6 +86,7 @@ test("the stored hook command works from a nested working directory", () => {
   const run = spawnSync("/bin/sh", ["-c", command], {
     cwd: join(target, "src"),
     env: { ...process.env, CLAUDE_PROJECT_DIR: target },
+    input: "{}",
     encoding: "utf8",
   });
   expect(run.status).toBe(0);

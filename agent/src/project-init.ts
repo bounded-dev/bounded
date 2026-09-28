@@ -10,7 +10,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { mergedContribution, projectCommandNames, projectConfigSources, projectIgnoreRules } from "./pack-contrib.ts";
 import { COMPOSITION_FILE, writeProjectPacks } from "./project-composition.ts";
+import { lockFor, sourceLockPath, type RuntimePackage } from "./runtime-lock.ts";
+import { SETUP_COMMAND } from "./setup-state.ts";
 
 export type InitHost = "pi" | "claude-code";
 export interface InitPlan {
@@ -30,7 +33,6 @@ const containingRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const agentRoot = basename(containingRoot) === "dist" ? resolve(containingRoot, "..") : containingRoot;
 const sourceRoot = resolve(agentRoot, "..");
 const MANIFEST = ".bounded/installation.json";
-const SOURCE_LOCK = existsSync(join(agentRoot, "package-lock.json")) ? "package-lock.json" : "installer-lock.json";
 
 function sha(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -122,16 +124,35 @@ function availablePacks(): Map<string, { dependsOnPacks: string[] }> {
   return known;
 }
 
-function scaffolderFor(packs: readonly string[]): readonly { pack: string; script: string }[] {
+/** A script-list socket's entries, in composition order. */
+function packScripts(packs: readonly string[], key: string): { pack: string; script: string }[] {
   const scripts: { pack: string; script: string }[] = [];
   for (const pack of packs) {
-    const raw = JSON.parse(readFileSync(join(agentRoot, "packs", pack, "contrib.json"), "utf8")) as { projectInitScripts?: unknown };
-    if (raw.projectInitScripts === undefined) continue;
-    if (!Array.isArray(raw.projectInitScripts) || raw.projectInitScripts.some((s) => typeof s !== "string" || !/^scripts\/[a-z0-9-]+\.ts$/.test(s))) {
-      throw new Error(`Capability '${pack}' has invalid projectInitScripts`);
+    const raw = (JSON.parse(readFileSync(join(agentRoot, "packs", pack, "contrib.json"), "utf8")) as Record<string, unknown>)[key];
+    if (raw === undefined) continue;
+    if (!Array.isArray(raw) || raw.some((s) => typeof s !== "string" || !/^scripts\/[a-z0-9-]+\.ts$/.test(s))) {
+      throw new Error(`Capability '${pack}' has invalid ${key}`);
     }
-    scripts.push(...raw.projectInitScripts.map((script: string) => ({ pack, script })));
+    scripts.push(...raw.map((script: string) => ({ pack, script })));
   }
+  return scripts;
+}
+
+/** A pack script run from the harness source: its compiled form when built. */
+function packScriptEntry(pack: string, script: string): string {
+  const bundled = join(agentRoot, "dist", "packs", pack, script.slice(0, -3) + ".js");
+  return existsSync(bundled) ? bundled : join(agentRoot, "packs", pack, script);
+}
+
+/** The TN README's example `contracts:` entry, named by the composed packs'
+ *  contract suffix (ADR 2026-052); an empty list when none contributes one. */
+export function exampleContracts(packs: readonly string[]): string[] {
+  const suffix = mergedContribution("contractFileSuffixes", packs, join(agentRoot, "packs"))[0];
+  return suffix === undefined ? ["contracts: []"] : ["contracts:", `  - src/example/example${suffix}`];
+}
+
+function scaffolderFor(packs: readonly string[]): readonly { pack: string; script: string }[] {
+  const scripts = packScripts(packs, "projectInitScripts");
   if (scripts.length === 0) throw new Error("This selection cannot yet scaffold a complete new project; choose a capability with a project initializer");
   const covered = new Set<string>(scripts.map(({ pack }) => pack));
   const byName = availablePacks();
@@ -179,7 +200,7 @@ function localizeInstructions(harnessRoot: string, host: InitHost): void {
         .replace(/with `bounded compose[^`]+`/g, "during initialization")
         .replace(/using `bounded compose[^`]+` \(also select\n[^\n]+\)/g, "during initialization")
         .replace(/`bounded compose[^`]+`/g, "the committed capability selection from initialization")
-        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|handoff|ticket|lead)\b/g, "bash .bounded/harness/scripts/bounded $1");
+        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|sync-config|handoff|ticket|lead)\b/g, "bash .bounded/harness/scripts/bounded $1");
       if (host === "pi" || path === "team-lead/SKILL.md") {
         rendered = rendered.replace(/\bbounded gates\b/g, "bash .bounded/harness/scripts/bounded gates");
       }
@@ -211,170 +232,21 @@ function localizeGeneratedRoles(stage: string, host: InitHost): void {
   }
 }
 
-type ProjectPackage = {
-  name: string;
-  version?: string;
-  private?: boolean;
-  type?: string;
-  scripts?: Record<string, string>;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-};
-
-type PackageContrib = {
-  projectPackageTemplate?: unknown;
-  projectConfigFiles?: unknown;
-  projectScripts?: unknown;
-  pins?: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
-};
-
-export function mergeProjectFields(target: Record<string, string>, added: Record<string, string>, kind: string, pack: string): void {
-  for (const [name, value] of Object.entries(added)) {
-    const previous = Object.hasOwn(target, name) ? target[name] : undefined;
-    if (previous !== undefined && previous !== value) {
-      throw new Error(`${kind} '${name}' conflicts with capability '${pack}'`);
-    }
-    Object.defineProperty(target, name, { value, enumerable: true, writable: true, configurable: true });
-  }
-}
-
-function packageFor(packs: readonly string[]): ProjectPackage {
-  const templates: { pack: string; path: string }[] = [];
-  const contributions: PackageContrib[] = [];
-  for (const pack of packs) {
-    const manifest = JSON.parse(readFileSync(join(agentRoot, "packs", pack, "contrib.json"), "utf8")) as PackageContrib;
-    contributions.push(manifest);
-    if (manifest.projectPackageTemplate !== undefined) {
-      const path = manifest.projectPackageTemplate;
-      if (typeof path !== "string" || !/^[a-z0-9/-]+\.json$/.test(path) || path.includes("..")) {
-        throw new Error(`Capability '${pack}' has an invalid projectPackageTemplate`);
-      }
-      templates.push({ pack, path });
-    }
-  }
-  if (templates.length !== 1) throw new Error("Selected capabilities must provide exactly one project package template");
-  const template = templates[0];
-  const pkg = JSON.parse(readFileSync(join(agentRoot, "packs", template.pack, template.path), "utf8")) as ProjectPackage;
-  if (!pkg || typeof pkg !== "object" || !pkg.scripts || !pkg.dependencies || !pkg.devDependencies) {
-    throw new Error(`Capability '${template.pack}' has an invalid project package template`);
-  }
-  const result: ProjectPackage = {
-    name: "bounded-project", version: pkg.version ?? "0.1.0", private: true, type: "module",
-    scripts: { ...pkg.scripts }, dependencies: { ...pkg.dependencies }, devDependencies: { ...pkg.devDependencies },
-  };
-  for (let i = 0; i < packs.length; i++) {
-    const manifest = contributions[i];
-    if (manifest.projectScripts !== undefined) {
-      if (!manifest.projectScripts || typeof manifest.projectScripts !== "object" || Array.isArray(manifest.projectScripts) ||
-        Object.values(manifest.projectScripts).some((command) => typeof command !== "string" || !command.trim())) {
-        throw new Error(`Capability '${packs[i]}' has invalid projectScripts`);
-      }
-      mergeProjectFields(result.scripts!, manifest.projectScripts as Record<string, string>, "Project script", packs[i]);
-    }
-    if (manifest.pins !== undefined) {
-      for (const kind of ["dependencies", "devDependencies"] as const) {
-        const pins = manifest.pins[kind];
-        if (pins === undefined) continue;
-        if (typeof pins !== "object" || Array.isArray(pins) || Object.values(pins).some((version) => typeof version !== "string" || !version)) {
-          throw new Error(`Capability '${packs[i]}' has invalid ${kind} pins`);
-        }
-        mergeProjectFields(result[kind]!, pins, "Dependency", packs[i]);
-      }
-    }
-  }
-  for (const name of Object.keys(result.dependencies!)) {
-    if (name in result.devDependencies!) throw new Error(`Dependency '${name}' is both production and development`);
-  }
-  if (result.scripts!["bounded:setup"] !== undefined) throw new Error("Project package template reserves bounded:setup");
-  result.scripts!["bounded:setup"] = "npm ci && npm ci --prefix .bounded/harness && node .bounded/harness/src/setup-complete.ts";
-  return result;
-}
-
 function copyProjectConfigs(stage: string, packs: readonly string[]): void {
-  for (const pack of packs) {
-    const manifest = JSON.parse(readFileSync(join(agentRoot, "packs", pack, "contrib.json"), "utf8")) as PackageContrib;
-    if (manifest.projectConfigFiles === undefined) continue;
-    if (!Array.isArray(manifest.projectConfigFiles) || manifest.projectConfigFiles.some((path) =>
-      typeof path !== "string" || !/^[a-z0-9/._-]+$/.test(path) || path.includes("..") || path.startsWith("/"))) {
-      throw new Error(`Capability '${pack}' has invalid projectConfigFiles`);
-    }
-    for (const path of manifest.projectConfigFiles as string[]) {
-      const from = join(agentRoot, "packs", pack, path);
-      const dest = join(stage, path.slice(path.lastIndexOf("/") + 1));
-      if (!existsSync(from) || existsSync(dest)) throw new Error(`Project config collision or missing source: ${pack}/${path}`);
-      copyFileSync(from, dest);
-    }
+  for (const { pack, source, target } of projectConfigSources(packs, join(agentRoot, "packs"))) {
+    const dest = join(stage, target);
+    if (!existsSync(source) || existsSync(dest)) throw new Error(`Project config collision or missing source: ${pack}/${target}`);
+    copyFileSync(source, dest);
   }
 }
 
-type LockEntry = {
-  version?: string;
-  dependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  [key: string]: unknown;
-};
-
-function lockFor(pkg: ProjectPackage): object {
-  const source = JSON.parse(readFileSync(join(agentRoot, SOURCE_LOCK), "utf8")) as {
-    lockfileVersion: number; packages: Record<string, LockEntry>;
-  };
-  const selected = new Set<string>();
-  const resolveDependency = (from: string, name: string): string | undefined => {
-    let parent = from;
-    for (;;) {
-      const candidate = parent ? `${parent}/node_modules/${name}` : `node_modules/${name}`;
-      if (source.packages[candidate]) return candidate;
-      const at = parent.lastIndexOf("/node_modules/");
-      if (at < 0) {
-        if (parent) { parent = ""; continue; }
-        return undefined;
-      }
-      parent = parent.slice(0, at);
-    }
-  };
-  const add = (path: string, optionalContext = false): void => {
-    if (selected.has(path)) return;
-    const entry = source.packages[path];
-    if (!entry) throw new Error(`Dependency lock is missing '${path}'`);
-    selected.add(path);
-    for (const name of Object.keys(entry.dependencies ?? {})) {
-      const resolved = resolveDependency(path, name);
-      if (!resolved) {
-        if (optionalContext) continue;
-        throw new Error(`Dependency lock cannot resolve '${name}' from '${path}'`);
-      }
-      add(resolved, optionalContext);
-    }
-    for (const name of Object.keys(entry.optionalDependencies ?? {})) {
-      const resolved = resolveDependency(path, name);
-      if (resolved) add(resolved, true);
-    }
-    // Peer dependencies present in the source lock are retained; npm may
-    // auto-install them in a clean project even when not direct dependencies.
-    for (const name of Object.keys(entry.peerDependencies ?? {})) {
-      const resolved = resolveDependency(path, name);
-      if (resolved) add(resolved, optionalContext);
-    }
-  };
-  for (const [name, version] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })) {
-    const path = resolveDependency("", name);
-    if (!path) throw new Error(`Source lock has no pin for '${name}'`);
-    if (source.packages[path].version !== version) throw new Error(`Source lock pins '${name}' to ${source.packages[path].version}, project requires ${version}`);
-    add(path);
-  }
-  const packages: Record<string, LockEntry> = {
-    "": { name: pkg.name, version: pkg.version, dependencies: pkg.dependencies, devDependencies: pkg.devDependencies },
-  };
-  for (const path of [...selected].sort()) packages[path] = source.packages[path];
-  return { name: pkg.name, version: pkg.version, lockfileVersion: source.lockfileVersion, requires: true, packages };
-}
-
-function harnessPackageFor(harnessRoot: string): ProjectPackage {
-  const sourcePkg = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as ProjectPackage;
-  const sourceLock = JSON.parse(readFileSync(join(agentRoot, SOURCE_LOCK), "utf8")) as { packages: Record<string, { version?: string }> };
+function harnessPackageFor(harnessRoot: string): RuntimePackage {
+  const sourcePkg = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as RuntimePackage;
+  const sourceLock = JSON.parse(readFileSync(sourceLockPath(agentRoot), "utf8")) as { packages: Record<string, { version?: string }> };
   const names = new Set<string>();
-  for (const path of walk(harnessRoot).filter((path) => path.endsWith(".ts"))) {
+  // A pack's reference/ files are content copied into projects, never harness
+  // code: their imports are the project's dependencies, not the runtime's.
+  for (const path of walk(harnessRoot).filter((path) => path.endsWith(".ts") && !/^packs\/[^/]+\/reference\//.test(path))) {
     const source = readFileSync(join(harnessRoot, path), "utf8");
     const imports = source.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[^;\n]*?\s+from\s+)?["']([^"']+)["']/gm);
     for (const match of imports) {
@@ -417,17 +289,24 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "reached through this project's local command.",
   ));
   const localCommand = join(harnessRoot, "scripts", "bounded");
+  const coreCommands: readonly (readonly [string, string])[] = [
+    ["gates", 'exec "$DIR/bounded-gates" "$@"'],
+    ["handoff", 'exec "$DIR/bounded-handoff" "$@"'],
+    ["ticket", 'exec "$DIR/bounded-ticket" "$@"'],
+    ["change-run", 'exec "$DIR/bounded-change-run" "$@"'],
+    ["lead", 'exec node "$DIR/../src/lead-cli.ts" "$@"'],
+    ["setup", 'exec node "$DIR/../src/setup-state.ts" "$@"'],
+  ];
+  // The pack commands are whatever the composed packs declare: the core
+  // names none of them, and an uncomposed pack's command is not reachable.
+  const packCommands = projectCommandNames(packs, coreCommands.map(([name]) => name), join(agentRoot, "packs"));
   writeFileSync(localCommand, [
     "#!/usr/bin/env bash", "# Project-local Bounded command. Uses only this repository's harness.",
     "set -euo pipefail", 'DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
     'SUB="${1:-}"', 'case "$SUB" in',
-    '  gates) shift; exec "$DIR/bounded-gates" "$@" ;;',
-    '  handoff) shift; exec "$DIR/bounded-handoff" "$@" ;;',
-    '  ticket) shift; exec "$DIR/bounded-ticket" "$@" ;;',
-    '  change-run) shift; exec "$DIR/bounded-change-run" "$@" ;;',
-    '  lead) shift; exec node "$DIR/../src/lead-cli.ts" "$@" ;;',
-    '  adopt|change-diff|capture-baseline) shift; exec node "$DIR/../packs/command.ts" "$SUB" "$@" ;;',
-    '  *) echo "bounded: supported project commands: gates, handoff, ticket, change-run, lead, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
+    ...coreCommands.map(([name, run]) => `  ${name}) shift; ${run} ;;`),
+    ...(packCommands.length > 0 ? [`  ${packCommands.join("|")}) shift; exec node "$DIR/../packs/command.ts" "$SUB" "$@" ;;`] : []),
+    `  *) echo "bounded: supported project commands: ${[...coreCommands.map(([name]) => name), ...packCommands].join(", ")}" >&2; exit 64 ;;`,
     'esac', '',
   ].join("\n"));
   chmodSync(localCommand, 0o755);
@@ -439,8 +318,11 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   writeSelectedRegistry(harnessRoot, packs);
   const harnessPkg = harnessPackageFor(harnessRoot);
   writeFileSync(join(harnessRoot, "package.json"), JSON.stringify(harnessPkg, null, 2) + "\n");
-  writeFileSync(join(harnessRoot, "package-lock.json"), JSON.stringify(lockFor(harnessPkg), null, 2) + "\n");
+  writeFileSync(join(harnessRoot, "package-lock.json"), JSON.stringify(lockFor(harnessPkg, agentRoot), null, 2) + "\n");
   writeProjectPacks(stage, packs);
+  // Pack reference config lands before any initializer runs, so a generator
+  // that also emits one of these files finds it already byte-identical.
+  copyProjectConfigs(stage, packs);
   for (const { pack, script } of scaffolderFor(packs)) {
     const bundled = join(agentRoot, "dist", "packs", pack, script.slice(0, -3) + ".js");
     const entry = existsSync(bundled) ? bundled : join(harnessRoot, "packs", pack, script);
@@ -463,8 +345,8 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "A superseded TN uses a Markdown link such as `[TN-25](TN-25.md)` to each",
     "successor note; other tickets may have no TN.", "",
     "Example front matter for issue 24:", "",
-    "```yaml", "---", "issue: 24", "status: draft", "contracts:",
-    "  - src/example/example.contract.ts", "---", "```", "",
+    "```yaml", "---", "issue: 24", "status: draft",
+    ...exampleContracts(packs), "---", "```", "",
   ].join("\n"));
   writeFileSync(join(stage, "AGENTS.md"), [
     "# Project agent instructions", "",
@@ -473,9 +355,9 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "The user only needs to describe the product change. Select and prepare the ticket through the local lead workflow; do not ask the user to choose roles or run gate commands.",
     host === "pi" ? "Before commissioning the architect, call `lead_prepare`. Use its `new` option for a new work item after delivery; otherwise it resumes or changes the selected ticket." : "Before commissioning the architect, run `bash .bounded/harness/scripts/bounded lead prepare`, adding `--new` for a new work item after delivery. Then delegate to the generated architect agent as an ordinary foreground subagent without a name; it runs the existing loop through nested subagents.",
     "Run the project's `check`, `test`, `build`, and `lint` commands when present through the role that owns them.",
-    host === "pi" ? "After a fresh clone, the team lead calls `lead_setup` before the first run; the host reloads the full gates when setup completes." : "After a fresh clone, the team lead runs `npm run bounded:setup` before the first run; the next hook call loads the full gates.",
+    host === "pi" ? "After a fresh clone, the team lead calls `lead_setup` before the first run; reload the session afterwards to load the full gates." : `After a fresh clone, the team lead runs \`${SETUP_COMMAND}\` before the first run; the next hook call loads the full gates.`,
     "Use `bash .bounded/harness/scripts/bounded gates --list` to discover the local gates.",
-    "The architect owns `docs/tn/TN-<issue-number>.md` and its contract paths. The lead selects the current issue for this worktree before delegation.",
+    "The architect owns `docs/tn/TN-<ticket-number>.md` and its contract paths. The lead selects the current ticket for this worktree before delegation.",
     `Selected capabilities: ${packs.join(", ")}.`, "",
   ].join("\n"));
   if (host === "pi") {
@@ -487,12 +369,11 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   }
   localizeRoleSources(harnessRoot, host);
   localizeGeneratedRoles(stage, host);
-  const packageFile = join(stage, "package.json");
-  if (existsSync(packageFile)) throw new Error("A project initializer wrote package.json; package ownership belongs to selected capability manifests");
-  const pkg = packageFor(packs);
-  writeFileSync(packageFile, JSON.stringify(pkg, null, 2) + "\n");
-  writeFileSync(join(stage, "package-lock.json"), JSON.stringify(lockFor(pkg), null, 2) + "\n");
-  copyProjectConfigs(stage, packs);
+  // The project's own build manifests (its package file and lockfile, say)
+  // are pack content: the core only runs each pack's contributed writer.
+  for (const { pack, script } of packScripts(packs, "projectManifestScripts")) {
+    execFileSync("node", [packScriptEntry(pack, script), stage, agentRoot], { stdio: "pipe" });
+  }
   writeFileSync(join(stage, "README.md"), [
     "# New Bounded project", "",
     "This repository contains its own Bounded harness under `.bounded/harness/`.",
@@ -500,11 +381,14 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "## After cloning", "",
     "Open this directory in its selected agent host and describe the product change. The team lead handles the ticket and setup. On a fresh clone it installs the project and harness dependencies from their committed lockfiles before starting the gated work.",
     "Run `bash .bounded/harness/scripts/bounded gates --list` to confirm the local gate command is available.",
-    "The product `npm run check` becomes meaningful as the first feature is designed and built.", "",
+    "The product's `check` command becomes meaningful as the first feature is designed and built.", "",
   ].join("\n"));
   const ignoreFile = join(stage, ".gitignore");
   const existingIgnore = existsSync(ignoreFile) ? readFileSync(ignoreFile, "utf8").trimEnd() + "\n" : "";
-  const rules = ["node_modules/", "dist/", ".pi/npm/", ".pi/git/", ".bounded/*", "!.bounded/harness/", "!.bounded/composed-packs.json", "!.bounded/installation.json"];
+  // Selected capabilities name what their setup and builds produce; the core
+  // names only its own state and the harness's own runtime install.
+  const rules = [...projectIgnoreRules(packs, join(agentRoot, "packs")), ".pi/npm/", ".pi/git/",
+    ".bounded/*", "!.bounded/harness/", ".bounded/harness/node_modules/", "!.bounded/composed-packs.json", "!.bounded/installation.json"];
   writeFileSync(ignoreFile, existingIgnore + rules.filter((rule) => !existingIgnore.split("\n").includes(rule)).join("\n") + "\n");
 }
 

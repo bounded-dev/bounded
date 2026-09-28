@@ -12,8 +12,10 @@
 import type { Role } from "../../../src/path-policy.ts";
 import { ROLES_UPSTREAM_FIRST } from "../../../src/path-policy.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
+import { contractGlobs } from "../../../src/pack-contrib.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { typecheck, type TypecheckOptions } from "./typecheck.ts";
+import { configDriftBlock } from "./project-config.ts";
 import { formatScopedTypecheck, scopeGuardDetail, scopeTypecheck } from "./typecheck-scope.ts";
 
 const GUARD = "typecheck";
@@ -34,13 +36,15 @@ export async function typecheckGate(
   role?: Role,
   options: TypecheckOptions = {},
 ): Promise<GateResult> {
+  const configBlock = configDriftBlock(GUARD, cwd);
+  if (configBlock !== undefined) return configBlock;
   const result = await typecheck(cwd, options);
   // Raw tsc output is project-wide, so this tool was a hole in the same wall
   // run_tests and the path gate build (dogfood Run 15): a builder read a test
   // file's diagnostic — file, line, and the symbol name — out of its own
   // typecheck and reshaped the implementation around test source it may
   // never read.
-  const scoped = scopeTypecheck(result, role);
+  const scoped = scopeTypecheck(result, role, contractGlobs(cwd));
   const summary = result.ok
     ? "no type errors"
     : `${result.errorCount} error${result.errorCount === 1 ? "" : "s"}`;

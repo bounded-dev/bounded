@@ -32,19 +32,24 @@ is selected too, the reachable `src/ui/shared/api/client.tsx` must create a
 
 ## Structure comes from the generator, never from you
 
-```
-node packs/ts-web/scripts/new-web-app.ts .
-```
+The pack's layout generator (`packs/ts-web/scripts/new-web-app.ts`) runs once,
+when the project is initialized. It emits `index.html`, `vite.config.ts`,
+`src/ui/app.css`, `src/ui/main.tsx`, the component kit, and the layer
+directories — every file marker-generated and pack-owned. No role runs it:
+no role has a shell.
 
-It emits `index.html`, `vite.config.ts`, `src/ui/app.css`, `src/ui/main.tsx`,
-the component kit, and the layer directories — every file marker-generated and
-pack-owned. Re-run it whenever the tree changes shape; it byte-compares, writes
-only what differs, and **blocks without writing anything** if a pack-owned path
-holds a file it did not write.
+`index.html` and `vite.config.ts` are **project config** (ADR 2026-054): the
+pack ships them as reference files, byte-identical to what the generator
+writes, and every gate refuses to run if either differs. Only the user
+restores them, with `bounded sync-config`. A config diagnostic routes to the
+orchestrator; report it, never work around it.
 
-Do not hand-write any of those files, and do not restyle a component: the kit
-is generated, and a variant the tokens cannot express is a pack change through
-the change cycle, not a local edit.
+Do not hand-write any of the generated files, and do not restyle a component:
+the kit is generated, and a variant the tokens cannot express is a pack change
+through the change cycle, not a local edit. If the layout needs re-emitting
+(the typed client below), escalate to the user: re-running the generator
+byte-compares, writes only what differs, and **blocks without writing
+anything** if a pack-owned path holds a file it did not write.
 
 ## `src/ui/theme.css` is yours — and it is the only style file that is
 
@@ -79,7 +84,9 @@ Two things the generator deliberately does NOT emit:
   builder implements it. `main.tsx` already mounts `<App />`.
 - **`src/ui/shared/api/client.tsx`** — the typed client lands only once a
   contract in the tree re-exports `ServiceRouter`. Build the service first (the
-  `ts-api-service` skill), re-run the generator, and the door appears wired.
+  `ts-api-service` skill), then ask the user to re-run the generator
+  (`node .bounded/harness/packs/ts-web/scripts/new-web-app.ts .` in a
+  project-local installation), and the door appears wired.
 
 ## Composing the kit IS the styled path
 

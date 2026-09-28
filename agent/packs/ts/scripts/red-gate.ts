@@ -75,8 +75,8 @@ import {
   scaffoldContract,
   skeletonPathFor,
   componentTypeNames,
-  serviceRuntimeTargets,
-  shippedServiceRuntimeSource,
+  contractSupportFor,
+  shippedSupportSource,
 } from "./scaffold-contract.ts";
 import { computeManifest } from "./checksum-gate.ts";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
@@ -84,6 +84,10 @@ import { lintTests } from "./lint-src.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
+import { containedSupportTargets } from "./support-targets.ts";
+import { contractGlobs, fileNameGlobs, fileNameMatcher } from "../../../src/pack-contrib.ts";
+import { readProjectPacks } from "../../../src/project-composition.ts";
+import { configDriftBlock } from "./project-config.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 
 const GUARD = "red-gate";
@@ -235,9 +239,13 @@ function classifySuite(run: RunTestsResult): GateResult {
  * project (#7). Every red-phase failure is the test-writer's to fix unless a
  * type error points further upstream (a broken contract is the architect's).
  */
-export function classifyRed(run: RunTestsResult, tsc: TypecheckResult): GateResult {
+export function classifyRed(
+  run: RunTestsResult,
+  tsc: TypecheckResult,
+  contracts: readonly string[] = [],
+): GateResult {
   const suite = classifySuite(run);
-  const types = routeTypecheck(tsc.diagnostics);
+  const types = routeTypecheck(tsc.diagnostics, contracts);
 
   if (!tsc.ok && types.errorCount === 0) {
     return {
@@ -356,13 +364,18 @@ export function redGateProjectPlan(sources: RedGateSources): RedGateProjectPlan 
 
 // --- Building the shadow project ------------------------------------------------
 
-const CONFIG_CANDIDATES = [
-  "package.json",
-  "tsconfig.json",
-  "vitest.config.ts",
-  "vitest.config.js",
-  "vitest.config.mts",
-] as const;
+/** The root config files the shadow copies: every root file the composed
+ *  packs' `projectConfigNames` name (ADR 2026-054), so the shadow runs with
+ *  the same test-runner, compiler and bundler config as the live tree (a
+ *  web composition's Vite plugins included). The pack data is the one list;
+ *  an unreadable composition throws, and the gate reports it as an error. */
+function rootConfigFiles(cwd: string): string[] {
+  const isConfig = fileNameMatcher(fileNameGlobs("projectConfigNames", readProjectPacks(cwd)));
+  return readdirSync(cwd, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && isConfig(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+}
 
 /** Project-relative paths, POSIX separators, of every *.ts / *.tsx under `dir`.
  *
@@ -435,7 +448,7 @@ export function collectRedGateSources(cwd: string): RedGateSources {
   return {
     contracts: src.filter((f) => f.endsWith(".contract.ts")),
     testFiles: walkTs(cwd, join(cwd, "tests")),
-    configFiles: CONFIG_CANDIDATES.filter((f) => existsSync(join(cwd, f))),
+    configFiles: rootConfigFiles(cwd),
     implementationFiles: src.filter((f) => !f.endsWith(".contract.ts")),
   };
 }
@@ -480,6 +493,7 @@ export function shadowProjectDir(cwd: string): string {
  */
 export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan): string {
   const names = componentTypeNames(cwd);
+  const supportFiles = contractSupportFor(cwd);
   const dir = shadowProjectDir(cwd);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -516,16 +530,18 @@ export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan):
       writeFileSync(errors, ERRORS_MODULE_SOURCE, "utf8");
     }
 
-    // Recreate shipped, contract-triggered support code from the pack. It is
-    // neither a business implementation nor a live-tree copy: the same frozen
-    // contract and canonical source produce the same file in both projects.
-    for (const target of serviceRuntimeTargets(source, join(dir, rel))) {
-      const within = relative(dir, target);
-      if (within === ".." || within.startsWith(`..${sep}`) || resolve(target) === resolve(dir)) {
-        throw new Error(`red-gate: generated support path escapes the shadow project: ${rel}`);
+    // Recreate shipped, contract-triggered support code from the composed
+    // packs (ADR 2026-046). It is neither a business implementation nor a
+    // live-tree copy: the same frozen contract and canonical source produce the
+    // same file in both projects. A pack the project did not compose ships
+    // nothing here, exactly as it ships nothing to the live tree.
+    for (const support of supportFiles) {
+      const asked = containedSupportTargets(support, source, rel, dir);
+      if (!asked.ok) throw new Error(`red-gate: ${asked.reason}`);
+      for (const target of asked.targets) {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, shippedSupportSource(support), "utf8");
       }
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, shippedServiceRuntimeSource(), "utf8");
     }
   }
 
@@ -675,6 +691,10 @@ function redInputs(cwd: string): Record<string, unknown> {
  *  Blindness is untouched: regenerating a skeleton needs the contracts, never
  *  the tests. */
 export async function runRedGate(cwd: string): Promise<GateResult> {
+  // The shadow copies and runs the project's config: it must be what the
+  // composed packs generate (ADR 2026-054).
+  const configBlock = configDriftBlock(GUARD, cwd);
+  if (configBlock !== undefined) return configBlock;
   let dir: string;
   let plan: RedGateProjectPlan;
   try {
@@ -693,6 +713,11 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
     return result;
   }
 
+  // Again, now that the shadow holds its copy: the suite runs in the shadow,
+  // where runTests' own drift check cannot see the live tree, so a config
+  // change between the first check and the copy would otherwise run.
+  const copiedBlock = configDriftBlock(GUARD, cwd);
+  if (copiedBlock !== undefined) return copiedBlock;
   const [run, tsc, testLint] = await Promise.all([
     runTests(dir, gateOptionsFromEnv()),
     typecheckShadowWithForwardImports(cwd, dir),
@@ -702,7 +727,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
     // is the last gate where the fix is cheap and the test-writer is live.
     lintTests(cwd),
   ]);
-  let base = classifyRed(run, tsc);
+  let base = classifyRed(run, tsc, contractGlobs(cwd));
   if (base.code === 0 && testLint.code === 1) {
     base = {
       code: 1,

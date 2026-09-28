@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import {
   resetPathGateRegistry,
   sessionRole,
 } from "./path-gate.ts";
+import { writeProjectPacks } from "./project-composition.ts";
 
 // THE BUG THIS EXISTS FOR (dogfood Run 6, 2026-09-02)
 //
@@ -39,7 +40,12 @@ import {
 // parent at spawn, from a file outside the project; that binding wins, and the
 // ambient guess stands down in any process where a bound role was installed.
 
-const CTX = { cwd: "/repo" } as const;
+// A real directory: the gate resolves links against the project root, and a
+// root that does not exist fails closed.
+const CTX = { cwd: mkdtempSync(join(tmpdir(), "gate-suppression-")) } as const;
+// A ts-composed project: its contract suffix is what the builder may not write.
+writeProjectPacks(CTX.cwd, ["ts"]);
+afterAll(() => rmSync(CTX.cwd, { recursive: true, force: true }));
 
 const write = (path: string) => ({ toolName: "write", input: { path }, cwd: CTX.cwd });
 

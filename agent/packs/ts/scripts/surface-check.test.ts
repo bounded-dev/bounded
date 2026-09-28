@@ -457,3 +457,28 @@ export function Badge(props: BadgeProps): ReactElement {
     expect(run.lines).toEqual(["surface-check: OK (1 contract pair)"]);
   });
 });
+
+describe("a typeof alias declares an inferred implementation value", () => {
+  const IMPL_ROUTER = `export type * from "./api.contract.js";\nexport const router = { ping: () => "pong" };\n`;
+  const undeclared = (contract: string) =>
+    compareSurfaces(contract, "src/api.contract.ts", IMPL_ROUTER, "src/api.ts")
+      .filter((v) => v.kind === "undeclared-export").map((v) => v.exportName);
+
+  test("an exported alias over a type-only import from the sibling declares the const", () => {
+    expect(undeclared(`import type { router } from "./api.js";\nexport type Router = typeof router;\n`)).toEqual([]);
+    expect(undeclared(`import { type router as r } from "./api.js";\nexport type Router = typeof r;\n`)).toEqual([]);
+  });
+
+  test("a value import does not declare it", () => {
+    expect(undeclared(`import { router } from "./api.js";\nexport type Router = typeof router;\n`)).toEqual(["router"]);
+  });
+
+  test("an unexported alias does not declare it", () => {
+    expect(undeclared(`import type { router } from "./api.js";\ntype Router = typeof router;\nexport interface Api { r: Router }\n`))
+      .toEqual(["router"]);
+  });
+
+  test("a type-only import from another module does not declare it", () => {
+    expect(undeclared(`import type { router } from "./other.js";\nexport type Router = typeof router;\n`)).toEqual(["router"]);
+  });
+});

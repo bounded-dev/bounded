@@ -32,6 +32,10 @@
 //                     pin ts-morph (the pack's own version) AND install it.
 //                     A pin nobody installed is a repo whose check dies with
 //                     ERR_MODULE_NOT_FOUND, so a failed install is a BLOCK.
+//                     In a project whose config the packs generate
+//                     (ADR 2026-054), steps 5, 5b and 5c change nothing: the
+//                     manifest must already carry it all, and anything
+//                     missing is a BLOCK. The drift check runs again last.
 //   6. gitignore      ensure `.bounded/` is ignored.
 //   7. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
@@ -86,8 +90,9 @@ import {
   type PhaseDurations,
 } from "../../../src/phase-durations.ts";
 import { composedPacks } from "../../installed.ts";
-import { deliverChecks, type DeliverCheckResult } from "../pack.ts";
+import { contractSupportFiles, deliverChecks, type DeliverCheckResult } from "../pack.ts";
 import { findContractFiles } from "./checksum-gate.ts";
+import { configDriftBlock, configIsGenerated, SYNC_COMMAND } from "./project-config.ts";
 import { SHADOW_RELATIVE } from "./red-gate.ts";
 import { skeletonSiblingPaths } from "./scaffold-contract.ts";
 import {
@@ -98,7 +103,7 @@ import {
 } from "./skeleton-imports.ts";
 
 const GUARD = "deliver";
-const SURFACE_SCRIPT = "node --experimental-strip-types scripts/surface-check.ts";
+export const SURFACE_SCRIPT = "node --experimental-strip-types scripts/surface-check.ts";
 /** No shell is used anywhere in this file, so name the Windows shim explicitly. */
 const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
 /** Generous: `npm run check` is a full typecheck plus the project's own suite. */
@@ -286,6 +291,30 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     return misuse(`surface checker source not found at '${checkerSource}'`);
   }
 
+  // Delivery runs the project's own check over its config and must hand over
+  // the config the composed packs generate (ADR 2026-054). Checked before
+  // anything mutates; in a generated project the manifest steps below then
+  // find everything already wired.
+  const configBlock = configDriftBlock(GUARD, cwd);
+  if (configBlock !== undefined) return { code: 1, lines: [...lines, ...configBlock.lines] };
+  // In a generated project the manifest, lockfile and installed tree are the
+  // packs' and the user's (ADR 2026-054): deliver changes none of them. A
+  // step that would is refused instead — an unpinned dependency or unfolded
+  // script is a pack defect, a missing install is the user's setup to run —
+  // so delivery can never leave drift behind it.
+  const configGenerated = configIsGenerated(cwd);
+  const refuseConfigChange = (step: string, what: string, detail: Record<string, unknown> = {}): DeliverResult => {
+    const result = block(
+      step,
+      `${what} — this project's config is generated from its composed packs, so deliver may not change ` +
+        "the package manifest, the lockfile or the installed dependencies (ADR 2026-054)",
+      { ...detail, route: "orchestrator" },
+    );
+    lines.push(`  a missing pin or script is a defect in the pack; missing installed dependencies are restored by the user with \`${SYNC_COMMAND}\``);
+    lines.push("deliver: route → orchestrator");
+    return { ...result, lines };
+  };
+
   let registry;
   try {
     registry = composedPacks(cwd);
@@ -410,11 +439,8 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     const checker = readFileSync(checkerSource, "utf8");
     const shippedAbs = join(cwd, "scripts", "surface-check.ts");
     const did: string[] = [];
-    if (!existsSync(shippedAbs) || readFileSync(shippedAbs, "utf8") !== checker) {
-      mkdirSync(dirname(shippedAbs), { recursive: true });
-      writeFileSync(shippedAbs, checker);
-      did.push("shipped scripts/surface-check.ts");
-    }
+    const ship = !existsSync(shippedAbs) || readFileSync(shippedAbs, "utf8") !== checker;
+    if (ship) did.push("shipped scripts/surface-check.ts");
     const pkgAbs = join(cwd, "package.json");
     const pkg = JSON.parse(readFileSync(pkgAbs, "utf8")) as {
       scripts?: Record<string, string>;
@@ -438,7 +464,14 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       pkg.devDependencies = Object.fromEntries(Object.keys(deps).sort().map((k) => [k, deps[k]!]));
       did.push(`pinned ts-morph@${pin}`);
     }
-    if (did.length > 0) writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
+    if (configGenerated && did.length > 0) {
+      return refuseConfigChange("surface-check", `the generated project lacks what the surface check needs (${did.join(", ")})`, { did });
+    }
+    if (ship) {
+      mkdirSync(dirname(shippedAbs), { recursive: true });
+      writeFileSync(shippedAbs, checker);
+    }
+    if (did.some((what) => what !== "shipped scripts/surface-check.ts")) writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
 
     // The pin must be MATERIALIZED, not merely written. r15 shipped two repos
     // whose `npm run check` died on ERR_MODULE_NOT_FOUND: deliver added the
@@ -456,6 +489,9 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     // DUAL-USE header), is the property worth paying an install for.
     // CHOSEN: install the pinned version, then verify it resolves.
     const tsMorphAbs = join(cwd, "node_modules", "ts-morph", "package.json");
+    if (!existsSync(tsMorphAbs) && configGenerated) {
+      return refuseConfigChange("surface-check", `ts-morph@${pin} is pinned but not installed`, { pin });
+    }
     if (!existsSync(tsMorphAbs)) {
       const args = ["install", "--save-dev", "--save-exact", "--no-audit", "--no-fund", `ts-morph@${pin}`];
       const out = run(NPM, args, cwd);
@@ -484,19 +520,22 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   // whose check dies with ERR_MODULE_NOT_FOUND — the ts-morph lesson (r15),
   // applied to the blessed stacks. What the tree USES decides what is
   // pinned: zod when any src module imports it (every zod-backed value
-  // object does), @trpc/server when a shipped service-runtime is present.
-  // Regular dependencies, not dev — both are imported by shipped src/**.
+  // object does), and whatever a composed pack's shipped support file imports
+  // when the tree carries that file (ADR 2026-046) — the pack names its own
+  // packages; this step names none. Regular dependencies, not dev — all are
+  // imported by shipped src/**.
   // The pin is the pack's own version, and a failed install is a BLOCK.
   {
     const srcFiles = tsFilesUnder(cwd, srcAbs);
     const importsZod = srcFiles.some((rel) =>
       /from\s+["']zod(\/[^"']*)?["']/.test(readFileSync(join(cwd, rel), "utf8")),
     );
-    const hasServiceRuntime = srcFiles.some((rel) => basename(rel) === "service-runtime.ts");
-    const wanted: readonly string[] = [
-      ...(importsZod ? ["zod"] : []),
-      ...(hasServiceRuntime ? ["@trpc/server"] : []),
-    ];
+    const firstLines = srcFiles.map((rel) => readFileSync(join(cwd, rel), "utf8").split("\n", 1)[0] ?? "");
+    const supportDeps = registry
+      .read(contractSupportFiles)
+      .filter((file) => firstLines.some((line) => line.startsWith(`// GENERATED from ${file.canonical} `)))
+      .flatMap((file) => file.dependencies ?? []);
+    const wanted: readonly string[] = [...new Set([...(importsZod ? ["zod"] : []), ...supportDeps])];
     const did: string[] = [];
     for (const name of wanted) {
       const pkgAbs = join(cwd, "package.json");
@@ -504,6 +543,9 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
         dependencies?: Record<string, string>;
       };
       const pin = pkg.dependencies?.[name] ?? packPin(name);
+      if (pkg.dependencies?.[name] === undefined && configGenerated) {
+        return refuseConfigChange("stack-pins", `the tree imports ${name}, which no composed pack pins`, { name });
+      }
       if (pkg.dependencies?.[name] === undefined) {
         const deps: Record<string, string> = { ...pkg.dependencies, [name]: pin };
         pkg.dependencies = Object.fromEntries(Object.keys(deps).sort().map((k) => [k, deps[k]!]));
@@ -511,6 +553,9 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
         did.push(`pinned ${name}@${pin}`);
       }
       const installedAbs = join(cwd, "node_modules", ...name.split("/"), "package.json");
+      if (!existsSync(installedAbs) && configGenerated) {
+        return refuseConfigChange("stack-pins", `${name}@${pin} is pinned but not installed`, { name, pin });
+      }
       if (!existsSync(installedAbs)) {
         const out = run(
           NPM,
@@ -576,6 +621,9 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
           pkg.scripts["check"] += ` && npm run ${name}`;
           did.push(`folded ${name} into check`);
         }
+      }
+      if (configGenerated && did.length > 0) {
+        return refuseConfigChange("check-scripts", `the generated manifest does not fold every pack check script (${did.join(", ")})`, { did });
       }
       if (did.length > 0) writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
     }
@@ -736,6 +784,11 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
     if (checks.length === 0) pass("pack-checks", false, "no composed pack contributes one");
   }
+
+  // Nothing above may have changed project config, and the project's own
+  // check may have written something: prove it before calling this delivered.
+  const finalBlock = configDriftBlock(GUARD, cwd);
+  if (finalBlock !== undefined) return { code: 1, lines: [...lines, ...finalBlock.lines] };
 
   const summary = `deliver: OK — ${applied} steps applied`;
   lines.push(summary);

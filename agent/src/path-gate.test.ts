@@ -1,5 +1,5 @@
 import { writeProjectPacks } from "./project-composition.ts";
-import { mkdirSync, mkdtempSync as createTempDir, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync as createTempDir, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -439,3 +439,37 @@ function mkdtempSync(prefix: string): string {
   writeProjectPacks(dir, ["ts", "ts-web"]);
   return dir;
 }
+
+// decide() judges the path as written; a link inside the project can point
+// anywhere. The gate judges an allowed path again on what it resolves to.
+describe("links inside the project", () => {
+  function linked(): string {
+    const cwd = tmp();
+    const outside = tmp();
+    writeFileSync(join(outside, "passwd"), "secret\n");
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    mkdirSync(join(cwd, "tests"), { recursive: true });
+    mkdirSync(join(cwd, ".git"), { recursive: true });
+    writeFileSync(join(cwd, "src", "a.ts"), "export {};\n");
+    writeFileSync(join(cwd, ".git", "config"), "[core]\n");
+    symlinkSync(outside, join(cwd, "src", "out"));
+    symlinkSync(join(cwd, ".git"), join(cwd, "src", "g"));
+    symlinkSync(join(cwd, "tests"), join(cwd, "src", "t"));
+    return cwd;
+  }
+
+  test.each(["architect", "reviewer", "builder", "test-writer"])("%s cannot read out of the project or into .git through a link", (role) => {
+    const cwd = linked();
+    for (const path of ["src/out/passwd", "src/g/config"]) {
+      expect(evaluatePathGate({ role, toolName: "read", input: { path }, cwd })?.block, path).toBe(true);
+    }
+    if (role !== "test-writer") expect(evaluatePathGate({ role, toolName: "read", input: { path: "src/a.ts" }, cwd })).toBeUndefined();
+  });
+
+  test("a write through a link is held to the zone it lands in", () => {
+    const cwd = linked();
+    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: "src/b.ts" }, cwd })).toBeUndefined();
+    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: "src/t/x.test.ts" }, cwd })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: "src/out/x.ts" }, cwd })?.block).toBe(true);
+  });
+});

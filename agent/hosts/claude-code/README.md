@@ -111,15 +111,14 @@ capabilities and still needs a live run before its behavior can be claimed.
   call, once — the log is the latch, since each hook run is a fresh process),
   and every hook error land in `<project>/.bounded/guard-log.jsonl`, the same file
   and the same event shapes pi writes.
-- **Fails open for reads, closed for writes — loudly either way.** Malformed
+- **Fails open only for local reads — loudly either way.** Malformed
   stdin, an unreadable project, a bug: one line goes to stderr and an `error`
-  event goes to the guard log. Then, if the payload named a tool that
-  mutates (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Agent`,
-  `Task`), the call is denied with a reason that says the hook errored; a
-  read, or a payload too broken to name a tool, is allowed. A hook that
-  could brick a session would be disabled, and a disabled gate is worse
-  than a visible gap — but a gate that waves a write through on its own
-  error is not a gate.
+  event goes to the guard log. Then only `Read`, `Grep`, `Glob` and `LS` are
+  allowed; every other call — writes, Bash, agents, MCP tools, skills, an
+  unknown tool, or a payload too broken to name one — is denied with a
+  reason that says the hook errored. A hook that could brick a session would
+  be disabled, and a disabled gate is worse than a visible gap — but a gate
+  that waves an unjudged call through on its own error is not a gate.
 
 ## What it does not enforce (honest limits)
 
@@ -215,8 +214,9 @@ Initialized projects open the main Claude Code session as a read-only team
 lead. The installer gives it the team-lead skill and a read-only scout
 definition. The user states the outcome or ticket without naming roles. The
 lead inspects the project, runs exact dependency setup before the first run,
-prepares the work item with `bounded lead prepare [ticket]`, and commissions an
-ordinary unnamed architect subagent. It does not edit product files.
+prepares the work item with `bounded lead prepare [--new] [ticket-number]`, and
+commissions an ordinary unnamed architect subagent. It does not edit product
+files.
 
 Current Claude Code supports nested ordinary subagents: the architect's
 generated definition gives it `Agent`, and it can commission reviewer,
@@ -229,11 +229,20 @@ and definition hook behavior.
 
 The lead hook admits the project-local command
 `bash .bounded/harness/scripts/bounded gates --list` for discovery,
-`npm run bounded:setup` before a prepared run, and
-`bash .bounded/harness/scripts/bounded lead prepare [ticket|--new [ticket]]`
+`bash .bounded/harness/scripts/bounded setup` to install the project's pinned
+dependencies (before the first run, or to repair a completed setup whose
+dependencies are missing), and
+`bash .bounded/harness/scripts/bounded lead prepare [--new] [ticket-number]`
 for run preparation. The lead uses `--new` for a fresh work item after
 delivery, adding the number when the issue is already tracked, and omits it
-for a follow-up to the current item.
+for a follow-up to the current item. Without a number, the command allocates
+the next local ticket number.
 It refuses arbitrary Bash and file edits even when an old
 `.bounded/dev-stage-role` names an architect. The shared lead policy requires
 a prepared ticket before an architect commission.
+
+The generated scout definition binds its own hook with `--role scout`, which
+holds it to project reads (Read, Grep, Glob) and nothing else. Any other
+subagent the project hook cannot prove is bound by its own generated
+definition — a built-in agent, a forked skill, a user's own definition — is
+held to that same read-only scout policy.

@@ -12,5 +12,5 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["extensions/**/*.ts", "hosts/**/*.ts", "packs/**/*.ts", "src/**/*.ts", "test/**/*.ts"],
-  "exclude": ["extensions/orca-*.ts", "packs/ts/scripts/testdata", "packs/ts/reference"]
+  "exclude": ["extensions/orca-*.ts", "packs/ts/scripts/testdata", "packs/*/reference"]
 }

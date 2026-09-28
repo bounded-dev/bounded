@@ -146,7 +146,7 @@ const patternsOf = (args: GateArgs): readonly string[] | undefined => {
 export const gates: readonly GateCommand[] = [
   {
     name: "handoff-publish",
-    description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. In a ticket-numbered TN project, BOUNDED_TICKET must match --producer; the receipt includes that TN and its owned contracts.",
+    description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. In a ticket-numbered TN project, the active ticket (recorded by lead prepare; BOUNDED_TICKET overrides) must match --producer; the receipt includes that TN and its owned contracts.",
     flags: [{ name: "producer", kind: "string", required: true, description: "The producing ticket's identity." }],
     async run(cwd, args) {
       const { runHandoffPublish } = await import("./scripts/handoff-publish.ts");
@@ -170,7 +170,7 @@ export const gates: readonly GateCommand[] = [
     tool: "design_gate",
     promptSnippet: "Run the design phase: purity, scaffold, typecheck, design-review, freeze.",
     description:
-      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze. In a ticket-numbered TN project, set BOUNDED_TICKET; review and freeze cover that TN and its listed contracts. Project typecheck remains project-wide. On a RE-freeze the review is checked first and worker-owned type drift may proceed; design-owned diagnostics still block.",
+      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze. In a ticket-numbered TN project, the active ticket recorded by lead prepare selects the TN (BOUNDED_TICKET overrides); review and freeze cover that TN and its listed contracts. Project typecheck remains project-wide. On a RE-freeze the review is checked first and worker-owned type drift may proceed; design-owned diagnostics still block.",
     flags: [PATTERN_FLAG],
     promptGuidelines: [
       "It will not freeze a design nobody has challenged: commission the `reviewer` subagent once first. A review covers the SET of contract files it saw, so editing one you revised in answer to it does not un-review the design — only adding or removing a contract file does, and then the step names the file.",

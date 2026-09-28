@@ -7,12 +7,15 @@
 // today) fill them. The core learns that a pack declared a socket and another
 // pack filled it, and nothing more.
 //
-// THREE SOCKETS — two for the gates that lint, one for the delivery pass:
+// FOUR SOCKETS — two for the gates that lint, one for the delivery pass, one
+// for the scaffolder and red gate:
 //
 //   lintSrcRules             extra rules for the src gate (implementation code)
 //   contractPurityOverrides  extra flat-config blocks for the contract gate
 //   deliverChecks            read-only checks run at the end of delivery
 //                            (ADR 2026-033)
+//   contractSupportFiles     canonical files a contract import asks for
+//                            (ADR 2026-046)
 //
 // The ts pack's OWN rules are not contributions. `SRC_RULE_IDS` and
 // `CONTRACT_RULE_IDS` stay hard-wired in their gates: the gate and the plugin
@@ -116,8 +119,18 @@ export const lintSrcRules = tsSockets.define<LintSrcRuleContribution>({
  * one socket whose contributions can make a gate weaker.
  */
 export interface ContractPurityOverride {
-  /** Globs the block applies to — always narrower than `**\/*.contract.ts`. */
+  /** Globs the block applies to. A relaxation is always narrower than
+   *  `**\/*.contract.ts`; an addition a pack owns may cover every contract. */
   readonly files: readonly string[];
+  /**
+   * OPTIONAL: the contributing pack's own rules, registered under its own
+   * flat-config namespace (never `bounded-ts`) so `rules` can name them. This is
+   * how a pack adds a contract rule the ts pack does not ship (ADR 2026-046).
+   */
+  readonly plugin?: {
+    readonly namespace: string;
+    readonly rules: Readonly<Record<string, TSESLint.AnyRuleModule>>;
+  };
   /** Rule id → severity. `"off"` is a relaxation; `"error"` an addition. */
   readonly rules: Readonly<Record<string, "error" | "off">>;
   /** Why this block exists, in one sentence, with the note that ratified it. */
@@ -135,6 +148,9 @@ export const contractPurityOverrides = tsSockets.define<ContractPurityOverride>(
     }
     if (Object.keys(override.rules).length === 0) {
       return `${contributor} contributed a purity override for ${override.files.join(", ")} with no rules`;
+    }
+    if (override.plugin !== undefined && (override.plugin.namespace === "bounded-ts" || override.plugin.namespace.trim() === "")) {
+      return `${contributor} contributed a purity plugin namespace '${override.plugin.namespace}' — use the pack's own namespace`;
     }
     if (override.why.trim() === "") {
       return `${contributor} contributed a purity override for ${override.files.join(", ")} with no reason — a relaxation without a recorded reason is a rule someone found inconvenient`;
@@ -264,6 +280,49 @@ export const artifactGenerators = tsSockets.define<ArtifactGenerator>({
       ? undefined : `${contributor} supplied an invalid artifact generator`,
 });
 
+// --- contractSupportFiles (ADR 2026-046) -------------------------------------
+//
+// A contract can name a support module that is machinery, not business code:
+// a service contract imports "./service-runtime.js", and the answer is one
+// canonical file copied verbatim to that path. The ts scaffolder (live tree)
+// and the red gate (shadow project) are the consumers; the pack that owns the
+// capability owns the file and the rule for where it lands. A project that has
+// not composed that pack gets no support file at all — the contract's import
+// then fails to resolve, which is the honest outcome.
+
+/** One contract-triggered support file a pack ships through the scaffolder. */
+export interface ContractSupportFile {
+  /** What the file is, printed in the scaffold line, e.g. `API-service runtime`. */
+  readonly label: string;
+  /** Harness-relative path of the canonical copy, written into the generated
+   *  marker, e.g. `packs/ts-service/api/service-runtime.ts`. */
+  readonly canonical: string;
+  /** Absolute paths this contract asks for; empty when it asks for none. */
+  readonly targets: (contractSource: string, contractPath: string) => readonly string[];
+  /** The canonical file's text, without any marker. */
+  readonly source: () => string;
+  /** Packages the shipped file imports. Delivery pins and installs them as
+   *  regular dependencies when the tree carries this file. */
+  readonly dependencies?: readonly string[];
+}
+
+export const contractSupportFiles = tsSockets.define<ContractSupportFile>({
+  id: "contractSupportFiles",
+  description:
+    "Canonical support files a pack that depends on ts ships verbatim when a contract imports " +
+    "them. The scaffolder writes them into the live tree and the red gate into its shadow project.",
+  validate: (file, contributor) => {
+    if (file.label.trim() === "") return `${contributor} contributed a contract support file with no label`;
+    if (!file.canonical.startsWith(`packs/${contributor}/`)) {
+      return `${contributor}'s '${file.label}' names canonical '${file.canonical}' — a pack ships only its own files`;
+    }
+    if (typeof file.targets !== "function" || typeof file.source !== "function") {
+      return `${contributor}'s '${file.label}' needs targets() and source() functions`;
+    }
+    return undefined;
+  },
+});
+
 /**
  * The ts pack. Depends on nothing — it is the root of the TypeScript family —
  * and contributes nothing: its own rules are its gates' base config.
@@ -271,5 +330,5 @@ export const artifactGenerators = tsSockets.define<ArtifactGenerator>({
 export const tsPack = definePack({
   name: TS_PACK,
   dependsOnPacks: [],
-  defines: [lintSrcRules, contractPurityOverrides, deliverChecks, artifactGenerators],
+  defines: [lintSrcRules, contractPurityOverrides, deliverChecks, contractSupportFiles, artifactGenerators],
 });

@@ -161,3 +161,57 @@ export function claudeTaskModel(pattern: string): string | undefined {
   if (id.includes("mythos")) return "fable";
   return CLAUDE_MODEL_FAMILIES.find((family) => id.includes(family));
 }
+
+// ── Read-only seats (ADR 2026-048) ──────────────────────────────────────────
+// The team lead and the scout are judged by the host-neutral policy in
+// src/lead-policy.ts, which speaks actions rather than tools. This is the
+// Claude Code side of that translation. Bash is not translated here: the lead
+// hook parses its command into the few run-control actions it may carry.
+
+import type { SeatAction } from "../../src/lead-policy.ts";
+import { searchPatternContained } from "../../src/setup-state.ts";
+
+/** Tools that look something up without reading or changing the project. */
+export const CLAUDE_LOOKUP_TOOLS: ReadonlySet<string> = new Set(["WebSearch", "WebFetch", "Skill"]);
+
+/**
+ * The only fields a commission may carry. Any other Agent-call field (name,
+ * resume, isolation, run_in_background, cwd, team_name, mode, ...) could
+ * hide, detach, move or rename the seat, so an allowlist refuses it by default.
+ */
+const PLAIN_AGENT_FIELDS: ReadonlySet<string> = new Set(["subagent_type", "prompt", "description", "model"]);
+
+
+/** One Claude Code call as the actions a read-only seat is judged on. */
+export function claudeSeatActions(call: ClaudeToolCall, cwd: string): readonly SeatAction[] {
+  const input = asRecord(call.tool_input);
+  switch (call.tool_name) {
+    case "Read":
+    case "LS":
+    case "Glob":
+    case "Grep": {
+      const pattern = call.tool_name === "Glob" ? input["pattern"] : call.tool_name === "Grep" ? input["glob"] : undefined;
+      if (!searchPatternContained(pattern)) {
+        return [{ kind: "refused", reason: `${call.tool_name} patterns must stay inside the searched directory and away from .git` }];
+      }
+      return mapToolCall(call, cwd).map((read) => ({
+        kind: "read" as const,
+        tool: read.toolName as "read" | "grep" | "find" | "ls",
+        input: read.input,
+      }));
+    }
+    case "Agent":
+    case "Task": {
+      const role = input["subagent_type"];
+      const field = Object.keys(input).find((key) => input[key] !== undefined && !PLAIN_AGENT_FIELDS.has(key));
+      if (field !== undefined) {
+        return [{ kind: "refused", reason: `a commission must start a fresh, unnamed foreground subagent ('${field}' is not allowed)` }];
+      }
+      return [{ kind: "commission", role, task: input["prompt"] }];
+    }
+    default:
+      return [CLAUDE_LOOKUP_TOOLS.has(call.tool_name)
+        ? { kind: "lookup", tool: call.tool_name }
+        : { kind: "other", tool: call.tool_name }];
+  }
+}

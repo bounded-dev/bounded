@@ -101,7 +101,7 @@ Issue #24 tracks that next step.
 
 ### Later decision for target projects
 
-ADR 2026-045 replaces the proposed separate artifact-set layout for new target
+ADR 2026-050 replaces the proposed separate artifact-set layout for new target
 projects. Each ticket may have one Technical Note named for its issue number;
 the note's front matter lists the contracts it owns. The ticket's reviewed
 freeze selects that note and those contracts. A ticket that publishes a

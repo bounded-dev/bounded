@@ -93,8 +93,11 @@ export interface PhaseEvidence {
   readonly ticket?: string;
   /** Current hashes of this ticket's TN and owned contracts. */
   readonly designHashes?: Readonly<Record<string, string>>;
-  /** Project-relative paths of the *.contract.ts files that exist. */
+  /** Project-relative paths of the contract files that exist — recognised by
+   *  the filename suffixes the composed packs contribute (ADR 2026-052). */
   readonly contracts: readonly string[];
+  /** The composed packs' contract filename suffixes, for refusal wording. */
+  readonly contractSuffixes?: readonly string[];
   /** Full text of spec.md; "" when absent or unreadable. */
   readonly specText: string;
   /** The project's guard log, oldest first. */
@@ -220,6 +223,11 @@ function passed(events: readonly LoggedGuardEvent[], guard: string): boolean {
  * on the message rather than guess — and says WHY, because a rule whose purpose
  * is invisible reads as bureaucracy and gets worked around.
  */
+/** How a refusal names a contract file: by the composed suffixes when known. */
+function contractKind(suffixes: readonly string[] | undefined): string {
+  return suffixes?.length ? suffixes.map((suffix) => `*${suffix}`).join(" or ") : "contract file";
+}
+
 export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence): Decision {
   if (!GATED_TARGETS.has(target)) return ALLOW; // scout, product-expert, …
 
@@ -229,7 +237,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
 
   if (contracts.length === 0) {
     return deny(
-      `phase-gate: cannot commission the ${target} — no *.contract.ts exists yet. ` +
+      `phase-gate: cannot commission the ${target} — no ${contractKind(evidence.contractSuffixes)} exists yet. ` +
         "The contract is the shared interface both blind roles build against; without it they have nothing to agree on.",
     );
   }
@@ -237,7 +245,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
   if (specBytes === 0) {
     return deny(
       `phase-gate: cannot commission the ${target} — ${note} is missing. ` +
-        "The contract carries the half TypeScript can hold; the spec carries the rest — execution " +
+        "The contract carries the half its type declarations can hold; the spec carries the rest — execution " +
         "order, the exact arithmetic and its tie-break, identity guarantees. Two blind agents cannot " +
         'agree on "round to the nearest cent"; they can agree on floor((2n + d) / 2d). Write it, then commission.',
     );

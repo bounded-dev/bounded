@@ -17,13 +17,14 @@
 # Without a launcher nobody would type the full invocation, the ungated path
 # would win by being easier, and the enforcement would quietly become optional.
 #
-#   bounded ticket --ticket 24     # ticket-numbered TN project
-#   bounded ticket                 # interactive, in a legacy project
+#   bounded ticket                 # the ticket the team lead selected
+#                                  # (.bounded/active-ticket), or a legacy project
+#   bounded ticket --ticket 24     # explicit override (sets BOUNDED_TICKET)
 #   bounded ticket "build X"       # with an opening prompt
 #   bounded ticket --model …       # any further pi flags pass straight through
 #
-# Being gated means: read anything in the project, write only spec.md and
-# *.contract.ts, no bash, and the gates + git as named tools. The forbidden
+# Being gated means: read anything in the project, write only the ticket's
+# design note and the contracts it owns, no bash, and the gates + git as named tools. The forbidden
 # tools are not merely refused — they are absent from the toolset.
 
 set -euo pipefail
@@ -36,9 +37,19 @@ if [ "${1:-}" = "--ticket" ]; then
   export BOUNDED_TICKET="$2"
   shift 2
 fi
-if [ -f "docs/tn/README.md" ] && [[ ! "${BOUNDED_TICKET:-}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "bounded ticket: this project uses ticket TNs; launch with --ticket <issue-number>" >&2
-  exit 2
+# Same selection as src/ticket-design.ts: a nonempty BOUNDED_TICKET wins; else
+# the team lead's .bounded/active-ticket, in a project-local installation only.
+if [ -f "docs/tn/README.md" ]; then
+  TICKET="${BOUNDED_TICKET:-}"
+  if [ -z "$TICKET" ] && [ -f ".bounded/installation.json" ] &&
+     [ -f ".bounded/active-ticket" ] && [ ! -L ".bounded/active-ticket" ]; then
+    TICKET="$(tr -d '[:space:]' < ".bounded/active-ticket")"
+  fi
+  if [[ ! "$TICKET" =~ ^[1-9][0-9]*$ ]]; then
+    echo "bounded ticket: no active ticket — select the current issue with the team lead (it records" >&2
+    echo "  .bounded/active-ticket) or launch with --ticket <issue-number>" >&2
+    exit 2
+  fi
 fi
 
 # Lives in agent/scripts/, not agent/bin/ — `bin/` is gitignored as pi's own

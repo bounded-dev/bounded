@@ -1,7 +1,7 @@
 // Claude Code PreToolUse hook: the path gate and the phase gate for one role
 // (ADR 2026-034, Tier B on the second host).
 //
-//   node path-gate-hook.ts [--role <role>] [--harness-root <dir>]  < payload.json
+//   node path-gate-hook.ts [--project-local] [--role <seat>] [--harness-root <dir>]  < payload.json
 //
 // Claude Code runs this once per tool call, feeding the call as JSON on stdin,
 // and reads a decision back: nothing on stdout means "allow", a JSON object
@@ -23,26 +23,31 @@
 // `subagentOnlyExtensions`). The role is decided by WHICH definition loaded,
 // from outside the project, and nothing the model does can change it.
 //
-// Project-local, with no --role, is the read-only team lead. The role file
-// cannot silently promote that main session. Outside an initialized project,
+// `--role scout` binds the read-only scout (lead-hook.ts). Project-local, with
+// no --role, the main session is the read-only team lead; the role file
+// cannot silently promote it. Outside an initialized project,
 // `.bounded/dev-stage-role` remains the legacy ambient fallback; no role
-// there means the gate is inactive.
+// there means the gate is inactive. The seat itself is decided by the shared
+// resolveSessionRole (src/session-role.ts), which pi uses too.
 //
 // Frontmatter and settings hooks both fire in an ordinary subagent. A
-// project-local settings hook stands down only when the payload has
-// `agent_id`, the documented child identifier. The definition's bound hook
-// then judges the call. Without `agent_id`, the lead policy applies too and
-// blocks child writes, a safe failure. `agent_type` alone is not enough: a
-// directly launched top-level `--agent` session may carry it.
+// project-local settings hook stands down only for a child (`agent_id`, the
+// documented child identifier) whose `agent_type` names a generated
+// definition that carries its own hook bound to that seat. Every other child
+// — a forked skill, a built-in agent — is held to the scout's read-only
+// policy: project-local hooks fail closed for unbound work (ADR 2026-048).
+// `agent_type` alone is not enough: a directly launched top-level `--agent`
+// session may carry it.
 //
-// ── Failure mode: OPEN for reads, CLOSED for writes ─────────────────────────
+// ── Failure mode: OPEN only for local reads, CLOSED for everything else ─────
 // A hook that crashes must not brick the session, but a gate that fails open
-// on a write is no gate. Any error — malformed stdin, an unreadable project,
-// a bug here — writes one line to stderr and records an `error` event in the
-// guard log, so a run that went ungated is at least visibly so. Then: if the
-// tool is known to mutate (Bash, Write, Edit, MultiEdit, NotebookEdit,
-// Agent, Task) the call is DENIED with a reason that says the hook errored;
-// a read, or a tool the payload never named, is allowed. Logging itself
+// on anything it never judged is no gate. Any error — malformed stdin, an
+// unreadable project, a bug here — writes one line to stderr and records an
+// `error` event in the guard log, so a run that went ungated is at least
+// visibly so. Then only the local read tools (Read, Grep, Glob, LS) are
+// allowed; every other call, including MCP tools, skills, an unknown tool,
+// or a payload too broken to name one, is DENIED with a reason that says the
+// hook errored. (pi's hook refuses every call on error.) Logging itself
 // never throws.
 //
 // ── Run start ───────────────────────────────────────────────────────────────
@@ -71,7 +76,12 @@ import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
 import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
 import { ticketWriteScope } from "../../src/ticket-design.ts";
-import { decideLeadTool } from "../../src/lead-policy.ts";
+import { resolveSessionRole } from "../../src/session-role.ts";
+import { contractGlobsOrUnreadable, writeProtectionOrUnreadable } from "../../src/pack-contrib.ts";
+import { projectReadAllowed } from "../../src/setup-state.ts";
+import { claudeProjectRead } from "./project-read.ts";
+import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
+import { boundDefinitionInForce, evaluateLead, evaluateScout } from "./lead-hook.ts";
 
 /** What one hook run says back to Claude Code. Exit is always 0. */
 export interface HookOutcome {
@@ -111,16 +121,7 @@ function parseFlags(argv: readonly string[]): Flags {
   };
 }
 
-/** The payload fields this hook reads, narrowed from untrusted JSON. */
-interface Payload {
-  readonly event?: string;
-  readonly toolName: string;
-  readonly toolInput: Readonly<Record<string, unknown>>;
-  readonly cwd?: string;
-  /** The calling subagent's identity, when the payload carries one. */
-  readonly agentType?: string;
-  readonly agentId?: string;
-}
+type Payload = HookPayload;
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -161,34 +162,29 @@ function narrowPayload(rec: Readonly<Record<string, unknown>>, toolName: string)
   };
 }
 
-/** The Claude Code tools that change the tree or start an agent: the ones an
- *  errored hook must refuse rather than wave through. */
-const MUTATING_TOOLS: ReadonlySet<string> = new Set(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent", "Task"]);
-
-function deny(reason: string): string {
-  return (
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: reason,
-      },
-    }) + "\n"
-  );
-}
-
-/** Allow, with the tool input rewritten. Other fields of the original input
- *  (`description`, `timeout`) are kept: `updatedInput` REPLACES the input. */
-function allowWith(updatedInput: Readonly<Record<string, unknown>>): string {
-  return (
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "allow",
-        updatedInput,
-      },
-    }) + "\n"
-  );
+/**
+ * The only calls an errored hook lets through: a local read (Read, Grep, Glob,
+ * LS) whose every path passes the dependency-free pre-setup check — inside the
+ * project once links are resolved, outside .git, no search of the project
+ * root. That check knows no role, so an errored hook may still let a blind
+ * role read the other side; it never lets anyone read outside the project or
+ * into .git. Every other call, including an unknown tool, MCP tools, skills,
+ * a read that fails the check, or a payload whose tool or input cannot be
+ * read, is refused rather than waved through ungated.
+ */
+export function errorOpenRead(
+  toolName: string | undefined,
+  rec: Readonly<Record<string, unknown>> | undefined,
+  fallbackCwd: string,
+): boolean {
+  if (rec === undefined) return false;
+  const input = rec["tool_input"];
+  if (!isRecord(input)) return false;
+  const read = claudeProjectRead(toolName, input);
+  if (read === undefined) return false;
+  const base = nonEmpty(rec["cwd"]) ?? fallbackCwd;
+  const project = nonEmpty(process.env["CLAUDE_PROJECT_DIR"]) ?? base;
+  return projectReadAllowed(project, base, read);
 }
 
 /** The env var `sessionRole()` reads first (src/path-gate.ts), which is how
@@ -219,38 +215,50 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
   const flags = parseFlags(argv);
   let cwd = fallbackCwd;
   let toolName: string | undefined;
+  let rec: Readonly<Record<string, unknown>> | undefined;
   try {
-    const rec = parseRecord(rawStdin);
+    rec = parseRecord(rawStdin);
     toolName = toolNameOf(rec);
     const payload = narrowPayload(rec, toolName);
     if (payload.event !== undefined && payload.event !== "PreToolUse") return { stdout: "", stderr: "" };
     cwd = payload.cwd ?? fallbackCwd;
     const harnessRoot = flags.harnessRoot ?? defaultHarnessRoot();
 
-    // A project-local main session enters as the read-only team lead. A role
-    // file left by an older run cannot silently turn the user's next session
-    // into an architect. Explicitly bound subagent hooks still use --role.
-    if (flags.projectLocal && flags.role === undefined && payload.agentId === undefined) {
-      return { stdout: evaluateLead(payload, cwd, harnessRoot), stderr: "" };
+    // One shared resolution decides the seat (src/session-role.ts). In a
+    // project installation a role file left by an older run cannot turn the
+    // user's next session into an architect: the main session is the lead.
+    // A bound subagent's call seen by the project-wide or ambient hook is
+    // judged by its own definition's hook; judging it again here would confine
+    // it to the intersection of two seats, so this hook stands down.
+    const seat = resolveSessionRole({
+      ...(flags.role !== undefined ? { boundSeat: flags.role } : {}),
+      projectLocal: flags.projectLocal,
+      child: payload.agentId !== undefined,
+      judgedElsewhere: flags.projectLocal
+        ? payload.agentId !== undefined && boundDefinitionInForce(process.env["CLAUDE_PROJECT_DIR"] ?? cwd, payload.agentType)
+        : payload.agentType !== undefined || payload.agentId !== undefined,
+      ambientRole: () => sessionRole(cwd),
+    });
+    switch (seat.kind) {
+      case "lead":
+        return { stdout: evaluateLead(payload, cwd, harnessRoot), stderr: "" };
+      case "scout":
+        return { stdout: evaluateScout(payload, cwd), stderr: "" };
+      case "none":
+        if (seat.note === undefined) return { stdout: "", stderr: "" };
+        logGuardEvent(cwd, {
+          guard: "path-gate",
+          verdict: "error",
+          summary: `${DENY_PREFIX}: --role ${seat.note}`,
+          detail: { host: "claude-code", kind: "hook-error", role: flags.role },
+        });
+        return { stdout: "", stderr: `${DENY_PREFIX}: --role ${seat.note}\n` };
+      case "role":
+        return { stdout: evaluate(seat.role, seat.bound, payload, cwd, harnessRoot, flags.projectLocal), stderr: "" };
     }
-    if (flags.projectLocal && flags.role === undefined && payload.agentId !== undefined) {
-      // Generated child definitions carry their own tool strip and bound hook.
-      // The project hook cannot infer a teammate's role from team membership.
-      return { stdout: "", stderr: "" };
-    }
-    const role = resolveRole(flags, cwd);
-    if (role.kind === "none") return { stdout: "", stderr: role.note ?? "" };
-    // A bound subagent's call, seen by the ambient hook: its own definition's
-    // hook judges it, and judging it again here would confine it to the
-    // intersection of two roles. Stand down, silently.
-    if (role.kind === "ambient" && (payload.agentType !== undefined || payload.agentId !== undefined)) {
-      return { stdout: "", stderr: "" };
-    }
-
-    return { stdout: evaluate(role.role, role.kind === "bound", payload, cwd, harnessRoot, flags.projectLocal), stderr: "" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const closed = toolName !== undefined && MUTATING_TOOLS.has(toolName);
+    const closed = !errorOpenRead(toolName, rec, fallbackCwd);
     const outcome = closed ? "call refused" : "call allowed";
     logGuardEvent(cwd, {
       guard: "path-gate",
@@ -259,124 +267,12 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
       detail: { host: "claude-code", kind: "hook-error", ...(toolName !== undefined ? { tool: toolName } : {}) },
     });
     if (closed) {
-      const reason = `${DENY_PREFIX}: the hook errored (${message}), so this ${toolName} call is refused rather than let through ungated`;
-      return { stdout: deny(reason), stderr: `${DENY_PREFIX}: error, refusing the ${toolName} call: ${message}\n` };
+      const what = toolName ?? "unreadable";
+      const reason = `${DENY_PREFIX}: the hook errored (${message}), so this ${what} call is refused rather than let through ungated`;
+      return { stdout: deny(reason), stderr: `${DENY_PREFIX}: error, refusing the ${what} call: ${message}\n` };
     }
     return { stdout: "", stderr: `${DENY_PREFIX}: error, allowing the call: ${message}\n` };
   }
-}
-
-/** Project-local main-session policy. The architect is an ordinary bound
- * subagent; current Claude Code supports its nested worker commissions. */
-function evaluateLead(payload: Payload, cwd: string, harnessRoot: string): string {
-  const refuse = (reason: string): string => {
-    logGuardEvent(cwd, {
-      guard: "team-lead", verdict: "block", summary: reason,
-      detail: { host: "claude-code", tool: payload.toolName },
-    });
-    return deny(reason);
-  };
-  if (payload.toolName === "Bash") {
-    const command = payload.toolInput["command"];
-    const words = typeof command === "string" ? shellWords(command) : { ok: false as const };
-    const list = words.ok && (
-      (words.argv.length === 3 && words.argv[0] === "bounded" && words.argv[1] === "gates" && words.argv[2] === "--list") ||
-      (words.argv.length === 4 && words.argv[0] === "bash" && words.argv[1] === ".bounded/harness/scripts/bounded" && words.argv[2] === "gates" && words.argv[3] === "--list")
-    );
-    if (list) {
-      return allowWith({ ...payload.toolInput,
-        command: [join(harnessRoot, "scripts", "bounded"), "gates", "--list"].map(shellQuote).join(" ") });
-    }
-    const prepare = words.ok && (
-      ((words.argv.length >= 3 && words.argv.length <= 5) && words.argv[0] === "bounded" && words.argv[1] === "lead" && words.argv[2] === "prepare") ||
-      ((words.argv.length >= 4 && words.argv.length <= 6) && words.argv[0] === "bash" && words.argv[1] === ".bounded/harness/scripts/bounded" && words.argv[2] === "lead" && words.argv[3] === "prepare")
-    );
-    if (prepare) {
-      const args = words.argv.slice(words.argv[0] === "bounded" ? 3 : 4);
-      const fresh = args[0] === "--new";
-      const ticket = fresh ? args[1] : args[0];
-      if ((!fresh && args.length > 1) || (fresh && args.length > 2) ||
-          (ticket !== undefined && !/^[1-9][0-9]*$/.test(ticket))) {
-        return refuse("team-lead: prepare accepts an optional positive ticket number or --new followed by an optional positive ticket number");
-      }
-      const decision = decideLeadTool("lead_prepare", {
-        ...(fresh ? { new: true } : {}),
-        ...(ticket === undefined ? {} : { ticket }),
-      }, cwd);
-      if (!decision.allow) return refuse(decision.reason);
-      return allowWith({ ...payload.toolInput,
-        command: [join(harnessRoot, "scripts", "bounded"), "lead", "prepare", ...args].map(shellQuote).join(" ") });
-    }
-    if (words.ok && words.argv.length === 3 && words.argv[0] === "npm" && words.argv[1] === "run" && words.argv[2] === "bounded:setup") {
-      const setup = decideLeadTool("lead_setup", {}, cwd);
-      return setup.allow ? "" : refuse(setup.reason);
-    }
-    return refuse("team-lead: Bash is limited to gate discovery in this session");
-  }
-  if (payload.toolName === "Agent" || payload.toolName === "Task") {
-    const target = payload.toolInput["subagent_type"];
-    if ((target === "scout" || target === "architect") && payload.toolInput["name"] !== undefined) {
-      return refuse(`team-lead: ${target} must run as an ordinary unnamed subagent`);
-    }
-    if ((target === "scout" || target === "architect") && (payload.toolInput["resume"] !== undefined || payload.toolInput["isolation"] !== undefined || payload.toolInput["run_in_background"] !== undefined)) {
-      return refuse(`team-lead: ${target} must start as a fresh foreground subagent`);
-    }
-  }
-  const calls = mapToolCall({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd);
-  const names = calls.length > 0 ? calls : [{ toolName: ({ WebSearch: "web_search", WebFetch: "web_fetch", Skill: "skill" } as Record<string, string>)[payload.toolName] ?? payload.toolName, input: payload.toolInput }];
-  for (const call of names) {
-    const decision = decideLeadTool(call.toolName, call.input, cwd);
-    if (!decision.allow) return refuse(decision.reason);
-  }
-  if ((payload.toolName === "Agent" || payload.toolName === "Task") && payload.toolInput["subagent_type"] === "architect") {
-    const spawn = calls.find((call) => call.toolName === "subagent");
-    if (spawn !== undefined) {
-      const plan = planModelTier(spawn.input, readDevStageModels(cwd));
-      if (plan.kind === "inject") {
-        const hostModel = claudeTaskModel(plan.model);
-        if (hostModel === undefined) {
-          const reason = `model-tier: ${plan.key} '${plan.model}' names no model this host can run — change .bounded/dev-stage-models.json or drive this ticket under pi`;
-          logGuardEvent(cwd, {
-            guard: MODEL_TIER_GUARD, verdict: "block", summary: reason,
-            detail: { role: "team-lead", kind: "unresolvable-tier", key: plan.key, model: plan.model },
-          });
-          return deny(reason);
-        }
-        logGuardEvent(cwd, {
-          guard: MODEL_TIER_GUARD, verdict: "pass",
-          summary: `${tierSummary(plan)} — as '${hostModel}' on this host`,
-          detail: { role: "team-lead", kind: "tier-injected", key: plan.key, model: plan.model, hostModel },
-        });
-        return allowWith({ ...payload.toolInput, model: hostModel });
-      }
-    }
-  }
-  return "";
-}
-
-type RoleSource = { readonly kind: "bound" | "ambient"; readonly role: Role } | { readonly kind: "none"; readonly note?: string };
-
-/** `--role` beats the file; a `--role` that names no pipeline role is a
- *  configuration error and is said out loud, but still fails open. */
-function resolveRole(flags: Flags, cwd: string): RoleSource {
-  if (flags.role !== undefined) {
-    const bound = asRole(flags.role);
-    if (bound !== undefined) return { kind: "bound", role: bound };
-    logGuardEvent(cwd, {
-      guard: "path-gate",
-      verdict: "error",
-      summary: `${DENY_PREFIX}: --role '${flags.role}' is not a pipeline role; gate inactive`,
-      detail: { host: "claude-code", kind: "hook-error", role: flags.role },
-    });
-    return { kind: "none", note: `${DENY_PREFIX}: --role '${flags.role}' is not a pipeline role; gate inactive\n` };
-  }
-  const ambient = sessionRole(cwd);
-  return ambient === undefined ? { kind: "none" } : { kind: "ambient", role: ambient };
-}
-
-/** The decision proper: stdout to print ("" ⇒ allow). */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /** Rebuild the already-validated gate argv with the copied project's CLI.
@@ -410,7 +306,9 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
       const raw = call.input["command"];
       const command = typeof raw === "string" ? raw : "";
       const decision = decideBash(role, command, { cwd, harnessRoot,
-        ...(role === "architect" ? { ticketScope: ticketWriteScope(cwd) } : {}) });
+        ...(role === "architect" ? { ticketScope: ticketWriteScope(cwd) } : {}),
+        ...(role === "architect" || role === "test-writer" || role === "builder"
+          ? { contractGlobs: contractGlobsOrUnreadable(cwd), writeProtection: writeProtectionOrUnreadable(cwd) } : {}) });
       if (!decision.allow) {
         // decide() logs its own blocks through evaluatePathGate; the bash
         // policy is pure, so its refusal is recorded here.
@@ -510,7 +408,7 @@ function readStdin(): string {
   try {
     return readFileSync(0, "utf8");
   } catch {
-    return ""; // no stdin ⇒ malformed payload ⇒ fail open, loudly
+    return ""; // no stdin ⇒ malformed payload ⇒ refused, loudly
   }
 }
 

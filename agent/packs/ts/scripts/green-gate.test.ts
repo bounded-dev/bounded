@@ -9,6 +9,19 @@ import { testsTreeHash } from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
+import { contractGlobs } from "../../../src/pack-contrib.ts";
+import { mkdtempSync as createZoneDir } from "node:fs";
+
+// The architect's zone as a ts-composed project declares it (pack contrib data).
+const TS_ZONE = (() => {
+  const dir = createZoneDir(join(tmpdir(), "zone-"));
+  try {
+    writeProjectPacks(dir, ["ts"]);
+    return contractGlobs(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 /** The gate's own entry. The green gate also runs the src escape-hatch lint,
  *  which logs its own line, so "the last entry" is no longer the gate's. */
@@ -160,6 +173,10 @@ describe("classifyGreen + typecheck (#7)", () => {
         ],
       }),
       tsc(CONTRACT_TYPE_ERR),
+      [],
+      [],
+      [],
+      TS_ZONE,
     );
     expect(r.code).toBe(1);
     expect(r.lines[0]).toMatch(/1 failing test of 2/);

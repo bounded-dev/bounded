@@ -2,11 +2,8 @@ import { blessedStacksOnly } from "./rules/blessed-stacks-only.ts";
 import { declarationOnly } from "./rules/declaration-only.ts";
 import { noBrandedAliases } from "./rules/no-branded-aliases.ts";
 import { noCrossContractTypeImport } from "./rules/no-cross-contract-type-import.ts";
-import { noErasedRouter } from "./rules/no-erased-router.ts";
 import { noNakedPrimitives } from "./rules/no-naked-primitives.ts";
 import { noSchemaOnSurface } from "./rules/no-schema-on-surface.ts";
-import { rawFrameworkEntry } from "./rules/raw-framework-entry.ts";
-import { routerTypeReexported } from "./rules/router-type-reexported.ts";
 import { valueObjectDocumented } from "./rules/value-object-documented.ts";
 import { zodBackedParse } from "./rules/zod-backed-parse.ts";
 import { valueObjectShape } from "./rules/value-object-shape.ts";
@@ -27,11 +24,8 @@ export const plugin = {
     "value-object-documented": valueObjectDocumented,
     "value-objects-own-contract": valueObjectsOwnContract,
     "no-cross-contract-type-import": noCrossContractTypeImport,
-    "no-erased-router": noErasedRouter,
-    "router-type-reexported": routerTypeReexported,
     "no-schema-on-surface": noSchemaOnSurface,
     "blessed-stacks-only": blessedStacksOnly,
-    "raw-framework-entry": rawFrameworkEntry,
     "zod-backed-parse": zodBackedParse,
   },
 } as const;

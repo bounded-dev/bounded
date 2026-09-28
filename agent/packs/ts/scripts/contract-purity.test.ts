@@ -98,13 +98,17 @@ describe("lintContractSource", () => {
 describe("contributed purity overrides", () => {
   const overrides = contributedPurityOverrides();
 
-  test("every override names a narrower file set than the gate's own", () => {
+  test("every override names a narrower file set, or only adds its own pack's rules", () => {
     for (const override of overrides) {
       expect(override.files.length, JSON.stringify(override)).toBeGreaterThan(0);
-      for (const glob of override.files) {
-        expect(glob, "an override matching every contract is a rewrite of the gate").not.toBe(
-          "**/*.contract.ts",
-        );
+      if (!override.files.includes("**/*.contract.ts")) continue;
+      // A block over every contract may not touch the gate's own rules: it can
+      // only switch ON rules from the contributing pack's own plugin.
+      const namespace = override.plugin?.namespace;
+      expect(namespace, "an override matching every contract is a rewrite of the gate").toBeDefined();
+      for (const [rule, severity] of Object.entries(override.rules)) {
+        expect(rule.startsWith(`${namespace}/`), rule).toBe(true);
+        expect(severity, rule).toBe("error");
       }
     }
   });

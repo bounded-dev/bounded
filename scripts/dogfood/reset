@@ -29,8 +29,8 @@
 #
 # Afterwards there is nothing to configure and no command to remember:
 #
-#   cd ~/dev/bounded-harness-dogfood-2   → arm 2
-#   cd ~/dev/bounded-harness-dogfood-1   → arm 1
+#   cd ~/dev/bounded-harness-dogfood-2   → arm 2 (default path; DOGFOOD_2 overrides)
+#   cd ~/dev/bounded-harness-dogfood-1   → arm 1 (default path; DOGFOOD_1 overrides)
 #   …and paste the canonical prompt from docs/dogfood/ into either.
 #
 # The harnessed arm binds the architect role itself through

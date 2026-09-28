@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
 import { HOST_ENV } from "../../src/host.ts";
+import { errorOpenRead } from "./path-gate-hook.ts";
 import { makeTempProject as makeProject, type TempProject } from "../../test/support/temp-project.ts";
 
 // ADR 2026-034: the adapter is verified by fixture until the first live run.
@@ -217,6 +218,17 @@ describe("path-gate-hook — the phase gate on Agent", () => {
     expect(block).toMatchObject({ verdict: "block", detail: { kind: "spawn-refused", role: "architect", target: "builder" } });
   });
 
+  test("contract evidence is searched under src/ only: a contract-named file elsewhere is not a contract", () => {
+    const dir = makeTempProject({
+      "node_modules/pkg/x.contract.ts": "export {};\n",
+      "lib/y.contract.ts": "export {};\n",
+      "src/.hidden/z.contract.ts": "export {};\n",
+    });
+    const r = run(dir, payload(dir, "Agent", { subagent_type: "builder", prompt: "implement it" }), ["--role", "architect"]);
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("no *.contract.ts exists yet");
+  });
+
   test("a worker holding no `subagent` is refused by the tool policy, not the phase", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "look" }));
@@ -331,14 +343,14 @@ describe("path-gate-hook — the ambient hook stands down for a bound subagent's
   });
 });
 
-describe("path-gate-hook — failure mode: open for reads and unknown tools, closed for writes", () => {
-  test("malformed stdin → allow, exit 0, one stderr line, an error event in the cwd's log", () => {
+describe("path-gate-hook — failure mode: open only for local reads, closed for everything else", () => {
+  test("malformed stdin → deny, exit 0, one stderr line, an error event in the cwd's log", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, "this is not json");
     expect(r.status).toBe(0);
-    expect(r.stdout).toBe("");
+    expect(r.decision).toBe("deny");
     expect(r.stderr.split("\n").filter((l) => l !== "")).toHaveLength(1);
-    expect(r.stderr).toContain("path-gate-hook: error, allowing the call");
+    expect(r.stderr).toContain("path-gate-hook: error, refusing the unreadable call");
     const log = gateEvents(dir);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ guard: "path-gate", verdict: "error", detail: { host: "claude-code", kind: "hook-error" } });
@@ -346,9 +358,21 @@ describe("path-gate-hook — failure mode: open for reads and unknown tools, clo
 
   test("empty stdin and a payload without tool_name are the same failure", () => {
     const dir = makeTempProject({});
-    expect(run(dir, "").stderr).toContain("allowing the call");
-    expect(run(dir, JSON.stringify({ cwd: dir })).stderr).toContain("no tool_name");
+    expect(run(dir, "").decision).toBe("deny");
+    const r = run(dir, JSON.stringify({ cwd: dir }));
+    expect(r.decision).toBe("deny");
+    expect(r.stderr).toContain("no tool_name");
   });
+
+  // An errored hook must not wave through tools it never judged: MCP tools,
+  // skills and web tools reach outside the project as surely as a write does.
+  test.each(["mcp__server__tool", "Skill", "WebFetch", "WebSearch", "TodoWrite", "SomeFutureTool"])(
+    "%s with an input the hook cannot narrow → DENY", (tool) => {
+      const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+      const r = run(dir, payload(dir, tool, "not an object"));
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain(`${tool} call is refused`);
+    });
 
   // F5: a present, non-object tool_input is malformed — narrowing throws
   // after the tool name is known, so the failure mode is chosen by tool.
@@ -369,13 +393,51 @@ describe("path-gate-hook — failure mode: open for reads and unknown tools, clo
     },
   );
 
-  test("Read with the same bad input fails open: allow, with the error event", () => {
+  // A read whose target cannot be checked is refused like any other call.
+  test.each(["Read", "Grep", "Glob", "LS"])("%s with the same bad input is refused: its target cannot be checked", (tool) => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
-    const r = run(dir, payload(dir, "Read", "not an object"));
-    expect(r.decision).toBe("allow");
-    expect(r.stdout).toBe("");
-    expect(r.stderr).toContain("allowing the call");
-    expect(gateEvents(dir)[0]).toMatchObject({ verdict: "error", detail: { kind: "hook-error", tool: "Read" } });
+    const r = run(dir, payload(dir, tool, "not an object"));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain(`${tool} call is refused`);
+    expect(gateEvents(dir)[0]).toMatchObject({ verdict: "error", detail: { kind: "hook-error", tool } });
+  });
+});
+
+describe("path-gate-hook — what an errored hook still lets through", () => {
+  const saved = process.env["CLAUDE_PROJECT_DIR"];
+  afterEach(() => {
+    if (saved === undefined) delete process.env["CLAUDE_PROJECT_DIR"];
+    else process.env["CLAUDE_PROJECT_DIR"] = saved;
+  });
+  const call = (dir: string, tool: string, input: object) => ({ tool_name: tool, cwd: dir, tool_input: input });
+
+  test.each([
+    ["Read", { file_path: "src/a.ts" }],
+    ["Grep", { pattern: "x", path: "src" }],
+    ["Glob", { pattern: "**/*.ts", path: "src" }],
+    ["LS", { path: "src" }],
+  ])("a contained %s %j is allowed", (tool, input) => {
+    const dir = makeTempProject({ "src/a.ts": "", ".git/config": "" });
+    process.env["CLAUDE_PROJECT_DIR"] = dir;
+    expect(errorOpenRead(tool, call(dir, tool, input), dir)).toBe(true);
+  });
+
+  test.each([
+    ["Read", { file_path: "/etc/hosts" }],
+    ["Read", { file_path: ".git/config" }],
+    ["Read", { file_path: ".GIT/config" }],
+    ["Read", { file_path: ".Git/HEAD" }],
+    ["Grep", { pattern: "url" }],
+    ["Grep", { pattern: "url", path: "." }],
+    ["Glob", { pattern: ".GIT/**", path: "src" }],
+    ["Glob", { pattern: "[.]git/*", path: "src" }],
+    ["LS", { path: "." }],
+    ["Write", { file_path: "src/a.ts", content: "x" }],
+    ["Read", "not an object"],
+  ])("%s %j outside the project, into .git, or unreadable is refused", (tool, input) => {
+    const dir = makeTempProject({ "src/a.ts": "", ".git/config": "", ".git/HEAD": "" });
+    process.env["CLAUDE_PROJECT_DIR"] = dir;
+    expect(errorOpenRead(tool, call(dir, tool, input as object), dir)).toBe(false);
   });
 });
 

@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import type { CommandOutput, CommandRunner } from "./run-tests.ts";
+import { configDriftReason } from "./project-config.ts";
 
 export type { CommandOutput, CommandRunner };
 
@@ -89,6 +90,10 @@ export function parseTscOutput(
 
 /** Run `tsc --noEmit` in `cwd` and return the redacted diagnostics view. */
 export async function typecheck(cwd: string, options: TypecheckOptions = {}): Promise<TypecheckResult> {
+  // The type-checker reads the project's config: refuse to spawn it over
+  // config the composed packs did not generate (ADR 2026-054).
+  const drift = configDriftReason(cwd);
+  if (drift !== undefined) return { ok: false, errorCount: 0, diagnostics: [drift] };
   const run = options.run ?? spawnRunner;
   const command = options.command ?? DEFAULT_COMMAND;
   const args = options.args ?? DEFAULT_ARGS;

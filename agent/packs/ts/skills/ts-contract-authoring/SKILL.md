@@ -20,8 +20,9 @@ domain.
 
 ## Layout and naming (fixed rules)
 
-The ticket's design note is `docs/tn/TN-<issue-number>.md` in a project using
-ticket-numbered TNs, selected with `BOUNDED_TICKET`. Legacy projects use
+The ticket's design note is `docs/tn/TN-<ticket-number>.md` in a project using
+ticket-numbered TNs, for the ticket the team lead selected in
+`.bounded/active-ticket` (`BOUNDED_TICKET` is only an explicit override). Legacy projects use
 `spec.md`. The note's front matter lists the contracts this ticket owns.
 
 - Contract: `src/<component>/<component>.contract.ts` — colocated with the component.
@@ -515,7 +516,7 @@ the `__conformance` blob and leaves that re-export exactly where it is.
 Three more purity rules apply the moment a contract describes a service
 surface:
 
-- **`no-erased-router`** — never declare the surface with a type-erased
+- **`no-erased-router`** (ts-service, when composed) — never declare the surface with a type-erased
   framework type (`AnyRouter`, `AnyProcedure`, …). A client typed against
   `AnyRouter` gets `unknown` inputs (dogfood r22 shipped exactly this). The
   router's type is *inferred* from the implementation, so re-export it — the
@@ -527,7 +528,8 @@ surface:
   export type ServiceRouter = typeof serviceRouter;
   ```
 
-- **`router-type-reexported`** — and those two lines are *required*, not
+- **`router-type-reexported`** (contributed by the ts-service pack, so it
+  applies when that pack is composed) — and those two lines are *required*, not
   optional. The moment a contract imports from `./service-runtime.js` it has
   declared itself a service, and a service with no re-exported router type
   gives the frontend nothing to type its client against. Omitting it is

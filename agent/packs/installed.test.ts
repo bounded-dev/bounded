@@ -33,6 +33,8 @@ describe("the harness's own composition", () => {
     const sockets = installedPacks().sockets;
     expect(sockets.map((s) => s.id)).toEqual([
       "contractPurityOverrides",
+      // ADR 2026-046: born with its consumers, the scaffolder and red gate.
+      "contractSupportFiles",
       // ADR 2026-033: born with its consumer, deliver's last step.
       "deliverChecks",
       "lintSrcRules",

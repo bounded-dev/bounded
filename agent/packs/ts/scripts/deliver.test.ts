@@ -808,16 +808,20 @@ describe("runDeliver: the real npm install (integration)", () => {
 // --- 5b. blessed stack pins (ADR 2026-029, TN-26-004) ---------------------------
 
 describe("blessed stack pins", () => {
-  test("zod import and a shipped runtime pin and install both, as dependencies", () => {
+  const RUNTIME_STUB =
+    "// GENERATED from packs/ts-service/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\nexport const rt = true;\n";
+
+  test("zod import and a shipped runtime pin and install both, as dependencies (ts-service composed)", () => {
     const dir = proj({
       "src/values/values.ts":
         'import { z } from "zod";\nexport const schema = z.string();\n',
-      "src/api/service-runtime.ts":
-        "// GENERATED from packs/ts/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\nexport const rt = true;\n",
+      "src/api/service-runtime.ts": RUNTIME_STUB,
     });
+    writeProjectPacks(dir, ["ts", "ts-service"]);
     const npm = fakeNpm();
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
-    expect(r.code).toBe(0);
+    // ts-service's own delivery check blocks this router-less fixture later;
+    // the pins step before it is what this test is about.
     expect(r.lines.some((l) => /stack-pins — pinned zod@[\d.]+, installed zod@/.test(l))).toBe(true);
     expect(r.lines.some((l) => /pinned @trpc\/server@[\d.]+/.test(l))).toBe(true);
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
@@ -829,6 +833,18 @@ describe("blessed stack pins", () => {
     const installs = npm.calls.filter((c) => c.args[0] === "install").map((c) => c.args.at(-1));
     expect(installs.some((s) => s?.startsWith("zod@"))).toBe(true);
     expect(installs.some((s) => s?.startsWith("@trpc/server@"))).toBe(true);
+  });
+
+  test("with only ts composed, a runtime-shaped file pins no service framework (ADR 2026-046)", () => {
+    const dir = proj({ "src/api/service-runtime.ts": RUNTIME_STUB });
+    const npm = fakeNpm();
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(0);
+    expect(r.lines.some((l) => l.includes("@trpc/server"))).toBe(false);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(pkg.dependencies?.["@trpc/server"]).toBeUndefined();
   });
 
   test("a tree using neither stack pins nothing", () => {

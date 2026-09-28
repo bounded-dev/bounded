@@ -18,9 +18,9 @@ import {
   skeletonExtensionFor as extensionFor,
   skeletonPathFor as pathFor,
   skeletonSiblingPaths,
-  serviceRuntimeTargets,
-  shippedServiceRuntimeSource,
+  shippedSupportSource,
 } from "./scaffold-contract.ts";
+import { serviceRuntimeSupport } from "../../ts-service/service-runtime-support.ts";
 import { lawsPathFor, valueObjectLawsSource } from "./value-object-laws.ts";
 import { stripConformance } from "./deliver.ts";
 
@@ -1273,8 +1273,9 @@ export declare function StatusCard(props: { readonly label: string }): ReactElem
 
 describe("runScaffold: the service runtime is shipped where a contract points", () => {
   const dirs: string[] = [];
-  const project = (files: Record<string, string>): string => {
-    const dir = mkdtempSync(join(tmpdir(), "scaffold-rt-"));
+  const project = (files: Record<string, string>, packs = ["ts", "ts-service"]): string => {
+    const dir = createTempDir(join(tmpdir(), "scaffold-rt-"));
+    writeProjectPacks(dir, packs);
     dirs.push(dir);
     for (const [rel, source] of Object.entries(files)) {
       const path = join(dir, rel);
@@ -1306,7 +1307,7 @@ export declare function createServiceCaller(deps: { readonly now: () => string }
     expect(isGeneratedArtifact(source)).toBe(true);
     expect(source).toContain("createService");
     expect(source).toContain('code: "BAD_REQUEST"');
-    expect(source).toBe(shippedServiceRuntimeSource());
+    expect(source).toBe(shippedSupportSource(serviceRuntimeSupport));
     expect(r.lines.some((l) => l.includes("service-runtime.ts (API-service runtime"))).toBe(true);
   });
 
@@ -1329,6 +1330,17 @@ export declare function createServiceCaller(deps: { readonly now: () => string }
     expect(existsSync(rt)).toBe(false);
   });
 
+  test("a contract whose support import escapes src/ is refused and nothing is written outside", () => {
+    const escaping = API_CONTRACT.replace('"./service-runtime.js"', '"../../../x/service-runtime.js"');
+    const dir = project({ "src/api/api.contract.ts": escaping });
+    const r = runScaffold(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain(
+      "src/api/api.contract.ts asks for the API-service runtime at '../x/service-runtime.ts', which resolves outside the project's src/",
+    );
+    expect(existsSync(join(dir, "..", "x", "service-runtime.ts"))).toBe(false);
+  });
+
   test("an unmarked file already at the runtime's path is a block, not a keep", () => {
     const dir = project({
       "src/api/api.contract.ts": API_CONTRACT,
@@ -1343,14 +1355,14 @@ export declare function createServiceCaller(deps: { readonly now: () => string }
     );
   });
 
-  test("serviceRuntimeTargets resolves the specifier relative to the contract", () => {
-    expect(
-      serviceRuntimeTargets(
-        'import type { Ack } from "./service-runtime.js";\nimport type { X } from "../other/service-runtime.js";\n',
-        "/repo/src/api/api.contract.ts",
-      ),
-    ).toEqual(["/repo/src/api/service-runtime.ts", "/repo/src/other/service-runtime.ts"]);
-    expect(serviceRuntimeTargets('import type { Y } from "./values.js";\n', "/r/c.contract.ts")).toEqual([]);
+  test("only a project that composed ts-service gets the runtime (ADR 2026-046)", () => {
+    for (const packs of [["ts"], ["ts", "ts-web"]]) {
+      const dir = project({ "src/api/api.contract.ts": API_CONTRACT }, packs);
+      const r = runScaffold(dir);
+      expect(r.code).toBe(0);
+      expect(existsSync(join(dir, "src/api/service-runtime.ts"))).toBe(false);
+      expect(r.lines.some((l) => l.includes("API-service runtime"))).toBe(false);
+    }
   });
 });
 

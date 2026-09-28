@@ -23,12 +23,15 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFi
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
-import { activeTicketDesign } from "../../../src/ticket-design.ts";
+import { activeTicketDesign, resolveTicketDesign } from "../../../src/ticket-design.ts";
 
 const GUARD = "checksum-gate";
 const LEGACY_MANIFEST = ".bounded/contract-checksums.json";
 export function manifestRelative(root: string): string {
-  const ticket = activeTicketDesign(root)?.ticket;
+  // Location only: the ticket's own number decides it, whether or not its note
+  // is readable yet or a sibling note disputes a contract.
+  const state = resolveTicketDesign(root, { siblings: "ignore" });
+  const ticket = state.kind === "ready" ? state.design.ticket : state.kind === "legacy" ? undefined : state.ticket;
   return ticket ? `.bounded/tickets/${ticket}/contract-checksums.json` : LEGACY_MANIFEST;
 }
 const CONTRACT_SUFFIX = ".contract.ts";

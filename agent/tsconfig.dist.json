@@ -7,5 +7,5 @@
     "rewriteRelativeImportExtensions": true
   },
   "include": ["src/**/*.ts", "hosts/**/*.ts", "packs/**/*.ts"],
-  "exclude": ["**/*.test.ts", "packs/ts/reference", "packs/ts/scripts/testdata"]
+  "exclude": ["**/*.test.ts", "packs/*/reference", "packs/ts/scripts/testdata"]
 }

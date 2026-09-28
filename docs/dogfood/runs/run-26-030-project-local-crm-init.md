@@ -73,7 +73,7 @@ type errors in its regenerated shadow project.
   (`overdue`, `due today`, `scheduled`, `none`) was classified in a UI slice
   even though it is a business reading of a date. This was spotted by human
   inspection, not by a gate. The source architect/reviewer guidance now asks
-  where each rule and finite vocabulary belongs (ADR 2026-044); this
+  where each rule and finite vocabulary belongs (ADR 2026-049); this
   project's copied guidance predates that change.
 - **The test writer had to discover routine safe patterns.** It rewrote
   fixtures to unwrap parsed values and array members without casts, kept

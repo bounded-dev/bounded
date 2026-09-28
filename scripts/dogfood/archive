@@ -14,6 +14,8 @@
 # archive is not.
 set -euo pipefail
 
+# Default locations are examples; DOGFOOD_ARCHIVE, DOGFOOD_1 and DOGFOOD_2
+# point the script at your own archive and arm directories.
 ARCHIVE="${DOGFOOD_ARCHIVE:-$HOME/dev/bounded-harness-dogfood-archive}"
 REPO="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HARNESS="${BOUNDED_HARNESS:-$REPO}"

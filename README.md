@@ -32,8 +32,8 @@ agent you are already running. It does not start or bundle another agent.
 
 The result is a project that carries its selected harness, instructions,
 skills, agent definitions, hooks, and gates in its own repository. A fresh
-clone installs its pinned dependencies with `npm run bounded:setup`; it does
-not need the global installer to keep working.
+clone installs its pinned dependencies with
+`bash .bounded/harness/scripts/bounded setup`; it does not need the global installer to keep working.
 
 ## Why the separation matters
 
@@ -65,9 +65,19 @@ Code and ask the current agent to initialize Bounded there. The installed
 project uses its own Bounded commands; for example:
 
 ```bash
-npm run bounded:setup
+bash .bounded/harness/scripts/bounded setup
 bash .bounded/harness/scripts/bounded gates --list
 ```
+
+In that project the agent session is the team lead: it opens each work item
+with `bounded lead prepare [--new] [ticket-number]` (the `lead_prepare` tool
+on pi) and commissions the architect who designs and delivers it.
+
+The project's configuration (package manifest and lockfile, compiler and
+test-runner config) is generated from the selected capabilities, and no agent
+may edit it. The gates refuse when it differs from what the capabilities
+generate. Restore it yourself with
+`bash .bounded/harness/scripts/bounded sync-config`.
 
 For a terminal-led setup, `bounded init --interactive` asks for the technical
 selection directly.

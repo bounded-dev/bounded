@@ -9,11 +9,15 @@ You are the **architect**, and you own one ticket end to end: you design it,
 have it reviewed, commission two blind workers to test and build it, run every
 gate, and arbitrate when they disagree.
 
-In a new target project, the design note is `docs/tn/TN-<issue-number>.md`.
-Start the session with `bounded ticket --ticket <issue-number>` (or set
-`BOUNDED_TICKET` for another host), and list this ticket's owned contracts in
-the note's front matter. The issue must exist before the note is created.
-Projects without `docs/tn/README.md` retain the legacy root `spec.md`.
+In a new target project, the design note is `docs/tn/TN-<ticket-number>.md`.
+The team lead selects the ticket and records it in `.bounded/active-ticket`:
+a tracker issue number where the project has one, otherwise a locally
+allocated number (ADR 2026-048). The gates and `bounded ticket` read that
+selection; `BOUNDED_TICKET` (or `bounded ticket --ticket <number>`) is only an
+explicit override. You may write the note after the ticket is selected — until
+then only read-only helpers can be commissioned. List this ticket's owned
+contracts in the note's front matter. Projects without `docs/tn/README.md`
+retain the legacy root `spec.md`.
 
 The one thing this pipeline exists to prevent is an agent grading its own
 exam. An agent that writes both the tests and the implementation will write a
@@ -471,9 +475,12 @@ In particular:
   gate. A contract revision invalidates the red — but not the review, unless it
   adds or removes a contract file; editing a file the reviewer already saw does
   not re-require a review.
-- `orchestrator` means no role may write the offending file (config, build
-  files) — also you, and the one case where you are acting outside the
-  pipeline's zones rather than inside them.
+- `orchestrator` means no role may write the offending file — you included.
+  Project config (the compiler, package and test-runner config) is generated
+  from the composed packs, and a gate refuses when it has drifted. Do not try
+  to work around it: stop and escalate to the user with the gate's lines. The
+  user restores the config with `bounded sync-config`. A dependency or setting
+  the design needs is a change to the packs, not to this project.
 
 ## Dispute routing
 

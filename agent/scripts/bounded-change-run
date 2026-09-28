@@ -51,11 +51,14 @@ TARGET="${TARGET:-$PWD}"
 MANIFEST_REL=".bounded/contract-checksums.json"
 if [ -f "$TARGET/docs/tn/README.md" ]; then
   TICKET="${BOUNDED_TICKET:-}"
-  if [ -z "$TICKET" ] && [ -f "$TARGET/.bounded/installation.json" ] && [ -f "$TARGET/.bounded/active-ticket" ]; then
-    TICKET="$(cat "$TARGET/.bounded/active-ticket")"
+  # Same selection as src/ticket-design.ts: BOUNDED_TICKET wins; else the
+  # lead's selection file, in a project-local installation only.
+  if [ -z "$TICKET" ] && [ -f "$TARGET/.bounded/installation.json" ] &&
+     [ -f "$TARGET/.bounded/active-ticket" ] && [ ! -L "$TARGET/.bounded/active-ticket" ]; then
+    TICKET="$(tr -d '[:space:]' < "$TARGET/.bounded/active-ticket")"
   fi
   if [[ ! "$TICKET" =~ ^[1-9][0-9]*$ ]]; then
-    echo "bounded change-run: select the current issue with the team lead or set BOUNDED_TICKET" >&2
+    echo "bounded change-run: no active ticket — select the current issue with the team lead or set BOUNDED_TICKET" >&2
     exit 2
   fi
   MANIFEST_REL=".bounded/tickets/$TICKET/contract-checksums.json"

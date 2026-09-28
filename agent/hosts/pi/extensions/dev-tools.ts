@@ -7,11 +7,11 @@
  * path gate refuses the ones that are one role's alone, as a backup layer).
  *
  *   remove(path, cwd?)      — delete one file, inside the caller's write zones.
- *   run_tests(cwd?)         — BUILDER ONLY. Runs the project's vitest suite
- *                             with the JSON reporter and returns ONLY sanitized
+ *   run_tests(cwd?)         — BUILDER ONLY. Runs the project's test suite
+ *                             through the composed pack's gate and returns ONLY sanitized
  *                             results (failure names + assertion diffs; no code
  *                             frames, stacks, paths, or console).
- *   typecheck(cwd?)         — runs `tsc --noEmit` and returns pass/fail +
+ *   typecheck(cwd?)         — runs the composed pack's type check; returns pass/fail +
  *                             diagnostics with absolute machine paths redacted
  *                             AND scoped to the calling role: a worker sees its
  *                             own zone and the shared interface in full, and

@@ -101,9 +101,9 @@ export interface PiAgent {
   readonly body: string;
 }
 
-/** Read agents/<role>.md from the harness. Frontmatter is the block between
+/** Read agents/<name>.md from the harness. Frontmatter is the block between
  *  the first two `---` lines; the description is its `description:` line. */
-export function readPiAgent(harnessRoot: string, role: Role): PiAgent {
+export function readPiAgent(harnessRoot: string, role: string): PiAgent {
   const source = readFileSync(join(harnessRoot, "agents", `${role}.md`), "utf8");
   const lines = source.split(/\r?\n/);
   const fences: number[] = [];
@@ -120,7 +120,20 @@ export function readPiAgent(harnessRoot: string, role: Role): PiAgent {
 
 /** JSON string literals are valid YAML double-quoted scalars, and the pi
  *  descriptions contain `: ` and backticks that a plain scalar cannot hold. */
-const yamlString = (value: string): string => JSON.stringify(value);
+export const yamlString = (value: string): string => JSON.stringify(value);
+
+/** The frontmatter lines that bind this host's PreToolUse hook to one
+ *  definition: it fires for every tool call inside that subagent only. */
+export function hookFrontmatter(command: string): readonly string[] {
+  return [
+    "hooks:",
+    "  PreToolUse:",
+    '    - matcher: ""',
+    "      hooks:",
+    "        - type: command",
+    `          command: ${yamlString(command)}`,
+  ];
+}
 
 const FILE_TOOLS_READ = ["read", "grep", "find", "ls"] as const;
 const FILE_TOOLS_WRITE = ["write", "edit"] as const;
@@ -166,7 +179,7 @@ export function renderPreamble(role: Role): string {
     "",
     `Every gate is a command — \`bounded gates <gate> [dir] [--json]\`, run through Bash as one plain command: no \`&&\`, \`;\`, pipes, redirects or \`$(…)\`. Do not add an env prefix or pass \`--role\`: the hook prefixes \`${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=<role>\` itself, so the gate runs as the role this definition bound and records this host. \`bounded gates --list\` names them all.`,
     "",
-    `Bash is refused for anything else — no \`npm\`, \`npx\`, \`cat\`, \`ls\`, \`find\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.bounded/guard-log.jsonl\`.`,
+    `Bash is refused for anything else — no package-manager commands, no \`cat\`, \`ls\`, \`find\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.bounded/guard-log.jsonl\`.`,
   ].join("\n");
 }
 
@@ -182,12 +195,7 @@ export function renderAgent(role: Role, opts: RenderOptions): string {
     `name: ${role}`,
     `description: ${yamlString(pi.description)}`,
     `tools: ${claudeTools(role).join(", ")}`,
-    "hooks:",
-    "  PreToolUse:",
-    '    - matcher: ""',
-    "      hooks:",
-    "        - type: command",
-    `          command: ${yamlString(command)}`,
+    ...hookFrontmatter(command),
     "---",
   ];
   return [...frontmatter, "", renderPreamble(role), "", "---", "", pi.body, ""].join("\n");

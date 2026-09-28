@@ -10,7 +10,8 @@ import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-
 // forbiddenWhy reason. Table-driven over all four roles so a change to
 // ROLE_TOOLS shows up here as a changed row, never as a silent widening.
 
-const CTX = { cwd: "/proj" };
+// The architect's contract write zone comes from composed pack data (ADR 2026-052).
+const CTX = { cwd: "/proj", contractGlobs: ["src/**/*.contract.ts"] };
 type Verdict = "allow" | "deny";
 type Row = readonly [command: string, expected: Readonly<Record<Role, Verdict>>];
 
@@ -37,6 +38,11 @@ const TABLE: readonly Row[] = [
   ["bounded gates --list", all("allow")],
   ["bounded gates --help", all("allow")],
   ["bounded gates", all("deny")],
+  // Project config is regenerated only by the user (ADR 2026-054), and no role
+  // may run the package manager that would rewrite it.
+  ["bounded sync-config", all("deny")],
+  ["bash .bounded/harness/scripts/bounded sync-config", all("deny")],
+  ["npm install left-pad", all("deny")],
   ["bounded gates nosuch", all("deny")],
   ["bounded gates read", all("deny")], // a file tool is not a gate
   // Host-only flags: the role reaches the CLI through the hook's env prefix.

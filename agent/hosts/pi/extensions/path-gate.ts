@@ -6,8 +6,11 @@
  * the pure decision core (src/path-policy.ts via src/path-gate.ts), blocks
  * out-of-zone reads/edits/writes/searches, and records each block in the
  * target project's guard log. In a project-local installation, a normal root
- * session is the read-only team lead. In the global harness a normal session
- * remains ungated by this extension.
+ * session is the read-only team lead, and a child session with no bound role
+ * (the scout, or anything else unbound) is held to the scout's read-only
+ * policy. In the global harness a normal session remains ungated by this
+ * extension. The seat is decided by the shared resolveSessionRole
+ * (src/session-role.ts), which the Claude Code hook uses too.
  *
  * It also installs a `session_start` hook that REMOVES the role's forbidden
  * tools from the model's visible toolset (pi.setActiveTools), so a directly
@@ -64,8 +67,22 @@ import {
 import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../../../src/host.ts";
 import type { Role } from "../../../src/path-policy.ts";
 import { knownModels } from "./model-tier.ts";
-import { decideLeadTool, isInitialSetup, isProjectLocalHarness, LEAD_PREPARE_TOOL, LEAD_SETUP_TOOL, prepareLeadRun, setupLeadProject } from "../../../src/lead-policy.ts";
+import {
+  decideLead,
+  decideScout,
+  isProjectLocalHarness,
+  LEAD_PREPARE_TOOL,
+  LEAD_PREPARE_USAGE,
+  LEAD_SETUP_TOOL,
+  parseLeadPrepareArgs,
+  prepareLeadRun,
+  seatMayHold,
+  setupLeadProject,
+} from "../../../src/lead-policy.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
+import { LEAD_GUARD, SCOUT_SEAT } from "../../../src/lead-state.ts";
+import { resolveSessionRole, type SessionSeat } from "../../../src/session-role.ts";
+import { piSeatAction } from "./lib/lead-actions.ts";
 
 // This file lives at <harness>/hosts/pi/extensions/path-gate.ts, so the harness
 // root (the `agent/` dir) is FOUR levels up: extensions → pi → hosts → agent.
@@ -101,7 +118,14 @@ function makeFallbackResolver(): (cwd: string) => Role | undefined {
  * for the deterministic per-subagent path; omit it for the ambient default,
  * which falls back to env / role file (and stays inactive when neither is set).
  */
-export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
+export interface PathGateOptions {
+  /** Whether this is a project-local installation's own copy. Derived from
+   *  this file's location; a test may say so explicitly. */
+  readonly projectCopy?: boolean;
+}
+
+export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: PathGateOptions = {}): void {
+  const projectCopy = options.projectCopy ?? PROJECT_COPY;
   // A bound role claims the process, which makes the ambient hook inert — see
   // the registry in src/path-gate.ts. Without this, a subagent gets its
   // parent's role (read from the shared `.bounded/dev-stage-role`) applied on top of
@@ -113,22 +137,23 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
   const fallback = boundRole ? undefined : makeFallbackResolver();
 
   // The copied harness makes a plain project-local pi session the team lead.
-  // pi-subagents marks child processes, and pipeline children also carry a
-  // per-role loader. Neither should inherit the lead's project-wide default.
-  const leadSession = (cwd: string): boolean =>
-    PROJECT_COPY && boundRole === undefined && !isAmbientSuppressed() &&
-    process.env["PI_SUBAGENT_CHILD"] !== "1" &&
-    isProjectLocalHarness(cwd);
-  const roleFor = (cwd: string): Role | undefined =>
-    leadSession(cwd) || (boundRole === undefined && isProjectLocalHarness(cwd) &&
-      (!PROJECT_COPY || process.env["PI_SUBAGENT_CHILD"] === "1"))
-      ? undefined
-      : boundRole ?? fallback!(cwd);
+  // pi-subagents marks child processes; a pipeline child also carries a
+  // per-role loader, which claims the process (isAmbientSuppressed). A child
+  // with neither is held read-only rather than left ungated.
+  const seatFor = (cwd: string): SessionSeat => resolveSessionRole({
+    ...(boundRole !== undefined ? { boundSeat: boundRole } : {}),
+    projectLocal: projectCopy && isProjectLocalHarness(cwd),
+    child: process.env["PI_SUBAGENT_CHILD"] === "1",
+    judgedElsewhere: boundRole === undefined && isAmbientSuppressed(),
+    // A global harness never applies the legacy role file inside a project installation.
+    ambientRole: () => (isProjectLocalHarness(cwd) ? undefined : fallback!(cwd)),
+  });
+  const leadSession = (cwd: string): boolean => seatFor(cwd).kind === "lead";
 
-  if (PROJECT_COPY) pi.registerTool({
+  if (projectCopy) pi.registerTool({
     name: LEAD_PREPARE_TOOL,
     label: "Prepare ticket run",
-    description: "Open or resume the active ticket's run. Pass new: true after final delivery to start another ticket; include ticket for a tracked issue or omit it for the next local number.",
+    description: `Open or resume the active ticket's run (the shell form is \`${LEAD_PREPARE_USAGE}\`). Pass new: true after final delivery to start another ticket; include ticket for a tracked issue or omit it for the next local number.`,
     parameters: Type.Object({
       ticket: Type.Optional(Type.String({ description: "Positive issue number, if tracked externally" })),
       new: Type.Optional(Type.Boolean({ description: "Start the next local work item after final delivery" })),
@@ -137,7 +162,11 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
       if (!leadSession(ctx.cwd)) {
         return { content: [{ type: "text" as const, text: "team-lead: only the project-local lead may prepare a ticket run" }], details: { ok: false } };
       }
-      const result = prepareLeadRun(ctx.cwd, params.ticket, params.new ?? false);
+      const args = parseLeadPrepareArgs([...(params.new === true ? ["--new"] : []), ...(params.ticket !== undefined ? [params.ticket] : [])]);
+      if (!args.ok) {
+        return { content: [{ type: "text" as const, text: `team-lead: ${args.reason}` }], details: { ok: false } };
+      }
+      const result = prepareLeadRun(ctx.cwd, args.ticket, args.fresh);
       return {
         content: [{ type: "text" as const, text: result.ok ? result.summary : result.reason }],
         details: result,
@@ -145,16 +174,16 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     },
   });
 
-  if (PROJECT_COPY) pi.registerTool({
+  if (projectCopy) pi.registerTool({
     name: LEAD_SETUP_TOOL,
     label: "Install project dependencies",
-    description: "Before the first ticket run, install exactly the project's and local harness's lockfile-pinned dependencies.",
+    description: "Install exactly the project's and local harness's lockfile-pinned dependencies: before the first ticket run, or to repair a completed setup whose dependency trees are missing. Project package lifecycle scripts never run.",
     parameters: Type.Object({}),
     async execute(_id, _params, signal, _onUpdate, ctx) {
       if (!leadSession(ctx.cwd)) {
         return { content: [{ type: "text" as const, text: "team-lead: only the project-local lead may set up dependencies" }], details: { ok: false } };
       }
-      const result = await setupLeadProject(ctx.cwd, signal);
+      const result = await setupLeadProject(ctx.cwd, { host: "pi", signal });
       return { content: [{ type: "text" as const, text: result.summary }], details: result };
     },
   });
@@ -173,25 +202,26 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
   // extension loading") — and it still fires before the first provider
   // request, so the model never sees the tool at all.
   pi.on("session_start", (_event, ctx) => {
-    const role = roleFor(ctx.cwd);
-    if (!role) {
-      if (!leadSession(ctx.cwd)) {
-        // Do not advertise a project-only control in unrelated pi sessions.
-        if (PROJECT_COPY) {
-          const active = pi.getActiveTools();
-          if (active.includes(LEAD_PREPARE_TOOL) || active.includes(LEAD_SETUP_TOOL)) {
-            pi.setActiveTools(active.filter((name) => name !== LEAD_PREPARE_TOOL && name !== LEAD_SETUP_TOOL));
-          }
+    const seat = seatFor(ctx.cwd);
+    if (seat.kind === "none") {
+      // Do not advertise a project-only control in unrelated pi sessions.
+      if (projectCopy) {
+        const active = pi.getActiveTools();
+        if (active.includes(LEAD_PREPARE_TOOL) || active.includes(LEAD_SETUP_TOOL)) {
+          pi.setActiveTools(active.filter((name) => name !== LEAD_PREPARE_TOOL && name !== LEAD_SETUP_TOOL));
         }
-        return;
       }
+      return;
+    }
+    if (seat.kind === "lead" || seat.kind === "scout") {
+      const holder = seat.kind;
       const active = pi.getActiveTools();
-      const kept = active.filter((name) => decideLeadTool(name, {}).allow || name === "subagent" ||
-        (name === LEAD_SETUP_TOOL && isInitialSetup(ctx.cwd)));
+      const kept = active.filter((name) => seatMayHold(holder, piSeatAction(name, {}), ctx.cwd));
       if (kept.length !== active.length) pi.setActiveTools(kept);
       recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
       return;
     }
+    const role = seat.role;
     // The ambient hook stands down wherever a bound role claimed the process,
     // for exactly the reason it stands down on tool calls: otherwise a
     // subagent's toolset loses its PARENT's forbidden tools too, and a
@@ -216,20 +246,37 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     }
   });
 
+  // A hook that errors fails CLOSED: an unjudged call is refused, and the
+  // refusal is recorded so a run that hit it is visibly so.
   pi.on("tool_call", async (event, ctx) => {
-    const role = roleFor(ctx.cwd);
-    if (!role) {
-      if (!leadSession(ctx.cwd)) return undefined;
-      const decision = decideLeadTool(event.toolName, event.input as Readonly<Record<string, unknown>>, ctx.cwd);
+    try {
+      return judgeCall(event, ctx);
+    } catch (error) {
+      const reason = `path-gate: the hook errored (${error instanceof Error ? error.message : String(error)}), so this ${event.toolName} call is refused rather than let through ungated`;
+      logGuardEvent(ctx.cwd, { guard: "path-gate", verdict: "error", summary: reason, detail: { host: "pi", kind: "hook-error", tool: event.toolName } });
+      return { block: true, reason };
+    }
+  });
+
+  function judgeCall(
+    event: { readonly toolName: string; readonly input: unknown },
+    ctx: Parameters<typeof knownModels>[0] & { readonly cwd: string },
+  ): { block: true; reason: string } | undefined {
+    const seat = seatFor(ctx.cwd);
+    if (seat.kind === "none") return undefined;
+    if (seat.kind === "lead" || seat.kind === "scout") {
+      const action = piSeatAction(event.toolName, event.input as Readonly<Record<string, unknown>>);
+      const decision = seat.kind === "lead" ? decideLead(action, ctx.cwd) : decideScout(action, ctx.cwd);
       if (decision.allow) return undefined;
       logGuardEvent(ctx.cwd, {
-        guard: "team-lead",
+        guard: seat.kind === "lead" ? LEAD_GUARD : "path-gate",
         verdict: "block",
         summary: decision.reason,
-        detail: { tool: event.toolName },
+        detail: { tool: event.toolName, ...(seat.kind === "scout" ? { role: SCOUT_SEAT } : {}) },
       });
       return { block: true, reason: decision.reason };
     }
+    const role = seat.role;
     if (event.toolName === LEAD_PREPARE_TOOL || event.toolName === LEAD_SETUP_TOOL) {
       return { block: true, reason: "team-lead: the architect and workers cannot redraw the run boundary" };
     }
@@ -274,7 +321,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     // Suppression is checked per CALL, not at install: extensions load in an
     // arbitrary order, and the ambient one may well arrive first.
     return boundRole ? evaluatePathGate(ev) : evaluateAmbientPathGate(ev);
-  });
+  }
 }
 
 export default function (pi: ExtensionAPI): void {

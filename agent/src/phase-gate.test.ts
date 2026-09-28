@@ -672,7 +672,11 @@ describe("a configured tier the registry cannot resolve refuses the spawn", () =
   test("a phase precondition is reported before the tier", () => {
     const v = checkSubagentCall({ agent: "builder", task: "…" }, { ...EMPTY, models: BAD, known: REGISTRY });
     if (v.kind !== "block") throw new Error("expected a block");
-    expect(v.reason).toMatch(/no \*\.contract\.ts/);
+    expect(v.reason).toMatch(/no contract file exists yet/);
+    const named = checkSubagentCall({ agent: "builder", task: "…" },
+      { ...EMPTY, contractSuffixes: [".contract.ts"], models: BAD, known: REGISTRY });
+    if (named.kind !== "block") throw new Error("expected a block");
+    expect(named.reason).toMatch(/no \*\.contract\.ts exists yet/);
   });
 
   test("checkTierResolvable is silent when there is nothing to say", () => {

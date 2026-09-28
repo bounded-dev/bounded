@@ -23,7 +23,7 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // `TRPCClientError` in a signature moves no bytes and opens no socket.
 //
 // The two packs' rules meet here and do not overlap: `@trpc/server` belongs to
-// the ts pack's rule, `@trpc/client` to this one.
+// the ts-service pack's rule, `@trpc/client` to this one.
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 

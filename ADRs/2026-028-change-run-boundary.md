@@ -41,8 +41,8 @@ block: there `src/` holds nothing but skeletons and no tests exist, so every
 diagnostic is the design's. `green_gate` still requires a fully compiling
 project, so the false-green invariant is untouched.
 
-`bounded change-run` refuses to draw a boundary through a live run (a log with no
-`deliver` pass) unless `--force`d: re-entering an interrupted run is a resume
+`bounded change-run` refuses to draw a boundary through a live run (a log without
+a final successful delivery, ADR 2026-053) unless `--force`d: re-entering an interrupted run is a resume
 (`pi -c`, r20), which needs the log intact, not a boundary.
 
 ## Why

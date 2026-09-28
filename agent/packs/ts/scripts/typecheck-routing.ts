@@ -70,8 +70,13 @@ export function mostUpstream(owners: readonly FixOwner[]): FixOwner | undefined 
   return OWNERS_UPSTREAM_FIRST.find((o) => owners.includes(o));
 }
 
-/** Attribute redacted tsc diagnostics to the roles that may fix them. */
-export function routeTypecheck(diagnostics: readonly string[]): TypecheckRouting {
+/** Attribute redacted tsc diagnostics to the roles that may fix them.
+ *  `contracts` is the composed packs' contract globs
+ *  (`contractGlobs(cwd)`); empty means no pack-declared contract files. */
+export function routeTypecheck(
+  diagnostics: readonly string[],
+  contracts: readonly string[] = [],
+): TypecheckRouting {
   const groups = new Map<FixOwner, string[]>();
   let errorCount = 0;
   let current: FixOwner | undefined;
@@ -79,7 +84,7 @@ export function routeTypecheck(diagnostics: readonly string[]): TypecheckRouting
   for (const line of diagnostics) {
     const located = diagnosticPath(line);
     if (located !== undefined) {
-      current = ownerOfPath(located) ?? "orchestrator";
+      current = ownerOfPath(located, contracts) ?? "orchestrator";
       errorCount += 1;
     } else if (GLOBAL_ERROR.test(line)) {
       current = "orchestrator";

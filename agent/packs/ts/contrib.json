@@ -1,5 +1,5 @@
 {
-  "//": "Pack contributions to harness-core sockets (TN-26-005). The core owns the mechanisms; this file owns the TypeScript pack's content. specTechNouns feeds the phase gate's Intake check (ADR 2026-032): non-blessed API frameworks and schema engines that must not survive intake into a spec body.",
+  "//": "Pack contributions to harness-core sockets (TN-26-005). The core owns the mechanisms; this file owns the TypeScript pack's content. specTechNouns feeds the phase gate's Intake check (ADR 2026-032): non-blessed API frameworks and schema engines that must not survive intake into a spec body. contractFileSuffixes feeds the core's ticket-design, path-gate and phase-gate contract recognition (ADR 2026-052): the filename suffix that marks a design contract in a project composing this pack.",
   "specTechNouns": [
     "graphql",
     "apollo",
@@ -22,8 +22,46 @@
   "projectCommands": {
     "adopt": "scripts/adopt.ts",
     "change-diff": "scripts/change-diff.ts",
-    "capture-baseline": "scripts/capture-baseline.ts"
+    "capture-baseline": "scripts/capture-baseline.ts",
+    "sync-config": "scripts/sync-config.ts"
   },
+  "//projectSetup": "Project dependency setup sockets (ADR 2026-051). projectSetupCommands are argv lists the host entry runs in order, without a shell, in the project root; each must install only from a committed lockfile and never run the project package's own lifecycle scripts: no role may write package.json (ADR 2026-054), and refusing its scripts keeps that true even for a hand edit the drift check has not yet seen. projectSetupProbes are project-relative paths that exist only after those commands succeed. projectIgnoreRules are .gitignore lines for what setup and builds produce.",
+  "projectSetupCommands": [["npm", "ci", "--ignore-scripts"]],
+  "projectSetupProbes": ["node_modules/.package-lock.json"],
+  "projectIgnoreRules": ["/node_modules/", "/dist/"],
+  "//projectManifest": "projectManifestScripts are pack-relative scripts the project initializer runs (node, project dir and harness source root as argv) after it writes its own files (ADR 2026-051): this pack writes the project's package manifest and lockfile. The script reads projectPackageTemplate (exactly one across the composition), and every composed pack's projectScripts and pins.",
+  "projectManifestScripts": ["scripts/project-package.ts"],
   "projectPackageTemplate": "reference/package.json",
-  "projectConfigFiles": ["reference/tsconfig.json"]
+  "projectConfigFiles": ["reference/tsconfig.json"],
+  "contractFileSuffixes": [".contract.ts"],
+  "//projectConfig": "Project configuration is generated, never written by a role (ADR 2026-054). pins, projectScripts and projectCheckScripts feed scripts/project-package.ts: ts-morph is pinned because the delivered surface check needs it, and check:surface is folded into the generated check so delivery finds the manifest already wired. projectCheckScripts are script names folded into `check` in composition order. projectShippedFiles (project path → pack-relative source) are copied verbatim at init, so the surface checker check:surface runs exists from the start; delivery finds it already shipped. projectNestedConfigNames are file-name globs that count as config at any depth: Node and the test runner's transform read the nearest package.json and tsconfig for each file, so a nested one no pack generates is drift, and the path policy refuses every role a write to one. projectDependencyDirs are the directory names installed dependencies resolve from: skipped by the drift walk only at the root; a nested one anywhere is drift and write-denied for every role, because Node, the type-checker and the bundler resolve it before the root's. projectConfigNames are root file-name globs that count as project config for this stack: scripts/project-config.ts refuses at the phase gates when any of them differs from, or is missing from, or is not produced by, what the composed packs generate; `bounded sync-config` (the user's command) rewrites them.",
+  "pins": {
+    "devDependencies": {
+      "ts-morph": "28.0.0"
+    }
+  },
+  "projectScripts": {
+    "check:surface": "node --experimental-strip-types scripts/surface-check.ts"
+  },
+  "projectCheckScripts": ["check:surface"],
+  "projectShippedFiles": {
+    "scripts/surface-check.ts": "scripts/surface-check.ts"
+  },
+  "projectNestedConfigNames": ["package.json", "tsconfig*.json", "jsconfig*.json"],
+  "projectDependencyDirs": ["node_modules"],
+  "projectConfigNames": [
+    "package.json",
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    ".npmrc",
+    "tsconfig*.json",
+    "jsconfig*.json",
+    "vitest.config.*",
+    "vitest.workspace.*",
+    "vite.config.*",
+    "postcss.config.*",
+    "tailwind.config.*",
+    "babel.config.*",
+    ".babelrc*"
+  ]
 }

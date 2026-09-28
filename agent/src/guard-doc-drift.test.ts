@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { contributedSrcRuleIds, SRC_RULE_IDS, TEST_RULE_IDS } from "../packs/ts/scripts/lint-src.ts";
-import { CONTRACT_RULE_IDS } from "../packs/ts/scripts/contract-purity.ts";
+import { CONTRACT_RULE_IDS, contributedContractRuleIds } from "../packs/ts/scripts/contract-purity.ts";
 import { DESIGN_STEPS } from "../packs/ts/scripts/design-gate.ts";
 import { GATE_TOOLS, ROLE_TOOLS } from "./path-policy.ts";
 
@@ -47,6 +47,14 @@ describe("every enforced rule is named in the brief of the role it binds", () =>
   test("contract rules → architect.md", () => {
     const missing = CONTRACT_RULE_IDS.filter((r) => !names(architect, r));
     expect(missing).toEqual([]);
+  });
+
+  // Contract rules a pack contributes through `contractPurityOverrides` bind
+  // the architect exactly as the built-in ones do, so they are named there too.
+  test("contributed contract rules → architect.md", () => {
+    const contributed = contributedContractRuleIds();
+    expect(contributed.length).toBeGreaterThan(0);
+    expect(contributed.filter((r) => !names(architect, r))).toEqual([]);
   });
 
   // A rule a PACK contributed through the ts pack's `lintSrcRules` socket

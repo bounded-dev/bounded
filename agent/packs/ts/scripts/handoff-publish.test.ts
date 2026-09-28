@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,6 +45,7 @@ function fixture(): string {
 describe("handoff-publish", () => {
   test("publishes the ticket TN and only its owned contract", () => {
     const cwd = fixture();
+    writeProjectPacks(cwd, ["ts"]);
     mkdirSync(join(cwd, "docs/tn"), { recursive: true });
     writeFileSync(join(cwd, "docs/tn/README.md"), "# Technical Notes\n");
     writeFileSync(join(cwd, "docs/tn/TN-24.md"),

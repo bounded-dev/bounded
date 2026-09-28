@@ -121,6 +121,7 @@ import { Node, Project, SyntaxKind } from "ts-morph";
 import type { SourceFile } from "ts-morph";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
 import { runTests, spawnRunner } from "./run-tests.ts";
+import { configDriftBlock } from "./project-config.ts";
 
 const GUARD = "mutation-score";
 
@@ -472,6 +473,13 @@ export async function runMutationScore(
   if (!existsSync(join(cwd, "package.json"))) return misuse(`no package.json in '${cwd}' — not a project root`);
   const srcAbs = join(cwd, "src");
   if (!existsSync(srcAbs)) return misuse(`no src/ in '${cwd}' — nothing to mutate`);
+  // Every mutant runs the suite, which loads the project's config as code: it
+  // must be what the composed packs generate (ADR 2026-054). Checked before
+  // any source is mutated or any suite spawned.
+  const configBlock = configDriftBlock(GUARD, cwd);
+  if (configBlock !== undefined) {
+    return { code: 1, lines: [...lines, ...configBlock.lines], sites: 0, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
+  }
 
   // --- collect sites ---
   const originals = new Map<string, Buffer>();

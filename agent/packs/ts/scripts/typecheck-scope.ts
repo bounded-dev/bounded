@@ -19,10 +19,11 @@
 // So a worker's typecheck is SCOPED BY ITS ROLE, using the same ownership
 // function the gates route with (ownerOfPath) and the same read decision the
 // path gate enforces (decide). Diagnostics in the caller's own zone, in the
-// shared interface (*.contract.ts, spec.md, tsconfig/package/vitest config —
-// all architect-owned by ZONES), and in files the caller could legally read
-// are shown in full. Everything else collapses to a COUNT plus the owning
-// role: no path, no line number, no message, no symbol name. A symbol name
+// shared interface (the contracts and spec.md, architect-owned by ZONES), and
+// in files the caller could legally read (project config included: no role
+// owns it, ADR 2026-054) are shown in full. Everything else collapses to a
+// COUNT plus the owning role: no path, no line number, no message, no symbol
+// name. A symbol name
 // was the exact leak vector, so the shown lines are additionally scrubbed of
 // any foreign path token — a second line of defence, the way sanitizeMessage
 // is for run_tests.
@@ -61,16 +62,21 @@ const VISIBLE: Visibility = { visible: true };
  * what keeps `tests/generated/**` (the machine-written value-object law suite,
  * which no role may WRITE and so has no owner) out of the builder's view.
  */
-export function visibilityOf(path: string | undefined, role: Role): Visibility {
+export function visibilityOf(
+  path: string | undefined,
+  role: Role,
+  contracts: readonly string[] = [],
+): Visibility {
   // A path-less global error (`error TS18003: No inputs were found…`) is a
   // project-level failure that blocks everyone and names no zone. Shown — and
   // scrubbed below, in case its message quotes a foreign file.
   if (path === undefined) return VISIBLE;
-  const owner = ownerOfPath(path);
+  const owner = ownerOfPath(path, contracts);
   if (owner === role) return VISIBLE;
-  // The shared interface: contracts, spec.md, and the config files the
-  // architect owns. Declaration-only by construction, and every role works
-  // against them — this is where the blindness is NOT.
+  // The shared interface: contracts and spec.md, which the architect owns.
+  // Declaration-only by construction, and every role works against them —
+  // this is where the blindness is NOT. Project config has no owner (no role
+  // may write it, ADR 2026-054) and is judged by the read arm below.
   if (owner === "architect") return VISIBLE;
   if (owner !== null) return { visible: false, owner };
   // Unowned. Visible only if the path gate would let this role read the file,
@@ -89,10 +95,10 @@ const PATH_TOKEN =
 const FOREIGN_PLACEHOLDER = "[another role's file]";
 
 /** Replace every path token the role may not see with a fixed placeholder. */
-export function scrubForeignPaths(line: string, role: Role): string {
+export function scrubForeignPaths(line: string, role: Role, contracts: readonly string[] = []): string {
   return line.replace(PATH_TOKEN, (token) => {
     const path = token.replace(/\(\d+,\d+\)$/, "");
-    return visibilityOf(path, role).visible ? token : FOREIGN_PLACEHOLDER;
+    return visibilityOf(path, role, contracts).visible ? token : FOREIGN_PLACEHOLDER;
   });
 }
 
@@ -134,7 +140,12 @@ const HIDDEN_OWNER_ORDER: readonly Role[] = ["architect", "test-writer", "builde
  * read everything the pipeline produces anyway, so scoping would only cost
  * them information.
  */
-export function scopeTypecheck(result: TypecheckResult, role: Role | undefined): ScopedTypecheck {
+/** `contracts`: the composed packs' contract globs (`contractGlobs(cwd)`). */
+export function scopeTypecheck(
+  result: TypecheckResult,
+  role: Role | undefined,
+  contracts: readonly string[] = [],
+): ScopedTypecheck {
   if (!isScopedRole(role)) {
     return {
       ...(role !== undefined ? { role } : {}),
@@ -158,7 +169,7 @@ export function scopeTypecheck(result: TypecheckResult, role: Role | undefined):
 
   for (const line of result.diagnostics) {
     if (isDiagnosticStart(line)) {
-      current = visibilityOf(diagnosticPath(line), role);
+      current = visibilityOf(diagnosticPath(line), role, contracts);
       counted += 1;
       if (current.visible) shown += 1;
       else bump(hiddenCounts, current.owner);
@@ -170,10 +181,10 @@ export function scopeTypecheck(result: TypecheckResult, role: Role | undefined):
       // else (summaries, reporter noise) belongs to no diagnostic and is
       // dropped: it is not counted, so showing it could only mislead.
       const located = locatedPath(line);
-      current = located === undefined ? undefined : visibilityOf(located, role);
+      current = located === undefined ? undefined : visibilityOf(located, role, contracts);
       if (current === undefined) continue;
     }
-    if (current.visible) shownLines.push(scrubForeignPaths(line, role));
+    if (current.visible) shownLines.push(scrubForeignPaths(line, role, contracts));
   }
 
   // The total is tsc's own count where it is larger: a diagnostic this parser

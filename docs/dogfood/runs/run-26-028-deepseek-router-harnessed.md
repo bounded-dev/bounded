@@ -27,7 +27,7 @@ This run took three launches; the first two are findings, not noise:
    served endpoint. The served ones are the **routers**
    (`routers/deepseek-pro-latest`, which resolves to the dated
    `deepseek-v4-pro-0813`). The standing rule is now in
-   [dogfooding.md](../dogfooding.md#running-one): validate deployability,
+   [dogfooding.md](../../dogfooding.md#running-one): validate deployability,
    not just listing; `patternIsKnown` only checks registry membership.
 
 The good harness moment in that second start: hitting the dead model, the

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import { mergedContribution, specTechNouns } from "./pack-contrib.ts";
+import { fileNameGlobs, mergedContribution, projectCommandNames, projectConfigSources, projectDependencyDirs, projectIgnoreRules, specTechNouns } from "./pack-contrib.ts";
 import { writeProjectPacks } from "./project-composition.ts";
 
 const tmpDirs: string[] = [];
@@ -72,5 +72,69 @@ describe("real pack content follows project composition", () => {
   test("web declares its project-init script", () => {
     const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "packs", "ts-web", "contrib.json"), "utf8"));
     expect(manifest.projectInitScripts).toEqual(["scripts/new-web-app.ts"]);
+  });
+});
+
+describe("data socket validation", () => {
+  const ignoring = (rule: string) => packsDir({ p: JSON.stringify({ projectIgnoreRules: [rule] }) });
+
+  test.each(["/node_modules/", "/dist/", "/build/*.map", "/coverage"])("accepts the ignore rule %s", (rule) => {
+    expect(projectIgnoreRules(["p"], ignoring(rule))).toEqual([rule]);
+  });
+
+  test.each([
+    "!/.bounded/harness/", "!keep.txt", "\\!odd", "node_modules/", "*.log", "/*", "/**", "/.bounded/",
+    "/.BOUNDED/x", "/.git/", "/a/../.bounded/", "/./x", "/[ab]", "/x?", "//x",
+  ])("refuses the ignore rule %s", (rule) => {
+    expect(() => projectIgnoreRules(["p"], ignoring(rule))).toThrow(/projectIgnoreRules entry/);
+  });
+
+  test("projectConfigSources lands each reference file at its root name, in composition order", () => {
+    const dir = packsDir({
+      a: JSON.stringify({ projectConfigFiles: ["reference/tsconfig.json"] }),
+      b: JSON.stringify({ projectConfigFiles: ["reference/extra.config.ts"] }),
+    });
+    expect(projectConfigSources(["a", "b"], dir).map(({ pack, target }) => [pack, target]))
+      .toEqual([["a", "tsconfig.json"], ["b", "extra.config.ts"]]);
+    expect(projectConfigSources(["b"], dir).map(({ target }) => target)).toEqual(["extra.config.ts"]);
+  });
+
+  test.each([["../x.json"], ["/abs.json"], ["Upper.json"], [42]])("refuses the project config file %s", (file) => {
+    const dir = packsDir({ p: JSON.stringify({ projectConfigFiles: [file] }) });
+    expect(() => projectConfigSources(["p"], dir)).toThrow(/invalid projectConfigFiles/);
+  });
+
+  test("two packs landing on one root name is a collision", () => {
+    const dir = packsDir({
+      a: JSON.stringify({ projectConfigFiles: ["reference/tsconfig.json"] }),
+      b: JSON.stringify({ projectConfigFiles: ["other/tsconfig.json"] }),
+    });
+    expect(() => projectConfigSources(["a", "b"], dir)).toThrow(/collision/);
+  });
+
+  test("no pack contributes an architect write zone any more (ADR 2026-054)", () => {
+    expect(mergedContribution("architectWriteFiles", ["ts", "ts-service", "ts-web"])).toEqual([]);
+  });
+});
+
+describe("launcher commands and protected names come from the selected packs", () => {
+  test("projectCommandNames lists the selected packs' commands and refuses shadowing or duplicates", () => {
+    const dir = packsDir({
+      a: '{"projectCommands":{"sync":"s.ts","adopt":"a.ts"}}',
+      b: '{"projectCommands":{"gates":"g.ts"}}',
+      c: '{"projectCommands":{"sync":"t.ts"}}',
+      d: "{}",
+    });
+    expect(projectCommandNames(["a", "d"], ["gates"], dir)).toEqual(["adopt", "sync"]);
+    expect(projectCommandNames(["d"], ["gates"], dir)).toEqual([]);
+    expect(() => projectCommandNames(["b"], ["gates"], dir)).toThrow(/no core subcommand/);
+    expect(() => projectCommandNames(["a", "c"], [], dir)).toThrow(/unique/);
+  });
+  test("dependency directory names are literal and config names are file-name globs", () => {
+    const dir = packsDir({ ok: '{"projectDependencyDirs":["deps"],"names":["x*.json"]}', glob: '{"projectDependencyDirs":["dep*"]}', path: '{"names":["a/b"]}' });
+    expect(projectDependencyDirs(["ok"], dir)).toEqual(["deps"]);
+    expect(fileNameGlobs("names", ["ok"], dir)).toEqual(["x*.json"]);
+    expect(() => projectDependencyDirs(["glob"], dir)).toThrow(/literal directory name/);
+    expect(() => fileNameGlobs("names", ["path"], dir)).toThrow(/file name/);
   });
 });

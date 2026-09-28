@@ -1,7 +1,7 @@
 // The ts-web reference layout, as text (TN-26-006 B1).
 //
-// WHY THESE ARE STRINGS AND NOT FILES. The ts pack's one shipped artifact —
-// `packs/ts/api/service-runtime.ts` — is a real file, copied verbatim, and it
+// WHY THESE ARE STRINGS AND NOT FILES. The ts-service pack's shipped artifact —
+// `packs/ts-service/api/service-runtime.ts` — is a real file, copied verbatim, and it
 // typechecks inside the harness because it imports nothing but `@trpc/server`.
 // A frontend skeleton cannot be that: `main.tsx` imports an `App` the target's
 // own contract has not declared yet, `client.tsx` imports the router type out of

@@ -55,7 +55,7 @@ describe("install — fresh project", () => {
       expect(file).toContain(`--role ${role}`);
     }
     expect(settingsOf(dir)).toEqual({
-      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" },
+      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
       hooks: { PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }] },
     });
     expect(readFileSync(join(dir, ".claude/settings.json"), "utf8")).toMatch(/^\{\n {2}"env"/); // 2-space JSON
@@ -84,7 +84,7 @@ describe("install — an existing settings.json", () => {
     expect(install(dir).status).toBe(0);
     expect(settingsOf(dir)).toEqual({
       permissions: { allow: ["Bash(ls:*)"] },
-      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" },
+      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
       hooks: {
         PreToolUse: [
           { matcher: "Write", hooks: [{ type: "command", command: "echo hi" }] },
@@ -106,12 +106,33 @@ describe("install — an existing settings.json", () => {
       "node /here/path-gate-hook.ts",
     );
     expect(merged).toMatchObject({ ok: true, changed: true });
-    if (merged.ok) expect(merged.value).toMatchObject({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" } });
+    if (merged.ok) {
+      expect(merged.value).toMatchObject({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" } });
+    }
   });
 
   test("an explicit conflicting background setting is refused", () => {
     expect(mergeAmbientHook({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "0" } }, "x"))
       .toMatchObject({ ok: false, reason: expect.stringContaining("conflicts") });
+  });
+
+  test("agent teams must stay off: a conflicting value is refused, an explicit off is kept", () => {
+    for (const value of ["1", "true", 1]) {
+      expect(mergeAmbientHook({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: value } }, "x"))
+        .toMatchObject({ ok: false, reason: expect.stringContaining("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") });
+    }
+    const off = mergeAmbientHook({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0", KEEP: "me" } }, "x");
+    expect(off).toMatchObject({ ok: true, value: { env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0", KEEP: "me" } } });
+  });
+
+  test("installation over an agent-teams setting refuses and writes nothing", () => {
+    const original = JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" } });
+    const dir = makeTempProject({ ".claude/settings.json": original });
+    const r = install(dir);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS");
+    expect(readFileSync(join(dir, ".claude/settings.json"), "utf8")).toBe(original);
+    expect(existsSync(join(dir, ".claude/agents"))).toBe(false);
   });
 
   test("mergeAmbientHook refuses a PreToolUse that is not a list, and a hooks that is not an object", () => {

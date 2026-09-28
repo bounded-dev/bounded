@@ -1,4 +1,9 @@
 import { describe, expect, test } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { contractGlobs } from "../../../src/pack-contrib.ts";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { formatTypecheck, type TypecheckResult } from "./typecheck.ts";
 import {
   formatScopedTypecheck,
@@ -33,11 +38,22 @@ const result = (diagnostics: string[], ok = false): TypecheckResult => ({
   diagnostics,
 });
 
+/** The contract globs a ts-composed project resolves, as the gates pass it. */
+const TS_ZONE = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "typecheck-scope-zone-"));
+  try {
+    writeProjectPacks(dir, ["ts"]);
+    return contractGlobs(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
+
 const MIXED = [SRC_ERR, SRC_ERR_2, CONTRACT_ERR, TEST_ERR, TEST_ERR_2];
 
 describe("each role's view over one mixed diagnostic set", () => {
   test("the builder sees src/** and the shared interface; tests/** collapse to a count", () => {
-    const s = scopeTypecheck(result(MIXED), "builder");
+    const s = scopeTypecheck(result(MIXED), "builder", TS_ZONE);
     expect(s.scoped).toBe(true);
     expect(s.shown).toBe(3);
     expect(s.hidden).toBe(2);
@@ -46,7 +62,7 @@ describe("each role's view over one mixed diagnostic set", () => {
   });
 
   test("the test-writer sees tests/** and the contract; src/** collapse to the builder's", () => {
-    const s = scopeTypecheck(result(MIXED), "test-writer");
+    const s = scopeTypecheck(result(MIXED), "test-writer", TS_ZONE);
     expect(s.shown).toBe(3);
     expect(s.hidden).toBe(2);
     expect(s.hiddenOwner).toBe("builder");
@@ -54,7 +70,7 @@ describe("each role's view over one mixed diagnostic set", () => {
   });
 
   test("the reviewer owns nothing, so only the design it reviews stays visible", () => {
-    const s = scopeTypecheck(result(MIXED), "reviewer");
+    const s = scopeTypecheck(result(MIXED), "reviewer", TS_ZONE);
     expect(s.diagnostics).toEqual([CONTRACT_ERR]);
     expect(s.hidden).toBe(4);
     expect(s.hiddenGroups).toEqual([
@@ -65,11 +81,11 @@ describe("each role's view over one mixed diagnostic set", () => {
 
   test("config and spec-adjacent files are shared: every role sees them", () => {
     for (const role of ["builder", "test-writer", "reviewer"] as const) {
-      expect(visibilityOf("tsconfig.json", role).visible).toBe(true);
-      expect(visibilityOf("package.json", role).visible).toBe(true);
-      expect(visibilityOf("vitest.config.ts", role).visible).toBe(true);
+      expect(visibilityOf("tsconfig.json", role, TS_ZONE).visible).toBe(true);
+      expect(visibilityOf("package.json", role, TS_ZONE).visible).toBe(true);
+      expect(visibilityOf("vitest.config.ts", role, TS_ZONE).visible).toBe(true);
       expect(visibilityOf("spec.md", role).visible).toBe(true);
-      expect(visibilityOf("src/billing/billing.contract.ts", role).visible).toBe(true);
+      expect(visibilityOf("src/billing/billing.contract.ts", role, TS_ZONE).visible).toBe(true);
     }
     const s = scopeTypecheck(result([SPEC_CONFIG_ERR, TEST_ERR]), "builder");
     expect(s.diagnostics).toEqual([SPEC_CONFIG_ERR]);
@@ -78,7 +94,7 @@ describe("each role's view over one mixed diagnostic set", () => {
 
 describe("the worker-facing output", () => {
   test("mixed errors: own zone in full, the rest as count + owner", () => {
-    const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "builder"));
+    const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "builder", TS_ZONE));
     expect(text).toBe(
       [
         "typecheck: 3 errors in your zone",
@@ -127,7 +143,7 @@ describe("the worker-facing output", () => {
 
 describe("zero leak: nothing but a count and an owner crosses the boundary", () => {
   test("the Run 15 leak — path, line, column and symbol name are all absent", () => {
-    const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "builder"));
+    const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "builder", TS_ZONE));
     for (const leak of [
       "CalendarDate",
       "tests/billing.test.ts",
@@ -143,7 +159,7 @@ describe("zero leak: nothing but a count and an owner crosses the boundary", () 
   });
 
   test("the test-writer cannot read the implementation's state either", () => {
-    const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "test-writer"));
+    const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "test-writer", TS_ZONE));
     for (const leak of ["src/billing/billing.ts", "TS2322", "(12,7)", "not assignable"]) {
       expect(text).not.toContain(leak);
     }
@@ -227,7 +243,7 @@ describe("the architect and unbound sessions are not scoped", () => {
 
 describe("the guard log records the split, never the content", () => {
   test("counts and the owning role", () => {
-    const detail = scopeGuardDetail(scopeTypecheck(result(MIXED), "builder"));
+    const detail = scopeGuardDetail(scopeTypecheck(result(MIXED), "builder", TS_ZONE));
     expect(detail).toEqual({
       role: "builder",
       scoped: true,

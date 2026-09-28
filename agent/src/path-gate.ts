@@ -13,14 +13,18 @@
 
 import { logGuardEvent, RUN_START_GUARD } from "./guard-log.ts";
 import { readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { resolvedProjectPath } from "./setup-state.ts";
+
+/** The tools whose `path` names a project file or directory. */
+const GATED_PATH_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls", "write", "edit", "remove"]);
 import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { checkSubagentCall, type PhaseEvidence } from "./phase-gate.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
-import { specTechNouns } from "./pack-contrib.ts";
+import { contractFileSuffixes, contractGlobsOrUnreadable, hasContractSuffix, writeProtectionOrUnreadable, specTechNouns } from "./pack-contrib.ts";
 import type { KnownModel } from "./model-tier.ts";
-import { activeTicketDesign, designNotePath, ticketWriteScope } from "./ticket-design.ts";
+import { designNotePath, resolveTicketDesign, ticketWriteScope } from "./ticket-design.ts";
 import { createHash } from "node:crypto";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
@@ -296,6 +300,23 @@ export interface GateInput {
  * Returns `undefined` (allow / inactive) or `{ block, reason }` (deny).
  */
 export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
+  // Fail closed with a readable reason. A throw escaping here reaches the
+  // host's tool_call handler as a generic "hook errored", which tells the
+  // agent nothing about what to repair.
+  try {
+    return evaluateGate(ev);
+  } catch (error) {
+    const reason = `path-gate: cannot evaluate this call — ${error instanceof Error ? error.message : String(error)}`;
+    try {
+      logGuardEvent(ev.cwd, { guard: "path-gate", verdict: "block", summary: reason });
+    } catch {
+      // The refusal stands even when the log cannot be written.
+    }
+    return { block: true, reason };
+  }
+}
+
+function evaluateGate(ev: GateInput): GateBlock | undefined {
   const role = asRole(ev.role);
   if (!role) return undefined; // no pipeline role ⇒ gate inactive
 
@@ -310,14 +331,20 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   // what happened to the target project's guard log.
   if (ev.toolName === "subagent") {
     let evidence: PhaseEvidence;
+    let designProblem: string | undefined;
     try {
-      evidence = gatherEvidence(ev.cwd, ev.known);
+      ({ evidence, designProblem } = gatherEvidence(ev.cwd, ev.known));
     } catch (error) {
       const reason = `phase-gate: ${error instanceof Error ? error.message : String(error)}`;
       logGuardEvent(ev.cwd, { guard: "phase-gate", verdict: "block", summary: reason });
       return { block: true, reason };
     }
-    const verdict = checkSubagentCall(ev.input, evidence);
+    let verdict = checkSubagentCall(ev.input, evidence);
+    // A broken ticket design refuses only the spawns that need the design;
+    // a scout or the PM stays available to help repair it.
+    if (designProblem !== undefined && verdict.kind === "block" && verdict.form === undefined) {
+      verdict = { ...verdict, reason: `phase-gate: cannot commission the ${verdict.target ?? "worker"} — ${designProblem}` };
+    }
     switch (verdict.kind) {
       case "children-listed":
         // Consulting the retained-children list is what licenses a later cold
@@ -383,11 +410,14 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
     }
   }
 
-  const decision = decide(role, ev.toolName, ev.input, {
+  const ctx = {
     cwd: ev.cwd,
     ...(ev.harnessRoot !== undefined ? { harnessRoot: ev.harnessRoot } : {}),
     ...(role === "architect" ? { ticketScope: ticketWriteScope(ev.cwd) } : {}),
-  });
+    ...(role === "architect" || role === "test-writer" || role === "builder"
+      ? { contractGlobs: contractGlobsOrUnreadable(ev.cwd), writeProtection: writeProtectionOrUnreadable(ev.cwd) } : {}),
+  };
+  const decision = resolvedDecision(decide(role, ev.toolName, ev.input, ctx), role, ev, ctx);
   if (decision.allow) return undefined;
 
   const rawPath = ev.input["path"];
@@ -398,6 +428,32 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
     detail: { role, tool: ev.toolName, path: rawPath ?? null },
   });
   return { block: true, reason: decision.reason };
+}
+
+/**
+ * decide() judges the path as written, and is pure. A link inside the project
+ * can point anywhere, so an allowed project path is judged again on what its
+ * links resolve to: an escape from the project, or into .git, is refused, and
+ * a link into another zone is held to that zone's rule. A read of the
+ * harness's own skills outside the project is left to decide(), which already
+ * resolved it against the harness root.
+ */
+function resolvedDecision(
+  decision: ReturnType<typeof decide>,
+  role: Role,
+  ev: GateInput,
+  ctx: Parameters<typeof decide>[3],
+): ReturnType<typeof decide> {
+  const raw = ev.input["path"];
+  if (!decision.allow || typeof raw !== "string" || !GATED_PATH_TOOLS.has(ev.toolName)) return decision;
+  const lexical = relative(ev.cwd, resolve(ev.cwd, raw));
+  if (lexical === ".." || lexical.startsWith(`..${sep}`) || isAbsolute(lexical)) return decision;
+  const real = resolvedProjectPath(ev.cwd, raw);
+  if (real === undefined) {
+    return { allow: false, reason: `path-gate: ${role} may not use '${raw}': it resolves outside the project or into .git` };
+  }
+  if (real === (lexical === "" ? "." : lexical)) return decision;
+  return decide(role, ev.toolName, { ...ev.input, path: join(ev.cwd, real) }, ctx);
 }
 
 /**
@@ -423,13 +479,22 @@ export function evaluateAmbientPathGate(ev: GateInput): GateBlock | undefined {
  * `readDevStageModels` never throws — absent, unreadable and malformed all
  * come back as "no override" — so a broken config still cannot cost a run.
  */
-function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEvidence {
-  const ticket = activeTicketDesign(cwd);
+function gatherEvidence(
+  cwd: string,
+  known?: readonly KnownModel[],
+): { evidence: PhaseEvidence; designProblem?: string } {
+  // Only this ticket's own design matters here: its ownership was checked
+  // when it was frozen, and the freeze comparison below catches any change.
+  // A stale note for ANOTHER ticket must not block this run's spawns.
+  const state = resolveTicketDesign(cwd, { siblings: "ignore" });
+  const ticket = state.kind === "ready" ? state.design : undefined;
   let specText = "";
-  try {
-    specText = readFileSync(join(cwd, designNotePath(cwd)), "utf8");
-  } catch {
-    specText = ""; // absent
+  if (state.kind === "legacy" || state.kind === "ready") {
+    try {
+      specText = readFileSync(join(cwd, designNotePath(cwd)), "utf8");
+    } catch {
+      specText = ""; // absent
+    }
   }
   let events: PhaseEvidence["events"] = [];
   try {
@@ -444,22 +509,32 @@ function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEviden
       designHashes[path] = createHash("sha256").update(body, "utf8").digest("hex");
     }
   }
-  return {
-    contracts: ticket?.contracts ?? findContracts(cwd),
+  const suffixes = contractFileSuffixes(cwd);
+  const selected = state.kind === "legacy" ? undefined :
+    state.kind === "ready" ? state.design.ticket : state.ticket;
+  const evidence: PhaseEvidence = {
+    // An unwritten or refused design owns nothing yet, so every worker that
+    // needs one is refused while a scout may still be commissioned.
+    contracts: state.kind === "legacy" ? findContracts(cwd, suffixes) : ticket?.contracts ?? [],
+    contractSuffixes: suffixes,
     specText,
     events,
-    ticket: ticket?.ticket,
+    ...(selected !== undefined ? { ticket: selected } : {}),
     designHashes,
     models: readDevStageModels(cwd),
     techNouns: specTechNouns(cwd),
     ...(known !== undefined ? { known } : {}),
   };
+  return state.kind === "refused" ? { evidence, designProblem: state.reason } : { evidence };
 }
 
-/** Project-relative *.contract.ts paths, skipping the obvious noise. */
-function findContracts(root: string): string[] {
+/** Project-relative contract paths (by the composed packs' suffixes). A
+ *  contract lives under src/ — every contract glob is `src/**\/*<suffix>`
+ *  (ADR 2026-052) — so only src/ is searched, and hidden directories are
+ *  skipped. Build output and installed dependencies are therefore never
+ *  walked without the core naming any stack's directories. */
+function findContracts(root: string, suffixes: readonly string[]): string[] {
   const out: string[] = [];
-  const skip = new Set(["node_modules", ".git", ".bounded", "dist", "build"]);
   const walk = (dir: string, depth: number): void => {
     if (depth > 8) return;
     let entries: import("node:fs").Dirent[];
@@ -470,12 +545,12 @@ function findContracts(root: string): string[] {
     }
     for (const e of entries) {
       if (e.isDirectory()) {
-        if (!skip.has(e.name)) walk(join(dir, e.name), depth + 1);
-      } else if (e.name.endsWith(".contract.ts")) {
-        out.push(relative(root, join(dir, e.name)));
+        if (!e.name.startsWith(".")) walk(join(dir, e.name), depth + 1);
+      } else if (hasContractSuffix(e.name, suffixes)) {
+        out.push(relative(root, join(dir, e.name)).split(sep).join("/"));
       }
     }
   };
-  walk(root, 0);
+  walk(join(root, "src"), 0);
   return out;
 }

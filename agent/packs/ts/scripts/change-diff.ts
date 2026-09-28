@@ -16,7 +16,7 @@ export interface DesignDiff {
 }
 
 function currentFiles(root: string): Record<string, string> {
-  const ticket = activeTicketDesign(root);
+  const ticket = activeTicketDesign(root, { siblings: "ignore" });
   const paths = [join(root, designNotePath(root)), ...(ticket ? ticket.contracts.map((path) => join(root, path)) : findContractFiles(root))];
   const context = join(root, "CONTEXT.md");
   try { readFileSync(context); paths.push(context); } catch { /* optional */ }

@@ -36,8 +36,6 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "bounded-ts/value-object-documented",
   "bounded-ts/value-objects-own-contract",
   "bounded-ts/no-cross-contract-type-import",
-  "bounded-ts/no-erased-router",
-  "bounded-ts/router-type-reexported",
   "bounded-ts/no-schema-on-surface",
 ];
 
@@ -61,7 +59,32 @@ export function contributedPurityOverrides(cwd?: string): readonly ContractPurit
   return (cwd === undefined ? installedPacks() : composedPacks(cwd)).read(contractPurityOverrides);
 }
 
+/** Rule ids a composed pack adds to this gate from its own plugin, for
+ *  reporting and brief-drift checks alongside `CONTRACT_RULE_IDS`. */
+export function contributedContractRuleIds(cwd?: string): readonly string[] {
+  return contributedPurityOverrides(cwd).flatMap((override) =>
+    override.plugin === undefined
+      ? []
+      : Object.keys(override.rules).filter((id) => id.startsWith(`${override.plugin!.namespace}/`)),
+  );
+}
+
+/** One flat-config plugin object per contributed namespace. ESLint refuses two
+ *  different objects under one namespace, so every block shares these. */
+function contributedPurityPlugins(overrides: readonly ContractPurityOverride[]): Map<string, ESLint.Plugin> {
+  const out = new Map<string, ESLint.Plugin>();
+  for (const { plugin: contributed } of overrides) {
+    if (contributed === undefined) continue;
+    const existing = (out.get(contributed.namespace) as { rules?: Record<string, unknown> } | undefined)?.rules ?? {};
+    // Same upstream RuleModule/Plugin type friction as the base plugin below.
+    out.set(contributed.namespace, { rules: { ...existing, ...contributed.rules } } as unknown as ESLint.Plugin);
+  }
+  return out;
+}
+
 export function createContractLinter(cwd?: string): ESLint {
+  const overrides = contributedPurityOverrides(cwd);
+  const packPlugins = contributedPurityPlugins(overrides);
   return new ESLint({
     ...(cwd === undefined ? {} : { cwd }),
     // The gate owns the whole config: no project eslint config is consulted,
@@ -102,19 +125,6 @@ export function createContractLinter(cwd?: string): ESLint {
           // 2026-023) at contract-purity; the scaffolder keeps the same refusal
           // as a backstop (ADR 2026-027).
           "bounded-ts/no-cross-contract-type-import": "error",
-          // The API-service reference set (TN-26-004). A type-erased framework
-          // type on a contract surface throws away the typed client (dogfood
-          // r22's `ServiceRouter = AnyRouter`); the inferred router type is
-          // re-exported from the implementation module instead (ADR 2026-030).
-          "bounded-ts/no-erased-router": "error",
-          // The other half of the same hole (TN-26-006 A2). no-erased-router
-          // refuses a router type that is PRESENT and erased; Run 23 delivered
-          // two services green with it simply ABSENT — equally legal, equally
-          // fatal to the typed client, and bounced by nothing. A service
-          // contract must re-export the inferred type from its implementation
-          // module. Fires only where a service-runtime import says the file is
-          // a service contract; a domain contract has no router.
-          "bounded-ts/router-type-reexported": "error",
           // zod is the engine inside a value object, never a public identity:
           // nothing from zod may appear in a contract (ADR 2026-031).
           "bounded-ts/no-schema-on-surface": "error",
@@ -124,10 +134,15 @@ export function createContractLinter(cwd?: string): ESLint {
       // plugin object (the same object, which flat config permits) so a block
       // naming a `bounded-ts/…` rule resolves it without depending on how
       // ESLint happens to merge plugins across matching blocks.
-      ...contributedPurityOverrides(cwd).map((override) => ({
+      ...overrides.map((override) => ({
         files: [...override.files],
         languageOptions: { parser },
-        plugins: { "bounded-ts": plugin as unknown as ESLint.Plugin },
+        plugins: {
+          "bounded-ts": plugin as unknown as ESLint.Plugin,
+          ...(override.plugin === undefined
+            ? {}
+            : { [override.plugin.namespace]: packPlugins.get(override.plugin.namespace)! }),
+        },
         rules: { ...override.rules },
       })),
     ],

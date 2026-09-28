@@ -81,5 +81,12 @@
   },
   "projectInitScripts": [
     "scripts/new-web-app.ts"
-  ]
+  ],
+  "//projectConfig": "Generated project config (ADR 2026-054). reference/vite.config.ts and reference/index.html are the exact files new-web-app.ts emits (pinned by a test); index.html is config because the bundler reads it from the root as the build entry, so projectConfigNames adds it to the drift check, shipped as data so the ts pack's drift check and config sync know its bytes without executing this pack. check:build is the build check deliver would otherwise fold into `check` (build-check.ts), generated into the manifest instead so delivery leaves it unchanged.",
+  "projectConfigFiles": ["reference/index.html", "reference/vite.config.ts"],
+  "projectConfigNames": ["index.html"],
+  "projectScripts": {
+    "check:build": "vite build"
+  },
+  "projectCheckScripts": ["check:build"]
 }

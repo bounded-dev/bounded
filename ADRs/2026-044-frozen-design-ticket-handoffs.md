@@ -14,10 +14,12 @@ changed, added, or removed handed-off file requires a new freeze and consumer
 acceptance. The team lead coordinates dependencies and integration but never
 authors the shared design.
 
-The first slice supports separate gate roots. The current developer stage's
-single root spec and project-wide contract scan do not permit independent
-ticket freezes within one gate root; general same-project fan-out remains a
-separate problem.
+In a project with ticket-numbered Technical Notes (ADR 2026-050), each
+ticket's review and freeze cover only its own TN and owned contracts, so
+tickets in one project freeze independently. The project typecheck and
+integration checks still cover the combined tree, and concurrent tickets must
+not edit the same contract. A project still on a single root `spec.md` freezes
+its whole contract set at once and needs separate gate roots per ticket.
 
 ## Why
 

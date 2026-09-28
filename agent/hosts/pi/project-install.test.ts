@@ -18,6 +18,7 @@ function stage(): { project: string; harness: string } {
     mkdirSync(extensions, { recursive: true });
     writeFileSync(join(extensions, `${name}.ts`), "export default () => {};\n");
   }
+  writeFileSync(join(harness, "hosts", "pi", "bootstrap.ts"), "export async function enterProject() {}\n");
   mkdirSync(join(extensions, "path-gate"));
   writeFileSync(join(extensions, "path-gate", "architect.ts"), "export default () => {};\n");
   mkdirSync(join(harness, "agents"));
@@ -35,8 +36,13 @@ describe("project-local pi install", () => {
 
     const loader = readFileSync(join(project, ".pi/extensions/bounded/index.ts"), "utf8");
     expect(loader).toContain("../../../.bounded/harness/hosts/pi/extensions/path-gate.ts");
-    expect(loader).toContain("extension3(pi);");
-    expect(loader).toContain('input.agentScope = "project"');
+    // The generated loader only wires paths; its behaviour lives in the typed bootstrap.
+    expect(loader).toContain('import { enterProject } from "../../../.bounded/harness/hosts/pi/bootstrap.ts";');
+    expect(loader).toContain('resolve(dirname(fileURLToPath(import.meta.url)), "../../..")');
+    for (const name of ["architect-tools", "dev-tools", "model-tier", "path-gate", "web"]) {
+      expect(loader).toContain(`import("../../../.bounded/harness/hosts/pi/extensions/${name}.ts")`);
+    }
+    expect(loader).not.toMatch(/npm|node_modules|setup-complete|guard-log/);
     const settings = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
     expect(settings.packages).toEqual(["npm:pi-subagents@0.52.1"]);
     expect(settings.skills).toEqual(["../.bounded/harness/skills", "../.bounded/harness/packs"]);
@@ -53,6 +59,13 @@ describe("project-local pi install", () => {
     expect(() => installProjectPi(project, harness)).toThrow("refused existing file");
     expect(readFileSync(join(project, ".pi/settings.json"), "utf8")).toBe("{}\n");
     expect(existsSync(join(project, ".pi/extensions"))).toBe(false);
+  });
+
+  test("refuses an uncopied bootstrap before writing anything", () => {
+    const { project, harness } = stage();
+    rmSync(join(harness, "hosts/pi/bootstrap.ts"));
+    expect(() => installProjectPi(project, harness)).toThrow("missing copied harness resource");
+    expect(existsSync(join(project, ".pi"))).toBe(false);
   });
 
   test("refuses an uncopied role extension before writing anything", () => {

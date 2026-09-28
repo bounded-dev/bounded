@@ -280,8 +280,9 @@ cd ~/dev/bounded-harness-dogfood-2        # Claude Code, paste PROMPT.md
 cd ~/dev/bounded-harness-dogfood-1   # pi --model sonnet, paste PROMPT.md
 ```
 
-Three directories, forever. `~/dev/bounded-harness-dogfood-archive` holds every past
-run as a branch, pushed to a private remote. **Pin the model explicitly** — the
+Three directories, forever (the paths above are the scripts' defaults;
+`DOGFOOD_1`, `DOGFOOD_2` and `DOGFOOD_ARCHIVE` override them). The archive
+repository holds every past run as a branch, pushed to a private remote. **Pin the model explicitly** — the
 default is `kimi-k2p7-code` and it has silently claimed several runs.
 
 Archiving is automatic: `scripts/dogfood/reset` auto-saves any arm holding output to

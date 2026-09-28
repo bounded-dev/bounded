@@ -22,6 +22,7 @@ import {
 } from "./sanitize-test-output.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
+import { configDriftBlock, configDriftReason } from "./project-config.ts";
 
 /** Captured output of one command invocation. */
 export interface CommandOutput {
@@ -162,6 +163,10 @@ export function summarizeResults(results: readonly SanitizedResult[]): RunSummar
  * an unparseable run is reported via {@link RunTestsResult.blocked}.
  */
 export async function runTests(cwd: string, options: RunTestsOptions = {}): Promise<RunTestsResult> {
+  // The test runner loads the project's config as code: refuse to spawn it
+  // over config the composed packs did not generate (ADR 2026-054).
+  const drift = configDriftReason(cwd);
+  if (drift !== undefined) return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: drift };
   const run = options.run ?? spawnRunner;
   const command = options.command ?? DEFAULT_COMMAND;
   const args = options.args ?? DEFAULT_ARGS;
@@ -303,6 +308,8 @@ function priorFailureSets(cwd: string): string[][] {
  * suite; ERROR is a suite that could not even produce a report.
  */
 export async function runTestsGate(cwd: string, options: RunTestsOptions = {}): Promise<GateResult> {
+  const configBlock = configDriftBlock(RUN_TESTS_GUARD, cwd);
+  if (configBlock !== undefined) return configBlock;
   const result = await runTests(cwd, options);
   const names = failureNames(result);
   // The guard log is the only run history that survives between tool calls,

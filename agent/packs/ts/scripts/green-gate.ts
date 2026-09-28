@@ -44,6 +44,8 @@ import type { GateResult } from "../../../src/gate-result.ts";
 import { typecheck, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
+import { contractGlobs } from "../../../src/pack-contrib.ts";
+import { configDriftBlock } from "./project-config.ts";
 import { lintSrc } from "./lint-src.ts";
 import { checkProjectSurfaces } from "./surface-check.ts";
 import { findSkeletonImportsInSrc, type SkeletonImporter } from "./skeleton-imports.ts";
@@ -170,9 +172,11 @@ export function classifyGreen(
    *  the throw. An unimplemented export is not GREEN whatever the suite says.
    *  Always the builder's: implementing the skeleton is its job. */
   skeletons: readonly SkeletonImporter[] = [],
+  /** The composed packs' contract globs (`contractGlobs(cwd)`). */
+  contracts: readonly string[] = [],
 ): GateResult {
   const suite = suiteVerdict(run);
-  const types = routeTypecheck(tsc.diagnostics);
+  const types = routeTypecheck(tsc.diagnostics, contracts);
 
   if (
     suite === null &&
@@ -410,6 +414,10 @@ function refusal(reason: "no-red" | "tests-changed" | "unbound-red"): GateResult
 }
 
 export async function runGreenGate(cwd: string): Promise<GateResult> {
+  // The suite and typecheck load the project's config: it must be what the
+  // composed packs generate (ADR 2026-054).
+  const configBlock = configDriftBlock(GUARD, cwd);
+  if (configBlock !== undefined) return configBlock;
   const binding = redBindingFor(readGuardLog(cwd), testsTreeHash(cwd));
   if (!binding.ok) {
     const result = refusal(binding.reason);
@@ -439,6 +447,7 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
     lint.code === 1 ? lint.lines.slice(0, -1) : [],
     surfaces.code === 1 ? surfaces.lines.slice(0, -1) : [],
     skeletons,
+    contractGlobs(cwd),
   );
 
   // Reroute a repeat. classifyGreen stays pure — the history lives in the guard

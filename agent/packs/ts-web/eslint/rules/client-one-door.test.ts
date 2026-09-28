@@ -59,7 +59,7 @@ export declare function explain(e: TRPCClientError<never>): string;`,
       code: `import { useState } from "react";`,
       filename: "src/ui/features/submit-report/form.tsx",
     },
-    // @trpc/server belongs to the ts pack's raw-framework-entry, not to this
+    // @trpc/server belongs to the ts-service pack's raw-framework-entry, not to this
     // rule's door — but it is still a transport import outside shared/api, and
     // a service file is not a UI file. Both rules see it; only one owns it.
     {

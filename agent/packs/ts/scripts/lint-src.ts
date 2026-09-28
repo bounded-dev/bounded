@@ -80,12 +80,7 @@ export const TEST_PATTERNS: readonly string[] = ["tests/**/*.ts", "tests/**/*.ts
 const SIZE_RULES = new Set(["complexity", "max-lines-per-function", "max-lines", "max-depth"]);
 // Value objects live in src/**; a test file declares none, so the zod rule
 // would only ever fire on a test HELPER faking one — which the laws own.
-const SRC_ONLY_RULES = new Set([
-  "bounded-ts/zod-backed-parse",
-  // Tests may import the framework freely (asserting a TRPCError is not
-  // re-mapping the taxonomy); only src/** is bound to the runtime's one door.
-  "bounded-ts/raw-framework-entry",
-]);
+const SRC_ONLY_RULES = new Set(["bounded-ts/zod-backed-parse"]);
 
 /** Every rule id the src gate enforces — exported so guard-doc-drift.test.ts
  *  can require each one to be named in builder.md. The deterministic-check
@@ -103,7 +98,6 @@ export const SRC_RULE_IDS: readonly string[] = [
   "@typescript-eslint/ban-ts-comment",
   "bounded-ts/blessed-stacks-only",
   "bounded-ts/zod-backed-parse",
-  "bounded-ts/raw-framework-entry",
 ];
 
 /** The subset enforced on tests/** (size ceilings excluded). */
@@ -262,10 +256,6 @@ export function createSrcLinter(cwd?: string): ESLint {
           // hand-rolled typeof-chains drift across builders and blunt the
           // generated hostile laws. src/** only (see TEST_RULE_IDS).
           "bounded-ts/zod-backed-parse": "error",
-          // --- One door to the framework (TN-26-004) -----------------------
-          // Runtime imports of @trpc/* belong to the shipped service-runtime
-          // alone — the error taxonomy is code there, not convention here.
-          "bounded-ts/raw-framework-entry": "error",
           // --- Contributed rules (the ts pack's lintSrcRules socket) --------
           // Appended LAST, so a contributed rule can never quietly restate one
           // of the ts pack's own at a lower severity: everything above is

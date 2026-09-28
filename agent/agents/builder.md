@@ -152,7 +152,7 @@ express, fastify, ajv, joi, yup, …). tRPC (`@trpc/server`) is the RPC stack
 and zod the schema engine (ADR 2026-029); if the spec seems to require a
 banned framework, that is a `CONTRACT-DISPUTE`, not an import.
 
-**The framework has one door** — `bounded-ts/raw-framework-entry`: a
+**The framework has one door** — `bounded-ts-service/raw-framework-entry` (when the service pack is composed): a
 runtime import of `@trpc/*` is legal only inside the generated
 `service-runtime.ts` (`import type` is fine anywhere). Build procedures
 through `createService` / `command` / `query` from `./service-runtime.js` —

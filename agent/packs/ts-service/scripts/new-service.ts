@@ -18,7 +18,7 @@ const CONTENT = [
 ].join("\n");
 
 export function seedService(target: string): void {
-  const runtime = join(target, ".bounded/harness/packs/ts/api/service-runtime.ts");
+  const runtime = join(target, ".bounded/harness/packs/ts-service/api/service-runtime.ts");
   if (!existsSync(runtime)) throw new Error("The selected TypeScript capability is missing its service runtime");
   const path = join(target, PLACEHOLDER);
   if (existsSync(path)) {

@@ -1,5 +1,23 @@
 import { describe, expect, test } from "vitest";
-import { routeTypecheck, typecheckLines, mostUpstream, type FixOwner } from "./typecheck-routing.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { routeTypecheck as routeWithZone, typecheckLines, mostUpstream, type FixOwner } from "./typecheck-routing.ts";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { contractGlobs } from "../../../src/pack-contrib.ts";
+
+// The architect's zone as a ts-composed project declares it (contracts and
+// project config come from the ts pack's contrib data, not from the core).
+const TS_ZONE = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "routing-zone-"));
+  try {
+    writeProjectPacks(dir, ["ts"]);
+    return contractGlobs(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
+const routeTypecheck = (diagnostics: readonly string[]) => routeWithZone(diagnostics, TS_ZONE);
 
 const err = (file: string, line: number, code: string, msg: string) =>
   `${file}(${line},5): error TS${code}: ${msg}`;

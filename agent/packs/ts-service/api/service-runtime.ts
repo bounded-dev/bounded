@@ -1,6 +1,6 @@
 // The API-service reference runtime (TN-26-004, ADR 2026-029/030).
 //
-// CANONICAL COPY — packs/ts/api/service-runtime.ts. The scaffolder ships this
+// CANONICAL COPY — packs/ts-service/api/service-runtime.ts. The scaffolder ships this
 // file verbatim (plus a GENERATED marker) into any component whose contract
 // imports "./service-runtime.js", the same way surface-check.ts is shipped at
 // delivery: ONE implementation, copied byte-for-byte, never hand-edited in a

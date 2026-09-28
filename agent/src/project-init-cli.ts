@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { applyInit, describeInit, planInit } from "./project-init.ts";
+import { SETUP_COMMAND } from "./setup-state.ts";
 
 async function main(args: string[]): Promise<void> {
   let target = process.cwd();
@@ -63,7 +64,7 @@ function view(action: string, plan: Awaited<ReturnType<typeof planInit>>, fullJs
     paths: Object.keys(plan.createdFiles),
     harnessFiles: Object.keys(plan.files).length,
     digest: plan.digest,
-    next: action === "plan" ? "Review these paths, then rerun with --apply <digest>. Use --json for hashes." : "Run npm run bounded:setup, then restart or trust the project in the selected agent host before relying on its gates.",
+    next: action === "plan" ? "Review these paths, then rerun with --apply <digest>. Use --json for hashes." : `Run ${SETUP_COMMAND}, then restart or trust the project in the selected agent host before relying on its gates.`,
   };
 }
 

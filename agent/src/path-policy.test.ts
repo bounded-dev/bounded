@@ -1,4 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { contractGlobs, writeProtection } from "./pack-contrib.ts";
+import { writeProjectPacks } from "./project-composition.ts";
 import {
   decide,
   FORBIDDEN_TOOLS,
@@ -13,7 +18,20 @@ import {
 // TN-26-001 blindness matrix, executable form.
 // Paths are resolved against a fixed project root (/repo) so tests are hermetic.
 
-const CTX = { cwd: "/repo" } as const;
+/** The contract globs of a project composing the ts pack (ADR 2026-052) —
+ *  what the host resolves and hands decide(). */
+function composedZone(packs: readonly string[]): string[] {
+  const dir = mkdtempSync(join(tmpdir(), "path-policy-zone-"));
+  try {
+    writeProjectPacks(dir, packs);
+    return contractGlobs(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const TS_CONTRACTS = composedZone(["ts"]);
+
+const CTX = { cwd: "/repo", contractGlobs: TS_CONTRACTS } as const;
 
 const d = (role: Role, tool: string, path?: string): Decision =>
   decide(role, tool, path === undefined ? {} : { path }, CTX);
@@ -414,7 +432,7 @@ describe("block reasons", () => {
       "path-gate: reviewer may not write 'spec.md': reviewer has no write zone — it is read-only, and records what it found with record_design_review",
     );
     expect(reason("architect", "write", "src/orders/orders.ts")).toBe(
-      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones — the architect's writable surface is spec.md, docs/tn/TN-*.md, CONTEXT.md, ADRs/*.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts, scratch/**",
+      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones — the architect's writable surface is spec.md, docs/tn/TN-*.md, CONTEXT.md, ADRs/*.md, scratch/**, src/**/*.contract.ts",
     );
     expect(reason("test-writer", "grep")).toBe(
       "path-gate: test-writer may not use unscoped 'grep': pass an explicit path inside your zones",
@@ -462,11 +480,12 @@ describe("ownerOfPath", () => {
     ["tests/fakes/clock.ts", "test-writer"],
     ["src/orders/orders.ts", "builder"],
     ["src/shared/errors.ts", "builder"],
-    // Config files route to the architect — the skill's "orchestrator" case
-    // was always "also you", and Run 9's gate refused the write it promised.
-    ["vitest.config.ts", "architect"],
-    ["package.json", "architect"],
-    ["tsconfig.json", "architect"],
+    // Project config is generated from the composed packs and no role may
+    // write it (ADR 2026-054): a config diagnostic routes to the orchestrator.
+    ["vitest.config.ts", null],
+    ["package.json", null],
+    ["package-lock.json", null],
+    ["tsconfig.json", null],
     // The architect's scratch zone is the architect's alone — so a typecheck
     // diagnostic in a probe routes to the architect, never to a blind role.
     ["scratch/probe.ts", "architect"],
@@ -476,7 +495,7 @@ describe("ownerOfPath", () => {
   ];
   for (const [path, owner] of cases) {
     test(`${path} → ${owner ?? "(unowned)"}`, () => {
-      expect(ownerOfPath(path)).toBe(owner);
+      expect(ownerOfPath(path, TS_CONTRACTS)).toBe(owner);
     });
   }
 
@@ -750,7 +769,7 @@ describe("run_tests is builder-only", () => {
 // zone. Deleting must obey exactly the write zones.
 
 describe("remove obeys write zones", () => {
-  const ctx = { cwd: "/proj" };
+  const ctx = { cwd: "/proj", contractGlobs: TS_CONTRACTS };
 
   test("test-writer may remove its own test file", () => {
     expect(decide("test-writer", "remove", { path: "tests/values-boundaries.test.ts" }, ctx).allow).toBe(true);
@@ -779,24 +798,103 @@ describe("remove obeys write zones", () => {
   });
 });
 
-// The "orchestrator" route's destination: the skill promises the architect may
-// repair config files, and Run 9's gate refused the write it promised.
+// ADR 2026-054: project config is generated from the composed packs. Run 9
+// once gave the architect config writes for the "orchestrator" route; the
+// test-runner config is code the gates execute, so no role may write any of it.
 
-describe("architect may write config files (the orchestrator route)", () => {
-  const ctx = { cwd: "/proj" };
-  test("project knowledge and config files are writable only by the architect", () => {
-    for (const path of ["CONTEXT.md", "ADRs/2026-001-domain.md", "tsconfig.json", "package.json", "vitest.config.ts"]) {
+describe("no role may write project config", () => {
+  const ctx = { cwd: "/proj", contractGlobs: TS_CONTRACTS };
+  const CONFIG = [
+    "tsconfig.json", "tsconfig.api.json", "package.json", "package-lock.json",
+    "vitest.config.ts", "vitest.config.js", "vitest.config.mts", "vite.config.ts", ".npmrc",
+  ];
+  test("every role is refused every write-class tool on a config file", () => {
+    for (const path of CONFIG) {
+      for (const role of ["architect", "test-writer", "builder", "reviewer"] as const) {
+        for (const tool of ["write", "edit", "remove"] as const) {
+          expect(decide(role, tool, { path }, ctx).allow, `${role} ${tool} ${path}`).toBe(false);
+        }
+      }
+    }
+  });
+  test("project knowledge stays the architect's alone", () => {
+    for (const path of ["CONTEXT.md", "ADRs/2026-001-domain.md"]) {
       expect(decide("architect", "write", { path }, ctx).allow, path).toBe(true);
       for (const role of ["test-writer", "builder", "reviewer"] as const) {
         expect(decide(role, "write", { path }, ctx).allow, `${role}: ${path}`).toBe(false);
       }
     }
-    expect(decide("architect", "write", { path: "package.json" }, ctx).allow).toBe(true);
-    expect(decide("architect", "write", { path: "vitest.config.ts" }, ctx).allow).toBe(true);
   });
-  test("the workers still may not", () => {
-    expect(decide("builder", "write", { path: "tsconfig.json" }, ctx).allow).toBe(false);
-    expect(decide("test-writer", "write", { path: "package.json" }, ctx).allow).toBe(false);
+});
+
+// Nested dependency directories, harness state and config (ADR 2026-054). The
+// stack's tools resolve the nearest node_modules, package.json or tsconfig
+// before the root's, so one inside a role's zone would let that role replace a
+// dependency or re-configure a gate. The directory and file names are the ts
+// pack's data; .git and .bounded are the core's.
+describe("nested dependency dirs, harness state and config are write-denied at any depth", () => {
+  const protection = (() => {
+    const dir = mkdtempSync(join(tmpdir(), "path-policy-protect-"));
+    try {
+      writeProjectPacks(dir, ["ts"]);
+      return writeProtection(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  })();
+  const ctx = { cwd: "/proj", contractGlobs: TS_CONTRACTS, writeProtection: protection };
+  const refused = (role: Role, path: string): void => {
+    for (const tool of ["write", "edit", "remove"] as const) {
+      expect(decide(role, tool, { path }, ctx).allow, `${role} ${tool} ${path}`).toBe(false);
+    }
+  };
+
+  test("the pack names its dependency directory and nested config names", () => {
+    expect(protection.dirNames).toEqual(["node_modules"]);
+    expect(protection.fileNames).toContain("package.json");
+  });
+
+  test("the builder may not plant a dependency or config inside src/", () => {
+    for (const path of [
+      "src/node_modules/zod/package.json",
+      "src/node_modules/zod/index.d.ts",
+      "src/deep/NODE_MODULES/x.js",
+      "src/.bounded/package.json",
+      "src/.bounded/tsconfig.json",
+      "src/.GIT/config",
+      "src/ui/package.json",
+      "src/ui/tsconfig.app.json",
+      "src/JSCONFIG.json",
+    ]) refused("builder", path);
+    expect(decide("builder", "write", { path: "src/node_modules" }, ctx).allow).toBe(false);
+    expect(decide("builder", "write", { path: "src/money/money.ts" }, ctx).allow).toBe(true);
+    expect(decide("builder", "write", { path: "src/money/package-info.ts" }, ctx).allow).toBe(true);
+  });
+
+  test("the test-writer may not either, inside tests/", () => {
+    for (const path of ["tests/node_modules/x/index.js", "tests/.bounded/x", "tests/.git/HEAD", "tests/unit/tsconfig.json"]) {
+      refused("test-writer", path);
+    }
+    expect(decide("test-writer", "write", { path: "tests/unit/money.test.ts" }, ctx).allow).toBe(true);
+  });
+
+  test("the architect may not inside its scratch zone", () => {
+    for (const path of ["scratch/node_modules/x.js", "scratch/package.json", "scratch/.git/config"]) refused("architect", path);
+    expect(decide("architect", "write", { path: "scratch/probe.ts" }, ctx).allow).toBe(true);
+  });
+
+  test("the core names survive without any pack; an unreadable composition refuses every write", () => {
+    expect(decide("builder", "write", { path: "src/.bounded/x" }, { cwd: "/proj" }).allow).toBe(false);
+    expect(decide("builder", "write", { path: "src/.GIT/x" }, { cwd: "/proj" }).allow).toBe(false);
+    const unreadable = { cwd: "/proj", writeProtection: "unreadable" as const };
+    expect(decide("test-writer", "write", { path: "tests/x.test.ts" }, unreadable).allow).toBe(false);
+    expect(decide("test-writer", "read", { path: "tests/x.test.ts" }, unreadable).allow).toBe(true);
+  });
+
+  test("a protected path has no owner, so routing never names a role the gate refuses", () => {
+    expect(ownerOfPath("src/node_modules/zod/index.d.ts", TS_CONTRACTS, protection)).toBeNull();
+    expect(ownerOfPath("src/.bounded/x.ts", TS_CONTRACTS)).toBeNull();
+    expect(ownerOfPath("src/money/money.ts", TS_CONTRACTS, protection)).toBe("builder");
   });
 });
 
@@ -805,7 +903,7 @@ describe("architect may write config files (the orchestrator route)", () => {
 // in as a real contract. The zone is top-level so it overlaps no artifact zone,
 // architect-only so the three blind roles cannot write it.
 describe("the architect scratch zone", () => {
-  const ctx = { cwd: "/proj" };
+  const ctx = { cwd: "/proj", contractGlobs: TS_CONTRACTS };
 
   test("the architect may write, edit and remove inside scratch/", () => {
     for (const tool of ["write", "edit", "remove"] as const) {
@@ -826,5 +924,59 @@ describe("the architect scratch zone", () => {
     for (const role of ["test-writer", "builder", "reviewer"] as const) {
       expect(ZONES[role].writeAllow).not.toContain("scratch/**");
     }
+  });
+});
+
+// ADR 2026-052: contract files enter the architect's zone only through the
+// composed packs' contract globs. The core lists none of them.
+describe("pack-contributed architect contract zone", () => {
+  test("the ts pack contributes exactly its contract glob", () => {
+    expect(TS_CONTRACTS).toEqual(["src/**/*.contract.ts"]);
+  });
+
+  test("without composed contract globs the architect gets no contract write", () => {
+    for (const ctx of [{ cwd: "/proj" }, { cwd: "/proj", contractGlobs: "unreadable" as const }]) {
+      expect(decide("architect", "write", { path: "src/a.contract.ts" }, ctx).allow).toBe(false);
+      expect(decide("architect", "write", { path: "spec.md" }, ctx).allow).toBe(true);
+    }
+    expect(ownerOfPath("src/a.contract.ts")).not.toBe("architect");
+    expect(ownerOfPath("src/a.contract.ts", "unreadable")).not.toBe("architect");
+    for (const glob of TS_CONTRACTS) expect(ZONES.architect.writeAllow).not.toContain(glob);
+  });
+
+  test("another pack's suffix is what the architect may write", () => {
+    const ctx = { cwd: "/proj", contractGlobs: ["src/**/*.iface.py"] };
+    expect(decide("architect", "write", { path: "src/a.iface.py" }, ctx).allow).toBe(true);
+    expect(decide("architect", "write", { path: "src/a.contract.ts" }, ctx).allow).toBe(false);
+  });
+});
+
+// ADR 2026-052: the test-writer's contract read exception and the builder's
+// contract write deny are the composed contract globs too, never a core name.
+describe("pack-contributed contract globs for the blind roles", () => {
+  test("the core zones name no contract file", () => {
+    expect(ZONES["test-writer"].readExcept).toEqual([]);
+    expect(ZONES.builder.writeDeny).toEqual([]);
+  });
+
+  test("another pack's suffix is what the blind roles see and cannot write", () => {
+    const ctx = { cwd: "/proj", contractGlobs: ["src/**/*.iface.py"] };
+    expect(decide("test-writer", "read", { path: "src/a/b.iface.py" }, ctx).allow).toBe(true);
+    expect(decide("test-writer", "read", { path: "src/a/b.contract.ts" }, ctx).allow).toBe(false);
+    expect(decide("builder", "write", { path: "src/a/b.iface.py" }, ctx).allow).toBe(false);
+    expect(decide("builder", "write", { path: "src/a/b.contract.ts" }, ctx).allow).toBe(true);
+  });
+
+  test("with no contract globs, nothing in src/ is readable to the test-writer", () => {
+    expect(decide("test-writer", "read", { path: "src/a.contract.ts" }, { cwd: "/proj" }).allow).toBe(false);
+  });
+
+  test("an unreadable composition closes src/ to the builder and opens nothing to the test-writer", () => {
+    const ctx = { cwd: "/proj", contractGlobs: "unreadable" as const };
+    const w = decide("builder", "write", { path: "src/money.ts" }, ctx);
+    expect(w.allow).toBe(false);
+    expect(decide("builder", "write", { path: "scratch/x.ts" }, ctx).allow).toBe(false);
+    expect(decide("test-writer", "read", { path: "src/a.contract.ts" }, ctx).allow).toBe(false);
+    expect(decide("test-writer", "write", { path: "tests/a.test.ts" }, ctx).allow).toBe(true);
   });
 });

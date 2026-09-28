@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { applyInit, describeInit, mergeProjectFields, planInit } from "./project-init.ts";
+import { applyInit, describeInit, exampleContracts, planInit } from "./project-init.ts";
 
 const temporary: string[] = [];
 function empty(): string {
@@ -19,14 +19,9 @@ describe("project-local initialization", () => {
     expect(choice.hosts).toEqual(["pi", "claude-code"]);
   });
 
-  test("capability scripts and pins cannot silently replace earlier values", () => {
-    const fields = { check: "tsc --noEmit" };
-    mergeProjectFields(fields, { check: "tsc --noEmit" }, "Project script", "same");
-    expect(fields.check).toBe("tsc --noEmit");
-    expect(() => mergeProjectFields(fields, { check: "echo skipped" }, "Project script", "other")).toThrow(/conflicts/);
-    expect(fields.check).toBe("tsc --noEmit");
-    const pins = { package: "1.0.0" };
-    expect(() => mergeProjectFields(pins, { package: "2.0.0" }, "Dependency", "other")).toThrow(/conflicts/);
+  test("the TN README's example contract comes from the composed packs", () => {
+    expect(exampleContracts(["ts"])).toEqual(["contracts:", "  - src/example/example.contract.ts"]);
+    expect(exampleContracts([])).toEqual(["contracts: []"]);
   });
 
   test("refuses a nonempty project before any write", async () => {
@@ -91,7 +86,21 @@ describe("project-local initialization", () => {
     expect(readFileSync(join(target, ".gitignore"), "utf8")).toContain("!.bounded/harness/");
     expect(existsSync(join(target, ".bounded/guard-log.jsonl"))).toBe(false);
     expect(readFileSync(join(target, "AGENTS.md"), "utf8")).toContain(".bounded/harness/");
-    expect(readFileSync(join(target, "docs/tn/README.md"), "utf8")).toContain("TN-<issue-number>.md");
+    expect(readFileSync(join(target, "docs/tn/README.md"), "utf8")).toContain("TN-<ticket-number>.md");
+    const agents = readFileSync(join(target, "AGENTS.md"), "utf8");
+    expect(agents).toContain("TN-<ticket-number>.md");
+    expect(agents).not.toContain("issue-number");
+    // Project dependency setup comes from the composed packs, not from the core.
+    const ignore = readFileSync(join(target, ".gitignore"), "utf8").split("\n");
+    expect(ignore).toEqual(expect.arrayContaining(["/node_modules/", "/dist/", ".bounded/harness/node_modules/"]));
+    expect(ignore.indexOf(".bounded/harness/node_modules/")).toBeGreaterThan(ignore.indexOf("!.bounded/harness/"));
+    const scripts = (JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
+    expect(scripts["bounded:setup"]).toBeUndefined();
+    expect(readFileSync(join(target, ".bounded/harness/scripts/bounded"), "utf8")).toContain('setup) shift; exec node "$DIR/../src/setup-state.ts"');
+    // Pack commands come from the composed packs' projectCommands, not a core list.
+    expect(readFileSync(join(target, ".bounded/harness/scripts/bounded"), "utf8"))
+      .toContain('adopt|capture-baseline|change-diff|sync-config) shift; exec node "$DIR/../packs/command.ts" "$SUB" "$@" ;;');
+    expect(existsSync(join(target, ".bounded/harness/src/setup-state.ts"))).toBe(true);
     const stageSkill = readFileSync(join(target, ".bounded/harness/skills/developer-stage/SKILL.md"), "utf8");
     expect(stageSkill).not.toContain("bounded compose");
     expect(existsSync(join(target, ".bounded/harness/scripts/bounded-handoff"))).toBe(true);
@@ -105,7 +114,9 @@ describe("project-local initialization", () => {
     expect(architectSource).toContain("bash .bounded/harness/scripts/bounded change-run");
     if (host === "claude-code") {
       const architect = readFileSync(join(target, ".claude/agents/architect.md"), "utf8");
-      expect(readFileSync(join(target, "CLAUDE.md"), "utf8")).toBe(readFileSync(join(target, "AGENTS.md"), "utf8"));
+      const claude = readFileSync(join(target, "CLAUDE.md"), "utf8");
+      expect(claude.endsWith(readFileSync(join(target, "AGENTS.md"), "utf8"))).toBe(true);
+      expect(claude).toContain("`bash .bounded/harness/scripts/bounded setup`");
       expect(plan.files["CLAUDE.md"]).toBeDefined();
       expect(stageSkill).toContain("`bounded gates"); // Claude hook recognizes this literal command.
       expect(architect).toContain("`bounded gates");

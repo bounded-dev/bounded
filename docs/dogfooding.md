@@ -93,7 +93,9 @@ rewrite `dev-stage-models.json` to route around a dead model is refused and
 must escalate it as an environment/owner issue (Run 28 attempt 2). That is
 working as intended — run provenance is not the agent's to edit.
 
-Then walk into each and paste `PROMPT.md`:
+Then walk into each and paste `PROMPT.md`. The paths below are the scripts'
+defaults, given as examples; set `DOGFOOD_1`, `DOGFOOD_2`, and
+`DOGFOOD_ARCHIVE` to put the arms and the archive anywhere else:
 
 - `~/dev/bounded-harness-dogfood-1` — **arm 1**, the gated developer-stage arm
   (architect bound automatically via `.bounded/dev-stage-role`; no launcher).
@@ -107,8 +109,8 @@ it expects; check the guard log's first `host …` line matches before a run.
 
 Two directories, one `main` branch each, no worktrees. **Runs are disposable**
 — `scripts/dogfood/reset` wipes both and starts over, so copy anything worth keeping
-before re-running. Past runs (1–5) live as branches in
-`~/dev/bounded-harness-dogfood-archive`.
+before re-running. Past runs live as branches in the archive repository
+(by default `~/dev/bounded-harness-dogfood-archive`).
 
 `scripts/dogfood/reset` writes the operational `AGENTS.md` block from a single string
 and then *verifies* both arms got byte-identical prompts and blocks, failing

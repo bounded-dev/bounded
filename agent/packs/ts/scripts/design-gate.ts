@@ -60,6 +60,8 @@ import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
 import { diagnosticPath, isDiagnosticStart, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog, type GuardVerdict, type LoggedGuardEvent } from "../../../src/guard-log.ts";
+import { contractGlobs } from "../../../src/pack-contrib.ts";
+import { configDriftBlock } from "./project-config.ts";
 import { gateVerdictOf, guardVerdictOf, type GateResult } from "../../../src/gate-result.ts";
 import { activeTicketDesign } from "../../../src/ticket-design.ts";
 
@@ -194,7 +196,7 @@ async function runProjectTypecheck(
   const result = await typecheck(cwd, gateTypecheckOptionsFromEnv());
   if (result.ok) return { code: 0, lines: [formatTypecheck(result)] };
 
-  const routing = routeTypecheck(result.diagnostics);
+  const routing = routeTypecheck(result.diagnostics, contractGlobs(cwd));
   if (routing.errorCount === 0) {
     // tsc failed without emitting a parseable diagnostic — a broken tsconfig, a
     // crash, a missing toolchain. That is misuse (the gate could not run), not
@@ -526,6 +528,11 @@ export async function runDesignGate(
   // Set by the typecheck step when a re-freeze let worker-owned drift through,
   // so the composite event records that the freeze knowingly stood over it.
   let drift: TypecheckDrift | undefined;
+
+  // Project config the composed packs did not generate is refused before any
+  // step runs: the typecheck step loads it (ADR 2026-054).
+  const configBlock = configDriftBlock(GUARD, cwd);
+  if (configBlock !== undefined) return { ...configBlock, steps: [] };
 
   const reFreeze = hasManifest(cwd);
   if (reFreeze) {

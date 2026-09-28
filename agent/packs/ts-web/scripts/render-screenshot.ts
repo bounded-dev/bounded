@@ -36,6 +36,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import type { AddressInfo } from "node:net";
+import { configDriftBlock } from "../../ts/scripts/project-config.ts";
 
 const GUARD = "render-screenshot";
 
@@ -249,6 +250,10 @@ export async function renderScreenshot(cwd: string, options: RenderOptions = {})
   if (!existsSync(join(cwd, "index.html"))) {
     return unavailable("no index.html in this project — nothing here renders in a browser");
   }
+  // The build loads the project's bundler config as code: it must be what the
+  // composed packs generate (ADR 2026-054).
+  const configBlock = configDriftBlock(GUARD, cwd);
+  if (configBlock !== undefined) return { code: 2, lines: configBlock.lines };
 
   const build = await run("npx", ["vite", "build"], cwd);
   if (build.code !== 0) {
