@@ -70,8 +70,17 @@ describe("project config is generated from the composed packs (ADR 2026-054)", (
   test("each composition generates its own files, and an uncomposed pack leaves no trace", () => {
     const surface = "scripts/surface-check.ts";
     expect(configFiles(tsOnly.project, tsOnly.harness)).toEqual(["package.json", surface, "tsconfig.json"]);
-    expect(configFiles(service.project, service.harness)).toEqual(["package.json", surface, "tsconfig.json"]);
-    expect(configFiles(web.project, web.harness)).toEqual(["package.json", surface, "scripts/web-build-check.ts", "tsconfig.json"]);
+    // ts-trpc and ts-web compose ts-hexagonal, which ships the architecture
+    // rulebook and the architecture test (ADR 2026-063).
+    const hexagonal = [
+      "architecture.test.ts",
+      ...["adapters", "agent-workflow", "application", "apps-and-composition", "bounded-contexts",
+        "directory-structure", "domain", "error-handling", "layers-and-dependencies", "persistence",
+        "readme", "testing"].map((doc) => `docs/architecture/${doc}.md`),
+    ];
+    expect(configFiles(service.project, service.harness)).toEqual([...hexagonal, "package.json", surface, "tsconfig.json"]);
+    expect(configFiles(web.project, web.harness))
+      .toEqual([...hexagonal, "package.json", surface, "scripts/web-build-check.ts", "tsconfig.json"]);
     // The surface checker the generated check:surface runs is shipped at init,
     // byte-identical to the one delivery would ship.
     expect(readFileSync(join(service.project, surface), "utf8"))

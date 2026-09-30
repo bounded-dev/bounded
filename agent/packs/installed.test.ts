@@ -104,21 +104,17 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
     expect(registry.read(skeletonEmitters)).toEqual([]);
   });
 
-  test("the rework's stub packs compose, and contribute nothing yet", () => {
-    const stubs = ["ts-hexagonal"];
-    const registry = composePacks(INSTALLED_PACKS, [TS_PACK, ...stubs]);
-    expect(registry.read(skeletonEmitters)).toEqual([]);
-    for (const name of stubs) {
-      const pack = INSTALLED_PACKS.find((p) => p.name === name);
-      expect(pack?.contributes, name).toEqual([]);
-      expect(pack?.defines, name).toEqual([]);
-    }
+  test("ts-hexagonal contributes emitters, and the adapter packs require it", () => {
+    const registry = composePacks(INSTALLED_PACKS, [TS_PACK, "ts-hexagonal"]);
+    expect(registry.read(skeletonEmitters).length).toBeGreaterThan(0);
     expect(() => composePacks(INSTALLED_PACKS, [TS_PACK, "ts-mcp"])).toThrow(/depends on pack 'ts-hexagonal'/);
   });
 
   test("the adapter and app packs each contribute their emitters (ADR 2026-063)", () => {
-    const emitters = (packs: readonly string[]) => composePacks(INSTALLED_PACKS, packs).read(skeletonEmitters).map((e) => e.name);
     const base = [TS_PACK, "ts-hexagonal"];
+    const baseNames = new Set(composePacks(INSTALLED_PACKS, base).read(skeletonEmitters).map((e) => e.name));
+    const emitters = (packs: readonly string[]) =>
+      composePacks(INSTALLED_PACKS, packs).read(skeletonEmitters).map((e) => e.name).filter((n) => !baseNames.has(n));
     expect(emitters([...base, "ts-trpc"])).toEqual(["trpc-in-adapter"]);
     expect(emitters([...base, "ts-mcp"])).toEqual(["mcp-in-adapter", "mcp-app"]);
     expect(emitters([...base, "ts-lambda"])).toEqual(["lambda-in-adapter", "lambda-app"]);

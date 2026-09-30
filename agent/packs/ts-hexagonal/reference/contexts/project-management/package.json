@@ -1,0 +1,14 @@
+{
+  "name": "@example/project-management",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./domain": "./src/domain/index.ts",
+    "./application": "./src/application/index.ts",
+    "./adapters/console": "./src/adapters/out/console/index.ts",
+    "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.4"
+  }
+}

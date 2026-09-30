@@ -156,9 +156,13 @@ describe("what the example's design emits", () => {
   });
 
   test("the composed emitters are the pack's two, and nothing else emits drizzle files", () => {
+    // ts-hexagonal's emitters compose underneath; of the drizzle folder they
+    // write only the barrel, adapters/out/drizzle/index.ts (TN-26-012 §6).
+    const hexagonal = new Set(composePacks(INSTALLED_PACKS, ["ts", "ts-hexagonal"]).read(skeletonEmitters).map((e) => e.name));
     const emitters = composePacks(INSTALLED_PACKS, PACKS).read(skeletonEmitters);
-    expect(emitters.map((e) => e.name)).toEqual(["drizzle-persistence", "drizzle-stores"]);
-    expect(emitters.flatMap((e) => e.emit(exampleFacts()))).toEqual(all());
+    const own = emitters.filter((e) => !hexagonal.has(e.name));
+    expect(own.map((e) => e.name)).toEqual(["drizzle-persistence", "drizzle-stores"]);
+    expect(own.flatMap((e) => e.emit(exampleFacts()))).toEqual(all());
   });
 });
 

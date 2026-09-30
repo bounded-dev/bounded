@@ -14,8 +14,10 @@ export default defineConfig({
     // files are a worked example, driven through the gates by
     // reference-component.test.ts against a throwaway copy — never collected
     // and run as part of the harness's own suite (they use NodeNext `.js`
-    // specifiers and belong to a different tsconfig).
-    exclude: [...configDefaults.exclude, "packs/ts/reference/**"],
+    // specifiers and belong to a different tsconfig). Every pack's reference/
+    // is such a fixture: ts-hexagonal's runs under `bun test` in a temporary
+    // project (packs/ts-hexagonal/reference.test.ts), never under vitest.
+    exclude: [...configDefaults.exclude, "packs/*/reference/**"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     // The same fixtures fan out further: each worker spawns node/tsc/vitest

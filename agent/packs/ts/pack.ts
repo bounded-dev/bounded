@@ -508,6 +508,12 @@ export interface AdapterTechnology {
   /** Out adapters only: implements every `<Feature>Store` port, and has a
    *  shared `<Prefix>Database` in `<id>-database.ts`. False for in adapters. */
   readonly storage: boolean;
+  /** Storage technologies only: whether `<Prefix>Database` is exported as a
+   *  value (a class, `InMemoryDatabase`) or only as a type (an alias,
+   *  `DrizzleDatabase`). The out barrel re-exports it with `export` or
+   *  `export type` accordingly; a type re-exported as a value is "export not
+   *  found" at runtime. Absent for every other technology. */
+  readonly database?: "value" | "type";
   /** Pins a context workspace takes when its tree has this technology's folder. */
   readonly pins: Pins;
   /** Scripts a context workspace's manifest takes when its tree has this
@@ -569,9 +575,10 @@ function strictObject(value: unknown, keys: readonly string[], where: string): R
 
 /**
  * The composed packs' `adapterTechnologies`, sorted by id. Each contrib.json
- * entry is `{ id, direction, description, featureRole?, storage?, pins?,
- * workspaceScripts? }`: an in adapter declares `featureRole` and no
- * `storage`; an out adapter declares `storage` and no `featureRole`. Unknown
+ * entry is `{ id, direction, description, featureRole?, storage?, database?,
+ * pins?, workspaceScripts? }`: an in adapter declares `featureRole` and no
+ * `storage`; an out adapter declares `storage` and no `featureRole`; a
+ * storage technology declares `database: "value" | "type"`. Unknown
  * fields, a duplicate id across the composition, a pin that is not exact, and
  * a workspace script name that is malformed, empty-commanded or contributed
  * by two technologies are refused.
@@ -584,7 +591,7 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
     if (!Array.isArray(value)) throw new Error(`Selected pack '${pack}' adapterTechnologies must be an array`);
     for (const raw of value) {
       const where = `Selected pack '${pack}' adapterTechnologies entry`;
-      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "pins", "workspaceScripts"], where);
+      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "database", "pins", "workspaceScripts"], where);
       const { id, direction, description, featureRole, storage } = entry;
       if (typeof id !== "string" || !KEBAB.test(id)) throw new Error(`${where} needs a kebab-case id`);
       const named = `${where} '${id}'`;
@@ -595,9 +602,14 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
           throw new Error(`${named} needs a one-word lowercase featureRole that the naming table does not already use`);
         }
         if (storage !== undefined) throw new Error(`${named} is an in adapter and cannot declare storage`);
+        if (entry.database !== undefined) throw new Error(`${named} is an in adapter and cannot declare a database`);
       } else if (direction === "out") {
         if (typeof storage !== "boolean") throw new Error(`${named} is an out adapter and must declare storage: true or false`);
         if (featureRole !== undefined) throw new Error(`${named} is an out adapter and cannot declare a featureRole`);
+        if (storage && entry.database !== "value" && entry.database !== "type") {
+          throw new Error(`${named} is a storage technology and must declare database: "value" (a class) or "type" (a type alias)`);
+        }
+        if (!storage && entry.database !== undefined) throw new Error(`${named} has no database and cannot declare one`);
       } else {
         throw new Error(`${named} needs direction 'in' or 'out'`);
       }
@@ -612,6 +624,7 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
         pack, id, direction, description,
         ...(direction === "in" ? { featureRole: featureRole as string } : {}),
         storage: direction === "out" && storage === true,
+        ...(direction === "out" && storage === true ? { database: entry.database as "value" | "type" } : {}),
         pins: checkedPins(entry.pins, named),
         ...(scripts === undefined ? {} : { workspaceScripts: scripts }),
       });

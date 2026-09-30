@@ -63,14 +63,14 @@ describe("skeletonEmitters (ADR 2026-060)", () => {
 
 describe("adapterTechnologies (ADR 2026-061)", () => {
   const MCP = { id: "mcp", direction: "in", featureRole: "tool", description: "MCP tools.", pins: { dependencies: { "@modelcontextprotocol/sdk": "1.20.0" } } };
-  const MEMORY = { id: "in-memory", direction: "out", storage: true, description: "In-memory stores." };
+  const MEMORY = { id: "in-memory", direction: "out", storage: true, database: "value", description: "In-memory stores." };
   const CONSOLE = { id: "console", direction: "out", storage: false, description: "Console stand-ins." };
 
   test("reads, normalises and sorts the composed technologies", () => {
     const dir = packsDir({ hex: { adapterTechnologies: [MEMORY, CONSOLE] }, mcp: { adapterTechnologies: [MCP] }, other: {} });
     expect(adapterTechnologies(["hex", "mcp", "other"], dir)).toEqual([
       { pack: "hex", id: "console", direction: "out", storage: false, description: "Console stand-ins.", pins: { dependencies: {}, devDependencies: {} } },
-      { pack: "hex", id: "in-memory", direction: "out", storage: true, description: "In-memory stores.", pins: { dependencies: {}, devDependencies: {} } },
+      { pack: "hex", id: "in-memory", direction: "out", storage: true, database: "value", description: "In-memory stores.", pins: { dependencies: {}, devDependencies: {} } },
       { pack: "mcp", id: "mcp", direction: "in", featureRole: "tool", storage: false, description: "MCP tools.",
         pins: { dependencies: { "@modelcontextprotocol/sdk": "1.20.0" }, devDependencies: {} } },
     ]);
@@ -87,6 +87,10 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     ["an in adapter with storage", [{ ...MCP, storage: false }], /cannot declare storage/],
     ["an out adapter without storage", [{ ...CONSOLE, storage: undefined }], /must declare storage/],
     ["an out adapter with a role", [{ ...CONSOLE, featureRole: "store" }], /cannot declare a featureRole/],
+    ["a storage technology without its database kind", [{ ...MEMORY, database: undefined }], /must declare database/],
+    ["a storage technology with an unknown database kind", [{ ...MEMORY, database: "class" }], /must declare database/],
+    ["a non-storage technology with a database", [{ ...CONSOLE, database: "value" }], /cannot declare one/],
+    ["an in adapter with a database", [{ ...MCP, database: "type" }], /cannot declare a database/],
     ["an unknown field", [{ ...CONSOLE, exportPath: "./x" }], /unknown field 'exportPath'/],
     ["a range pin", [{ ...MCP, pins: { dependencies: { zod: "^4.0.0" } } }], /exact version/],
     ["a pin section typo", [{ ...MCP, pins: { deps: {} } }], /only dependencies and devDependencies/],

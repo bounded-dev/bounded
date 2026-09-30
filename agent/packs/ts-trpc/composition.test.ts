@@ -48,11 +48,12 @@ describe("tRPC behaviour follows ts-trpc composition", () => {
 
   test("the emitter, the obligation and the legacy runtime", () => {
     const bare = composedPacks(project(WITHOUT));
-    expect(bare.read(skeletonEmitters)).toEqual([]);
+    // ts-hexagonal's own emitters are the baseline; ts-trpc adds exactly its one.
+    const baseline = new Set(bare.read(skeletonEmitters).map((e) => e.name));
     expect(bare.read(deliverChecks)).toEqual([]);
     expect(bare.read(contractSupportFiles)).toEqual([]);
     const composed = composedPacks(project(WITH));
-    expect(composed.read(skeletonEmitters).map((e) => e.name)).toEqual(["trpc-in-adapter"]);
+    expect(composed.read(skeletonEmitters).map((e) => e.name).filter((n) => !baseline.has(n))).toEqual(["trpc-in-adapter"]);
     expect(composed.read(deliverChecks).map((c) => c.name)).toEqual(["trpc-obligation"]);
     expect(composed.read(contractSupportFiles).map((f) => f.label)).toEqual(["API-service runtime"]);
   });
