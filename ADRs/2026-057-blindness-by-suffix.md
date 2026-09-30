@@ -22,6 +22,19 @@ dotted parts and may not overlap a contract suffix
   generated files stay readable to both.
 - Matching ignores case. An unreadable composition treats every file under a
   root as the other side.
+- A `!*<S>` exclusion is legal only when every test suffix ends with S. So
+  `!*.test.ts` alone is refused for the TypeScript set (`.test.ts`,
+  `.test.tsx`, `.test-support.ts`): no single exclusion covers all three,
+  and the builder passes an inclusion glob such as `*.handler.ts` instead.
+
+Added in implementation, to leave no doubt:
+
+- A directory grep needs the host's complete listing of the tree below it,
+  and that listing must contain no symlink.
+- No role may create a test file whose suffix is in another case
+  (`x.Test.ts`).
+- A `!*<S>` exclusion is checked against the real file names below the
+  directory: a test name in another case refuses it.
 
 ## Why
 
