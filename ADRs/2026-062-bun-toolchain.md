@@ -27,3 +27,34 @@ from the reference.
 `bun test` has no JSON reporter, so test results are read from JUnit. The
 sanitised view the builder sees keeps test names and error messages only.
 ADR 2026-055 is superseded.
+
+## How the builder's test view is kept blind, and its known limits
+
+`run_tests` reads test names and statuses from bun's JUnit report, and error
+text from bun's console report. That text is taken only from inside a window
+that starts after bun's own caret line. A `(fail)` marker counts only when it
+carries bun's duration, for a test the report lists as failed. Every line of
+every test file is dropped. A run with no report shows fixed text. Bun runs
+with `CI=true`, so a run never writes a snapshot, and inherited `BUN_*`
+variables are removed. A preload silences console output in the test
+process. The lockfile check compares every entry against the fingerprint of
+the clean resolution recorded when bun produced it.
+
+These limits remain:
+
+- **JavaScriptCore fragments.** The engine's own messages can quote an
+  expression from the test (`undefined is not an object (evaluating
+  'secretVarName.propertyFromTest')`). A fragment is not a whole line, so the
+  forbidden-line filter keeps it.
+- **Builder code that reads test files at runtime.** Implementation code
+  could read a test file itself and put an encoding of it (base64, one
+  changed character per line) into an error message. The filter matches
+  lines of source, not encodings. The defence is lint: no domain or
+  application code does I/O.
+- **Raw writes to the error stream.** A test that writes to file descriptor 2
+  without `console` or `process.stderr` (a child process, a native call) can
+  still imitate a marker. The JUnit check limits what that can move, but it
+  cannot rule it out.
+- **The lockfile fingerprint** lives in `.bounded/lockfile-fingerprint.json`.
+  It protects against an edited lockfile, not against a compromised registry
+  at the moment of resolution.
