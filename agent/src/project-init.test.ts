@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "vitest";
-import { applyInit, describeInit, exampleContracts, planInit } from "./project-init.ts";
+import {
+  applyInit, defaultSelection, describeInit, exampleContracts, planInit, projectNameOf, withoutTemplateText,
+} from "./project-init.ts";
 
 const temporary: string[] = [];
 function empty(): string {
@@ -20,9 +22,76 @@ describe("project-local initialization", () => {
     expect(choice.hosts).toEqual(["pi", "claude-code"]);
   });
 
-  test("the TN README's example contract comes from the composed packs", () => {
-    expect(exampleContracts(["ts"])).toEqual(["contracts:", "  - src/example/example.contract.ts"]);
+  test("the TN README's example contract sits under the source root the design drives", () => {
+    // ts-hexagonal's roots are apps/*/src and contexts/*/src; only the second
+    // has generated files in it, so that is where contracts live.
+    expect(exampleContracts(["ts", "ts-hexagonal"])).toEqual(["contracts:", "  - contexts/example/src/example/example.contract.ts"]);
+    // A suffix with no source root, or nothing at all, names no file.
+    expect(exampleContracts(["ts"])).toEqual(["contracts: []"]);
     expect(exampleContracts([])).toEqual(["contracts: []"]);
+  });
+
+  test("the default selection is every installed capability: the whole stack", () => {
+    expect(defaultSelection()).toEqual([
+      "ts", "ts-desktop", "ts-drizzle-postgres", "ts-hexagonal", "ts-lambda", "ts-mcp", "ts-trpc", "ts-web",
+    ]);
+    expect((describeInit() as { defaultSelection: string[] }).defaultSelection).toEqual(defaultSelection());
+  });
+
+  test("imports inside template literals are generated text, not harness dependencies", () => {
+    const source = [
+      'import { a } from "./a.ts";',
+      "const file = `",
+      'import { test } from "bun:test";',
+      'import type { Pool } from "pg";',
+      "const x = ${`nested ${1}`};",
+      "`;",
+      'const s = "a ` in a string";',
+      "// a ` in a comment",
+      'import { b } from "picomatch";',
+    ].join("\n");
+    const kept = withoutTemplateText(source);
+    expect(kept).toContain('import { a } from "./a.ts";');
+    expect(kept).toContain('import { b } from "picomatch";');
+    expect(kept).not.toContain("bun:test");
+    expect(kept).not.toContain('"pg"');
+    expect(kept.split("\n")).toHaveLength(source.split("\n").length);
+  });
+
+  test("the project name comes from the directory name", () => {
+    expect(projectNameOf("/work/Example Project")).toBe("example-project");
+    expect(projectNameOf("/work/notes_app")).toBe("notes-app");
+    expect(projectNameOf("/work/---")).toBeUndefined();
+  });
+
+  test("the default stack yields the worked example's root files, apart from the harness's own", async () => {
+    const parent = empty();
+    const target = join(parent, "example-project");
+    mkdirSync(target);
+    const packs = defaultSelection();
+    const plan = await planInit(target, "claude-code", packs);
+    expect(plan.packs).toEqual([
+      "ts", "ts-hexagonal", "ts-trpc", "ts-desktop", "ts-drizzle-postgres", "ts-lambda", "ts-mcp", "ts-web",
+    ]);
+    // The harness's own files: its install, its host config, the root
+    // instructions, the ticket notes, the shipped checks, and the apps note.
+    const harness = (path: string): boolean =>
+      /^(?:\.bounded|\.claude|docs\/tn|scripts)\//.test(path) || path === "AGENTS.md" || path === "apps/README.md";
+    const product = Object.keys(plan.createdFiles).filter((path) => !harness(path)).sort();
+    // The worked example's committed root files (its `.env` is ignored).
+    expect(product).toEqual([
+      ".env.example", ".gitignore", "CLAUDE.md", "README.md", "architecture.test.ts", "bun.lock",
+      "docker-compose.yml",
+      ...["README.md", "adapters.md", "agent-workflow.md", "application.md", "apps-and-composition.md",
+        "bounded-contexts.md", "directory-structure.md", "domain.md", "error-handling.md",
+        "layers-and-dependencies.md", "persistence.md", "testing.md"].map((doc) => `docs/architecture/${doc}`),
+      "package.json", "tsconfig.base.json", "tsconfig.json",
+    ].sort());
+    await applyInit(target, "claude-code", packs, plan.digest);
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { name: string; workspaces: string[] };
+    // The directory's name is the project's name, so the scope is @example-project.
+    expect(pkg.name).toBe("example-project");
+    expect(pkg.workspaces).toEqual(["contexts/*", "apps/*"]);
   });
 
   test("refuses a nonempty project before any write", async () => {

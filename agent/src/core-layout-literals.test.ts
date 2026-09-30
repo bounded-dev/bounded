@@ -100,18 +100,7 @@ function layoutLiterals(file: string): Hit[] {
  * reason. Keyed by file and exact literal text, so a new literal is never
  * covered by an old excuse.
  */
-const NOT_LAYOUT: ReadonlyArray<{ readonly file: string; readonly text: string; readonly why: string }> = [
-  {
-    file: "src/project-init.ts",
-    text: "node src/gates-cli.ts --list",
-    why: "the copied harness's own entry point inside .bounded/harness, not a project path",
-  },
-  {
-    file: "src/project-init.ts",
-    text: "  - src/example/example",
-    why: "the initializer's example TN entry; WI-9 moves it under a composed source root",
-  },
-];
+const NOT_LAYOUT: ReadonlyArray<{ readonly file: string; readonly text: string; readonly why: string }> = [];
 
 describe("no core file uses a project layout literal (ADR 2026-056)", () => {
   test("the scan covers the path policy, the gate, ticket design, the socket readers and the host adapters", () => {

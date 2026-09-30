@@ -3,7 +3,7 @@
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { applyInit, describeInit, planInit } from "./project-init.ts";
+import { applyInit, defaultSelection, describeInit, planInit } from "./project-init.ts";
 import { SETUP_COMMAND } from "./setup-state.ts";
 
 async function main(args: string[]): Promise<void> {
@@ -42,7 +42,8 @@ async function main(args: string[]): Promise<void> {
     try {
       console.log(JSON.stringify(describeInit(), null, 2));
       if (!host) host = (await rl.question("Current agent host (pi or claude-code): ")).trim();
-      if (!packs.length) packs.push(...(await rl.question("Capabilities (comma-separated): ")).split(",").map((x) => x.trim()).filter(Boolean));
+      if (!packs.length) packs.push(...(await rl.question("Capabilities (comma-separated; empty for all): ")).split(",").map((x) => x.trim()).filter(Boolean));
+      if (!packs.length) packs.push(...defaultSelection());
       const plan = await planInit(target, host, packs);
       console.log(JSON.stringify(view("plan", plan, fullJson), null, 2));
       const answer = (await rl.question("Apply this exact plan? Type its digest: ")).trim();
@@ -51,7 +52,9 @@ async function main(args: string[]): Promise<void> {
     } finally { rl.close(); }
     return;
   }
-  if (!host || !packs.length) throw new Error("Supply --host and at least one --pack, or run bare bounded init for choices");
+  if (!host) throw new Error("Supply --host (and optionally --pack), or run bare bounded init for choices");
+  // No --pack selects every installed capability: the whole stack.
+  if (!packs.length) packs.push(...defaultSelection());
   const plan = digest ? await applyInit(target, host, packs, digest) : await planInit(target, host, packs);
   console.log(JSON.stringify(view(digest ? "applied" : "plan", plan, fullJson), null, 2));
 }

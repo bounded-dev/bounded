@@ -10,7 +10,9 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mergedContribution, projectCommandNames, projectConfigSources, projectIgnoreRules } from "./pack-contrib.ts";
+import {
+  generatedFileGlobsFor, mergedContribution, projectCommandNames, projectConfigSources, projectIgnoreRules, sourceRootsFor,
+} from "./pack-contrib.ts";
 import { COMPOSITION_FILE, writeProjectPacks } from "./project-composition.ts";
 import { lockFor, sourceLockPath, type RuntimePackage } from "./runtime-lock.ts";
 import { HOST_PACKAGE_DIRS, SETUP_COMMAND } from "./setup-state.ts";
@@ -144,11 +146,49 @@ function packScriptEntry(pack: string, script: string): string {
   return existsSync(bundled) ? bundled : join(agentRoot, "packs", pack, script);
 }
 
-/** The TN README's example `contracts:` entry, named by the composed packs'
- *  contract suffix (ADR 2026-052); an empty list when none contributes one. */
+/** The TN README's example `contracts:` entry: a file with the composed
+ *  packs' contract suffix (ADR 2026-052) under a composed source root (ADR
+ *  2026-056), each `*` segment named `example`. The root is the first, in
+ *  sorted order, that some composed generated-file glob reaches into: the
+ *  root the design drives, where contracts live. With none, the first root.
+ *  An empty list when no pack contributes a suffix or a root. */
 export function exampleContracts(packs: readonly string[]): string[] {
-  const suffix = mergedContribution("contractFileSuffixes", packs, join(agentRoot, "packs"))[0];
-  return suffix === undefined ? ["contracts: []"] : ["contracts:", `  - src/example/example${suffix}`];
+  const packsDir = join(agentRoot, "packs");
+  const suffix = mergedContribution("contractFileSuffixes", packs, packsDir)[0];
+  const roots = sourceRootsFor(packs, packsDir);
+  if (suffix === undefined || roots.length === 0) return ["contracts: []"];
+  const globs = generatedFileGlobsFor(packs, packsDir).map((glob) => glob.split("/"));
+  const reachedByGlob = (root: string): boolean => {
+    const segments = root.split("/");
+    return globs.some((glob) => glob.length > segments.length &&
+      segments.every((segment, i) => glob[i] === segment || (segment === "*" && glob[i] === "*")));
+  };
+  const root = roots.find(reachedByGlob) ?? roots[0]!;
+  const dir = root.split("/").map((segment) => (segment === "*" ? "example" : segment)).join("/");
+  return ["contracts:", `  - ${dir}/example/example${suffix}`];
+}
+
+/** Every installed capability, in name order: the selection `bounded init`
+ *  makes when none is named. The installed set is the harness's one stack, so
+ *  composing all of it gives a project that stack's full shape. */
+export function defaultSelection(): readonly string[] {
+  return [...availablePacks().keys()].sort();
+}
+
+/** The project's name, from its directory's name: lowercase letters, digits
+ *  and dashes. Undefined when nothing usable is left, so the manifest writer
+ *  falls back to its own default. */
+export function projectNameOf(target: string): string | undefined {
+  const candidate = basename(resolve(target)).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  return /^[a-z0-9][a-z0-9-]*$/.test(candidate) ? candidate : undefined;
+}
+
+function shipsInitFiles(pack: string): boolean {
+  const raw = JSON.parse(readFileSync(join(agentRoot, "packs", pack, "contrib.json"), "utf8")) as Record<string, unknown>;
+  const configs = raw["projectConfigFiles"];
+  const shipped = raw["projectShippedFiles"];
+  return (Array.isArray(configs) && configs.length > 0) ||
+    (shipped !== null && typeof shipped === "object" && Object.keys(shipped).length > 0);
 }
 
 function scaffolderFor(packs: readonly string[]): readonly { pack: string; script: string }[] {
@@ -164,6 +204,10 @@ function scaffolderFor(packs: readonly string[]): readonly { pack: string; scrip
     }
   };
   for (const { pack } of scripts) visit(pack);
+  // A pack whose whole init-time share is files it ships (config such as a
+  // compose file, or checks) needs no initializer of its own: everything
+  // else it contributes is generated from the design later.
+  for (const pack of packs) if (shipsInitFiles(pack)) covered.add(pack);
   const unsupported = packs.filter((pack) => !covered.has(pack));
   if (unsupported.length) throw new Error(`No new-project initializer covers: ${unsupported.join(", ")}`);
   return scripts;
@@ -240,6 +284,58 @@ function copyProjectConfigs(stage: string, packs: readonly string[]): void {
   }
 }
 
+/** The source with every template literal's text blanked (line breaks kept).
+ *  Emitters hold whole generated files in template literals, and the import
+ *  lines inside them are the generated project's dependencies, not the
+ *  harness's. Strings and comments are skipped so a backtick in them does not
+ *  open a template. */
+export function withoutTemplateText(source: string): string {
+  const out: string[] = [];
+  const braces: number[] = []; // per open `${`, the brace depth when it opened
+  let depth = 0;
+  let i = 0;
+  const blank = (ch: string): string => (ch === "\n" ? "\n" : " ");
+  const template = (): void => {
+    // At the character after an opening backtick or a closing `}` of `${…}`.
+    while (i < source.length) {
+      const ch = source[i]!;
+      if (ch === "\\") { out.push(" ", blank(source[i + 1] ?? "")); i += 2; continue; }
+      if (ch === "`") { out.push("`"); i++; return; }
+      if (ch === "$" && source[i + 1] === "{") { out.push("${"); i += 2; braces.push(depth); depth++; return; }
+      out.push(blank(ch)); i++;
+    }
+  };
+  while (i < source.length) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+    if (ch === "/" && next === "/") {
+      const end = source.indexOf("\n", i);
+      const stop = end === -1 ? source.length : end;
+      out.push(source.slice(i, stop)); i = stop; continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      out.push(source.slice(i, stop)); i = stop; continue;
+    }
+    if (ch === '"' || ch === "'") {
+      let j = i + 1;
+      while (j < source.length && source[j] !== ch && source[j] !== "\n") j += source[j] === "\\" ? 2 : 1;
+      out.push(source.slice(i, j + 1)); i = j + 1; continue;
+    }
+    if (ch === "`") { out.push("`"); i++; template(); continue; }
+    if (ch === "{") { depth++; out.push(ch); i++; continue; }
+    if (ch === "}") {
+      depth--;
+      out.push(ch); i++;
+      if (braces.length > 0 && braces[braces.length - 1] === depth) { braces.pop(); template(); }
+      continue;
+    }
+    out.push(ch); i++;
+  }
+  return out.join("");
+}
+
 function harnessPackageFor(harnessRoot: string): RuntimePackage {
   const sourcePkg = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as RuntimePackage;
   const sourceLock = JSON.parse(readFileSync(sourceLockPath(agentRoot), "utf8")) as { packages: Record<string, { version?: string }> };
@@ -247,7 +343,7 @@ function harnessPackageFor(harnessRoot: string): RuntimePackage {
   // A pack's reference/ files are content copied into projects, never harness
   // code: their imports are the project's dependencies, not the runtime's.
   for (const path of walk(harnessRoot).filter((path) => path.endsWith(".ts") && !/^packs\/[^/]+\/reference\//.test(path))) {
-    const source = readFileSync(join(harnessRoot, path), "utf8");
+    const source = withoutTemplateText(readFileSync(join(harnessRoot, path), "utf8"));
     const imports = source.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[^;\n]*?\s+from\s+)?["']([^"']+)["']/gm);
     for (const match of imports) {
       const specifier = match[1];
@@ -267,11 +363,11 @@ function harnessPackageFor(harnessRoot: string): RuntimePackage {
   }
   return {
     name: "bounded-project-harness", version: sourcePkg.version, private: true, type: "module",
-    scripts: { check: "node src/gates-cli.ts --list" }, dependencies, devDependencies: {},
+    scripts: { check: "node ./src/gates-cli.ts --list" }, dependencies, devDependencies: {},
   };
 }
 
-async function assemble(stage: string, host: InitHost, packs: readonly string[]): Promise<void> {
+async function assemble(stage: string, host: InitHost, packs: readonly string[], name: string | undefined): Promise<void> {
   const harnessRoot = join(stage, ".bounded", "harness");
   mkdirSync(harnessRoot, { recursive: true });
   const omit = (path: string): boolean => /(^|\/)(?:node_modules|testdata)(\/|$)/.test(path) || /(?:^|\.)test\.ts$/.test(path) ||
@@ -372,7 +468,9 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   // The project's own build manifests (its package file and lockfile, say)
   // are pack content: the core only runs each pack's contributed writer.
   for (const { pack, script } of packScripts(packs, "projectManifestScripts")) {
-    execFileSync("node", [packScriptEntry(pack, script), stage, agentRoot], { stdio: "pipe" });
+    // The project's name (its directory's) is the third argument: the staging
+    // directory's own name is random, and the name becomes the package scope.
+    execFileSync("node", [packScriptEntry(pack, script), stage, agentRoot, ...(name === undefined ? [] : [name])], { stdio: "pipe" });
   }
   writeFileSync(join(stage, "README.md"), [
     "# New Bounded project", "",
@@ -452,8 +550,9 @@ export function describeInit(): object {
       ],
     },
     hosts: ["pi", "claude-code"],
+    defaultSelection: defaultSelection(),
     implementationOptions: [...availablePacks()].map(([name, pack]) => ({ name, requires: pack.dependsOnPacks, hasProjectInitializer: scaffolderAvailable(name) })),
-    next: "Ask the opening product question first. After inferring the complete selection, run bounded init --host <current-host> --pack <capability> [--pack <capability>...] to validate and review a plan.",
+    next: "Ask the opening product question first. After inferring the complete selection, run bounded init --host <current-host> --pack <capability> [--pack <capability>...] to validate and review a plan. Omitting --pack selects defaultSelection, every installed capability.",
   };
 }
 
@@ -469,7 +568,7 @@ export async function planInit(target: string, host: string, requested: readonly
   assertEmpty(target);
   const packs = closure(requested);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-plan-"));
-  try { await assemble(stage, host, packs); return planFromStage(stage, host, packs); }
+  try { await assemble(stage, host, packs, projectNameOf(target)); return planFromStage(stage, host, packs); }
   finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
@@ -485,7 +584,7 @@ export async function applyInit(target: string, host: string, requested: readonl
   const packs = closure(requested);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-apply-"));
   try {
-    await assemble(stage, host, packs);
+    await assemble(stage, host, packs, projectNameOf(target));
     const plan = planFromStage(stage, host, packs);
     if (plan.digest !== reviewedDigest) throw new Error("Plan changed since review; run bounded init with the same options again");
     writeFileSync(join(stage, MANIFEST), JSON.stringify(plan, null, 2) + "\n");
