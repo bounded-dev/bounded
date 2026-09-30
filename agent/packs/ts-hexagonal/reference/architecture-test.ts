@@ -6,7 +6,8 @@
 // parser, so no import form slips past: static, side-effect, re-export,
 // `import x = require()`, `require()`, `require.resolve()`, dynamic
 // `import()`, `import.meta.require()` / `resolve()` and `import("…").Type`,
-// with either quote style.
+// with either quote style. Domain and application code is also read for the
+// runtime globals that reach I/O without an import.
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { readdirSync, statSync } from "node:fs";
@@ -15,7 +16,7 @@ import * as ts from "typescript";
 const ROOT = import.meta.dir;
 const KEBAB = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
-type Rule = "layers" | "placement" | "contexts" | "apps" | "browser" | "in-adapters" | "wiring";
+type Rule = "layers" | "placement" | "contexts" | "apps" | "browser" | "in-adapters" | "wiring" | "io";
 
 /** How a module is reached: by name, as a whole, or loaded at runtime. */
 type Form = "named" | "default" | "namespace" | "export-all" | "loader" | "member";
@@ -177,6 +178,64 @@ function usesOf(path: string, text: string): Use[] {
   return out;
 }
 
+/** Modules (with or without `node:`, and their subpaths) that do I/O. */
+function isIoModule(spec: string): boolean {
+  if (spec === "bun" || spec.startsWith("bun:") || spec.startsWith("bun/")) return true;
+  const bare = spec.startsWith("node:") ? spec.slice("node:".length) : spec;
+  return ["fs", "child_process", "net"].some((name) => bare === name || bare.startsWith(`${name}/`));
+}
+
+/** The runtime globals, and the members of each that reach I/O. */
+const IO_MEMBERS: Readonly<Record<string, readonly string[]>> = { Bun: ["file", "write", "spawn", "spawnSync"], process: ["env"] };
+const GLOBAL_OBJECTS = new Set(["globalThis", "global", "self", "window"]);
+
+/**
+ * Every use of `Bun` or `process` that reaches I/O, or that cannot be seen
+ * through (aliasing, destructuring, a computed key), directly or through a
+ * global object. Judged by name: a local binding called `process` counts too.
+ */
+function ioGlobals(path: string, text: string): { line: number; what: string }[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKind(path));
+  const out: { line: number; what: string }[] = [];
+  const lineOf = (node: ts.Node): number => file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
+  /** The member read off `node` by its parent: a name, undefined when computed, null when none is. */
+  const memberName = (node: ts.Node): string | undefined | null => {
+    const parent = node.parent;
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === node) return parent.name.text;
+    if (ts.isElementAccessExpression(parent) && parent.expression === node) {
+      const key = parent.argumentExpression;
+      return ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key) ? key.text : undefined;
+    }
+    return null;
+  };
+  const isNamePosition = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (ts.isPropertyAccessExpression(parent) || ts.isQualifiedName(parent)) return ts.isPropertyAccessExpression(parent) ? parent.name === node : parent.right === node;
+    if (ts.isBindingElement(parent)) return parent.propertyName === node;
+    return (ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent) || ts.isMethodDeclaration(parent) ||
+      ts.isPropertySignature(parent) || ts.isMethodSignature(parent) || ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) || ts.isEnumMember(parent)) && parent.name === node;
+  };
+  const judge = (global: string, node: ts.Node): void => {
+    const member = memberName(node);
+    if (member === null || member === undefined) out.push({ line: lineOf(node), what: `uses ${global} in a way that cannot be checked` });
+    else if (IO_MEMBERS[global]!.includes(member)) out.push({ line: lineOf(node), what: `reads ${global}.${member}` });
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && !isNamePosition(node)) {
+      if (Object.hasOwn(IO_MEMBERS, node.text)) judge(node.text, node);
+      else if (GLOBAL_OBJECTS.has(node.text)) {
+        const member = memberName(node);
+        if (member === null || member === undefined) out.push({ line: lineOf(node), what: `uses ${node.text} in a way that cannot be checked` });
+        else if (Object.hasOwn(IO_MEMBERS, member)) judge(member, node.parent);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+}
+
 async function workspaces(): Promise<Map<string, Workspace>> {
   const out = new Map<string, Workspace>();
   for await (const manifest of new Glob("{contexts,apps}/*/package.json").scan({ cwd: ROOT })) {
@@ -326,10 +385,20 @@ async function check(): Promise<{ files: string[]; onDisk: string[]; roots: stri
       violations.push({ rule: "placement", text: `${file} — every context file sits in domain/, application/ or adapters/in|out/<tech>/` });
       continue;
     }
-    for (const use of usesOf(file, await Bun.file(`${ROOT}/${file}`).text())) {
+    const text = await Bun.file(`${ROOT}/${file}`).text();
+    const core = from.kind === "context" && (from.layer === "domain" || from.layer === "application") && !isTestSide(file);
+    if (core) {
+      for (const { line, what } of ioGlobals(file, text)) {
+        violations.push({ rule: "io", text: `${file}:${line} ${what} — ${from.layer} code does no I/O; take it through an out port or the command` });
+      }
+    }
+    for (const use of usesOf(file, text)) {
       if (use.spec === undefined) {
         violations.push({ rule: "layers", text: `${file}:${use.line} — an import with a computed specifier cannot be checked` });
         continue;
+      }
+      if (core && !use.typeOnly && use.form !== "member" && isIoModule(use.spec)) {
+        violations.push({ rule: "io", text: `${file}:${use.line} imports "${use.spec}" — ${from.layer} code does no I/O; declare an out port` });
       }
       const member = use.form === "member";
       if (from.kind === "context" && from.layer === "adapters-in") {
@@ -392,6 +461,10 @@ describe("architecture", () => {
 
   test("in adapters depend on in ports, never on handler classes", () => {
     expect(of("in-adapters")).toEqual([]);
+  });
+
+  test("domain and application code does no I/O", () => {
+    expect(of("io")).toEqual([]);
   });
 
   test("only composition roots load application and adapter code at runtime", () => {

@@ -42,6 +42,7 @@ An **adapter** is the technology-specific code on either side of a port. A tRPC 
   - a context file sits outside `domain/`, `application/` and `adapters/in|out/<tech>/`,
   - domain imports application or adapters, application imports adapters, or an adapter imports another adapter,
   - domain or application code imports a library other than `zod` (tests excepted),
+  - domain or application code does I/O (tests excepted): it loads `node:fs`, `fs`, `node:child_process`, `node:net` or `bun`, or uses `Bun.file`, `Bun.write`, `Bun.spawn` or `process.env`, directly, through `globalThis`, or in a form the check cannot see through,
   - a context imports another context (except an out adapter calling the other context's `application`) or an app,
   - an app imports another app, reaches outside its own `src/` by relative path, or imports a context other than through its export paths,
   - browser code (`client/`, `renderer/`) imports server code other than with `import type`,

@@ -124,6 +124,7 @@ The lint rules that bind you, with the fix each one names:
 |---|---|
 | `layer-dependency` | domain importing application or adapters, application importing adapters, one adapter importing another, domain or application code using a library other than zod, an app importing another app or a context other than through `domain`, `application` or `adapters/<tech>` |
 | `no-cross-context-import` | a context importing another context or an app, except an out adapter importing another context's `application` |
+| `no-io-in-core` | domain or application code (tests excepted) loading `node:fs`, `fs`, `node:child_process`, `node:net`, `bun` or a subpath of one, or using `Bun.file`, `Bun.write`, `Bun.spawn` or `process.env`, directly, through `globalThis`, or in a form the check cannot see through |
 | `file-role-suffix` | a file whose folder and suffix match no row of the layout |
 | `naming` | a singular area, a noun-first or one-word feature, a handler or adapter class not named as derived |
 | `handler-shape` | a handler that is not one exported `<InPort>Handler implements <InPort>` with `private readonly <role>: <Port>` constructor parameters and `execute` as its one public method |

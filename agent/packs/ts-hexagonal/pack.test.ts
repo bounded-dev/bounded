@@ -138,7 +138,7 @@ describe("the code half through the ts pack's sockets", () => {
   test("the pack contributes its lint rules to the builder's lint, under its own name", () => {
     const ids = composePacks(INSTALLED_PACKS, PACKS).read(lintSrcRules).map(lintSrcRuleId);
     expect(ids).toEqual([
-      "layer-dependency", "no-cross-context-import", "file-role-suffix", "naming", "handler-shape",
+      "layer-dependency", "no-cross-context-import", "no-io-in-core", "file-role-suffix", "naming", "handler-shape",
       "composition-root-only-constructs", "entry-hosts-only", "client-type-only-server-imports", "in-adapter-uses-in-port",
     ].map((name) => `${TS_HEXAGONAL_PLUGIN}/${name}`));
   });

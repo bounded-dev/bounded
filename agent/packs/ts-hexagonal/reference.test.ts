@@ -240,6 +240,7 @@ describe.skipIf(!HAS_BUN)("under bun test", () => {
   const PLACEMENT = "every context file sits in a layer";
   const KEBAB = "workspace directories are kebab-case";
   const WIRING = "only composition roots load application and adapter code at runtime";
+  const IO = "domain and application code does no I/O";
 
   /** [description, path, source, the one architecture test that must fail, the lint rule that must flag it]. */
   const SEEDS: readonly [string, string, string, readonly string[], string | undefined][] = [
@@ -250,7 +251,7 @@ describe.skipIf(!HAS_BUN)("under bun test", () => {
     ["domain dynamic import of adapters", `${CONTEXT_SRC}/domain/notes/seed.ts`, "export const m = () => import(`../../adapters/out/console/index.ts`);\n", [LAYERS, WIRING], "layer-dependency"],
     ["domain require of application", `${CONTEXT_SRC}/domain/notes/seed.ts`, `import x = require("../../application/index.ts");\nexport { x };\n`, [LAYERS, WIRING], "layer-dependency"],
     ["domain import-type of application", `${CONTEXT_SRC}/domain/notes/seed.ts`, `export type T = import("../../application/index.ts").CreateNote;\n`, [LAYERS], "layer-dependency"],
-    ["domain uses a library other than zod", `${CONTEXT_SRC}/domain/notes/seed.ts`, `import { readFileSync } from "node:fs";\nexport { readFileSync };\n`, [LAYERS], "layer-dependency"],
+    ["domain uses a library other than zod", `${CONTEXT_SRC}/domain/notes/seed.ts`, `import { readFileSync } from "node:fs";\nexport { readFileSync };\n`, [LAYERS, IO], "layer-dependency"],
     ["domain computed import", `${CONTEXT_SRC}/domain/notes/seed.ts`, `const name = "x";\nexport const m = () => import(name);\n`, [LAYERS], "layer-dependency"],
     ["application imports adapters", `${CONTEXT_SRC}/application/notes/create-note/create-note.seed.ts`, `export * from "@example/project-management/adapters/in-memory";\n`, [LAYERS], "layer-dependency"],
     ["an out adapter imports another technology", `${CONTEXT_SRC}/adapters/out/console/projects/seed.exporter.ts`, `import { InMemoryDatabase } from "../../in-memory/in-memory-database.ts";\nexport { InMemoryDatabase };\n`, [LAYERS], "layer-dependency"],
@@ -284,6 +285,16 @@ describe.skipIf(!HAS_BUN)("under bun test", () => {
     ["an in adapter re-exports application as a namespace", `${CONTEXT_SRC}/adapters/in/trpc/app.ts`, `export * as App from "@example/project-management/application";\n`, [IN_ADAPTERS], "in-adapter-uses-in-port"],
     ["an in adapter re-exports all of application", `${CONTEXT_SRC}/adapters/in/trpc/app.ts`, `export * from "@example/project-management/application";\n`, [IN_ADAPTERS], "in-adapter-uses-in-port"],
     // Wiring: only composition roots load application and adapter code at runtime, or construct it.
+    // I/O: domain and application code reaches no file, process, socket or environment.
+    ["domain imports node:fs", `${CONTEXT_SRC}/domain/notes/seed.ts`, `import { readFileSync } from "node:fs";\nexport { readFileSync };\n`, [LAYERS, IO], "no-io-in-core"],
+    ["application loads a child process at runtime", `${CONTEXT_SRC}/application/notes/create-note/create-note.seed.ts`, `export const m = () => import("node:child_process");\n`, [LAYERS, IO], "no-io-in-core"],
+    ["domain reads a file through Bun", `${CONTEXT_SRC}/domain/notes/seed.ts`, `export const f = () => Bun.file("x");\n`, [IO], "no-io-in-core"],
+    ["application reads the environment", `${CONTEXT_SRC}/application/notes/create-note/create-note.seed.ts`, `export const secret = process.env.SECRET;\n`, [IO], "no-io-in-core"],
+    ["application reads the environment through globalThis", `${CONTEXT_SRC}/application/notes/create-note/create-note.seed.ts`, `export const secret = globalThis["process"].env;\n`, [IO], "no-io-in-core"],
+    ["domain destructures process", `${CONTEXT_SRC}/domain/notes/seed.ts`, `const { env } = process;\nexport { env };\n`, [IO], "no-io-in-core"],
+    ["a domain test reads the environment", `${CONTEXT_SRC}/domain/notes/seed.test.ts`, `export const e = process.env.X;\n`, [], undefined],
+    ["an out adapter reads the environment", `${CONTEXT_SRC}/adapters/out/console/projects/seed.exporter.ts`, `export const e = process.env.X;\n`, [], undefined],
+    ["a domain property merely named process", `${CONTEXT_SRC}/domain/notes/seed.ts`, `export const o = { process: 1 };\nexport const p = o.process;\n`, [], undefined],
     ["an entry file loads application code at runtime", "apps/web/src/server/main.ts", `export const load = () => import("@example/project-management/application");\n`, [WIRING], "composition-root-only-constructs"],
     ["an entry file constructs a handler off a namespace", "apps/web/src/server/main.ts", `import * as App from "@example/project-management/application";\nexport const h = new App.CreateNoteHandler(undefined as never);\n`, [], "composition-root-only-constructs"],
   ];
