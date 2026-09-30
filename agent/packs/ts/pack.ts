@@ -7,8 +7,8 @@
 // today) fill them. The core learns that a pack declared a socket and another
 // pack filled it, and nothing more.
 //
-// FIVE SOCKETS — two for the gates that lint, one for the delivery pass, one
-// for the scaffolder and red gate, one for the artifact-generation gate:
+// SIX CODE SOCKETS — two for the gates that lint, one for the delivery pass,
+// two for the scaffolder and red gate, one for the artifact-generation gate:
 //
 //   lintSrcRules             extra rules for the src gate (implementation code)
 //   contractPurityOverrides  extra flat-config blocks for the contract gate
@@ -18,6 +18,13 @@
 //                            (ADR 2026-046)
 //   artifactGenerators       deterministic generators the architect's
 //                            generate_artifacts gate runs (ADR 2026-055)
+//   skeletonEmitters         files derived from the design contracts, as
+//                            skeletons or generated files (ADR 2026-060)
+//
+// Two DATA sockets are owned here too, read from contrib.json by the readers
+// at the end of this file: `adapterTechnologies` and `workspaceTemplates`
+// (ADR 2026-061). They are data because the workspace generator must read
+// them without executing pack code, exactly like `pins`.
 //
 // The ts pack's OWN rules are not contributions. `SRC_RULE_IDS` and
 // `CONTRACT_RULE_IDS` stay hard-wired in their gates: the gate and the plugin
@@ -31,7 +38,11 @@
 // carry FUNCTIONS — an ESLint rule is code — which is exactly the line
 // TN-26-005 draws between the two halves.
 
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { TSESLint } from "@typescript-eslint/utils";
+import { contributionsByPack } from "../../src/pack-contrib.ts";
 import { definePack, socketsOwnedBy } from "../../src/socket-registry.ts";
 
 /** This pack's name, as a literal — the registry checks ownership by type, so
@@ -340,6 +351,310 @@ export const contractSupportFiles = tsSockets.define<ContractSupportFile>({
   },
 });
 
+// --- skeletonEmitters (ADR 2026-060) ------------------------------------------
+//
+// Everything mechanical is generated from the frozen design (TN-26-012). An
+// emitter is a pure function from the project's facts to the files it
+// derives. Its consumers are the design gate's scaffold step (live tree), the
+// red gate (shadow project) and delivery's leftover check; they alone decide
+// what is written where, so an emitter never touches the disk.
+//
+//   skeleton   builder-owned once written: the consumer writes it only where
+//              no file exists, and the red shadow regenerates it fresh.
+//   generated  owned by the generator: every role is write-denied (its path
+//              must match a composed `generatedFileGlobs` entry) and a gate
+//              refuses when the tree differs from what the emitters produce.
+
+/** Which gate is asking. Emitters of red-phase-only files (the
+ *  not-implemented error module) emit nothing at `deliver`. */
+export type EmitPhase = "design" | "red" | "deliver";
+
+/** Ownership of an emitted file; see the section note above. */
+export type EmitMode = "skeleton" | "generated";
+
+export interface EmittedFile {
+  /** Project-relative, `/`-separated, no `.`/`..` segment, no leading `/`. */
+  readonly path: string;
+  /** Exact file text, ending with a newline. */
+  readonly content: string;
+  readonly mode: EmitMode;
+}
+
+/** A design contract file as it stands on disk. */
+export interface ContractSource {
+  /** Project-relative path, carrying a composed contract suffix. */
+  readonly path: string;
+  readonly source: string;
+}
+
+/** One workspace of the project: a context derived from contract paths, or
+ *  an app declared in a TN's `workspaces:` map (ADR 2026-061). */
+export interface WorkspaceFacts {
+  /** e.g. `contexts/project-management`, `apps/web`. */
+  readonly dir: string;
+  /** Last segment of `dir`, e.g. `project-management`. */
+  readonly name: string;
+  /** The `workspaceTemplates` kind, e.g. `context`, `web`. */
+  readonly kind: string;
+  /** `<scope>/<name>`, e.g. `@example/project-management`. */
+  readonly packageName: string;
+  /** The concrete source root inside it, e.g. `contexts/project-management/src`. */
+  readonly sourceRoot: string;
+  /** Contract files under `sourceRoot`, sorted by path. */
+  readonly contracts: readonly ContractSource[];
+}
+
+/** Everything an emitter may know. Pure data: no paths outside the project,
+ *  no clock, no environment, so the same design always emits the same bytes. */
+export interface ProjectFacts {
+  /** The package scope, `@` included, e.g. `@example`. */
+  readonly scope: string;
+  readonly phase: EmitPhase;
+  /** Composed packs, dependency-ordered. */
+  readonly packs: readonly string[];
+  /** Sorted by `dir`. */
+  readonly workspaces: readonly WorkspaceFacts[];
+  /** The composed packs' adapter technologies, sorted by id. */
+  readonly adapterTechnologies: readonly AdapterTechnology[];
+  /** The composed packs' workspace templates, sorted by kind. */
+  readonly workspaceTemplates: readonly WorkspaceTemplate[];
+}
+
+export interface Emitter {
+  /** Printed in the scaffold and drift lines; lowercase, dash-separated. */
+  readonly name: string;
+  /** What it emits, in one sentence. */
+  readonly description: string;
+  /** Pure: same facts, same files. Throws, naming the contract and the fix,
+   *  when the design cannot be emitted; the gate then blocks. */
+  readonly emit: (facts: ProjectFacts) => readonly EmittedFile[];
+}
+
+const EMITTER_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+export const skeletonEmitters = tsSockets.define<Emitter>({
+  id: "skeletonEmitters",
+  description:
+    "Emitters, contributed by packs that depend on ts, that derive skeleton and generated files from the " +
+    "design contracts. The design gate writes their output, the red gate emits into its shadow, and delivery " +
+    "checks that generated files are in sync.",
+  validate: (emitter, contributor) => {
+    if (!EMITTER_NAME.test(emitter.name)) {
+      return `${contributor} contributed an emitter named '${emitter.name}' — it must be lowercase and dash-separated`;
+    }
+    if (emitter.description.trim() === "") return `${contributor}'s '${emitter.name}' emitter has no description`;
+    if (typeof emitter.emit !== "function") return `${contributor}'s '${emitter.name}' emitter has no emit()`;
+    return undefined;
+  },
+});
+
+const PROJECT_PATH_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * Why an emitted file is unusable, or undefined. Consumers call it on every
+ * file before writing anything, and also refuse two files at one path.
+ */
+export function emittedFileProblem(file: EmittedFile, emitter: string): string | undefined {
+  const segments = file.path.split("/");
+  if (!segments.every((s) => PROJECT_PATH_SEGMENT.test(s)) ||
+      segments.some((s) => [".git", ".bounded"].includes(s.toLowerCase()))) {
+    return `emitter '${emitter}' produced an unsafe path '${file.path}'`;
+  }
+  if (file.mode !== "skeleton" && file.mode !== "generated") {
+    return `emitter '${emitter}' produced '${file.path}' with mode '${String(file.mode)}'`;
+  }
+  if (!file.content.endsWith("\n")) return `emitter '${emitter}' produced '${file.path}' without a final newline`;
+  return undefined;
+}
+
+// --- data sockets: adapterTechnologies, workspaceTemplates (ADR 2026-061) -----
+
+function defaultPacksDir(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+const KEBAB = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+const PACKAGE_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const EXACT_VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+const PACK_FILE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
+const WORKSPACE_FILE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/;
+/** Words the hexagonal naming table already gives a file role; an in
+ *  adapter's feature role may not reuse one. */
+const RESERVED_ROLES = new Set(["contract", "command", "handler", "store", "mapper", "router", "test", "laws", "index"]);
+
+/** Exact dependency pins, the same shape as a contrib.json `pins` field. */
+export interface Pins {
+  readonly dependencies: Readonly<Record<string, string>>;
+  readonly devDependencies: Readonly<Record<string, string>>;
+}
+
+/** One adapter technology a pack makes available (ADR 2026-061). */
+export interface AdapterTechnology {
+  /** The contributing pack. */
+  readonly pack: string;
+  /** Kebab-case. It is the folder under `adapters/<direction>/`, the token in
+   *  `@exposedVia` / `@implementedBy`, the export path `./adapters/<id>` and,
+   *  PascalCased, the class prefix (`in-memory` → `InMemory`). */
+  readonly id: string;
+  readonly direction: "in" | "out";
+  /** In adapters only: the feature file's role suffix (`procedure`, `tool`,
+   *  `lambda`). */
+  readonly featureRole?: string;
+  /** Out adapters only: implements every `<Feature>Store` port, and has a
+   *  shared `<Prefix>Database` in `<id>-database.ts`. False for in adapters. */
+  readonly storage: boolean;
+  /** Pins a context workspace takes when its tree has this technology's folder. */
+  readonly pins: Pins;
+  readonly description: string;
+}
+
+function checkedPins(value: unknown, where: string): Pins {
+  if (value === undefined) return { dependencies: {}, devDependencies: {} };
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).some((key) => key !== "dependencies" && key !== "devDependencies")) {
+    throw new Error(`${where} pins must be an object with only dependencies and devDependencies`);
+  }
+  const out: Record<string, Record<string, string>> = { dependencies: {}, devDependencies: {} };
+  for (const [section, entries] of Object.entries(value as Record<string, unknown>)) {
+    if (entries === null || typeof entries !== "object" || Array.isArray(entries)) {
+      throw new Error(`${where} pins.${section} must be an object`);
+    }
+    for (const [name, version] of Object.entries(entries as Record<string, unknown>)) {
+      if (!PACKAGE_NAME.test(name) || typeof version !== "string" || !EXACT_VERSION.test(version)) {
+        throw new Error(`${where} pins.${section} entry '${name}' must be a package name pinned to an exact version`);
+      }
+      out[section]![name] = version;
+    }
+  }
+  return { dependencies: out.dependencies!, devDependencies: out.devDependencies! };
+}
+
+function strictObject(value: unknown, keys: readonly string[], where: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${where} must be an object`);
+  const unknownKey = Object.keys(value).find((key) => !keys.includes(key));
+  if (unknownKey !== undefined) throw new Error(`${where} has an unknown field '${unknownKey}'`);
+  return value as Record<string, unknown>;
+}
+
+/**
+ * The composed packs' `adapterTechnologies`, sorted by id. Each contrib.json
+ * entry is `{ id, direction, description, featureRole?, storage?, pins? }`:
+ * an in adapter declares `featureRole` and no `storage`; an out adapter
+ * declares `storage` and no `featureRole`. Unknown fields, a duplicate id
+ * across the composition, or a pin that is not exact are refused.
+ */
+export function adapterTechnologies(packs: readonly string[], packsDir = defaultPacksDir()): AdapterTechnology[] {
+  const out: AdapterTechnology[] = [];
+  const ids = new Set<string>();
+  for (const { pack, value } of contributionsByPack("adapterTechnologies", packs, packsDir)) {
+    if (!Array.isArray(value)) throw new Error(`Selected pack '${pack}' adapterTechnologies must be an array`);
+    for (const raw of value) {
+      const where = `Selected pack '${pack}' adapterTechnologies entry`;
+      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "pins"], where);
+      const { id, direction, description, featureRole, storage } = entry;
+      if (typeof id !== "string" || !KEBAB.test(id)) throw new Error(`${where} needs a kebab-case id`);
+      const named = `${where} '${id}'`;
+      if (ids.has(id)) throw new Error(`${named} is contributed twice across the composition`);
+      if (typeof description !== "string" || description.trim() === "") throw new Error(`${named} needs a description`);
+      if (direction === "in") {
+        if (typeof featureRole !== "string" || !/^[a-z][a-z0-9]*$/.test(featureRole) || RESERVED_ROLES.has(featureRole)) {
+          throw new Error(`${named} needs a one-word lowercase featureRole that the naming table does not already use`);
+        }
+        if (storage !== undefined) throw new Error(`${named} is an in adapter and cannot declare storage`);
+      } else if (direction === "out") {
+        if (typeof storage !== "boolean") throw new Error(`${named} is an out adapter and must declare storage: true or false`);
+        if (featureRole !== undefined) throw new Error(`${named} is an out adapter and cannot declare a featureRole`);
+      } else {
+        throw new Error(`${named} needs direction 'in' or 'out'`);
+      }
+      ids.add(id);
+      out.push({
+        pack, id, direction, description,
+        ...(direction === "in" ? { featureRole: featureRole as string } : {}),
+        storage: direction === "out" && storage === true,
+        pins: checkedPins(entry.pins, named),
+      });
+    }
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** One file a workspace template seeds (ADR 2026-061). */
+export interface WorkspaceTemplateFile {
+  /** Workspace-relative target, e.g. `src/server/main.ts`. */
+  readonly path: string;
+  /** Pack-relative source, e.g. `templates/web/main.ts`. */
+  readonly source: string;
+  readonly mode: EmitMode;
+}
+
+/** How one kind of workspace is laid out and what it seeds (ADR 2026-061). */
+export interface WorkspaceTemplate {
+  readonly pack: string;
+  /** Kebab-case; the value in a TN's `workspaces:` map, or `context`. */
+  readonly kind: string;
+  /** The directory workspaces of this kind sit in, e.g. `apps`. */
+  readonly root: string;
+  /** Pack-relative JSON manifest template (no `name`: the generator sets it). */
+  readonly manifest: string;
+  /** Sorted by path. */
+  readonly files: readonly WorkspaceTemplateFile[];
+  readonly description: string;
+}
+
+/**
+ * The composed packs' `workspaceTemplates`, sorted by kind. Each contrib.json
+ * value is an object keyed by kind: `{ root, manifest, description, files? }`,
+ * where `files` maps a workspace-relative path to `{ source, mode }`. Every
+ * pack-relative source must exist; a kind contributed twice, an unknown
+ * field, `..`, an absolute path, or a template file named `package.json` (the
+ * manifest has its own field) is refused. Template text may use only the
+ * placeholders `{{scope}}`, `{{name}}` and `{{package}}` (TN-26-012); the
+ * workspace generator refuses any other.
+ */
+export function workspaceTemplates(packs: readonly string[], packsDir = defaultPacksDir()): WorkspaceTemplate[] {
+  const out: WorkspaceTemplate[] = [];
+  const kinds = new Set<string>();
+  for (const { pack, value } of contributionsByPack("workspaceTemplates", packs, packsDir)) {
+    const byKind = strictObject(value, Object.keys(value ?? {}), `Selected pack '${pack}' workspaceTemplates`);
+    const packFile = (path: unknown, where: string): string => {
+      if (typeof path !== "string" || !PACK_FILE.test(path) || path.split("/").some((s) => s === "." || s === "..")) {
+        throw new Error(`${where} must be a pack-relative lowercase path`);
+      }
+      if (!existsSync(join(packsDir, pack, path))) throw new Error(`${where} names '${path}', which the pack does not ship`);
+      return path;
+    };
+    for (const [kind, raw] of Object.entries(byKind)) {
+      const where = `Selected pack '${pack}' workspace template '${kind}'`;
+      if (!KEBAB.test(kind)) throw new Error(`${where} needs a kebab-case kind`);
+      if (kinds.has(kind)) throw new Error(`${where} is contributed twice across the composition`);
+      const entry = strictObject(raw, ["root", "manifest", "description", "files"], where);
+      if (typeof entry.root !== "string" || !KEBAB.test(entry.root)) throw new Error(`${where} needs a one-segment kebab-case root`);
+      if (typeof entry.description !== "string" || entry.description.trim() === "") throw new Error(`${where} needs a description`);
+      const manifest = packFile(entry.manifest, `${where} manifest`);
+      if (!manifest.endsWith(".json")) throw new Error(`${where} manifest must be a .json file`);
+      const files: WorkspaceTemplateFile[] = [];
+      const rawFiles = entry.files === undefined ? {} : strictObject(entry.files, Object.keys(entry.files ?? {}), `${where} files`);
+      for (const [path, spec] of Object.entries(rawFiles)) {
+        const fileWhere = `${where} file '${path}'`;
+        if (!WORKSPACE_FILE.test(path) || path.split("/").some((s) => s === "." || s === "..") ||
+            path.split("/").at(-1)!.toLowerCase() === "package.json") {
+          throw new Error(`${fileWhere} must be a workspace-relative path other than package.json`);
+        }
+        const file = strictObject(spec, ["source", "mode"], fileWhere);
+        if (file.mode !== "skeleton" && file.mode !== "generated") throw new Error(`${fileWhere} needs mode 'skeleton' or 'generated'`);
+        files.push({ path, source: packFile(file.source, `${fileWhere} source`), mode: file.mode });
+      }
+      kinds.add(kind);
+      out.push({
+        pack, kind, root: entry.root, manifest, description: entry.description,
+        files: files.sort((a, b) => a.path.localeCompare(b.path)),
+      });
+    }
+  }
+  return out.sort((a, b) => a.kind.localeCompare(b.kind));
+}
+
 /**
  * The ts pack. Depends on nothing — it is the root of the TypeScript family —
  * and contributes nothing: its own rules are its gates' base config.
@@ -347,5 +662,5 @@ export const contractSupportFiles = tsSockets.define<ContractSupportFile>({
 export const tsPack = definePack({
   name: TS_PACK,
   dependsOnPacks: [],
-  defines: [lintSrcRules, contractPurityOverrides, deliverChecks, contractSupportFiles, artifactGenerators],
+  defines: [lintSrcRules, contractPurityOverrides, deliverChecks, contractSupportFiles, artifactGenerators, skeletonEmitters],
 });

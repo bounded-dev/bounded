@@ -238,3 +238,194 @@ export function projectConfigSources(packs: readonly string[], packsDir = defaul
   }
   return out;
 }
+
+// --- Layout sockets (ADRs 2026-056, 2026-057, 2026-058) ----------------------
+//
+// Three data fields tell the core where a project's source lives, which of
+// its files are test-side, and which are generated. The core names none of
+// them: with no contributor there is no source root (so no role writes
+// source and no file is a contract), no test-side file and no generated
+// file. Every reader validates strictly and throws; each `…OrUnreadable`
+// variant returns `"unreadable"` instead, which consumers treat fail-closed.
+
+const RESERVED_DIRS = new Set([".git", ".bounded"]);
+const LITERAL_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/** Does one root glob's segment list match a path prefix of the other's?
+ *  `*` matches any one literal segment; case is ignored. */
+function rootsOverlap(a: readonly string[], b: readonly string[]): boolean {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] === "*" || b[i] === "*") continue;
+    if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false;
+  }
+  return true;
+}
+
+/**
+ * `sourceRoots` (ADR 2026-056): project-relative directory globs under which
+ * roles author source, e.g. `packages/*\/lib`. Each segment is a literal name
+ * or exactly `*` (one directory level); the first segment is literal; no
+ * `**`, partial wildcard, `.`/`..`, leading or trailing `/`, and no `.git` or
+ * `.bounded` segment. Two roots where one could contain the other are
+ * refused, so every path has at most one root. Sorted, deduplicated.
+ */
+export function sourceRootsFor(packs: readonly string[], packsDir?: string): string[] {
+  const roots = mergedContribution("sourceRoots", packs, packsDir);
+  const split = roots.map((root) => root.split("/"));
+  roots.forEach((root, i) => {
+    const segments = split[i]!;
+    const valid = LITERAL_SEGMENT.test(segments[0]!) &&
+      segments.every((s) => s === "*" || (LITERAL_SEGMENT.test(s) && s !== "." && s !== "..")) &&
+      !segments.some((s) => RESERVED_DIRS.has(s.toLowerCase()));
+    if (!valid) {
+      throw new Error(`sourceRoots entry '${root}' must be a relative directory glob of literal segments and ` +
+        "whole-segment '*', with a literal first segment and nothing under .git or .bounded");
+    }
+    for (let j = 0; j < i; j++) {
+      if (rootsOverlap(segments, split[j]!)) {
+        throw new Error(`sourceRoots entries '${roots[j]}' and '${root}' overlap — every path must have at most one source root`);
+      }
+    }
+  });
+  return roots;
+}
+
+/** sourceRootsFor() for this project's composition (throws when unreadable). */
+export function sourceRoots(cwd: string, packsDir?: string): string[] {
+  return sourceRootsFor(readProjectPacks(cwd), packsDir);
+}
+
+/** sourceRoots() for a host's path gate: `"unreadable"` on any failure. */
+export function sourceRootsOrUnreadable(cwd: string, packsDir?: string): readonly string[] | "unreadable" {
+  try {
+    return sourceRoots(cwd, packsDir);
+  } catch {
+    return "unreadable";
+  }
+}
+
+/**
+ * The concrete source root a project-relative path lies under (e.g.
+ * `packages/billing/lib` for `packages/billing/lib/model/x.ext` and the
+ * root `packages/*\/lib`), or undefined. The path itself is inside the root only
+ * when it is strictly deeper; a root directory is not inside itself. Case is
+ * ignored, as everywhere in the path policy; the returned prefix keeps the
+ * path's own spelling.
+ */
+export function sourceRootOf(path: string, roots: readonly string[]): string | undefined {
+  const segments = path.split("/");
+  for (const root of roots) {
+    const rootSegments = root.split("/");
+    if (segments.length <= rootSegments.length) continue;
+    if (rootSegments.every((s, i) => s === "*" || s.toLowerCase() === segments[i]!.toLowerCase())) {
+      return segments.slice(0, rootSegments.length).join("/");
+    }
+  }
+  return undefined;
+}
+
+const DOTTED_SUFFIX = /^(?:\.[a-z0-9]+(?:-[a-z0-9]+)*){2,}$/;
+
+/**
+ * `testFileSuffixes` (ADR 2026-057): file-name suffixes that make a file
+ * test-side, e.g. `.test.ext`. Lowercase, at least two dotted parts (so a bare
+ * language extension can never make every file test-side), dash allowed
+ * inside a part (`.test-support.ext`). A suffix that ends with a composed
+ * contract suffix, or that a contract suffix ends with, is refused: a file
+ * cannot be both a contract and a test.
+ */
+export function testFileSuffixesFor(packs: readonly string[], packsDir?: string): string[] {
+  const suffixes = mergedContribution("testFileSuffixes", packs, packsDir);
+  const contracts = mergedContribution("contractFileSuffixes", packs, packsDir);
+  for (const suffix of suffixes) {
+    if (!DOTTED_SUFFIX.test(suffix)) {
+      throw new Error(`testFileSuffixes entry '${suffix}' must be a lowercase suffix of at least two dotted parts, such as '.test.ext'`);
+    }
+    const clash = contracts.find((contract) => contract.endsWith(suffix) || suffix.endsWith(contract));
+    if (clash !== undefined) {
+      throw new Error(`testFileSuffixes entry '${suffix}' overlaps the contract suffix '${clash}' — a file cannot be both`);
+    }
+  }
+  return suffixes;
+}
+
+/** testFileSuffixesFor() for this project's composition (throws when unreadable). */
+export function testFileSuffixes(cwd: string, packsDir?: string): string[] {
+  return testFileSuffixesFor(readProjectPacks(cwd), packsDir);
+}
+
+/** testFileSuffixes() for a host's path gate: `"unreadable"` on any failure. */
+export function testFileSuffixesOrUnreadable(cwd: string, packsDir?: string): readonly string[] | "unreadable" {
+  try {
+    return testFileSuffixes(cwd, packsDir);
+  } catch {
+    return "unreadable";
+  }
+}
+
+/** Does a path's file name end in one of the test suffixes? Case is ignored. */
+export function hasTestFileSuffix(path: string, suffixes: readonly string[]): boolean {
+  const lower = path.toLowerCase();
+  return suffixes.some((suffix) => lower.endsWith(suffix));
+}
+
+const GLOB_SEGMENT = /^[A-Za-z0-9._*-]+$/;
+
+/**
+ * `generatedFileGlobs` (ADR 2026-058): project-relative path globs of files
+ * that only generators write. Segments are literal names, names with `*`
+ * (any run of characters inside one segment), or exactly `**` (any number of
+ * segments). Refused: `?`, `[`, `{`, `!`, escapes, `.`/`..`, a leading or
+ * trailing `/`, a `***` run, a `.git` or `.bounded` segment, and a glob with
+ * no literal character at all (`**\/*` would generate the whole project).
+ */
+export function generatedFileGlobsFor(packs: readonly string[], packsDir?: string): string[] {
+  const globs = mergedContribution("generatedFileGlobs", packs, packsDir);
+  for (const glob of globs) {
+    const segments = glob.split("/");
+    const valid = segments.every((s) => GLOB_SEGMENT.test(s) && s !== "." && s !== ".." &&
+        (s === "**" || !s.includes("**")) && !RESERVED_DIRS.has(s.toLowerCase())) &&
+      segments.some((s) => /[^*]/.test(s));
+    if (!valid) {
+      throw new Error(`generatedFileGlobs entry '${glob}' must be a relative path glob of names, '*' inside a segment ` +
+        "and whole-segment '**', with at least one literal character and nothing under .git or .bounded");
+    }
+  }
+  return globs;
+}
+
+/** generatedFileGlobsFor() for this project's composition (throws when unreadable). */
+export function generatedFileGlobs(cwd: string, packsDir?: string): string[] {
+  return generatedFileGlobsFor(readProjectPacks(cwd), packsDir);
+}
+
+/** generatedFileGlobs() for a host's path gate: `"unreadable"` on any failure. */
+export function generatedFileGlobsOrUnreadable(cwd: string, packsDir?: string): readonly string[] | "unreadable" {
+  try {
+    return generatedFileGlobs(cwd, packsDir);
+  } catch {
+    return "unreadable";
+  }
+}
+
+/** A case-insensitive matcher over validated project-relative path globs:
+ *  `*` stays inside one segment; a whole `**` segment spans zero or more
+ *  segments, or one or more when it is the last segment (`docs/**` matches
+ *  everything below `docs/`, not `docs` itself). */
+export function pathGlobMatcher(globs: readonly string[]): (path: string) => boolean {
+  const patterns = globs.map((glob) => {
+    const segments = glob.split("/");
+    let body = "";
+    segments.forEach((segment, i) => {
+      const last = i === segments.length - 1;
+      if (segment === "**") {
+        body += last ? "[^/].*" : "(?:[^/]+/)*";
+        return;
+      }
+      body += segment.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*") + (last ? "" : "/");
+    });
+    return new RegExp(`^${body}$`, "i");
+  });
+  return (path) => patterns.some((pattern) => pattern.test(path));
+}

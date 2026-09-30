@@ -1,0 +1,7 @@
+{
+  "//": "The ts-drizzle-postgres pack (ADR 2026-063): Postgres persistence through Drizzle, one Postgres schema per context, generated migrations under each context's adapters/out/drizzle/migrations (ADR 2026-058). It will contribute the drizzle storage adapter technology, its store emitter and the migration generator. A stub until WI-6: it contributes nothing yet.",
+  "dependsOnPacks": [
+    "ts",
+    "ts-hexagonal"
+  ]
+}

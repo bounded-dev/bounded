@@ -1,0 +1,7 @@
+{
+  "//": "The ts-mcp pack (ADR 2026-063): MCP servers as in adapters, one tool per feature tagged @exposedVia mcp, and the MCP app template. A stub until WI-7: it contributes nothing yet.",
+  "dependsOnPacks": [
+    "ts",
+    "ts-hexagonal"
+  ]
+}

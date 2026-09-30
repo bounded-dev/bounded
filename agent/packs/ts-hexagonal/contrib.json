@@ -1,0 +1,6 @@
+{
+  "//": "The ts-hexagonal pack (ADR 2026-063): the hexagonal monorepo layout of TN-26-012 \u2014 bounded contexts under contexts/, apps under apps/, domain/application/adapters layers. It will contribute sourceRoots, testFileSuffixes, generatedFileGlobs, the context workspace template, the in-memory and console adapter technologies, the domain/application emitters and the layer lint rules. A stub until WI-5: it contributes nothing yet.",
+  "dependsOnPacks": [
+    "ts"
+  ]
+}

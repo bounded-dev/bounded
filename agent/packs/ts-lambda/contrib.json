@@ -1,0 +1,7 @@
+{
+  "//": "The ts-lambda pack (ADR 2026-063): Lambda functions as in adapters, one per feature tagged @exposedVia lambda, and the Lambda app template bundled for a Node runtime. A stub until WI-7: it contributes nothing yet.",
+  "dependsOnPacks": [
+    "ts",
+    "ts-hexagonal"
+  ]
+}

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { composePacks } from "../src/socket-registry.ts";
 import { installedPacks, INSTALLED_PACKS } from "./installed.ts";
-import { artifactGenerators, contractPurityOverrides, contractSupportFiles, deliverChecks, lintSrcRules, TS_PACK } from "./ts/pack.ts";
+import { artifactGenerators, contractPurityOverrides, contractSupportFiles, deliverChecks, lintSrcRules, skeletonEmitters, TS_PACK } from "./ts/pack.ts";
 import { TS_DRIZZLE_SQLITE_PACK } from "./ts-drizzle-sqlite/pack.ts";
 import { TS_WEB_PACK } from "./ts-web/pack.ts";
 
@@ -22,7 +22,10 @@ describe("the harness's own composition", () => {
   });
 
   test("composes ts before every pack that declares the edge to it", () => {
-    expect(installedPacks().packs).toEqual([TS_PACK, TS_DRIZZLE_SQLITE_PACK, "ts-service", TS_WEB_PACK]);
+    expect(installedPacks().packs).toEqual([
+      TS_PACK, "ts-hexagonal", "ts-desktop", "ts-drizzle-postgres", TS_DRIZZLE_SQLITE_PACK, "ts-lambda", "ts-mcp",
+      "ts-service", TS_WEB_PACK,
+    ]);
   });
 
   // The socket vocabulary is closed and curated (TN-26-005): a socket is born
@@ -41,6 +44,9 @@ describe("the harness's own composition", () => {
       // ADR 2026-033: born with its consumer, deliver's last step.
       "deliverChecks",
       "lintSrcRules",
+      // ADR 2026-060: born with its consumers, the design gate's scaffold
+      // step, the red gate's shadow and delivery's leftover check.
+      "skeletonEmitters",
     ]);
     expect(sockets.every((s) => s.owner === TS_PACK)).toBe(true);
   });
@@ -96,6 +102,19 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
     expect(registry.read(deliverChecks)).toEqual([]);
     expect(registry.read(contractSupportFiles)).toEqual([]);
     expect(registry.read(artifactGenerators)).toEqual([]);
+    expect(registry.read(skeletonEmitters)).toEqual([]);
+  });
+
+  test("the rework's stub packs compose, and contribute nothing yet", () => {
+    const stubs = ["ts-hexagonal", "ts-drizzle-postgres", "ts-mcp", "ts-lambda", "ts-desktop"];
+    const registry = composePacks(INSTALLED_PACKS, [TS_PACK, ...stubs]);
+    expect(registry.read(skeletonEmitters)).toEqual([]);
+    for (const name of stubs) {
+      const pack = INSTALLED_PACKS.find((p) => p.name === name);
+      expect(pack?.contributes, name).toEqual([]);
+      expect(pack?.defines, name).toEqual([]);
+    }
+    expect(() => composePacks(INSTALLED_PACKS, [TS_PACK, "ts-mcp"])).toThrow(/depends on pack 'ts-hexagonal'/);
   });
 
   test("the migration generator exists only where ts-drizzle-sqlite is composed", () => {

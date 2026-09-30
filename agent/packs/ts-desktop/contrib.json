@@ -1,0 +1,7 @@
+{
+  "//": "The ts-desktop pack (ADR 2026-063): the desktop app template, a desktop shell hosting a context's router. A stub until WI-7, which adds its remaining pack edges: it contributes nothing yet.",
+  "dependsOnPacks": [
+    "ts",
+    "ts-hexagonal"
+  ]
+}
