@@ -1,0 +1,19 @@
+{
+  "name": "@example/desktop",
+  "private": true,
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "bun build src/main/main.ts --outdir dist/main --target node --format cjs --external electron && bun build src/renderer/index.html --outdir dist/renderer",
+    "dev": "bun run build && electron ."
+  },
+  "dependencies": {
+    "@example/project-management": "workspace:*",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "electron": "^38"
+  }
+}

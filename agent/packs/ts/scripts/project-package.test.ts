@@ -28,11 +28,12 @@ describe("the ts pack's project manifest writer (ADR 2026-051)", () => {
   });
 
   test("merges the composed packs' template, scripts and pins, and locks them", () => {
-    const dir = project(["ts", "ts-service"]);
+    const dir = project(["ts", "ts-hexagonal", "ts-trpc"]);
     writeProjectPackage(dir, agentRoot);
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { scripts: Record<string, string>; dependencies: Record<string, string> };
-    expect(pkg.scripts["build:api"]).toBeDefined();
-    expect(pkg.dependencies["@trpc/server"]).toBe("11.18.0");
+    // Adapter pins belong to the context workspaces that use them (ADR 2026-061), not the root.
+    expect(pkg.dependencies?.["@trpc/server"]).toBeUndefined();
+    expect(pkg.scripts["check"]).toBeDefined();
     expect(existsSync(join(dir, "package-lock.json"))).toBe(true);
   });
 

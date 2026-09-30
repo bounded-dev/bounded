@@ -1,26 +1,30 @@
+// The delivery obligation of a project that composed ts-web (ADR 2026-036):
+// at least one web app exists, and each has the whole door — a server entry
+// hosting the router and a client page with its script. Read-only, keyed on
+// the tree: a web app is an `apps/<name>/` whose source has a client page.
+
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { DeliverCheckResult } from "../../ts/pack.ts";
-import { deliveryProject, reachableFrom } from "../../ts/scripts/delivery-graph.ts";
-import { BOOTSTRAP_RELATIVE, runBuildCheck } from "./build-check.ts";
+
+const REQUIRED = ["src/client/index.html", "src/client/main.tsx", "src/server/main.ts", "src/server/composition-root.ts"];
+
+/** App directories (`apps/<name>`) that carry a client page, sorted. */
+export function webApps(cwd: string): string[] {
+  const root = join(cwd, "apps");
+  if (!existsSync(root) || !statSync(root).isDirectory()) return [];
+  return readdirSync(root).sort().filter((name) => existsSync(join(root, name, "src", "client", "index.html")))
+    .map((name) => `apps/${name}`);
+}
 
 export function runWebObligation(cwd: string): DeliverCheckResult {
-  const project = deliveryProject(cwd);
-  const main = project.getSourceFile(join(cwd, BOOTSTRAP_RELATIVE));
-  const block = (summary: string): DeliverCheckResult => ({ verdict: "block", summary: `ts-web: ${summary}` });
-  if (!main) return block(`missing ${BOOTSTRAP_RELATIVE}; the composed UI must have a browser entry`);
-  const bootstrap = runBuildCheck(cwd);
-  if (bootstrap.verdict === "block") return bootstrap;
-  const reachable = reachableFrom(main);
-  const app = reachable.find((file) => /\/src\/ui\/app\.tsx?$/.test(file.getFilePath()));
-  if (!app) return block("the browser entry must reach src/ui/app.tsx");
-  const pages = reachableFrom(app).filter((file) => /\/src\/ui\/(pages|features)\//.test(file.getFilePath()));
-  const domainRoot = join(cwd, "src") + "/";
-  const connected = pages.some((page) => reachableFrom(page).some((file) => {
-    const path = file.getFilePath();
-    if (!path.startsWith(domainRoot) || path.startsWith(join(cwd, "src/ui") + "/") || path.endsWith(".contract.ts")) return false;
-    const contract = path.replace(/\.(tsx?|jsx?)$/, ".contract.ts");
-    return project.getSourceFile(contract) !== undefined;
-  }));
-  if (!connected) return block("a reachable page or feature must import a domain implementation with a contract");
-  return { verdict: "pass", summary: "ts-web: browser entry reaches app, page/feature and a domain contract's implementation" };
+  const apps = webApps(cwd);
+  if (apps.length === 0) {
+    return { verdict: "block", summary: "ts-web: no web app — declare one in a TN's workspaces map (apps/web: web)" };
+  }
+  const missing = apps.flatMap((app) => REQUIRED.filter((file) => !existsSync(join(cwd, app, file))).map((file) => `${app}/${file}`));
+  if (missing.length > 0) {
+    return { verdict: "block", summary: "ts-web: a web app is missing part of its door", detail: missing };
+  }
+  return { verdict: "pass", summary: `ts-web: ${apps.join(", ")} serve a client page and the router` };
 }

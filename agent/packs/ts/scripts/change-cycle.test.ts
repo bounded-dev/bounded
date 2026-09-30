@@ -80,8 +80,8 @@ describe("change baseline and reviewer diff", () => {
   test("baseline corruption and composition changes are visible and refused", () => {
     const dir = trackedProject();
     captureChangeBaseline(dir);
-    writeProjectPacks(dir, ["ts", "ts-web"]);
-    expect(designDiff(dir).lines.some((line) => line.includes("packages ts → ts, ts-web"))).toBe(true);
+    writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
+    expect(designDiff(dir).lines.some((line) => line.includes("packages ts → ts, ts-hexagonal, ts-trpc, ts-web"))).toBe(true);
     const path = join(dir, BASELINE_PATH);
     const baseline = JSON.parse(readFileSync(path, "utf8"));
     baseline.files["spec.md"].content = "tampered";

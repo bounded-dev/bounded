@@ -48,7 +48,7 @@ const TS_ZONE = (() => {
   }
 })();
 
-const SERVICE_RUNTIME = join(import.meta.dirname, "../../ts-service/api/service-runtime.ts");
+const SERVICE_RUNTIME = join(import.meta.dirname, "../../ts-trpc/api/service-runtime.ts");
 
 // --- vitest-JSON fixture builders --------------------------------------------
 
@@ -579,7 +579,7 @@ describe("materializeShadowProject", () => {
 
 describe("contract-triggered support and forward types", () => {
   const live = createTempDir(join(tmpdir(), "pi-red-forward-"));
-  writeProjectPacks(live, ["ts", "ts-service"]);
+  writeProjectPacks(live, ["ts", "ts-hexagonal", "ts-trpc"]);
   mkdirSync(join(live, "src", "api"), { recursive: true });
   mkdirSync(join(live, "tests"), { recursive: true });
   writeFileSync(join(live, "src/api/api.contract.ts"),
@@ -597,7 +597,7 @@ describe("contract-triggered support and forward types", () => {
     const shadow = materializeShadowProject(live, plan);
     expect(readFileSync(join(shadow, "src/api/service-runtime.ts"), "utf8"))
       .toBe(readFileSync(SERVICE_RUNTIME, "utf8")
-        .replace(/^/, "// GENERATED from packs/ts-service/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\n"));
+        .replace(/^/, "// GENERATED from packs/ts-trpc/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\n"));
     expect(readFileSync(join(shadow, "src/api/api.ts"), "utf8"))
       .not.toContain("serviceRouter = { submit: true }");
   });
@@ -621,7 +621,7 @@ describe("contract-triggered support and forward types", () => {
   test("a support import escaping src/ is refused before the shadow writes it", () => {
     const escaping = createTempDir(join(tmpdir(), "pi-red-escape-"));
     try {
-      writeProjectPacks(escaping, ["ts", "ts-service"]);
+      writeProjectPacks(escaping, ["ts", "ts-hexagonal", "ts-trpc"]);
       mkdirSync(join(escaping, "src", "api"), { recursive: true });
       mkdirSync(join(escaping, "tests"), { recursive: true });
       writeFileSync(join(escaping, "src/api/api.contract.ts"),
@@ -710,11 +710,11 @@ describe("contract-triggered support and forward types", () => {
 test("project-local init, design freeze, inferred router re-freeze, and red use the copied harness", async () => {
   const dir = createTempDir(join(tmpdir(), "bounded-red-init-"));
   tmpDirs.push(dir);
-  const selected = ["ts-web", "ts-service"];
+  const selected = ["ts-trpc"];
   const plan = await planInit(dir, "claude-code", selected);
   await applyInit(dir, "claude-code", selected, plan.digest);
   symlinkSync(join(import.meta.dirname, "../../../node_modules"), join(dir, "node_modules"), "dir");
-  writeFileSync(join(dir, "src/ui/app.tsx"), "export function App() { return null; }\n");
+  mkdirSync(join(dir, "src/api"), { recursive: true });
   writeFileSync(join(dir, "docs/tn/TN-24.md"),
     "---\nissue: 24\nstatus: active\ncontracts:\n  - src/api/api.contract.ts\n---\n\n# Service\n\n## Intake\n\nNothing stripped.\n\nSubmit returns an acknowledgement.\n");
   const priorTicket = process.env.BOUNDED_TICKET;
@@ -1217,6 +1217,6 @@ describe("red against a live tree the builder has already implemented", () => {
 // Existing fixtures exercise the previously installed language and web rules.
 function mkdtempSync(prefix: string): string {
   const dir = createTempDir(prefix);
-  writeProjectPacks(dir, ["ts", "ts-web"]);
+  writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
   return dir;
 }

@@ -436,7 +436,7 @@ describe("a tier the registry cannot resolve", () => {
 // Existing fixtures exercise the previously installed language and web rules.
 function mkdtempSync(prefix: string): string {
   const dir = createTempDir(prefix);
-  writeProjectPacks(dir, ["ts", "ts-web"]);
+  writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
   return dir;
 }
 

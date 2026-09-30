@@ -127,18 +127,14 @@ describe("contributed purity overrides", () => {
     }
   });
 
-  // The ratified exemption, behaviourally (TN-26-006): a Button's
-  // `label: string` IS a string, and the generic UI layer holds no domain.
+  // The retired generic-UI relaxation left no exemption behind: a contract of
+  // primitives is refused wherever it sits.
   const BUTTON_CONTRACT =
     "export interface ButtonProps {\n" +
     "  readonly label: string;\n" +
     "  readonly tone: \"primary\" | \"destructive\";\n" +
     "  readonly disabled: boolean;\n" +
     "}\n";
-
-  test("a generic UI contract may take primitives", async () => {
-    expect(await lintContractSource(BUTTON_CONTRACT, "src/ui/shared/ui/button.contract.ts")).toEqual([]);
-  });
 
   // The scope is one directory, and the whole design depends on it being one
   // directory: everywhere else, domain data crosses as a value object.
@@ -153,17 +149,6 @@ describe("contributed purity overrides", () => {
   test("and outside src/ui entirely", async () => {
     const problems = await lintContractSource(BUTTON_CONTRACT, "src/orders/orders.contract.ts");
     expect(problems.map((p) => p.ruleId)).toContain("bounded-ts/no-naked-primitives");
-  });
-
-  // Relaxing no-naked-primitives alone would have relaxed nothing: a contract
-  // that survives it meets value-object-shape one message later.
-  test("the exemption covers every rule that would refuse the same contract", async () => {
-    const problems = await lintContractSource(
-      "export declare class Label {\n  readonly text: string;\n}\n",
-      "src/ui/shared/ui/label.contract.ts",
-    );
-    expect(problems.map((p) => p.ruleId)).not.toContain("bounded-ts/value-object-shape");
-    expect(problems.map((p) => p.ruleId)).not.toContain("bounded-ts/value-object-documented");
   });
 
   // What is NOT relaxed: a contract under shared/ui is still a contract.

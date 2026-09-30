@@ -1,0 +1,16 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/server/main.ts"
+  },
+  "dependencies": {
+    "@trpc/client": "11.18.0",
+    "@trpc/server": "11.18.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
+}

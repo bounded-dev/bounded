@@ -63,20 +63,20 @@ describe("real pack content follows project composition", () => {
     writeProjectPacks(cwd, ["ts"]);
     expect(specTechNouns(cwd)).toContain("graphql");
     expect(specTechNouns(cwd)).not.toContain("vue");
-    writeProjectPacks(cwd, ["ts", "ts-web"]);
+    writeProjectPacks(cwd, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
     expect(specTechNouns(cwd)).toContain("vue");
     expect(specTechNouns(cwd)).not.toContain("react");
   });
   test("component names exist only when web is selected", () => {
     expect(mergedContribution("componentReturnTypes", ["ts"])).toEqual([]);
-    expect(mergedContribution("componentReturnTypes", ["ts", "ts-web"])).toContain("ReactElement");
+    expect(mergedContribution("componentReturnTypes", ["ts", "ts-hexagonal", "ts-trpc", "ts-web"])).toContain("ReactElement");
   });
   test("missing selection refuses intake", () => {
     expect(() => specTechNouns(packsDir({}))).toThrow(/bounded compose/);
   });
   test("web declares its project-init script", () => {
     const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "packs", "ts-web", "contrib.json"), "utf8"));
-    expect(manifest.projectInitScripts).toEqual(["scripts/new-web-app.ts"]);
+    expect(manifest.projectInitScripts).toEqual(["scripts/seed-apps.ts"]);
   });
 });
 
@@ -118,7 +118,7 @@ describe("data socket validation", () => {
   });
 
   test("no pack contributes an architect write zone any more (ADR 2026-054)", () => {
-    expect(mergedContribution("architectWriteFiles", ["ts", "ts-service", "ts-web"])).toEqual([]);
+    expect(mergedContribution("architectWriteFiles", ["ts", "ts-hexagonal", "ts-trpc", "ts-web"])).toEqual([]);
   });
 });
 

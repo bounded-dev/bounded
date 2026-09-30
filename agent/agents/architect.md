@@ -218,32 +218,14 @@ get their own `*.contract.ts`; see below), and
 `bounded-ts/no-cross-contract-type-import` (a contract may not `import type`
 or `export type … from` another `*.contract.ts` — reach a sibling component
 through its implementation module; see below), and
-`bounded-ts-service/no-erased-router` (service pack; a type-erased framework type — `AnyRouter`
-and kin — may not describe a service surface: the router's type is inferred,
-so re-export it from the implementation module, `export type ServiceRouter =
-typeof serviceRouter`; ADR 2026-030), and
-`bounded-ts-service/router-type-reexported` (service pack; the other half of the same rule: a
-contract that imports a `service-runtime` module must ACTUALLY carry that
-re-export — `import type { serviceRouter } from "./api.js"; export type
-ServiceRouter = typeof serviceRouter;`. Leaving it out is legal and silent,
-and it forfeits the typed client just as completely as erasing it — r23
-shipped two services that way; ADR 2026-030), and
+`bounded-ts-trpc/no-erased-router` (tRPC pack; a type-erased tRPC type —
+`AnyRouter` and kin — may not appear in a contract: the router's real type is
+generated with the in adapter from your `@exposedVia trpc` tags; ADR 2026-030),
+and
 `bounded-ts/no-schema-on-surface` (nothing from zod may appear in a
 contract — the schema is the value object's internal engine, and the
 contract's whole validation surface is `static parse(raw: unknown)`; ADR
 2026-031).
-
-**One ratified relaxation: the generic UI layer.** Contracts under
-`src/ui/shared/ui/` — and nowhere else — have `no-naked-primitives`,
-`value-object-shape` and `value-object-documented` turned OFF, contributed by
-the ts-web pack (TN-26-006, ratified at the 2026-09-14 grill). A Button's
-`label: string` IS a string: that layer is generic by definition and holds no
-domain at all, which `fsd-downward-imports` enforces from the other side by
-refusing it any import from a layer that knows one. Everywhere else the rules
-stand unchanged, so domain data crosses into entity and feature components as
-value objects and is rendered to primitives at the leaf. Do not read this as
-licence to move a domain type into `shared/ui` to get past a block — that is
-the one move the exemption is shaped to make useless.
 
 `design_gate` runs that check as its first step and then carries the phase
 through: purity → scaffold → project typecheck → design-review → freeze, one
@@ -412,23 +394,15 @@ zone", that is the literal truth and it is not "the project compiles"; only
 your own gates speak for the project.
 
 **Selected packages carry delivery obligations.** The driver records the
-selection before gates run. `web-obligation` requires a reachable frontend
-from main through app and page/feature to domain; `build-check` builds it.
-`service-obligation` requires an implemented service exporting its inferred
-`ServiceRouter`. When both packages are selected, the reachable shared API
-client must create a typed client for that service. A port declaration or a
-component kit alone cannot satisfy those obligations.
+selection before gates run. `trpc-obligation` requires at least one context
+to expose a feature through tRPC (`@exposedVia trpc`), so its generated
+adapter exists. `web-obligation` requires every web app to have its server
+entry, composition root, client page and client entry. A package selected but
+never used by the design cannot satisfy them.
 
 **`deliver` can block on a check a PACK contributed** (ADR 2026-033), after the
-project's own `npm run check` has passed. Today that is the web pack's
-`theme-check`: on a frontend, `src/ui/theme.css` is the one style file the
-project owns, and delivery refuses a theme that has lost a token the generated
-component kit styles through, or whose declared foreground/background pairs fall
-below WCAG AA contrast — the message names the pair and the ratio it measured.
-Neither defect is visible anywhere else in the pipeline: an undefined token
-renders as no colour at all and leaves the suite green. The fix is an edit to
-`theme.css`, never to a component. A project with no `theme.css` is not a web
-target and the check says so and passes.
+project's own `npm run check` has passed: the obligations above are such
+checks. The message names the pack and what is missing.
 
 **Waiting is `sleep`, never a gate.** Use `subagent_wait` to block on a child;
 use `sleep` (1–120s) when you want to let a subagent make progress and then

@@ -1,7 +1,33 @@
 {
-  "//": "The ts-mcp pack (ADR 2026-063): MCP servers as in adapters, one tool per feature tagged @exposedVia mcp, and the MCP app template. A stub until WI-7: it contributes nothing yet.",
+  "//": "The ts-mcp pack (ADR 2026-063): MCP tools as an in adapter, and the MCP app template. adapterTechnologies declares the `mcp` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/mcp/, the package export ./adapters/mcp and the feature role `tool`. generatedFileGlobs write-protects that folder, every file of which is emitted from the feature contracts (TN-26-012 §6). workspaceTemplates.mcp is the app a TN declares as `apps/<name>: mcp`: a stdio server hosting one context's MCP server.",
   "dependsOnPacks": [
     "ts",
     "ts-hexagonal"
+  ],
+  "adapterTechnologies": [
+    {
+      "id": "mcp",
+      "direction": "in",
+      "featureRole": "tool",
+      "description": "MCP tools, one per feature tagged @exposedVia mcp, registered on one server per context; the in port's JSDoc summary is the tool description",
+      "pins": {
+        "dependencies": {
+          "@modelcontextprotocol/sdk": "1.31.0"
+        }
+      }
+    }
+  ],
+  "generatedFileGlobs": [
+    "contexts/*/src/adapters/in/mcp/**"
+  ],
+  "workspaceTemplates": {
+    "mcp": {
+      "root": "apps",
+      "manifest": "templates/mcp/package.json",
+      "description": "An MCP server app: src/main.ts connects the composed server to a stdio transport; src/composition-root.ts wires the context's handlers and adapters."
+    }
+  },
+  "projectInitScripts": [
+    "scripts/seed-apps.ts"
   ]
 }

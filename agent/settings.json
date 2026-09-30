@@ -9,7 +9,7 @@
     "npm:betterwright@1.10.0",
     "./packs/ts",
     "./packs/ts-web",
-    "packs/ts-service",
+    "packs/ts-trpc",
     "packs/ts-drizzle-postgres"
   ],
   "subagents": {

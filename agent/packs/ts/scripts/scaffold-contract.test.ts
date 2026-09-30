@@ -20,7 +20,7 @@ import {
   skeletonSiblingPaths,
   shippedSupportSource,
 } from "./scaffold-contract.ts";
-import { serviceRuntimeSupport } from "../../ts-service/service-runtime-support.ts";
+import { serviceRuntimeSupport } from "../../ts-trpc/service-runtime-support.ts";
 import { lawsPathFor, valueObjectLawsSource } from "./value-object-laws.ts";
 import { stripConformance } from "./deliver.ts";
 
@@ -1273,7 +1273,7 @@ export declare function StatusCard(props: { readonly label: string }): ReactElem
 
 describe("runScaffold: the service runtime is shipped where a contract points", () => {
   const dirs: string[] = [];
-  const project = (files: Record<string, string>, packs = ["ts", "ts-service"]): string => {
+  const project = (files: Record<string, string>, packs = ["ts", "ts-hexagonal", "ts-trpc"]): string => {
     const dir = createTempDir(join(tmpdir(), "scaffold-rt-"));
     writeProjectPacks(dir, packs);
     dirs.push(dir);
@@ -1355,8 +1355,8 @@ export declare function createServiceCaller(deps: { readonly now: () => string }
     );
   });
 
-  test("only a project that composed ts-service gets the runtime (ADR 2026-046)", () => {
-    for (const packs of [["ts"], ["ts", "ts-web"]]) {
+  test("only a project that composed ts-trpc gets the runtime (ADR 2026-046)", () => {
+    for (const packs of [["ts"], ["ts", "ts-hexagonal"]]) {
       const dir = project({ "src/api/api.contract.ts": API_CONTRACT }, packs);
       const r = runScaffold(dir);
       expect(r.code).toBe(0);
@@ -1621,7 +1621,7 @@ export function Badge(props: BadgeProps): ReactElement {
 // Existing fixtures exercise the previously installed language and web rules.
 function mkdtempSync(prefix: string): string {
   const dir = createTempDir(prefix);
-  writeProjectPacks(dir, ["ts", "ts-web"]);
+  writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
   return dir;
 }
 

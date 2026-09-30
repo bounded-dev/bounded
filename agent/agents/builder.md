@@ -152,54 +152,32 @@ express, fastify, ajv, joi, yup, …). tRPC (`@trpc/server`) is the RPC stack
 and zod the schema engine (ADR 2026-029); if the spec seems to require a
 banned framework, that is a `CONTRACT-DISPUTE`, not an import.
 
-**The framework has one door** — `bounded-ts-service/raw-framework-entry` (when the service pack is composed): a
-runtime import of `@trpc/*` is legal only inside the generated
-`service-runtime.ts` (`import type` is fine anywhere). Build procedures
-through `createService` / `command` / `query` from `./service-runtime.js` —
-the error taxonomy (parse failure → BAD_REQUEST, the named throwers for
-NOT_FOUND / UNPROCESSABLE_CONTENT / CONFLICT) is code in that one shipped
-file, not a convention for you to re-implement (TN-26-004).
+**The framework has one door** — `bounded-ts-trpc/raw-framework-entry` (when the tRPC pack is composed):
+procedures, routers and the one `initTRPC` of a context are generated into
+`contexts/<context>/src/adapters/in/trpc/` from the feature contracts, so a
+runtime import of `@trpc/server` anywhere else is refused (`import type` is
+fine anywhere). An app hosts the generated router: its composition root
+builds it with `create<Context>Router(...)` from `@<scope>/<context>/adapters/trpc`,
+and its server entry serves it through the transport adapter
+`@trpc/server/adapters/fetch`, the one subpath that is allowed.
 
-**The UI's layers point one way** — `bounded-ts-web/fsd-downward-imports`:
-inside `src/ui/**`, imports flow strictly downward through
-`shared < entities < features < widgets < pages`. A module may import its own
-layer or a lower one, never a higher one — a `shared/ui` component that imports
-a feature is a component nobody can reuse and nobody can test alone, and it
-still compiles, which is why a gate says so instead of a reviewer. If you need
-something from above, take it as a prop. Type-only imports count: a type is a
-dependency. Nothing outside `src/ui` is in scope — importing the domain, a
-contract or a package is ordinary work.
+**Never erase the router's type** — `bounded-ts-trpc/no-erased-router`: no
+`AnyRouter`, `AnyTRPCRouter` or other `Any*` type from `@trpc/*`, and no local
+alias with one of those names. The router's real type is generated.
 
-**Each slice has one front door** — `bounded-ts-web/fsd-slice-public-api`: a
-cross-slice import targets the slice root (`../building`, or
-`../building/index.js`), never a file inside it (`../building/model/query.js`).
-The index is the list of things the rest of the app may depend on, and
-everything else in the slice stays free to move. Inside your OWN slice, reach
-for whatever you like.
+**A client is typed by the re-exported router type** —
+`bounded-ts-trpc/router-type-reexported`: `createTRPCClient<…>` (and the other
+client factories) takes exactly one type argument, the `<Context>Router` type
+imported **type-only** from `@<scope>/<context>/adapters/trpc`. No local alias,
+no `typeof`, no missing type argument: each can drift from the real API with
+nothing failing.
 
-**The frontend has one door to the network** — `bounded-ts-web/client-one-door`:
-runtime imports of `@trpc/*` and `@tanstack/*` are legal only under
-`src/ui/shared/api/` (`import type` is fine anywhere). One client, one URL, one
-QueryClient — a second QueryClient splits the cache and nothing fails, so half
-the app just stops seeing the other half's writes. Reach the transport through
-`useServiceClient()` from `shared/api/client.js` and wrap it in your own entity
-or feature hook. This is the client-side twin of `raw-framework-entry`, which
-owns the server door (`@trpc/server`).
-
-**Colour comes from tokens, never from your fingers** —
-`bounded-ts-web/tokens-only-styling`: inside `src/ui/**`, a class string may
-not name Tailwind's raw palette (`bg-red-500`, `text-slate-300`,
-`hover:border-zinc-200`) or carry a hand-written colour in brackets
-(`bg-[#0ea5e9]`, `[color:red]`). Style through the semantic tokens the project's
-`src/ui/theme.css` defines — `bg-primary`, `text-muted-foreground`,
-`bg-positive` / `caution` / `critical` / `neutral`, `border-border`, `ring-ring`
-— or through `bg-[var(--color-…)]`, which is a token reference. Sizes in
-brackets (`w-[42ch]`) stay legal; this rule is about colour. The reason is the
-whole styling design: a fresh look for a project is a fresh `theme.css` and
-nothing else, and one hand-picked colour means every other surface changes while
-that one element keeps yesterday's brand — with nothing failing. Composing the
-generated kit (PageShell, Card, Stat, Badge, DataList) is the path that needs no
-className at all.
+**Node-bundled apps use no Bun API** — `bounded-ts-lambda/no-bun-api` (when the
+Lambda pack is composed): in an app whose manifest builds with
+`bun build --target node` (a Lambda app, an Electron main process), a value
+import of `bun` or `bun:*`, the `Bun` global, and `import.meta.main` / `dir` /
+`file` / `path` / `env` are refused. That code runs on Node, where they are
+undefined and fail only when invoked. Use Node or web-standard APIs.
 
 **Value objects parse with zod** — `bounded-ts/zod-backed-parse`: a
 branded class's `static parse` must delegate to a zod schema (module-level

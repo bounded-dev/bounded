@@ -1,14 +1,22 @@
-// The ts-mcp pack (ADR 2026-063): MCP tools as in adapters. A stub; WI-7
-// fills it. It contributes nothing yet.
-// Its data half is contrib.json beside this file.
-import { definePack } from "../../src/socket-registry.ts";
-import { TS_PACK } from "../ts/pack.ts";
+// The ts-mcp pack (ADR 2026-063): MCP tools as an in adapter, and the MCP app.
+//
+//   * the `mcp-in-adapter` emitter: every context's adapters/in/mcp/**,
+//     generated from the features tagged `@exposedVia mcp`, with its laws;
+//   * the `mcp-app` emitter: the seed files of each app a TN declares as
+//     kind `mcp`.
+//
+// Its data half is contrib.json beside this file: the `mcp` adapter
+// technology and its pin, the generated globs and the `mcp` workspace template.
+import { contribute, definePack } from "../../src/socket-registry.ts";
+import { skeletonEmitters, TS_PACK } from "../ts/pack.ts";
 import { TS_HEXAGONAL_PACK } from "../ts-hexagonal/pack.ts";
+import { mcpAppEmitter } from "./scripts/mcp-app-emitter.ts";
+import { mcpAdapterEmitter } from "./scripts/mcp-emitter.ts";
 
 export const TS_MCP_PACK = "ts-mcp";
 
 export const tsMcpPack = definePack({
   name: TS_MCP_PACK,
   dependsOnPacks: [TS_PACK, TS_HEXAGONAL_PACK],
-  contributes: [],
+  contributes: [contribute(skeletonEmitters, [mcpAdapterEmitter, mcpAppEmitter])],
 });
