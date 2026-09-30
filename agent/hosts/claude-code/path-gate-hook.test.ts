@@ -251,16 +251,20 @@ describe("path-gate-hook — Bash, by role", () => {
     }
   });
 
-  // rm is judged by decide() with the context the hook builds for the bash
-  // policy. That context carries no layout yet (source roots, test suffixes,
-  // generated globs), so every rm fails closed until the hook builds it with
-  // pathGateCtx (src/path-gate.ts). This pins the closed side; the open side
-  // is bash-policy.test.ts's table.
-  test("an rm is refused, never guessed, while the hook passes no layout", () => {
-    const t = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n", [`${C}/a.test.ts`]: "" });
-    const r = runHere(t, payload(t, "Bash", { command: `rm ${C}/a.test.ts` }));
-    expect(r.decision).toBe("deny");
-    expect(r.reason).toContain("the project composition is unreadable");
+  // rm is judged by decide() with the same context the file tools get
+  // (pathGateCtx): the layout places the file, so each blind role may remove
+  // its own side's files and no other.
+  test("rm follows the layout: own side allowed and silent, other side and generated refused", () => {
+    const files = { [`${C}/a.test.ts`]: "", [`${C}/a.ts`]: "", [`${C}/x.laws.test.ts`]: "" };
+    const t = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n", ...files });
+    const own = runHere(t, payload(t, "Bash", { command: `rm ${C}/a.test.ts` }));
+    expect(own.decision).toBe("allow");
+    expect(own.stdout).toBe("");
+    expect(runHere(t, payload(t, "Bash", { command: `rm ${C}/a.ts` })).reason).toContain("it is an implementation file");
+    expect(runHere(t, payload(t, "Bash", { command: `rm ${C}/x.laws.test.ts` })).reason).toContain("it is a generated file");
+    const b = makeTempProject({ ".bounded/dev-stage-role": "builder\n", ...files });
+    expect(runHere(b, payload(b, "Bash", { command: `rm ${join(b, C, "a.ts")}` })).decision).toBe("allow");
+    expect(runHere(b, payload(b, "Bash", { command: `rm ${C}/a.test.ts` })).reason).toContain("it is a test file");
   });
 
   test("a Bash call with no command string is refused, not crashed on", () => {

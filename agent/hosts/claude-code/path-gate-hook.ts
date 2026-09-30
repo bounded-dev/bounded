@@ -64,6 +64,7 @@ import {
   asRole,
   evaluatePathGate,
   isDrivingRole,
+  pathGateCtx,
   PIPELINE_ROLES,
   recordRunStart,
   sessionRole,
@@ -75,9 +76,7 @@ import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-ti
 import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
 import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
-import { ticketWriteScope } from "../../src/ticket-design.ts";
 import { resolveSessionRole } from "../../src/session-role.ts";
-import { contractGlobsOrUnreadable, writeProtectionOrUnreadable } from "../../src/pack-contrib.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
@@ -305,10 +304,9 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
     if (call.toolName === BASH_TOOL) {
       const raw = call.input["command"];
       const command = typeof raw === "string" ? raw : "";
-      const decision = decideBash(role, command, { cwd, harnessRoot,
-        ...(role === "architect" ? { ticketScope: ticketWriteScope(cwd) } : {}),
-        ...(role === "architect" || role === "test-writer" || role === "builder"
-          ? { contractGlobs: contractGlobsOrUnreadable(cwd), writeProtection: writeProtectionOrUnreadable(cwd) } : {}) });
+      // The same context the file tools are judged with (layout, protected
+      // names, ticket scope), so an `rm` obeys exactly a pi `remove`'s rules.
+      const decision = decideBash(role, command, pathGateCtx(role, cwd, harnessRoot));
       if (!decision.allow) {
         // decide() logs its own blocks through evaluatePathGate; the bash
         // policy is pure, so its refusal is recorded here.

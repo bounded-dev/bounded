@@ -361,7 +361,7 @@ function decideSleep(role: Role, argv: readonly string[], shown: string): BashDe
  *  pi `remove` so the write zones apply. Directories, `-r`, `-f` and lists
  *  are refused: the pi tool removes one file, and so does this. The layout in
  *  `ctx` (source roots, test suffixes, generated globs) is what places the
- *  file; a ctx without it refuses every blind role's rm (fail closed), so the
+ *  file; a ctx without it refuses every blind role's rm (fail closed). The
  *  hook builds it with `pathGateCtx` (src/path-gate.ts). */
 function decideRm(role: Role, argv: readonly string[], shown: string, ctx: Ctx): BashDecision {
   const path = argv[1];
