@@ -1,5 +1,5 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
-import { conceptPairs, isBrandFor, memberName, PRIMITIVE_KEYWORDS, textOf } from "./concept-pairs.ts";
+import { conceptPairs, importedNames, inDomainLayer, isBrandFor, memberName, PRIMITIVE_KEYWORDS, textOf } from "./concept-pairs.ts";
 
 // ADR 2026-059 contract rule: an entity's contract is the worked example's
 // pair, built only from already-valid value objects and equal by identity.
@@ -52,7 +52,7 @@ export const entityShape = createRule<[], MessageId>({
       factoryMember: `${MODEL} '{{name}}Factory' of an entity holds only its 'new (…)' — '{{member}}' does not belong there. An entity is built from already-valid value objects, so it has no 'parse'; behaviour goes on the instance interface.`,
       fields: `${MODEL} '{{name}}' declares no fields — an entity holds at least its identity, 'readonly id: {{name}}Id;'.`,
       identity: `${MODEL} '{{name}}''s first field must be its identity, 'readonly id: <Name>Id;' — the generated laws check equality by identity against it.`,
-      fieldType: `${MODEL} '{{name}}.{{field}}' is '{{type}}' — an entity field is 'readonly', required, and typed by a value object or an identifier (another entity is referred to by its id), never a primitive, literal or array.`,
+      fieldType: `${MODEL} '{{name}}.{{field}}' is '{{type}}' — an entity field is 'readonly', required, and typed by an imported value object or identifier (another entity is referred to by its id), never a primitive, literal, array or local type.`,
       equals: `${MODEL} '{{name}}' needs 'equals(other: {{name}}): boolean;' — entities are equal by identity.`,
       toJSON: `${MODEL} '{{name}}' needs 'toJSON(): {{shape}};' — one readonly primitive per field, in field order: the wire shape.`,
       member: `${MODEL} '{{name}}' has '{{member}}', which is not a field or a method — accessors, index and call signatures are not part of an entity.`,
@@ -63,7 +63,8 @@ export const entityShape = createRule<[], MessageId>({
     const source = context.sourceCode.getText();
     return {
       Program(program) {
-        for (const pair of conceptPairs(program)) {
+        const imported = importedNames(program);
+        for (const pair of conceptPairs(program, inDomainLayer(context.filename))) {
           if (pair.kind !== "entity") continue;
           const { name, instance, factory } = pair;
           const members = instance.body.body;
@@ -88,7 +89,10 @@ export const entityShape = createRule<[], MessageId>({
             const type = field.typeAnnotation?.typeAnnotation;
             const ok = field.readonly && !field.optional && type?.type === TSESTree.AST_NODE_TYPES.TSTypeReference &&
               type.typeName.type === TSESTree.AST_NODE_TYPES.Identifier && type.typeArguments === undefined &&
-              type.typeName.name !== name;
+              type.typeName.name !== name &&
+              // an imported concept: a field's type the file does not import
+              // is one the emitter cannot resolve to a concept
+              imported.has(type.typeName.name);
             if (!ok) {
               context.report({
                 node: field,

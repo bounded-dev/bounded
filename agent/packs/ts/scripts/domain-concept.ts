@@ -309,6 +309,14 @@ export function parseDomainConcept(contractPath: string, source: string): Domain
   const syntaxErrors = (sf as unknown as { parseDiagnostics?: readonly unknown[] }).parseDiagnostics ?? [];
   if (syntaxErrors.length > 0) refuse(contractPath, "does not parse as TypeScript — fix the syntax first");
 
+  // An `import("…")` type reaches a module no import declaration shows.
+  const importType = (function find(node: ts.Node): ts.ImportTypeNode | undefined {
+    return ts.isImportTypeNode(node) ? node : ts.forEachChild(node, find);
+  })(sf);
+  if (importType !== undefined) {
+    refuse(contractPath, `'${normalised(importType, sf)}' — a domain contract names its dependencies in 'import type { … }' declarations, never an import("…") type`);
+  }
+
   const imports = parseImports(sf, contractPath);
   const imported = new Set(imports.flatMap((i) => i.names));
   if (imported.has(name) || imported.has(factoryName)) refuse(contractPath, `imports '${name}' — the concept is declared here`);

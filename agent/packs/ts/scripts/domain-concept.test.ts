@@ -10,18 +10,11 @@ import {
   valueTypeOf,
 } from "./domain-concept.ts";
 import { EXAMPLE_CONCEPTS, exampleConcept } from "./testdata/example-domain.ts";
+import { DOMAIN_REFUSALS, REFUSAL_PATH as PATH, vo, VO_MEMBERS } from "./testdata/domain-refusals.ts";
 
 // The domain-concept parser (ADR 2026-059, TN-26-012 §3): the worked
 // example's six contracts parse to the model every emitter codes against, and
 // every shape outside the grammar is refused with the contract path and a fix.
-
-const PATH = "contexts/pm/src/domain/projects/project-name.contract.ts";
-
-function vo(instance: string, factory = "parse(raw: unknown): Result<ProjectName>;", imports = 'import type { Result } from "../shared/result.ts";'): string {
-  return `${imports}\n\nexport interface ProjectName {\n  ${instance}\n}\n\nexport interface ProjectNameFactory {\n  ${factory}\n}\n`;
-}
-
-const VO_MEMBERS = 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;';
 
 function refusal(path: string, source: string): string {
   try {
@@ -157,61 +150,9 @@ describe("@accepts examples", () => {
 });
 
 describe("refusals", () => {
-  const cases: [string, string, string, RegExp][] = [
-    ["a path outside the layout", "src/domain/project-name.contract.ts", vo(VO_MEMBERS), /contexts\/<context>\/src\/domain/],
-    ["the retired declare class", PATH, 'export declare class ProjectName {\n  private readonly __brand: "ProjectName";\n  static parse(raw: unknown): ProjectName | undefined;\n}\n', /declares exactly/],
-    ["a syntax error", PATH, vo(VO_MEMBERS).replace("}", ""), /does not parse/],
-    ["a name that is not the file's", "contexts/pm/src/domain/projects/project-title.contract.ts", vo(VO_MEMBERS), /declares 'ProjectName'/],
-    ["a third declaration", PATH, `${vo(VO_MEMBERS)}export type Alias = string;\n`, /declares exactly/],
-    ["an unexported factory", PATH, vo(VO_MEMBERS).replace("export interface ProjectNameFactory", "interface ProjectNameFactory"), /declares exactly/],
-    ["no factory", PATH, `import type { Result } from "../shared/result.ts";\nexport interface ProjectName {\n  ${VO_MEMBERS}\n}\n`, /no 'export interface ProjectNameFactory'/],
-    ["a generic instance", PATH, vo(VO_MEMBERS).replace("interface ProjectName {", "interface ProjectName<T> {"), /generic or extends/],
-    ["an extending instance", PATH, vo(VO_MEMBERS).replace("interface ProjectName {", "interface ProjectName extends Base {"), /generic or extends/],
-    ["a value import", PATH, vo(VO_MEMBERS, undefined, 'import { Result } from "../shared/result.ts";'), /import type/],
-    ["an implementation import", PATH, vo(VO_MEMBERS, undefined, 'import type { Result } from "../shared/result.ts";\nimport type { ProjectId } from "./project-id.ts";'), /imports only other domain contracts/],
-    ["the domain barrel", PATH, vo(VO_MEMBERS, undefined, 'import type { Result } from "@example/pm/domain";'), /imports only other domain contracts/],
-    ["an aliased import", PATH, vo(VO_MEMBERS, undefined, 'import type { Result as R } from "../shared/result.ts";'), /no alias/],
-    ["a duplicate import", PATH, vo(VO_MEMBERS, undefined, 'import type { Result } from "../shared/result.ts";\nimport type { Result } from "../shared/result.ts";'), /imported twice/],
-    ["the brand missing", PATH, vo('readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;'), /first member must be 'readonly __brand: "ProjectName";'/],
-    ["the brand mismatched", PATH, vo(VO_MEMBERS.replace('"ProjectName";', '"Name";')), /__brand/],
-    ["a mutable field", PATH, vo(VO_MEMBERS.replace("readonly value", "value")), /must be readonly/],
-    ["an optional method", PATH, vo(VO_MEMBERS.replace("toJSON()", "toJSON?()")), /is optional/],
-    ["an overload", PATH, vo(`${VO_MEMBERS}\n  toJSON(): string;`), /declared twice/],
-    ["an accessor", PATH, vo(`${VO_MEMBERS}\n  get upper(): string;`), /not a field or a method/],
-    ["no equals", PATH, vo('readonly __brand: "ProjectName";\n  readonly value: string;\n  toJSON(): string;'), /equals\(other: ProjectName\): boolean/],
-    ["no toJSON", PATH, vo('readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;'), /toJSON\(\)/],
-    ["toJSON of another type", PATH, vo(VO_MEMBERS.replace("toJSON(): string", "toJSON(): number")), /toJSON\(\): string/],
-    ["two fields", PATH, vo(`${VO_MEMBERS}\n  readonly slug: string;`), /exactly one field/],
-    ["a non-primitive value", PATH, vo(VO_MEMBERS.replace("readonly value: string", "readonly value: Date")), /exactly one field/],
-    ["parse returning undefined", PATH, vo(VO_MEMBERS, "parse(raw: unknown): ProjectName | undefined;"), /parse\(raw: unknown\): Result<ProjectName>/],
-    ["parse of a string", PATH, vo(VO_MEMBERS, "parse(raw: string): Result<ProjectName>;"), /parse\(raw: unknown\)/],
-    ["parse with a renamed parameter", PATH, vo(VO_MEMBERS, "parse(input: unknown): Result<ProjectName>;"), /parse\(raw: unknown\)/],
-    ["parse without Result imported", PATH, vo(VO_MEMBERS, undefined, ""), /import type \{ Result \}/],
-    ["an optional parse parameter", PATH, vo(VO_MEMBERS, "parse(raw?: unknown): Result<ProjectName>;"), /plain 'name: Type'/],
-    ["a generate that takes input", PATH, vo(VO_MEMBERS, "parse(raw: unknown): Result<ProjectName>;\n  generate(seed: string): ProjectName;"), /generate\(\): ProjectName/],
-    ["an extra factory method", PATH, vo(VO_MEMBERS, "parse(raw: unknown): Result<ProjectName>;\n  of(a: string): ProjectName;"), /holds 'parse'/],
-    ["a factory property", PATH, vo(VO_MEMBERS, "parse(raw: unknown): Result<ProjectName>;\n  readonly max: number;"), /a factory holds/],
-  ];
-  test.each(cases)("%s", (_label, path, source, message) => {
-    const text = refusal(path, source);
-    expect(text.startsWith(`${path}: `)).toBe(true);
-    expect(text).toMatch(message);
-  });
-
-  const entity = exampleConcept("project");
-  const entityCases: [string, string, RegExp][] = [
-    ["construct params out of order", entity.contract.replace("new (id: ProjectId, name: ProjectName)", "new (name: ProjectName, id: ProjectId)"), /must take Project's fields in declaration order/],
-    ["a construct param missing", entity.contract.replace("new (id: ProjectId, name: ProjectName)", "new (id: ProjectId)"), /fields in declaration order/],
-    ["a construct returning another type", entity.contract.replace("): Project;\n}", "): ProjectId;\n}"), /construct signature must return 'Project'/],
-    ["two constructors", entity.contract.replace("new (id: ProjectId, name: ProjectName): Project;", "new (id: ProjectId, name: ProjectName): Project;\n  new (id: ProjectId, name: ProjectName): Project;"), /exactly one 'new/],
-    ["a parse beside the constructor", entity.contract.replace("new (id: ProjectId, name: ProjectName): Project;", "new (id: ProjectId, name: ProjectName): Project;\n  parse(raw: unknown): Project;"), /exactly one 'new/],
-    ["identity not first", entity.contract.replace("readonly id: ProjectId;\n  readonly name: ProjectName;", "readonly name: ProjectName;\n  readonly id: ProjectId;").replace("new (id: ProjectId, name: ProjectName)", "new (name: ProjectName, id: ProjectId)"), /first field must be its identity/],
-    ["a primitive field", entity.contract.replace("readonly name: ProjectName;", "readonly name: string;").replace("name: ProjectName)", "name: string)"), /imported value objects and identifiers only/],
-    ["a field of an unimported type", entity.contract.replace("readonly name: ProjectName;", "readonly name: Title;").replace("name: ProjectName)", "name: Title)"), /imported value objects and identifiers only/],
-    ["toJSON missing a field", entity.contract.replace("toJSON(): { readonly id: string; readonly name: string };", "toJSON(): { readonly id: string };"), /one readonly primitive per field/],
-    ["toJSON with a concept", entity.contract.replace("toJSON(): { readonly id: string; readonly name: string };", "toJSON(): { readonly id: ProjectId; readonly name: string };"), /one readonly primitive per field/],
-  ];
-  test.each(entityCases)("entity: %s", (_label, source, message) => {
-    expect(refusal(entity.contractPath, source)).toMatch(message);
+  test.each(DOMAIN_REFUSALS.map((c) => [c.label, c] as const))("%s", (_label, c) => {
+    const text = refusal(c.path, c.source);
+    expect(text.startsWith(`${c.path}: `)).toBe(true);
+    expect(text).toMatch(c.parser);
   });
 });

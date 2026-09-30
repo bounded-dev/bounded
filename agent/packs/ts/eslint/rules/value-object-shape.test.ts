@@ -77,11 +77,11 @@ export interface CreateNoteCommandFactory { parse(raw: unknown): Result<CreateNo
       filename: FILE,
       errors: [{ messageId: "brand" }],
     },
-    // optional brand: any object literal passes
+    // optional brand: any object literal passes (and no member is optional)
     {
       code: vo({ instance: 'readonly __brand?: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
       filename: FILE,
-      errors: [{ messageId: "brand" }],
+      errors: [{ messageId: "shape" }, { messageId: "brand" }],
     },
     // brand not first
     {
@@ -147,10 +147,10 @@ export interface CreateNoteCommandFactory { parse(raw: unknown): Result<CreateNo
     // the retired return: T | undefined
     { code: vo({ factory: "parse(raw: unknown): ProjectName | undefined;" }), filename: FILE, errors: [{ messageId: "parse" }] },
     { code: vo({ factory: "parse(raw: string): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
-    { code: vo({ factory: "parse(raw?: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    { code: vo({ factory: "parse(raw?: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }, { messageId: "shape" }] },
     { code: vo({ factory: "parse(raw: unknown, strict: boolean): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
     { code: vo({ factory: "parse(raw: unknown): Result<ProjectId>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
-    { code: vo({ factory: "parse?(raw: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    { code: vo({ factory: "parse?(raw: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "shape" }, { messageId: "parse" }] },
     // no parse at all
     { code: vo({ factory: "generate(): ProjectName;" }), filename: FILE, errors: [{ messageId: "parse" }] },
     {
@@ -179,6 +179,41 @@ export interface CreateNoteCommandFactory { parse(raw: unknown): Result<CreateNo
       filename: FILE,
       errors: [{ messageId: "member" }],
     },
+    // --- as strict as the domain-concept parser (lint-passing implies emittable) ---
+    {
+      code: vo().replace("export interface ProjectName {", "export interface ProjectName extends Mut {") + "export interface Mut { owner: string }\n",
+      filename: FILE,
+      errors: [{ messageId: "shape" }, { messageId: "domainFile" }],
+    },
+    {
+      code: vo().replace("export interface ProjectNameFactory {", "export interface ProjectNameFactory extends Extra {"),
+      filename: FILE,
+      errors: [{ messageId: "shape" }],
+    },
+    { code: vo().replace("export interface ProjectName {", "export interface ProjectName<T> {"), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals?(other: ProjectName): boolean;\n  toJSON(): string;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  toJSON(): string;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals<T>(other: ProjectName): boolean;\n  toJSON(): string;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  initials();' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  join(...parts: ProjectName[]): ProjectName;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ factory: "parse(input: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    // Result must RESOLVE to the shared import, not merely read "Result"
+    { code: vo().replace(RESULT, "type Result<T> = T | undefined;\n"), filename: FILE, errors: [{ messageId: "domainFile" }, { messageId: "resultSource" }] },
+    { code: vo().replace(RESULT, "type Result<T> = T | undefined;\n"), filename: "src/readings/project-name.contract.ts", errors: [{ messageId: "resultSource" }] },
+    { code: vo().replace("../shared/result.ts", "../shared/results.ts"), filename: FILE, errors: [{ messageId: "resultSource" }] },
+    { code: vo().replace(RESULT, ""), filename: FILE, errors: [{ messageId: "resultSource" }] },
+    // a domain contract is one concept and nothing else
+    { code: `${vo()}export type Shade = "a" | "b";\n`, filename: FILE, errors: [{ messageId: "domainFile" }] },
+    {
+      code: `${RESULT}export interface FooInput { readonly x: string }\nexport interface FooCommand { readonly __brand: "FooCommand"; readonly value: string; equals(other: FooCommand): boolean; toJSON(): string; }\nexport interface FooCommandFactory { parse(raw: unknown): Result<FooCommand>; }\n`,
+      filename: "contexts/pm/src/domain/notes/foo.contract.ts",
+      errors: [{ messageId: "domainFile" }, { messageId: "fileName" }],
+    },
+    {
+      code: vo().replace(RESULT, `${RESULT}import type { ProjectName } from "./project-name.contract.ts";\n`),
+      filename: FILE,
+      errors: [{ messageId: "domainFile" }],
+    },
     // --- pairing and files ---------------------------------------------------------
     // branded, but no factory: no door in
     {
@@ -204,7 +239,7 @@ interface ProjectNameFactory { parse(raw: unknown): Result<ProjectName>; }`,
     {
       code: `${exampleConcept("project").contract}\n${vo().replace(RESULT, "")}`,
       filename: "contexts/pm/src/domain/projects/project.contract.ts",
-      errors: [{ messageId: "oneConceptPerFile" }],
+      errors: [{ messageId: "oneConceptPerFile" }, { messageId: "resultSource" }],
     },
   ],
 });

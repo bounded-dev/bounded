@@ -46,15 +46,111 @@ export function brandMember(node: TSESTree.TSInterfaceDeclaration): TSESTree.TSP
   );
 }
 
-/** Every concept pair in the file, in source order of the instance side. */
-export function conceptPairs(program: TSESTree.Program): ConceptPair[] {
+/** Is this contract in a hexagonal domain layer (a `domain/` directory)?
+ *  There every pair is a domain concept: an application command belongs in
+ *  `application/`, so `<X>Command` beside `<X>Input` gets no exemption. */
+export function inDomainLayer(filename: string): boolean {
+  return filename.replace(/\\/g, "/").split("/").includes("domain");
+}
+
+/** Local names bound by the file's import declarations, by source. */
+export function importedNames(program: TSESTree.Program): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const stmt of program.body) {
+    if (stmt.type !== TSESTree.AST_NODE_TYPES.ImportDeclaration) continue;
+    for (const spec of stmt.specifiers) out.set(spec.local.name, stmt.source.value);
+  }
+  return out;
+}
+
+/** Names the file declares itself (interfaces, type aliases, classes…). */
+export function localTypeNames(program: TSESTree.Program): Set<string> {
+  const out = new Set<string>();
+  const visit = (node: TSESTree.Node): void => {
+    if (
+      (node.type === TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration ||
+        node.type === TSESTree.AST_NODE_TYPES.TSTypeAliasDeclaration ||
+        node.type === TSESTree.AST_NODE_TYPES.TSEnumDeclaration ||
+        node.type === TSESTree.AST_NODE_TYPES.ClassDeclaration) &&
+      node.id !== null
+    ) {
+      out.add(node.id.name);
+    }
+    if (node.type === TSESTree.AST_NODE_TYPES.ExportNamedDeclaration && node.declaration) visit(node.declaration);
+    if (node.type === TSESTree.AST_NODE_TYPES.TSModuleDeclaration && node.body?.type === TSESTree.AST_NODE_TYPES.TSModuleBlock) {
+      node.body.body.forEach(visit);
+    }
+  };
+  program.body.forEach(visit);
+  return out;
+}
+
+/** One structural defect in a concept pair, as the parser would refuse it. */
+export interface ShapeProblem {
+  readonly node: TSESTree.Node;
+  readonly what: string;
+}
+
+/**
+ * The structural refusals the domain-concept parser makes of any concept, so
+ * lint-passing implies emittable: a generic or extending interface; an
+ * optional, duplicated (overloaded), computed or string-keyed member; a
+ * generic method, one without a return type, and a parameter that is not a
+ * plain required `name: Type`.
+ */
+export function structuralProblems(pair: ConceptPair, source: string): ShapeProblem[] {
+  const out: ShapeProblem[] = [];
+  for (const iface of [pair.instance, pair.factory]) {
+    if (iface.typeParameters !== undefined) {
+      out.push({ node: iface.id, what: `'${iface.id.name}' is generic — a concept interface has no type parameters` });
+    }
+    if (iface.extends.length > 0) {
+      out.push({ node: iface.id, what: `'${iface.id.name}' extends ${iface.extends.map((e) => textOf(source, e)).join(", ")} — a concept interface stands alone, so every member is declared here and the emitter sees it` });
+    }
+    const seen = new Set<string>();
+    for (const member of iface.body.body) {
+      if (member.type === TSESTree.AST_NODE_TYPES.TSConstructSignatureDeclaration) {
+        out.push(...parameterProblems(member.params, `new ${pair.name}`, source));
+        continue;
+      }
+      if (member.type !== TSESTree.AST_NODE_TYPES.TSPropertySignature && member.type !== TSESTree.AST_NODE_TYPES.TSMethodSignature) {
+        continue; // accessors, index and call signatures: each rule's own 'member' report
+      }
+      const name = memberName(member);
+      if (name === undefined) {
+        out.push({ node: member, what: `'${textOf(source, member)}' has no plain name — every member is 'name: Type' or 'name(…): Type'` });
+        continue;
+      }
+      const where = `${iface.id.name}.${name}`;
+      if (seen.has(name)) out.push({ node: member, what: `${where} is declared twice — overloads are not part of a concept` });
+      seen.add(name);
+      if (member.optional) out.push({ node: member, what: `${where} is optional — every member of a concept is required` });
+      if (member.type === TSESTree.AST_NODE_TYPES.TSMethodSignature && member.kind === "method") {
+        if (member.typeParameters !== undefined) out.push({ node: member, what: `${where} is generic — a concept's members have concrete types` });
+        if (member.returnType === undefined) out.push({ node: member, what: `${where} has no return type — write it` });
+        out.push(...parameterProblems(member.params, where, source));
+      }
+    }
+  }
+  return out;
+}
+
+function parameterProblems(params: readonly TSESTree.Parameter[], where: string, source: string): ShapeProblem[] {
+  return params
+    .filter((p) => p.type !== TSESTree.AST_NODE_TYPES.Identifier || p.optional || p.typeAnnotation === undefined)
+    .map((p) => ({ node: p, what: `${where} takes '${textOf(source, p)}' — every parameter is a plain required 'name: Type'` }));
+}
+
+/** Every concept pair in the file, in source order of the instance side. In
+ *  a domain layer (`domain` true) no pair is an application command. */
+export function conceptPairs(program: TSESTree.Program, domain = false): ConceptPair[] {
   const interfaces = exportedInterfaces(program);
   const out: ConceptPair[] = [];
   for (const [name, instance] of interfaces) {
     const factory = interfaces.get(`${name}Factory`);
     if (factory === undefined) continue;
     const hasConstruct = factory.body.body.some((m) => m.type === TSESTree.AST_NODE_TYPES.TSConstructSignatureDeclaration);
-    const isCommand = name.endsWith("Command") && name.length > "Command".length &&
+    const isCommand = !domain && name.endsWith("Command") && name.length > "Command".length &&
       interfaces.has(`${name.slice(0, -"Command".length)}Input`);
     out.push({ name, instance, factory, kind: hasConstruct ? "entity" : isCommand ? "command" : "value-object" });
   }

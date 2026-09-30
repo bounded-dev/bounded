@@ -13,6 +13,8 @@ import {
 } from "./contract-purity.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import { EXAMPLE_CONCEPTS } from "./testdata/example-domain.ts";
+import { DOMAIN_REFUSALS } from "./testdata/domain-refusals.ts";
+import { parseDomainConcept } from "./domain-concept.ts";
 
 // --- programmatic core --------------------------------------------------------
 
@@ -135,11 +137,13 @@ export interface CreateNoteStore {
       'export declare class Currency {\n  private readonly __brand: "Currency";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): Currency | undefined;\n}\n',
       "contexts/shop/src/domain/money/currency.contract.ts",
     );
-    expect(problems.map((p) => p.ruleId)).toEqual(["bounded-ts/declaration-only"]);
-    expect(problems[0]!.message).toMatch(/retired contract form \(ADR 2026-059/);
-    expect(problems[0]!.message).toContain("export interface Currency {");
-    expect(problems[0]!.message).toContain("export interface CurrencyFactory {");
-    expect(problems[0]!.message).toContain("parse(raw: unknown): Result<Currency>;");
+    const retired = problems.find((p) => p.ruleId === "bounded-ts/declaration-only")!;
+    expect(retired.message).toMatch(/retired contract form \(ADR 2026-059/);
+    expect(retired.message).toContain("export interface Currency {");
+    expect(retired.message).toContain("export interface CurrencyFactory {");
+    expect(retired.message).toContain("parse(raw: unknown): Result<Currency>;");
+    // …and in a domain file it is also not the concept the file must declare
+    expect(problems.map((p) => p.ruleId).sort()).toEqual(["bounded-ts/declaration-only", "bounded-ts/value-object-shape"]);
   });
 
   test("a domain contract reaching into an implementation is refused", async () => {
@@ -156,6 +160,29 @@ export interface CreateNoteStore {
     expect(CONTRACT_RULE_IDS).not.toContain("bounded-ts/no-cross-contract-type-import");
     expect(CONTRACT_RULE_IDS).toContain("bounded-ts/entity-shape");
     expect(CONTRACT_RULE_IDS).toContain("bounded-ts/contract-imports-contracts-only");
+  });
+});
+
+// --- lint-passing implies emittable ---------------------------------------------
+//
+// The domain-concept parser is the backstop behind these rules; a contract the
+// lint passes but the parser refuses would block the design gate at the emit
+// step with a message the architect never saw at contract_purity. So every
+// parser refusal the lint can see is a lint refusal too.
+
+describe("contract-purity is at least as strict as the domain-concept parser", () => {
+  test.each(DOMAIN_REFUSALS.filter((c) => c.lintBlind === undefined).map((c) => [c.label, c] as const))(
+    "%s",
+    async (_label, c) => {
+      expect(() => parseDomainConcept(c.path, c.source)).toThrow();
+      const problems = await lintContractSource(c.source, c.path);
+      expect(problems.length, `${c.label} passes the lint but the parser refuses it`).toBeGreaterThan(0);
+    },
+  );
+
+  test("the only lint-blind refusals are named, with the reason", () => {
+    const blind = DOMAIN_REFUSALS.filter((c) => c.lintBlind !== undefined);
+    expect(blind.map((c) => c.label)).toEqual(["a path outside the layout"]);
   });
 });
 

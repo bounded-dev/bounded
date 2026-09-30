@@ -4,10 +4,14 @@ import {
   conceptPairs,
   contractStemOf,
   exportedInterfaces,
+  importedNames,
+  inDomainLayer,
   isBrandFor,
   kebabOf,
+  localTypeNames,
   memberName,
   PRIMITIVE_KEYWORDS,
+  structuralProblems,
   textOf,
 } from "./concept-pairs.ts";
 
@@ -67,7 +71,10 @@ type MessageId =
   | "factoryMember"
   | "fileName"
   | "oneConceptPerFile"
-  | "member";
+  | "member"
+  | "shape"
+  | "domainFile"
+  | "resultSource";
 
 const MODEL = "A value object's contract is 'interface <Name>' plus 'interface <Name>Factory' (ADR 2026-059, ts-contract-authoring).";
 
@@ -90,6 +97,9 @@ export const valueObjectShape = createRule<[], MessageId>({
       factoryMember: `${MODEL} '{{name}}Factory' holds 'parse' and, for an identifier, 'generate()' — '{{member}}' does not belong there. Behaviour goes on the instance interface; a concept built from other concepts is an entity ('new (…): {{name}};').`,
       fileName: `A concept's contract file is named after it: '{{name}}' lives in '{{stem}}.contract.ts', because the emitter derives '{{stem}}.ts' and '{{stem}}.laws.test.ts' from the file name. Rename the file or the concept.`,
       member: `${MODEL} '{{name}}' has '{{member}}', which is not a field or a method — accessors, index and call signatures are not part of a value object; derived values are methods.`,
+      shape: `${MODEL} {{what}}. The emitter writes every member into '<Name>Impl', so the contract must say exactly what that class holds.`,
+      domainFile: `A domain contract declares exactly one concept, named after its file: '{{stem}}.contract.ts' holds 'export interface {{name}}' and 'export interface {{name}}Factory', its imports, and nothing else — found {{found}}. Another type goes in its own contract (a value object) or in an application contract (an input, a command, a port).`,
+      resultSource: `${MODEL} 'Result' in '{{name}}Factory.parse' must be the shared one — 'import type { Result } from "../shared/result.ts";' — {{found}}. A local or differently sourced 'Result' makes 'parse' return something the generated laws and every caller misread.`,
       oneConceptPerFile: `One concept per contract file: '{{name}}' is a second concept here. Move it to its own '{{stem}}.contract.ts' and import it with 'import type { {{name}} } from "./{{stem}}.contract.ts";'.`,
     },
   },
@@ -98,9 +108,49 @@ export const valueObjectShape = createRule<[], MessageId>({
     const source = context.sourceCode.getText();
     return {
       Program(program) {
-        const pairs = conceptPairs(program);
+        const domain = inDomainLayer(context.filename);
+        const pairs = conceptPairs(program, domain);
         const stem = contractStemOf(context.filename);
         const domainPairs = pairs.filter((p) => p.kind !== "command");
+        const imported = importedNames(program);
+        const locals = localTypeNames(program);
+
+        // A domain contract is one concept and nothing else (the parser's
+        // grammar), so every other declaration is refused here first.
+        if (domain && stem !== undefined && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(stem)) {
+          const name = stem.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+          for (const stmt of program.body) {
+            if (stmt.type === TSESTree.AST_NODE_TYPES.ImportDeclaration) {
+              for (const spec of stmt.specifiers) {
+                if (spec.local.name === name || spec.local.name === `${name}Factory`) {
+                  context.report({ node: spec, messageId: "domainFile", data: { stem, name, found: `an import of '${spec.local.name}', which this file declares` } });
+                }
+              }
+              continue;
+            }
+            const decl = stmt.type === TSESTree.AST_NODE_TYPES.ExportNamedDeclaration ? stmt.declaration : undefined;
+            // A concept pair under the wrong name is `fileName` /
+            // `oneConceptPerFile`'s to report; everything else is refused here.
+            const pairInterface = decl?.type === TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration &&
+              pairs.some((p) => p.kind !== "command" && (p.instance === decl || p.factory === decl));
+            const ok = pairInterface || (decl?.type === TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration &&
+              (decl.id.name === name || decl.id.name === `${name}Factory`));
+            if (!ok) {
+              context.report({ node: stmt, messageId: "domainFile", data: { stem, name, found: `'${textOf(source, stmt).slice(0, 60)}'` } });
+            }
+          }
+          const names = [...program.body].flatMap((st) => st.type === TSESTree.AST_NODE_TYPES.ImportDeclaration ? st.specifiers.map((sp) => sp.local.name) : []);
+          const twice = names.find((n, i) => names.indexOf(n) !== i);
+          if (twice !== undefined) {
+            context.report({ node: program, messageId: "domainFile", data: { stem, name, found: `'${twice}' imported twice` } });
+          }
+        }
+
+        for (const pair of domainPairs) {
+          for (const problem of structuralProblems(pair, source)) {
+            context.report({ node: problem.node, messageId: "shape", data: { what: problem.what } });
+          }
+        }
 
         domainPairs.forEach((pair, index) => {
           if (index > 0) {
@@ -170,9 +220,20 @@ export const valueObjectShape = createRule<[], MessageId>({
               sawParse = true;
               const param = member.params[0];
               const ok = member.params.length === 1 && param?.type === TSESTree.AST_NODE_TYPES.Identifier &&
-                !param.optional && textOf(source, param.typeAnnotation?.typeAnnotation) === "unknown" &&
+                param.name === "raw" && !param.optional && textOf(source, param.typeAnnotation?.typeAnnotation) === "unknown" &&
                 textOf(source, member.returnType?.typeAnnotation) === `Result<${name}>` && !member.optional;
               if (!ok) context.report({ node: member, messageId: "parse", data: { name } });
+              // Resolve the name, don't match the text: 'Result' must be the
+              // shared import, never a local alias or another module's.
+              const from = imported.get("Result");
+              const shared = from !== undefined && (/^\.\.?\/(?:[^/]+\/)*shared\/result\.ts$/.test(from) ||
+                (!domain && /^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*\/domain$/.test(from)));
+              if (ok && (!shared || locals.has("Result"))) {
+                const found = locals.has("Result")
+                  ? "this file declares its own 'Result'"
+                  : from === undefined ? "it is not imported" : `it is imported from '${from}'`;
+                context.report({ node: member, messageId: "resultSource", data: { name, found } });
+              }
             } else if (member.type === TSESTree.AST_NODE_TYPES.TSMethodSignature && memberText === "generate") {
               if (member.params.length !== 0 || member.optional || textOf(source, member.returnType?.typeAnnotation) !== name) {
                 context.report({ node: member, messageId: "generate", data: { name } });

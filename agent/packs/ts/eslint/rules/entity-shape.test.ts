@@ -85,6 +85,14 @@ ruleTester.run("entity-shape", entityShape, {
       }),
       errors: [{ messageId: "fieldType" }],
     },
+    // a field of a type the file does not import: not a concept the emitter can resolve
+    {
+      code: entity({
+        instance: 'readonly __brand: "Project";\n  readonly id: ProjectId;\n  readonly name: Title;\n  equals(other: Project): boolean;\n  toJSON(): { readonly id: string; readonly name: string };',
+        factory: "new (id: ProjectId, name: Title): Project;",
+      }),
+      errors: [{ messageId: "fieldType" }],
+    },
     // an entity holding itself
     {
       code: entity({
