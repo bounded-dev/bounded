@@ -169,6 +169,44 @@ describe("parseFeatureContract refuses what TN-26-012 does not allow", () => {
     refuses(replace(from!, to!), message as RegExp);
   });
 
+  test.each([
+    ["a reserved word", "delete", /'delete' is a reserved word/],
+    ["a strict-mode reserved word", "implements", /'implements' is a reserved word/],
+    ["arguments", "arguments", /'arguments' cannot be bound in strict-mode code/],
+    ["eval", "eval", /'eval' cannot be bound in strict-mode code/],
+    ["constructor", "constructor", /'constructor' is a member every object already has/],
+    ["__proto__", "__proto__", /'__proto__' is a member every object already has/],
+    ["the brand", "__brand", /'__brand' is a member every object already has/],
+    ["a snake_case name", "project_id", /camelCase identifiers/],
+  ])("an Input field named as %s is refused", (_, field, message) => {
+    const source = CREATE_NOTE.replace("readonly text: string;", `readonly ${field}: string;`)
+      .replace("readonly text: NoteText;", `readonly ${field}: NoteText;`);
+    refuses(source, message);
+  });
+
+  test("a field declared twice is refused, in Input or in Command", () => {
+    refuses(CREATE_NOTE.replace("readonly text: string;\n}", "readonly text: string;\n  readonly text: string;\n}"),
+      /CreateNoteInput declares the field 'text' twice/);
+    refuses(CREATE_NOTE.replace("readonly text: NoteText;\n}", "readonly text: NoteText;\n  readonly text: NoteText;\n}"),
+      /CreateNoteCommand declares the field 'text' twice/);
+  });
+
+  test.each(["constructor", "__proto__", "then", "toString", "hasOwnProperty", "prototype"])(
+    "an out-port method named %s is refused", (method) => {
+      refuses(CREATE_NOTE.replace("save(note: Note): Promise<void>;", `${method}(note: Note): Promise<void>;`),
+        new RegExp(`CreateNoteStore\\.${method}: '${method}' is a member every object already has`));
+    });
+
+  test.each([["eval", /'eval' cannot be bound/], ["arguments", /'arguments' cannot be bound/], ["yield", /'yield' is a reserved word/]])(
+    "an out-port parameter named %s is refused", (param, message) => {
+      refuses(CREATE_NOTE.replace("save(note: Note)", `save(${param}: Note)`), message);
+    });
+
+  test("ordinary method and parameter names that merely look special are allowed", () => {
+    const model = parse(CREATE_NOTE.replace("save(note: Note)", "delete(constructor: Note)"));
+    expect(model.outPorts[0]!.methods[1]).toMatchObject({ name: "delete", parameters: [{ name: "constructor" }] });
+  });
+
   test("command fields are value objects or identifiers, never primitives or entities", () => {
     const withoutText = CREATE_NOTE.replace("Note, NoteText, ProjectId, Result", "Note, ProjectId, Result");
     refuses(withoutText.replace("readonly text: NoteText;", "readonly text: string;"), /typed by a domain value object/);

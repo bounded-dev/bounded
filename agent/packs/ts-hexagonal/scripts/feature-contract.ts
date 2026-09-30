@@ -64,6 +64,24 @@ const RESERVED_WORDS = new Set([
   "interface", "let", "new", "null", "package", "private", "protected", "public", "return", "static", "super", "switch",
   "this", "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield",
 ]);
+/** Names strict-mode code may not bind: the command file's fields and a
+ *  skeleton's parameters become bindings. */
+const STRICT_ILLEGAL = new Set(["arguments", "eval"]);
+/** Names every object already has. As a field or port method they shadow
+ *  or break the prototype (`constructor`, `__proto__`), and `then` makes a
+ *  port thenable, so awaiting it would call the method. */
+const OBJECT_MEMBERS = new Set([
+  "__brand", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "__proto__", "constructor",
+  "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "prototype", "then", "toLocaleString", "toString", "valueOf",
+]);
+
+/** Why an identifier cannot be bound in the generated code, or undefined. */
+function bindingProblem(name: string): string | undefined {
+  if (RESERVED_WORDS.has(name)) return `'${name}' is a reserved word`;
+  if (STRICT_ILLEGAL.has(name)) return `'${name}' cannot be bound in strict-mode code`;
+  if (OBJECT_MEMBERS.has(name)) return `'${name}' is a member every object already has`;
+  return undefined;
+}
 
 const FEATURE_PATH =/^contexts\/([^/]+)\/src\/application\/([^/]+)\/([^/]+)\/([^/]+)\.contract\.ts$/;
 const TAG_NAMES = ["exposedVia", "implementedBy"] as const;
@@ -387,11 +405,18 @@ function readInput(
     refuse(`${commandName} starts with 'readonly __brand: "${commandName}"'`);
   }
   const wireNames = wire.map((f) => (f.name as ts.Identifier).text);
+  const repeatedField = wireNames.find((n, i) => wireNames.indexOf(n) !== i);
+  if (repeatedField !== undefined) refuse(`${inputName} declares the field '${repeatedField}' twice`);
   for (const name of wireNames) {
-    if (!/^[a-z][A-Za-z0-9]*$/.test(name) || RESERVED_WORDS.has(name) || COMMAND_LOCALS.has(name)) {
-      refuse(`${inputName}.${name}: field names are camelCase identifiers other than ${[...COMMAND_LOCALS].join(", ")} and reserved words`);
+    const problem = bindingProblem(name);
+    if (problem !== undefined) refuse(`${inputName}.${name}: ${problem}; rename the field`);
+    if (!/^[a-z][A-Za-z0-9]*$/.test(name) || COMMAND_LOCALS.has(name)) {
+      refuse(`${inputName}.${name}: field names are camelCase identifiers other than ${[...COMMAND_LOCALS].join(", ")}`);
     }
   }
+  const commandFieldNames = fields.map((f) => (f.name as ts.Identifier).text);
+  const repeatedCommand = commandFieldNames.find((n, i) => commandFieldNames.indexOf(n) !== i);
+  if (repeatedCommand !== undefined) refuse(`${commandName} declares the field '${repeatedCommand}' twice`);
   const commandNames = fields.map((f) => (f.name as ts.Identifier).text);
   if (wireNames.join() !== commandNames.join()) {
     refuse(`${commandName} must declare the fields of ${inputName} in the same order: ${wireNames.join(", ")}`);
@@ -439,10 +464,16 @@ function methodOf(
     return refuse(`${owner} may hold only plain methods with an explicit return type`);
   }
   const name = member.name.text;
+  if (OBJECT_MEMBERS.has(name)) refuse(`${owner}.${name}: '${name}' is a member every object already has; name the method for what it does`);
   const parameters = member.parameters.map((p): ParameterModel => {
     if (!ts.isIdentifier(p.name) || p.questionToken !== undefined || p.dotDotDotToken !== undefined ||
         p.initializer !== undefined || p.type === undefined) {
       return refuse(`${owner}.${name}: parameters are plain 'name: Type' (no optional, rest or destructured ones)`);
+    }
+    // A parameter becomes a binding in the skeleton: reserved and
+    // strict-mode-illegal names cannot be one.
+    if (RESERVED_WORDS.has(p.name.text) || STRICT_ILLEGAL.has(p.name.text)) {
+      refuse(`${owner}.${name}: parameter ${bindingProblem(p.name.text)}; rename it`);
     }
     return { name: p.name.text, type: typeRef(p.type) };
   });
