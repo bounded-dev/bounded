@@ -15,18 +15,17 @@
 //
 // What no generator can know is left to the test-writer's `<concept>.test.ts`:
 // which strings are valid project names. A law that needs a valid input takes
-// it from the concept itself — `generate()` for an identifier, an `@accepts`
-// example on a value object's instance interface — and is emitted as a named
-// `test.skip` when neither exists, so the gap is visible in the runner output.
+// it from the concept itself — `generate()` for an identifier, and the two
+// different `@accepts` examples every value object's instance interface must
+// carry (`value-object-documented` enforces them at contract-purity). So no
+// law is ever skipped: a value object without two distinct examples is a
+// contract the gate refused, and this generator refuses it too rather than
+// emit a weaker suite.
 //
-// Two properties are forced by the red gate, which accepts only
-// NotImplementedError failures (unchanged from ADR 2026-024):
-//
-//   * A missing sample is SKIPPED, never failed: the fix is an `@accepts` tag
-//     in the architect's frozen contract, not the test-writer's work.
-//   * `parse()` is never wrapped in try/catch, and no law runs concept code at
-//     module load: against the throwing skeleton the NotImplementedError must
-//     reach the runner inside a test.
+// Forced by the red gate, which accepts only NotImplementedError failures
+// (ADR 2026-024): `parse()` is never wrapped in try/catch, and no law runs
+// concept code at module load — against the throwing skeleton the
+// NotImplementedError must reach the runner inside a test.
 //
 // Pure: the same model and lookup always give the same bytes.
 
@@ -134,11 +133,32 @@ export function compareSpecifiers(a: string, b: string): number {
   return ka < kb ? -1 : ka > kb ? 1 : 0;
 }
 
+/** The examples that still differ once a string's whitespace is trimmed (a
+ *  value object that trims would parse " a " and "a" to one value, so they
+ *  cannot discriminate), first occurrence kept, in order. */
+export function distinctExamples(examples: readonly string[]): string[] {
+  const key = (ex: string): string => {
+    if (!ex.startsWith('"')) return ex;
+    try {
+      return `s:${String(JSON.parse(ex)).trim()}`;
+    } catch {
+      return ex;
+    }
+  };
+  const seen = new Set<string>();
+  return examples.filter((ex) => {
+    const k = key(ex);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 interface Sample {
   /** An expression producing a valid instance (no module-load evaluation). */
   readonly first: string;
-  /** An expression producing a different valid instance, when one is known. */
-  readonly second?: string;
+  /** An expression producing a different valid instance. */
+  readonly second: string;
   /** Uses `mustParse`, so the file needs the helper and the Result type. */
   readonly parses: boolean;
 }
@@ -148,12 +168,16 @@ function sampleFor(source: ConceptSampleSource): Sample | undefined {
   if (model.kind === "identifier") {
     return { first: `${model.name}.generate()`, second: `${model.name}.generate()`, parses: false };
   }
-  if (model.kind !== "value-object" || examples.length === 0) return undefined;
+  if (model.kind !== "value-object") return undefined;
+  const distinct = distinctExamples(examples);
+  if (distinct.length < 2) {
+    throw new ValueObjectLawsError(
+      `value-object-laws: ${model.contractPath}: ${model.name} needs two @accepts examples that differ after trimming — ` +
+        `found ${examples.length === 0 ? "none" : examples.join(", ")}; value-object-documented refuses this contract at contract-purity`,
+    );
+  }
   const parse = (ex: string): string => `mustParse(${model.name}.parse(${ex}), ${q(`${model.name}.parse(${ex})`)})`;
-  const distinct = examples.find((ex) => ex !== examples[0]);
-  return distinct === undefined
-    ? { first: parse(examples[0]!), parses: true }
-    : { first: parse(examples[0]!), second: parse(distinct), parses: true };
+  return { first: parse(distinct[0]!), second: parse(distinct[1]!), parses: true };
 }
 
 class Writer {
@@ -243,10 +267,7 @@ function valueObjectLaws(model: DomainConceptModel, examples: readonly string[])
   w.line("expect(silent).toEqual([]);");
   w.close("});");
 
-  if (sample === undefined) {
-    w.line();
-    w.line(`test.skip(${q(`value laws need a valid ${name} — add an @accepts example to ${name}'s contract`)}, () => {});`);
-  } else {
+  if (sample !== undefined) {
     const a = sample.first;
     const reparse = (x: string): string => `mustParse(${name}.parse(${x}.toJSON()), ${q(`${name}.parse(toJSON())`)})`;
     if (usesParse) {
@@ -284,9 +305,7 @@ function valueObjectLaws(model: DomainConceptModel, examples: readonly string[])
     w.line("expect(b.equals(a)).toBe(true);");
     w.close("});");
     w.line();
-    if (sample.second === undefined) {
-      w.line(`test.skip(${q(`equals discriminates — add a second, different @accepts example to ${name}'s contract`)}, () => {});`);
-    } else {
+    {
       w.open(`test("equals discriminates two different values", () => {`);
       w.line(`const a = ${a};`);
       w.line(`const other = ${sample.second};`);
@@ -316,7 +335,6 @@ function entityLaws(model: DomainConceptModel, lookup: ConceptLookup): string {
   for (const imp of model.imports) for (const n of imp.names) specifierOf.set(n, imp.specifier);
 
   const samples = new Map<string, Sample>();
-  let missing: string | undefined;
   for (const field of model.fields) {
     const conceptName = field.type.kind === "concept" ? field.type.name : field.type.text;
     const source = lookup(conceptName);
@@ -330,28 +348,25 @@ function entityLaws(model: DomainConceptModel, lookup: ConceptLookup): string {
         `value-object-laws: ${model.contractPath}: ${name}.${field.name} holds the entity '${conceptName}' — an entity refers to another entity by its id value object only`,
       );
     }
-    const sample = sampleFor(source);
-    if (sample === undefined) missing ??= conceptName;
-    else samples.set(field.name, sample);
+    // a value object without two examples throws here, naming its contract
+    samples.set(field.name, sampleFor(source)!);
   }
 
   const idField = model.fields[0]!;
   const idConcept = idField.type.kind === "concept" ? idField.type.name : idField.type.text;
   const identifierFields = model.fields.filter((f) => f.type.kind === "concept" && lookup(f.type.name)?.model.kind === "identifier");
-  const needsHelper = missing === undefined && ([...samples.values()].some((s) => s.parses) || identifierFields.length > 0);
+  const needsHelper = [...samples.values()].some((s) => s.parses) || identifierFields.length > 0;
 
   const importMap = new Map<string, { names: Set<string>; typeOnly: boolean }>();
   importMap.set("bun:test", { names: new Set(["describe", "expect", "test"]), typeOnly: false });
-  if (missing === undefined) {
-    if (needsHelper) importMap.set(RESULT_SPECIFIER, { names: new Set(["Result"]), typeOnly: true });
-    importMap.set(`./${model.stem}.ts`, { names: new Set([name]), typeOnly: false });
-    for (const field of model.fields) {
-      const conceptName = field.type.kind === "concept" ? field.type.name : field.type.text;
-      const specifier = implementationSpecifierOf(specifierOf.get(conceptName)!);
-      const entry = importMap.get(specifier) ?? { names: new Set<string>(), typeOnly: false };
-      entry.names.add(conceptName);
-      importMap.set(specifier, entry);
-    }
+  if (needsHelper) importMap.set(RESULT_SPECIFIER, { names: new Set(["Result"]), typeOnly: true });
+  importMap.set(`./${model.stem}.ts`, { names: new Set([name]), typeOnly: false });
+  for (const field of model.fields) {
+    const conceptName = field.type.kind === "concept" ? field.type.name : field.type.text;
+    const specifier = implementationSpecifierOf(specifierOf.get(conceptName)!);
+    const entry = importMap.get(specifier) ?? { names: new Set<string>(), typeOnly: false };
+    entry.names.add(conceptName);
+    importMap.set(specifier, entry);
   }
 
   const w = new Writer();
@@ -363,12 +378,6 @@ function entityLaws(model: DomainConceptModel, lookup: ConceptLookup): string {
   }
   w.line();
   w.open(`describe(${q(`${name} — entity laws (generated)`)}, () => {`);
-  if (missing !== undefined) {
-    w.line(`test.skip(${q(`entity laws need a valid ${missing} — add an @accepts example to ${missing}'s contract`)}, () => {});`);
-    w.close("});");
-    return w.toString();
-  }
-
   const clash = model.fields.find((f) => RESERVED_LOCALS.has(f.name));
   if (clash !== undefined) {
     throw new ValueObjectLawsError(
@@ -382,20 +391,15 @@ function entityLaws(model: DomainConceptModel, lookup: ConceptLookup): string {
   w.line(`const id = ${firsts[0]};`);
   const rest = model.fields.slice(1);
   rest.forEach((f, i) => w.line(`const ${f.name} = ${firsts[i + 1]};`));
-  const others = rest.map((f) => {
-    const s = samples.get(f.name)!;
-    return s.second ?? f.name;
-  });
+  const others = rest.map((f) => samples.get(f.name)!.second);
   w.line(`const a = ${construct(["id", ...rest.map((f) => f.name)])};`);
   w.line(`const sameId = ${construct(["id", ...others])};`);
-  w.line(`const otherId = ${construct([samples.get(idField.name)!.second ?? firsts[0]!, ...rest.map((f) => f.name)])};`);
+  w.line(`const otherId = ${construct([samples.get(idField.name)!.second, ...rest.map((f) => f.name)])};`);
   w.line("expect(a.equals(a)).toBe(true);");
   w.line("expect(a.equals(sameId)).toBe(true);");
   w.line("expect(sameId.equals(a)).toBe(true);");
-  if (samples.get(idField.name)!.second !== undefined) {
-    w.line("expect(a.equals(otherId)).toBe(false);");
-    w.line("expect(otherId.equals(a)).toBe(false);");
-  }
+  w.line("expect(a.equals(otherId)).toBe(false);");
+  w.line("expect(otherId.equals(a)).toBe(false);");
   w.close("});");
   w.line();
 

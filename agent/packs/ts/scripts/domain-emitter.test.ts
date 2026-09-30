@@ -7,7 +7,13 @@ import { ts } from "ts-morph";
 import { emittedFileProblem, type ProjectFacts, type WorkspaceFacts } from "../pack.ts";
 import { DomainConceptError, parseDomainConcept } from "./domain-concept.ts";
 import { conceptTail, domainEmitter, emitDomain, implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
-import { EXAMPLE_CONCEPTS, EXAMPLE_RESULT, EXAMPLE_ROOT, exampleConcept } from "./testdata/example-domain.ts";
+import {
+  DOCUMENTED_CONCEPTS as EXAMPLE_CONCEPTS,
+  documentedConcept as exampleConcept,
+  EXAMPLE_CONCEPTS as UNDOCUMENTED_CONCEPTS,
+  EXAMPLE_RESULT,
+  EXAMPLE_ROOT,
+} from "./testdata/example-domain.ts";
 
 // The domain emitter (ADR 2026-059/060): each domain concept contract → its
 // `<Name>Impl` skeleton and its colocated laws. The skeleton is the worked
@@ -217,6 +223,12 @@ describe("domainEmitter", () => {
     expect(() => domainEmitter.emit(facts([workspace([bad])]))).toThrow(/note-text\.contract\.ts: .*Result<NoteText>/);
   });
 
+  test("never emits a skipped law: an undocumented value object is refused, naming its contract", () => {
+    const bare = UNDOCUMENTED_CONCEPTS.map((c) => ({ path: c.contractPath, source: c.contract }));
+    expect(() => domainEmitter.emit(facts([workspace(bare)]))).toThrow(/note-text\.contract\.ts: NoteText needs two @accepts examples/);
+    for (const file of domainEmitter.emit(facts([workspace(EXAMPLE_CONTRACTS)]))) expect(file.content).not.toContain("test.skip");
+  });
+
   test("refuses one concept name declared twice in a context", () => {
     const twin = { path: `${EXAMPLE_ROOT}/projects/note-id.contract.ts`, source: exampleConcept("note-id").contract };
     expect(() => emitDomain(workspace([...EXAMPLE_CONTRACTS, twin]))).toThrow(/'NoteId' is also declared by/);
@@ -255,22 +267,14 @@ afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true }
 
 /** A throwaway context holding the contracts, the generated shared modules
  *  and the emitted files, with the harness's node_modules for zod and tsc. */
-function fixtureProject(withExamples: boolean): string {
+function fixtureProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "domain-emitter-"));
   tmpDirs.push(dir);
   const write = (rel: string, text: string): void => {
     mkdirSync(dirname(join(dir, rel)), { recursive: true });
     writeFileSync(join(dir, rel), text);
   };
-  const contracts = withExamples
-    ? EXAMPLE_CONTRACTS.map((c) =>
-        c.path.endsWith("note-text.contract.ts")
-          ? { ...c, source: c.source.replace("export interface NoteText {", '/**\n * @accepts "Call the printer"\n * @accepts "Book the venue"\n */\nexport interface NoteText {') }
-          : c.path.endsWith("project-name.contract.ts")
-            ? { ...c, source: c.source.replace("export interface ProjectName {", '/** @accepts "Website relaunch"\n * @accepts "Office move" */\nexport interface ProjectName {') }
-            : c,
-      )
-    : EXAMPLE_CONTRACTS;
+  const contracts = EXAMPLE_CONTRACTS;
   for (const c of contracts) write(c.path, c.source);
   write(`${EXAMPLE_ROOT}/shared/result.ts`, EXAMPLE_RESULT);
   write(`${EXAMPLE_ROOT}/shared/errors.ts`, NOT_IMPLEMENTED_MODULE_SOURCE);
@@ -309,14 +313,14 @@ function implement(dir: string): void {
 
 describe.skipIf(!HAS_BUN)("the emitted domain compiles and runs", () => {
   test("the skeleton project typechecks under bunx tsc", () => {
-    const dir = fixtureProject(true);
+    const dir = fixtureProject();
     const tsc = spawnSync("bunx", ["tsc", "-p", "tsconfig.json"], { cwd: dir, encoding: "utf8" });
     expect(tsc.stdout + tsc.stderr).toBe("");
     expect(tsc.status).toBe(0);
   }, 60_000);
 
   test("against the skeletons every law fails, and only with NotImplementedError (a valid red)", () => {
-    const dir = fixtureProject(true);
+    const dir = fixtureProject();
     const run = spawnSync("bun", ["test"], { cwd: dir, encoding: "utf8" });
     const output = run.stdout + run.stderr;
     expect(run.status).not.toBe(0);
@@ -328,7 +332,7 @@ describe.skipIf(!HAS_BUN)("the emitted domain compiles and runs", () => {
   }, 60_000);
 
   test("with the example's implementations the laws pass and the project typechecks", () => {
-    const dir = fixtureProject(true);
+    const dir = fixtureProject();
     implement(dir);
     const run = spawnSync("bun", ["test"], { cwd: dir, encoding: "utf8" });
     expect(run.stdout + run.stderr).toMatch(/\b0 fail\b/);
@@ -338,18 +342,18 @@ describe.skipIf(!HAS_BUN)("the emitted domain compiles and runs", () => {
     expect(tsc.status).toBe(0);
   }, 60_000);
 
-  test("without @accepts examples the value laws are named skips, and the rest still pass", () => {
-    const dir = fixtureProject(false);
+  test("the documented example emits no skipped law", () => {
+    const dir = fixtureProject();
     implement(dir);
     const run = spawnSync("bun", ["test"], { cwd: dir, encoding: "utf8" });
     const output = run.stdout + run.stderr;
     expect(output).toMatch(/\b0 fail\b/);
-    expect(output).toMatch(/\b[1-9]\d* skip\b/);
+    expect(output).not.toMatch(/\bskip\b/);
     expect(run.status).toBe(0);
   }, 60_000);
 
   test("a wrong implementation is caught by the laws", () => {
-    const dir = fixtureProject(true);
+    const dir = fixtureProject();
     implement(dir);
     // equals by reference: a law the example gets right and a slip does not.
     const project = EXAMPLE_CONCEPTS.find((c) => c.contractPath.endsWith("/project.contract.ts"))!;

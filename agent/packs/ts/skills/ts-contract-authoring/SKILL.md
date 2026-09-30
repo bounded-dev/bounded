@@ -126,8 +126,11 @@ The factory decides the kind, and each is held by a contract lint rule:
 
 ### Imports: contracts only (`contract-imports-contracts-only`)
 
-A contract under `domain/` or `application/` imports only other contracts and
-the shared `Result`, always as `import type { … }`:
+Every contract, wherever it lives, imports only other contracts and the
+shared `Result`, always as `import type { … }` — never an implementation
+file, and never through an `import("…")` type expression (a frozen design may
+not depend on builder-written code). Outside the hexagonal layers a contract
+may also import a package or a composed pack's shipped support module:
 
 ```ts
 import type { ProjectId } from "../projects/project-id.contract.ts";  // ✓
@@ -200,13 +203,14 @@ by `bun test` and write-denied for every role:
   it parses back to the same identifier.
 
 A law needs a valid input. An identifier supplies its own (`generate()`); a
-value object's comes from **`@accepts` tags** on its instance interface
-(`value-object-documented` checks each is a literal of the value's type).
-Without one, the value laws — and the laws of every entity holding that value
-object — are emitted as named skips. **Give every value object a doc comment
-stating its validity rule and two different `@accepts` examples**: the test-
-writer reads the rule, and the second example is what lets "equals
-discriminates" run.
+value object's comes from **`@accepts` tags** on its instance interface.
+**Every value object must carry a doc comment stating its validity rule and
+two different `@accepts` examples** — `value-object-documented` refuses the
+contract otherwise, checks each is a literal of the value's type, and refuses
+two that are the same once whitespace is trimmed. So no law is ever skipped:
+the test-writer reads the rule, the first example runs the value laws (and the
+identity laws of every entity holding the value object), and the second is
+what "equals discriminates" compares against.
 
 What no generator can know is left to the test-writer's `<concept>.test.ts`:
 an input of the **right type and the wrong value** (`""` for a project name,

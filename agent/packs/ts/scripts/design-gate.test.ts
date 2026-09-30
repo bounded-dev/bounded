@@ -143,6 +143,11 @@ export interface Ledger {
  *  fails contract-purity). */
 const TICKER_CONTRACT = `import type { Result } from "../shared/result.ts";
 
+/**
+ * An exchange symbol: one to five uppercase letters.
+ * @accepts "AAPL"
+ * @accepts "MSFT"
+ */
 export interface Ticker {
   readonly __brand: "Ticker";
   readonly value: string;

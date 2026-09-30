@@ -216,14 +216,17 @@ after it; the retired `declare class` form is refused by `declaration-only`),
 `bounded-ts/entity-shape` (an entity's factory is exactly `new (…fields):
 <Name>`, the fields in declaration order with `id` first, each a value object
 or identifier; `toJSON()` returns one readonly primitive per field), and
-`bounded-ts/value-object-documented` (a doc comment is optional, but when
-present it is not empty and its `@accepts` examples are literals of the
-value's type — they are the generated laws' samples, so give each value
-object two), and `bounded-ts/contract-imports-contracts-only` (a contract
-under `domain/` or `application/` imports only other `*.contract.ts` files and
-`../shared/result.ts`, as `import type { … }`; an application contract may
-also import its context's generated `@<scope>/<context>/domain` barrel; no
-re-exports), and
+`bounded-ts/value-object-documented` (every value object — not an
+identifier — carries a doc comment with its validity rule and two
+`@accepts` examples that differ after trimming, each a literal of the
+value's type: they are the generated laws' samples, so no law is skipped),
+and `bounded-ts/contract-imports-contracts-only` (every contract
+imports only other `*.contract.ts` files and `../shared/result.ts`, as
+`import type { … }` — never an implementation file, never an
+`import("…")` type, no re-exports; an application contract may also import
+its context's generated `@<scope>/<context>/domain` barrel, and a contract
+outside the hexagonal layers a package or a composed pack's shipped support
+module), and
 `bounded-ts-service/no-erased-router` (service pack; a type-erased framework type — `AnyRouter`
 and kin — may not describe a service surface: the router's type is inferred,
 so re-export it from the implementation module, `export type ServiceRouter =

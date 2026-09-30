@@ -12,7 +12,7 @@ import {
   lintContractSource,
 } from "./contract-purity.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
-import { EXAMPLE_CONCEPTS } from "./testdata/example-domain.ts";
+import { DOCUMENTED_CONCEPTS as EXAMPLE_CONCEPTS, exampleConcept as undocumentedConcept } from "./testdata/example-domain.ts";
 import { DOMAIN_REFUSALS } from "./testdata/domain-refusals.ts";
 import { parseDomainConcept } from "./domain-concept.ts";
 
@@ -97,6 +97,15 @@ describe("the ADR 2026-059 contract model", () => {
       expect(await lintContractSource(source, path)).toEqual([]);
     },
   );
+
+  // The example's plain value objects ship without @accepts; the gate asks
+  // for two different examples (they are the generated laws' samples).
+  test.each(["note-text", "project-name"])("the undocumented example %s is asked for two @accepts examples", async (stem) => {
+    const c = undocumentedConcept(stem);
+    const problems = await lintContractSource(c.contract, c.contractPath);
+    expect(problems.map((p) => p.ruleId)).toEqual(["bounded-ts/value-object-documented"]);
+    expect(problems[0]!.message).toMatch(/two different valid examples/);
+  });
 
   test("the worked example's create-note feature contract is clean", async () => {
     const source = `import type { Note, NoteText, ProjectId, Result } from "@example/project-management/domain";
@@ -334,7 +343,7 @@ describe("formatProblems (one greppable line per problem)", () => {
 const SCRIPT = join(import.meta.dirname, "contract-purity.ts");
 // A value object in the ADR 2026-059 form, in a file named after it.
 const GOOD_CONTRACT =
-  'import type { Result } from "./shared/result.ts";\n\n/** Px: a valid value. */\nexport interface Px {\n  readonly __brand: "Px";\n  readonly value: number;\n  equals(other: Px): boolean;\n  toJSON(): number;\n}\n\nexport interface PxFactory {\n  parse(raw: unknown): Result<Px>;\n}\n';
+  'import type { Result } from "./shared/result.ts";\n\n/**\n * Px: a whole number of pixels, zero or more.\n * @accepts 0\n * @accepts 12\n */\nexport interface Px {\n  readonly __brand: "Px";\n  readonly value: number;\n  equals(other: Px): boolean;\n  toJSON(): number;\n}\n\nexport interface PxFactory {\n  parse(raw: unknown): Result<Px>;\n}\n';
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 

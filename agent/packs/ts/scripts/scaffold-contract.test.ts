@@ -23,7 +23,7 @@ import {
 import { serviceRuntimeSupport } from "../../ts-service/service-runtime-support.ts";
 import { implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
 import { parseDomainConcept } from "./domain-concept.ts";
-import { EXAMPLE_CONCEPTS, exampleConcept } from "./testdata/example-domain.ts";
+import { DOCUMENTED_CONCEPTS as EXAMPLE_CONCEPTS, documentedConcept as exampleConcept } from "./testdata/example-domain.ts";
 import { stripConformance } from "./deliver.ts";
 
 const TESTDATA = join(import.meta.dirname, "testdata");

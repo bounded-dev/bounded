@@ -1,11 +1,12 @@
 import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { valueObjectDocumented } from "./value-object-documented.ts";
-import { EXAMPLE_CONCEPTS } from "../../scripts/testdata/example-domain.ts";
+import { DOCUMENTED_CONCEPTS, exampleConcept } from "../../scripts/testdata/example-domain.ts";
 
-// ADR 2026-059: a concept's doc comment is optional (the worked example has
-// none), but when present it says something, and its `@accepts` examples are
-// literals of the value's own type, because the generated laws print them.
+// ADR 2026-059: every value object carries two different `@accepts` examples
+// (the generated laws' samples, so no law is ever skipped), each a literal of
+// the value's own type; an identifier is exempt (generate() samples it); a doc
+// comment is never empty; an entity takes no @accepts.
 
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
@@ -30,6 +31,8 @@ export interface ${name}Factory {
 `;
 }
 
+const TWO = '/**\n * The name of a project.\n * @accepts "Website relaunch"\n * @accepts "Office move"\n */';
+
 const ENTITY = `/**
  * A project.
  * @accepts "x"
@@ -48,44 +51,42 @@ export interface ProjectFactory {
 
 ruleTester.run("value-object-documented", valueObjectDocumented, {
   valid: [
-    // the worked example: no doc comments at all
-    ...EXAMPLE_CONCEPTS.map((c) => c.contract),
-    // a summary with no tags
-    vo("/** The name of a project: not empty once trimmed. */"),
-    // examples of each value type
-    vo('/**\n * The name of a project.\n * @accepts "Website relaunch"\n * @accepts "Office move"\n */'),
-    vo('/** @accepts "Website relaunch" */'),
-    vo('/** Escapes are fine. @accepts is prose here.\n * @accepts "say \\"hi\\""\n */'),
+    // the worked example as the gates require it: documented value objects,
+    // and identifiers and entities with no examples at all
+    ...DOCUMENTED_CONCEPTS.map((c) => c.contract),
+    vo(TWO),
+    vo('/** @accepts "Website relaunch"\n * @accepts "Office move" */'),
+    vo('/** Escapes are fine. @accepts is prose here.\n * @accepts "say \\"hi\\""\n * @accepts "bye"\n */'),
     vo("/**\n * Pages read.\n * @accepts 0\n * @accepts 12.5\n * @accepts -3\n */", "number", "PagesRead"),
-    vo("/**\n * A flag.\n * @accepts true\n */", "boolean", "Flag"),
-    // a `//` comment is not a doc comment: nothing to check
-    vo("// just a note"),
-    // mid-sentence mentions are prose, not tags
-    vo("/** Add an @accepts example when you know one. */"),
+    vo("/**\n * A flag.\n * @accepts true\n * @accepts false\n */", "boolean", "Flag"),
     // an entity with a doc comment but no @accepts
     ENTITY.replace(' * @accepts "x"\n', ""),
     // interfaces that are not concepts are out of scope
     '/** @accepts nonsense */\nexport interface Store { save(): Promise<void>; }',
   ],
   invalid: [
-    { code: vo("/** */"), errors: [{ messageId: "emptyDoc", data: { name: "ProjectName" } }] },
-    { code: vo("/**\n *\n */"), errors: [{ messageId: "emptyDoc" }] },
+    // the worked example's plain value objects, as the example ships them
+    { code: exampleConcept("note-text").contract, errors: [{ messageId: "missingAccepts", data: { name: "NoteText", found: "no doc comment", rule: "What makes a NoteText valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
+    { code: exampleConcept("project-name").contract, errors: [{ messageId: "missingAccepts" }] },
+    // a `//` comment is not a doc comment
+    { code: vo("// just a note"), errors: [{ messageId: "missingAccepts" }] },
+    { code: vo("/** The name of a project: not empty once trimmed. */"), errors: [{ messageId: "missingAccepts", data: { name: "ProjectName", found: "no @accepts tag", rule: "What makes a ProjectName valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
+    { code: vo('/** @accepts "Website relaunch" */'), errors: [{ messageId: "missingAccepts" }] },
+    // mid-sentence mentions are prose, not tags
+    { code: vo("/** Add an @accepts example when you know one. */"), errors: [{ messageId: "missingAccepts" }] },
+    // two examples that trim to one value
+    { code: vo('/**\n * @accepts "Office"\n * @accepts "  Office "\n */'), errors: [{ messageId: "sameAccepts" }] },
+    { code: vo('/**\n * @accepts "Office"\n * @accepts "Office"\n */'), errors: [{ messageId: "sameAccepts" }] },
+    { code: vo("/**\n * @accepts 3\n * @accepts 3\n */", "number", "PagesRead"), errors: [{ messageId: "sameAccepts" }] },
+    { code: vo("/** */"), errors: [{ messageId: "emptyDoc", data: { name: "ProjectName" } }, { messageId: "missingAccepts" }] },
     // an example that is not a literal, or not of the value's type
-    { code: vo("/** @accepts Website relaunch */"), errors: [{ messageId: "badAccepts" }] },
-    { code: vo("/** @accepts 'Website relaunch' */"), errors: [{ messageId: "badAccepts" }] },
-    { code: vo("/** @accepts `Website` */"), errors: [{ messageId: "badAccepts" }] },
-    { code: vo('/** @accepts "Website" // the usual */'), errors: [{ messageId: "badAccepts" }] },
-    { code: vo("/** @accepts 42 */"), errors: [{ messageId: "badAccepts", data: { name: "ProjectName", example: "42", type: "string", sample: '@accepts "Website relaunch"' } }] },
-    { code: vo('/** @accepts "12" */', "number", "PagesRead"), errors: [{ messageId: "badAccepts" }] },
-    { code: vo("/** @accepts 1e3 */", "number", "PagesRead"), errors: [{ messageId: "badAccepts" }] },
-    { code: vo("/** @accepts 007 */", "number", "PagesRead"), errors: [{ messageId: "badAccepts" }] },
-    { code: vo('/** @accepts "true" */', "boolean", "Flag"), errors: [{ messageId: "badAccepts" }] },
-    { code: vo("/** @accepts */"), errors: [{ messageId: "badAccepts" }] },
-    // one report per bad example
-    {
-      code: vo('/**\n * @accepts "ok"\n * @accepts nope\n * @accepts 3\n */'),
-      errors: [{ messageId: "badAccepts" }, { messageId: "badAccepts" }],
-    },
+    { code: vo('/**\n * @accepts Website relaunch\n * @accepts "Office move"\n */'), errors: [{ messageId: "badAccepts" }] },
+    { code: vo("/**\n * @accepts 'Website'\n * @accepts \"Office move\"\n */"), errors: [{ messageId: "badAccepts" }] },
+    { code: vo('/**\n * @accepts "Website" // the usual\n * @accepts "Office move"\n */'), errors: [{ messageId: "badAccepts" }] },
+    { code: vo('/**\n * @accepts 42\n * @accepts "Office move"\n */'), errors: [{ messageId: "badAccepts", data: { name: "ProjectName", example: "42", type: "string", sample: '@accepts "Website relaunch"' } }] },
+    { code: vo('/**\n * @accepts "12"\n * @accepts 3\n */', "number", "PagesRead"), errors: [{ messageId: "badAccepts" }] },
+    { code: vo("/**\n * @accepts 1e3\n * @accepts 3\n */", "number", "PagesRead"), errors: [{ messageId: "badAccepts" }] },
+    { code: vo('/**\n * @accepts "true"\n * @accepts false\n */', "boolean", "Flag"), errors: [{ messageId: "badAccepts" }] },
     // an entity has no parse, so @accepts means nothing there
     { code: ENTITY, errors: [{ messageId: "acceptsOnEntity", data: { name: "Project" } }] },
   ],

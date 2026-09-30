@@ -22,8 +22,8 @@ Under `contexts/project-management/src/domain/`:
 - **`notes/note-text.contract.ts`, `projects/project-name.contract.ts`** —
   value objects: the same pair without `generate`, and a doc comment stating
   the validity rule with two `@accepts` examples, which the generated laws use
-  as samples. (The worked example itself carries no doc comments; these two
-  are the one addition, so that no law is skipped.)
+  as samples. `value-object-documented` requires them; the worked example
+  itself carries no doc comments, so these two are the one addition.
 - **`notes/note.contract.ts`, `projects/project.contract.ts`** — entities:
   identity first, value-object fields, a factory that is exactly
   `new (…fields): Name`, and a `toJSON` of one primitive per field. A note

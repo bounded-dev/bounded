@@ -84,35 +84,42 @@ describe("the hostile corpus", () => {
   });
 });
 
+const DOCUMENTED = (): Map<string, ConceptSampleSource> =>
+  domain([withAccepts("note-text", ['"Call the printer"', '"Book the venue"']), withAccepts("project-name", ['"Website relaunch"', '"Office move"'])]);
+
 describe("value objects", () => {
   test("carry the generated marker the scaffolder's sync recognises", () => {
-    const laws = lawsFor("NoteText");
+    const laws = lawsFor("NoteText", DOCUMENTED());
     expect(laws.split("\n")[0]).toBe("// GENERATED from note-text.contract.ts by packs/ts/scripts/value-object-laws.ts — do not edit.");
     expect(isGeneratedArtifact(laws)).toBe(true);
   });
 
-  test("without an example: hostile-input laws run, value laws are one named skip", () => {
-    const laws = lawsFor("NoteText");
+  // value-object-documented guarantees two different examples, so a missing
+  // one is a refused contract here too — never a skipped law.
+  test.each([
+    ["no example", [] as string[]],
+    ["one example", ['"Call the printer"']],
+    ["two that trim to one value", ['"Call the printer"', '"  Call the printer "']],
+  ])("with %s the generator refuses rather than skip", (_label, examples) => {
+    expect(() => lawsFor("NoteText", domain([withAccepts("note-text", examples)]))).toThrow(
+      /note-text\.contract\.ts: NoteText needs two @accepts examples that differ after trimming/,
+    );
+  });
+
+  test("the string corpus leaves same-type values to the test-writer", () => {
+    const laws = lawsFor("NoteText", DOCUMENTED());
     expect(laws).toContain('import { NoteText } from "./note-text.ts";');
     expect(laws).toContain('test("parse refuses every hostile input"');
     expect(laws).toContain('test("parse gives a reason for every refusal"');
-    expect(laws).toContain("test.skip(\"value laws need a valid NoteText — add an @accepts example to NoteText's contract\"");
-    // nothing parses a sample, so neither the helper nor Result is imported
-    expect(laws).not.toContain("mustParse");
-    expect(laws).not.toContain("Result");
-    // the string corpus, without same-type values
     expect(laws).toContain('["0", 0],');
     expect(laws).not.toContain('["\\"\\"", ""],');
+    expect(laws).not.toContain("test.skip");
   });
 
-  test("with one example: the value laws run and discrimination is a named skip", () => {
-    const concepts = domain([withAccepts("note-text", ['"Call the printer"'])]);
-    const laws = lawsFor("NoteText", concepts);
-    expect(laws).toContain('import type { Result } from "../shared/result.ts";');
-    expect(laws).toContain('expect(NoteText.parse("Call the printer").ok).toBe(true);');
-    expect(laws).toContain('test("toJSON round-trips through parse"');
-    expect(laws).toContain('test("equals compares by value, not by reference"');
-    expect(laws).toContain("test.skip(\"equals discriminates — add a second, different @accepts example to NoteText's contract\"");
+  test("the first two different examples are the samples", () => {
+    const laws = lawsFor("NoteText", domain([withAccepts("note-text", ['"a"', '" a "', '"b"'])]));
+    expect(laws).toContain('const a = mustParse(NoteText.parse("a")');
+    expect(laws).toContain('const other = mustParse(NoteText.parse("b")');
   });
 
   test("with two different examples: equality discriminates them", () => {
@@ -122,7 +129,7 @@ describe("value objects", () => {
   });
 
   test("an identifier samples itself with generate()", () => {
-    const laws = lawsFor("ProjectId");
+    const laws = lawsFor("ProjectId");  // identifiers need no @accepts
     expect(laws).toContain('describe("ProjectId — identifier laws (generated)"');
     expect(laws).toContain("const a = ProjectId.generate();");
     expect(laws).toContain("expect(ProjectId.generate().equals(ProjectId.generate())).toBe(false);");
@@ -132,7 +139,7 @@ describe("value objects", () => {
 
   test("no law evaluates concept code at module load", () => {
     for (const name of ["NoteId", "NoteText", "Note", "ProjectName", "Project"]) {
-      const laws = lawsFor(name, domain([withAccepts("note-text", ['"a"', '"b"']), withAccepts("project-name", ['"c"'])]));
+      const laws = lawsFor(name, domain([withAccepts("note-text", ['"a"', '"b"']), withAccepts("project-name", ['"c"', '"d"'])]));
       const topLevel = laws.split("\n").filter((l) => /^\S/.test(l) && !/^(import|\/\/|\/\*\*| \*|function|describe|const HOSTILE_INPUTS|}|\]|\);)/.test(l));
       expect(topLevel).toEqual([]);
     }
@@ -144,10 +151,8 @@ describe("value objects", () => {
 });
 
 describe("entities", () => {
-  test("without a sample for a field: one named skip naming the concept to document", () => {
-    const laws = lawsFor("Note");
-    expect(laws).toContain("test.skip(\"entity laws need a valid NoteText — add an @accepts example to NoteText's contract\"");
-    expect(laws).not.toContain('from "./note.ts"');
+  test("a field's undocumented value object is refused, never skipped", () => {
+    expect(() => lawsFor("Note")).toThrow(/note-text\.contract\.ts: NoteText needs two @accepts examples/);
   });
 
   test("with samples: identity, wire form and id round-trip laws, importing each field's implementation", () => {
@@ -168,13 +173,13 @@ import { NoteText } from "./note-text.ts";`);
   });
 
   test("refuses a field whose concept the domain does not declare", () => {
-    const concepts = domain([withAccepts("project-name", ['"x"'])]);
+    const concepts = DOCUMENTED();
     concepts.delete("ProjectName");
     expect(() => lawsFor("Project", concepts)).toThrow(/Project\.name is 'ProjectName', which is not a concept contract in this domain/);
   });
 
   test("refuses a field that shadows a local the laws declare", () => {
-    const concepts = domain([withAccepts("project-name", ['"x"'])]);
+    const concepts = DOCUMENTED();
     const project = concepts.get("Project")!;
     const renamed: DomainConceptModel = {
       ...project.model,

@@ -305,3 +305,38 @@ export function exampleConcept(stem: string): ExampleConcept {
   if (found === undefined) throw new Error(`no example concept ${stem}`);
   return found;
 }
+
+/** The reference's doc comments: each plain value object's validity rule and
+ *  its two `@accepts` examples, which `value-object-documented` requires and
+ *  the worked example itself does not carry (ADR 2026-059). */
+const DOCS: Readonly<Record<string, string>> = {
+  NoteText: `/**
+ * The text of a note: any string that is not empty once trimmed; stored trimmed.
+ * @accepts "Call the printer"
+ * @accepts "Book the venue"
+ */
+`,
+  ProjectName: `/**
+ * The name of a project: any string that is not empty once trimmed; stored trimmed.
+ * @accepts "Website relaunch"
+ * @accepts "Office move"
+ */
+`,
+};
+
+/** The worked example's concepts as the gates require them: identical, plus
+ *  the two value objects' doc comments. `packs/ts/reference` holds exactly
+ *  these contracts (reference-component.test.ts pins it). */
+export const DOCUMENTED_CONCEPTS: readonly ExampleConcept[] = EXAMPLE_CONCEPTS.map((c) => {
+  const name = Object.keys(DOCS).find((n) => c.contract.includes(`export interface ${n} {`));
+  return name === undefined
+    ? c
+    : { ...c, contract: c.contract.replace(`export interface ${name} {`, `${DOCS[name]}export interface ${name} {`) };
+});
+
+/** One documented concept by its file stem. */
+export function documentedConcept(stem: string): ExampleConcept {
+  const found = DOCUMENTED_CONCEPTS.find((c) => c.contractPath.endsWith(`/${stem}.contract.ts`));
+  if (found === undefined) throw new Error(`no example concept ${stem}`);
+  return found;
+}

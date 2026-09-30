@@ -29,6 +29,7 @@ import { lintContractSource } from "./contract-purity.ts";
 import { lawsPathOf } from "./domain-concept.ts";
 import { emitDomain, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
 import type { WorkspaceFacts } from "../pack.ts";
+import { DOCUMENTED_CONCEPTS } from "./testdata/example-domain.ts";
 
 const REFERENCE_DIR = join(import.meta.dirname, "..", "reference");
 const CONTEXT = "contexts/project-management";
@@ -107,6 +108,13 @@ test("the committed laws are exactly what the domain emitter emits today", () =>
     expect(readFileSync(join(REFERENCE_DIR, path), "utf8"), `${path} is stale — regenerate it from the domain emitter`).toBe(
       emitted.content,
     );
+  }
+});
+
+test("the reference contracts are the worked example's, documented as the gate requires", () => {
+  for (const c of DOCUMENTED_CONCEPTS) {
+    expect(readFileSync(join(REFERENCE_DIR, c.contractPath), "utf8"), c.contractPath).toBe(c.contract);
+    expect(readFileSync(join(REFERENCE_DIR, c.contractPath.replace(".contract.ts", ".ts")), "utf8"), c.contractPath).toBe(c.implementation);
   }
 });
 
