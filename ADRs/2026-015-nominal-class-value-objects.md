@@ -1,6 +1,6 @@
 # 2026-015: Value objects are nominal classes; branded aliases are banned
 
-**Status:** accepted
+**Status:** superseded by 2026-059
 
 ## Decision
 

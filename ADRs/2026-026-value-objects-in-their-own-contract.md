@@ -1,6 +1,6 @@
 # 2026-026: Value objects live in their own contract file
 
-**Status:** accepted
+**Status:** superseded by 2026-059
 
 ## Decision
 

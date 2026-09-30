@@ -1,6 +1,6 @@
 # 2026-052: Contract files reach the core through a pack socket
 
-**Status:** accepted; its architect config write access is superseded by 2026-054
+**Status:** accepted; its architect config write access is superseded by 2026-054, and its `src/`-rooted contract globs by 2026-056
 
 ## Decision
 

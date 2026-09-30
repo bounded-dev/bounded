@@ -1,6 +1,6 @@
 # 2026-023: One class identity per value object; scaffold is a non-destructive sync
 
-**Status:** accepted
+**Status:** superseded by 2026-059
 
 ## Decision
 

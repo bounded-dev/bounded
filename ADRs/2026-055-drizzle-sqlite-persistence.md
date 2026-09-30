@@ -1,6 +1,6 @@
 # 2026-055: Versioned SQLite persistence capability
 
-**Status:** accepted
+**Status:** superseded by 2026-058 (migrations move inside the source tree) and 2026-062 (the pack is retired)
 
 ## Decision
 
