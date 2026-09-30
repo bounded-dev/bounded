@@ -219,7 +219,10 @@ or identifier; `toJSON()` returns one readonly primitive per field), and
 `bounded-ts/value-object-documented` (every value object — not an
 identifier — carries a doc comment with its validity rule and two
 `@accepts` examples that differ after trimming, each a literal of the
-value's type: they are the generated laws' samples, so no law is skipped),
+value's type, one tag per line — e.g. `/** The name of a project: not
+empty once trimmed. @accepts "Website relaunch" @accepts "Office move" */`
+with each tag on its own line; they are the generated laws' samples, so no
+law is skipped; an identifier needs none, since `generate()` supplies them),
 and `bounded-ts/contract-imports-contracts-only` (every contract
 imports only other `*.contract.ts` files and `../shared/result.ts`, as
 `import type { … }` — never an implementation file, never an

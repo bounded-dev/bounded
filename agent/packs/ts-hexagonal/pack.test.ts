@@ -18,6 +18,7 @@ import {
 import { composePacks } from "../../src/socket-registry.ts";
 import { INSTALLED_PACKS } from "../installed.ts";
 import { adapterTechnologies, lintSrcRules, lintSrcRuleId, skeletonEmitters, TS_PACK, workspaceTemplates } from "../ts/pack.ts";
+import { lintContractSource } from "../ts/scripts/contract-purity.ts";
 import { shippedFiles } from "../ts/scripts/project-package.ts";
 import { TS_HEXAGONAL_LINT_RULES, TS_HEXAGONAL_PACK, TS_HEXAGONAL_PLUGIN, tsHexagonalPack } from "./pack.ts";
 import { TS_HEXAGONAL_EMITTERS } from "./scripts/emitters.ts";
@@ -127,6 +128,17 @@ describe("the shipped rulebook", () => {
 
   test("names no project: the scope is a placeholder", () => {
     for (const name of docs) expect(text(name), name).not.toMatch(/@example\b/);
+  });
+
+  test("domain.md teaches @accepts, and its worked contract passes the contract lint", async () => {
+    const domain = text("domain.md");
+    expect(domain).toMatch(/at least two `@accepts` examples/);
+    expect(domain).toMatch(/differ once whitespace is trimmed/);
+    expect(domain).toMatch(/exempt from `@accepts`/);
+    const contract = /```ts\n\/\/ item-title\.contract\.ts\n([\s\S]*?)```/.exec(domain)?.[1];
+    expect(contract).toBeDefined();
+    const problems = await lintContractSource(contract!, "contexts/pm/src/domain/items/item-title.contract.ts");
+    expect(problems).toEqual([]);
   });
 
   test("has no open decisions left: the desktop shell and cross-context calls are decided", () => {

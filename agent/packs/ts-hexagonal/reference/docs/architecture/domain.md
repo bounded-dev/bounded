@@ -32,6 +32,11 @@ Every domain concept is split into a **contract** and a hidden **implementation*
 // item-title.contract.ts
 import type { Result } from "../shared/result.ts";
 
+/**
+ * The title of an item: not empty once trimmed.
+ * @accepts "Buy milk"
+ * @accepts "Call the plumber"
+ */
 export interface ItemTitle {             // the instance side
   readonly __brand: "ItemTitle";
   readonly value: string;
@@ -94,7 +99,8 @@ A value object is an immutable, self-validating value. Two value objects are equ
 - **Private constructor.** `parse` is the only way in, so an invalid value object cannot exist. The factory interface has no constructor signature.
 - **`static parse(raw: unknown): Result<T>`.** Validation lives here. It returns the reason for failure; it never returns `undefined` and never throws for invalid input.
 - **`equals`** compares by value. **`toJSON`** returns the plain form used on the wire.
-- **Identifiers are value objects** too, and their factory also has `generate()`.
+- **A doc comment on the interface stating the validity rule, with at least two `@accepts` examples.** Each `@accepts` tag opens its own line and holds one literal of the value's type (`@accepts "Buy milk"`, `@accepts 42`), and the two must still differ once whitespace is trimmed. They are the samples the generated `<concept>.laws.test.ts` feeds to `parse`, so without two genuinely different examples the equality and round-trip laws cannot run. The contract lint refuses a value object without them.
+- **Identifiers are value objects** too, and their factory also has `generate()`. They are exempt from `@accepts`: `generate()` supplies their samples.
 - `zod` is allowed in the domain.
 
 ## Entities
