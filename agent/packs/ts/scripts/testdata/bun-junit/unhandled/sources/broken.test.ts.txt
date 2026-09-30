@@ -1,0 +1,3 @@
+import { thing } from "./does-not-exist.ts";
+import { test, expect } from "bun:test";
+test("never runs", () => { expect(thing).toBe(1); });

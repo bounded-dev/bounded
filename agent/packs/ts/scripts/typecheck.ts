@@ -1,10 +1,12 @@
 // typecheck custom tool core (TN-26-001, §"Custom tools").
 //
-// Runs `tsc --noEmit` in the target project and returns pass/fail plus the
-// diagnostics, with absolute machine paths redacted: paths under the project
-// root are relativized, and any remaining absolute path is replaced with
-// `[path]`. The builder legitimately owns src/, so relative source locations
-// are kept (they aid debugging); only machine layout is scrubbed.
+// Runs `bunx tsc -p tsconfig.json` in the target project (ADR 2026-062; the
+// generated tsconfig sets noEmit) and returns pass/fail plus the diagnostics,
+// with absolute machine paths redacted: paths under the project root are
+// relativized, and any remaining absolute path is replaced with `[path]`.
+// Relative source locations are kept (they aid debugging, and they are what
+// typecheck-routing.ts and typecheck-scope.ts attribute to a role by the
+// file's suffix); only machine layout is scrubbed.
 //
 // Pure core (redactAbsolutePaths / parseTscOutput) + injectable command runner,
 // so the parsing and redaction are unit-testable without spawning tsc.
@@ -19,7 +21,7 @@ export type { CommandOutput, CommandRunner };
 
 export interface TypecheckOptions {
   readonly run?: CommandRunner;
-  /** Override the tsc invocation. Default: `npx tsc --noEmit --pretty false`. */
+  /** Override the tsc invocation. Default: {@link TYPECHECK_COMMAND}. */
   readonly command?: string;
   readonly args?: string[];
 }
@@ -32,8 +34,12 @@ export interface TypecheckResult {
   readonly diagnostics: string[];
 }
 
-const DEFAULT_COMMAND = "npx";
-const DEFAULT_ARGS = ["tsc", "--noEmit", "--pretty", "false"];
+/** The type-check invocation: the project's own compiler through bunx, on the
+ *  generated tsconfig.json, with one-line diagnostics the routing can parse. */
+export const TYPECHECK_COMMAND: { readonly command: string; readonly args: readonly string[] } = {
+  command: "bunx",
+  args: ["tsc", "-p", "tsconfig.json", "--pretty", "false"],
+};
 
 // Any residual absolute path (POSIX, Windows drive, or file:// URI) with a
 // filename — redacted after project-root relativization strips the paths the
@@ -88,15 +94,15 @@ export function parseTscOutput(
   return { ok: code === 0, errorCount, diagnostics };
 }
 
-/** Run `tsc --noEmit` in `cwd` and return the redacted diagnostics view. */
+/** Type-check `cwd` and return the redacted diagnostics view. */
 export async function typecheck(cwd: string, options: TypecheckOptions = {}): Promise<TypecheckResult> {
   // The type-checker reads the project's config: refuse to spawn it over
   // config the composed packs did not generate (ADR 2026-054).
   const drift = configDriftReason(cwd);
   if (drift !== undefined) return { ok: false, errorCount: 0, diagnostics: [drift] };
   const run = options.run ?? spawnRunner;
-  const command = options.command ?? DEFAULT_COMMAND;
-  const args = options.args ?? DEFAULT_ARGS;
+  const command = options.command ?? TYPECHECK_COMMAND.command;
+  const args = options.args ?? [...TYPECHECK_COMMAND.args];
   const { stdout, stderr, code } = await run(command, args, cwd);
   return parseTscOutput(stdout, stderr, code, cwd);
 }

@@ -1,0 +1,142 @@
+
+contexts/pm/src/domain/more.test.ts:
+1 | export function parseNote(raw: string): string {
+2 |   if (raw === "ok") return raw;
+3 |   throw new Error(`Not implemented: parseNote`);
+                                                  ^
+error: Not implemented: parseNote
+      at parseNote (/home/dev/project/contexts/pm/src/domain/note.ts:3:47)
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/more.test.ts:7:12)
+(fail) Note <parse> & "quotes" > implementation throws [0.12ms]
+error: leaked-console-error-line
+    12 | const fakeFrame = 1;
+ 8 |   });
+ 9 | 
+10 |   test("console.error then fail", () => {
+11 |     console.error("error: leaked-console-error-line");
+12 |     console.error("    12 | const fakeFrame = 1;");
+13 |     expect(["alpha", "beta"]).toContain("gamma-secret");
+                                   ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "gamma-secret"
+Received: [ "alpha", "beta" ]
+
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/more.test.ts:13:31)
+(fail) Note <parse> & "quotes" > console.error then fail [0.08ms]
+12 |     console.error("    12 | const fakeFrame = 1;");
+13 |     expect(["alpha", "beta"]).toContain("gamma-secret");
+14 |   });
+15 | 
+16 |   test("custom message", () => {
+17 |     expect(3, "should be the magic secret number").toBe(4);
+                                                        ^
+error: should be the magic secret number
+
+Expected: 4
+Received: 3
+
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/more.test.ts:17:52)
+(fail) Note <parse> & "quotes" > custom message [0.03ms]
+16 |   test("custom message", () => {
+17 |     expect(3, "should be the magic secret number").toBe(4);
+18 |   });
+19 | 
+20 |   test("throws a string", () => {
+21 |     throw "a thrown string secret";
+               ^
+error: a thrown string secret
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/more.test.ts:21:11)
+(fail) Note <parse> & "quotes" > throws a string [0.03ms]
+20 |   test("throws a string", () => {
+21 |     throw "a thrown string secret";
+22 |   });
+23 | 
+24 |   test("multi-line error message", () => {
+25 |     throw new Error("first line\nsecond line with /abs/path/file.ts:3:4");
+                                                                             ^
+error: first line
+second line with /abs/path/file.ts:3:4
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/more.test.ts:25:73)
+(fail) Note <parse> & "quotes" > multi-line error message [0.03ms]
+24 |   test("multi-line error message", () => {
+25 |     throw new Error("first line\nsecond line with /abs/path/file.ts:3:4");
+26 |   });
+27 | 
+28 |   test("toThrow mismatch", () => {
+29 |     expect(() => parseNote("ok")).toThrow("expected-secret-message");
+                                       ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "expected-secret-message"
+
+Received function did not throw
+Received value: "ok"
+
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/more.test.ts:29:35)
+(fail) Note <parse> & "quotes" > toThrow mismatch [0.05ms]
+28 |   test("toThrow mismatch", () => {
+29 |     expect(() => parseNote("ok")).toThrow("expected-secret-message");
+30 |   });
+31 | 
+32 |   test("rejects async", async () => {
+33 |     await Promise.reject(new RangeError("async-range"));
+                                  ^
+RangeError: async-range
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/more.test.ts:33:30)
+(fail) Note <parse> & "quotes" > rejects async [0.08ms]
+(fail) Note <parse> & "quotes" > timeout [50.97ms]
+  ^ this test timed out after 50ms.
+
+contexts/pm/src/domain/note-text.test.ts:
+ 7 |     expect(1 + 1).toBe(2);
+ 8 |   });
+ 9 | 
+10 |   test("rejects an empty note", () => {
+11 |     const secretLocal = { text: "" };
+12 |     expect(secretLocal.text).toBe(SECRET_EXPECTED);
+                                  ^
+error: expect(received).toBe(expected)
+
+Expected: "hidden-oracle-value"
+Received: ""
+
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/note-text.test.ts:12:30)
+(fail) NoteText > rejects an empty note [0.10ms]
+12 |     expect(secretLocal.text).toBe(SECRET_EXPECTED);
+13 |   });
+14 | 
+15 |   describe("equality", () => {
+16 |     test("equal notes are equal", () => {
+17 |       expect({ a: 1, secret: "s3cr3t" }).toEqual({ a: 2, secret: "s3cr3t" });
+                                              ^
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,3 @@
+  {
+-   "a": 2,
++   "a": 1,
+    "secret": "s3cr3t",
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/note-text.test.ts:17:42)
+(fail) NoteText > equality > equal notes are equal [0.07ms]
+19 |     test.skip("skipped one", () => {});
+20 |     test.todo("todo one");
+21 |   });
+22 | 
+23 |   test("throws inside the implementation", () => {
+24 |     throw new TypeError("Cannot read properties of undefined (reading 'value')");
+                                                                                    ^
+TypeError: Cannot read properties of undefined (reading 'value')
+      at <anonymous> (/home/dev/project/contexts/pm/src/domain/note-text.test.ts:24:80)
+(fail) NoteText > throws inside the implementation [0.04ms]
+
+ 2 pass
+ 1 skip
+ 1 todo
+ 11 fail
+ 7 expect() calls
+Ran 15 tests across 2 files. [60.00ms]

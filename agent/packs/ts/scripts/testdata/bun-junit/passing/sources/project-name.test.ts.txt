@@ -1,0 +1,15 @@
+import { describe, expect, test } from "bun:test";
+
+describe("ProjectName", () => {
+  test("accepts a name", () => {
+    expect("Apollo".length).toBe(6);
+  });
+
+  describe("parse", () => {
+    test("trims whitespace", () => {
+      expect(" a ".trim()).toBe("a");
+    });
+    test.skip("rejects emoji", () => {});
+    test.todo("normalises unicode");
+  });
+});

@@ -1,16 +1,13 @@
 {
-  "name": "bounded-reference-readings",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit && vitest run --exclude=\"**/.bounded/**\"",
-    "test": "vitest run --exclude=\"**/.bounded/**\""
+    "check": "tsc -p tsconfig.json && bun test",
+    "test": "bun test"
   },
-  "dependencies": {
-    "zod": "4.6.4"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "typescript": "5.9.3",
-    "vitest": "4.1.11"
+    "@types/bun": "1.3.14",
+    "typescript": "5.9.3"
   }
 }

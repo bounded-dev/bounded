@@ -1,13 +1,15 @@
 import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
 import {
   contributedSrcRuleIds,
   createSrcLinter,
+  FLAT_SCOPE,
   formatSrcProblems,
+  lintScope,
   lintSrc,
   lintSrcText,
   lintTests,
@@ -400,6 +402,78 @@ describe("lintSrc", () => {
     });
     const result = await lintSrc(dir);
     expect(result.code).toBe(0);
+  });
+});
+
+// --- source roots (ADR 2026-056): the monorepo layout ---------------------------
+//
+// The composition's own ts pack, with the layout a ts-hexagonal composition
+// adds: two source roots, the test-side suffixes and a generated glob. A
+// fixture packs directory holds it, so the real composition (and its
+// contributed rules) is unchanged.
+
+function monorepoPacks(): string {
+  const packsDir = mkdtempSync(join(tmpdir(), "lint-src-packs-"));
+  tmpDirs.push(packsDir);
+  const real = JSON.parse(readFileSync(join(import.meta.dirname, "..", "contrib.json"), "utf8")) as Record<string, unknown>;
+  mkdirSync(join(packsDir, "ts"));
+  writeFileSync(join(packsDir, "ts", "contrib.json"), JSON.stringify({
+    ...real,
+    sourceRoots: ["contexts/*/src", "apps/*/src"],
+    generatedFileGlobs: [...(real["generatedFileGlobs"] as string[]), "contexts/*/src/application/index.ts"],
+  }));
+  return packsDir;
+}
+
+describe("the lint scope comes from the composed source roots", () => {
+  test("flat without source roots; per root with them, test-side and generated files split out", () => {
+    const flat = project("lint-scope-flat-", {});
+    expect(lintScope(flat)).toEqual(FLAT_SCOPE);
+    const packsDir = monorepoPacks();
+    expect(lintScope(flat, packsDir)).toEqual({
+      src: ["apps/*/src/**/*.ts", "apps/*/src/**/*.tsx", "contexts/*/src/**/*.ts", "contexts/*/src/**/*.tsx"],
+      tests: [
+        "apps/*/src/**/*.test-support.ts", "apps/*/src/**/*.test.ts", "apps/*/src/**/*.test.tsx",
+        "contexts/*/src/**/*.test-support.ts", "contexts/*/src/**/*.test.ts", "contexts/*/src/**/*.test.tsx",
+      ],
+      srcIgnores: ["**/*.test-support.ts", "**/*.test.ts", "**/*.test.tsx", "**/*.laws.test.ts", "contexts/*/src/application/index.ts"],
+      testIgnores: ["**/*.laws.test.ts", "contexts/*/src/application/index.ts"],
+    });
+  });
+
+  test("the src run lints implementations under every root and nothing else", async () => {
+    const packsDir = monorepoPacks();
+    const dir = project("lint-src-monorepo-", {
+      "contexts/pm/src/domain/note.ts": "export const x: any = 1;\n",
+      "apps/web/src/main.ts": "export const y = 1 as number;\n",
+      "contexts/pm/src/domain/note.test.ts": "export const t: any = 1;\n",
+      "contexts/pm/src/application/notes.store.test-support.ts": "export const s: any = 1;\n",
+      "contexts/pm/src/domain/note.contract.ts": "export const c: any = 1;\n",
+      "contexts/pm/src/application/index.ts": "export const g: any = 1;\n",
+      "src/legacy.ts": "export const l: any = 1;\n",
+    });
+    const result = await lintSrc(dir, undefined, packsDir);
+    const files = [...new Set((result.detail["problems"] as { filePath: string }[]).map((p) => relative(dir, p.filePath)))].sort();
+    expect(files).toEqual(["apps/web/src/main.ts", "contexts/pm/src/domain/note.ts"]);
+  });
+
+  test("the tests run lints every test-side file, never the generated laws", async () => {
+    const packsDir = monorepoPacks();
+    const dir = project("lint-tests-monorepo-", {
+      "contexts/pm/src/domain/note.ts": "export const x: any = 1;\n",
+      "contexts/pm/src/domain/note.test.ts": "export const t: any = 1;\n",
+      "contexts/pm/src/application/notes.store.test-support.ts": "export const s: any = 1;\n",
+      "contexts/pm/src/domain/note.laws.test.ts": "export const l: any = 1;\n",
+    });
+    const result = await lintTests(dir, packsDir);
+    const files = [...new Set((result.detail["problems"] as { filePath: string }[]).map((p) => relative(dir, p.filePath)))].sort();
+    expect(files).toEqual(["contexts/pm/src/application/notes.store.test-support.ts", "contexts/pm/src/domain/note.test.ts"]);
+  });
+
+  test("a monorepo with no implementation yet matches nothing: a broken gate, not a pass", async () => {
+    const packsDir = monorepoPacks();
+    const dir = project("lint-src-monorepo-empty-", { "contexts/pm/src/domain/note.contract.ts": "export {};\n" });
+    expect((await lintSrc(dir, undefined, packsDir)).code).toBe(2);
   });
 });
 
