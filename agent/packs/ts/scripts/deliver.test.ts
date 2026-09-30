@@ -137,7 +137,7 @@ const CHECK_OK: CommandOutcome = {
   code: 0,
   stdout: `
 > fixture@ check
-> tsc --noEmit && vitest run && npm run check:surface
+> tsc --noEmit && vitest run && bun run check:surface
 
 surface-check: OK (1 contract pair)
  Test Files  1 passed (1)
@@ -170,7 +170,7 @@ function fakeNpm(options: FakeNpmOptions = {}): { calls: NpmCall[]; run: Command
   const calls: NpmCall[] = [];
   const run: CommandRun = (command, args, cwd) => {
     calls.push({ command, args: [...args], cwd, barrelPresent: existsSync(join(cwd, "src/index.ts")) });
-    if (args[0] === "install") {
+    if (args[0] === "add") {
       const outcome = options.install ?? { code: 0, stdout: "added 3 packages\n", stderr: "" };
       if (outcome.code === 0 && (options.materialize ?? true)) {
         // Materialize whatever was asked for, the way a real install would —
@@ -246,8 +246,8 @@ describe("runDeliver", () => {
     // 4. surface check shipped and wired
     expect(readFileSync(join(dir, "scripts/surface-check.ts"), "utf8")).toBe(SURFACE_STUB);
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    expect(pkg.scripts["check:surface"]).toBe("node --experimental-strip-types scripts/surface-check.ts");
-    expect(pkg.scripts.check).toContain("npm run check:surface");
+    expect(pkg.scripts["check:surface"]).toBe("bun scripts/surface-check.ts");
+    expect(pkg.scripts.check).toContain("bun run check:surface");
     expect(pkg.devDependencies["ts-morph"]).toMatch(/^\d+\.\d+\.\d+$/);
     // 5. .bounded/ ignored
     expect(readFileSync(join(dir, ".gitignore"), "utf8")).toMatch(/^\.bounded\/$/m);
@@ -633,17 +633,11 @@ describe("runDeliver: the shipped surface check must actually resolve", () => {
     expect(r.code).toBe(0);
 
     const pin = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).devDependencies["ts-morph"];
-    const install = npm.calls.find((c) => c.args[0] === "install");
+    const install = npm.calls.find((c) => c.args[0] === "add");
     expect(install).toBeDefined();
-    expect(install!.command).toBe(process.platform === "win32" ? "npm.cmd" : "npm");
-    expect(install!.args).toEqual([
-      "install",
-      "--save-dev",
-      "--save-exact",
-      "--no-audit",
-      "--no-fund",
-      `ts-morph@${pin}`,
-    ]);
+    expect(install!.command).toBe("bun");
+    // ADR 2026-062: bun, exact, dev, and no lifecycle scripts.
+    expect(install!.args).toEqual(["add", "--dev", "--exact", "--ignore-scripts", `ts-morph@${pin}`]);
     expect(install!.cwd).toBe(dir);
     expect(existsSync(join(dir, "node_modules/ts-morph/package.json"))).toBe(true);
     expect(r.lines.join("\n")).toContain(`installed ts-morph@${pin}`);
@@ -671,7 +665,7 @@ describe("runDeliver: the shipped surface check must actually resolve", () => {
     expect(out).toContain("ERR_MODULE_NOT_FOUND");
     expect(r.lines).toContain("  install: npm error code ENOTFOUND");
     // the project's own check never ran: the tree is not deliverable
-    expect(npm.calls.map((c) => c.args[0])).toEqual(["install"]);
+    expect(npm.calls.map((c) => c.args[0])).toEqual(["add"]);
     const event = readGuardLog(dir).find((e) => e.guard === "deliver" && e.verdict === "block");
     expect((event!.detail as { step?: string }).step).toBe("surface-check");
   });
@@ -681,7 +675,7 @@ describe("runDeliver: the shipped surface check must actually resolve", () => {
     const npm = fakeNpm({ materialize: false });
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
     expect(r.code).toBe(1);
-    expect(r.lines.join("\n")).toContain("npm reported success but node_modules/ts-morph is still missing");
+    expect(r.lines.join("\n")).toContain("bun reported success but node_modules/ts-morph is still missing");
   });
 });
 
@@ -691,7 +685,7 @@ describe("runDeliver: the project's own check (final step)", () => {
     const npm = fakeNpm();
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
     expect(r.code).toBe(0);
-    expect(r.lines).toContain("deliver: check — npm run check passed — Tests  5 passed (5)");
+    expect(r.lines).toContain("deliver: check — bun run check passed — Tests  5 passed (5)");
 
     const check = npm.calls.find((c) => c.args[0] === "run");
     expect(check!.args).toEqual(["run", "check"]);
@@ -729,7 +723,7 @@ describe("runDeliver: the project's own check (final step)", () => {
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
     expect(r.code).toBe(1);
     expect(r.lines).toContain(
-      "deliver: BLOCK — the project's own `npm run check` is RED (npm exited 1) — the repo does not " +
+      "deliver: BLOCK — the project's own `bun run check` is RED (bun exited 1) — the repo does not " +
         "satisfy its own definition of done, so it is not ready to hand over; fix it and re-run deliver",
     );
     expect(r.lines).toContain(
@@ -790,7 +784,7 @@ describe("runDeliver: the real npm install (integration)", () => {
     // fixture's whole toolchain too, which is a different and far slower test.
     const r = runDeliver(dir, {
       surfaceCheckSource: surfaceStub(),
-      run: (command, args, cwd) => (args[0] === "install" ? spawnRun(command, args, cwd) : CHECK_OK),
+      run: (command, args, cwd) => (args[0] === "add" ? spawnRun(command, args, cwd) : CHECK_OK),
     });
     if (r.code !== 0) {
       ctx.skip(`npm install unavailable here (offline?): ${r.lines.at(-1)}`);
@@ -830,7 +824,7 @@ describe("blessed stack pins", () => {
     expect(pkg.dependencies["zod"]).toMatch(/^\d+\.\d+\.\d+$/);
     expect(pkg.dependencies["@trpc/server"]).toMatch(/^\d+\.\d+\.\d+$/);
     // Regular dependencies — both are imported by shipped src/**.
-    const installs = npm.calls.filter((c) => c.args[0] === "install").map((c) => c.args.at(-1));
+    const installs = npm.calls.filter((c) => c.args[0] === "add").map((c) => c.args.at(-1));
     expect(installs.some((s) => s?.startsWith("zod@"))).toBe(true);
     expect(installs.some((s) => s?.startsWith("@trpc/server@"))).toBe(true);
   });
@@ -966,7 +960,7 @@ describe("runDeliver: pack-contributed checks", () => {
     delete files["apps/web/src/client/main.tsx"];
     const r = deliver(proj(files), { check: { code: 1, stdout: "1 failed", stderr: "" } });
     expect(r.code).toBe(1);
-    expect(r.lines.join("\n")).toContain("npm run check` is RED");
+    expect(r.lines.join("\n")).toContain("bun run check` is RED");
     expect(r.lines.join("\n")).not.toContain("web-obligation");
   });
 });

@@ -103,10 +103,14 @@ import {
 } from "./skeleton-imports.ts";
 
 const GUARD = "deliver";
-export const SURFACE_SCRIPT = "node --experimental-strip-types scripts/surface-check.ts";
-/** No shell is used anywhere in this file, so name the Windows shim explicitly. */
-const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
-/** Generous: `npm run check` is a full typecheck plus the project's own suite. */
+// ADR 2026-062: TypeScript projects run on Bun. The shipped checker runs with
+// bun, scripts are folded with `bun run`, and a missing package is added with
+// `bun add --exact` (which also writes bun.lock). In a generated project none
+// of these edits happen: deliver refuses instead (ADR 2026-054).
+export const SURFACE_SCRIPT = "bun scripts/surface-check.ts";
+/** The package manager and runner deliver spawns (no shell anywhere in this file). */
+const BUN = "bun";
+/** Generous: `bun run check` is a full typecheck plus the project's own suite. */
 const COMMAND_TIMEOUT_MS = 15 * 60_000;
 const BARREL_MARKER = "// Public API of this package";
 
@@ -152,7 +156,7 @@ export interface DeliverOptions {
   /** Path to the surface checker to ship. Default: this pack's
    *  surface-check.ts (or BOUNDED_DELIVER_SURFACE_CHECK). */
   readonly surfaceCheckSource?: string;
-  /** How to run npm — the ts-morph install (step 5) and the project's own
+  /** How to run bun — the ts-morph install (step 5) and the project's own
    *  check (step 9). Default: {@link spawnRun}. Injectable so the wiring is
    *  unit-testable without a registry round trip or a real suite run. */
   readonly run?: CommandRun;
@@ -452,10 +456,10 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       did.push("added check:surface");
     }
     if (pkg.scripts["check"] === undefined) {
-      pkg.scripts["check"] = "npm run check:surface";
+      pkg.scripts["check"] = "bun run check:surface";
       did.push("created check");
     } else if (!pkg.scripts["check"].includes("check:surface")) {
-      pkg.scripts["check"] += " && npm run check:surface";
+      pkg.scripts["check"] += " && bun run check:surface";
       did.push("folded into check");
     }
     const pin = pkg.devDependencies?.["ts-morph"] ?? tsMorphPin();
@@ -493,8 +497,8 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       return refuseConfigChange("surface-check", `ts-morph@${pin} is pinned but not installed`, { pin });
     }
     if (!existsSync(tsMorphAbs)) {
-      const args = ["install", "--save-dev", "--save-exact", "--no-audit", "--no-fund", `ts-morph@${pin}`];
-      const out = run(NPM, args, cwd);
+      const args = ["add", "--dev", "--exact", "--ignore-scripts", `ts-morph@${pin}`];
+      const out = run(BUN, args, cwd);
       const fail = (why: string): DeliverResult => {
         const tail = outputTail(out);
         const result = block(
@@ -507,8 +511,8 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
         lines.push(...tail.map((t) => `  install: ${t}`));
         return { ...result, lines };
       };
-      if (out.code !== 0) return fail(`\`npm install\` ${out.code === null ? "never completed" : `exited ${out.code}`}`);
-      if (!existsSync(tsMorphAbs)) return fail("npm reported success but node_modules/ts-morph is still missing");
+      if (out.code !== 0) return fail(`\`bun add\` ${out.code === null ? "never completed" : `exited ${out.code}`}`);
+      if (!existsSync(tsMorphAbs)) return fail("bun reported success but node_modules/ts-morph is still missing");
       did.push(`installed ts-morph@${pin}`);
     }
     pass("surface-check", did.length > 0, did.length > 0 ? did.join(", ") : "already shipped and wired", { did });
@@ -558,8 +562,8 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       }
       if (!existsSync(installedAbs)) {
         const out = run(
-          NPM,
-          ["install", "--save-exact", "--no-audit", "--no-fund", `${name}@${pin}`],
+          BUN,
+          ["add", "--exact", "--ignore-scripts", `${name}@${pin}`],
           cwd,
         );
         if (out.code !== 0 || !existsSync(installedAbs)) {
@@ -615,10 +619,10 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
           did.push(`set ${name}`);
         }
         if (pkg.scripts["check"] === undefined) {
-          pkg.scripts["check"] = `npm run ${name}`;
+          pkg.scripts["check"] = `bun run ${name}`;
           did.push(`created check with ${name}`);
         } else if (!pkg.scripts["check"].includes(`run ${name}`)) {
-          pkg.scripts["check"] += ` && npm run ${name}`;
+          pkg.scripts["check"] += ` && bun run ${name}`;
           did.push(`folded ${name} into check`);
         }
       }
@@ -720,13 +724,13 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   // Read-only, so it is never an applied step — a second delivery re-runs it
   // and still reports 0 steps applied.
   {
-    const out = run(NPM, ["run", "check"], cwd);
+    const out = run(BUN, ["run", "check"], cwd);
     if (out.code !== 0) {
       const tail = outputTail(out);
       const result = block(
         "check",
-        `the project's own \`npm run check\` is RED ` +
-          `(${out.code === null ? "it never completed" : `npm exited ${out.code}`}) — the repo does not ` +
+        `the project's own \`bun run check\` is RED ` +
+          `(${out.code === null ? "it never completed" : `bun exited ${out.code}`}) — the repo does not ` +
           `satisfy its own definition of done, so it is not ready to hand over; fix it and re-run deliver`,
         { exitCode: out.code, tail },
       );
@@ -737,7 +741,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     pass(
       "check",
       false,
-      summaryLine === undefined ? "npm run check passed" : `npm run check passed — ${summaryLine}`,
+      summaryLine === undefined ? "bun run check passed" : `bun run check passed — ${summaryLine}`,
       { exitCode: 0, summary: summaryLine },
     );
   }

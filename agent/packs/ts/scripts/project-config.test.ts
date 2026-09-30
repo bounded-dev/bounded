@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { runDeliver, SURFACE_SCRIPT } from "./deliver.ts";
 import { runDesignGate } from "./design-gate.ts";
 import { runGreenGate } from "./green-gate.ts";
 import { runMutationScore } from "./mutation-score.ts";
@@ -334,6 +335,28 @@ describe("every tool that spawns the test runner or type-checker refuses drifted
   test("sync removes it, and the project is clean again", () => {
     expect(syncProjectConfig(project, agentRoot, fake).lines).toContain("sync-config: removed bunfig.toml (no composed pack generates it)");
     expect(configDriftReason(project, agentRoot)).toBeUndefined();
+  });
+});
+
+describe("deliver on a generated project (ADR 2026-054, ADR 2026-062)", () => {
+  test("finds the Bun wiring already generated, rewrites no config, and runs the check with bun", () => {
+    const project = tsOnly();
+    mkdirSync(join(project, "node_modules", "ts-morph"), { recursive: true });
+    writeFileSync(join(project, "node_modules", "ts-morph", "package.json"), '{"name":"ts-morph"}\n');
+    const before = readFileSync(join(project, "package.json"), "utf8");
+    const calls: string[] = [];
+    const result = runDeliver(project, {
+      run: (command, args) => {
+        calls.push([command, ...args].join(" "));
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    expect(result.lines.join("\n")).not.toMatch(/\bnpm\b|experimental-strip-types/);
+    expect(calls.every((c) => c.startsWith("bun "))).toBe(true);
+    expect(calls.some((c) => c.startsWith("bun add"))).toBe(false);
+    expect(readFileSync(join(project, "package.json"), "utf8")).toBe(before);
+    expect(JSON.parse(before).scripts["check:surface"]).toBe(SURFACE_SCRIPT);
+    expect(configDrift(project, agentRoot)).toEqual([]);
   });
 });
 
