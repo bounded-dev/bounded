@@ -6,8 +6,10 @@
 //   src/<feature>.ts          one entry per Lambda: `export const handler = compose<Feature>();`
 //
 // A Lambda app hosts every feature tagged `@exposedVia lambda`, from every
-// context. Each entry is bundled for Node by the template's build script
-// (`bun build ./src/*.ts --target node`), which is why `no-bun-api` holds here.
+// context. Each entry is marked `entry`, so the template's build script
+// (`bun build {{entries}} --outdir dist --target node`) bundles exactly the
+// entries for Node — never the composition root or a test file — and
+// `no-bun-api` holds here.
 
 import type { EmittedFile, Emitter, ProjectFacts } from "../../ts/pack.ts";
 import { pascalCase } from "../../ts/scripts/naming.ts";
@@ -20,6 +22,8 @@ export const LAMBDAS_KIND = "lambdas";
 export const composeFunction = (feature: string): string => `compose${pascalCase(feature)}`;
 
 const skeleton = (path: string, lines: readonly string[]): EmittedFile => ({ path, content: `${lines.join("\n")}\n`, mode: "skeleton" });
+/** A Lambda entry: the manifest's build lists exactly these (`{{entries}}`, TN-26-012 §10). */
+const entry = (path: string, lines: readonly string[]): EmittedFile => ({ ...skeleton(path, lines), entry: true });
 
 export function emitLambdaApps(facts: ProjectFacts): EmittedFile[] {
   const out: EmittedFile[] = [];
@@ -52,7 +56,7 @@ export function emitLambdaApps(facts: ProjectFacts): EmittedFile[] {
       ]),
     ]));
     for (const feature of features) {
-      out.push(skeleton(`${app.sourceRoot}/${feature.feature}.ts`, [
+      out.push(entry(`${app.sourceRoot}/${feature.feature}.ts`, [
         `import { ${composeFunction(feature.feature)} } from "./composition-root.ts";`,
         "",
         "// Built once per cold start, reused across invocations.",

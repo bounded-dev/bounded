@@ -40,7 +40,7 @@ export function featureContracts(facts: ProjectFacts): FeatureContractModel[] {
   return facts.workspaces
     .filter((workspace) => workspace.dir.startsWith("contexts/"))
     .flatMap((workspace) => featuresOf(workspace, facts.scope))
-    .sort((a, b) => a.context.localeCompare(b.context) || a.area.localeCompare(b.area) || a.feature.localeCompare(b.feature));
+    .sort((a, b) => byCodePoint(a.context, b.context) || byCodePoint(a.area, b.area) || byCodePoint(a.feature, b.feature));
 }
 
 function featuresOf(workspace: WorkspaceFacts, scope: string): FeatureContractModel[] {
@@ -477,6 +477,21 @@ export function lawPrelude(feature: FeatureContractModel): LawPrelude {
     ...input.fields.map((f) => `    ...${REFUSED[f.wireType]}.map((raw) => ({ ...valid, ${f.name}: raw })),`),
     "  ];",
     `  return variants.filter((raw) => !${input.commandName}.parse(raw).ok);`,
+    "}",
+    "",
+    "function probe<T>(read: () => T): T | undefined {",
+    "  try {",
+    "    return read();",
+    "  } catch {",
+    "    return undefined;",
+    "  }",
+    "}",
+    "",
+    "// A domain whose parse refuses none of the candidates leaves the domain-invalid law nothing to check: it is",
+    "// skipped, and says so. Undefined means the domain cannot be probed yet (red), so the law runs and fails.",
+    "const DOMAIN_REFUSES_NOTHING = probe(domainInvalidInputs)?.length === 0;",
+    "if (DOMAIN_REFUSES_NOTHING) {",
+    `  console.warn("adapter law skipped: ${input.commandName}.parse refuses no candidate wire value, so no domain-invalid input exists to check");`,
     "}",
     "",
     "function expectParsedCommand(command: unknown, input: Record<string, unknown>): void {",

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { emittedFileProblem } from "../../ts/pack.ts";
 import { pathGlobMatcher, generatedFileGlobsFor } from "../../../src/pack-contrib.ts";
-import { EXAMPLE_CONTEXT, exampleContracts, exampleFacts, exampleFiles, readExample, withoutComments } from "../testing/example-facts.ts";
+import { EXAMPLE_CONTEXT, exampleContracts, exampleFacts, exampleFiles, readExample, withoutComments } from "../../example-suite/example-facts.ts";
 import { emitTrpcAdapters, trpcAdapterEmitter } from "./trpc-emitter.ts";
 
 // The golden (TN-26-012 §6, WI-7): emitting from the worked example's feature

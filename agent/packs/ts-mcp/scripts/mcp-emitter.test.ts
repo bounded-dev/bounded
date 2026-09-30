@@ -7,7 +7,7 @@ import {
   exampleFacts,
   exampleFiles,
   readExample,
-} from "../../ts-trpc/testing/example-facts.ts";
+} from "../../example-suite/example-facts.ts";
 import { emitMcpAdapters, mcpAdapterEmitter } from "./mcp-emitter.ts";
 
 // The golden (TN-26-012 §6, WI-7): the worked example's feature contracts,

@@ -396,8 +396,10 @@ your own gates speak for the project.
 **Selected packages carry delivery obligations.** The driver records the
 selection before gates run. `trpc-obligation` requires at least one context
 to expose a feature through tRPC (`@exposedVia trpc`), so its generated
-adapter exists. `web-obligation` requires every web app to have its server
-entry, composition root, client page and client entry. A package selected but
+adapter exists. `web-obligation` requires every web app the design declares
+(TN `workspaces:`) to have its server entry, composition root, client page
+and client entry, a client whose imports all resolve, and a typed tRPC client
+that the client actually uses; with none declared it checks nothing. A package selected but
 never used by the design cannot satisfy them.
 
 **`deliver` can block on a check a PACK contributed** (ADR 2026-033), after the

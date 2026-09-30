@@ -34,7 +34,7 @@ export const tsWebPack = definePack({
     contribute(skeletonEmitters, [webAppEmitter]),
     contribute(deliverChecks, [{
       name: "web-obligation",
-      description: "ts-web requires at least one web app with its server entry, composition root, client page and client entry",
+      description: "every web app the design declares has its whole door, a client that bundles, and a typed tRPC client it uses",
       run: runWebObligation,
     }]),
   ],

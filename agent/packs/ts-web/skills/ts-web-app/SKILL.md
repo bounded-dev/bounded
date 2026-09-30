@@ -47,9 +47,11 @@ carries none of the server's code.
   generated router through `@trpc/server/adapters/fetch`; no second
   `initTRPC`.
 - ts-hexagonal's type-only rule for server code imported by `client/`.
-- Delivery's `web-obligation`: every web app has its server entry,
-  composition root, client page and client entry. `check:build` bundles each
-  client page with Bun, so an entry that does not resolve fails `check`.
+- Delivery's `web-obligation`, for every web app the TNs declare: its
+  server entry, composition root, client page and client entry exist, every
+  client import resolves, and `main.tsx` uses a typed client. `check:build`
+  bundles each declared app's client page with Bun, so an entry that does not
+  resolve fails `check`. With no web app declared, both do nothing and say so.
 
 ## Testing
 

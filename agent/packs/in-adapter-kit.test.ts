@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { EXAMPLE_CONTEXT, exampleContracts } from "../testing/example-facts.ts";
-import { depsFunctionHead, importLine, listing, parseFeatureContract, pluralVariable } from "./in-adapter-kit.ts";
+import { EXAMPLE_CONTEXT, exampleContracts } from "./example-suite/example-facts.ts";
+import { depsFunctionHead, importLine, listing, parseFeatureContract, pluralVariable } from "./ts-trpc/scripts/in-adapter-kit.ts";
 
 // The kit is copied into ts-trpc, ts-mcp and ts-lambda because a pack may
 // import only across its declared edges (the file's header says why). Three
 // copies of one file drift, so this test holds them byte-identical.
 describe("the in-adapter kit", () => {
-  const packs = join(import.meta.dirname, "..", "..");
+  const packs = import.meta.dirname;
   const copy = (pack: string): string => readFileSync(join(packs, pack, "scripts", "in-adapter-kit.ts"), "utf8");
 
   test("is one file in three packs", () => {

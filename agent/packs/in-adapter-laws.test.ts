@@ -1,29 +1,28 @@
 // The generated adapter laws, run for real (WI-7 acceptance, TN-26-012 §6).
 //
-// Every in-adapter emitter (tRPC here, MCP and Lambda across their packs'
-// edges) emits into a throwaway copy of the worked example's context — its
+// Every in-adapter emitter (tRPC, MCP and Lambda; this suite sits outside the
+// packs because it spans all three) emits into a throwaway copy of the worked example's context — its
 // real domain and application code — and `bun test` runs the laws there. They
 // must pass against the example, and they must FAIL against an adapter that
 // breaks each law: a law that cannot fail proves nothing.
 //
-// The emitted adapters also type-check under the example's compiler settings
-// (the MCP ones need the MCP SDK, which the harness does not install, so they
-// are covered by the byte-for-byte golden instead).
+// The emitted adapters also type-check under the example's compiler settings,
+// against the pinned tRPC and MCP SDK the harness itself installs.
 //
 // Needs `bun` on PATH; without it the suite logs why and skips.
 
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import type { EmittedFile } from "../ts/pack.ts";
-import { emitLambdaAdapters } from "../ts-lambda/scripts/lambda-emitter.ts";
-import { emitMcpAdapters } from "../ts-mcp/scripts/mcp-emitter.ts";
-import { EXAMPLE_CONTEXT, EXAMPLE_ROOT, exampleContracts, exampleFacts } from "./testing/example-facts.ts";
-import { emitTrpcAdapters } from "./scripts/trpc-emitter.ts";
+import type { EmittedFile } from "./ts/pack.ts";
+import { emitLambdaAdapters } from "./ts-lambda/scripts/lambda-emitter.ts";
+import { emitMcpAdapters } from "./ts-mcp/scripts/mcp-emitter.ts";
+import { EXAMPLE_CONTEXT, EXAMPLE_ROOT, exampleContracts, exampleFacts } from "./example-suite/example-facts.ts";
+import { emitTrpcAdapters } from "./ts-trpc/scripts/trpc-emitter.ts";
 
-const agentModules = join(import.meta.dirname, "..", "..", "node_modules");
+const agentModules = join(import.meta.dirname, "..", "node_modules");
 const bun = spawnSync("bun", ["--version"], { encoding: "utf8" });
 const hasBun = bun.status === 0;
 if (!hasBun) console.warn("in-adapter-laws: skipped — `bun` is not on PATH, so the generated laws cannot run here");
@@ -53,6 +52,8 @@ function fixture(files: readonly EmittedFile[]): string {
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", private: true, type: "module" }));
   mkdirSync(join(dir, "node_modules", "@example"), { recursive: true });
   mkdirSync(join(dir, "node_modules", "@trpc"), { recursive: true });
+  mkdirSync(join(dir, "node_modules", "@modelcontextprotocol"), { recursive: true });
+  symlinkSync(join(agentModules, "@modelcontextprotocol", "sdk"), join(dir, "node_modules", "@modelcontextprotocol", "sdk"), "dir");
   symlinkSync(context, join(dir, "node_modules", "@example", "project-management"), "dir");
   symlinkSync(join(agentModules, "zod"), join(dir, "node_modules", "zod"), "dir");
   symlinkSync(join(agentModules, "@trpc", "server"), join(dir, "node_modules", "@trpc", "server"), "dir");
@@ -114,6 +115,19 @@ describe.skipIf(!hasBun)("the generated adapter laws under bun test", () => {
     expect(status, output).toBe(0);
   }, 60_000);
 
+  test("skip the domain-invalid law visibly, never vacuously, when the domain refuses nothing", () => {
+    // ProjectName that accepts any string: no candidate is domain-invalid.
+    const dir = fixture(emitted());
+    const name = join(dir, EXAMPLE_CONTEXT, "src/domain/projects/project-name.ts");
+    writeFileSync(name, readFileSync(name, "utf8").replace('z.string().trim().min(1, "Project name is required")', "z.string()"));
+    const { status, output } = bunTest(dir);
+    expect(status, output).toBe(0);
+    expect(output).toMatch(/adapter law skipped: CreateProjectCommand\.parse refuses no candidate wire value/);
+    // The tRPC procedure's and the MCP tool's domain-invalid laws are skipped, and counted as such.
+    expect(output).toMatch(/\b2 skip\b/);
+    expect(output).toMatch(/\b0 fail\b/);
+  }, 60_000);
+
   test("fail against adapters that break each law", () => {
     let files = emitted();
     // tRPC: invalid input reaches the in port.
@@ -137,9 +151,9 @@ describe.skipIf(!hasBun)("the generated adapter laws under bun test", () => {
   }, 60_000);
 });
 
-describe("the emitted tRPC and Lambda adapters type-check", () => {
+describe("the emitted tRPC, MCP and Lambda adapters type-check", () => {
   test("under the example's compiler settings", () => {
-    const files = emitted().filter((f) => !f.path.endsWith(".laws.test.ts") && !f.path.includes("/in/mcp/"));
+    const files = emitted().filter((f) => !f.path.endsWith(".laws.test.ts"));
     const dir = fixture(files);
     writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({
       compilerOptions: {

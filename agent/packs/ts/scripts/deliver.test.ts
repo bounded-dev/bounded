@@ -880,17 +880,25 @@ describe("blessed stack pins", () => {
 // --- step 10: the checks other packs contribute (ADR 2026-033) ---------------
 //
 // The socket is read through the real composition, so these tests exercise the
-// wiring end to end: ts-trpc's and ts-web's delivery obligations are keyed on
-// the tree — a project that composed them must carry a generated tRPC adapter
-// and a whole web app, and one missing a piece stops the handover.
+// wiring end to end: ts-trpc's obligation is keyed on the tree (a generated
+// tRPC adapter), ts-web's on the web apps the design declares (TN workspaces),
+// and one missing a piece stops the handover.
 
-/** A composed web project's tree: the generated tRPC barrel and the web app's door. */
+const WEB_MAIN =
+  'import { createTRPCClient, httpBatchLink } from "@trpc/client";\n' +
+  'import type { OrdersRouter } from "@example/orders/adapters/trpc";\n' +
+  'const api = createTRPCClient<OrdersRouter>({ links: [httpBatchLink({ url: "/trpc" })] });\n' +
+  "api.orders.list.query().then(console.log);\n";
+
+/** A composed web project's tree: the TN declaring the web app, the generated
+ *  tRPC barrel, and the web app's door with a typed client it uses. */
 function webFiles(): Record<string, string> {
   return {
     ".bounded/composed-packs.json": '["ts", "ts-hexagonal", "ts-trpc", "ts-web"]',
+    "docs/tn/TN-7.md": "---\nworkspaces:\n  apps/web: web\n---\n",
     "contexts/orders/src/adapters/in/trpc/index.ts": "export {};\n",
-    "apps/web/src/client/index.html": "<!doctype html>\n",
-    "apps/web/src/client/main.tsx": "export {};\n",
+    "apps/web/src/client/index.html": '<script type="module" src="./main.tsx"></script>\n',
+    "apps/web/src/client/main.tsx": WEB_MAIN,
     "apps/web/src/server/main.ts": "export {};\n",
     "apps/web/src/server/composition-root.ts": "export {};\n",
   };
@@ -921,6 +929,33 @@ describe("runDeliver: pack-contributed checks", () => {
     expect(r.lines.join("\n")).toContain("deliver: BLOCK — web-obligation:");
     expect(r.lines.join("\n")).toContain("apps/web/src/client/main.tsx");
     expect(readGuardLog(dir).some((e) => e.verdict === "block")).toBe(true);
+  });
+
+  // Dogfood Run 29: green and delivered, but the client imported a module
+  // nobody wrote. The web obligation resolves the client's imports statically.
+  test("a web client whose bootstrap does not build is BLOCKED (Run 29)", () => {
+    const dir = proj({ ...webFiles(), "apps/web/src/client/main.tsx": `import { App } from "./app.tsx";\n${WEB_MAIN}console.log(App);\n` });
+    const r = deliver(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("deliver: BLOCK — web-obligation:");
+    expect(r.lines.join("\n")).toContain('apps/web/src/client/main.tsx: "./app.tsx" does not resolve');
+  });
+
+  test("ts-web composed with no web app declared delivers, and says it checked nothing", () => {
+    const dir = proj({ ".bounded/composed-packs.json": '["ts", "ts-hexagonal", "ts-trpc", "ts-web"]',
+      "contexts/orders/src/adapters/in/trpc/index.ts": "export {};\n" });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.join("\n")).toContain("no web app is declared (TN workspaces) — nothing to check");
+  });
+
+  test("a desktop-only project meets no web obligation", () => {
+    const dir = proj({ ".bounded/composed-packs.json": '["ts", "ts-hexagonal", "ts-trpc", "ts-desktop"]',
+      "docs/tn/TN-7.md": "---\nworkspaces:\n  apps/desktop: desktop\n---\n",
+      "contexts/orders/src/adapters/in/trpc/index.ts": "export {};\n" });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.join("\n")).not.toContain("web-obligation");
   });
 
   // It runs AFTER the project's own check, so a red repo never reaches it —

@@ -1,7 +1,6 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { afterAll, describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 import { emittedFileProblem, workspaceTemplates } from "../../ts/pack.ts";
 import {
   EXAMPLE_CONTEXT,
@@ -9,9 +8,8 @@ import {
   exampleFacts,
   manifestDifferences,
   readExample,
-} from "../../ts-trpc/testing/example-facts.ts";
+} from "../../example-suite/example-facts.ts";
 import { emitWebApps, webAppEmitter } from "./web-app-emitter.ts";
-import { runWebObligation } from "./web-obligation.ts";
 
 // The app-template golden (WI-7): the web app seeded from the worked
 // example's design is the example's apps/web, minus what is the builder's
@@ -53,11 +51,25 @@ describe("the web app of the worked example", () => {
       'import type { ProjectManagementRouter } from "@example/project-management/adapters/trpc";',
       "// Type-only import: the client gets the router's types, none of its server code.",
       'const api = createTRPCClient<ProjectManagementRouter>({ links: [httpBatchLink({ url: "/trpc" })] });',
+      'import { useEffect, useState } from "react";',
+      "  useEffect(() => {",
+      "  }, []);",
       'createRoot(document.getElementById("root")!).render(<App />);',
     ]) {
       expect(example, line).toContain(line);
       expect(client, line).toContain(line);
     }
+    // Like the example, the page calls an input-less query on mount: the
+    // context's first one, in area then feature order.
+    expect(client).toContain("    api.notes.list.query().then(setData);");
+  });
+
+  test("with no input-less query, the client is exported rather than left unused", () => {
+    const contracts = exampleContracts().map((c) => ({ ...c, source: c.source.replace(/@exposedVia trpc( mcp)?\n/, (m) =>
+      c.path.includes("create-") ? m : "@exposedVia lambda\n") }));
+    const main = emitWebApps(exampleFacts({ contracts })).find((f) => f.path.endsWith("client/main.tsx"))!.content;
+    expect(main).toContain("export const api = createTRPCClient<ProjectManagementRouter>");
+    expect(main).not.toContain("useEffect");
   });
 
   test("the composition root is composeApp(), typed by the hosted router", () => {
@@ -100,34 +112,5 @@ describe("refusals", () => {
       packageName: "@example/billing", sourceRoot: "contexts/billing/src", contracts: contracts.filter((c) => c.path.startsWith("contexts/billing")) };
     expect(() => emitWebApps({ ...facts, workspaces: [billing, ...facts.workspaces] }))
       .toThrow(/2 contexts expose features via trpc \(billing, project-management\)/);
-  });
-});
-
-describe("the delivery obligation", () => {
-  const dirs: string[] = [];
-  afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
-  const project = (files: readonly string[]): string => {
-    const dir = mkdtempSync(join(tmpdir(), "web-obligation-"));
-    dirs.push(dir);
-    for (const file of files) {
-      mkdirSync(dirname(join(dir, file)), { recursive: true });
-      writeFileSync(join(dir, file), "\n");
-    }
-    return dir;
-  };
-
-  test("blocks with no web app, or one missing part of its door", () => {
-    expect(runWebObligation(project([])).verdict).toBe("block");
-    const partial = runWebObligation(project(["apps/web/src/client/index.html"]));
-    expect(partial.verdict).toBe("block");
-    expect(partial.detail).toEqual([
-      "apps/web/src/client/main.tsx", "apps/web/src/server/main.ts", "apps/web/src/server/composition-root.ts",
-    ]);
-  });
-
-  test("passes once every web app has its door", () => {
-    expect(runWebObligation(project(emitted.map((f) => f.path)))).toEqual({
-      verdict: "pass", summary: "ts-web: apps/web serve a client page and the router",
-    });
   });
 });

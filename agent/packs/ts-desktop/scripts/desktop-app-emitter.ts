@@ -8,16 +8,35 @@
 //   src/renderer/main.tsx          its React root
 //
 // A desktop app hosts exactly one context's router, called in-process through
-// `createCaller` — no server, no port. The main process is bundled for Node,
-// so `no-bun-api` (ts-lambda) would apply if composed; this pack does not
-// depend on it, so the manifest's `--target node` is the whole contract.
+// `createCaller` — no server, no port — and logs the context's first
+// input-less query at start, as the worked example's main process does. The
+// main process is bundled for Node, so ts-lambda's `no-bun-api` holds there
+// whenever that pack is composed.
 
 import type { EmittedFile, Emitter, ProjectFacts } from "../../ts/pack.ts";
-import { hostedTrpcContext, routerCompositionRoot } from "../../ts-web/scripts/web-app-emitter.ts";
+import { firstInputlessQuery, hostedTrpcContext, routerCompositionRoot } from "../../ts-trpc/scripts/router-host.ts";
 
 export const DESKTOP_KIND = "desktop";
 
 const skeleton = (path: string, lines: readonly string[]): EmittedFile => ({ path, content: `${lines.join("\n")}\n`, mode: "skeleton" });
+
+/** The main process: the router in-process, used once, and one window. */
+function mainProcess(query: string | undefined): string[] {
+  return [
+    'import { app, BrowserWindow } from "electron";',
+    'import path from "node:path";',
+    'import { composeApp } from "./composition-root.ts";',
+    "",
+    "// The main process calls the context's API in-process: no server, no port.",
+    `${query === undefined ? "export " : ""}const api = composeApp().createCaller({});`,
+    "",
+    "app.whenReady().then(async () => {",
+    ...(query === undefined ? [] : [`  console.log(await api.${query}());`, ""]),
+    "  const window = new BrowserWindow({ width: 1000, height: 700 });",
+    '  window.loadFile(path.join(__dirname, "../renderer/index.html"));',
+    "});",
+  ];
+}
 
 export function emitDesktopApps(facts: ProjectFacts): EmittedFile[] {
   const out: EmittedFile[] = [];
@@ -26,19 +45,7 @@ export function emitDesktopApps(facts: ProjectFacts): EmittedFile[] {
     const src = app.sourceRoot;
     out.push(
       routerCompositionRoot(`${src}/main/composition-root.ts`, facts.scope, context),
-      skeleton(`${src}/main/main.ts`, [
-        'import { app, BrowserWindow } from "electron";',
-        'import path from "node:path";',
-        'import { composeApp } from "./composition-root.ts";',
-        "",
-        "// The main process calls the context's API in-process: no server, no port.",
-        "const api = composeApp().createCaller({});",
-        "",
-        "app.whenReady().then(async () => {",
-        "  const window = new BrowserWindow({ width: 1000, height: 700 });",
-        '  window.loadFile(path.join(__dirname, "../renderer/index.html"));',
-        "});",
-      ]),
+      skeleton(`${src}/main/main.ts`, mainProcess(firstInputlessQuery(facts, context))),
       skeleton(`${src}/renderer/index.html`, [
         "<!doctype html>",
         "<html>",

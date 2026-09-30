@@ -23,7 +23,7 @@ describe("the harness's own composition", () => {
 
   test("composes ts before every pack that declares the edge to it", () => {
     expect(installedPacks().packs).toEqual([
-      TS_PACK, "ts-hexagonal", "ts-trpc", TS_WEB_PACK, "ts-desktop", TS_DRIZZLE_POSTGRES_PACK, "ts-lambda", "ts-mcp",
+      TS_PACK, "ts-hexagonal", "ts-trpc", "ts-desktop", TS_DRIZZLE_POSTGRES_PACK, "ts-lambda", "ts-mcp", TS_WEB_PACK,
     ]);
   });
 
@@ -123,7 +123,10 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
     expect(emitters([...base, "ts-mcp"])).toEqual(["mcp-in-adapter", "mcp-app"]);
     expect(emitters([...base, "ts-lambda"])).toEqual(["lambda-in-adapter", "lambda-app"]);
     expect(emitters([...base, "ts-trpc", TS_WEB_PACK])).toEqual(["trpc-in-adapter", "web-app"]);
-    expect(emitters([...base, "ts-trpc", TS_WEB_PACK, "ts-desktop"])).toEqual(["trpc-in-adapter", "web-app", "desktop-app"]);
+    // A desktop app hosts the router without being a web app: no web pack, no web obligation.
+    expect(emitters([...base, "ts-trpc", "ts-desktop"])).toEqual(["trpc-in-adapter", "desktop-app"]);
+    expect(composePacks(INSTALLED_PACKS, [...base, "ts-trpc", "ts-desktop"]).read(deliverChecks).map((c) => c.name))
+      .toEqual(["trpc-obligation"]);
     expect(() => composePacks(INSTALLED_PACKS, [...base, "ts-desktop"])).toThrow(/depends on pack 'ts-trpc'/);
   });
 

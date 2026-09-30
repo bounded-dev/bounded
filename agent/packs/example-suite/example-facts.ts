@@ -1,4 +1,6 @@
-// Test support shared by the in-adapter and app packs' suites: the worked
+// Test support shared by the in-adapter and app packs' suites, kept outside
+// every pack so no pack's tests reach across an undeclared edge and no
+// shipped pack code imports it: the worked
 // example (reference/example, a copy of its project-management context and its
 // four apps, with the TN-26-012 §4 tags added to the feature contracts) as the
 // `ProjectFacts` a gate would hand the emitters.
@@ -9,9 +11,9 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { adapterTechnologies, workspaceTemplates, type ContractSource, type ProjectFacts, type WorkspaceFacts } from "../../ts/pack.ts";
+import { adapterTechnologies, workspaceTemplates, type ContractSource, type ProjectFacts, type WorkspaceFacts } from "../ts/pack.ts";
 
-export const EXAMPLE_ROOT = join(import.meta.dirname, "..", "reference", "example");
+export const EXAMPLE_ROOT = join(import.meta.dirname, "reference", "example");
 export const EXAMPLE_CONTEXT = "contexts/project-management";
 
 /** Every file under a directory of the example, as project-relative paths, sorted. */
@@ -60,7 +62,7 @@ export function exampleFacts(overrides: { contracts?: ContractSource[]; packs?: 
     scope: "@example",
     phase: "design",
     packs,
-    workspaces: [...apps, context].sort((a, b) => a.dir.localeCompare(b.dir)),
+    workspaces: [...apps, context].sort((a, b) => (a.dir < b.dir ? -1 : 1)),
     adapterTechnologies: adapterTechnologies(packs),
     workspaceTemplates: workspaceTemplates(packs),
   };

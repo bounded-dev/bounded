@@ -8,7 +8,7 @@ import {
   exampleFiles,
   readExample,
   withoutComments,
-} from "../../ts-trpc/testing/example-facts.ts";
+} from "../../example-suite/example-facts.ts";
 import { emitLambdaAdapters, lambdaAdapterEmitter } from "./lambda-emitter.ts";
 
 // The golden (TN-26-012 §6, WI-7): the worked example's feature contracts,

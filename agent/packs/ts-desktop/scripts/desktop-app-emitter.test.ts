@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { workspaceTemplates } from "../../ts/pack.ts";
-import { exampleFacts, manifestDifferences, readExample } from "../../ts-trpc/testing/example-facts.ts";
+import { exampleFacts, manifestDifferences, readExample } from "../../example-suite/example-facts.ts";
 import { emitDesktopApps } from "./desktop-app-emitter.ts";
 
 // The app-template golden (WI-7): the desktop app seeded from the worked
