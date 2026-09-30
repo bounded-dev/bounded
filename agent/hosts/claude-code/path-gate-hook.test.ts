@@ -1,11 +1,22 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
 import { HOST_ENV } from "../../src/host.ts";
-import { errorOpenRead } from "./path-gate-hook.ts";
+import { errorOpenRead, runHook } from "./path-gate-hook.ts";
 import { makeTempProject as makeProject, type TempProject } from "../../test/support/temp-project.ts";
+
+// In-process runs (`runHere`) see the layout the composed packs will
+// contribute (ADRs 2026-056…058), overlaid until an installed pack does — see
+// src/hexagonal-layout.test-support.ts. Spawned runs (`run`) see the real
+// composition, which declares no source root yet.
+vi.mock("../../src/pack-contrib.ts", async (importOriginal) => {
+  const { withHexagonalLayout } = await import("../../src/hexagonal-layout.test-support.ts");
+  return withHexagonalLayout(await importOriginal());
+});
+
+const C = "contexts/m/src";
 
 // ADR 2026-034: the adapter is verified by fixture until the first live run.
 // Each case spawns the hook exactly as Claude Code would — a fresh process,
@@ -67,6 +78,28 @@ function run(dir: string, stdin: string, flags: readonly string[] = []): Run {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr, decision, reason, ...(updatedInput !== undefined ? { updatedInput } : {}) };
 }
 
+/** The hook's own entry, in this process, read back exactly as `run` reads a
+ *  spawned hook's output. */
+function runHere(dir: string, stdin: string, flags: readonly string[] = []): Run {
+  vi.stubEnv("BOUNDED_GUARD_LOG", undefined);
+  vi.stubEnv("BOUNDED_DEV_STAGE_ROLE", undefined);
+  try {
+    const out = runHook(flags, stdin, dir);
+    let decision: Run["decision"] = "allow";
+    let reason = "";
+    if (out.stdout.trim() !== "") {
+      const parsed = (JSON.parse(out.stdout) as HookOutput).hookSpecificOutput;
+      if (parsed.permissionDecision === "deny") {
+        decision = "deny";
+        reason = parsed.permissionDecisionReason ?? "";
+      }
+    }
+    return { status: 0, stdout: out.stdout, stderr: out.stderr, decision, reason };
+  } finally {
+    vi.unstubAllEnvs();
+  }
+}
+
 function payload(dir: string, tool_name: string, tool_input: unknown, extra: Readonly<Record<string, unknown>> = {}): string {
   return JSON.stringify({
     session_id: "s1",
@@ -89,35 +122,50 @@ function gateEvents(dir: string) {
 }
 
 describe("path-gate-hook — the path gate, by role file", () => {
-  test("test-writer reading src/x.ts → deny JSON, exit 0, and a path-gate block in the log", () => {
-    const dir = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n" });
-    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.ts") }));
-    expect(r.status).toBe(0);
+  test("test-writer reading an implementation file → deny JSON and a path-gate block in the log", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n", [`${C}/x.ts`]: "" });
+    const r = runHere(dir, payload(dir, "Read", { file_path: join(dir, `${C}/x.ts`) }));
     expect(r.decision).toBe("deny");
-    expect(r.reason).toBe("path-gate: test-writer may not read 'src/x.ts': denied zone 'src/**'");
+    expect(r.reason).toBe(`path-gate: test-writer may not read '${C}/x.ts': it is an implementation file — the test-writer may list implementation names but reads only contracts, generated files and tests`);
     expect(r.stderr).toBe("");
     const log = gateEvents(dir);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ guard: "path-gate", verdict: "block", detail: { role: "test-writer", tool: "read" } });
   });
 
-  test("test-writer reading src/x.contract.ts → allow, no output, no log", () => {
+  test("test-writer reading a contract → allow, no output, no log", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n" });
-    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.contract.ts") }));
-    expect(r.status).toBe(0);
+    const r = runHere(dir, payload(dir, "Read", { file_path: join(dir, `${C}/x.contract.ts`) }));
     expect(r.decision).toBe("allow");
     expect(r.stdout).toBe("");
     expect(gateEvents(dir)).toEqual([]);
   });
 
-  test("builder reading tests/a.test.ts → deny", () => {
-    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
-    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
+  test("builder reading a colocated test → deny", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n", [`${C}/a.test.ts`]: "" });
+    const r = runHere(dir, payload(dir, "Read", { file_path: join(dir, `${C}/a.test.ts`) }));
     expect(r.decision).toBe("deny");
-    expect(r.reason).toBe("path-gate: builder may not read 'tests/a.test.ts': denied zone 'tests/**'");
+    expect(r.reason).toContain("it is a test file (name ends with '.test.ts')");
   });
 
-  test("builder Grep without a path searches the project root, which overlaps tests/ → deny", () => {
+  test("builder may Glob test names, and may not Grep their content", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n", [`${C}/a.test.ts`]: "", [`${C}/a.ts`]: "" });
+    expect(runHere(dir, payload(dir, "Glob", { pattern: "**/*.test.ts", path: join(dir, C) })).decision).toBe("allow");
+    const grep = runHere(dir, payload(dir, "Grep", { pattern: "TODO", path: join(dir, C) }));
+    expect(grep.decision).toBe("deny");
+    expect(grep.reason).toContain("can reach test files");
+    // The glob reaches the gate: a provable one is allowed, '*.ts' is not.
+    expect(runHere(dir, payload(dir, "Grep", { pattern: "TODO", path: join(dir, C), glob: "*.handler.ts" })).decision).toBe("allow");
+    expect(runHere(dir, payload(dir, "Grep", { pattern: "TODO", path: join(dir, C), glob: "*.ts" })).decision).toBe("deny");
+    expect(runHere(dir, payload(dir, "Grep", { pattern: "TODO", path: join(dir, `${C}/a.test.ts`), glob: "*.handler.ts" })).decision).toBe("deny");
+  });
+
+  test("a Glob pattern that climbs out of the searched directory is refused", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    expect(runHere(dir, payload(dir, "Glob", { pattern: "../**/*.ts", path: join(dir, C) })).decision).toBe("deny");
+  });
+
+  test("builder Grep without a path searches the project root → deny", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Grep", { pattern: "TODO" }));
     expect(r.decision).toBe("deny");
@@ -126,12 +174,19 @@ describe("path-gate-hook — the path gate, by role file", () => {
 
   test("MultiEdit is denied if any path is denied", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
-    const r = run(
+    const r = runHere(
       dir,
-      payload(dir, "MultiEdit", { file_path: join(dir, "src/a.ts"), edits: [{ file_path: join(dir, "src/a.contract.ts") }] }),
+      payload(dir, "MultiEdit", { file_path: join(dir, `${C}/a.ts`), edits: [{ file_path: join(dir, `${C}/a.contract.ts`) }] }),
     );
     expect(r.decision).toBe("deny");
-    expect(r.reason).toContain("may not write 'src/a.contract.ts'");
+    expect(r.reason).toContain(`may not write '${C}/a.contract.ts'`);
+  });
+
+  test("with no source root composed, no role writes source (spawned, real composition)", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Write", { file_path: join(dir, `${C}/a.ts`), content: "x" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("no composed pack declares a source root");
   });
 });
 
@@ -194,10 +249,18 @@ describe("path-gate-hook — Bash, by role", () => {
       expect(r.decision).toBe("allow");
       expect(r.stdout).toBe("");
     }
-    const t = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n", "tests/a.test.ts": "" });
-    const r = run(t, payload(t, "Bash", { command: "rm tests/a.test.ts" }));
-    expect(r.decision).toBe("allow");
-    expect(r.stdout).toBe("");
+  });
+
+  // rm is judged by decide() with the context the hook builds for the bash
+  // policy. That context carries no layout yet (source roots, test suffixes,
+  // generated globs), so every rm fails closed until the hook builds it with
+  // pathGateCtx (src/path-gate.ts). This pins the closed side; the open side
+  // is bash-policy.test.ts's table.
+  test("an rm is refused, never guessed, while the hook passes no layout", () => {
+    const t = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n", [`${C}/a.test.ts`]: "" });
+    const r = runHere(t, payload(t, "Bash", { command: `rm ${C}/a.test.ts` }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("the project composition is unreadable");
   });
 
   test("a Bash call with no command string is refused, not crashed on", () => {
@@ -218,7 +281,7 @@ describe("path-gate-hook — the phase gate on Agent", () => {
     expect(block).toMatchObject({ verdict: "block", detail: { kind: "spawn-refused", role: "architect", target: "builder" } });
   });
 
-  test("contract evidence is searched under src/ only: a contract-named file elsewhere is not a contract", () => {
+  test("contract evidence is searched under the source roots only: with none composed, nothing is a contract", () => {
     const dir = makeTempProject({
       "node_modules/pkg/x.contract.ts": "export {};\n",
       "lib/y.contract.ts": "export {};\n",
@@ -275,8 +338,9 @@ describe("path-gate-hook — role source", () => {
   test("--role beats the role file", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     // As builder this read is denied; as the bound test-writer it is its own zone.
-    expect(run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }), ["--role", "test-writer"]).decision).toBe("allow");
-    expect(run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.ts") }), ["--role", "test-writer"]).decision).toBe("deny");
+    expect(runHere(dir, payload(dir, "Read", { file_path: join(dir, `${C}/a.test.ts`) }), ["--role", "test-writer"]).decision).toBe("allow");
+    expect(runHere(dir, payload(dir, "Read", { file_path: join(dir, `${C}/x.ts`) }), ["--role", "test-writer"]).decision).toBe("deny");
+    expect(runHere(dir, payload(dir, "Read", { file_path: join(dir, `${C}/a.test.ts`) })).decision).toBe("deny");
   });
 
   test("no role anywhere → inactive: allow, no log", () => {

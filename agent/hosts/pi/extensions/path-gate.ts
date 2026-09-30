@@ -311,6 +311,9 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     // host line, so this is one small read per call and a write on change.
     if (evaluating) recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
 
+    // Passed on whole: a content search is judged on its `glob` and a find on
+    // its `pattern` as well as its path (ADR 2026-057), so the gate must see
+    // exactly the fields pi's grep and find will run with.
     const input = event.input as Readonly<Record<string, unknown>>;
     const ev = {
       role,

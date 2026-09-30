@@ -2,8 +2,9 @@
 // constraints per host).
 //
 // The path gate's pure core, decide() in src/path-policy.ts, speaks pi's tool
-// names — `read grep find ls write edit remove subagent bash` — and reads one
-// field, `input.path`. Claude Code's PreToolUse hook speaks its own: `Read
+// names — `read grep find ls write edit remove subagent bash` — and reads
+// `input.path`, plus a search's file filter (`glob` for grep, `pattern` for
+// find). Claude Code's PreToolUse hook speaks its own: `Read
 // {file_path}`, `Glob {pattern, path?}`, `Agent {subagent_type, prompt}`. This
 // module is the whole translation, in one place, so the hook stays thin
 // wiring over the same decision the pi extension makes and the two hosts
@@ -55,6 +56,13 @@ function one(toolName: string, path: unknown): readonly GateCall[] {
   return [{ toolName, input: path === undefined ? {} : { path } }];
 }
 
+/** One pi search call, carrying its file filter under pi's field name when the
+ *  Claude Code call gave one (a non-string is passed as-is for decide() to
+ *  refuse, never silently dropped). */
+function withFilter(toolName: string, path: string, field: "glob" | "pattern", filter: unknown): readonly GateCall[] {
+  return [{ toolName, input: filter === undefined ? { path } : { path, [field]: filter } }];
+}
+
 /**
  * Translate one Claude Code tool call into the pi calls the gate judges.
  *
@@ -78,10 +86,15 @@ export function mapToolCall(call: ClaudeToolCall, cwd: string): readonly GateCal
     // directory listing of a blind zone leaks exactly what `ls` would in pi.
     case "LS":
       return one("ls", input["path"]);
+    // The file filter rides along (ADR 2026-057): a blind role's content
+    // search over a directory is judged on whether its `glob` provably keeps
+    // it off the other side, and a find pattern must stay inside the searched
+    // directory — so dropping either would judge a different call than the
+    // one that runs. pi's own grep and find take the same field names.
     case "Glob":
-      return one("find", str(input["path"]) ?? cwd);
+      return withFilter("find", str(input["path"]) ?? cwd, "pattern", input["pattern"]);
     case "Grep":
-      return one("grep", str(input["path"]) ?? cwd);
+      return withFilter("grep", str(input["path"]) ?? cwd, "glob", input["glob"]);
     // `Task` is the tool's pre-rename name; hook payloads may still carry it.
     case "Agent":
     case "Task":
