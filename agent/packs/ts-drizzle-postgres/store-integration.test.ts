@@ -17,8 +17,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { probeContainerRuntime, storeTestDecision, type ContainerRuntimeProbe } from "./scripts/container-runtime.ts";
-import { emitDrizzlePersistence, STORE_TESTS_SKIP_ENV } from "./scripts/emit.ts";
+import { probeContainerRuntime, STORE_TEST_ENV, storeTestDecision, storeTestEnv, type ContainerRuntimeProbe } from "./scripts/container-runtime.ts";
+import { emitDrizzlePersistence, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./scripts/emit.ts";
 import { generateMigrations } from "./scripts/generate-migrations.ts";
 import { APPLICATION_CONTRACTS, contextWorkspace, DOMAIN_CONTRACTS, EXAMPLE_SCHEMA, exampleFacts, RESULT_SOURCE, SOURCE_ROOT } from "./testdata/example-project.ts";
 
@@ -192,10 +192,11 @@ beforeAll(() => {
   generateMigrations(dir);
 }, 60_000);
 
+/** Run the store tests with exactly `env` (plus PATH/HOME for bun and Docker). */
 function bunTest(env: NodeJS.ProcessEnv): { status: number | null; output: string } {
-  const clean = { ...process.env, ...env };
-  if (!(STORE_TESTS_SKIP_ENV in env)) delete clean[STORE_TESTS_SKIP_ENV];
-  const run = spawnSync("bun", ["test", "./contexts"], { cwd: dir, env: clean, encoding: "utf8", timeout: 280_000 });
+  const base: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of STORE_TEST_ENV) delete base[name];
+  const run = spawnSync("bun", ["test", "./contexts"], { cwd: dir, env: { ...base, ...env }, encoding: "utf8", timeout: 280_000 });
   return { status: run.status, output: `${run.stdout}\n${run.stderr}` };
 }
 
@@ -203,13 +204,33 @@ describe("the generated store-test support under bun test", () => {
   test.skipIf(bun !== undefined)("red's skip: every store test skips with the reason logged, and the run passes without Docker", () => {
     const decision = storeTestDecision("red", ["x.store.test.ts"], { available: false, reason: "no container runtime found" });
     if (decision.action !== "skip") throw new Error("expected a skip decision");
-    const run = bunTest(decision.env);
+    const run = bunTest(storeTestEnv({}, decision));
     expect(run.output).toContain(`store tests skipped: DrizzleListProjectsStore: ${decision.reason}`);
     expect(run.output).toMatch(/\b0 pass\b/);
     expect(run.output).toMatch(/\b2 skip\b/);
     expect(run.output).toMatch(/\b0 fail\b/);
     expect(run.status, run.output).toBe(0);
   }, 120_000);
+
+  test.skipIf(bun !== undefined)("a leaked skip variable without the red token fails the store tests, with or without Docker", () => {
+    const run = bunTest({ [STORE_TESTS_SKIP_ENV]: "left over from an earlier red run" });
+    expect(run.status, run.output).not.toBe(0);
+    expect(run.output).toMatch(/\b0 pass\b/);
+    expect(run.output).toMatch(/\b1 fail\b/);
+    expect(run.output).not.toContain("store tests skipped");
+    expect(run.output).toContain("BOUNDED_STORE_TESTS_SKIP is set without BOUNDED_STORE_TESTS_PHASE=red");
+  }, 120_000);
+
+  test.skipIf(bun !== undefined)("green's environment, built from its decision, drops a leaked skip and red token: no silent pass", () => {
+    const leaked = { [STORE_TESTS_SKIP_ENV]: "stale", [STORE_TESTS_PHASE_ENV]: RED_PHASE_TOKEN };
+    const decision = storeTestDecision("green", ["x.store.test.ts"], runtime);
+    const env = storeTestEnv(leaked, decision);
+    expect(env).toEqual({});
+    if (decision.action === "refuse") return; // green never runs: nothing can pass
+    const run = bunTest(env);
+    expect(run.output).not.toContain("store tests skipped");
+    expect(run.output).toMatch(/\b2 pass\b/);
+  }, 300_000);
 
   test.skipIf(bun !== undefined || runtime.available)("without a container runtime and no skip, the store tests fail, never pass", () => {
     const run = bunTest({});

@@ -29,8 +29,12 @@ export const CONTEXT_KIND = "context";
  *  exactly, and the same in docker-compose.yml (pack.test.ts checks it). */
 export const POSTGRES_IMAGE = "postgres:17.6";
 /** Set by the red gate, to the reason, when no container runtime is available
- *  (ADR 2026-064); the generated test support then skips every store test. */
+ *  (ADR 2026-064). The generated test support skips every store test only
+ *  when STORE_TESTS_PHASE_ENV is also RED_PHASE_TOKEN, and fails otherwise. */
 export const STORE_TESTS_SKIP_ENV = "BOUNDED_STORE_TESTS_SKIP";
+/** The red gate's token, set only in the test child's environment. */
+export const STORE_TESTS_PHASE_ENV = "BOUNDED_STORE_TESTS_PHASE";
+export const RED_PHASE_TOKEN = "red";
 /** Drizzle's own schema, where every context keeps its migrations table. */
 export const MIGRATIONS_SCHEMA = "drizzle";
 
@@ -128,16 +132,18 @@ export function testDatabaseSource(context: string): string {
 // store test runs, so the other test levels never need a container runtime.
 //
 // Without a container runtime, the harness's red gate sets
-// ${STORE_TESTS_SKIP_ENV} to the reason, and every store test is skipped with
-// that reason logged. The green gate never sets it: there a missing runtime
-// refuses the run instead of skipping.
+// ${STORE_TESTS_SKIP_ENV} to the reason and ${STORE_TESTS_PHASE_ENV}=${RED_PHASE_TOKEN}, and
+// every store test is skipped with that reason logged. The skip variable
+// alone, without the red token, fails every store block instead: a leftover
+// can never turn a green run into a pass. The green gate removes both and
+// refuses the run when no runtime answers.
 //
 // Usage, in adapters/out/drizzle/<area>/<feature>.store.test.ts:
 //
 //   describeDrizzleStore("${DRIZZLE_PREFIX}CreateThingStore", (db) => {
 //     test("...", async () => { const store = new ${DRIZZLE_PREFIX}CreateThingStore(db()); ... });
 //   });
-import { beforeAll, beforeEach, describe } from "bun:test";
+import { beforeAll, beforeEach, describe, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import type { Pool } from "pg";
 import type { ${DRIZZLE_PREFIX}Database } from "./${DRIZZLE}-database.ts";
@@ -187,11 +193,24 @@ async function emptyTables(pool: Pool): Promise<void> {
  */
 export function describeDrizzleStore(name: string, body: (db: () => ${DRIZZLE_PREFIX}Database) => void): void {
   const skip = (process.env["${STORE_TESTS_SKIP_ENV}"] ?? "").trim();
-  if (skip !== "") {
+  const phase = (process.env["${STORE_TESTS_PHASE_ENV}"] ?? "").trim();
+  if (skip !== "" && phase === "${RED_PHASE_TOKEN}") {
     console.warn(\`store tests skipped: \${name}: \${skip}\`);
     describe.skip(name, () => body(() => {
       throw new Error(\`\${name} is skipped: \${skip}\`);
     }));
+    return;
+  }
+  if (skip !== "") {
+    // A skip without the red gate's token is a leftover: fail, never skip.
+    describe(name, () => {
+      test("store tests refuse a skip the red gate did not set", () => {
+        throw new Error(
+          \`${STORE_TESTS_SKIP_ENV} is set without ${STORE_TESTS_PHASE_ENV}=${RED_PHASE_TOKEN}; only the red gate may skip \` +
+            "store tests (ADR 2026-064). Unset it and run the tests with a container runtime.",
+        );
+      });
+    });
     return;
   }
   describe(name, () => {

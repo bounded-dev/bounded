@@ -15,21 +15,28 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DRIZZLE, STORE_TESTS_SKIP_ENV } from "./emit.ts";
+import { DRIZZLE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
 import { CONTEXTS_DIR } from "./check-db.ts";
 
 export type ContainerRuntimeProbe =
   | { readonly available: true; readonly endpoint: string }
   | { readonly available: false; readonly reason: string };
 
+/** Every variable the store-test support reads; a run that must not skip
+ *  removes them all from the test child's environment. */
+export const STORE_TEST_ENV: readonly string[] = Object.freeze([STORE_TESTS_SKIP_ENV, STORE_TESTS_PHASE_ENV]);
+
 export type StoreTestDecision =
-  /** Run the suite as it is. */
-  | { readonly action: "run" }
-  /** Red only: run the suite with `env` added; the store tests skip themselves
-   *  and log `reason`. The gate logs `reason` too. */
+  /** Run the suite with every `unsetEnv` name removed from the child's
+   *  environment, so a leftover skip variable cannot skip anything. */
+  | { readonly action: "run"; readonly unsetEnv: readonly string[] }
+  /** Red only: run the suite with `env` (the skip reason and the red token)
+   *  set in the child's environment; the store tests skip themselves and log
+   *  `reason`. The gate logs `reason` too. */
   | { readonly action: "skip"; readonly reason: string; readonly env: Readonly<Record<string, string>> }
-  /** Green only: do not run the suite; block with `reason`. */
-  | { readonly action: "refuse"; readonly reason: string };
+  /** Green only: do not run the suite; block with `reason`. Any later run
+   *  removes `unsetEnv` from the child's environment. */
+  | { readonly action: "refuse"; readonly reason: string; readonly unsetEnv: readonly string[] };
 
 export const PROBE_TIMEOUT_MS = 3_000;
 
@@ -144,15 +151,29 @@ export function drizzleStoreTests(root: string): string[] {
 export function storeTestDecision(
   phase: "red" | "green", storeTests: readonly string[], probe: ContainerRuntimeProbe,
 ): StoreTestDecision {
-  if (storeTests.length === 0 || probe.available) return { action: "run" };
+  if (storeTests.length === 0 || probe.available) return { action: "run", unsetEnv: STORE_TEST_ENV };
   if (phase === "red") {
     const reason = `${storeTests.length} Drizzle store test file(s) skipped at red: ${probe.reason}`;
-    return { action: "skip", reason, env: { [STORE_TESTS_SKIP_ENV]: reason } };
+    return { action: "skip", reason, env: { [STORE_TESTS_SKIP_ENV]: reason, [STORE_TESTS_PHASE_ENV]: RED_PHASE_TOKEN } };
   }
   return {
     action: "refuse",
+    unsetEnv: STORE_TEST_ENV,
     reason: `green needs a container runtime: ${storeTests.length} Drizzle store test file(s) run against real Postgres ` +
       `(${storeTests.join(", ")}), and ${probe.reason}. Start Docker (or another Docker-API runtime) and run green again; ` +
       "store tests are never skipped at green (ADR 2026-064).",
   };
+}
+
+/**
+ * The environment for the test child under a decision: `base` without every
+ * `unsetEnv` name, plus `env`. Gates build the child's environment with this
+ * and never pass their own through unchanged, so a skip variable leaked into
+ * the gate's environment cannot reach a run that should not skip.
+ */
+export function storeTestEnv(base: NodeJS.ProcessEnv, decision: StoreTestDecision): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...base };
+  for (const name of STORE_TEST_ENV) delete out[name];
+  if (decision.action === "skip") Object.assign(out, decision.env);
+  return out;
 }

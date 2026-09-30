@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, describe, expect, test } from "vitest";
 import {
-  candidateEndpoints, drizzleStoreTests, probeContainerRuntime, storeTestDecision, type ContainerRuntimeProbe,
+  candidateEndpoints, drizzleStoreTests, probeContainerRuntime, storeTestDecision, storeTestEnv, type ContainerRuntimeProbe,
 } from "./scripts/container-runtime.ts";
 
 const temporary: string[] = [];
@@ -93,16 +93,21 @@ describe("storeTestDecision (ADR 2026-064)", () => {
   const up: ContainerRuntimeProbe = { available: true, endpoint: "unix:///var/run/docker.sock" };
   const tests = ["contexts/pm/src/adapters/out/drizzle/notes/create-note.store.test.ts"];
 
-  test("no store tests, or a runtime that answers: run", () => {
+  const unsetEnv = ["BOUNDED_STORE_TESTS_SKIP", "BOUNDED_STORE_TESTS_PHASE"];
+  const leaked = { PATH: "/bin", BOUNDED_STORE_TESTS_SKIP: "stale reason", BOUNDED_STORE_TESTS_PHASE: "red" };
+
+  test("no store tests, or a runtime that answers: run, removing any skip variable", () => {
     for (const phase of ["red", "green"] as const) {
-      expect(storeTestDecision(phase, [], down)).toEqual({ action: "run" });
-      expect(storeTestDecision(phase, tests, up)).toEqual({ action: "run" });
+      expect(storeTestDecision(phase, [], down)).toEqual({ action: "run", unsetEnv });
+      expect(storeTestDecision(phase, tests, up)).toEqual({ action: "run", unsetEnv });
     }
   });
 
-  test("red without a runtime skips the store tests through the test support's variable, with the reason", () => {
+  test("red without a runtime skips the store tests with the reason and the red token", () => {
     const reason = "1 Drizzle store test file(s) skipped at red: no container runtime found";
-    expect(storeTestDecision("red", tests, down)).toEqual({ action: "skip", reason, env: { BOUNDED_STORE_TESTS_SKIP: reason } });
+    expect(storeTestDecision("red", tests, down)).toEqual({
+      action: "skip", reason, env: { BOUNDED_STORE_TESTS_SKIP: reason, BOUNDED_STORE_TESTS_PHASE: "red" },
+    });
   });
 
   test("green without a runtime refuses, naming the tests and the fix, and never skips", () => {
@@ -110,7 +115,22 @@ describe("storeTestDecision (ADR 2026-064)", () => {
     expect(decision.action).toBe("refuse");
     expect((decision as { reason: string }).reason).toContain(tests[0]);
     expect((decision as { reason: string }).reason).toContain("Start Docker");
+    expect(decision).toHaveProperty("unsetEnv", unsetEnv);
     expect(decision).not.toHaveProperty("env");
+  });
+
+  test("a skip variable leaked into green's environment never reaches the test child", () => {
+    for (const probe of [up, down]) {
+      const env = storeTestEnv(leaked, storeTestDecision("green", tests, probe));
+      expect(env).toEqual({ PATH: "/bin" });
+    }
+    // Nor into red's, when the runtime answers.
+    expect(storeTestEnv(leaked, storeTestDecision("red", tests, up))).toEqual({ PATH: "/bin" });
+    // Red's own skip replaces a stale reason with its own.
+    expect(storeTestEnv(leaked, storeTestDecision("red", tests, down))).toEqual({
+      PATH: "/bin", BOUNDED_STORE_TESTS_PHASE: "red",
+      BOUNDED_STORE_TESTS_SKIP: "1 Drizzle store test file(s) skipped at red: no container runtime found",
+    });
   });
 });
 

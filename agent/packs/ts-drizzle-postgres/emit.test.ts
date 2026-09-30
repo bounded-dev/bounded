@@ -270,6 +270,7 @@ describe("the emitted files type-check against the example's out ports", () => {
       "  export const describe: Describe;",
       "  export function beforeAll(hook: Hook, timeout?: number): void;",
       "  export function beforeEach(hook: Hook, timeout?: number): void;",
+      "  export function test(name: string, body: () => void | Promise<void>): void;",
       "}",
       "",
     ].join("\n"));
