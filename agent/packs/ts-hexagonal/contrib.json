@@ -1,6 +1,53 @@
 {
-  "//": "The ts-hexagonal pack (ADR 2026-063): the hexagonal monorepo layout of TN-26-012 \u2014 bounded contexts under contexts/, apps under apps/, domain/application/adapters layers. It will contribute sourceRoots, testFileSuffixes, generatedFileGlobs, the context workspace template, the in-memory and console adapter technologies, the domain/application emitters and the layer lint rules. A stub until WI-5: it contributes nothing yet.",
-  "dependsOnPacks": [
-    "ts"
-  ]
+  "//": "The ts-hexagonal pack (ADR 2026-063): the hexagonal monorepo layout of TN-26-012 — bounded contexts under contexts/, apps under apps/, each context split into domain, application and adapters. This file is the DATA half of the pack: what a host reads without executing pack code. sourceRoots are where roles author code (ADR 2026-056). testFileSuffixes repeat the ts family's suffixes so the layout is complete on its own; identical entries merge (ADR 2026-057). generatedFileGlobs are the files only this pack's emitters write, write-denied to every role and drift-checked (ADR 2026-058, TN-26-012 §7). adapterTechnologies are the two out technologies every hexagonal context can use without another pack: in-memory storage and the console stand-in (ADR 2026-061). workspaceTemplates.context is the manifest every context workspace starts from; the generator adds name, private, exports and the adapter pins. projectShippedFiles copy the architecture rulebook and the architecture test into a new project; both are generated files from then on.",
+  "dependsOnPacks": ["ts"],
+  "sourceRoots": ["apps/*/src", "contexts/*/src"],
+  "testFileSuffixes": [".test.ts", ".test.tsx", ".test-support.ts"],
+  "generatedFileGlobs": [
+    "architecture.test.ts",
+    "docs/architecture/**",
+    "contexts/*/src/domain/index.ts",
+    "contexts/*/src/domain/shared/result.ts",
+    "contexts/*/src/domain/shared/errors.ts",
+    "contexts/*/src/application/index.ts",
+    "contexts/*/src/application/*/*/*.command.ts",
+    "contexts/*/src/application/*/*/*.command.laws.test.ts",
+    "contexts/*/src/adapters/out/*/index.ts"
+  ],
+  "adapterTechnologies": [
+    {
+      "id": "in-memory",
+      "direction": "out",
+      "storage": true,
+      "description": "Stores that keep data in a shared InMemoryDatabase object: for tests, local runs and apps with no database yet."
+    },
+    {
+      "id": "console",
+      "direction": "out",
+      "storage": false,
+      "description": "Local stand-ins that print to the console instead of reaching an outside system, named by @implementedBy console."
+    }
+  ],
+  "workspaceTemplates": {
+    "context": {
+      "root": "contexts",
+      "manifest": "templates/context/package.json",
+      "description": "One bounded context: a package with domain, application and adapters under src/, exported per layer and per adapter technology."
+    }
+  },
+  "projectShippedFiles": {
+    "architecture.test.ts": "reference/architecture-test.ts",
+    "docs/architecture/readme.md": "reference/docs/architecture/readme.md",
+    "docs/architecture/adapters.md": "reference/docs/architecture/adapters.md",
+    "docs/architecture/agent-workflow.md": "reference/docs/architecture/agent-workflow.md",
+    "docs/architecture/application.md": "reference/docs/architecture/application.md",
+    "docs/architecture/apps-and-composition.md": "reference/docs/architecture/apps-and-composition.md",
+    "docs/architecture/bounded-contexts.md": "reference/docs/architecture/bounded-contexts.md",
+    "docs/architecture/directory-structure.md": "reference/docs/architecture/directory-structure.md",
+    "docs/architecture/domain.md": "reference/docs/architecture/domain.md",
+    "docs/architecture/error-handling.md": "reference/docs/architecture/error-handling.md",
+    "docs/architecture/layers-and-dependencies.md": "reference/docs/architecture/layers-and-dependencies.md",
+    "docs/architecture/persistence.md": "reference/docs/architecture/persistence.md",
+    "docs/architecture/testing.md": "reference/docs/architecture/testing.md"
+  }
 }
