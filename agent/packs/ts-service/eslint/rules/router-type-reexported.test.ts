@@ -74,9 +74,9 @@ export type ServiceRouter = typeof serviceRouter;
 export declare function ack(): Ack;`,
       errors: [{ messageId: "missing" }],
     },
-    // Borrowing from a sibling CONTRACT is the second-identity defect
-    // (no-cross-contract-type-import owns that message) AND not the inferred
-    // router type, so it does not satisfy this rule either.
+    // Borrowing from a sibling CONTRACT is not the inferred router type, so it
+    // does not satisfy this rule either (and its '.js' spelling is refused by
+    // the ts pack's contract-imports-contracts-only).
     {
       code: `import type { Ack } from "./service-runtime.js";
 import type { serviceRouter } from "./api.contract.js";

@@ -11,7 +11,6 @@ import {
   ERRORS_MODULE_SOURCE,
   ScaffoldError,
   errorsModuleFor,
-  implementationSpecifierFor,
   isGeneratedArtifact,
   scaffoldContract,
   runScaffold,
@@ -19,6 +18,7 @@ import {
   skeletonPathFor as pathFor,
   skeletonSiblingPaths,
   shippedSupportSource,
+  supportModuleNames,
 } from "./scaffold-contract.ts";
 import { serviceRuntimeSupport } from "../../ts-service/service-runtime-support.ts";
 import { implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
@@ -81,6 +81,8 @@ function typecheck(files: Record<string, string>): string[] {
     Object.keys(files).map((f) => join(dir, f)),
     {
       verbatimModuleSyntax: true,
+      // Contracts import each other by their real `.ts` name (ADR 2026-059).
+      allowImportingTsExtensions: true,
       // Very strict, per the harness TS philosophy: inference-first,
       // no implicit anything. noUnusedParameters stays off deliberately —
       // a throwing skeleton's parameters are unused by design.
@@ -103,11 +105,9 @@ function typecheck(files: Record<string, string>): string[] {
     .map((d) => `${d.file?.fileName ?? "<global>"}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
 }
 
+// A contract imports another contract directly (ADR 2026-059), so the queue
+// fixture needs only Money's contract beside it.
 const MONEY_CONTRACT = "export interface Money {\n  cents: number;\n  currency: string;\n}\n";
-// Cross-component types are imported from the IMPLEMENTATION module, never from
-// the sibling contract (ADR 2026-023) — so the fixture needs the module that
-// re-exports them, exactly as the scaffolder would have written it.
-const MONEY_MODULE = scaffoldContract(MONEY_CONTRACT, "shared/money.contract.ts");
 
 // Every skeleton project has the template's shared errors module.
 const SHARED = { "shared/errors.ts": ERRORS_MODULE_SOURCE };
@@ -129,7 +129,6 @@ describe("skeletons compile against their contracts", () => {
         "queue/queue.contract.ts": contractOf("queue"),
         "queue/queue.ts": goldenOf("queue"),
         "shared/money.contract.ts": MONEY_CONTRACT,
-        "shared/money.ts": MONEY_MODULE,
         ...SHARED,
       }),
     ).toEqual([]);
@@ -320,237 +319,47 @@ describe("mixed contract conformance (nominal class + non-class value exports)",
 });
 
 // ---------------------------------------------------------------------------
-// ONE CLASS IDENTITY PER VALUE OBJECT (ADR 2026-023)
+// CONTRACTS IMPORT ONLY CONTRACTS (ADR 2026-059) — the scaffolder's backstop
 // ---------------------------------------------------------------------------
 //
-// THE r15 FAILURE, in one arm's own words: "red-phase typecheck is unsatisfiable
-// for contracts whose operation signatures carry branded value objects
-// constructed from a sibling implementation module." It cost ~44 of 76 live
-// minutes — 41 type errors in the shadow red, all of them "separate
-// declarations of a private property '__brand'", and an architect inventing
-// eight `parse*` boundary functions and re-freezing mid-loop to make red
-// satisfiable at all.
-//
-// The mechanism is not subtle once seen. `values.contract.ts` declares the
-// nominal class (ADR 2026-015); the scaffolder turns it into the RUNTIME class
-// in `values.ts`. Those are two declarations of the same private `__brand`, and
-// TypeScript treats two such declarations as unrelated types. Any other
-// contract that reaches for `Money` through `values.contract.js` therefore
-// declares operations over a type NOTHING can produce: `Money.parse` — the only
-// legal door in — returns the other one.
-//
-// The fix is that the second declaration must never be reachable: cross-
-// component types are imported from the IMPLEMENTATION module, which
-// re-exports every type its contract declares and shadows the ambient class
-// with the real one. This block is the spec.
+// The retired declare-class model needed the OPPOSITE rule (reach a value
+// object through its implementation module, ADR 2026-023/026). Now a contract
+// imports other contracts, and the scaffolder refuses exactly what
+// contract-purity's contract-imports-contracts-only refuses, by asking the
+// rule's own predicate — lint-passing implies scaffoldable.
 
-const VO_CONTRACT = `/** Money: minor units of a single currency. */
-export declare class Money {
-  private readonly __brand: "Money";
-  private constructor();
-  readonly cents: number;
-  static parse(raw: unknown): Money | undefined;
-  equals(other: Money): boolean;
-}
-`;
+describe("the scaffolder's import backstop agrees with contract-imports-contracts-only", () => {
+  const OP = (source: string): string => `import type { Money } from "${source}";\nexport declare function charge(amount: Money): Money;\n`;
 
-/** The consuming contract, written the one-identity way. */
-const OP_CONTRACT = `import type { Money } from "../values/values.js";
-
-export interface Receipt {
-  readonly total: Money;
-}
-
-export declare function charge(amount: Money): Receipt;
-`;
-
-/** The r15 shape: the value object reached through the sibling CONTRACT. */
-const OP_CONTRACT_VIA_CONTRACT = OP_CONTRACT.replace(
-  '"../values/values.js"',
-  '"../values/values.contract.js"',
-);
-
-/** What the test-writer writes at red: build the value through the only legal
- *  route — the runtime class — and hand it to the operation. */
-const CONSUMER_TEST = `import { describe, expect, test } from "vitest";
-import { Money } from "../src/values/values.js";
-import { charge } from "../src/billing/billing.js";
-import type { Receipt } from "../src/billing/billing.js";
-
-describe("charge", () => {
-  test("accepts a Money built through the runtime class", () => {
-    const amount = Money.parse(500);
-    if (amount === undefined) throw new Error("unparseable");
-    const receipt: Receipt = charge(amount);
-    const total: Money = receipt.total;
-    expect(total).toBe(amount);
-  });
-});
-`;
-
-/** vitest is not installed in the throwaway project, and \`types: []\` means
- *  nothing ambient is present either. The consumer test uses three names. */
-const VITEST_STUB = `declare module "vitest" {
-  export function describe(name: string, fn: () => void): void;
-  export function test(name: string, fn: () => void): void;
-  export function expect(actual: unknown): { toBe(expected: unknown): void };
-}
-`;
-
-function twoContractProject(opContract: string, opSkeleton?: string): Record<string, string> {
-  return {
-    "src/values/values.contract.ts": VO_CONTRACT,
-    "src/values/values.ts": scaffoldContract(VO_CONTRACT, "src/values/values.contract.ts"),
-    "src/billing/billing.contract.ts": opContract,
-    "src/billing/billing.ts":
-      opSkeleton ?? scaffoldContract(opContract, "src/billing/billing.contract.ts"),
-    "src/shared/errors.ts": ERRORS_MODULE_SOURCE,
-    "tests/charge.test.ts": CONSUMER_TEST,
-    "tests/vitest.d.ts": VITEST_STUB,
-  };
-}
-
-describe("one class identity per value object", () => {
-  // The spec, stated positively: a red phase over this project is SATISFIABLE.
-  // Everything throws NotImplementedError and nothing fails to compile, which
-  // is exactly the state the red gate demands and r15 could not reach.
-  test("scaffolded project + a consumer test typecheck clean before anything is implemented", () => {
-    expect(typecheck(twoContractProject(OP_CONTRACT))).toEqual([]);
+  test("a contract-to-contract import scaffolds", () => {
+    expect(() => scaffoldContract(OP("../values/values.contract.ts"), "src/billing/billing.contract.ts")).not.toThrow();
   });
 
-  // The mechanism itself, pinned. If this ever stops reproducing, the compiler
-  // changed and the rule below can be revisited — until then it is why the
-  // rule exists.
-  test("reaching the value object through the sibling contract is a second identity", () => {
-    const skeleton = scaffoldContract(OP_CONTRACT, "src/billing/billing.contract.ts").replace(
-      '"../values/values.js"',
-      '"../values/values.contract.js"',
-    );
-    const diags = typecheck(twoContractProject(OP_CONTRACT_VIA_CONTRACT, skeleton)).join("\n");
-    expect(diags).toMatch(/separate declarations of a private property '__brand'/);
-  });
-
-  // ...which is why the generator refuses to produce that project at all. The
-  // architect fixes the contract, never the skeleton — and the message carries
-  // the replacement line, because "import it from somewhere else" is not a fix.
-  test("the scaffolder refuses such a contract, naming the import that fixes it", () => {
-    const run = (): string =>
-      scaffoldContract(OP_CONTRACT_VIA_CONTRACT, "src/billing/billing.contract.ts");
+  test.each([
+    ["an implementation module", "../values/values.ts", /is not a contract/],
+    ["a '.js' specifier", "../values/values.contract.js", /uses a '\.js' specifier/],
+    ["a workspace layer path", "@acme/billing/application", /workspace layer path/],
+  ])("%s is refused, naming the rule", (_label, source, reason) => {
+    const run = (): string => scaffoldContract(OP(source), "src/billing/billing.contract.ts");
     expect(run).toThrowError(ScaffoldError);
-    expect(run).toThrowError(/separate declarations of a private property '__brand'/);
-    expect(run).toThrowError(/import type \{ Money \} from "\.\.\/values\/values\.js";/);
+    expect(run).toThrowError(reason);
+    expect(run).toThrowError(/contract-imports-contracts-only/);
   });
 
-  // The same laundering one level out: re-exporting another contract's types
-  // puts the ambient declaration back on this contract's surface.
-  test("re-exporting from a sibling contract is refused too", () => {
-    const source = 'export type * from "../values/values.contract.js";\nexport declare function f(): void;\n';
-    const run = (): string => scaffoldContract(source, "src/billing/billing.contract.ts");
-    expect(run).toThrowError(ScaffoldError);
-    expect(run).toThrowError(/export type … from "\.\.\/values\/values\.js";/);
+  test("a package outside the hexagonal layers is not builder code, so it scaffolds", () => {
+    expect(() => scaffoldContract(OP("some-lib"), "src/billing/billing.contract.ts")).not.toThrow();
   });
 
-  test("implementationSpecifierFor maps a contract module to its sibling, and leaves others alone", () => {
-    expect(implementationSpecifierFor("../values/values.contract.js")).toBe("../values/values.js");
-    expect(implementationSpecifierFor("./money.contract")).toBe("./money");
-    expect(implementationSpecifierFor("../values/values.js")).toBeUndefined();
-    expect(implementationSpecifierFor("node:crypto")).toBeUndefined();
-    expect(implementationSpecifierFor("zod")).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// VALUE OBJECTS LIVE IN THEIR OWN CONTRACT FILE (ADR 2026-026)
-// ---------------------------------------------------------------------------
-//
-// ADR 2026-023 (above) refuses reaching a value object through a sibling
-// CONTRACT, forcing cross-file references through the implementation module —
-// which is why multi-file designs typecheck. Its SAME-FILE twin, uncovered until
-// dogfood r18/r19: when a value export's signature references a nominal
-// value-object class declared IN THE SAME contract, the scaffolder emits that
-// class as a RUNTIME class. The export's local signature then binds the value
-// object to the runtime identity, while the compile-time conformance check
-// compares it against `typeof __Contract` — the contract's AMBIENT `declare
-// class`. Two declarations of the same private `__brand`, and the skeleton does
-// not compile. The contract is purity-clean and freezes, yet scaffolds to code
-// that cannot compile.
-//
-// The enforcement lives one gate EARLIER, as the `value-objects-own-contract`
-// contract-purity lint rule (ADR 2026-026): a contract file may not declare a
-// value object beside an interface / type-alias / operation that references it.
-// These two tests pin the two ends the rule steers between — the shape it
-// forbids really does scaffold to non-compiling code, and the decomposed shape
-// it steers toward scaffolds and typechecks clean.
-
-// The forbidden shape, as the generator WOULD emit it for a same-file value
-// object referenced directly by an operation: it fails to compile with the
-// __brand clash. This is the evidence behind the lint rule.
-const SAME_FILE_CONTRACT = `/** BuildingId: a branded identifier. */
-export declare class BuildingId {
-  private readonly __brand: "BuildingId";
-  private constructor();
-  readonly value: string;
-  static parse(raw: unknown): BuildingId | undefined;
-}
-
-export declare function rateBuildingReport(building: BuildingId): number;
-`;
-const SAME_FILE_SKELETON = `import type * as __Contract from "./report.contract.js";
-
-export type * from "./report.contract.js";
-
-export class BuildingId {
-  private declare readonly __brand: "BuildingId";
-  private constructor() { throw new Error(); }
-  declare readonly value: string;
-  static parse(raw: unknown): BuildingId | undefined { throw new Error(); }
-}
-
-export function rateBuildingReport(building: BuildingId): number { throw new Error(); }
-
-const __conformance: Pick<typeof __Contract, "rateBuildingReport"> = { rateBuildingReport };
-void __conformance;
-`;
-
-describe("value objects and the operations over them live in separate contracts (ADR 2026-026)", () => {
-  // WHY the lint rule exists: the same-file shape scaffolds to code TypeScript
-  // rejects with the __brand clash. (The lint rule at contract_purity stops it
-  // before it ever reaches this skeleton.)
-  test("a same-file value object referenced by an operation scaffolds to non-compiling code", () => {
-    const diags = typecheck({
-      "report.contract.ts": SAME_FILE_CONTRACT,
-      "report.ts": SAME_FILE_SKELETON,
-    }).join("\n");
-    expect(diags).toMatch(/separate declarations of a private property '__brand'/);
+  test("a composed pack's shipped support module is generated machinery, so it scaffolds", () => {
+    expect(supportModuleNames()).toContain("service-runtime");
+    expect(() => scaffoldContract(OP("./service-runtime.js"), "src/api/api.contract.ts")).not.toThrow();
   });
 
-  // THE POSITIVE CASE, decomposed — the shape the rule steers toward. The value
-  // object in its own contract, the operation contract importing it from the
-  // IMPLEMENTATION module: one class identity, and the whole project scaffolds
-  // and typechecks clean before anything is implemented.
-  const DECOMPOSED_VO = `/** BuildingId: a branded identifier. */
-export declare class BuildingId {
-  private readonly __brand: "BuildingId";
-  private constructor();
-  readonly value: string;
-  static parse(raw: unknown): BuildingId | undefined;
-}
-`;
-  const DECOMPOSED_OP = `import type { BuildingId } from "../ids/ids.js";
-
-export declare function rateBuildingReport(building: BuildingId): number;
-`;
-
-  test("the decomposed equivalent (value object in its own contract) scaffolds and typechecks clean", () => {
-    expect(
-      typecheck({
-        "src/ids/ids.contract.ts": DECOMPOSED_VO,
-        "src/ids/ids.ts": scaffoldContract(DECOMPOSED_VO, "src/ids/ids.contract.ts"),
-        "src/report/report.contract.ts": DECOMPOSED_OP,
-        "src/report/report.ts": scaffoldContract(DECOMPOSED_OP, "src/report/report.contract.ts"),
-        "src/shared/errors.ts": ERRORS_MODULE_SOURCE,
-      }),
-    ).toEqual([]);
+  test("re-exports and import() types are refused", () => {
+    expect(() => scaffoldContract('export type { Money } from "../values/values.contract.ts";\nexport declare function f(): void;\n', "src/b/b.contract.ts"))
+      .toThrowError(/re-exports nothing \(contract-imports-contracts-only\)/);
+    expect(() => scaffoldContract('export declare function f(): import("../values/values.ts").Money;\n', "src/b/b.contract.ts"))
+      .toThrowError(/import\(/);
   });
 });
 
@@ -1376,7 +1185,6 @@ describe("runScaffold: the service runtime is shipped where a contract points", 
   });
 
   const API_CONTRACT = `import type { Ack } from "./service-runtime.js";
-import type { IngestReportCommand } from "./commands.js";
 
 export interface ServiceCaller {
   ingestReport(raw: unknown): Promise<Ack>;

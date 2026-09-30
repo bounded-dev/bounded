@@ -1,4 +1,4 @@
-import type { Money } from "../shared/money.js";
+import type { Money } from "../shared/money.contract.ts";
 
 export declare class Queue<T> {
   constructor(maxSize: number);

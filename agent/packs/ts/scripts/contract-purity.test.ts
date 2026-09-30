@@ -18,10 +18,9 @@ import { EXAMPLE_CONCEPTS } from "./testdata/example-domain.ts";
 
 describe("lintContractSource", () => {
   test("a clean contract produces no problems", async () => {
-    // Outside the hexagonal layers the older import vocabulary still holds
-    // (contract-imports-contracts-only is scoped to domain/ and application/).
+    // Its value object lives in its own contract, imported from there.
     const problems = await lintContractSource(
-      'import type { OrderId } from "./order-id.js";\n' +
+      'import type { OrderId } from "./order-id.contract.ts";\n' +
         "export interface Order { readonly id: OrderId }\n" +
         "export declare function create(o: Order): void;",
       "orders.contract.ts",
@@ -77,7 +76,7 @@ describe("lintContractSource", () => {
   test("the value-object version of the same contract is clean", async () => {
     // The naked primitives are replaced by value objects declared elsewhere.
     const problems = await lintContractSource(
-      'import type { Isbn, AuthorName, PagesRead } from "./values.js";\n' +
+      'import type { Isbn, AuthorName, PagesRead } from "./values.contract.ts";\n' +
         "export interface Book { readonly isbn: Isbn; readonly authors: readonly [AuthorName, ...AuthorName[]] }\n" +
         "export interface ProgressEvent { readonly pagesRead: PagesRead }\n" +
         "export interface ReadingListStore { save(book: Book): Promise<void>; load(): Promise<readonly Book[]> }",
@@ -262,12 +261,30 @@ describe("contributed purity overrides", () => {
 
   // The import rule is scoped to the hexagonal layers (LAYERED_CONTRACT_GLOBS);
   // everything else still applies to a contract outside them.
-  test("a contract outside the layers keeps every rule but the layered import rule", async () => {
+  // contract-first freezing holds everywhere: the import rule binds a
+  // flat-layout contract exactly as it binds a layered one.
+  test("a contract outside the layers keeps the full rule set, the import rule included", async () => {
     const config = await createContractLinter().calculateConfigForFile("src/orders/orders.contract.ts");
     const resolved = config.rules ?? {};
-    const expected = CONTRACT_RULE_IDS.filter((id) => id !== "bounded-ts/contract-imports-contracts-only");
-    expect(expected.filter((id) => resolved[id] === undefined || resolved[id] === 0 || resolved[id] === "off")).toEqual([]);
-    expect(resolved["bounded-ts/contract-imports-contracts-only"]).toBeUndefined();
+    expect(CONTRACT_RULE_IDS.filter((id) => resolved[id] === undefined || resolved[id] === 0 || resolved[id] === "off")).toEqual([]);
+  });
+
+  test("an implementation import is refused outside the layers too", async () => {
+    const problems = await lintContractSource(
+      'import type { OrderId } from "./order-id.ts";\nexport interface Order { readonly id: OrderId }\n',
+      "src/orders/orders.contract.ts",
+    );
+    expect(problems.map((p) => p.ruleId)).toEqual(["bounded-ts/contract-imports-contracts-only"]);
+  });
+
+  test("the gate passes the composed packs' support modules to the import rule", async () => {
+    const source = 'import type { Ack } from "./service-runtime.js";\nexport declare function submit(): Ack;\n';
+    // the installed set includes ts-service's shipped runtime (whose own
+    // router rule may still object; only the import rule is asked here)
+    const problems = await lintContractSource(source, "src/api/api.contract.ts");
+    expect(problems.filter((p) => p.ruleId === "bounded-ts/contract-imports-contracts-only")).toEqual([]);
+    const elsewhere = await lintContractSource(source.replace("service-runtime", "other-runtime"), "src/api/api.contract.ts");
+    expect(elsewhere.map((p) => p.ruleId)).toContain("bounded-ts/contract-imports-contracts-only");
   });
 });
 
@@ -323,7 +340,9 @@ describe("contract-purity CLI", () => {
     expect(r.stdout).toMatch(
       /bad\.contract\.ts:1:1\s+bounded-ts\/declaration-only\s+.*'pg' is imported as a value/,
     );
-    expect(r.stdout).toMatch(/contract-purity: 1 problem/);
+    // …and the same value import of a package is refused by the import rule
+    expect(r.stdout).toMatch(/bounded-ts\/contract-imports-contracts-only/);
+    expect(r.stdout).toMatch(/contract-purity: 2 problems/);
     const events = readGuardLog(dir);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ guard: "contract-purity", verdict: "block" });

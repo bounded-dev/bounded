@@ -3,7 +3,7 @@
 // The builder replaces this file with the real implementation.
 
 import { NotImplementedError } from "../shared/errors.js";
-import type { Money } from "../shared/money.js";
+import type { Money } from "../shared/money.contract.ts";
 
 export type * from "./queue.contract.js";
 

@@ -26,6 +26,12 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // cycle (impl imports contract, contract imports impl's type) is legal
 // TypeScript and erases at compile time.
 //
+// RETIRING (ADR 2026-059). The implementation import this rule asks for is
+// refused by the ts pack's `contract-imports-contracts-only`, which binds
+// every contract: a frozen design may not depend on builder-written code. So
+// a service contract can no longer satisfy both, and this pack's API-service
+// runtime is being replaced by generated in-adapters (ts-trpc, TN-26-012 §6).
+//
 // SCOPE: a contract that imports a `service-runtime` module, and nothing else.
 // That specifier is the marker of an API-service contract — the same marker the
 // scaffolder reads (`serviceRuntimeTargets`) to decide where to ship the
@@ -37,10 +43,9 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // `id` came from a RELATIVE, non-contract module. Three exclusions, each doing
 // real work:
 //   * a non-relative specifier is a package, not this component's sibling;
-//   * a `*.contract.js` specifier is the second-identity defect
-//     `no-cross-contract-type-import` already refuses, and a router type
-//     borrowed from another contract's ambient declarations is not this
-//     router's inferred type;
+//   * a `*.contract.js` specifier is another contract, and a router type
+//     borrowed from another contract's declarations is not this router's
+//     inferred type;
 //   * the service-runtime module itself, so that `typeof createService` — a
 //     name that IS importable from a relative non-contract module — cannot
 //     stand in for the router and satisfy the rule by accident.

@@ -31,14 +31,11 @@
 // module (template convention: <root>/shared/errors.ts) so its identity is
 // stable across components and gates.
 //
-// ONE CLASS IDENTITY PER VALUE OBJECT (ADR 2026-023). A contract's
-// `declare class Money` and the runtime `class Money` in its sibling
-// implementation module are two declarations of the same private `__brand`,
-// and TypeScript treats those as unrelated nominal types. So a contract may
-// NOT import types from another contract's `*.contract.ts`: it imports them
-// from that contract's IMPLEMENTATION module (`../values/values.js`), which
-// re-exports every type its contract declares and shadows the ambient class
-// with the real one. Anything else is rejected below, loudly, with the fix.
+// CONTRACTS IMPORT ONLY CONTRACTS (ADR 2026-059). The retired rule here was
+// the opposite (reach a value object through its implementation module, ADR
+// 2026-023). Now the backstop below asks contract-imports-contracts-only's
+// own predicate, so the scaffolder refuses exactly what contract-purity
+// refuses: lint-passing implies scaffoldable.
 //
 // v1 known limits (fail loudly, by design): enums (use string-literal
 // unions — the declaration-only lint rule agrees), value exports inside
@@ -73,9 +70,10 @@ import { implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-
 import { findContractFiles, findFilesUnder } from "./checksum-gate.ts";
 import { mergedContribution } from "../../../src/pack-contrib.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
-import { composedPacks } from "../../installed.ts";
+import { composedPacks, installedPacks } from "../../installed.ts";
 import { contractSupportFiles, type ContractSupportFile } from "../pack.ts";
 import { containedSupportTargets } from "./support-targets.ts";
+import { contractImportProblem } from "../eslint/rules/contract-imports-contracts-only.ts";
 import type {
   ClassDeclaration,
   ClassMemberTypes,
@@ -291,6 +289,19 @@ function isOwnArtifact(source: string): boolean {
 // from the composed pack that owns the capability (`contractSupportFiles`). A
 // project that did not compose that pack gets nothing shipped.
 
+/**
+ * The module names of every installed pack's shipped support files
+ * (`service-runtime` for `packs/ts-service/api/service-runtime.ts`): the
+ * relative imports `contract-imports-contracts-only` lets a contract make,
+ * because the file is generated machinery, not builder code (ADR 2026-046).
+ * The pure scaffolder asks the INSTALLED set so it never refuses what a
+ * composition's purity gate accepted; which files ship is still decided by
+ * the composition (`contractSupportFor`).
+ */
+export function supportModuleNames(files: readonly ContractSupportFile[] = installedPacks().read(contractSupportFiles)): string[] {
+  return [...new Set(files.map((f) => basename(f.canonical).replace(/\.[cm]?[jt]sx?$/, "")))].sort();
+}
+
 /** The support files the project's composed packs contribute. */
 export function contractSupportFor(cwd: string): readonly ContractSupportFile[] {
   return composedPacks(cwd).read(contractSupportFiles);
@@ -369,14 +380,6 @@ function relativeSpecifier(fromFile: string, toModuleNoExt: string): string {
 
 function fail(message: string): never {
   throw new ScaffoldError(`scaffold: ${message}`);
-}
-
-/** `./values.contract.js` → `./values.js`; anything that is not a contract
- *  module → undefined. Extension is preserved (NodeNext writes `.js`; a
- *  bare `./values.contract` keeps its bare form). */
-export function implementationSpecifierFor(moduleSpecifier: string): string | undefined {
-  const m = /^(.*)\.contract(\.[cm]?[jt]s)?$/.exec(moduleSpecifier);
-  return m === null ? undefined : `${m[1]}${m[2] ?? ""}`;
 }
 
 // --- AST collection -----------------------------------------------------------
@@ -539,8 +542,14 @@ function renderClass(node: ClassDeclaration): ValueExport & { kind: "class" } {
   return { kind: "class", name, head, members, nominal };
 }
 
-function collect(sf: SourceFile): ContractInfo {
+function collect(sf: SourceFile, contractPath: string = sf.getFilePath()): ContractInfo {
   const info: ContractInfo = { values: [], exportedTypes: [], localTypes: [], imports: [] };
+  // BACKSTOP for contract-imports-contracts-only: an `import("…")` type is an
+  // import no declaration shows, refused whatever it names.
+  const importType = sf.getFirstDescendantByKind(SyntaxKind.ImportType);
+  if (importType !== undefined) {
+    fail(`'${sf.getBaseName()}' uses '${importType.getText()}' — declare the import at the top as 'import type { … }' (contract-imports-contracts-only)`);
+  }
 
   for (const stmt of sf.getStatements()) {
     if (Node.isImportDeclaration(stmt)) {
@@ -568,31 +577,14 @@ function collect(sf: SourceFile): ContractInfo {
         if (!typeOnly) {
           fail(`value import '${source}' in contract — use 'import type' (declaration-only lint should have caught this)`);
         }
-        // ONE IDENTITY PER VALUE OBJECT (ADR 2026-023). BACKSTOP: contract-purity's
-        // `no-cross-contract-type-import` rule now catches this at the FIRST
-        // design_gate step, and names the rule-id in the architect brief; this
-        // fail() is the last line if purity is ever bypassed (ADR 2026-027).
-        // Reaching into a sibling
-        // CONTRACT picks up its ambient `declare class`, which is a second,
-        // nominally distinct declaration of the same private `__brand` — so a
-        // test that builds the value through the only legal route (the runtime
-        // class in the implementation module) cannot pass it to any operation
-        // declared this way. That is r15's 41-error unsatisfiable red, and no
-        // amount of skeleton rewriting fixes it, because the contract's own
-        // interfaces carry the wrong identity too. The implementation module
-        // re-exports every type its contract declares, so the fix is total.
-        const implSpecifier = implementationSpecifierFor(source);
-        if (implSpecifier !== undefined) {
-          const what = named.length > 0 ? named.slice().sort().join(", ") : "types";
-          fail(
-            `'${sf.getBaseName()}' imports { ${what} } from "${source}" — a contract's ambient ` +
-              `declarations are a SECOND identity: a value object declared there is nominally distinct from ` +
-              `the runtime class in that contract's implementation module, and TypeScript rejects every value ` +
-              `built through the real class with "separate declarations of a private property '__brand'". ` +
-              `There is exactly one identity per value object, so import the implementation module instead — ` +
-              `it re-exports every type its contract declares: ` +
-              `import type { ${what} } from "${implSpecifier}";`,
-          );
+        // CONTRACTS IMPORT ONLY CONTRACTS (ADR 2026-059). BACKSTOP:
+        // contract-purity's `contract-imports-contracts-only` rule catches this
+        // at the FIRST design_gate step; this fail() is the last line if purity
+        // is ever bypassed (ADR 2026-027), and it asks the rule's own predicate,
+        // so the two can never disagree about what a contract may import.
+        const problem = contractImportProblem(source, contractPath, supportModuleNames());
+        if (problem !== undefined) {
+          fail(`'${sf.getBaseName()}' imports from "${source}": ${problem.text} (contract-imports-contracts-only)`);
         }
         info.imports.push({ source, names: named, verbatim: stmt.getText() });
       }
@@ -652,18 +644,14 @@ function collect(sf: SourceFile): ContractInfo {
     }
     if (Node.isExportDeclaration(stmt)) {
       if (!stmt.isTypeOnly()) fail("value re-export in contract — use 'export type …'");
-      // Re-exporting another contract's declarations launders the second
-      // identity into this contract's surface, which is the same defect one
-      // level of indirection further out. BACKSTOP: contract-purity's
-      // `no-cross-contract-type-import` rule catches this re-export form first
-      // (ADR 2026-027); this fail() is the last line if purity is bypassed.
+      // A contract declares its own names and re-exports nothing. BACKSTOP:
+      // contract-purity's `contract-imports-contracts-only` rule refuses every
+      // re-export first (ADR 2026-059); this fail() is the last line.
       const from = stmt.getModuleSpecifierValue();
-      const implSpecifier = from === undefined ? undefined : implementationSpecifierFor(from);
-      if (from !== undefined && implSpecifier !== undefined) {
+      if (from !== undefined) {
         fail(
-          `'${sf.getBaseName()}' re-exports from "${from}" — a contract's ambient declarations are a ` +
-            `SECOND identity for every value object they declare. Re-export the implementation module ` +
-            `instead: export type … from "${implSpecifier}";`,
+          `'${sf.getBaseName()}' re-exports from "${from}" — a contract declares its own names and re-exports ` +
+            "nothing (contract-imports-contracts-only); import the names where they are used",
         );
       }
       continue;

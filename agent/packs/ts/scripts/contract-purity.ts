@@ -21,7 +21,8 @@ import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
 import plugin from "../eslint/index.ts";
 import { composedPacks, installedPacks } from "../../installed.ts";
-import { contractPurityOverrides, type ContractPurityOverride } from "../pack.ts";
+import { contractPurityOverrides, contractSupportFiles, type ContractPurityOverride } from "../pack.ts";
+import { supportModuleNames } from "./scaffold-contract.ts";
 import { formatProblems, toProblems, type Problem } from "./lint-report.ts";
 export { formatProblems, type Problem };
 // Harness-core guard log (NOTE: this relative import only resolves when the
@@ -38,13 +39,6 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "bounded-ts/value-object-documented",
   "bounded-ts/contract-imports-contracts-only",
   "bounded-ts/no-schema-on-surface",
-];
-
-/** The contracts `contract-imports-contracts-only` binds: the hexagonal
- *  domain and application layers (ADR 2026-059, TN-26-012). */
-export const LAYERED_CONTRACT_GLOBS: readonly string[] = [
-  "**/domain/**/*.contract.ts",
-  "**/application/**/*.contract.ts",
 ];
 
 // --- Contributed overrides (TN-26-005, the ts pack's socket) -----------------
@@ -91,6 +85,7 @@ function contributedPurityPlugins(overrides: readonly ContractPurityOverride[]):
 }
 
 export function createContractLinter(cwd?: string): ESLint {
+  const registry = cwd === undefined ? installedPacks() : composedPacks(cwd);
   const overrides = contributedPurityOverrides(cwd);
   const packPlugins = contributedPurityPlugins(overrides);
   return new ESLint({
@@ -124,25 +119,21 @@ export function createContractLinter(cwd?: string): ESLint {
           // examples feed the generated laws, so they must be literals of the
           // value's own type.
           "bounded-ts/value-object-documented": "error",
+          // A contract imports only other contracts and the shared Result, as
+          // types — every contract, so the frozen design never depends on a
+          // builder-written file (contract-first freezing). An application
+          // contract may also import its context's generated domain barrel
+          // (ADR 2026-059, lead decision Q3). It replaces the retired
+          // no-cross-contract-type-import, whose rule was the opposite under
+          // the declare-class model.
+          "bounded-ts/contract-imports-contracts-only": [
+            "error",
+            { supportModules: supportModuleNames(registry.read(contractSupportFiles)) },
+          ],
           // zod is the engine inside a value object, never a public identity:
           // nothing from zod may appear in a contract (ADR 2026-031).
           "bounded-ts/no-schema-on-surface": "error",
         },
-      },
-      // The hexagonal layers (TN-26-012): a contract under a `domain/` or
-      // `application/` directory imports only other contracts and the shared
-      // Result, as types; an application contract may also import its
-      // context's generated domain barrel (ADR 2026-059, lead decision Q3).
-      // It replaces the retired no-cross-contract-type-import, whose rule was
-      // the opposite under the declare-class model. Scoped by path because
-      // the layers are where the contract-owns-the-name model lives; a
-      // contract outside them (a pack's support-file import, ADR 2026-046)
-      // keeps the older import vocabulary until its pack moves over.
-      {
-        files: [...LAYERED_CONTRACT_GLOBS],
-        languageOptions: { parser },
-        plugins: { "bounded-ts": plugin as unknown as ESLint.Plugin },
-        rules: { "bounded-ts/contract-imports-contracts-only": "error" },
       },
       // Contributed blocks last — see the note above. Each re-registers the
       // plugin object (the same object, which flat config permits) so a block

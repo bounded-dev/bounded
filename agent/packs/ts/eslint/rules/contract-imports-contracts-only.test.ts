@@ -40,6 +40,10 @@ ruleTester.run("contract-imports-contracts-only", contractImportsContractsOnly, 
     { code: "export interface Clock { now(): Instant; }", filename: DOMAIN },
     // a file outside any domain directory may use the barrel
     { code: 'import type { Note } from "@acme/billing/domain";', filename: "file.ts" },
+    // outside the hexagonal layers a package is a pinned dependency, not builder code
+    { code: 'import type { ReactElement } from "react";', filename: "src/ui/badge.contract.ts" },
+    // a composed pack's shipped support module is generated machinery
+    { code: 'import type { Ack } from "./service-runtime.js";', filename: "src/api/api.contract.ts", options: [{ supportModules: ["service-runtime"] }] },
   ],
   invalid: [
     // an implementation file: the retired rule's recommended form
@@ -58,15 +62,40 @@ ruleTester.run("contract-imports-contracts-only", contractImportsContractsOnly, 
     // near misses on the contract suffix
     { code: 'import type { NoteId } from "./note-id.contract";', filename: DOMAIN, errors: [{ messageId: "notAContract" }] },
     { code: 'import type { NoteId } from "./note-id.contracts.ts";', filename: DOMAIN, errors: [{ messageId: "notAContract" }] },
-    { code: 'import type { NoteId } from "note-id.contract.ts";', filename: DOMAIN, errors: [{ messageId: "notAContract" }] },
+    { code: 'import type { NoteId } from "note-id.contract.ts";', filename: DOMAIN, errors: [{ messageId: "packageInLayer" }] },
     // result must be the shared one
     { code: 'import type { Result } from "../result.ts";', filename: DOMAIN, errors: [{ messageId: "notAContract" }] },
     { code: 'import type { Result } from "../shared/results.ts";', filename: DOMAIN, errors: [{ messageId: "notAContract" }] },
-    // packages: zod, a sibling package's application barrel, a deep import
-    { code: 'import type { z } from "zod";', filename: DOMAIN, errors: [{ messageId: "notAContract" }] },
-    { code: 'import type { CreateNote } from "@example/project-management/application";', filename: FEATURE, errors: [{ messageId: "notAContract" }] },
-    { code: 'import type { Note } from "@example/project-management/domain/notes";', filename: FEATURE, errors: [{ messageId: "notAContract" }] },
-    { code: 'import type { Note } from "@example/domain";', filename: FEATURE, errors: [{ messageId: "notAContract" }] },
+    // packages in the hexagonal layers: zod, an application barrel, a deep
+    // import, a look-alike scope — only contracts, Result and the barrel
+    { code: 'import type { z } from "zod";', filename: DOMAIN, errors: [{ messageId: "packageInLayer" }] },
+    { code: 'import type { CreateNote } from "@example/project-management/application";', filename: FEATURE, errors: [{ messageId: "packageInLayer" }] },
+    { code: 'import type { Note } from "@example/project-management/domain/notes";', filename: FEATURE, errors: [{ messageId: "packageInLayer" }] },
+    { code: 'import type { Note } from "@example/domain";', filename: FEATURE, errors: [{ messageId: "packageInLayer" }] },
+    // every contract is bound, not just the layers: outside them an
+    // implementation, a '.js' twin and a workspace layer path are refused too
+    { code: 'import type { ProjectId } from "../../contexts/pm/src/domain/projects/project-id.ts";', filename: "src/readings/reading.contract.ts", errors: [{ messageId: "notAContract" }] },
+    { code: 'import type { Api } from "./api.js";', filename: "src/api/api.contract.ts", errors: [{ messageId: "jsSpecifier" }] },
+    { code: 'import type { CreateNote } from "@example/project-management/application";', filename: "src/api/api.contract.ts", errors: [{ messageId: "notAContract" }] },
+    { code: 'import type { Note } from "@example/project-management/domain/notes/note.ts";', filename: "src/api/api.contract.ts", errors: [{ messageId: "notAContract" }] },
+    // a support module is allowed only when the gate names it
+    { code: 'import type { Ack } from "./service-runtime.js";', filename: "src/api/api.contract.ts", errors: [{ messageId: "jsSpecifier" }] },
+    { code: 'import type { Ack } from "./service-runtime.js";', filename: DOMAIN, options: [{ supportModules: ["other-runtime"] }], errors: [{ messageId: "jsSpecifier" }] },
+    // ...and never inside the hexagonal layers, whose parsers accept contracts only
+    { code: 'import type { Ack } from "./service-runtime.ts";', filename: DOMAIN, options: [{ supportModules: ["service-runtime"] }], errors: [{ messageId: "notAContract" }] },
+    // import("…") type expressions reach any file without an import declaration
+    {
+      code: 'import type { Result } from "../shared/result.ts";\nexport interface NoteText {\n  readonly __brand: "NoteText";\n  owner(): import("../projects/project-id.ts").ProjectId;\n}\n',
+      filename: "contexts/pm/src/domain/notes/note-text.contract.ts",
+      errors: [{ messageId: "importType", data: { source: "../projects/project-id.ts" } }],
+    },
+    {
+      code: 'export interface CreateNoteInput { readonly text: import("../../../domain/notes/note-text.ts").NoteText }\n',
+      filename: "contexts/pm/src/application/notes/create-note/create-note.contract.ts",
+      errors: [{ messageId: "importType" }],
+    },
+    // even a contract, and even outside the layers
+    { code: 'export type Leak = import("./note-id.contract.ts").NoteId;', filename: "src/x/x.contract.ts", errors: [{ messageId: "importType" }] },
     // the barrel from inside the domain
     {
       code: 'import type { ProjectId } from "@example/project-management/domain";',

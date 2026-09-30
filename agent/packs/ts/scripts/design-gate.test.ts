@@ -117,10 +117,10 @@ const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 /** A contract that passes purity, scaffolds and typechecks. Its value object
- *  (Currency) lives in its own contract file, imported here from the
- *  implementation module — a value object may not share a file with the
- *  operations over it (value-objects-own-contract, ADR 2026-026). */
-const CLEAN_CONTRACT = `import type { Currency } from "../shared/currency.js";
+ *  (Currency) lives in its own contract file, imported from that contract —
+ *  a contract imports only other contracts (contract-imports-contracts-only,
+ *  ADR 2026-059). */
+const CLEAN_CONTRACT = `import type { Currency } from "../shared/currency.contract.ts";
 
 export interface Money {
   readonly currency: Currency;
