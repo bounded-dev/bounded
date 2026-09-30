@@ -1,5 +1,29 @@
 # Where we are, and what to keep
 
+## Now (2026-10-01): the hexagonal monorepo
+
+The harness builds TypeScript projects in the shape of a worked example: a Bun
+monorepo of bounded contexts and apps, hexagonal layers inside each context,
+tests beside the code (ADRs 2026-056 to 2026-064, TN-26-012). What the runs
+below proved still holds and is what the rework keeps:
+
+- **Blindness between tests and implementation** — now by file name rather
+  than by folder, so tests can sit beside the code.
+- **Deterministic gates and the guard log** — now also refusing drift in the
+  many files generated from contracts.
+- **The contract as the shared interface** — now in the example's
+  "contract owns the name" form, with the feature contract also carrying the
+  per-feature out ports whose order fixes the handler's constructor.
+
+What is new is how much no agent writes: in adapters, command files, barrels,
+config and law suites are generated, so the builder fills skeletons and wires
+composition roots. The next run (`docs/dogfood/pm-notes-prompt.md`) measures
+how close a blind run lands to the example's structure; the structure
+comparer in `scripts/dogfood/` is the ruler. [HANDOVER.md](HANDOVER.md) has
+the details and the known gaps.
+
+## Run 5 snapshot
+
 > **Historical snapshot — superseded.** Written after dogfood Run 5; the
 > numbers and conclusions below are that day's evidence, not the current
 > state. For where the harness stands now see the six-cell experiment

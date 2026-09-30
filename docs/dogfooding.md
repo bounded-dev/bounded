@@ -117,6 +117,36 @@ and then *verifies* both arms got byte-identical prompts and blocks, failing
 loudly if not. That check is the experiment: exactly one line may differ
 between arms, the one naming what the environment offers.
 
+### A run from `bounded init`, measured against a worked example
+
+The flat arm above (`src/`, `tests/`, npm, Vitest) predates the hexagonal
+monorepo (ADRs 2026-056 to 2026-064). A run of the current stack starts the
+way a real project does:
+
+```bash
+scripts/dogfood/reset --init claude-code --harnessed docs/dogfood/pm-notes-prompt.md
+```
+
+`--init <host>` builds arm 1 with `bounded init --host <host>` and its default
+selection, the whole stack, then commits that baseline. Open the host in the
+arm (its session is the team lead) and paste the rendered prompt.
+
+`pm-notes-prompt.md` is the product of a worked example, a projects-and-notes
+monorepo, stated as requirements only. After the run, compare the arm's
+structure with that example, kept as a local checkout outside this repository:
+
+```bash
+BOUNDED_EXAMPLE_PROJECT=<path-to-example> node scripts/dogfood/structure-compare.ts <arm>
+```
+
+The report lists file shapes whose counts differ, files one tree has and the
+other lacks (context name and migration names normalised), contracts whose
+exported names differ, and test levels present in one tree only. Harness
+artifacts, dependencies, lockfiles and build output are ignored. It exits 1 on
+any delta. `scripts/dogfood/archive` writes the same report to
+`.run/STRUCTURE.txt` (and `.run/structure.json`) when
+`BOUNDED_EXAMPLE_PROJECT` is set.
+
 ## Themes so far
 
 - **The skill survives weak readers.** Both Sonnet and Haiku found and
