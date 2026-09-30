@@ -13,7 +13,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  contextCopy, drizzleContexts, historyHashes, KIT_TIMEOUT_MS, kitBin, MIGRATIONS_DIR, runKit, withoutEmptyJournal,
+  contextCopy, drizzleContexts, generateArgs, historyHashes, KIT_TIMEOUT_MS, kitBin, MIGRATIONS_DIR, runKit, withoutEmptyJournal,
 } from "./check-db.ts";
 
 const JOURNAL = "meta/_journal.json";
@@ -33,7 +33,7 @@ export function generateMigrations(root: string, timeoutMs = KIT_TIMEOUT_MS): re
     contexts.forEach((context, i) => {
       const bin = kitBin(context, root);
       const copy = contextCopy(context, root, join(temp, String(i)));
-      const output = plain(runKit(bin, copy, "generate", process.env, context.dir, timeoutMs));
+      const output = plain(runKit(bin, copy, "generate", process.env, context.dir, timeoutMs, generateArgs(context)));
       const live = join(context.path, MIGRATIONS_DIR);
       const before = historyHashes(live);
       const after = historyHashes(join(copy, MIGRATIONS_DIR));

@@ -49,7 +49,7 @@ export class AmbiguousSchemaChange extends Error {
       `the schema change in ${context} is ambiguous: Drizzle Kit must ask whether a changed column or table is a ` +
         "rename or a drop-and-create, and there is no terminal to ask in. Nothing was generated. Make the change " +
         "unambiguous (add the new column or table in one generation and remove the old one in a later one), " +
-        `or escalate to the user, who runs \`bunx drizzle-kit generate\` in ${context} in a terminal, answers the ` +
+        `or escalate to the user, who runs \`bun run db:generate\` in ${context} in a terminal, answers the ` +
         "prompt, and commits the reviewed migration.",
     );
     this.name = "AmbiguousSchemaChange";
@@ -90,6 +90,18 @@ export function drizzleContexts(root: string): DrizzleContext[] {
   return out;
 }
 
+/**
+ * The name every generated migration of a context carries, so file names are
+ * deterministic: `0000_project_management.sql`, `0001_project_management.sql`.
+ * Drizzle Kit would otherwise pick a random one (`0000_mute_wong.sql`).
+ */
+export function migrationName(context: DrizzleContext): string {
+  return context.dir.slice(context.dir.lastIndexOf("/") + 1).replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+}
+
+/** `generate`'s extra arguments for a context. */
+export const generateArgs = (context: DrizzleContext): string[] => [`--name=${migrationName(context)}`];
+
 /** The Drizzle Kit entry the context resolves: its own dependency folder
  *  first (Bun's isolated installs), then the project root's. */
 export function kitBin(context: DrizzleContext, root: string): string {
@@ -109,8 +121,9 @@ export function kitBin(context: DrizzleContext, root: string): string {
  */
 export function runKit(
   bin: string, cwd: string, command: string, env: NodeJS.ProcessEnv, context: string, timeoutMs = KIT_TIMEOUT_MS,
+  extra: readonly string[] = [],
 ): string {
-  const run = spawnSync(process.execPath, [bin, command, `--config=${CONFIG_FILE}`], {
+  const run = spawnSync(process.execPath, [bin, command, `--config=${CONFIG_FILE}`, ...extra], {
     cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs,
   });
   const stdout = run.stdout ?? "";
@@ -183,7 +196,7 @@ function checkContext(context: DrizzleContext, root: string, timeoutMs: number):
   const temp = mkdtempSync(join(tmpdir(), "bounded-db-check-"));
   try {
     const copy = contextCopy(context, root, temp);
-    runKit(bin, copy, "generate", process.env, context.dir, timeoutMs);
+    runKit(bin, copy, "generate", process.env, context.dir, timeoutMs, generateArgs(context));
     // Read-only: prove nothing wrote the project's own history.
     if (!sameHistory(committed, historyHashes(history))) {
       return { verdict: "block", summary: `the check changed ${context.dir}/${MIGRATIONS_DIR}/` };
@@ -194,7 +207,7 @@ function checkContext(context: DrizzleContext, root: string, timeoutMs: number):
         verdict: "block",
         summary: `database schema and committed migrations differ in ${context.dir}`,
         detail: [`Regenerate ${context.dir}/${MIGRATIONS_DIR}/ from the schema (the architect's generate_artifacts gate, ` +
-          `or \`bunx drizzle-kit generate\` in ${context.dir} outside the harness), review the SQL, and commit it with its meta/ folder.`],
+          `or \`bun run db:generate\` in ${context.dir} outside the harness), review the SQL, and commit it with its meta/ folder.`],
       };
     }
     if (withoutEmptyJournal(history, committed).size > 0) runKit(bin, copy, "check", process.env, context.dir, timeoutMs);

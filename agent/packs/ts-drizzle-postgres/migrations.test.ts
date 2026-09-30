@@ -1,7 +1,8 @@
 // The migration generator, the read-only check and db:migrate, against the
 // pinned Drizzle Kit in temporary projects (no network, no database: the
 // dependencies are the harness's own, and neither generate nor check connects).
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,16 +51,15 @@ const history = (dir: string, context = PM): string[] => [...historyHashes(join(
 const renamed = EXAMPLE_SCHEMA["projects.ts"]!.replace('name: text("name")', 'title: text("title")');
 
 describe("generateMigrations (the golden test against the worked example)", () => {
-  test("the example's schema generates the example's first migration, apart from its random name", () => {
+  test("the example's schema generates the example's first migration, under a deterministic name", () => {
     const dir = project({ "project-management": EXAMPLE_AREAS });
     const lines = generateMigrations(dir);
     expect(lines[0]).toBe(`${PM}: migrations generated from the schema (3 file(s) written)`);
-    const files = history(dir);
-    expect(files).toHaveLength(3);
-    expect(files).toEqual(expect.arrayContaining(["meta/_journal.json", "meta/0000_snapshot.json"]));
-    const sql = files.find((f) => /^0000_[a-z]+(?:_[a-z]+)*\.sql$/.test(f));
-    expect(sql).toBeDefined();
-    expect(readFileSync(join(dir, PM, MIGRATIONS_DIR, sql!), "utf8")).toBe(EXAMPLE_FIRST_MIGRATION);
+    // The example's file is 0000_mute_wong.sql, a name Drizzle Kit drew at random.
+    expect(history(dir)).toEqual(["0000_project_management.sql", "meta/0000_snapshot.json", "meta/_journal.json"]);
+    expect(readFileSync(join(dir, PM, MIGRATIONS_DIR, "0000_project_management.sql"), "utf8")).toBe(EXAMPLE_FIRST_MIGRATION);
+    const journal = JSON.parse(readFileSync(join(dir, PM, MIGRATIONS_DIR, "meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(["0000_project_management"]);
   }, 60_000);
 
   test("the check then passes without writing, and an unchanged schema generates nothing", () => {
@@ -86,8 +86,8 @@ describe("generateMigrations (the golden test against the worked example)", () =
     generateMigrations(dir);
     const after = historyHashes(join(dir, PM, MIGRATIONS_DIR));
     for (const [name, hash] of before) if (name !== "meta/_journal.json") expect(after.get(name), name).toBe(hash);
-    const next = [...after.keys()].find((f) => f.startsWith("0001_") && f.endsWith(".sql"))!;
-    expect(readFileSync(join(dir, PM, MIGRATIONS_DIR, next), "utf8")).toContain('CREATE TABLE "project_management"."tags"');
+    expect([...after.keys()].filter((f) => f.endsWith(".sql"))).toEqual(["0000_project_management.sql", "0001_project_management.sql"]);
+    expect(readFileSync(join(dir, PM, MIGRATIONS_DIR, "0001_project_management.sql"), "utf8")).toContain('CREATE TABLE "project_management"."tags"');
     expect(runDatabaseCheck(dir).verdict).toBe("pass");
   }, 90_000);
 
@@ -106,7 +106,7 @@ describe("ambiguity and failure fail closed", () => {
     const before = historyHashes(join(dir, PM, MIGRATIONS_DIR));
     writeFileSync(join(dir, PM, SCHEMA_DIR, "projects.ts"), renamed);
     expect(() => generateMigrations(dir)).toThrow(AmbiguousSchemaChange);
-    expect(() => generateMigrations(dir)).toThrow(/ambiguous.*bunx drizzle-kit generate` in contexts\/project-management/s);
+    expect(() => generateMigrations(dir)).toThrow(/ambiguous.*bun run db:generate` in contexts\/project-management/s);
     expect(historyHashes(join(dir, PM, MIGRATIONS_DIR))).toEqual(before);
     const check = runDatabaseCheck(dir);
     expect(check.verdict).toBe("block");
@@ -169,6 +169,63 @@ describe("ambiguity and failure fail closed", () => {
     expect(runDatabaseCheck(none)).toEqual({ verdict: "pass", summary: "no context has Drizzle persistence" });
     expect(generateMigrations(none)).toEqual(["no context has Drizzle persistence; nothing to generate"]);
   }, 60_000);
+});
+
+describe("the shipped scripts under Bun, as a delivered project runs them", () => {
+  const bun = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0
+    ? undefined : "bun is not installed, so the shipped scripts cannot run under it here";
+  if (bun !== undefined) console.warn(`migrations: skipping the Bun runs: ${bun}`);
+
+  /** A generated project with the shipped scripts at scripts/. */
+  function shipped(): string {
+    const dir = project({ "project-management": EXAMPLE_AREAS });
+    generateMigrations(dir);
+    mkdirSync(join(dir, "scripts"));
+    for (const script of ["check-db.ts", "db-migrate.ts"]) cpSync(join(here, "scripts", script), join(dir, "scripts", script));
+    return dir;
+  }
+  const run = (dir: string, script: string) => {
+    const env = { ...process.env };
+    delete env.DATABASE_URL;
+    return spawnSync("bun", [`scripts/${script}`], { cwd: dir, env, encoding: "utf8", timeout: 120_000 });
+  };
+
+  test.skipIf(bun !== undefined)("check-db passes on migrations that match the schema, with nothing on stderr", () => {
+    const dir = shipped();
+    const before = historyHashes(join(dir, PM, MIGRATIONS_DIR));
+    const check = run(dir, "check-db.ts");
+    expect(check.stdout).toBe(`check-db: OK — database migrations match the schema in ${PM}\n`);
+    expect(check.stderr).toBe("");
+    expect(check.status).toBe(0);
+    expect(historyHashes(join(dir, PM, MIGRATIONS_DIR))).toEqual(before);
+  }, 120_000);
+
+  test.skipIf(bun !== undefined)("check-db blocks a schema change nobody generated, and an ambiguous one", () => {
+    const dir = shipped();
+    writeFileSync(join(dir, PM, SCHEMA_DIR, "tags.ts"), [
+      'import { uuid } from "drizzle-orm/pg-core";',
+      'import { projectManagement } from "./project-management.schema.ts";',
+      'export const tags = projectManagement.table("tags", { id: uuid("id").primaryKey() });',
+      "",
+    ].join("\n"));
+    const drifted = run(dir, "check-db.ts");
+    expect(drifted.stdout).toBe(`check-db: BLOCK — database schema and committed migrations differ in ${PM}\n`);
+    expect(drifted.stderr).toMatch(/^ {2}Regenerate contexts\/project-management\/src\/adapters\/out\/drizzle\/migrations\//);
+    expect(drifted.status).toBe(1);
+
+    rmSync(join(dir, PM, SCHEMA_DIR, "tags.ts"));
+    writeFileSync(join(dir, PM, SCHEMA_DIR, "projects.ts"), renamed);
+    const ambiguous = run(dir, "check-db.ts");
+    expect(ambiguous.stdout).toBe("check-db: BLOCK — database schema and committed migrations differ, ambiguously\n");
+    expect(ambiguous.stderr).toContain("bun run db:generate` in contexts/project-management");
+    expect(ambiguous.status).toBe(1);
+  }, 120_000);
+
+  test.skipIf(bun !== undefined)("db-migrate refuses without DATABASE_URL", () => {
+    const migrate = run(shipped(), "db-migrate.ts");
+    expect(migrate.stderr).toContain("db-migrate: DATABASE_URL is not set");
+    expect(migrate.status).toBe(1);
+  }, 120_000);
 });
 
 describe("runKit", () => {
