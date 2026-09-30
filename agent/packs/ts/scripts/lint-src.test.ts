@@ -171,18 +171,18 @@ describe("contributed rules reach the flat config", () => {
   // config; this checks the verdict.
   test("a contributed rule blocks real source through the src gate", async () => {
     const problems = await rules(
-      'import { ReportForm } from "../../features/submit-report/index.js";\n' +
-        "export const x = ReportForm;\n",
-      "src/ui/shared/ui/button.tsx",
+      'import { initTRPC } from "@trpc/server";\n' +
+        "export const t = initTRPC.create();\n",
+      "src/orders/api.ts",
     );
-    expect(problems).toContain("bounded-ts-web/fsd-downward-imports");
+    expect(problems).toContain("bounded-ts-trpc/raw-framework-entry");
   });
 
   test("and a contributed rule is silent on code that obeys it", async () => {
     const problems = await rules(
-      'import { useServiceClient } from "../../../shared/api/client.js";\n' +
-        "export const x = useServiceClient;\n",
-      "src/ui/entities/building/model/query.ts",
+      'import { fetchRequestHandler } from "@trpc/server/adapters/fetch";\n' +
+        "export const x = fetchRequestHandler;\n",
+      "src/orders/server.ts",
     );
     expect(problems).toEqual([]);
   });

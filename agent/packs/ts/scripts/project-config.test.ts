@@ -6,8 +6,6 @@ import { afterAll, describe, expect, test } from "vitest";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { applyInit, planInit } from "../../../src/project-init.ts";
-import { BUILD_COMMAND, CHECK_BUILD_SCRIPT } from "../../ts-web/scripts/build-check.ts";
-import { webAppPlan } from "../../ts-web/scripts/new-web-app.ts";
 import { runDeliver, SURFACE_SCRIPT } from "./deliver.ts";
 import { runDesignGate } from "./design-gate.ts";
 import { runGreenGate } from "./green-gate.ts";
@@ -18,7 +16,6 @@ import { runMutationScore } from "./mutation-score.ts";
 import { runTests, runTestsGate } from "./run-tests.ts";
 import { typecheck } from "./typecheck.ts";
 import { typecheckGate } from "./typecheck-gate.ts";
-import { renderScreenshot } from "../../ts-web/scripts/render-screenshot.ts";
 
 const agentRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const packsDir = join(agentRoot, "packs");
@@ -31,6 +28,9 @@ async function initialized(packs: readonly string[]): Promise<{ project: string;
   temporary.push(dirname(project));
   const plan = await planInit(project, "claude-code", packs);
   await applyInit(project, "claude-code", packs, plan.digest);
+  // The flat-layout gates still look for src/; the monorepo's initializers seed
+  // none (apps and contexts come from the design, ADR 2026-061).
+  mkdirSync(join(project, "src", "ui"), { recursive: true });
   return { project, harness: join(project, ".bounded", "harness") };
 }
 
@@ -59,7 +59,7 @@ describe("project config is generated from the composed packs (ADR 2026-054)", (
 
   test("an initialized project matches its packs exactly, judged by its own harness copy", async () => {
     tsOnly = generatedBySync(["ts"]);
-    service = await initialized(["ts-service"]);
+    service = await initialized(["ts-trpc"]);
     web = await initialized(["ts-web"]);
     for (const { project, harness } of [tsOnly, service, web]) {
       expect(configDrift(project, harness)).toEqual([]);
@@ -70,16 +70,12 @@ describe("project config is generated from the composed packs (ADR 2026-054)", (
   test("each composition generates its own files, and an uncomposed pack leaves no trace", () => {
     const surface = "scripts/surface-check.ts";
     expect(configFiles(tsOnly.project, tsOnly.harness)).toEqual(["package.json", surface, "tsconfig.json"]);
-    expect(configFiles(service.project, service.harness)).toEqual(["package.json", surface, "tsconfig.api.json", "tsconfig.json"]);
-    expect(configFiles(web.project, web.harness)).toEqual(["index.html", "package.json", surface, "tsconfig.json", "vite.config.ts"]);
+    expect(configFiles(service.project, service.harness)).toEqual(["package.json", surface, "tsconfig.json"]);
+    expect(configFiles(web.project, web.harness)).toEqual(["package.json", surface, "scripts/web-build-check.ts", "tsconfig.json"]);
     // The surface checker the generated check:surface runs is shipped at init,
     // byte-identical to the one delivery would ship.
     expect(readFileSync(join(service.project, surface), "utf8"))
       .toBe(readFileSync(join(packsDir, "ts", "scripts", "surface-check.ts"), "utf8"));
-    expect(existsSync(join(tsOnly.project, "vite.config.ts"))).toBe(false);
-    expect(existsSync(join(tsOnly.project, "tsconfig.api.json"))).toBe(false);
-    expect(existsSync(join(service.project, "index.html"))).toBe(false);
-    expect(existsSync(join(service.project, "vite.config.ts"))).toBe(false);
 
     const ts = pkgOf(tsOnly.project);
     expect(ts.scripts["check"]).toContain("npm run check:surface");
@@ -87,12 +83,11 @@ describe("project config is generated from the composed packs (ADR 2026-054)", (
     expect(ts.devDependencies["ts-morph"]).toBeDefined();
     expect(ts.dependencies["@trpc/server"]).toBeUndefined();
     expect(ts.dependencies["react"]).toBeUndefined();
-    expect(pkgOf(service.project).dependencies["@trpc/server"]).toBe("11.18.0");
     expect(pkgOf(service.project).scripts["check"]).not.toContain("check:build");
     const webPkg = pkgOf(web.project);
     expect(webPkg.scripts["check"]).toMatch(/npm run check:surface && npm run check:build$/);
-    expect(webPkg.dependencies["react"]).toBeDefined();
-    expect(webPkg.dependencies["@trpc/server"]).toBeUndefined();
+    // The web stack is the web app workspace's (its template manifest), not the root's.
+    expect(webPkg.dependencies["react"]).toBeUndefined();
   });
 
   test("a hand-edited manifest, compiler config or lockfile, and an extra test-runner config, are drift", () => {
@@ -142,18 +137,15 @@ describe("project config is generated from the composed packs (ADR 2026-054)", (
   test("sync writes the same manifest the initializer does", () => {
     const { project, harness } = web;
     rmSync(join(project, "package.json"));
-    rmSync(join(project, "vite.config.ts"));
-    expect(configDrift(project, harness).map((d) => d.path).sort()).toEqual(["package.json", "vite.config.ts"]);
+    expect(configDrift(project, harness).map((d) => d.path).sort()).toEqual(["package.json"]);
     expect(syncProjectConfig(project, harness).code).toBe(0);
     expect(configDrift(project, harness)).toEqual([]);
-    expect(readFileSync(join(project, "vite.config.ts"), "utf8"))
-      .toBe(webAppPlan({ routerSpecifier: undefined }).find((f) => f.path === "vite.config.ts")!.content);
   });
 });
 
 describe("bounded sync-config reinstalls through the composed setup commands", () => {
   test("a sync that changed config runs the packs' setup commands; an unchanged, installed one runs nothing", async () => {
-    const { project, harness } = await initialized(["ts-service"]);
+    const { project, harness } = await initialized(["ts-trpc"]);
     const ran: string[] = [];
     const run = (command: string, args: readonly string[], cwd: string): void => {
       ran.push([command, ...args].join(" "));
@@ -179,7 +171,7 @@ describe("bounded sync-config reinstalls through the composed setup commands", (
 
 describe("deliver never changes generated config", () => {
   test("a missing install or an unshipped checker is refused, not installed or written, and leaves no drift", async () => {
-    const { project, harness } = await initialized(["ts-service"]);
+    const { project, harness } = await initialized(["ts-trpc"]);
     const noRun = (): never => { throw new Error("deliver ran npm in a generated project"); };
     const missing = runDeliver(project, { run: noRun });
     expect(missing.code).toBe(1);
@@ -225,12 +217,6 @@ describe("every tool that spawns the test runner or type-checker refuses drifted
     const r = await runMutationScore(web.project, { runSuite: noSpawn });
     expect(r.code).toBe(1);
     expect(r.lines).toContain("mutation-score: route → orchestrator");
-  });
-
-  test("the web render refuses before building", async () => {
-    const r = await renderScreenshot(web.project, { run: noSpawn });
-    expect(r.code).toBe(2);
-    expect(r.lines).toContain("render-screenshot: route → orchestrator");
   });
 
   test("nested manifests and compiler configs are drift; installed dependencies' are not", () => {
@@ -301,17 +287,10 @@ describe("where the drift check does not apply", () => {
 
 describe("pack data mirrors what delivery and the generators write", () => {
   test("the generated manifest is already the delivered one", () => {
-    const pkg = packageFor(["ts", "ts-web"], packsDir);
+    const pkg = packageFor(["ts", "ts-hexagonal", "ts-trpc", "ts-web"], packsDir);
     expect(pkg.scripts!["check:surface"]).toBe(SURFACE_SCRIPT);
-    expect(pkg.scripts![CHECK_BUILD_SCRIPT]).toBe(BUILD_COMMAND);
+    expect(pkg.scripts!["check:build"]).toBe("bun scripts/web-build-check.ts");
     const harness = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as { devDependencies: Record<string, string> };
     expect(pkg.devDependencies!["ts-morph"]).toBe(harness.devDependencies["ts-morph"]);
-  });
-
-  test("ts-web's reference vite config and html entry are byte-identical to the generator's", () => {
-    for (const path of ["vite.config.ts", "index.html"]) {
-      expect(readFileSync(join(packsDir, "ts-web", "reference", path), "utf8"), path)
-        .toBe(webAppPlan({ routerSpecifier: undefined }).find((f) => f.path === path)!.content);
-    }
   });
 });

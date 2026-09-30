@@ -1,8 +1,10 @@
 {
-  "//": "The ts-web pack (TN-26-006): React/Vite/Tailwind/shadcn web frontends. Depends on the ts pack; contributes content to harness-core sockets (TN-26-005). This file is the DATA-only half of the pack's contributions \u2014 what a host must be able to read without executing pack code. Its CODE-bearing half (ESLint rules, the purity relaxation) rides the typed socket registry from packs/ts-web/pack.ts. componentReturnTypes feeds the scaffolder's skeleton-extension decision: a contract whose exported surface references one of these names declares a React component, so its skeleton is emitted as .tsx. A harness composed without this pack never scaffolds .tsx. specTechNouns feeds the phase gate's Intake check (ADR 2026-032): non-blessed web frameworks and styling systems. pins is the blessed web stack (ADR 2026-029), exact-pinned: the versions the harness itself runs, which packs/ts-web/pins.test.ts holds to the harness package.json so the two cannot drift. Deliver wiring for them is Phase C \u2014 recorded here now so the record exists before the consumer does. projectInitScripts are pack-relative script paths a harness host runs (node, target dir as argv) when scaffolding a project that composes this pack \u2014 the socket is the host's scaffold step; the content is this list.",
-  "//themeContract": "The contract between the generated component kit and the PROJECT-OWNED src/ui/theme.css (TN-26-006, 'Styling: anatomy enforced, identity free'). requiredThemeTokens are the token names the kit styles through: every one must stay defined, because an undefined token renders as an invisible element rather than an error. contrastPairs are [foreground, background] pairs the theme gate measures for WCAG AA contrast (4.5:1, normal text) \u2014 the freedom to pick any colours, fenced so it can never become an unreadable screen. Data, not code, so the gate reads what a project must satisfy without executing pack code, and a reader can see the whole contract in one file.",
+  "//": "The ts-web pack (ADR 2026-063): the web app of the hexagonal monorepo, served and bundled by Bun. This file is the DATA-only half of its contributions: what a host reads without executing pack code. workspaceTemplates.web is the app a TN declares as `apps/<name>: web`; its manifest pins the client stack exactly (ADR 2026-029), and packs/ts-web/pins.test.ts holds those pins to the versions the harness itself runs. The seed files are emitted from the design by the web-app emitter (pack.ts), because they name the hosted context. componentReturnTypes feeds the scaffolder's skeleton-extension decision: a contract whose surface references one of these names declares a React component, so its skeleton is .tsx. specTechNouns feeds the phase gate's Intake check (ADR 2026-032): web frameworks and styling systems the stack does not use.",
+  "//build": "check:build runs the shipped scripts/web-build-check.ts, which bundles the client page of every web app the design declares (TN workspaces maps) with Bun, so a client entry that does not resolve fails the project's own check (dogfood Run 29); with none declared it builds nothing and says so. projectCheckScripts folds it into check; projectShippedFiles ships the script at init.",
   "dependsOnPacks": [
-    "ts"
+    "ts",
+    "ts-hexagonal",
+    "ts-trpc"
   ],
   "componentReturnTypes": [
     "ReactElement",
@@ -18,6 +20,8 @@
     "nextjs",
     "nuxt",
     "remix",
+    "vite",
+    "webpack",
     "mui",
     "material-ui",
     "chakra",
@@ -27,66 +31,23 @@
     "styled-components",
     "emotion"
   ],
-  "requiredThemeTokens": [
-    "--color-background",
-    "--color-foreground",
-    "--color-muted",
-    "--color-muted-foreground",
-    "--color-primary",
-    "--color-primary-foreground",
-    "--color-destructive",
-    "--color-destructive-foreground",
-    "--color-border",
-    "--color-ring",
-    "--color-positive",
-    "--color-positive-foreground",
-    "--color-caution",
-    "--color-caution-foreground",
-    "--color-critical",
-    "--color-critical-foreground",
-    "--color-neutral",
-    "--color-neutral-foreground",
-    "--radius-card"
-  ],
-  "contrastPairs": [
-    ["--color-foreground", "--color-background"],
-    ["--color-muted-foreground", "--color-muted"],
-    ["--color-primary-foreground", "--color-primary"],
-    ["--color-destructive-foreground", "--color-destructive"],
-    ["--color-positive-foreground", "--color-positive"],
-    ["--color-caution-foreground", "--color-caution"],
-    ["--color-critical-foreground", "--color-critical"],
-    ["--color-neutral-foreground", "--color-neutral"]
-  ],
-  "pins": {
-    "dependencies": {
-      "@tanstack/react-query": "5.102.8",
-      "@trpc/client": "11.18.0",
-      "clsx": "2.1.1",
-      "react": "19.3.0",
-      "react-dom": "19.3.0",
-      "tailwind-merge": "3.7.0"
-    },
-    "devDependencies": {
-      "@tailwindcss/vite": "4.3.3",
-      "@testing-library/dom": "10.4.2",
-      "@testing-library/react": "16.3.3",
-      "@types/react": "19.3.0",
-      "@types/react-dom": "19.3.0",
-      "@vitejs/plugin-react": "6.1.1",
-      "jsdom": "30.0.1",
-      "tailwindcss": "4.3.3",
-      "vite": "8.3.0"
+  "workspaceTemplates": {
+    "web": {
+      "root": "apps",
+      "manifest": "templates/web/package.json",
+      "description": "A web app: src/server/main.ts serves the context's tRPC router at /trpc/* and src/client/index.html at / with Bun.serve; src/client/main.tsx is a React root with a typed tRPC client; src/server/composition-root.ts wires handlers and adapters."
     }
   },
-  "projectInitScripts": [
-    "scripts/new-web-app.ts"
-  ],
-  "//projectConfig": "Generated project config (ADR 2026-054). reference/vite.config.ts and reference/index.html are the exact files new-web-app.ts emits (pinned by a test); index.html is config because the bundler reads it from the root as the build entry, so projectConfigNames adds it to the drift check, shipped as data so the ts pack's drift check and config sync know its bytes without executing this pack. check:build is the build check deliver would otherwise fold into `check` (build-check.ts), generated into the manifest instead so delivery leaves it unchanged.",
-  "projectConfigFiles": ["reference/index.html", "reference/vite.config.ts"],
-  "projectConfigNames": ["index.html"],
   "projectScripts": {
-    "check:build": "vite build"
+    "check:build": "bun scripts/web-build-check.ts"
   },
-  "projectCheckScripts": ["check:build"]
+  "projectCheckScripts": [
+    "check:build"
+  ],
+  "projectInitScripts": [
+    "scripts/seed-apps.ts"
+  ],
+  "projectShippedFiles": {
+    "scripts/web-build-check.ts": "scripts/web-build-check.ts"
+  }
 }

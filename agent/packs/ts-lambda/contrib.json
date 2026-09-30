@@ -1,7 +1,28 @@
 {
-  "//": "The ts-lambda pack (ADR 2026-063): Lambda functions as in adapters, one per feature tagged @exposedVia lambda, and the Lambda app template bundled for a Node runtime. A stub until WI-7: it contributes nothing yet.",
+  "//": "The ts-lambda pack (ADR 2026-063): AWS Lambda handlers as an in adapter, and the Lambda app template. adapterTechnologies declares the `lambda` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/lambda/, the package export ./adapters/lambda and the feature role `lambda`. generatedFileGlobs write-protects that folder, every file of which is emitted from the feature contracts (TN-26-012 §6). workspaceTemplates.lambdas is the app a TN declares as `apps/<name>: lambdas`: one entry file per Lambda, bundled for Node with `bun build {{entries}} --target node` (the design's Lambda entries, TN-26-012 §10), because the Lambda runtime is Node (hence the no-bun-api lint).",
   "dependsOnPacks": [
     "ts",
     "ts-hexagonal"
+  ],
+  "adapterTechnologies": [
+    {
+      "id": "lambda",
+      "direction": "in",
+      "featureRole": "lambda",
+      "description": "One Lambda handler factory per feature tagged @exposedVia lambda, bundled for the Node runtime by the lambdas app"
+    }
+  ],
+  "generatedFileGlobs": [
+    "contexts/*/src/adapters/in/lambda/**"
+  ],
+  "workspaceTemplates": {
+    "lambdas": {
+      "root": "apps",
+      "manifest": "templates/lambdas/package.json",
+      "description": "A Lambda app: src/<feature>.ts per Lambda exports `handler`, built once per cold start from src/composition-root.ts; the build bundles exactly those entries for Node."
+    }
+  },
+  "projectInitScripts": [
+    "scripts/seed-apps.ts"
   ]
 }

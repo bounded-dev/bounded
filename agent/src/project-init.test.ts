@@ -47,31 +47,27 @@ describe("project-local initialization", () => {
     const target = empty();
     await expect(planInit(target, "pi", ["ts"])).rejects.toThrow(/cannot yet scaffold/);
     expect(existsSync(join(target, ".bounded"))).toBe(false);
-    const plan = await planInit(target, host, ["ts-web", "ts-service"]);
-    expect(plan.packs).toEqual(["ts", "ts-web", "ts-service"]);
-    expect(plan.createdFiles["src/api/.gitkeep"]).toBeDefined();
-    expect(plan.createdFiles["src/ui/main.tsx"]).toBeDefined();
-    await applyInit(target, host, ["ts-web", "ts-service"], plan.digest);
+    const plan = await planInit(target, host, ["ts-web", "ts-trpc"]);
+    expect(plan.packs).toEqual(["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
+    // Apps come from the design (ADR 2026-061); init seeds only the note saying so.
+    expect(plan.createdFiles["apps/README.md"]).toBeDefined();
+    await applyInit(target, host, ["ts-web", "ts-trpc"], plan.digest);
     const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { scripts: Record<string, string>; dependencies: Record<string, string> };
-    expect(pkg.dependencies["@trpc/server"]).toBe("11.18.0");
-    expect(pkg.scripts["build:api"]).toBeDefined();
     expect(pkg.scripts["check"]).toContain('--exclude="**/.bounded/**"');
     expect(pkg.scripts["test"]).toContain('--exclude="**/.bounded/**"');
-    expect(existsSync(join(target, "tsconfig.api.json"))).toBe(true);
-    expect(existsSync(join(target, ".bounded/harness/packs/ts-service"))).toBe(true);
+    expect(existsSync(join(target, ".bounded/harness/packs/ts-trpc"))).toBe(true);
   });
 
   test("plans a service-only project", async () => {
-    const plan = await planInit(empty(), "claude-code", ["ts-service"]);
-    expect(plan.packs).toEqual(["ts", "ts-service"]);
-    expect(plan.createdFiles["src/api/.gitkeep"]).toBeDefined();
-    expect(plan.createdFiles["src/ui/main.tsx"]).toBeUndefined();
+    const plan = await planInit(empty(), "claude-code", ["ts-trpc"]);
+    expect(plan.packs).toEqual(["ts", "ts-hexagonal", "ts-trpc"]);
+    expect(plan.createdFiles["apps/README.md"]).toBeDefined();
   });
 
   test.each(["pi", "claude-code"])("plans and installs only the %s host and selected packs", async (host) => {
     const target = empty();
     const plan = await planInit(target, host, ["ts-web"]);
-    expect(plan.packs).toEqual(["ts", "ts-web"]);
+    expect(plan.packs).toEqual(["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
     expect(plan.createdFiles["docs/tn/README.md"]).toBeDefined();
     expect(existsSync(join(target, ".bounded"))).toBe(false);
     await expect(applyInit(target, host, ["ts-web"], "0".repeat(64))).rejects.toThrow(/Plan changed/);
@@ -79,7 +75,7 @@ describe("project-local initialization", () => {
     const applied = await applyInit(target, host, ["ts-web"], plan.digest);
     expect(applied.digest).toBe(plan.digest);
     expect(statSync(join(target, ".bounded/harness/scripts/bounded")).mode & 0o111).not.toBe(0);
-    expect(existsSync(join(target, ".bounded/harness/packs/ts-service"))).toBe(false);
+    expect(existsSync(join(target, ".bounded/harness/packs/ts-mcp"))).toBe(false);
     expect(existsSync(join(target, ".bounded/harness/hosts", host))).toBe(true);
     expect(existsSync(join(target, ".bounded/harness/hosts", host === "pi" ? "claude-code" : "pi"))).toBe(false);
     expect(readFileSync(join(target, ".bounded/composed-packs.json"), "utf8")).toContain("ts-web");
@@ -132,7 +128,7 @@ describe("project-local initialization", () => {
     const target = empty();
     const plan = await planInit(target, "claude-code", ["ts-web"]);
     await applyInit(target, "claude-code", ["ts-web"], plan.digest);
-    writeFileSync(join(target, "src/ui/theme.css"), "/* my theme */\n");
+    writeFileSync(join(target, "apps/notes.md"), "my notes\n");
     writeFileSync(join(target, "README.md"), "my product\n");
     expect((await applyInit(target, "claude-code", ["ts-web"], plan.digest)).digest).toBe(plan.digest);
     writeFileSync(join(target, ".bounded/composed-packs.json"), "[]\n");

@@ -1,0 +1,11 @@
+{
+  "name": "@example/lambdas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/export-projects.ts --outdir dist --target node"
+  },
+  "dependencies": {
+    "@example/project-management": "workspace:*"
+  }
+}

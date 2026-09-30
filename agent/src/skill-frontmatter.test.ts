@@ -128,7 +128,7 @@ describe("skill frontmatter", () => {
 
   test("service guidance belongs to the optional service capability", () => {
     expect(skillFiles(join(PACKS_ROOT, "ts", "skills")).map((s) => s.name)).not.toContain("ts-api-service");
-    expect(skillFiles(join(PACKS_ROOT, "ts-service", "skills")).map((s) => s.name)).toContain("ts-api-service");
+    expect(skillFiles(join(PACKS_ROOT, "ts-trpc", "skills")).map((s) => s.name)).toContain("ts-api-service");
   });
 
   for (const { name, path } of SKILLS) {

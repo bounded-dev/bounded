@@ -809,18 +809,18 @@ describe("runDeliver: the real npm install (integration)", () => {
 
 describe("blessed stack pins", () => {
   const RUNTIME_STUB =
-    "// GENERATED from packs/ts-service/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\nexport const rt = true;\n";
+    "// GENERATED from packs/ts-trpc/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\nexport const rt = true;\n";
 
-  test("zod import and a shipped runtime pin and install both, as dependencies (ts-service composed)", () => {
+  test("zod import and a shipped runtime pin and install both, as dependencies (ts-trpc composed)", () => {
     const dir = proj({
       "src/values/values.ts":
         'import { z } from "zod";\nexport const schema = z.string();\n',
       "src/api/service-runtime.ts": RUNTIME_STUB,
     });
-    writeProjectPacks(dir, ["ts", "ts-service"]);
+    writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc"]);
     const npm = fakeNpm();
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
-    // ts-service's own delivery check blocks this router-less fixture later;
+    // ts-trpc's own delivery check blocks this router-less fixture later;
     // the pins step before it is what this test is about.
     expect(r.lines.some((l) => /stack-pins — pinned zod@[\d.]+, installed zod@/.test(l))).toBe(true);
     expect(r.lines.some((l) => /pinned @trpc\/server@[\d.]+/.test(l))).toBe(true);
@@ -880,107 +880,98 @@ describe("blessed stack pins", () => {
 // --- step 10: the checks other packs contribute (ADR 2026-033) ---------------
 //
 // The socket is read through the real composition, so these tests exercise the
-// wiring end to end: ts-web's `theme-check` is the one contribution installed
-// today, and it is keyed on the tree — a service fixture has no theme, and a
-// web fixture with a broken one stops the handover.
+// wiring end to end: ts-trpc's obligation is keyed on the tree (a generated
+// tRPC adapter), ts-web's on the web apps the design declares (TN workspaces),
+// and one missing a piece stops the handover.
+
+const WEB_MAIN =
+  'import { createTRPCClient, httpBatchLink } from "@trpc/client";\n' +
+  'import type { OrdersRouter } from "@example/orders/adapters/trpc";\n' +
+  'const api = createTRPCClient<OrdersRouter>({ links: [httpBatchLink({ url: "/trpc" })] });\n' +
+  "api.orders.list.query().then(console.log);\n";
+
+/** A composed web project's tree: the TN declaring the web app, the generated
+ *  tRPC barrel, and the web app's door with a typed client it uses. */
+function webFiles(): Record<string, string> {
+  return {
+    ".bounded/composed-packs.json": '["ts", "ts-hexagonal", "ts-trpc", "ts-web"]',
+    "docs/tn/TN-7.md": "---\nworkspaces:\n  apps/web: web\n---\n",
+    "contexts/orders/src/adapters/in/trpc/index.ts": "export {};\n",
+    "apps/web/src/client/index.html": '<script type="module" src="./main.tsx"></script>\n',
+    "apps/web/src/client/main.tsx": WEB_MAIN,
+    "apps/web/src/server/main.ts": "export {};\n",
+    "apps/web/src/server/composition-root.ts": "export {};\n",
+  };
+}
 
 describe("runDeliver: pack-contributed checks", () => {
   test("a contributed check runs, is named in its own line, and is never an applied step", () => {
     const dir = proj(webFiles());
     const r = deliver(dir);
     expect(r.code).toBe(0);
-    expect(r.lines.join("\n")).toContain("deliver: theme-check —");
+    expect(r.lines.join("\n")).toContain("deliver: trpc-obligation —");
+    expect(r.lines.join("\n")).toContain("deliver: web-obligation —");
     // read-only: a second delivery still reports zero steps applied
     expect(deliver(dir).lines.at(-1)).toBe("deliver: OK — 0 steps applied");
   });
 
-  // Keyed on the tree, like everything the web pack emits. A harness with
-  // ts-web composed still delivers pure services.
-  test("a project that is not a web target passes with nothing to check", () => {
+  test("a project that composed no pack with a check passes with nothing to check", () => {
     const r = deliver(proj());
     expect(r.lines.join("\n")).toContain("pack-checks — no composed pack contributes one");
   });
 
-  // The whole point of the socket: a claim about a file the PROJECT owns, which
-  // no lint rule and no gate in the pipeline can see. An incomplete theme
-  // renders elements with no colour at all and leaves every test green.
   test("a contributed check that blocks stops the delivery, with its detail lines", () => {
-    const dir = proj({ ...webFiles(), "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
+    const files = webFiles();
+    delete files["apps/web/src/client/main.tsx"];
+    const dir = proj(files);
     const r = deliver(dir);
     expect(r.code).toBe(1);
-    expect(r.lines.join("\n")).toContain("deliver: BLOCK — theme-check:");
-    expect(r.lines.join("\n")).toContain("is not defined");
+    expect(r.lines.join("\n")).toContain("deliver: BLOCK — web-obligation:");
+    expect(r.lines.join("\n")).toContain("apps/web/src/client/main.tsx");
     expect(readGuardLog(dir).some((e) => e.verdict === "block")).toBe(true);
+  });
+
+  // Dogfood Run 29: green and delivered, but the client imported a module
+  // nobody wrote. The web obligation resolves the client's imports statically.
+  test("a web client whose bootstrap does not build is BLOCKED (Run 29)", () => {
+    const dir = proj({ ...webFiles(), "apps/web/src/client/main.tsx": `import { App } from "./app.tsx";\n${WEB_MAIN}console.log(App);\n` });
+    const r = deliver(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("deliver: BLOCK — web-obligation:");
+    expect(r.lines.join("\n")).toContain('apps/web/src/client/main.tsx: "./app.tsx" does not resolve');
+  });
+
+  test("ts-web composed with no web app declared delivers, and says it checked nothing", () => {
+    const dir = proj({ ".bounded/composed-packs.json": '["ts", "ts-hexagonal", "ts-trpc", "ts-web"]',
+      "contexts/orders/src/adapters/in/trpc/index.ts": "export {};\n" });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.join("\n")).toContain("no web app is declared (TN workspaces) — nothing to check");
+  });
+
+  test("a desktop-only project meets no web obligation", () => {
+    const dir = proj({ ".bounded/composed-packs.json": '["ts", "ts-hexagonal", "ts-trpc", "ts-desktop"]',
+      "docs/tn/TN-7.md": "---\nworkspaces:\n  apps/desktop: desktop\n---\n",
+      "contexts/orders/src/adapters/in/trpc/index.ts": "export {};\n" });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.join("\n")).not.toContain("web-obligation");
   });
 
   // It runs AFTER the project's own check, so a red repo never reaches it —
   // the remedy is the same either way (fix it and re-run deliver), and the
   // block that matters is printed first.
   test("a red `npm run check` short-circuits it", () => {
-    const dir = proj({ ...webFiles(), "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
-    const r = deliver(dir, { check: { code: 1, stdout: "1 failed", stderr: "" } });
+    const files = webFiles();
+    delete files["apps/web/src/client/main.tsx"];
+    const r = deliver(proj(files), { check: { code: 1, stdout: "1 failed", stderr: "" } });
     expect(r.code).toBe(1);
     expect(r.lines.join("\n")).toContain("npm run check` is RED");
-    expect(r.lines.join("\n")).not.toContain("theme-check");
+    expect(r.lines.join("\n")).not.toContain("web-obligation");
   });
 });
 
-// --- Fix 2: the composed web stack's build is part of the definition of done -
-//
-// Dogfood Run 29 Arm 1 shipped "green + delivered" for an app that did not
-// build: main.tsx imported an app.tsx nobody wrote, yet `npm run check` passed
-// because check's scope never reached the web bootstrap. ts-web's build-check
-// closes it two ways at once — an immediate block at delivery when the
-// bootstrap does not resolve, and `check:build` (`vite build`) folded into the
-// project's own check so the shipped repo carries the build forever.
-
-/** The generated browser entry: mounts <App/> from ./app.js, pulls in ./app.css. */
-function webFiles(): Record<string, string> {
-  return {
-    ".bounded/composed-packs.json": '["ts", "ts-web"]',
-    "src/ui/main.tsx": 'import "./app.js";',
-    "src/ui/app.tsx": 'export { Page as App } from "./pages/page.js";',
-    "src/ui/pages/page.tsx": 'import "../../orders/orders.js"; export function Page() { return null; }',
-  };
-}
-
-const MAIN_TSX = `import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { App } from "./app.js";
-import "./app.css";
-
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
-`;
-
-describe("runDeliver: the composed web build (Run 29)", () => {
-  test("a web app whose bootstrap does not build is BLOCKED by deliver", () => {
-    // main.tsx imports a missing app module — the Run 29 Arm 1 shape.
-    const dir = proj({ ...webFiles(), "src/ui/main.tsx": MAIN_TSX, "src/ui/app.css": "body{}" });
-    rmSync(join(dir, "src/ui/app.tsx"));
-    const r = deliver(dir);
-    expect(r.code).toBe(1);
-    expect(r.lines.join("\n")).toContain("deliver: BLOCK — web-obligation:");
-    expect(r.lines.join("\n")).toContain("./app.js");
-    expect(readGuardLog(dir).some((e) => e.verdict === "block")).toBe(true);
-  });
-
-  test("a building web app passes, and check:build is folded into check", () => {
-    const dir = proj({
-      ...webFiles(),
-      "src/ui/main.tsx": MAIN_TSX,
-      "src/ui/app.tsx": 'export { Page as App } from "./pages/page.js";',
-      "src/ui/app.css": "body{}",
-    });
-    const r = deliver(dir);
-    expect(r.code).toBe(0);
-    expect(r.lines.join("\n")).toContain("deliver: build-check —");
-    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    expect(pkg.scripts["check:build"]).toBe("vite build");
-    expect(pkg.scripts.check).toContain("npm run check:build");
-    // Idempotent: a second delivery folds nothing again and applies no steps.
-    expect(deliver(dir).lines.at(-1)).toBe("deliver: OK — 0 steps applied");
-  });
-
+describe("runDeliver: folded check scripts", () => {
   // Keyed on the tree: a pure service composed under the same harness gets no
   // build folded into its check and nothing to build.
   test("a service (no bootstrap) folds no build script and passes build-check", () => {

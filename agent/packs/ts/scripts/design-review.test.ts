@@ -84,13 +84,13 @@ describe("readReviewed", () => {
     writeProjectPacks(dir, ["ts"]);
     expect(runRecordDesignReview(dir, [])).toMatchObject({ code: 0 });
     const events = readGuardLog(dir);
-    writeProjectPacks(dir, ["ts", "ts-web"]);
+    writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
     const current = readReviewed(dir);
     expect(current.ok).toBe(true);
     if (!current.ok) return;
     expect(classifyReviewFreshness(events, current.reviewed)).toMatchObject({
       state: "stale",
-      added: ["composition:ts-web"],
+      added: ["composition:ts-hexagonal", "composition:ts-trpc", "composition:ts-web"],
     });
   });
 

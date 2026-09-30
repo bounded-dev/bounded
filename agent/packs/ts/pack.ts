@@ -378,6 +378,10 @@ export interface EmittedFile {
   /** Exact file text, ending with a newline. */
   readonly content: string;
   readonly mode: EmitMode;
+  /** A build entry point of its workspace: the workspace generator lists
+   *  every such file in the manifest template's `{{entries}}` (TN-26-012 §10),
+   *  e.g. one per Lambda. Absent for every other file. */
+  readonly entry?: true;
 }
 
 /** A design contract file as it stands on disk. */
@@ -464,6 +468,7 @@ export function emittedFileProblem(file: EmittedFile, emitter: string): string |
     return `emitter '${emitter}' produced '${file.path}' with mode '${String(file.mode)}'`;
   }
   if (!file.content.endsWith("\n")) return `emitter '${emitter}' produced '${file.path}' without a final newline`;
+  if (file.entry !== undefined && file.entry !== true) return `emitter '${emitter}' produced '${file.path}' with entry '${String(file.entry)}'`;
   return undefined;
 }
 

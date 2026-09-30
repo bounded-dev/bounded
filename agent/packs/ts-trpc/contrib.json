@@ -1,0 +1,26 @@
+{
+  "//": "The ts-trpc pack (ADR 2026-063, formerly ts-service): tRPC as an in adapter. adapterTechnologies declares the `trpc` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/trpc/, the package export ./adapters/trpc and the feature role `procedure`; a context whose tree has that folder takes its pins. generatedFileGlobs write-protects the whole folder: every file in it is emitted from the feature contracts (TN-26-012 §6).",
+  "dependsOnPacks": [
+    "ts",
+    "ts-hexagonal"
+  ],
+  "adapterTechnologies": [
+    {
+      "id": "trpc",
+      "direction": "in",
+      "featureRole": "procedure",
+      "description": "tRPC procedures, one router per area and one per context, generated from the features tagged @exposedVia trpc",
+      "pins": {
+        "dependencies": {
+          "@trpc/server": "11.18.0"
+        }
+      }
+    }
+  ],
+  "generatedFileGlobs": [
+    "contexts/*/src/adapters/in/trpc/**"
+  ],
+  "projectInitScripts": [
+    "scripts/seed-apps.ts"
+  ]
+}

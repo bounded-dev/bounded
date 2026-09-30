@@ -1,0 +1,19 @@
+{
+  "name": "@example/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/server/main.ts"
+  },
+  "dependencies": {
+    "@example/project-management": "workspace:*",
+    "@trpc/client": "^11",
+    "@trpc/server": "^11",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
+  }
+}

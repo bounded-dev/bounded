@@ -23,8 +23,7 @@ describe("the harness's own composition", () => {
 
   test("composes ts before every pack that declares the edge to it", () => {
     expect(installedPacks().packs).toEqual([
-      TS_PACK, "ts-hexagonal", "ts-desktop", TS_DRIZZLE_POSTGRES_PACK, "ts-lambda", "ts-mcp",
-      "ts-service", TS_WEB_PACK,
+      TS_PACK, "ts-hexagonal", "ts-trpc", "ts-desktop", TS_DRIZZLE_POSTGRES_PACK, "ts-lambda", "ts-mcp", TS_WEB_PACK,
     ]);
   });
 
@@ -106,7 +105,7 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
   });
 
   test("the rework's stub packs compose, and contribute nothing yet", () => {
-    const stubs = ["ts-hexagonal", "ts-mcp", "ts-lambda", "ts-desktop"];
+    const stubs = ["ts-hexagonal"];
     const registry = composePacks(INSTALLED_PACKS, [TS_PACK, ...stubs]);
     expect(registry.read(skeletonEmitters)).toEqual([]);
     for (const name of stubs) {
@@ -117,10 +116,24 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
     expect(() => composePacks(INSTALLED_PACKS, [TS_PACK, "ts-mcp"])).toThrow(/depends on pack 'ts-hexagonal'/);
   });
 
+  test("the adapter and app packs each contribute their emitters (ADR 2026-063)", () => {
+    const emitters = (packs: readonly string[]) => composePacks(INSTALLED_PACKS, packs).read(skeletonEmitters).map((e) => e.name);
+    const base = [TS_PACK, "ts-hexagonal"];
+    expect(emitters([...base, "ts-trpc"])).toEqual(["trpc-in-adapter"]);
+    expect(emitters([...base, "ts-mcp"])).toEqual(["mcp-in-adapter", "mcp-app"]);
+    expect(emitters([...base, "ts-lambda"])).toEqual(["lambda-in-adapter", "lambda-app"]);
+    expect(emitters([...base, "ts-trpc", TS_WEB_PACK])).toEqual(["trpc-in-adapter", "web-app"]);
+    // A desktop app hosts the router without being a web app: no web pack, no web obligation.
+    expect(emitters([...base, "ts-trpc", "ts-desktop"])).toEqual(["trpc-in-adapter", "desktop-app"]);
+    expect(composePacks(INSTALLED_PACKS, [...base, "ts-trpc", "ts-desktop"]).read(deliverChecks).map((c) => c.name))
+      .toEqual(["trpc-obligation"]);
+    expect(() => composePacks(INSTALLED_PACKS, [...base, "ts-desktop"])).toThrow(/depends on pack 'ts-trpc'/);
+  });
+
   test("the migration generator exists only where ts-drizzle-postgres is composed", () => {
     const names = (packs: readonly string[]) => composePacks(INSTALLED_PACKS, packs).read(artifactGenerators).map((g) => g.name);
     const postgres = [TS_PACK, "ts-hexagonal", TS_DRIZZLE_POSTGRES_PACK];
-    expect(names([TS_PACK, "ts-service", TS_WEB_PACK])).toEqual([]);
+    expect(names([TS_PACK, "ts-hexagonal", "ts-trpc", TS_WEB_PACK])).toEqual([]);
     expect(names(postgres)).toEqual(["database-migration"]);
     // It contributes no delivery check: its check rides the project's own `check`.
     expect(composePacks(INSTALLED_PACKS, postgres).read(deliverChecks)).toEqual([]);
