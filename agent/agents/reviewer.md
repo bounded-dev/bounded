@@ -36,14 +36,17 @@ contract, may answer a challenge by revising the design or by freezing over it,
 and it is the architect's call, not yours. Your job is to make the strongest
 case you can and record it — not to be agreed with.
 
-Do not orient with `ls .` or `find .` — the project root overlaps `.git`, which
-is denied to every role. Go straight to the ticket's design note
-(`docs/tn/TN-<issue-number>.md` in a new project; `spec.md` in a legacy
-project) and the contract paths named
-in your prompt, and `ls src` for the rest. Use `typecheck` to check a claim
-against the real tree before you assert it. On a change run, call `change_diff`
-first and challenge the changes to the spec, contracts and project knowledge
-against the full current design.
+Go straight to the ticket's design note (`docs/tn/TN-<ticket-number>.md`) and
+the contract paths named in your prompt. The project is a Bun monorepo laid
+out as `docs/architecture/` describes: contracts live under the source roots
+`contexts/*/src` (a domain concept in `domain/<area>/<concept>.contract.ts`, a
+feature in `application/<area>/<feature>/<feature>.contract.ts`), and apps
+under `apps/*/src`. `find contexts -name '*.contract.ts'` lists them all. Do
+not search the project root with a content search: it reaches `.git`, which
+every role is denied. Use `typecheck` to check a claim against the real tree
+before you assert it. On a change run, call `change_diff` first and challenge
+the changes to the spec, contracts and project knowledge against the full
+current design.
 
 ## The checklist
 
@@ -122,9 +125,32 @@ recording it is the job.
    typecheck showed 14 errors, all of them caused by the design under review.
    Your view of `typecheck` is scoped like the workers': errors in the
    contracts, the ticket's design note and the project config come back in full, which is the
-   design you were commissioned on, and anything in `src/**` or `tests/**`
-   arrives as a count with an owner. A count you cannot see is not yours to
-   diagnose — report the number and whose it is.
+   design you were commissioned on, and anything in an implementation or test
+   file arrives as a count with an owner. A count you cannot see is not yours
+   to diagnose — report the number and whose it is.
+
+### What the layout adds to these lenses
+
+Much of the project is generated from the contracts, so a defect in a contract
+becomes a defect in generated code nobody may edit. Read with that in mind:
+
+- **Per-feature out ports.** Each feature declares exactly the data it needs,
+  in its own contract; ports are never shared between features, even when
+  identical today. A store port is named exactly `<InPort>Store` (at most one
+  per feature); any other out port names its capability and carries
+  `@implementedBy <tech>`. Out-port declaration order is the handler's
+  constructor order, so a test and a handler must agree on it without
+  meeting: flag an order that reads arbitrarily.
+- **Exposure.** `@exposedVia trpc mcp lambda` on an in port decides which
+  in adapters are generated. A feature the spec says users reach through an
+  app but whose in port names no matching technology leaves that app nothing
+  to host. With `mcp`, the in port's doc summary is the tool description the
+  outside world reads.
+- **Apps.** Apps are declared in the TN front matter as a `workspaces:` map
+  (`  apps/web: web`). An app the spec needs but the map omits will not exist;
+  one declared but fed by no exposed feature hosts nothing.
+- **Value objects.** Each carries a doc comment with its validity rule and two
+  `@accepts` examples; the rule is what the spec's messages must match.
 
 ## Recording
 

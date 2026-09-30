@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { contributedSrcRuleIds, SRC_RULE_IDS, TEST_RULE_IDS } from "../packs/ts/scripts/lint-src.ts";
@@ -178,5 +178,90 @@ describe("the gate roster and the brief that drives it agree", () => {
   test("both briefs say the findings are the architect's to settle", () => {
     expect(architect).toMatch(/claims for you to settle|you settle/);
     expect(developerStage).toMatch(/claims, not verdicts/);
+  });
+});
+
+// The layout and toolchain the briefs describe must be the ones the gates
+// enforce (ADRs 2026-056 to 2026-064). A brief that still says `tests/**`, or
+// tells a builder to run Vitest, teaches a world the path gate refuses: every
+// sentence of it is a bounce waiting to happen.
+describe("the role docs describe the monorepo the gates enforce", () => {
+  const packsDir = join(import.meta.dirname, "..", "packs");
+  const packSkills = readdirSync(packsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(packsDir, entry.name, "skills")))
+    .flatMap((pack) => {
+      const skills = join(packsDir, pack.name, "skills");
+      return readdirSync(skills).map((skill) => join(skills, skill, "SKILL.md")).filter((path) => existsSync(path));
+    });
+  const teamLead = readFileSync(join(import.meta.dirname, "..", "skills", "team-lead", "SKILL.md"), "utf8");
+  const roleDocs: Readonly<Record<string, string>> = {
+    "builder.md": builder,
+    "test-writer.md": testWriter,
+    "architect.md": architect,
+    "reviewer.md": reviewer,
+    "developer-stage/SKILL.md": developerStage,
+    "team-lead/SKILL.md": teamLead,
+    ...Object.fromEntries(packSkills.map((path) => [path.slice(packsDir.length + 1), readFileSync(path, "utf8")])),
+  };
+
+  test("the pack skills are found (the scan is not empty)", () => {
+    expect(packSkills.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test.each(Object.keys(roleDocs))("%s names no retired layout or toolchain", (name) => {
+    // `src/**` as the project's one root, not a workspace's (`apps/<app>/src/**`).
+    const retired = /(?<![/\w])src\/\*\*|tests\/|\bvitest\b|\bnpm (?:run|ci|install)\b|\bFSD\b|\btheme\b|sqlite/i;
+    const hit = roleDocs[name]!.split("\n").find((line) => retired.test(line));
+    expect(hit, `${name}: ${hit}`).toBeUndefined();
+  });
+
+  test("the builder is told test names are visible and test contents are not", () => {
+    expect(builder).toMatch(/list and find any file/);
+    expect(builder).toMatch(/never read a test file/);
+  });
+
+  test("the builder is told the legal grep globs, and why the tempting ones are refused", () => {
+    expect(builder).toContain("`*.handler.ts`");
+    expect(builder).toContain("`!*.test.ts` on its own");
+    expect(builder).toMatch(/comma or a space/);
+  });
+
+  test("the test-writer is told its legal grep globs", () => {
+    expect(testWriter).toContain("`*.test.ts`");
+    expect(testWriter).toMatch(/comma or a space/);
+  });
+
+  test("every writing role is told no role edits a generated file", () => {
+    for (const [name, doc] of [["builder.md", builder], ["test-writer.md", testWriter], ["architect.md", architect]] as const) {
+      expect(doc, name).toMatch(/no role\s+edits\s+(?:them|a generated file)/i);
+    }
+  });
+
+  test("the architect is told the tags, the workspaces map and the out-port order", () => {
+    for (const tag of ["@exposedVia", "@implementedBy", "@accepts", "workspaces:"]) expect(architect).toContain(tag);
+    expect(architect).toMatch(/handler's\s+constructor order/);
+  });
+
+  test("the workers are told the handler and store constructor conventions", () => {
+    for (const doc of [builder, testWriter]) {
+      expect(doc).toMatch(/InMemoryDatabase/);
+      expect(doc).toMatch(/in the order the\s+contract\s+declares them/);
+    }
+    expect(builder).toContain("constructor(private readonly db: <Tech>Database)");
+  });
+
+  test("the test levels and the container-runtime rule reach every role that meets them", () => {
+    expect(testWriter).toContain("*.test-support.ts");
+    expect(testWriter).toMatch(/composition-root\.test\.ts/);
+    for (const [name, doc] of [["builder.md", builder], ["test-writer.md", testWriter], ["architect.md", architect],
+      ["developer-stage/SKILL.md", developerStage], ["team-lead/SKILL.md", teamLead]] as const) {
+      expect(doc, name).toMatch(/Docker/);
+    }
+  });
+
+  test("the commands named are Bun's", () => {
+    expect(architect).toContain("bun run check");
+    expect(developerStage).toContain("bun run check");
+    expect(builder).toContain("bunx tsc -p tsconfig.json");
   });
 });

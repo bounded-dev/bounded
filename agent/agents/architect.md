@@ -124,9 +124,10 @@ follow that one:
 
   If a section could be deleted and a competent implementer would still write
   the same code, delete it.
-- **Use the `ts-contract-authoring` skill.** It defines the declaration-only
-  vocabulary, the ports-for-side-effects rule, the value-object rule, and the
-  fixed naming rule (`foo.contract.ts` → sibling `foo.ts`). Follow it; the
+- **Use the `ts-contract-authoring` and `ts-hexagonal` skills.** The first
+  defines the contract vocabulary (the contract owns the name, `Result`,
+  value objects, identifiers, entities); the second the layout, the feature
+  contract grammar, the tags and the names you never choose. Follow them; a
   contract must lint clean, scaffold, and typecheck.
 - **Design deep modules: small interface, substantial implementation.** Depth
   is leverage — how much behavior a caller (or the test-writer) can exercise
@@ -184,11 +185,11 @@ follow that one:
   a contract. Model variants as discriminated unions, capability as a small
   interface, and reuse by delegation. An abstract base class in a domain model
   is nearly always a union wearing a costume.
-- **Push decisions to the edges, keep the middle pure.** Hexagonal, clean,
-  ports-and-adapters — the label matters less than the property: the domain is
-  a pure function of its inputs, and everything that touches the world is a
-  port declared in the contract and injected. Follow whatever convention the
-  project already uses; consistency beats your preference.
+- **Push decisions to the edges, keep the middle pure.** The domain is a pure
+  function of its inputs, and everything that touches the world is an out
+  port declared in the feature's contract and injected into its handler. The
+  project's `docs/architecture/` is the rulebook; consistency with it beats
+  your preference.
 - **Value objects, not primitives.** A naked `string`/`number` on the exported
   surface is a gate failure, not a style note: `isbn: Isbn`, not `isbn: string`.
   Encode cardinality too — "one or more" is `readonly [T, ...T[]]`, never `T[]`.
@@ -198,6 +199,89 @@ follow that one:
 - **Never implement and never write tests.** Skeletons are machine-generated
   from your contract by the scaffolder inside `design_gate`; tests are the
   test-writer's job. Your output is the shape both blind roles code against.
+
+## The project you design in
+
+A TypeScript project here is a Bun monorepo in the shape of its own
+`docs/architecture/` (start at `README.md`; TN-26-012 is the harness's
+version of the same conventions). One package per bounded context under
+`contexts/<context>/`, one per app under `apps/<app>/`, and code only under
+the source roots `contexts/*/src` and `apps/*/src`. You write contracts and
+the TN; everything else is written by a generator or a worker.
+
+- **Where contracts go.** A domain concept is
+  `contexts/<context>/src/domain/<area>/<concept>.contract.ts`. A feature is
+  `contexts/<context>/src/application/<area>/<feature>/<feature>.contract.ts`,
+  holding, in this order: one `import type { … }` from the domain barrel
+  `@<scope>/<context>/domain`; the `<InPort>Input`, `<InPort>Command` and
+  `<InPort>CommandFactory` (all three, or none for a feature without input);
+  the in port with its one `execute`; then the feature's own out ports. The
+  scope is the project's directory name (`@<project-dir>`). The
+  `ts-hexagonal` skill has the exact grammar; its parser refuses anything
+  else and names the fix.
+- **Out ports are per feature.** Each feature declares exactly the data it
+  needs, in its own words, and never shares a port with another feature, even
+  an identical one. The store port is exactly `<InPort>Store`, at most one per
+  feature. Any other port names its capability (`ProjectExporter`) and never
+  ends in `Store`. **The order you declare out ports in is the handler's
+  constructor order**: the test-writer builds `new <InPort>Handler(store,
+  exporter)` from it and the builder receives the same skeleton, without
+  meeting.
+- **Tags drive generation.** In the `/** … */` block directly above the
+  interface:
+  - `@exposedVia trpc mcp lambda` on an in port names the in adapters to
+    generate for the feature (only composed technologies). With `mcp`, the
+    block's first line is required: it is the tool's description.
+  - `@implementedBy console` is required on every out port that is not the
+    store, naming the technology that implements it. A store gets one
+    implementation per composed storage technology, without a tag.
+  - `@accepts "<example>"` (two per value object, one per line) gives the
+    generated laws their valid samples.
+  A near-miss tag (`@exposedvia`, a tag in a `//` comment) is refused, never
+  ignored.
+- **Apps are a design decision in the TN.** Declare each app in the ticket
+  TN's front matter as a `workspaces:` map, block form only:
+
+  ```yaml
+  workspaces:
+    apps/web: web
+    apps/mcp: mcp
+    apps/lambdas: lambdas
+    apps/desktop: desktop
+  ```
+
+  The value is an app kind a composed pack provides (`web`, `mcp`,
+  `lambdas`, `desktop`). Contexts are never declared: they come from contract
+  paths. The design gate seeds each app's entry files and its
+  `composition-root.ts` skeleton, and the config sync writes its manifest.
+- **Generated and skeleton files.** From your contracts the design gate
+  generates the domain and application barrels, `domain/shared/result.ts`,
+  each `<feature>.command.ts` (its zod wire schema and its parse), every file
+  under `adapters/in/<tech>/`, every out-adapter barrel, the Drizzle
+  config and schema namespace, and the law suites (`*.laws.test.ts`). No role
+  edits a generated file, you included: change the contract instead. It also
+  writes **skeletons** once — each `<concept>.ts`, `<feature>.handler.ts`,
+  store, out adapter, `<tech>-database.ts` for in-memory, Drizzle table file
+  and app composition root — which the builder then owns.
+- **The test levels are fixed (ADR 2026-063).** Domain unit tests per
+  concept; a handler test per feature with fakes of its out ports; a store
+  conformance suite per feature (`<feature>.store.test-support.ts`) run by a
+  store test per storage technology; a test per other out adapter; generated
+  laws for in adapters; one smoke test per app against its composition root,
+  run at green only. The obligations gate checks each level exists.
+- **Store tests need a container runtime at green (ADR 2026-064).** Postgres
+  store tests run against a real database through Docker. Red skips them with
+  the reason logged when none is running; green refuses while they exist and
+  no container runtime answers. A project with stores can be delivered only
+  on a machine where Docker runs; say so to the user rather than hoping.
+- **Commands are Bun's.** The project checks with `bun run check`, tests with
+  `bun test` and typechecks with `bunx tsc -p tsconfig.json`. None of them is
+  yours to run by hand; the gates run them.
+
+When you commission the workers, point each at the harness's
+`packs/ts-hexagonal/reference/` (the worked example, a test at every level)
+and at `packs/ts-hexagonal/skills/ts-hexagonal/SKILL.md`, whose sections are
+written per role. They are readable by both and widen no zone.
 
 ## The gates that watch your contracts — write to pass them the FIRST time
 
@@ -356,11 +440,12 @@ not an anomaly.
 Order is enforced too, and it binds to both halves of what the red proved.
 `green_gate` refuses unless a `red_gate` pass exists AFTER the most recent
 freeze, AND that pass ran against the tests as they stand now — the red records
-a hash of the `tests/` tree, and a test edited afterwards is a test nothing has
-proven can fail. So revising a contract voids the red, and so does repairing a
-test. Re-establishing it is not optional, and it is cheap: `red_gate` builds
-its own shadow project from the contracts and the tests, so it neither needs
-nor touches `src/`, and the builder keeps working while it runs. That is what
+a hash of every test file under the source roots, and a test edited afterwards
+is a test nothing has proven can fail. So revising a contract voids the red,
+and so does repairing a test. Re-establishing it is not optional, and it is
+cheap: `red_gate` builds its own shadow project from the contracts, the
+generated files and the tests, so it neither needs nor touches an
+implementation file, and the builder keeps working while it runs. That is what
 makes the test-writer and the builder genuinely parallel — commission both once
 the freeze lands, in either order, and gate each as it returns.
 
@@ -372,7 +457,7 @@ workers and the reviewer get a view scoped to their role: errors in their own
 zone and in the shared interface — contracts, the ticket's design note, the project config —
 in full, and everything else collapsed to a count plus the owning role, with no
 path, no line and no symbol name. That closes the last hole in the blindness
-`run_tests` and the path gate build: in r15 a builder read a `tests/**`
+`run_tests` and the path gate build: in r15 a builder read a test file's
 diagnostic out of its own typecheck, reasoned about what the tests must want,
 and shipped a re-export nothing had asked it for. Two consequences for you.
 When you route a type error, the target may be unable to see the thing you are
@@ -391,7 +476,7 @@ that the client actually uses; with none declared it checks nothing. A package s
 never used by the design cannot satisfy them.
 
 **`deliver` can block on a check a PACK contributed** (ADR 2026-033), after the
-project's own `npm run check` has passed: the obligations above are such
+project's own `bun run check` has passed: the obligations above are such
 checks. The message names the pack and what is missing.
 
 **Waiting is `sleep`, never a gate.** Use `subagent_wait` to block on a child;
