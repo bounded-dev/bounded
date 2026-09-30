@@ -373,7 +373,7 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
         allowed = allowWith({ ...payload.toolInput, model: hostModel });
       }
     }
-    const blocked = evaluatePathGate({ role, toolName: call.toolName, input: call.input, cwd, harnessRoot });
+    const blocked = evaluatePathGate({ role, toolName: call.toolName, input: call.input, cwd, harnessRoot, host: "claude-code" });
     if (blocked !== undefined) return deny(blocked.reason);
   }
   return allowed;
