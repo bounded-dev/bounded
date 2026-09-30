@@ -12,7 +12,7 @@
 // be unit-tested without spawning pi.
 
 import { logGuardEvent, RUN_START_GUARD } from "./guard-log.ts";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { resolvedProjectPath } from "./setup-state.ts";
 
@@ -33,6 +33,7 @@ import {
 import type { KnownModel } from "./model-tier.ts";
 import { designNotePath, resolveTicketDesign, ticketWriteScope } from "./ticket-design.ts";
 import { createHash } from "node:crypto";
+import { hostPathArgument, piReadVariant, type PathHost } from "./host-paths.ts";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
 export const PIPELINE_ROLES = ["architect", "test-writer", "builder", "reviewer"] as const;
@@ -292,6 +293,9 @@ export interface GateInput {
   readonly cwd: string;
   /** Harness config home, so a role may read its own skill instructions. */
   readonly harnessRoot?: string;
+  /** The host whose tools will run the call, which decides how a path
+   *  argument is rewritten before use (src/host-paths.ts). Default pi. */
+  readonly host?: PathHost;
   /**
    * Snapshot of the session's available models, for the spawn-time tier check.
    * Absent or empty means "cannot tell": a seat is never refused for want of a
@@ -418,7 +422,10 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
   }
 
   const ctx = pathGateCtx(role, ev.cwd, ev.harnessRoot);
-  const decision = resolvedDecision(decide(role, ev.toolName, ev.input, ctx), role, ev, ctx);
+  const hosted = hostedInput(role, ev);
+  const decision = !("input" in hosted)
+    ? { allow: false as const, reason: hosted.reason }
+    : resolvedDecision(decide(role, ev.toolName, hosted.input, ctx), role, { ...ev, input: hosted.input }, ctx);
   if (decision.allow) return undefined;
 
   const rawPath = ev.input["path"];
@@ -429,6 +436,28 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
     detail: { role, tool: ev.toolName, path: rawPath ?? null },
   });
   return { block: true, reason: decision.reason };
+}
+
+/**
+ * The call's input with its path rewritten exactly as the host will rewrite
+ * it before opening anything (src/host-paths.ts), or the reason it cannot be.
+ * On pi a read of a path that does not exist may open another spelling of
+ * it; that substitution is refused, since the gate never judged it.
+ */
+function hostedInput(role: Role, ev: GateInput):
+  { readonly input: Readonly<Record<string, unknown>> } | { readonly reason: string } {
+  const raw = ev.input["path"];
+  if (!GATED_PATH_TOOLS.has(ev.toolName) || typeof raw !== "string" || raw === "") return { input: ev.input };
+  const host = ev.host ?? "pi";
+  const hosted = hostPathArgument(host, raw);
+  if (!hosted.ok) return { reason: `path-gate: ${role} may not use '${raw}': ${hosted.reason}` };
+  if (host === "pi" && ev.toolName === "read") {
+    const variant = piReadVariant(resolve(ev.cwd, hosted.path));
+    if (variant !== undefined) {
+      return { reason: `path-gate: ${role} may not read '${raw}': it does not exist, and pi would open '${variant}' instead — pass that file's exact path` };
+    }
+  }
+  return { input: hosted.path === raw ? ev.input : { ...ev.input, path: hosted.path } };
 }
 
 /**
@@ -635,10 +664,23 @@ export function projectPathFacts(project: string): PathFacts {
       }
     },
     tree(rel) {
-      const abs = inside(rel);
-      if (abs === undefined) return undefined;
+      const lexical = inside(rel);
+      if (lexical === undefined) return undefined;
+      // Walk the filesystem's own spelling of the directory, so a case- or
+      // Unicode-folded argument is listed as what it really is.
+      let abs: string;
+      let root: string;
+      try {
+        abs = realpathSync.native(lexical);
+        root = realpathSync.native(project);
+      } catch {
+        return undefined;
+      }
+      const back = relative(root, abs);
+      if (back === ".." || back.startsWith(`..${sep}`) || isAbsolute(back)) return undefined;
       const fileNames: string[] = [];
       const links: string[] = [];
+      const oddNames: string[] = [];
       const stack = [abs];
       let seen = 0;
       while (stack.length > 0) {
@@ -651,8 +693,10 @@ export function projectPathFacts(project: string): PathFacts {
         }
         for (const entry of entries) {
           if (++seen > TREE_ENTRY_LIMIT) return undefined;
+          const shown = relative(root, join(dir, entry.name)).split(sep).join("/");
+          if (/[^\x00-\x7F]/.test(entry.name)) oddNames.push(shown);
           if (entry.isSymbolicLink()) {
-            links.push(relative(project, join(dir, entry.name)).split(sep).join("/"));
+            links.push(shown);
           } else if (entry.isDirectory()) {
             if (entry.name.toLowerCase() !== ".git") stack.push(join(dir, entry.name));
           } else {
@@ -660,7 +704,7 @@ export function projectPathFacts(project: string): PathFacts {
           }
         }
       }
-      return { fileNames, links: links.sort() };
+      return { fileNames, links: links.sort(), oddNames: oddNames.sort() };
     },
   };
 }

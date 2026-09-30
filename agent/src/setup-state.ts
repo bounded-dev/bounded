@@ -225,12 +225,15 @@ const touchesGit = (path: string): boolean => path.split(/[\\/]/).some((part) =>
  * resolved, or undefined when it resolves outside the project or into .git.
  * Components that do not exist yet are kept as written (they cannot be links);
  * a link that cannot be resolved (dangling, or a loop) is refused, because
- * writing through it would land wherever it points.
+ * writing through it would land wherever it points. The existing part is
+ * spelled as the filesystem spells it (`realpathSync.native`), so a case- or
+ * Unicode-folded argument (`contextſ/` on APFS) comes back as the real name
+ * and is judged as that (ADR 2026-057).
  */
 export function resolvedProjectPath(project: string, path: string): string | undefined {
   try {
     if (path.includes("\0")) return undefined;
-    const root = realpathSync(project);
+    const root = realpathSync.native(project);
     let existing = resolve(project, path);
     const tail: string[] = [];
     for (;;) {
@@ -244,7 +247,7 @@ export function resolvedProjectPath(project: string, path: string): string | und
         existing = parent;
       }
     }
-    const rel = within(root, join(realpathSync(existing), ...tail));
+    const rel = within(root, join(realpathSync.native(existing), ...tail));
     if (rel === undefined || touchesGit(rel)) return undefined;
     return rel === "" ? "." : rel;
   } catch {

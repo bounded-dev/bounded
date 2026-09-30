@@ -1,5 +1,6 @@
 import { writeProjectPacks } from "./project-composition.ts";
-import { mkdirSync, mkdtempSync as createTempDir, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync as createTempDir, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { resolvedProjectPath } from "./setup-state.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -594,6 +595,101 @@ describe("projectPathFacts", () => {
     expect(tree.links).toEqual(["d/e/alias.ts", "d/out"]);
     expect(projectPathFacts(cwd).tree("missing")).toBeUndefined();
     expect(projectPathFacts(cwd).tree("..")).toBeUndefined();
+  });
+});
+
+// Adversarial review, round 1: the reviewer's probes, on a real tree.
+describe("attacks through the real filesystem and the hosts' path rewriting", () => {
+  function tree(): string {
+    const cwd = tmp();
+    mkdirSync(join(cwd, C, "domain"), { recursive: true });
+    writeFileSync(join(cwd, C, "domain", "a.ts"), "export {};\n");
+    writeFileSync(join(cwd, C, "domain", "a.test.ts"), "test('x', () => {});\n");
+    return cwd;
+  }
+  const gate = (cwd: string, role: string, toolName: string, input: Record<string, unknown>, host?: "pi" | "claude-code") =>
+    evaluatePathGate({ role, toolName, input, cwd, ...(host !== undefined ? { host } : {}) });
+  // Whether this filesystem folds 'ſ' onto 's' (APFS does; most Linux file
+  // systems do not). The refusal holds either way; the fold is what made it
+  // an attack.
+  const folds = (cwd: string) => {
+    try {
+      return statSync(join(cwd, C.replace("contexts", "contextſ"), "domain", "a.test.ts")).isFile();
+    } catch {
+      return false;
+    }
+  };
+
+  test("a Unicode-folded spelling of a test or implementation is refused on every tool", () => {
+    const cwd = tree();
+    const test = `${C.replace("contexts", "contextſ")}/domain/a.test.ts`;
+    const impl = `${C}/domain/a.tſ`;
+    for (const tool of ["read", "write", "edit", "remove"]) {
+      expect(gate(cwd, "builder", tool, { path: test })?.reason, tool).toContain("non-ASCII character");
+    }
+    expect(gate(cwd, "builder", "grep", { path: C.replace("contexts", "contextſ"), pattern: "x", glob: "*.ts" })?.block).toBe(true);
+    expect(gate(cwd, "test-writer", "read", { path: impl })?.reason).toContain("non-ASCII character");
+    expect(gate(cwd, "test-writer", "grep", { path: "contextſ", pattern: "x", glob: "*.test.ts" })?.block).toBe(true);
+    if (folds(cwd)) {
+      // The canonical spelling is what the gate would judge even without the
+      // ASCII rule: realpath.native names the real file.
+      expect(resolvedProjectPath(cwd, test)).toBe(`${C}/domain/a.test.ts`);
+    }
+  });
+
+  test("a case-folded spelling resolves to the real name and is judged as it", () => {
+    const cwd = tree();
+    const upper = `${C.toUpperCase()}/DOMAIN/A.TEST.TS`;
+    expect(gate(cwd, "builder", "read", { path: upper })?.block).toBe(true);
+    if (folds(cwd)) expect(resolvedProjectPath(cwd, upper)).toBe(`${C}/domain/a.test.ts`);
+  });
+
+  test("the tree walk lists the canonical directory, and a non-ASCII name in it refuses a grep", () => {
+    const cwd = tree();
+    writeFileSync(join(cwd, C, "domain", "b.teſt.ts"), "");
+    const r = gate(cwd, "builder", "grep", { path: C, pattern: "x", glob: "*.handler.ts" });
+    expect(r?.reason).toContain("has a non-ASCII name");
+    if (folds(cwd)) {
+      const listed = projectPathFacts(cwd).tree(C.toUpperCase())!;
+      expect(listed.oddNames.every((name) => name.startsWith(`${C}/`))).toBe(true);
+    }
+  });
+
+  test("pi: '@', '~/' and file:// are rewritten as pi rewrites them, then judged", () => {
+    const cwd = tree();
+    const test = `${C}/domain/a.test.ts`;
+    for (const path of [`@${test}`, `file://${join(cwd, test)}`, `@file://${join(cwd, test)}`]) {
+      expect(gate(cwd, "builder", "read", { path })?.reason, path).toContain("it is a test file");
+    }
+    expect(gate(cwd, "builder", "read", { path: `@${C}/domain/a.ts` })).toBeUndefined();
+    expect(gate(cwd, "test-writer", "read", { path: `@${C}/domain/a.ts` })?.reason).toContain("it is an implementation file");
+    // '~' is the home directory, never the project's own '~' folder.
+    expect(gate(cwd, "builder", "read", { path: "~/anything.ts" })?.block).toBe(true);
+    expect(gate(cwd, "builder", "grep", { path: `@${C}`, pattern: "x", glob: "*.ts" })?.reason).toContain("could match a test file name");
+  });
+
+  test("pi: a read pi would redirect to another spelling is refused", () => {
+    const cwd = tree();
+    writeFileSync(join(cwd, C, "domain", "it’s.test.ts"), "");
+    const r = gate(cwd, "builder", "read", { path: `${C}/domain/it's.test.ts` });
+    expect(r?.reason).toContain("pi would open");
+  });
+
+  test("Claude Code: '~', 'file:' and '@' are refused, not guessed", () => {
+    const cwd = tree();
+    for (const path of ["~/x.ts", `file://${join(cwd, C, "domain/a.ts")}`, `@${C}/domain/a.ts`]) {
+      expect(gate(cwd, "builder", "read", { path }, "claude-code")?.reason, path).toMatch(/pass the (absolute project )?path/);
+    }
+    expect(gate(cwd, "builder", "read", { path: join(cwd, C, "domain/a.ts") }, "claude-code")).toBeUndefined();
+  });
+
+  test("a glob with a comma or whitespace is refused on both hosts", () => {
+    const cwd = tree();
+    for (const host of ["pi", "claude-code"] as const) {
+      for (const glob of ["*.handler.ts,*.test.ts", "*.handler.ts *.test.ts"]) {
+        expect(gate(cwd, "builder", "grep", { path: join(cwd, C), pattern: "x", glob }, host)?.reason).toContain("whitespace or a comma");
+      }
+    }
   });
 });
 

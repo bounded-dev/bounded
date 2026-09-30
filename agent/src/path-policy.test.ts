@@ -78,6 +78,7 @@ function factsFor(files: readonly string[], links: readonly string[] = []): Path
     tree: (dir) => ({
       fileNames: below(dir, files).map((file) => file.slice(file.lastIndexOf("/") + 1)),
       links: below(dir, links),
+      oddNames: below(dir, [...files, ...links]).filter((path) => /[^\x00-\x7F]/.test(path)),
     }),
   };
 }
@@ -520,7 +521,7 @@ describe("refusals name the legal alternative", () => {
   });
 
   test("builder, a glob with special characters says why it cannot be proven", () => {
-    expect(reasonOf(d("builder", "grep", ROOT, { pattern: "x", glob: "*.{a,b}.ts" }))).toContain("cannot be proven from its text");
+    expect(reasonOf(d("builder", "grep", ROOT, { pattern: "x", glob: "*.[ab].ts" }))).toContain("cannot be proven from its text");
   });
 
   test("test-writer: the exact inclusion glob to pass", () => {
@@ -1281,5 +1282,93 @@ describe("pack-contributed contract globs", () => {
   test("a contract must be inside a source root to be one", () => {
     expect(d("architect", "write", "docs/x.contract.ts").allow).toBe(false);
     expect(d("builder", "write", "docs/x.contract.ts").allow).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial review, round 1 (ADR 2026-057): three bypasses, pinned
+// ---------------------------------------------------------------------------
+
+describe("attack: Unicode case folding (APFS folds 'ſ' U+017F onto 's')", () => {
+  // Each of these named, on APFS, a real test or implementation file.
+  const folded = [
+    `${FEATURE}/create-note.teſt.ts`,
+    "contextſ/pm/src/application/notes/create-note/create-note.test.ts",
+    `${FEATURE}/create-note.handler.tſ`,
+    "contextſ/pm/src/application/notes/create-note/create-note.handler.ts",
+    `${FEATURE}/create-note.test.ts `,
+    `${FEATURE}/créate.ts`,
+  ];
+
+  test.each(folded)("%j is refused to both blind roles for every path tool", (path) => {
+    for (const role of ["builder", "test-writer"] as const) {
+      for (const tool of ["read", "grep", "ls", "find", "write", "edit", "remove"]) {
+        const r = d(role, tool, path, { pattern: "x", glob: "*.handler.ts" });
+        expect(r.allow, `${role} ${tool}`).toBe(false);
+        expect(reasonOf(r)).toContain("non-ASCII character");
+      }
+    }
+  });
+
+  test("no role may write a non-ASCII name; the reading roles may still read one", () => {
+    expect(d("architect", "write", "docs/tn/TN-ſ.md").allow).toBe(false);
+    expect(d("architect", "write", `${ROOT}/domain/x.contract.tſ`).allow).toBe(false);
+    expect(d("architect", "read", `${FEATURE}/create-note.teſt.ts`).allow).toBe(true);
+    expect(d("reviewer", "read", "docs/café.md").allow).toBe(true);
+  });
+
+  test("a directory grep is refused when the tree below holds a non-ASCII name", () => {
+    const ctx: Ctx = { ...CTX, pathFacts: factsFor([...FILES, `${FEATURE}/other.teſt.ts`]) };
+    const single: Ctx = { ...ctx, testSuffixes: [".test.ts"] };
+    for (const c of [ctx, single]) {
+      for (const glob of ["*.handler.ts", "!*.test.ts"]) {
+        const r = d("builder", "grep", ROOT, { pattern: "x", glob }, c);
+        expect(reasonOf(r)).toContain(`'${FEATURE}/other.teſt.ts' has a non-ASCII name`);
+      }
+    }
+    expect(d("test-writer", "grep", ROOT, { pattern: "x", glob: "*.test.ts" }, ctx).allow).toBe(false);
+  });
+
+  test("a non-ASCII glob is refused", () => {
+    expect(reasonOf(d("builder", "grep", ROOT, { pattern: "x", glob: "*.teſt.ts" }))).toContain("non-ASCII character");
+    expect(d("test-writer", "grep", ROOT, { pattern: "x", glob: "*.teſt.ts" }).allow).toBe(false);
+  });
+});
+
+describe("attack: Claude Code's Grep splits a glob on whitespace and commas", () => {
+  test.each([
+    "*.handler.ts,*.test.ts", "*.handler.ts *.test.ts", "*.handler.ts\t*.test.ts", "*.handler.ts\n*.test.ts",
+    "*.handler.ts, *.test.ts", " *.handler.ts", "*.handler.ts ", ",*.handler.ts",
+  ])("builder glob %j is refused, naming the legal alternative", (glob) => {
+    const r = d("builder", "grep", ROOT, { pattern: "x", glob });
+    expect(reasonOf(r)).toContain("has whitespace or a comma, which a host may split into several globs");
+    expect(reasonOf(r)).toContain("run one search per glob");
+    expect(reasonOf(r)).toContain("'*.<name>.ts'");
+  });
+
+  test.each(["*.test.ts,*.handler.ts", "*.test.ts *.handler.ts"])("test-writer glob %j is refused", (glob) => {
+    expect(reasonOf(d("test-writer", "grep", ROOT, { pattern: "x", glob }))).toContain("whitespace or a comma");
+  });
+});
+
+describe("attack: a host rewrites a leading '@', '~' or 'file:' before use", () => {
+  // The gate rewrites them as the host does first (host-paths.ts); one that
+  // reaches decide() was not rewritten, and is refused rather than guessed.
+  test.each([`@${P.test}`, `@@${P.test}`, "~/x", "~", `file://${"/repo"}/${P.test}`, `FILE:${P.test}`])(
+    "%j is refused to both blind roles, and to every write",
+    (path) => {
+      for (const role of ["builder", "test-writer"] as const) {
+        for (const tool of ["read", "grep", "ls", "write"]) {
+          const r = d(role, tool, path, { pattern: "x" });
+          expect(r.allow, `${role} ${tool}`).toBe(false);
+        }
+      }
+      expect(reasonOf(d("architect", "write", path))).toContain("may be rewritten by the host");
+    },
+  );
+
+  test("a '@' or '~' later in a path is an ordinary character", () => {
+    expect(d("builder", "write", `${ROOT}/domain/@x.ts`).allow).toBe(true);
+    expect(d("builder", "write", `${ROOT}/domain/~x.ts`).allow).toBe(true);
   });
 });

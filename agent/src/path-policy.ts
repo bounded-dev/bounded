@@ -97,6 +97,9 @@ export interface PathFacts {
 export interface PathTree {
   readonly fileNames: readonly string[];
   readonly links: readonly string[];
+  /** Project-relative paths of entries (files or directories) whose name
+   *  has a non-ASCII character. */
+  readonly oddNames: readonly string[];
 }
 
 /**
@@ -921,6 +924,9 @@ function isPathLayout(value: PathLayout | readonly string[]): value is PathLayou
 
 const GLOB_SPECIAL = /[{}[\]?!\\]/;
 
+/** Any character outside ASCII (ADR 2026-057: the filesystem may fold it). */
+const NON_ASCII = /[^\x00-\x7F]/;
+
 /** The literal ending every name matched by an inclusion glob must have. */
 function literalTail(glob: string): string {
   const afterStar = glob.slice(glob.lastIndexOf("*") + 1);
@@ -980,6 +986,16 @@ function globRefusal(
   const caseHint = `pass ${inclusionHint(suffixes)}, or grep one non-test file by path`;
   if (typeof glob !== "string" || glob.length === 0) {
     return `a content search of '${dir}' can reach ${role === "builder" ? "test files" : "implementation files"} — ${hint}`;
+  }
+  // Claude Code's Grep splits its glob on whitespace and commas into several
+  // globs, so `*.handler.ts,*.test.ts` would be judged as one glob and run as
+  // two. pi passes its glob to rg as one `--glob` value and splits nothing;
+  // the rule is the same on both hosts, fail closed.
+  if (/[\s,]/.test(glob)) {
+    return `glob '${glob}' has whitespace or a comma, which a host may split into several globs — run one search per glob, each with neither — ${hint}`;
+  }
+  if (NON_ASCII.test(glob)) {
+    return `glob '${glob}' has a non-ASCII character, which the filesystem may fold onto a different name — ${hint}`;
   }
   if (role === "builder") {
     const exclusion = /^!\*([^*{}[\]?!\\/]+)$/.exec(glob);
@@ -1115,6 +1131,21 @@ export function decide(
   const v = verb(tool);
   const layout = layoutOf(ctx);
 
+  // A case-insensitive filesystem folds more than ASCII case: on APFS
+  // `a.teſt.ts` (U+017F) IS `a.test.ts`, and `contextſ/` IS `contexts/`. The
+  // sides are decided on names, so a name the gate cannot fold the way the
+  // filesystem does is refused outright — for every write, and for every
+  // path a blind role names.
+  // A host may rewrite these before use (pi strips '@', expands '~', decodes
+  // 'file://'; src/host-paths.ts). The gate applies the host's rewriting
+  // first, so one still here was not rewritten — refuse rather than guess.
+  if ((WRITE_TOOLS.has(tool) || isBlind(role)) && /^(?:@|~|file:)/i.test(raw)) {
+    return block(`path-gate: ${role} may not ${v} '${raw}': a leading '@', '~' or 'file:' may be rewritten by the host into a path the gate did not judge — pass the plain project path`);
+  }
+  if ((WRITE_TOOLS.has(tool) || isBlind(role)) && NON_ASCII.test(t)) {
+    return block(`path-gate: ${role} may not ${v} '${t}': it has a non-ASCII character, which the filesystem may fold onto another file's name — use the file's plain ASCII path`);
+  }
+
   const gitBlocked = (): Decision | null => {
     const gitHit = SEARCH_TOOLS.has(tool)
       ? ALWAYS_DENY.some((g) => overlaps(t, globBase(g)))
@@ -1186,6 +1217,9 @@ export function decide(
   const tree = ctx.pathFacts?.tree(t);
   if (tree === undefined) {
     return block(`path-gate: ${role} may not search '${t}': the tree below it could not be listed in full, so what a search reaches is unknown — grep a smaller directory, or one file by path`);
+  }
+  if (tree.oddNames.length > 0) {
+    return block(`path-gate: ${role} may not search '${t}': '${tree.oddNames[0]}' has a non-ASCII name, which the filesystem may fold onto another name while a search matches it byte for byte — grep a directory without one, or one file by path`);
   }
   if (tree.links.length > 0) {
     return block(`path-gate: ${role} may not search '${t}': '${tree.links[0]}' is a link, which could lead a search anywhere — grep the directory it points into, or one file by path`);

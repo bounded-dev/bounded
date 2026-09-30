@@ -36,6 +36,23 @@ Added in implementation, to leave no doubt:
 - A `!*<S>` exclusion is checked against the real file names below the
   directory: a test name in another case refuses it.
 
+Added after adversarial review:
+
+- Non-ASCII names are refused. APFS folds `ſ` (U+017F) onto `s`, so
+  `a.teſt.ts` is `a.test.ts`. Any write, and any path a blind role names,
+  with a non-ASCII character is refused, as is a non-ASCII glob or a
+  directory grep over a tree holding such a name. Existing paths are also
+  judged by their canonical spelling (`realpathSync.native`), both in link
+  resolution and in the tree walk.
+- A grep glob with whitespace or a comma is refused on every host, because
+  Claude Code's Grep splits on both. pi hands its glob to rg as one value.
+- Before judging, the gate applies the host's own path rewriting. For pi,
+  that is `normalizePath`: unicode spaces become ' ', one leading '@' is
+  stripped, `~` is expanded, and `file://` is decoded. A pi read that would
+  fall back to another spelling is refused. On Claude Code a leading `~`,
+  `file:` or `@` is refused. One that survives the rewriting is refused
+  everywhere (`agent/src/host-paths.ts`).
+
 ## Why
 
 The worked example keeps `*.test.ts` beside the code, and a directory split
