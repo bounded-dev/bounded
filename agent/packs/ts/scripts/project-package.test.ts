@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { EXAMPLE_PACKS } from "../../example-suite/example-facts.ts";
 import {
   bunLockProblems,
   bunVersionProblem,
@@ -362,6 +363,31 @@ describe("the generated manifests equal the example's, modulo exact pins and sco
   });
 });
 
+describe("{{entries}}: the composed emitters' entry files (TN-26-012 §10)", () => {
+  test("the real composition renders the Lambda app's build exactly as the example's", () => {
+    const EXAMPLE = join(agentRoot, "packs", "example-suite", "reference", "example");
+    const project = join(tempDir("entries-"), "example");
+    mkdirSync(project);
+    writeProjectPacks(project, EXAMPLE_PACKS);
+    writeFileSync(join(project, "package.json"), '{"name":"example"}\n');
+    const context = "contexts/project-management/src";
+    const walk = (dir: string): string[] => readdirSync(join(EXAMPLE, dir), { withFileTypes: true })
+      .flatMap((e) => (e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name.endsWith(".contract.ts") ? [`${dir}/${e.name}`] : []));
+    for (const path of walk(context)) {
+      mkdirSync(dirname(join(project, path)), { recursive: true });
+      writeFileSync(join(project, path), readFileSync(join(EXAMPLE, path), "utf8"));
+    }
+    mkdirSync(join(project, "docs", "tn"), { recursive: true });
+    writeFileSync(join(project, "docs", "tn", "TN-1.md"),
+      "---\nissue: 1\nworkspaces:\n  apps/desktop: desktop\n  apps/lambdas: lambdas\n  apps/mcp: mcp\n  apps/web: web\n---\n");
+    const manifests = generatedManifests(project, EXAMPLE_PACKS, join(agentRoot, "packs"), "example").manifests;
+    const example = JSON.parse(readFileSync(join(EXAMPLE, "apps", "lambdas", "package.json"), "utf8")) as Manifest;
+    expect((manifests.get("apps/lambdas")!["scripts"] as Record<string, string>)["build"])
+      .toBe("bun build src/export-projects.ts --outdir dist --target node");
+    expect(manifests.get("apps/lambdas")!["scripts"]).toEqual(example["scripts"]);
+  });
+});
+
 describe("root config files take {{project}} (TN-26-012 §10)", () => {
   const POSTGRES = ["ts", "ts-hexagonal", "ts-drizzle-postgres"];
 
@@ -391,7 +417,7 @@ describe("manifest refusals", () => {
       [{ name: "x" }, /may not declare 'name'/],
       [{ exports: {} }, /may not declare 'exports'/],
       [{ dependencies: { react: "^19" } }, /not an exact version/],
-      [{ scripts: { dev: "{{project}}" } }, /only \{\{scope\}\}, \{\{name\}\} and \{\{package\}\} exist/],
+      [{ scripts: { dev: "{{project}}" } }, /only \{\{scope\}\}, \{\{name\}\}, \{\{package\}\} and \{\{entries\}\} exist/],
     ];
     for (const [manifest, expected] of cases) {
       const f = fixture();

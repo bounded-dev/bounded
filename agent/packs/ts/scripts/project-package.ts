@@ -55,7 +55,17 @@ import {
   sourceRootsFor,
 } from "../../../src/pack-contrib.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
-import { adapterTechnologies, workspaceTemplates, type AdapterTechnology, type WorkspaceTemplate } from "../pack.ts";
+import { composePacks } from "../../../src/socket-registry.ts";
+import { INSTALLED_PACKS } from "../../installed.ts";
+import {
+  adapterTechnologies,
+  skeletonEmitters,
+  workspaceTemplates,
+  type AdapterTechnology,
+  type ProjectFacts,
+  type WorkspaceFacts,
+  type WorkspaceTemplate,
+} from "../pack.ts";
 
 /** A JSON object as written to a manifest. */
 export type Manifest = Record<string, unknown>;
@@ -439,7 +449,7 @@ function substitute(value: unknown, vars: Readonly<Record<string, string>>, wher
   if (typeof value === "string") {
     return value.replace(PLACEHOLDER, (_whole, key: string) => {
       const replacement = vars[key];
-      if (replacement === undefined) throw new Error(`${where} uses '{{${key}}}'; only {{scope}}, {{name}} and {{package}} exist`);
+      if (replacement === undefined) throw new Error(`${where} uses '{{${key}}}'; only {{scope}}, {{name}}, {{package}} and {{entries}} exist`);
       return replacement;
     });
   }
@@ -535,6 +545,7 @@ export function workspaceManifest(
   layout: Layout,
   contexts: readonly ProjectWorkspace[],
   scope: string,
+  entries: readonly string[] = [],
 ): Manifest {
   const template = layout.templates.find((t) => t.kind === workspace.kind);
   if (template === undefined) throw new Error(`no composed workspace template for kind '${workspace.kind}'`);
@@ -549,7 +560,7 @@ export function workspaceManifest(
   for (const forbidden of ["name", "exports", "workspaces", "optionalDependencies", "peerDependencies"]) {
     if (Object.hasOwn(raw, forbidden)) throw new Error(`${where} may not declare '${forbidden}'; the generator owns it`);
   }
-  const filled = substitute(raw, { scope, name: workspace.name, package: workspace.packageName }, where) as Manifest;
+  const filled = substitute(raw, { scope, name: workspace.name, package: workspace.packageName, entries: entries.join(" ") }, where) as Manifest;
   const deps: Record<Section, Record<string, string>> = {
     dependencies: { ...checkedPins(filled["dependencies"], `${where} dependencies`) },
     devDependencies: { ...checkedPins(filled["devDependencies"], `${where} devDependencies`) },
@@ -598,6 +609,48 @@ export function workspaceManifest(
   };
 }
 
+/** Does any composed workspace template's manifest use `{{entries}}`? */
+function templatesUseEntries(layout: Layout): boolean {
+  return layout.templates.some((t) => readFileSync(join(layout.packsDir, t.pack, t.manifest), "utf8").includes("{{entries}}"));
+}
+
+/**
+ * `{{entries}}` per workspace (TN-26-012 §10): the workspace-relative paths
+ * of the files the composed emitters produce for it with `entry: true`,
+ * sorted by code point. The emitters see the design exactly as the design
+ * gate hands it to them, so the manifest and the seeded entries agree.
+ */
+export function emittedEntries(
+  project: string,
+  layout: Layout,
+  workspaces: readonly ProjectWorkspace[],
+  scope: string,
+): Map<string, string[]> {
+  const facts: ProjectFacts = {
+    scope,
+    phase: "design",
+    packs: layout.packs,
+    workspaces: workspaces.map((w): WorkspaceFacts => ({
+      ...w,
+      contracts: contractFiles(project, w.sourceRoot, layout.contractSuffixes)
+        .map((path) => ({ path, source: readFileSync(join(project, path), "utf8") })),
+    })),
+    adapterTechnologies: layout.technologies,
+    workspaceTemplates: layout.templates,
+  };
+  const out = new Map<string, string[]>();
+  for (const emitter of composePacks(INSTALLED_PACKS, layout.packs).read(skeletonEmitters)) {
+    for (const file of emitter.emit(facts)) {
+      if (file.entry !== true) continue;
+      const workspace = workspaces.find((w) => file.path.startsWith(`${w.dir}/`));
+      if (workspace === undefined) throw new Error(`emitter '${emitter.name}' marked ${file.path} as an entry outside every workspace`);
+      out.set(workspace.dir, [...(out.get(workspace.dir) ?? []), file.path.slice(workspace.dir.length + 1)]);
+    }
+  }
+  for (const list of out.values()) list.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return out;
+}
+
 /** Every manifest the composition and design generate, keyed by workspace
  *  directory (`""` for the root). One version per package across them all. */
 export interface GeneratedManifests {
@@ -613,7 +666,10 @@ export function generatedManifests(project: string, packs: readonly string[], pa
   const workspaces = projectWorkspaces(project, layout, scope);
   const contexts = workspaces.filter((w) => w.kind === CONTEXT_KIND);
   const manifests = new Map<string, Manifest>([["", packageFor(packs, packsDir, { name, workspaces: workspaceGlobs(layout.templates) })]]);
-  for (const workspace of workspaces) manifests.set(workspace.dir, workspaceManifest(project, workspace, layout, contexts, scope));
+  const entries = templatesUseEntries(layout) ? emittedEntries(project, layout, workspaces, scope) : new Map<string, string[]>();
+  for (const workspace of workspaces) {
+    manifests.set(workspace.dir, workspaceManifest(project, workspace, layout, contexts, scope, entries.get(workspace.dir) ?? []));
+  }
   const versions = new Map<string, { version: string; where: string }>();
   for (const [dir, manifest] of manifests) {
     for (const section of DEPENDENCY_SECTIONS) {

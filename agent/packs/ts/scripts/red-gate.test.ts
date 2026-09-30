@@ -961,8 +961,12 @@ describe("red-gate CLI: downstream exports are reached by call site", () => {
 describe("red-gate CLI: escape hatches in test sources", () => {
   test("a non-null assertion in a test helper blocks an otherwise valid red", () => {
     const dir = fixtureRepo("red-testhatch-", vitestJson([{ name: "create order", status: "failed", message: NI }]));
+    // The gate composes the hexagonal layout, so the tests lint walks the
+    // composed source roots (lint-src.ts, `lintScope`): the helper is a
+    // test-side file inside one.
+    mkdirSync(join(dir, "contexts", "money", "src"), { recursive: true });
     writeFileSync(
-      join(dir, "tests", "helpers.ts"),
+      join(dir, "contexts", "money", "src", "helpers.test-support.ts"),
       "export function d(x: string | undefined): string { return x!; }\n",
     );
     const r = runGate(dir);

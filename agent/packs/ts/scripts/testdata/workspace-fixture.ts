@@ -202,10 +202,10 @@ export function fixtureHarness(options: FixtureOptions = {}): Fixture {
       { id: "trpc", direction: "in", featureRole: "procedure", description: "tRPC.", ...(pins ? { pins: { dependencies: { "@trpc/server": PIN["@trpc/server"] } } } : {}) },
       { id: "mcp", direction: "in", featureRole: "tool", description: "MCP.", ...(pins ? { pins: { dependencies: { "@modelcontextprotocol/sdk": PIN["@modelcontextprotocol/sdk"] } } } : {}) },
       { id: "lambda", direction: "in", featureRole: "lambda", description: "Lambda." },
-      { id: "in-memory", direction: "out", storage: true, description: "In memory." },
+      { id: "in-memory", direction: "out", storage: true, database: "value", description: "In memory." },
       { id: "console", direction: "out", storage: false, description: "Console." },
       {
-        id: "drizzle", direction: "out", storage: true, description: "Drizzle.", workspaceScripts: DRIZZLE_SCRIPTS,
+        id: "drizzle", direction: "out", storage: true, database: "type", description: "Drizzle.", workspaceScripts: DRIZZLE_SCRIPTS,
         ...(pins ? { pins: {
           dependencies: { "drizzle-orm": PIN["drizzle-orm"], pg: PIN["pg"] },
           devDependencies: { "@types/pg": PIN["@types/pg"], "drizzle-kit": PIN["drizzle-kit"] },
