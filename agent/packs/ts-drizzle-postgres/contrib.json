@@ -6,6 +6,7 @@
       "id": "drizzle",
       "direction": "out",
       "storage": true,
+      "database": "type",
       "description": "Postgres through Drizzle ORM: one store per feature, sharing the context's DrizzleDatabase (Drizzle's generic Postgres database type, never a driver), tested against real Postgres with Testcontainers.",
       "pins": {
         "dependencies": {

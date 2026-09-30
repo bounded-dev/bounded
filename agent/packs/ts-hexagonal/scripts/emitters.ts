@@ -356,7 +356,13 @@ export const outBarrelEmitter: Emitter = {
     if (items.length === 0) return [];
     const lines = items.map((item) => braced("export", [item.className], `from "./${item.file}";`));
     if (technology.storage) {
-      lines.unshift(braced("export", [`${adapterClassPrefix(technology.id)}Database`], `from "./${technology.id}-database.ts";`));
+      // A class re-exports as a value; a type alias only as a type, or the
+      // barrel fails at runtime with "export not found".
+      if (technology.database !== "value" && technology.database !== "type") {
+        throw new Error(`storage technology '${technology.id}' does not say whether its database is a value or a type`);
+      }
+      const head = technology.database === "type" ? "export type" : "export";
+      lines.unshift(braced(head, [`${adapterClassPrefix(technology.id)}Database`], `from "./${technology.id}-database.ts";`));
     }
     return [generated(`${m.root}/adapters/out/${technology.id}/index.ts`, lines)];
   })),

@@ -19,7 +19,9 @@ import { fileURLToPath } from "node:url";
 import tsParser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { adapterTechnologies, workspaceTemplates } from "../ts/pack.ts";
+import { composePacks } from "../../src/socket-registry.ts";
+import { INSTALLED_PACKS } from "../installed.ts";
+import { adapterTechnologies, skeletonEmitters, workspaceTemplates } from "../ts/pack.ts";
 import { TS_HEXAGONAL_LINT_RULES, TS_HEXAGONAL_PLUGIN } from "./eslint/index.ts";
 import { TS_HEXAGONAL_EMITTERS } from "./scripts/emitters.ts";
 import { declarationShape } from "./scripts/testdata/declaration-shape.ts";
@@ -80,7 +82,7 @@ describe("the pack's emitters reproduce the reference", () => {
 
 /** A throwaway project around the reference, resolving packages from the
  *  harness's own node_modules (no network). */
-function fixture(): string {
+function fixture(modules: readonly string[] = []): string {
   const dir = mkdtempSync(join(tmpdir(), "hex-reference-"));
   temporary.push(dir);
   cpSync(REFERENCE, dir, { recursive: true });
@@ -91,7 +93,7 @@ function fixture(): string {
     name: "reference", private: true, type: "module", workspaces: ["contexts/*", "apps/*"],
   }, null, 2)}\n`);
   mkdirSync(join(dir, "node_modules", "@example"), { recursive: true });
-  for (const name of ["zod", "typescript"]) symlinkSync(join(AGENT, "node_modules", name), join(dir, "node_modules", name), "dir");
+  for (const name of ["zod", "typescript", ...modules]) symlinkSync(join(AGENT, "node_modules", name), join(dir, "node_modules", name), "dir");
   symlinkSync(join(dir, "contexts", "project-management"), join(dir, "node_modules", "@example", "project-management"), "dir");
   return dir;
 }
@@ -177,6 +179,43 @@ function bunTest(dir: string, ...files: string[]): { status: number | null; outp
 
 const failed = (output: string): string[] =>
   [...output.matchAll(/^\(fail\) architecture > (.+?)(?: \[[\d.]+m?s\])?$/gm)].map((m) => m[1]!).sort();
+
+describe.skipIf(!HAS_BUN)("the out barrels load under bun with the real Postgres pack composed", () => {
+  const PG_PACKS = ["ts", "ts-hexagonal", "ts-drizzle-postgres"];
+
+  test("the drizzle barrel re-exports DrizzleDatabase as a type, and every store as a value", () => {
+    const dir = fixture(["drizzle-orm", "pg"]);
+    const facts = readProjectFacts(dir, {
+      scope: "@example", phase: "red", packs: PG_PACKS,
+      adapterTechnologies: [...adapterTechnologies(PG_PACKS), ...TECHNOLOGIES.filter((t) => t.direction === "in")],
+      workspaceTemplates: workspaceTemplates(PG_PACKS),
+    });
+    const files = composePacks(INSTALLED_PACKS, PG_PACKS).read(skeletonEmitters).flatMap((e) => e.emit(facts));
+    for (const file of files) {
+      const target = join(dir, file.path);
+      if (existsSync(target)) continue;
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, file.content);
+    }
+    const barrel = `${CONTEXT_SRC}/adapters/out/drizzle/index.ts`;
+    expect(readFileSync(join(dir, barrel), "utf8")).toMatch(/^export type \{ DrizzleDatabase \} from "\.\/drizzle-database\.ts";$/m);
+    const load = (path: string) => {
+      writeFileSync(join(dir, "load.ts"), `const m = await import("./${path}");\nconsole.log(JSON.stringify(Object.keys(m).sort()));\n`);
+      return spawnSync("bun", ["load.ts"], { cwd: dir, encoding: "utf8" });
+    };
+    const loaded = load(barrel);
+    expect(loaded.stderr).toBe("");
+    expect(JSON.parse(loaded.stdout)).toEqual([
+      "DrizzleCreateNoteStore", "DrizzleCreateProjectStore", "DrizzleExportProjectsStore", "DrizzleListNotesStore", "DrizzleListProjectsStore",
+    ]);
+    expect(JSON.parse(load(`${CONTEXT_SRC}/adapters/out/in-memory/index.ts`).stdout)).toContain("InMemoryDatabase");
+    // The value form this replaces: Bun refuses a type re-exported as a value.
+    writeFileSync(join(dir, barrel), readFileSync(join(dir, barrel), "utf8").replace("export type {", "export {"));
+    const broken = load(barrel);
+    expect(broken.status).not.toBe(0);
+    expect(broken.stderr).toMatch(/DrizzleDatabase/);
+  });
+});
 
 describe.skipIf(!HAS_BUN)("under bun test", () => {
   test("the reference is green at every level", () => {

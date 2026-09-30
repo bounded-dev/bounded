@@ -16,11 +16,12 @@ const packsDir = join(agentRoot, "packs");
 const PACKS = ["ts", "ts-hexagonal", "ts-drizzle-postgres"];
 
 describe("the drizzle adapter technology", () => {
-  const [drizzle] = adapterTechnologies(PACKS, packsDir);
+  // ts-hexagonal, composed underneath, contributes in-memory and console.
+  const drizzle = adapterTechnologies(PACKS, packsDir).find((t) => t.id === "drizzle");
 
   test("is an out, storage technology contributed by this pack", () => {
-    expect(drizzle).toMatchObject({ pack: "ts-drizzle-postgres", id: "drizzle", direction: "out", storage: true });
-    expect(adapterTechnologies(PACKS, packsDir)).toHaveLength(1);
+    expect(drizzle).toMatchObject({ pack: "ts-drizzle-postgres", id: "drizzle", direction: "out", storage: true, database: "type" });
+    expect(adapterTechnologies(PACKS, packsDir).filter((t) => t.pack === "ts-drizzle-postgres")).toHaveLength(1);
   });
 
   test("gives each context the example's own db:generate and db:migrate scripts", () => {
@@ -46,7 +47,8 @@ describe("the drizzle adapter technology", () => {
 
 describe("generated files (ADR 2026-058)", () => {
   test("the globs are valid and cover TN-26-012's drizzle rows plus the per-context config", () => {
-    expect(generatedFileGlobsFor(PACKS, packsDir)).toEqual([
+    const hexagonal = new Set(generatedFileGlobsFor(["ts", "ts-hexagonal"], packsDir));
+    expect(generatedFileGlobsFor(PACKS, packsDir).filter((g) => !hexagonal.has(g))).toEqual([
       "contexts/*/drizzle.config.ts",
       "contexts/*/src/adapters/out/drizzle/drizzle-database.ts",
       "contexts/*/src/adapters/out/drizzle/drizzle-test-database.test-support.ts",

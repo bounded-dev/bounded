@@ -151,10 +151,10 @@ describe("composition decides the out adapters", () => {
     expect(outBarrelEmitter.emit(without).map((f) => f.path)).toEqual([`${ROOT}/adapters/out/console/index.ts`]);
   });
 
-  test("a second storage technology gets its own barrel: its database first, then one store per store port", () => {
+  test("a second storage technology gets its own barrel: its database type first, then one store per store port", () => {
     const barrels = byPath(outBarrelEmitter.emit(facts({ adapterTechnologies: TECHNOLOGIES })));
     expect(barrels.get(`${ROOT}/adapters/out/drizzle/index.ts`)?.content).toBe([
-      'export { DrizzleDatabase } from "./drizzle-database.ts";',
+      'export type { DrizzleDatabase } from "./drizzle-database.ts";',
       'export { DrizzleCreateNoteStore } from "./notes/create-note.store.ts";',
       'export { DrizzleListNotesStore } from "./notes/list-notes.store.ts";',
       'export { DrizzleCreateProjectStore } from "./projects/create-project.store.ts";',
@@ -164,6 +164,11 @@ describe("composition decides the out adapters", () => {
     ].join("\n"));
     // Drizzle's store skeletons are its own pack's (TN-26-012 §7), not this one's.
     expect(inMemoryEmitter.emit(facts({ adapterTechnologies: TECHNOLOGIES })).some((f) => f.path.includes("/drizzle/"))).toBe(false);
+  });
+
+  test("a storage technology that does not say what its database is, is refused", () => {
+    const vague = TECHNOLOGIES.map((t) => (t.id === "drizzle" ? { ...t, database: undefined } : t));
+    expect(() => outBarrelEmitter.emit(facts({ adapterTechnologies: vague }))).toThrow(/'drizzle' does not say whether its database/);
   });
 
   test("an @implementedBy technology no pack composes is refused, naming the contract", () => {

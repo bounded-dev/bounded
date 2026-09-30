@@ -19,6 +19,7 @@
       "id": "in-memory",
       "direction": "out",
       "storage": true,
+      "database": "value",
       "description": "Stores that keep data in a shared InMemoryDatabase object: for tests, local runs and apps with no database yet."
     },
     {

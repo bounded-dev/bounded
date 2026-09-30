@@ -229,8 +229,8 @@ const NO_PINS = { dependencies: {}, devDependencies: {} };
 /** The technologies the example composes, as their packs contribute them. */
 export const TECHNOLOGIES: readonly AdapterTechnology[] = [
   { pack: "ts-hexagonal", id: "console", direction: "out", storage: false, pins: NO_PINS, description: "console" },
-  { pack: "ts-drizzle-postgres", id: "drizzle", direction: "out", storage: true, pins: NO_PINS, description: "drizzle" },
-  { pack: "ts-hexagonal", id: "in-memory", direction: "out", storage: true, pins: NO_PINS, description: "in memory" },
+  { pack: "ts-drizzle-postgres", id: "drizzle", direction: "out", storage: true, database: "type", pins: NO_PINS, description: "drizzle" },
+  { pack: "ts-hexagonal", id: "in-memory", direction: "out", storage: true, database: "value", pins: NO_PINS, description: "in memory" },
   { pack: "ts-lambda", id: "lambda", direction: "in", featureRole: "lambda", storage: false, pins: NO_PINS, description: "lambda" },
   { pack: "ts-mcp", id: "mcp", direction: "in", featureRole: "tool", storage: false, pins: NO_PINS, description: "mcp" },
   { pack: "ts-trpc", id: "trpc", direction: "in", featureRole: "procedure", storage: false, pins: NO_PINS, description: "trpc" },
