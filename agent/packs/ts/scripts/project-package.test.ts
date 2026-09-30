@@ -36,6 +36,7 @@ import {
   fakeBunLock,
   fakeLockfileMaker,
   type Fixture,
+  featureContract,
   fixtureHarness,
 } from "./testdata/workspace-fixture.ts";
 
@@ -311,17 +312,46 @@ describe("the generated manifests equal the example's, modulo exact pins and sco
     expect(base).toContain('"allowImportingTsExtensions": true');
   });
 
-  test("a technology's export, pins and scripts leave with its folder", () => {
+  test("technologies follow the design: an untagged feature and a store-less context drop them", () => {
     const p = exampleProject(f, { name: "example" });
     cleanups.push(p.cleanup);
-    rmSync(join(p.project, "contexts/project-management/src/adapters/in/mcp"), { recursive: true });
-    rmSync(join(p.project, "contexts/project-management/src/adapters/out/drizzle"), { recursive: true });
+    const app = join(p.project, "contexts/project-management/src/application");
+    // No feature exposed through MCP any more, and no store port anywhere.
+    for (const [path, inPort, exposedVia] of [
+      ["projects/create-project/create-project.contract.ts", "CreateProject", "trpc"],
+      ["projects/list-projects/list-projects.contract.ts", "ListProjects", "trpc"],
+      ["notes/create-note/create-note.contract.ts", "CreateNote", "trpc"],
+      ["notes/list-notes/list-notes.contract.ts", "ListNotes", "trpc"],
+      ["projects/export-projects/export-projects.contract.ts", "ExportProjects", "lambda"],
+    ] as const) writeFileSync(join(app, path), featureContract(inPort, { exposedVia, store: false }));
     const context = generatedManifests(p.project, f.packs, f.packsDir, "example").manifests.get("contexts/project-management")!;
-    expect(Object.keys(context["exports"] as object)).not.toContain("./adapters/mcp");
-    expect(Object.keys(context["dependencies"] as object)).not.toContain("@modelcontextprotocol/sdk");
-    expect(Object.keys(context["dependencies"] as object)).not.toContain("drizzle-orm");
+    expect(Object.keys(context["exports"] as object)).toEqual(["./domain", "./application", "./adapters/lambda", "./adapters/trpc"]);
+    expect(Object.keys(context["dependencies"] as object)).toEqual(["@trpc/server", "zod"]);
     expect(context["scripts"]).toBeUndefined();
     expect(context["devDependencies"]).toBeUndefined();
+  });
+
+  test("review repro: a stray folder or file under adapters/ changes no manifest", () => {
+    const p = exampleProject(f, { name: "example" });
+    cleanups.push(p.cleanup);
+    const before = generatedManifests(p.project, f.packs, f.packsDir, "example").manifests;
+    for (const tech of ["mailer", "drizzle", "trpc", "unknown"]) {
+      const dir = join(p.project, "contexts/project-management/src/adapters/out", tech);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "x.test.ts"), "export {};\n");
+      writeFileSync(join(dir, "index.ts"), "export {};\n");
+    }
+    rmSync(join(p.project, "contexts/project-management/src/adapters/out/drizzle"), { recursive: true });
+    expect(generatedManifests(p.project, f.packs, f.packsDir, "example").manifests).toEqual(before);
+  });
+
+  test("a tag naming a technology no composed pack provides is refused", () => {
+    const p = exampleProject(f, { name: "example" });
+    cleanups.push(p.cleanup);
+    writeFileSync(join(p.project, "contexts/project-management/src/application/notes/create-note/create-note.contract.ts"),
+      featureContract("CreateNote", { exposedVia: "graphql" }));
+    expect(() => generatedManifests(p.project, f.packs, f.packsDir, "example"))
+      .toThrow(/create-note\.contract\.ts: @exposedVia names 'graphql', which no composed pack provides as an in adapter technology/);
   });
 
   test("a template script a technology also contributes is refused", () => {

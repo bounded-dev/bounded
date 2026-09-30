@@ -21,9 +21,10 @@
 //     §9). A workspace manifest is its template's, named
 //     `<scope>/<name>` and marked private. A context also gets `exports`
 //     (`./domain`, `./application`, then `./adapters/<tech>` for each
-//     composed adapter technology whose folder its tree has, in direction
-//     ids sorted, then out), and those technologies' pins and
-//     `workspaceScripts`. Any other workspace depends on every context as
+//     composed adapter technology its design uses: `@exposedVia` and
+//     `@implementedBy` tags and store ports in its application contracts;
+//     in ids sorted, then out), and those technologies' pins and
+//     `workspaceScripts`. Nothing on disk but the contracts decides it. Any other workspace depends on every context as
 //     `workspace:*`: the design, not the builder's imports, decides the
 //     edges, so a composition root the builder writes can never change the
 //     config under a running gate.
@@ -466,6 +467,59 @@ function addPins(target: Record<string, string>, added: Readonly<Record<string, 
   }
 }
 
+const TAG_LINE = /^\s*\*\s*@(exposedVia|implementedBy)((?:\s+[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+)\s*$/;
+const STORE_PORT = /^\s*export\s+interface\s+[A-Z][A-Za-z0-9]*Store\b/m;
+
+/** Every design contract file under `dir` (project-relative), sorted. */
+function contractFiles(project: string, dir: string, suffixes: readonly string[]): string[] {
+  if (!isDirectory(join(project, dir))) return [];
+  const out: string[] = [];
+  for (const entry of readdirSync(join(project, dir), { withFileTypes: true })) {
+    if (entry.name.startsWith(".") || IGNORED_DIRS.has(entry.name)) continue;
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) out.push(...contractFiles(project, path, suffixes));
+    else if (suffixes.some((s) => entry.name.toLowerCase().endsWith(s))) out.push(path);
+  }
+  return out.sort();
+}
+
+/**
+ * The adapter technologies a context's DESIGN uses (ADR 2026-061,
+ * TN-26-012 §4), read from its application contracts, never from folders
+ * on disk, so no role can change a manifest by creating a directory:
+ *
+ *   · an in technology when a feature names it in `@exposedVia`;
+ *   · an out technology when an out port names it in `@implementedBy`;
+ *   · every composed storage technology when any feature has a
+ *     `<InPort>Store` port (a store is implemented once per storage
+ *     technology).
+ *
+ * A tag naming a technology no composed pack provides is refused.
+ */
+export function designedTechnologies(project: string, workspace: ProjectWorkspace, layout: Layout): Set<string> {
+  const used = new Set<string>();
+  const byId = new Map(layout.technologies.map((t) => [t.id, t]));
+  let stores = false;
+  for (const path of contractFiles(project, `${workspace.sourceRoot}/application`, layout.contractSuffixes)) {
+    const source = readFileSync(join(project, path), "utf8");
+    if (STORE_PORT.test(source)) stores = true;
+    for (const line of source.split(/\r?\n/)) {
+      const tag = TAG_LINE.exec(line);
+      if (tag === null) continue;
+      const direction = tag[1] === "exposedVia" ? "in" : "out";
+      for (const id of tag[2]!.trim().split(/\s+/)) {
+        const tech = byId.get(id);
+        if (tech === undefined || tech.direction !== direction) {
+          throw new Error(`${path}: @${tag[1]} names '${id}', which no composed pack provides as an ${direction} adapter technology`);
+        }
+        used.add(id);
+      }
+    }
+  }
+  if (stores) for (const tech of layout.technologies) if (tech.storage) used.add(tech.id);
+  return used;
+}
+
 /** Posix join of project-relative path parts. */
 const rel = (...parts: string[]): string => parts.filter((p) => p !== "").join("/");
 
@@ -508,7 +562,8 @@ export function workspaceManifest(
       "./domain": `./${rel(inside, "domain", "index.ts")}`,
       "./application": `./${rel(inside, "application", "index.ts")}`,
     };
-    const present = layout.technologies.filter((t) => isDirectory(join(project, workspace.sourceRoot, "adapters", t.direction, t.id)));
+    const used = designedTechnologies(project, workspace, layout);
+    const present = layout.technologies.filter((t) => used.has(t.id));
     const templateScripts = filled["scripts"];
     if (templateScripts !== undefined && !isStringRecord(templateScripts)) throw new Error(`${where} scripts must map names to commands`);
     scripts = { ...(templateScripts ?? {}) };

@@ -211,7 +211,7 @@ export function fixtureHarness(options: FixtureOptions = {}): Fixture {
           devDependencies: { "@types/pg": PIN["@types/pg"], "drizzle-kit": PIN["drizzle-kit"] },
         } } : {}),
       },
-      { id: "dynamo", direction: "out", storage: true, description: "Absent from the tree.", workspaceScripts: { "dynamo:up": "echo up" } },
+      { id: "mailer", direction: "out", storage: false, description: "Named by no @implementedBy.", workspaceScripts: { "mail:up": "echo up" } },
     ],
   }));
   write(packsDir, "hex/templates/context.json", json(templateOf("contexts/project-management", pins)));
@@ -237,8 +237,28 @@ export const EXAMPLE_TN = [
   "",
 ].join("\n");
 
+/** A feature contract in the example's shape, with its tags (TN-26-012 §3, §4). */
+export function featureContract(inPort: string, tags: { exposedVia?: string; store?: boolean; exporter?: string } = {}): string {
+  return [
+    'import type { Result } from "@example/project-management/domain";',
+    "",
+    "/**",
+    ` * ${inPort}`,
+    ...(tags.exposedVia === undefined ? [] : [` * @exposedVia ${tags.exposedVia}`]),
+    " */",
+    `export interface ${inPort} {`,
+    "  execute(): Promise<Result<void>>;",
+    "}",
+    ...(tags.store === false ? [] : ["", `export interface ${inPort}Store {`, "  all(): Promise<void>;", "}"]),
+    ...(tags.exporter === undefined ? [] : ["", "/**", ` * @implementedBy ${tags.exporter}`, " */", "export interface ProjectExporter {", "  export(): Promise<void>;", "}"]),
+    "",
+  ].join("\n");
+}
+
 /** A fresh fixture project: composition, installation marker, the example's
- *  context (a contract and every adapter folder's generated index) and the TN. */
+ *  context (a domain contract and its features' contracts, tagged as the
+ *  example's are) and the TN declaring its apps. No adapter folder exists:
+ *  the manifests follow the design, not the disk. */
 export function exampleProject(fixture: Fixture, options: { readonly name?: string } = {}): { project: string; cleanup(): void } {
   const parent = mkdtempSync(join(tmpdir(), "workspace-fixture-project-"));
   const project = join(parent, options.name ?? "example");
@@ -247,9 +267,13 @@ export function exampleProject(fixture: Fixture, options: { readonly name?: stri
   write(project, ".bounded/installation.json", "{}\n");
   const src = "contexts/project-management/src";
   write(project, `${src}/domain/projects/project-name.contract.ts`, "export interface ProjectName { readonly value: string }\n");
-  for (const dir of ["in/trpc", "in/mcp", "in/lambda", "out/in-memory", "out/console", "out/drizzle"]) {
-    write(project, `${src}/adapters/${dir}/index.ts`, "export {};\n");
-  }
+  const app = `${src}/application`;
+  write(project, `${app}/notes/create-note/create-note.contract.ts`, featureContract("CreateNote", { exposedVia: "trpc" }));
+  write(project, `${app}/notes/list-notes/list-notes.contract.ts`, featureContract("ListNotes", { exposedVia: "trpc" }));
+  write(project, `${app}/projects/create-project/create-project.contract.ts`, featureContract("CreateProject", { exposedVia: "trpc mcp" }));
+  write(project, `${app}/projects/list-projects/list-projects.contract.ts`, featureContract("ListProjects", { exposedVia: "trpc mcp" }));
+  write(project, `${app}/projects/export-projects/export-projects.contract.ts`,
+    featureContract("ExportProjects", { exposedVia: "lambda", exporter: "console" }));
   for (const app of ["web", "mcp", "lambdas", "desktop"]) write(project, `apps/${app}/src/main.ts`, "export {};\n");
   write(project, "docs/tn/TN-1.md", EXAMPLE_TN);
   return { project, cleanup: () => rmSync(parent, { recursive: true, force: true }) };
