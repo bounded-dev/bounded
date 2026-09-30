@@ -10,7 +10,8 @@
     "./packs/ts",
     "./packs/ts-web",
     "packs/ts-service",
-    "packs/ts-drizzle-postgres"
+    "packs/ts-drizzle-postgres",
+    "packs/ts-hexagonal"
   ],
   "subagents": {
     "disableBuiltins": true

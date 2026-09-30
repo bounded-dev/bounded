@@ -106,9 +106,11 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
   });
 
   test("the rework's stub packs compose, and contribute nothing yet", () => {
-    const stubs = ["ts-hexagonal", "ts-mcp", "ts-lambda", "ts-desktop"];
-    const registry = composePacks(INSTALLED_PACKS, [TS_PACK, ...stubs]);
-    expect(registry.read(skeletonEmitters)).toEqual([]);
+    // ts-hexagonal left the stub list with WI-5; the others depend on it.
+    const stubs = ["ts-mcp", "ts-lambda", "ts-desktop"];
+    const registry = composePacks(INSTALLED_PACKS, [TS_PACK, "ts-hexagonal", ...stubs]);
+    const hexagonal = composePacks(INSTALLED_PACKS, [TS_PACK, "ts-hexagonal"]).read(skeletonEmitters);
+    expect(registry.read(skeletonEmitters)).toEqual(hexagonal);
     for (const name of stubs) {
       const pack = INSTALLED_PACKS.find((p) => p.name === name);
       expect(pack?.contributes, name).toEqual([]);
