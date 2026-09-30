@@ -21,7 +21,9 @@ import {
   shippedSupportSource,
 } from "./scaffold-contract.ts";
 import { serviceRuntimeSupport } from "../../ts-service/service-runtime-support.ts";
-import { lawsPathFor, valueObjectLawsSource } from "./value-object-laws.ts";
+import { implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
+import { parseDomainConcept } from "./domain-concept.ts";
+import { EXAMPLE_CONCEPTS, exampleConcept } from "./testdata/example-domain.ts";
 import { stripConformance } from "./deliver.ts";
 
 const TESTDATA = join(import.meta.dirname, "testdata");
@@ -916,6 +918,77 @@ export declare function start(plan: Plan): Plan;
 
 
 // ---------------------------------------------------------------------------
+// Domain concepts (ADR 2026-059): the domain emitter's skeleton and laws
+// ---------------------------------------------------------------------------
+//
+// A contract at contexts/<ctx>/src/domain/<area>/<concept>.contract.ts is not
+// scaffolded by the declare-class path: runScaffold writes the emitter's
+// <Name>Impl skeleton where no file exists, regenerates the colocated laws,
+// and creates the red-phase errors module where the skeleton imports it.
+
+describe("runScaffold on domain concept contracts", () => {
+  const dirs: string[] = [];
+  afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
+
+  function domainProject(): string {
+    const dir = createTempDir(join(tmpdir(), "scaffold-domain-"));
+    dirs.push(dir);
+    writeProjectPacks(dir, ["ts"]);
+    for (const c of EXAMPLE_CONCEPTS) {
+      mkdirSync(dirname(join(dir, c.contractPath)), { recursive: true });
+      writeFileSync(join(dir, c.contractPath), c.contract);
+    }
+    return dir;
+  }
+
+  test("writes each skeleton, each laws file and the errors module", () => {
+    const dir = domainProject();
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    for (const c of EXAMPLE_CONCEPTS) {
+      const impl = c.contractPath.replace(".contract.ts", ".ts");
+      expect(readFileSync(join(dir, impl), "utf8")).toBe(implementationSkeleton(parseDomainConcept(c.contractPath, c.contract)));
+      expect(existsSync(join(dir, c.contractPath.replace(".contract.ts", ".laws.test.ts")))).toBe(true);
+      expect(r.lines).toContain(`scaffold: wrote ${impl}`);
+    }
+    const errors = "contexts/project-management/src/domain/shared/errors.ts";
+    expect(readFileSync(join(dir, errors), "utf8")).toBe(NOT_IMPLEMENTED_MODULE_SOURCE);
+    expect(r.lines).toContain(`scaffold: created ${errors} (red-phase errors module)`);
+  });
+
+  test("an existing implementation is never overwritten; the laws are regenerated", () => {
+    const dir = domainProject();
+    expect(runScaffold(dir).code).toBe(0);
+    const note = exampleConcept("note");
+    const impl = join(dir, note.contractPath.replace(".contract.ts", ".ts"));
+    writeFileSync(impl, note.implementation);
+    const laws = join(dir, note.contractPath.replace(".contract.ts", ".laws.test.ts"));
+    const generated = readFileSync(laws, "utf8");
+    writeFileSync(laws, "// tampered\n");
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(readFileSync(impl, "utf8")).toBe(note.implementation);
+    expect(readFileSync(laws, "utf8")).toBe(generated);
+    expect(r.lines.some((l) => l.startsWith(`scaffold: kept ${note.contractPath.replace(".contract.ts", ".ts")}`))).toBe(true);
+  });
+
+  test("a bad domain contract blocks the run with its path and the fix, writing nothing", () => {
+    const dir = domainProject();
+    const bad = exampleConcept("note-text");
+    writeFileSync(join(dir, bad.contractPath), bad.contract.replace("Result<NoteText>", "NoteText | undefined"));
+    const r = runScaffold(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toMatch(/note-text\.contract\.ts: .*parse\(raw: unknown\): Result<NoteText>/);
+    expect(existsSync(join(dir, bad.contractPath.replace(".contract.ts", ".ts")))).toBe(false);
+  });
+
+  test("a domain-only project is not refused as types-only", () => {
+    const dir = domainProject();
+    expect(runScaffold(dir).lines.join("\n")).not.toMatch(/declares only types/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The scaffold step is a SYNC: deleting a contract deletes what it generated
 // ---------------------------------------------------------------------------
 //
@@ -958,12 +1031,22 @@ export declare function normalize(currency: Currency): Currency;
 export declare function get(id: Id): string;
 `;
 
+  /** A domain concept (ADR 2026-059): its laws are colocated and generated;
+   *  its skeleton is builder-owned once written, so it carries no marker. */
+  const DOMAIN_CONTRACT = "contexts/shop/src/domain/money/currency.contract.ts";
+  const DOMAIN_IMPL = "contexts/shop/src/domain/money/currency.ts";
+  const DOMAIN_LAWS = "contexts/shop/src/domain/money/currency.laws.test.ts";
+  const CURRENCY_CONCEPT = exampleConcept("project-name").contract.replaceAll("ProjectName", "Currency");
+
   // Both generators must keep emitting the marker the sync recognises. If one
   // ever stopped, the sync would quietly leak that generator's output forever
   // — the failure would be invisible, so it is pinned here rather than trusted.
   test("every generated file this pack writes carries the marker the sync looks for", () => {
     expect(isGeneratedArtifact(scaffoldContract(CURRENCY, "src/money/money.contract.ts"))).toBe(true);
-    expect(isGeneratedArtifact(valueObjectLawsSource(CURRENCY, "src/money/money.contract.ts"))).toBe(true);
+    const dir = project({ [DOMAIN_CONTRACT]: CURRENCY_CONCEPT });
+    expect(runScaffold(dir).code).toBe(0);
+    expect(isGeneratedArtifact(readFileSync(join(dir, DOMAIN_LAWS), "utf8"))).toBe(true);
+    expect(isGeneratedArtifact(readFileSync(join(dir, DOMAIN_IMPL), "utf8"))).toBe(false);
     expect(isGeneratedArtifact(ERRORS_MODULE_SOURCE)).toBe(false);
     expect(isGeneratedArtifact("export const x = 1;\n")).toBe(false);
   });
@@ -1021,28 +1104,37 @@ export declare function get(id: Id): string;
     expect(readFileSync(join(dir, "src/ui/main.tsx"), "utf8")).toBe(webFile);
   });
 
-  test("deleting a contract removes its skeleton and its law suite on the next run", () => {
+  test("deleting a contract removes its generated skeleton on the next run", () => {
     const dir = project({
       "src/money/money.contract.ts": CURRENCY,
       "src/orders/orders.contract.ts": KEEPER,
     });
     expect(runScaffold(dir).code).toBe(0);
     const skeleton = join(dir, "src/money/money.ts");
-    const laws = join(dir, lawsPathFor("src/money/money.contract.ts"));
     expect(existsSync(skeleton)).toBe(true);
-    expect(existsSync(laws)).toBe(true);
 
     rmSync(join(dir, "src/money/money.contract.ts"));
     const r = runScaffold(dir);
     expect(r.code).toBe(0);
     expect(r.lines).toContain("scaffold: pruned src/money/money.ts — its contract no longer exists");
-    expect(r.lines).toContain(
-      "scaffold: pruned tests/generated/money.laws.test.ts — its contract no longer exists",
-    );
     expect(existsSync(skeleton)).toBe(false);
-    expect(existsSync(laws)).toBe(false);
     // The surviving contract's own skeleton is untouched.
     expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(true);
+  });
+
+  // A domain concept's laws are generated and go with the contract; its
+  // implementation is the builder's once written (ADR 2026-060) and stays.
+  test("deleting a domain contract removes its law suite and keeps the implementation", () => {
+    const dir = project({ [DOMAIN_CONTRACT]: CURRENCY_CONCEPT, "src/orders/orders.contract.ts": KEEPER });
+    expect(runScaffold(dir).code).toBe(0);
+    expect(existsSync(join(dir, DOMAIN_LAWS))).toBe(true);
+
+    rmSync(join(dir, DOMAIN_CONTRACT));
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(`scaffold: pruned ${DOMAIN_LAWS} — its contract no longer exists`);
+    expect(existsSync(join(dir, DOMAIN_LAWS))).toBe(false);
+    expect(existsSync(join(dir, DOMAIN_IMPL))).toBe(true);
   });
 
   test("a directory the prune empties goes too", () => {
@@ -1054,9 +1146,7 @@ export declare function get(id: Id): string;
     rmSync(join(dir, "src/money/money.contract.ts"));
     const r = runScaffold(dir);
     expect(r.lines).toContain("scaffold: removed empty directory src/money");
-    expect(r.lines).toContain("scaffold: removed empty directory tests/generated");
     expect(existsSync(join(dir, "src/money"))).toBe(false);
-    expect(existsSync(join(dir, "tests"))).toBe(false);
   });
 
   // The marker is the whole safety argument. A hand-written file that merely
@@ -1070,14 +1160,12 @@ export declare function get(id: Id): string;
     expect(runScaffold(dir).code).toBe(0);
     const handWritten = "export const rate = 1; // written by a person, before the contract existed\n";
     writeFileSync(join(dir, "src/money/money.ts"), handWritten);
-    writeFileSync(join(dir, lawsPathFor("src/money/money.contract.ts")), handWritten);
     rmSync(join(dir, "src/money/money.contract.ts"));
 
     const r = runScaffold(dir);
     expect(r.code).toBe(0);
     expect(r.lines.filter((l) => l.includes("pruned"))).toEqual([]);
     expect(readFileSync(join(dir, "src/money/money.ts"), "utf8")).toBe(handWritten);
-    expect(readFileSync(join(dir, lawsPathFor("src/money/money.contract.ts")), "utf8")).toBe(handWritten);
   });
 
   test("the prune is idempotent: the second run has nothing to say", () => {
@@ -1097,6 +1185,7 @@ export declare function get(id: Id): string;
     const dir = project({
       "src/money/money.contract.ts": CURRENCY,
       "src/orders/orders.contract.ts": KEEPER,
+      [DOMAIN_CONTRACT]: CURRENCY_CONCEPT,
     });
     const first = runScaffold(dir);
     expect(first.lines.filter((l) => l.includes("pruned"))).toEqual([]);
@@ -1104,28 +1193,28 @@ export declare function get(id: Id): string;
     expect(second.code).toBe(0);
     expect(second.lines.filter((l) => l.includes("pruned"))).toEqual([]);
     expect(existsSync(join(dir, "src/money/money.ts"))).toBe(true);
-    expect(existsSync(join(dir, lawsPathFor("src/money/money.contract.ts")))).toBe(true);
+    expect(existsSync(join(dir, DOMAIN_LAWS))).toBe(true);
     expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(true);
-    // The shared errors module carries no marker and must never be swept up.
+    // The shared errors modules carry no marker and must never be swept up.
     expect(existsSync(join(dir, "src/shared/errors.ts"))).toBe(true);
+    expect(existsSync(join(dir, "contexts/shop/src/domain/shared/errors.ts"))).toBe(true);
   });
 
   test("the prune is logged, so a run's own record says what it removed", () => {
     const dir = project({
       "src/money/money.contract.ts": CURRENCY,
       "src/orders/orders.contract.ts": KEEPER,
+      [DOMAIN_CONTRACT]: CURRENCY_CONCEPT,
     });
     runScaffold(dir);
     rmSync(join(dir, "src/money/money.contract.ts"));
+    rmSync(join(dir, DOMAIN_CONTRACT));
     runScaffold(dir);
     const prune = readGuardLog(dir).filter((e) => e.summary?.includes("orphaned generated file"));
     expect(prune).toHaveLength(1);
     expect(prune[0]).toMatchObject({ guard: "scaffold", verdict: "pass" });
     expect(prune[0].summary).toBe("pruned 2 orphaned generated files");
-    expect((prune[0].detail as { pruned: string[] }).pruned).toEqual([
-      "src/money/money.ts",
-      "tests/generated/money.laws.test.ts",
-    ]);
+    expect([...(prune[0].detail as { pruned: string[] }).pruned].sort()).toEqual([DOMAIN_LAWS, "src/money/money.ts"]);
   });
 
   // -------------------------------------------------------------------------
@@ -1231,8 +1320,6 @@ export function normalize(currency: Currency): Currency {
     expect(r.code).toBe(0);
     expect(r.lines).toContain("scaffold: pruned src/orders/orders.ts — its contract no longer exists");
     expect(readFileSync(join(dir, "src/money/money.ts"), "utf8")).toBe(IMPLEMENTED);
-    // Its law suite is a generated file and still belongs to the live contract.
-    expect(existsSync(join(dir, lawsPathFor("src/money/money.contract.ts")))).toBe(true);
   });
 
   // A run that failed part-way has an incomplete picture of what it generated,

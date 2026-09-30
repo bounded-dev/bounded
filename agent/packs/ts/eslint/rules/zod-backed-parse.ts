@@ -7,8 +7,9 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // schemas), and the generated hostile-input laws interrogate a schema's
 // judgment far better than they interrogate an ad-hoc `typeof` chain.
 //
-// WHAT COUNTS AS A VALUE OBJECT here: a class declaring the nominal-class
-// shape's `__brand` property (ADR 2026-015). WHAT COUNTS AS ZOD-BACKED: the
+// WHAT COUNTS AS A VALUE OBJECT here: a class declaring a `__brand`
+// property — `<Name>Impl`'s `declare readonly __brand` (ADR 2026-059). An
+// entity's Impl has no static parse, so it is never checked. WHAT COUNTS AS ZOD-BACKED: the
 // static parse's body references a binding imported from `zod` (usually
 // `z`), or calls `.safeParse(…)` — the schema may live module-level and be
 // shared, so the reference is the delegation. A skeleton's parse (throwing

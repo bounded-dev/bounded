@@ -53,8 +53,14 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     // --- the public boundary only ---
     "interface Internal { isbn: string }", // unexported: not the boundary
     "type Raw = string;", // unexported alias: not the boundary
-    // declare class is already nominal — it IS the value object
-    "export declare class Money { readonly amount: number;\n  static parse(raw: string): Money;\n}",
+    // a concept's own wire form (ADR 2026-059): `value` and `toJSON()` ARE
+    // the primitive the brand wraps
+    'export interface Money { readonly __brand: "Money"; readonly value: number; equals(other: Money): boolean; toJSON(): number; }',
+    // an entity's toJSON is its wire shape
+    'export interface Note { readonly __brand: "Note"; readonly id: NoteId; toJSON(): { readonly id: string }; }',
+    // a wire input beside its branded command (TN-26-012 §3)
+    `export interface CreateNoteInput { readonly projectId: string; readonly text: string; }
+export interface CreateNoteCommand { readonly __brand: "CreateNoteCommand"; readonly projectId: ProjectId; readonly text: NoteText; }`,
 
     // --- the parse boundary: a signature that RETURNS a value object
     // declared in this contract may take the raw primitive. This is where
@@ -80,13 +86,16 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     "export default interface Config { level: LogLevel }",
 
     // --- built-in object types: only the ALIAS position is the defect ---
-    // The canonical value object (ADR 2026-015) — the fix a flagged alias is
+    // The canonical value object (ADR 2026-059) — the fix a flagged alias is
     // pointed at, so it must never be flagged itself.
-    `export declare class CalendarDate {
-      private readonly __brand: "CalendarDate";
-      private constructor();
+    `export interface CalendarDate {
+      readonly __brand: "CalendarDate";
       readonly value: string;
-      static parse(raw: unknown): CalendarDate | undefined;
+      equals(other: CalendarDate): boolean;
+      toJSON(): string;
+    }
+    export interface CalendarDateFactory {
+      parse(raw: unknown): Result<CalendarDate>;
     }`,
     // a Date-typed member is a design judgement, not this rule's business
     "export interface Subscription { expiresAt: Date }",
@@ -109,11 +118,40 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
   ],
 
   invalid: [
+    // --- the concept exemptions are exact (ADR 2026-059) ---
+    // a branded interface's OTHER members are still walked
+    {
+      code: 'export interface Money { readonly __brand: "Money"; readonly value: number; readonly currency: string; toJSON(): number; }',
+      errors: [{ messageId: "nakedPrimitive", data: { name: "currency", brand: "Currency", stem: "currency", primitive: "string" } }],
+    },
+    // a `value` field on an unbranded interface is an ordinary slot
+    {
+      code: "export interface Money { readonly value: number; }",
+      errors: [{ messageId: "nakedPrimitive", data: { name: "value", brand: "Value", stem: "value", primitive: "number" } }],
+    },
+    // a toJSON that takes arguments is behaviour, not the wire form
+    {
+      code: 'export interface Money { readonly __brand: "Money"; toJSON(locale: string): string; }',
+      errors: [
+        { messageId: "nakedPrimitive", data: { name: "locale", brand: "Locale", stem: "locale", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "toJSON", brand: "ToJson", stem: "to-json", primitive: "string" } },
+      ],
+    },
+    // an Input with no branded Command twin is an ordinary DTO
+    {
+      code: "export interface CreateNoteInput { readonly text: string; }",
+      errors: [{ messageId: "nakedPrimitive", data: { name: "text", brand: "Text", stem: "text", primitive: "string" } }],
+    },
+    // a twin without a brand does not count
+    {
+      code: "export interface CreateNoteInput { readonly text: string; }\nexport interface CreateNoteCommand { readonly text: NoteText; }",
+      errors: [{ messageId: "nakedPrimitive", data: { name: "text", brand: "Text", stem: "text", primitive: "string" } }],
+    },
     // --- the three dogfood defects, verbatim ---
     {
       code: "export interface Book { isbn: string }",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", stem: "isbn", primitive: "string" } },
       ],
     },
     {
@@ -121,7 +159,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitive",
-          data: { name: "pagesRead", brand: "PagesRead", primitive: "number" },
+          data: { name: "pagesRead", brand: "PagesRead", stem: "pages-read", primitive: "number" },
         },
       ],
     },
@@ -130,7 +168,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitiveElement",
-          data: { name: "authors", brand: "Author", primitive: "string" },
+          data: { name: "authors", brand: "Author", stem: "author", primitive: "string" },
         },
       ],
     },
@@ -140,7 +178,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitive",
-          data: { name: "author", brand: "Author", primitive: "string" },
+          data: { name: "author", brand: "Author", stem: "author", primitive: "string" },
         },
       ],
     },
@@ -212,7 +250,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     {
       code: "export declare function findBook(isbn: string): Book;",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", stem: "isbn", primitive: "string" } },
       ],
     },
     {
@@ -220,7 +258,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitive",
-          data: { name: "countBooks", brand: "CountBooks", primitive: "number" },
+          data: { name: "countBooks", brand: "CountBooks", stem: "count-books", primitive: "number" },
         },
       ],
     },
@@ -229,7 +267,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitive",
-          data: { name: "DEFAULT_CURRENCY", brand: "DefaultCurrency", primitive: "string" },
+          data: { name: "DEFAULT_CURRENCY", brand: "DefaultCurrency", stem: "default-currency", primitive: "string" },
         },
       ],
     },
@@ -240,7 +278,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       // returns a DTO, not a value object
       code: "export interface Book { isbn: Isbn }\nexport declare function findBook(isbn: string): Book;",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", stem: "isbn", primitive: "string" } },
       ],
     },
     {
@@ -249,7 +287,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitive",
-          data: { name: "unwrap", brand: "Unwrap", primitive: "string" },
+          data: { name: "unwrap", brand: "Unwrap", stem: "unwrap", primitive: "string" },
         },
       ],
     },
@@ -257,7 +295,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       // an unbranded local alias is not a value object, so it exempts nothing
       code: "type Isbn = string;\nexport declare function parseIsbn(raw: string): Isbn;",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "raw", brand: "Raw", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "raw", brand: "Raw", stem: "raw", primitive: "string" } },
       ],
     },
 
@@ -265,13 +303,13 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     {
       code: "export interface BookStore { get(key: string): Promise<Book | undefined> }",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "key", brand: "Key", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "key", brand: "Key", stem: "key", primitive: "string" } },
       ],
     },
     {
       code: "export interface BookStore { load(): Promise<string> }",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "load", brand: "Load", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "load", brand: "Load", stem: "load", primitive: "string" } },
       ],
     },
 
@@ -281,7 +319,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitiveElement",
-          data: { name: "tags", brand: "Tag", primitive: "string" },
+          data: { name: "tags", brand: "Tag", stem: "tag", primitive: "string" },
         },
       ],
     },
@@ -290,7 +328,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitiveElement",
-          data: { name: "authors", brand: "Author", primitive: "string" },
+          data: { name: "authors", brand: "Author", stem: "author", primitive: "string" },
         },
       ],
     },
@@ -299,7 +337,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitiveElement",
-          data: { name: "authors", brand: "Author", primitive: "string" },
+          data: { name: "authors", brand: "Author", stem: "author", primitive: "string" },
         },
       ],
     },
@@ -314,7 +352,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitiveElement",
-          data: { name: "titles", brand: "Title", primitive: "string" },
+          data: { name: "titles", brand: "Title", stem: "title", primitive: "string" },
         },
       ],
     },
@@ -325,14 +363,14 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitive",
-          data: { name: "subtitle", brand: "Subtitle", primitive: "string" },
+          data: { name: "subtitle", brand: "Subtitle", stem: "subtitle", primitive: "string" },
         },
       ],
     },
     {
       code: "export interface Book { meta: { isbn: string } }",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", stem: "isbn", primitive: "string" } },
       ],
     },
     {
@@ -340,7 +378,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       errors: [
         {
           messageId: "nakedPrimitive",
-          data: { name: "title", brand: "Title", primitive: "string" },
+          data: { name: "title", brand: "Title", stem: "title", primitive: "string" },
         },
       ],
     },
@@ -349,19 +387,19 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     {
       code: "interface Book { isbn: string }\nexport { Book };",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", stem: "isbn", primitive: "string" } },
       ],
     },
     {
       code: "export default interface Config { host: string }",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "host", brand: "Host", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "host", brand: "Host", stem: "host", primitive: "string" } },
       ],
     },
     {
       code: "export declare namespace Books { interface Repo { get(isbn: string): Book } }",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", stem: "isbn", primitive: "string" } },
       ],
     },
 
@@ -369,14 +407,14 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     {
       code: "export interface Book { isbn: string; authors: string[]; pages: number }",
       errors: [
-        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", stem: "isbn", primitive: "string" } },
         {
           messageId: "nakedPrimitiveElement",
-          data: { name: "authors", brand: "Author", primitive: "string" },
+          data: { name: "authors", brand: "Author", stem: "author", primitive: "string" },
         },
         {
           messageId: "nakedPrimitive",
-          data: { name: "pages", brand: "Pages", primitive: "number" },
+          data: { name: "pages", brand: "Pages", stem: "pages", primitive: "number" },
         },
       ],
     },

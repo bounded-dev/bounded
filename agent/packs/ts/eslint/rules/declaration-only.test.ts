@@ -20,10 +20,8 @@ ruleTester.run("declaration-only", declarationOnly, {
     "type Internal = string;", // unexported types are fine
     "export declare function createOrder(input: NewOrder): Order;",
     "export declare const DEFAULT_CURRENCY: string;",
-    "export declare class OrderId { readonly value: string; }",
-    // declare class members: bodiless method signatures are fine — the class
-    // itself carries `declare`, so its contents never reach the runtime check
-    "export declare class Repo { get(id: string): string; }",
+    // the contract-owns-the-name pair (ADR 2026-059)
+    'import type { Result } from "../shared/result.ts";\nexport interface OrderId { readonly __brand: "OrderId"; readonly value: string; }\nexport interface OrderIdFactory { parse(raw: unknown): Result<OrderId>; }',
     // overloads: every signature needs its own `declare`, same as a single one
     "export declare function find(id: string): Order | undefined;\nexport declare function find(id: number): Order | undefined;",
     "export default interface Config { debug: boolean; }",
@@ -43,6 +41,24 @@ ruleTester.run("declaration-only", declarationOnly, {
   ],
 
   invalid: [
+    // --- the retired declare-class contract form (ADR 2026-059) ---
+    {
+      code: "export declare class OrderId { readonly value: string; }",
+      errors: [{ messageId: "retiredDeclareClass", data: { name: "OrderId" } }],
+    },
+    {
+      code: 'export declare class Currency {\n  private readonly __brand: "Currency";\n  private constructor();\n  readonly code: string;\n  static parse(raw: unknown): Currency | undefined;\n}',
+      errors: [{ messageId: "retiredDeclareClass", data: { name: "Currency" } }],
+    },
+    // unexported, and inside an ambient namespace: still a class in a contract
+    {
+      code: "declare class Repo { get(id: string): string; }",
+      errors: [{ messageId: "retiredDeclareClass", data: { name: "Repo" } }],
+    },
+    {
+      code: "export declare namespace Orders { class Repo { get(id: string): string; } }",
+      errors: [{ messageId: "classBody", data: { name: "Repo" } }],
+    },
     // --- function bodies (TN: no function bodies) ---
     {
       code: "export function createOrder(input: NewOrder): Order { return input as Order; }",

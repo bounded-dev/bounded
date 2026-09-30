@@ -3,6 +3,15 @@
 //   src/orders/orders.contract.ts  →  src/orders/orders.ts   (fixed naming rule)
 //   src/ui/badge.contract.ts       →  src/ui/badge.tsx       (declares a component)
 //
+// DOMAIN CONCEPTS (ADR 2026-059/060) do not take the path described below: a
+// contract at contexts/<ctx>/src/domain/<area>/<concept>.contract.ts is
+// scaffolded by the domain emitter's functions (domain-emitter.ts), which
+// write the `<Name>Impl` skeleton only where no file exists and regenerate the
+// colocated `<concept>.laws.test.ts` (see "domain concepts" above runScaffold).
+// Everything else here is the flat-layout scaffolder the gates still call
+// until they move to the emitter socket; its `declare class` handling serves
+// only contracts that contract-purity now refuses.
+//
 // Contracts are always `.ts` — declaration-only files have no JSX to spell —
 // but a contract whose exported surface returns a React element scaffolds to a
 // `.tsx` sibling, because the builder's replacement for that skeleton will
@@ -52,7 +61,15 @@ import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
-import { lawsPathFor, ValueObjectLawsError, valueObjectLawsSource, valueObjectsOf } from "./value-object-laws.ts";
+import { conceptLawsSource, ValueObjectLawsError, type ConceptSampleSource } from "./value-object-laws.ts";
+import {
+  acceptsExamplesOf,
+  DomainConceptError,
+  isDomainConceptPath,
+  lawsPathOf,
+  parseDomainConcept,
+} from "./domain-concept.ts";
+import { implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
 import { findContractFiles, findFilesUnder } from "./checksum-gate.ts";
 import { mergedContribution } from "../../../src/pack-contrib.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
@@ -921,6 +938,90 @@ export function scaffoldContract(
  * carrying the generated marker. Real work is never a casualty of re-running
  * a generator (ADR 2026-023).
  */
+// --- domain concepts (ADR 2026-059, TN-26-012) ---------------------------------
+//
+// A domain concept contract (`contexts/<ctx>/src/domain/<area>/<concept>.contract.ts`)
+// is scaffolded by the domain emitter's own functions, not by the legacy
+// declare-class path below: the skeleton is `<Name>Impl` plus the two-export
+// tail, written only where no file exists (a skeleton is builder-owned once
+// written, ADR 2026-060), and the colocated laws are regenerated every run.
+// The red-phase errors module lands at `domain/shared/errors.ts`, where the
+// skeleton imports it from.
+
+interface DomainScaffold {
+  /** Every domain concept in the project, by context directory then name. */
+  readonly byContext: ReadonlyMap<string, ReadonlyMap<string, ConceptSampleSource>>;
+}
+
+function readDomainConcepts(cwd: string): DomainScaffold {
+  const byContext = new Map<string, Map<string, ConceptSampleSource>>();
+  for (const abs of findContractFiles(cwd)) {
+    const rel = relative(cwd, abs).split(sep).join("/");
+    if (!isDomainConceptPath(rel)) continue;
+    const source = readFileSync(abs, "utf8");
+    const model = parseDomainConcept(rel, source);
+    const concepts = byContext.get(model.context) ?? new Map<string, ConceptSampleSource>();
+    const clash = concepts.get(model.name);
+    if (clash !== undefined) {
+      throw new DomainConceptError(`${rel}: '${model.name}' is also declared by ${clash.model.contractPath} — a concept name is unique within its context`);
+    }
+    concepts.set(model.name, { model, examples: acceptsExamplesOf(rel, source, model.name) });
+    byContext.set(model.context, concepts);
+  }
+  return { byContext };
+}
+
+function scaffoldDomainConcept(
+  cwd: string,
+  rel: string,
+  contractText: string,
+  domain: DomainScaffold,
+  generated: Set<string>,
+  lines: string[],
+): { code: number; lines: readonly string[] } | undefined {
+  let skeleton: string;
+  let laws: string;
+  try {
+    const model = parseDomainConcept(rel, contractText);
+    const concepts = domain.byContext.get(model.context) ?? new Map<string, ConceptSampleSource>();
+    skeleton = implementationSkeleton(model);
+    laws = conceptLawsSource(model, acceptsExamplesOf(rel, contractText, model.name), (n) => concepts.get(n));
+  } catch (e) {
+    if (!(e instanceof DomainConceptError) && !(e instanceof ValueObjectLawsError)) throw e;
+    logGuardEvent(cwd, { guard: "scaffold", verdict: "block", summary: e.message, detail: { contract: rel } });
+    return { code: 1, lines: [...lines, `scaffold: BLOCK — ${e.message}`] };
+  }
+
+  const errorsRel = posix.join(posix.dirname(posix.dirname(rel)), "shared", "errors.ts");
+  if (!existsSync(join(cwd, errorsRel))) {
+    mkdirSync(dirname(join(cwd, errorsRel)), { recursive: true });
+    writeFileSync(join(cwd, errorsRel), NOT_IMPLEMENTED_MODULE_SOURCE);
+    lines.push(`scaffold: created ${errorsRel} (red-phase errors module)`);
+  }
+
+  const implRel = rel.replace(/\.contract\.ts$/, ".ts");
+  if (existsSync(join(cwd, implRel))) {
+    lines.push(`scaffold: kept ${implRel} — a skeleton is written only where no file exists`);
+  } else {
+    writeFileSync(join(cwd, implRel), skeleton);
+    lines.push(`scaffold: wrote ${implRel}`);
+  }
+  // Kept or written, the implementation is never an orphan of this sync.
+  generated.add(resolve(cwd, implRel));
+
+  const lawsRel = lawsPathOf(rel);
+  writeFileSync(join(cwd, lawsRel), laws);
+  generated.add(resolve(cwd, lawsRel));
+  lines.push(`scaffold: wrote ${lawsRel} (domain laws)`);
+  logGuardEvent(cwd, {
+    guard: "scaffold",
+    verdict: "pass",
+    summary: `scaffolded ${rel}`,
+    detail: { contract: rel, skeleton: implRel, laws: lawsRel },
+  });
+  return undefined;
+}
+
 export function runScaffold(
   cwd: string,
   contractPaths?: readonly string[],
@@ -951,12 +1052,31 @@ export function runScaffold(
   // contract, and the prune at the end of a complete pass removes it.
   const generated = new Set<string>();
 
+  // Domain concepts (ADR 2026-059) are read as one set: an entity's laws are
+  // built from the value objects beside it, whichever contracts this run was
+  // asked to scaffold.
+  let domain: DomainScaffold;
+  try {
+    domain = readDomainConcepts(cwd);
+  } catch (e) {
+    if (!(e instanceof DomainConceptError)) throw e;
+    logGuardEvent(cwd, { guard: "scaffold", verdict: "block", summary: e.message });
+    return { code: 1, lines: [`scaffold: BLOCK — ${e.message}`] };
+  }
+
   for (const contractPath of contracts) {
     // Read ONCE. Every decision this iteration makes — what to generate, which
     // extension it lands on, whether it ships a runtime, whether it has laws —
     // must be taken over the same bytes, or a contract edited mid-run could be
     // scaffolded as one thing and named as another.
     const contractText = readFileSync(contractPath, "utf8");
+    const domainRel = relative(cwd, resolve(cwd, contractPath)).split(sep).join("/");
+    if (isDomainConceptPath(domainRel)) {
+      const blocked = scaffoldDomainConcept(cwd, domainRel, contractText, domain, generated, lines);
+      if (blocked !== undefined) return blocked;
+      implementable += 1;
+      continue;
+    }
     let skeleton: string;
     try {
       // Generate first: this is the step that rejects a bad contract, and it
@@ -1103,50 +1223,9 @@ export function runScaffold(
       }
     }
 
-    // The value-object law suite is generated from the same frozen contract, in
-    // the same breath, for the same reason the skeleton is: nobody hand-writes
-    // it, so nobody can forget it. Run 7's suite tested 6 of 15 exports and
-    // never touched a single parser.
-    //
-    // Blindness is untouched — the laws are derived from the CONTRACT, never
-    // from the tests, exactly like the skeleton. And a contract with no value
-    // objects simply has no laws to state, which is not an error.
-    const contractRel = relative(cwd, contractPath).split(sep).join("/");
-    // A contract with no value objects simply has no laws to state; anything
-    // else that goes wrong here is a real error and must be said out loud. An
-    // exception used as control flow would have hidden a genuine failure behind
-    // "nothing to generate" — which is how a gate stops being a gate.
-    if (valueObjectsOf(contractText, contractRel).length > 0) {
-      const lawsRel = lawsPathFor(contractRel);
-      const lawsPath = join(cwd, lawsRel);
-      let laws: string;
-      try {
-        laws = valueObjectLawsSource(contractText, contractRel);
-      } catch (e) {
-        if (!(e instanceof ValueObjectLawsError)) throw e;
-        logGuardEvent(cwd, {
-          guard: "scaffold",
-          verdict: "block",
-          summary: e.message,
-          detail: { contract: contractRel },
-        });
-        return { code: 1, lines: [...lines, e.message] };
-      }
-      mkdirSync(dirname(lawsPath), { recursive: true });
-      writeFileSync(lawsPath, laws);
-      generated.add(resolve(cwd, lawsPath));
-      lines.push(`scaffold: wrote ${lawsRel} (value-object laws)`);
-      logGuardEvent(cwd, {
-        guard: "scaffold",
-        verdict: "pass",
-        summary: `wrote ${lawsRel}`,
-        detail: { contract: contractRel, laws: lawsRel },
-      });
-    }
-    // A contract that has lost its last value object simply generates no laws
-    // file this run, so it is not in `generated` — the sync below removes the
-    // stale suite for exactly the same reason it removes a deleted contract's,
-    // and says so, where the old bespoke unlink was silent.
+    // Law suites are generated for domain concepts only (ADR 2026-059), in
+    // the domain branch above; the retired `declare class` form had its own
+    // and is refused at contract-purity.
   }
 
   if (implementable === 0) {

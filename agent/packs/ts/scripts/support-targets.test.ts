@@ -61,3 +61,46 @@ describe("contract support targets stay inside src/", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+// ADR 2026-056: in the monorepo the targets must lie under a source root the
+// composition names, not under a literal src/.
+describe("contract support targets stay inside the source roots", () => {
+  const ROOTS = ["contexts/*/src", "apps/*/src"];
+  function monorepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), "support-roots-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, "contexts", "pm", "src", "api"), { recursive: true });
+    return dir;
+  }
+
+  test("a target under any concrete root is accepted", () => {
+    const dir = monorepo();
+    mkdirSync(join(dir, "apps", "web", "src"), { recursive: true });
+    const target = join(dir, "contexts/pm/src/api/runtime.ts");
+    const other = join(dir, "apps/web/src/runtime.ts");
+    const r = containedSupportTargets(pointing(target, other), "", "contexts/pm/src/api/a.contract.ts", dir, ROOTS);
+    expect(r).toEqual({ ok: true, targets: [target, other] });
+  });
+
+  test.each([
+    ["the context directory itself", "contexts/pm/runtime.ts"],
+    ["a root directory itself", "contexts/pm/src"],
+    ["a flat src/", "src/runtime.ts"],
+    ["a deeper non-root", "contexts/pm/lib/runtime.ts"],
+    ["outside the project", "../runtime.ts"],
+  ])("%s is refused, naming the roots", (_, rel) => {
+    const dir = monorepo();
+    const r = containedSupportTargets(pointing(join(dir, rel)), "", "contexts/pm/src/api/a.contract.ts", dir, ROOTS);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("which resolves outside the project's contexts/*/src/, apps/*/src/");
+  });
+
+  test("a link under a root that leads outside is refused", () => {
+    const dir = monorepo();
+    const outside = mkdtempSync(join(tmpdir(), "support-outside-"));
+    dirs.push(outside);
+    symlinkSync(outside, join(dir, "contexts", "pm", "src", "linked"), "dir");
+    const r = containedSupportTargets(pointing(join(dir, "contexts/pm/src/linked/runtime.ts")), "", "contexts/pm/src/api/a.contract.ts", dir, ROOTS);
+    expect(r.ok).toBe(false);
+  });
+});

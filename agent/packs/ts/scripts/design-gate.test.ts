@@ -138,14 +138,20 @@ export interface Ledger {
 }
 `;
 
-/** A second clean contract, for the file a review never saw. A value object in
- *  its own contract file — the shape value-objects-own-contract steers toward. */
-const TICKER_CONTRACT = `/** Ticker: an exchange symbol — one to five uppercase letters. */
-export declare class Ticker {
-  private readonly __brand: "Ticker";
-  private constructor();
+/** A second clean contract, for the file a review never saw: the ADR
+ *  2026-059 interface + factory pair (the retired `declare class` form now
+ *  fails contract-purity). */
+const TICKER_CONTRACT = `import type { Result } from "../shared/result.ts";
+
+export interface Ticker {
+  readonly __brand: "Ticker";
   readonly value: string;
-  static parse(raw: unknown): Ticker | undefined;
+  equals(other: Ticker): boolean;
+  toJSON(): string;
+}
+
+export interface TickerFactory {
+  parse(raw: unknown): Result<Ticker>;
 }
 `;
 

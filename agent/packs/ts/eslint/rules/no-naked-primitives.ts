@@ -44,12 +44,19 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 //   the primitive belongs to that type's author, not this contract's.
 // * **Index-signature keys and Record/Map key positions are exempt**: an index
 //   domain, and TS permits nothing but string/number/symbol there anyway.
-// * **`declare class` bodies are exempt.** A class is already nominal — it IS
-//   the value object (`declare class Money { readonly amount: number }`), and
-//   its smart constructor (`static parse(raw: string): Money`) must accept the
-//   raw primitive. Residual hole, accepted: a class-shaped DTO of primitives
-//   goes unflagged. Contracts are steered towards interfaces + declare
-//   functions, so this is cheap to accept and expensive to police.
+// * **A concept's own wire form is exempt** (ADR 2026-059). In an interface
+//   carrying a literal `__brand`, the `value` field and the `toJSON()` return
+//   ARE the primitive the brand wraps — naming them with another value object
+//   would be circular. Every other member of that interface is still walked.
+//   `value-object-shape` and `entity-shape` hold the rest of those members'
+//   shape; the pair is complete only together.
+// * **A wire input is exempt** (ADR 2026-059, TN-26-012 §3): `<X>Input` is
+//   what callers send, so it is primitives by definition — but only when this
+//   file also declares its branded twin `<X>Command`, the same fields as value
+//   objects. Without the twin, `<X>Input` is an ordinary DTO and is checked.
+// * **Classes are not walked.** `declaration-only` refuses every class in a
+//   contract (the retired `declare class` form), so there is nothing here to
+//   exempt or to check.
 // * **Ports are treated exactly like DTOs** — no name or shape heuristic
 //   ("…Store", "…Port", methods-only) distinguishes them. Deliberate: the
 //   point of a port is that it is domain-facing (`save(id: Isbn)`), infra-
@@ -128,14 +135,10 @@ type Primitive = "string" | "number";
 const VALUE_OBJECTS =
   "Value objects over primitives on the contract's public surface (TN-26-001): a naked 'string'/'number' carries no domain meaning and no invariant — nothing stops an ISBN being passed where a title is expected.";
 
-// The prescribed form is the nominal class (ADR 2026-015) — a branded alias
-// would be bounced by `no-branded-aliases` in the same gate run.
+// The prescribed form is the contract-owns-the-name pair (ADR 2026-059) — a
+// branded alias would be bounced by `no-branded-aliases` in the same gate run.
 const BRAND =
-  'export declare class {{brand}} { private readonly __brand: "{{brand}}"; private constructor(); readonly value: {{primitive}}; static parse(raw: unknown): {{brand}} | undefined; }';
-
-/** The one-command fix, so the message ends in an action rather than a rule. */
-const SCAFFOLD =
-  "Or run: node <pack>/scripts/new-value-object.ts <this file> {{brand}}={{primitive}}";
+  'a {{brand}} value object in its own contract, {{stem}}.contract.ts: export interface {{brand}} { readonly __brand: "{{brand}}"; readonly value: {{primitive}}; equals(other: {{brand}}): boolean; toJSON(): {{primitive}}; } export interface {{brand}}Factory { parse(raw: unknown): Result<{{brand}}>; }';
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 
@@ -211,10 +214,10 @@ export const noNakedPrimitives = createRule<[], MessageId>({
   meta: {
     type: "problem",
     messages: {
-      nakedPrimitive: `${VALUE_OBJECTS} '{{name}}' is declared as '{{primitive}}' — declare the value object in this contract and use it here, e.g. ${BRAND} ${SCAFFOLD} Validation and parsing belong in the implementation; the contract just names the type.`,
-      nakedPrimitiveElement: `${VALUE_OBJECTS} '{{name}}' is a collection of naked '{{primitive}}' — declare the element type here and use {{brand}}[], e.g. ${BRAND} ${SCAFFOLD} If the field means one-or-more, encode that too: 'readonly [{{brand}}, ...{{brand}}[]]' — an array type silently permits empty, and a requirement no type carries is a requirement nothing checks.`,
-      builtinAlias: `'export type {{name}} = {{builtin}}' aliases a built-in object type — a name, not a value object (ADR 2026-015): it is assignable from every other '{{builtin}}' in the program, so '{{name}}' carries no invariant, and because no class is declared the value-object shape check, the generated law suite, and the boundaries obligation all stay silent. {{teeth}} Write the nominal class instead: export declare class {{name}} { private readonly __brand: "{{name}}"; private constructor(); readonly value: string; static parse(raw: unknown): {{name}} | undefined; } Delete the alias first, then generate the class: node <pack>/scripts/new-value-object.ts <this file> {{name}}=<base> — the generator will not rebase a built-in alias for you, because only you can choose what the class stores (an ISO-8601 string is immutable; a Date is not). If '{{name}}' only names a container, delete the alias and write the container at its use sites instead.`,
-      primitiveAlias: `${VALUE_OBJECTS} 'export type {{name}} = {{primitive}}' is an alias, not a value object — it is assignable from every other '{{primitive}}' in the program, so it buys nothing. Write the nominal class (ADR 2026-015): export declare class {{name}} { private readonly __brand: "{{name}}"; private constructor(); readonly value: {{primitive}}; static parse(raw: unknown): {{name}} | undefined; } Or run: node <pack>/scripts/new-value-object.ts <this file> {{name}}={{primitive}} — it upgrades the alias in place.`,
+      nakedPrimitive: `${VALUE_OBJECTS} '{{name}}' is declared as '{{primitive}}' — declare ${BRAND} Then import it here with 'import type { {{brand}} } from "./{{stem}}.contract.ts";' and use it. Validation and parsing belong in the implementation; the contract just names the type.`,
+      nakedPrimitiveElement: `${VALUE_OBJECTS} '{{name}}' is a collection of naked '{{primitive}}' — declare ${BRAND} Then use {{brand}}[] here. If the field means one-or-more, encode that too: 'readonly [{{brand}}, ...{{brand}}[]]' — an array type silently permits empty, and a requirement no type carries is a requirement nothing checks.`,
+      builtinAlias: `'export type {{name}} = {{builtin}}' aliases a built-in object type — a name, not a value object: it is assignable from every other '{{builtin}}' in the program, so '{{name}}' carries no invariant, and because no concept is declared the value-object shape check and the generated laws all stay silent. {{teeth}} Delete the alias and declare a value object in its own contract (ADR 2026-059): export interface {{name}} { readonly __brand: "{{name}}"; readonly value: string; equals(other: {{name}}): boolean; toJSON(): string; } plus export interface {{name}}Factory { parse(raw: unknown): Result<{{name}}>; } — choose what 'value' stores yourself (an ISO-8601 string is immutable; a Date is not). If '{{name}}' only names a container, delete the alias and write the container at its use sites instead.`,
+      primitiveAlias: `${VALUE_OBJECTS} 'export type {{name}} = {{primitive}}' is an alias, not a value object — it is assignable from every other '{{primitive}}' in the program, so it buys nothing. Declare the value object in its own contract (ADR 2026-059): export interface {{name}} { readonly __brand: "{{name}}"; readonly value: {{primitive}}; equals(other: {{name}}): boolean; toJSON(): {{primitive}}; } plus export interface {{name}}Factory { parse(raw: unknown): Result<{{name}}>; }`,
     },
     schema: [],
   },
@@ -230,12 +233,14 @@ export const noNakedPrimitives = createRule<[], MessageId>({
         return;
       }
       const base = pascalCase(ctx.name);
+      const brand = ctx.element ? singularize(base) : base;
       context.report({
         node,
         messageId: ctx.element ? "nakedPrimitiveElement" : "nakedPrimitive",
         data: {
           name: ctx.name,
-          brand: ctx.element ? singularize(base) : base,
+          brand,
+          stem: brand.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(),
           primitive,
         },
       });
@@ -491,9 +496,19 @@ export const noNakedPrimitives = createRule<[], MessageId>({
       if (checked.has(node)) return;
       checked.add(node);
       switch (node.type) {
-        case TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration:
-          for (const member of node.body.body) walkMember(member);
+        case TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration: {
+          // A wire input is primitives by definition: its validated twin is
+          // the branded `<X>Command` declared beside it (ADR 2026-059).
+          if (wireInputs.has(node.id.name)) return;
+          // A concept's own wire form: `value` and `toJSON()` ARE the
+          // primitive the brand wraps. Every other member is still walked.
+          const branded = isBranded(node);
+          for (const member of node.body.body) {
+            if (branded && isWireFormMember(member)) continue;
+            walkMember(member);
+          }
           return;
+        }
         case TSESTree.AST_NODE_TYPES.TSTypeAliasDeclaration:
           walkType(node.typeAnnotation, {
             name: node.id.name,
@@ -529,6 +544,7 @@ export const noNakedPrimitives = createRule<[], MessageId>({
           break;
         case TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration:
           declare(node, node.id.name);
+          interfaces.set(node.id.name, node);
           break;
         case TSESTree.AST_NODE_TYPES.TSDeclareFunction:
         case TSESTree.AST_NODE_TYPES.FunctionDeclaration:
@@ -553,6 +569,31 @@ export const noNakedPrimitives = createRule<[], MessageId>({
 
     /** Exported declarations, in source order, checked after indexing. */
     const pending: TSESTree.Node[] = [];
+
+    // --- the concept form (ADR 2026-059) ----------------------------------------
+
+    /** Interfaces named `<X>Input` whose `<X>Command` is branded in this file. */
+    const wireInputs = new Set<string>();
+    const interfaces = new Map<string, TSESTree.TSInterfaceDeclaration>();
+
+    function isBranded(node: TSESTree.TSInterfaceDeclaration): boolean {
+      return node.body.body.some(
+        (m) =>
+          m.type === TSESTree.AST_NODE_TYPES.TSPropertySignature &&
+          m.key.type === TSESTree.AST_NODE_TYPES.Identifier &&
+          m.key.name === "__brand" &&
+          m.typeAnnotation?.typeAnnotation.type === TSESTree.AST_NODE_TYPES.TSLiteralType,
+      );
+    }
+
+    function isWireFormMember(member: TSESTree.TypeElement): boolean {
+      if (member.type === TSESTree.AST_NODE_TYPES.TSPropertySignature) {
+        return member.key.type === TSESTree.AST_NODE_TYPES.Identifier && member.key.name === "value";
+      }
+      return member.type === TSESTree.AST_NODE_TYPES.TSMethodSignature &&
+        member.key.type === TSESTree.AST_NODE_TYPES.Identifier && member.key.name === "toJSON" &&
+        member.params.length === 0;
+    }
 
     function unwrapExport(stmt: TSESTree.Node): TSESTree.Node {
       return stmt.type === TSESTree.AST_NODE_TYPES.ExportNamedDeclaration && stmt.declaration
@@ -585,6 +626,10 @@ export const noNakedPrimitives = createRule<[], MessageId>({
         }
         for (const name of exportedNames) {
           for (const node of declared.get(name) ?? []) pending.push(node);
+        }
+        for (const [name, node] of interfaces) {
+          const command = interfaces.get(`${name.slice(0, -"Input".length)}Command`);
+          if (name.endsWith("Input") && command !== undefined && isBranded(command)) wireInputs.add(node.id.name);
         }
         // Source order keeps the gate's output stable and greppable.
         pending.sort((a, b) => a.range[0] - b.range[0]);

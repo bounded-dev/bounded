@@ -3,8 +3,8 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // TN-26-004 / ADR 2026-031 architect zone rule: zod is the parsing ENGINE
 // inside a value object, never a public identity — so nothing from zod may
 // appear in a contract at all. The contract's whole validation surface is
-// `static parse(raw: unknown): T | undefined`; that a zod schema sits behind
-// it is an implementation detail invisible to every consumer.
+// the factory's `parse(raw: unknown): Result<T>` (ADR 2026-059); that a zod
+// schema sits behind it, in `<Name>Impl`, is invisible to every consumer.
 //
 // Why total (any zod import, type or value, any specifier): a `ZodType` in a
 // signature, a re-exported schema, a `z.infer<…>` alias — each one makes the
@@ -29,8 +29,8 @@ export const noSchemaOnSurface = createRule<[], "zodImport" | "zodReexport">({
       zodImport:
         'a contract may not import from "{{source}}" — the schema is the value object\'s internal engine (ADR ' +
         "2026-031), and any zod name on a contract surface makes it a second public identity for the same value " +
-        "(ADR 2026-023). Declare `static parse(raw: unknown): T | undefined` and keep the schema in the " +
-        "implementation module.",
+        "(ADR 2026-023). Declare 'parse(raw: unknown): Result<T>' on the '<Name>Factory' interface and keep the " +
+        "schema in the implementation file, beside '<Name>Impl'.",
       zodReexport:
         're-exporting from "{{source}}" puts the schema engine on this contract\'s surface — the schema is the ' +
         "value object's internal engine (ADR 2026-031), never a public identity (ADR 2026-023). Keep it in the " +

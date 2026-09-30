@@ -12,14 +12,14 @@ import {
   lintContractSource,
 } from "./contract-purity.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
+import { EXAMPLE_CONCEPTS } from "./testdata/example-domain.ts";
 
 // --- programmatic core --------------------------------------------------------
 
 describe("lintContractSource", () => {
   test("a clean contract produces no problems", async () => {
-    // The value object (OrderId) lives in its own contract file and is imported
-    // from the implementation module — a value object may not share a file with
-    // the operations over it (value-objects-own-contract, ADR 2026-026).
+    // Outside the hexagonal layers the older import vocabulary still holds
+    // (contract-imports-contracts-only is scoped to domain/ and application/).
     const problems = await lintContractSource(
       'import type { OrderId } from "./order-id.js";\n' +
         "export interface Order { readonly id: OrderId }\n" +
@@ -75,9 +75,7 @@ describe("lintContractSource", () => {
   });
 
   test("the value-object version of the same contract is clean", async () => {
-    // The naked primitives are replaced by value objects, which — per
-    // value-objects-own-contract (ADR 2026-026) — live in their own contract
-    // file and are imported here from the implementation module.
+    // The naked primitives are replaced by value objects declared elsewhere.
     const problems = await lintContractSource(
       'import type { Isbn, AuthorName, PagesRead } from "./values.js";\n' +
         "export interface Book { readonly isbn: Isbn; readonly authors: readonly [AuthorName, ...AuthorName[]] }\n" +
@@ -86,6 +84,79 @@ describe("lintContractSource", () => {
       "book.contract.ts",
     );
     expect(problems).toEqual([]);
+  });
+});
+
+// --- the contract-owns-the-name model (ADR 2026-059) -------------------------
+
+describe("the ADR 2026-059 contract model", () => {
+  test.each(EXAMPLE_CONCEPTS.map((c) => [c.contractPath, c.contract] as const))(
+    "the worked example's %s is clean",
+    async (path, source) => {
+      expect(await lintContractSource(source, path)).toEqual([]);
+    },
+  );
+
+  test("the worked example's create-note feature contract is clean", async () => {
+    const source = `import type { Note, NoteText, ProjectId, Result } from "@example/project-management/domain";
+
+// Wire input: what callers send.
+export interface CreateNoteInput {
+  readonly projectId: string;
+  readonly text: string;
+}
+
+// Command: the input once validated into value objects.
+export interface CreateNoteCommand {
+  readonly __brand: "CreateNoteCommand";
+  readonly projectId: ProjectId;
+  readonly text: NoteText;
+}
+
+export interface CreateNoteCommandFactory {
+  parse(raw: unknown): Result<CreateNoteCommand>;
+}
+
+// In port: what this feature offers.
+export interface CreateNote {
+  execute(command: CreateNoteCommand): Promise<Result<Note>>;
+}
+
+// Out port: exactly what this feature needs.
+export interface CreateNoteStore {
+  projectExists(id: ProjectId): Promise<boolean>;
+  save(note: Note): Promise<void>;
+}
+`;
+    expect(await lintContractSource(source, "contexts/project-management/src/application/notes/create-note/create-note.contract.ts")).toEqual([]);
+  });
+
+  test("the retired declare-class form is refused with the interface + factory remedy", async () => {
+    const problems = await lintContractSource(
+      'export declare class Currency {\n  private readonly __brand: "Currency";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): Currency | undefined;\n}\n',
+      "contexts/shop/src/domain/money/currency.contract.ts",
+    );
+    expect(problems.map((p) => p.ruleId)).toEqual(["bounded-ts/declaration-only"]);
+    expect(problems[0]!.message).toMatch(/retired contract form \(ADR 2026-059/);
+    expect(problems[0]!.message).toContain("export interface Currency {");
+    expect(problems[0]!.message).toContain("export interface CurrencyFactory {");
+    expect(problems[0]!.message).toContain("parse(raw: unknown): Result<Currency>;");
+  });
+
+  test("a domain contract reaching into an implementation is refused", async () => {
+    const note = EXAMPLE_CONCEPTS.find((c) => c.contractPath.endsWith("/note.contract.ts"))!;
+    const problems = await lintContractSource(
+      note.contract.replace("../projects/project-id.contract.ts", "../projects/project-id.ts"),
+      note.contractPath,
+    );
+    expect(problems.map((p) => p.ruleId)).toEqual(["bounded-ts/contract-imports-contracts-only"]);
+  });
+
+  test("the retired rules are gone and the new ones are enforced", () => {
+    expect(CONTRACT_RULE_IDS).not.toContain("bounded-ts/value-objects-own-contract");
+    expect(CONTRACT_RULE_IDS).not.toContain("bounded-ts/no-cross-contract-type-import");
+    expect(CONTRACT_RULE_IDS).toContain("bounded-ts/entity-shape");
+    expect(CONTRACT_RULE_IDS).toContain("bounded-ts/contract-imports-contracts-only");
   });
 });
 
@@ -159,7 +230,7 @@ describe("contributed purity overrides", () => {
   // that survives it meets value-object-shape one message later.
   test("the exemption covers every rule that would refuse the same contract", async () => {
     const problems = await lintContractSource(
-      "export declare class Label {\n  readonly text: string;\n}\n",
+      'export interface Label {\n  readonly __brand: "Label";\n  readonly text: string;\n}\n',
       "src/ui/shared/ui/label.contract.ts",
     );
     expect(problems.map((p) => p.ruleId)).not.toContain("bounded-ts/value-object-shape");
@@ -177,11 +248,26 @@ describe("contributed purity overrides", () => {
 
   // The base config survives composition: an ordinary contract, matched by no
   // override, still meets every rule the ts pack enforces.
-  test("a contract outside every override keeps the full rule set", async () => {
+  test("a layered contract outside every override keeps the full rule set", async () => {
+    for (const path of [
+      "contexts/shop/src/domain/orders/order.contract.ts",
+      "contexts/shop/src/application/orders/place-order/place-order.contract.ts",
+    ]) {
+      const config = await createContractLinter().calculateConfigForFile(path);
+      const resolved = config.rules ?? {};
+      expect(CONTRACT_RULE_IDS.filter((id) => resolved[id] === undefined)).toEqual([]);
+      expect(CONTRACT_RULE_IDS.filter((id) => resolved[id] === 0 || resolved[id] === "off")).toEqual([]);
+    }
+  });
+
+  // The import rule is scoped to the hexagonal layers (LAYERED_CONTRACT_GLOBS);
+  // everything else still applies to a contract outside them.
+  test("a contract outside the layers keeps every rule but the layered import rule", async () => {
     const config = await createContractLinter().calculateConfigForFile("src/orders/orders.contract.ts");
     const resolved = config.rules ?? {};
-    expect(CONTRACT_RULE_IDS.filter((id) => resolved[id] === undefined)).toEqual([]);
-    expect(CONTRACT_RULE_IDS.filter((id) => resolved[id] === 0 || resolved[id] === "off")).toEqual([]);
+    const expected = CONTRACT_RULE_IDS.filter((id) => id !== "bounded-ts/contract-imports-contracts-only");
+    expect(expected.filter((id) => resolved[id] === undefined || resolved[id] === 0 || resolved[id] === "off")).toEqual([]);
+    expect(resolved["bounded-ts/contract-imports-contracts-only"]).toBeUndefined();
   });
 });
 
@@ -202,10 +288,9 @@ describe("formatProblems (one greppable line per problem)", () => {
 // --- CLI (the gate as a command) ------------------------------------------------
 
 const SCRIPT = join(import.meta.dirname, "contract-purity.ts");
-// A value-object-only contract: clean, and it does not co-locate the value
-// object with an interface/operation that references it (value-objects-own-contract).
+// A value object in the ADR 2026-059 form, in a file named after it.
 const GOOD_CONTRACT =
-  '/** Px: a valid value. */\nexport declare class Px {\n  private readonly __brand: "Px";\n  private constructor();\n  readonly value: number;\n  static parse(raw: unknown): Px | undefined;\n}\n';
+  'import type { Result } from "./shared/result.ts";\n\n/** Px: a valid value. */\nexport interface Px {\n  readonly __brand: "Px";\n  readonly value: number;\n  equals(other: Px): boolean;\n  toJSON(): number;\n}\n\nexport interface PxFactory {\n  parse(raw: unknown): Result<Px>;\n}\n';
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
@@ -218,7 +303,7 @@ describe("contract-purity CLI", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-ok-"));
   writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
-      writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
+      writeFileSync(join(dir, "px.contract.ts"), GOOD_CONTRACT);
     const r = runCli(dir, ["**/*.contract.ts"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/contract-purity: OK \(1 file\)/);
@@ -251,7 +336,7 @@ describe("contract-purity CLI", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-symlink-"));
   writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
-      writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
+      writeFileSync(join(dir, "px.contract.ts"), GOOD_CONTRACT);
     const link = join(dir, "contract-purity.link.ts");
     symlinkSync(SCRIPT, link);
     const r = spawnSync(process.execPath, [link, "**/*.contract.ts"], { cwd: dir, encoding: "utf8" });
