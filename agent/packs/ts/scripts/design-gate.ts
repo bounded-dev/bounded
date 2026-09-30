@@ -58,7 +58,7 @@ import { findingLines, readReviewed, recordedFindings, type Reviewed } from "./d
 import type { Finding } from "./sign-off.ts";
 import { gateTypecheckOptionsFromEnv, isSkeletonForwardTypeImportDiagnostic } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
-import { diagnosticPath, isDiagnosticStart, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
+import { diagnosticPath, isDiagnosticStart, projectOwnerOf, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog, type GuardVerdict, type LoggedGuardEvent } from "../../../src/guard-log.ts";
 import { contractGlobs } from "../../../src/pack-contrib.ts";
 import { configDriftBlock } from "./project-config.ts";
@@ -209,7 +209,7 @@ async function runProjectTypecheck(
     };
   }
 
-  const routing = routeTypecheck(result.diagnostics, contractGlobs(cwd));
+  const routing = routeTypecheck(result.diagnostics, projectOwnerOf(cwd));
   if (routing.errorCount === 0) {
     // tsc failed without emitting a parseable diagnostic — a broken tsconfig, a
     // crash, a missing toolchain. That is misuse (the gate could not run), not

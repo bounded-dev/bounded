@@ -12,7 +12,7 @@
 import type { Role } from "../../../src/path-policy.ts";
 import { ROLES_UPSTREAM_FIRST } from "../../../src/path-policy.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
-import { contractGlobs } from "../../../src/pack-contrib.ts";
+import { pathLayoutOrUnreadable } from "../../../src/pack-contrib.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { typecheck, type TypecheckOptions } from "./typecheck.ts";
 import { configDriftBlock } from "./project-config.ts";
@@ -44,7 +44,7 @@ export async function typecheckGate(
   // file's diagnostic — file, line, and the symbol name — out of its own
   // typecheck and reshaped the implementation around test source it may
   // never read.
-  const scoped = scopeTypecheck(result, role, contractGlobs(cwd));
+  const scoped = scopeTypecheck(result, role, pathLayoutOrUnreadable(cwd));
   const summary = result.ok
     ? "no type errors"
     : `${result.errorCount} error${result.errorCount === 1 ? "" : "s"}`;

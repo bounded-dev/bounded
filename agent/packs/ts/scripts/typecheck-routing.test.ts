@@ -5,34 +5,27 @@ import { join } from "node:path";
 import {
   projectOwnerOf,
   routeTypecheck as routeWithZone,
-  suffixOwnerOf,
   typecheckLines,
   mostUpstream,
   type FixOwner,
 } from "./typecheck-routing.ts";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
-import { contractGlobs } from "../../../src/pack-contrib.ts";
+import { pathLayoutFor } from "../../../src/pack-contrib.ts";
 
-// The architect's zone as a ts-composed project declares it (contracts and
-// project config come from the ts pack's contrib data, not from the core).
-const TS_ZONE = (() => {
-  const dir = mkdtempSync(join(tmpdir(), "routing-zone-"));
-  try {
-    writeProjectPacks(dir, ["ts"]);
-    return contractGlobs(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-})();
-const routeTypecheck = (diagnostics: readonly string[]) => routeWithZone(diagnostics, TS_ZONE);
+// The layout a hexagonal ts project composes (source roots, test suffixes,
+// contract and generated globs come from the packs' contrib data, not from
+// the core).
+const LAYOUT = pathLayoutFor(["ts", "ts-hexagonal"]);
+const routeTypecheck = (diagnostics: readonly string[]) => routeWithZone(diagnostics, LAYOUT);
 
 const err = (file: string, line: number, code: string, msg: string) =>
   `${file}(${line},5): error TS${code}: ${msg}`;
 
-const TEST_ERR = err("tests/reading-list.test.ts", 12, "2532", "Object is possibly 'undefined'.");
-const TEST_ERR_2 = err("tests/reading-list.test.ts", 18, "2532", "Object is possibly 'undefined'.");
-const SRC_ERR = err("src/reading-list/reading-list.ts", 4, "2345", "Argument of type 'string'…");
-const CONTRACT_ERR = err("src/reading-list/reading-list.contract.ts", 9, "2304", "Cannot find name 'Isbn'.");
+const DIR = "contexts/library/src/domain/reading-list";
+const TEST_ERR = err(`${DIR}/reading-list.test.ts`, 12, "2532", "Object is possibly 'undefined'.");
+const TEST_ERR_2 = err(`${DIR}/reading-list.test.ts`, 18, "2532", "Object is possibly 'undefined'.");
+const SRC_ERR = err(`${DIR}/reading-list.ts`, 4, "2345", "Argument of type 'string'…");
+const CONTRACT_ERR = err(`${DIR}/reading-list.contract.ts`, 9, "2304", "Cannot find name 'Isbn'.");
 const CONFIG_ERR = "error TS18003: No inputs were found in config file 'tsconfig.json'.";
 
 describe("routeTypecheck", () => {
@@ -49,15 +42,15 @@ describe("routeTypecheck", () => {
     expect(r.route).toBeUndefined();
   });
 
-  test("errors only in tests/** route to the test-writer (the Run 3 false green)", () => {
-    const r = routeTypecheck([TEST_ERR, TEST_ERR_2, "Found 2 errors in the same file, starting at: tests/reading-list.test.ts:12"]);
+  test("errors only in test files route to the test-writer (the Run 3 false green)", () => {
+    const r = routeTypecheck([TEST_ERR, TEST_ERR_2, `Found 2 errors in the same file, starting at: ${DIR}/reading-list.test.ts:12`]);
     expect(r.errorCount).toBe(2);
     expect(r.route).toBe("test-writer");
     expect(r.owners).toEqual(["test-writer"]);
     expect(r.byOwner["test-writer"]).toEqual([TEST_ERR, TEST_ERR_2]);
   });
 
-  test("errors only in src/** route to the builder", () => {
+  test("errors only in implementation files route to the builder", () => {
     const r = routeTypecheck([SRC_ERR]);
     expect(r.route).toBe("builder");
     expect(r.byOwner["builder"]).toEqual([SRC_ERR]);
@@ -127,16 +120,13 @@ describe("typecheckLines", () => {
   });
 });
 
-// --- suffix ownership (ADR 2026-057), stubbed until the path policy has it ------
+// --- suffix ownership (ADR 2026-057) through the path policy ------------------
 
 describe("routing a monorepo's diagnostics by file suffix", () => {
-  const LAYOUT = {
-    sourceRoots: ["apps/*/src", "contexts/*/src"],
-    testSuffixes: [".test.ts", ".test.tsx", ".test-support.ts"],
-    contractSuffixes: [".contract.ts"],
-    generatedGlobs: ["**/*.laws.test.ts", "contexts/*/src/application/*/*/*.command.ts", "architecture.test.ts"],
-  };
-  const ownerOf = suffixOwnerOf(LAYOUT);
+  const dir = mkdtempSync(join(tmpdir(), "routing-suffix-"));
+  writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
+  const ownerOf = projectOwnerOf(dir);
+  rmSync(dir, { recursive: true, force: true });
 
   test("contract → architect; test-side → test-writer; implementation → builder; generated and outside → nobody", () => {
     const cases: [string, string | null][] = [
@@ -157,9 +147,9 @@ describe("routing a monorepo's diagnostics by file suffix", () => {
     for (const [path, owner] of cases) expect(ownerOf(path), path).toBe(owner);
   });
 
-  test("case is ignored", () => {
-    expect(ownerOf("contexts/pm/src/X.TEST.TS")).toBe("test-writer");
+  test("a root matches in any case; a test suffix in another case is nobody's (ambiguous to case-sensitive tools)", () => {
     expect(ownerOf("Contexts/pm/src/x.ts")).toBe("builder");
+    expect(ownerOf("contexts/pm/src/X.TEST.TS")).toBe(null);
   });
 
   test("a test file's type error bounces to the test-writer, an implementation's to the builder, upstream first", () => {
@@ -177,14 +167,17 @@ describe("routing a monorepo's diagnostics by file suffix", () => {
     ]);
   });
 
-  test("projectOwnerOf: the path policy's zones where no source roots are composed; nobody when unreadable", () => {
+  test("projectOwnerOf: nobody owns source where no source roots are composed, nor when the composition is unreadable", () => {
     const dir = mkdtempSync(join(tmpdir(), "routing-owner-"));
     try {
       writeProjectPacks(dir, ["ts"]);
-      expect(projectOwnerOf(dir)("src/a.ts")).toBe("builder");
+      expect(projectOwnerOf(dir)("src/a.ts")).toBe(null);
       expect(projectOwnerOf(dir)("contexts/pm/src/a.ts")).toBe(null);
+      writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
+      expect(projectOwnerOf(dir)("contexts/pm/src/a.ts")).toBe("builder");
       rmSync(join(dir, ".bounded"), { recursive: true, force: true });
-      expect(projectOwnerOf(dir)("src/a.test.ts")).not.toBe("test-writer");
+      expect(projectOwnerOf(dir)("contexts/pm/src/a.ts")).toBe(null);
+      expect(projectOwnerOf(dir)("contexts/pm/src/a.test.ts")).toBe(null);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

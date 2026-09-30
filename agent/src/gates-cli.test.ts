@@ -18,8 +18,12 @@ const LAUNCHER = join(import.meta.dirname, "..", "scripts", "bounded-gates");
 const projects: TempProject[] = [];
 afterAll(() => projects.forEach((p) => p.cleanup()));
 
+// The hexagonal layout pack contributes the source roots the typecheck
+// fixtures sit under, so a builder's view can own `contexts/*/src` files.
+const LAYOUT_PACKS = ["ts", "ts-hexagonal"];
+
 function project(files: Readonly<Record<string, string>>, nodeModules = false): string {
-  const p = makeTempProject(files, { prefix: "bounded-gates-", nodeModules });
+  const p = makeTempProject(files, { prefix: "bounded-gates-", nodeModules, packs: LAYOUT_PACKS });
   projects.push(p);
   return p.dir;
 }

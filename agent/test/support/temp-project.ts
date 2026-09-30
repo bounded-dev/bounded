@@ -24,6 +24,8 @@ export interface TempProjectOptions {
   readonly prefix?: string;
   /** Symlink the harness's node_modules into the project. */
   readonly nodeModules?: boolean;
+  /** The composed packs (default: the ts pack alone). */
+  readonly packs?: readonly string[];
 }
 
 const HARNESS_NODE_MODULES = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "node_modules");
@@ -38,7 +40,7 @@ export function makeTempProject(
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
   }
-  writeProjectPacks(dir, ["ts"]);
+  writeProjectPacks(dir, options.packs ?? ["ts"]);
   if (options.nodeModules) symlinkSync(HARNESS_NODE_MODULES, join(dir, "node_modules"), "dir");
   return {
     dir,

@@ -42,7 +42,8 @@ import {
 } from "./red-gate.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { typecheck, type TypecheckResult } from "./typecheck.ts";
-import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./typecheck-routing.ts";
+import { mostUpstream, projectOwnerOf, routeTypecheck, typecheckLines, type FixOwner, type OwnerOf } from "./typecheck-routing.ts";
+import { UNREADABLE_LAYOUT, type PathLayout } from "../../../src/path-policy.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import { contractGlobs } from "../../../src/pack-contrib.ts";
 import { configDriftBlock } from "./project-config.ts";
@@ -172,11 +173,11 @@ export function classifyGreen(
    *  the throw. An unimplemented export is not GREEN whatever the suite says.
    *  Always the builder's: implementing the skeleton is its job. */
   skeletons: readonly SkeletonImporter[] = [],
-  /** The composed packs' contract globs (`contractGlobs(cwd)`). */
-  contracts: readonly string[] = [],
+  /** Who owns each file: the composed layout or `projectOwnerOf(cwd)`. */
+  ownership: PathLayout | OwnerOf = UNREADABLE_LAYOUT,
 ): GateResult {
   const suite = suiteVerdict(run);
-  const types = routeTypecheck(tsc.diagnostics, contracts);
+  const types = routeTypecheck(tsc.diagnostics, ownership);
 
   if (
     suite === null &&
@@ -447,7 +448,7 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
     lint.code === 1 ? lint.lines.slice(0, -1) : [],
     surfaces.code === 1 ? surfaces.lines.slice(0, -1) : [],
     skeletons,
-    contractGlobs(cwd),
+    projectOwnerOf(cwd),
   );
 
   // Reroute a repeat. classifyGreen stays pure — the history lives in the guard

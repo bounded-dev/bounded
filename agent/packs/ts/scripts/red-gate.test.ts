@@ -34,19 +34,11 @@ import { readGuardLog } from "../../../src/guard-log.ts";
 import { applyInit, planInit } from "../../../src/project-init.ts";
 import { runRecordDesignReview } from "./design-review.ts";
 
-import { contractGlobs } from "../../../src/pack-contrib.ts";
-import { mkdtempSync as createZoneDir } from "node:fs";
+import { pathLayoutFor } from "../../../src/pack-contrib.ts";
 
-// The architect's zone as a ts-composed project declares it (pack contrib data).
-const TS_ZONE = (() => {
-  const dir = createZoneDir(join(tmpdir(), "zone-"));
-  try {
-    writeProjectPacks(dir, ["ts"]);
-    return contractGlobs(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-})();
+// The layout a hexagonal ts project composes (pack contrib data): who owns
+// each file a diagnostic names.
+const TS_ZONE = pathLayoutFor(["ts", "ts-hexagonal"]);
 
 const SERVICE_RUNTIME = join(import.meta.dirname, "../../ts-trpc/api/service-runtime.ts");
 
@@ -99,8 +91,8 @@ function tsc(...diagnostics: string[]): TypecheckResult {
   return { ok: false, errorCount: diagnostics.length, diagnostics };
 }
 
-const TEST_TYPE_ERR = "tests/orders.test.ts(12,5): error TS2532: Object is possibly 'undefined'.";
-const CONTRACT_TYPE_ERR = "src/orders/orders.contract.ts(9,1): error TS2304: Cannot find name 'Isbn'.";
+const TEST_TYPE_ERR = "contexts/shop/src/domain/orders/orders.test.ts(12,5): error TS2532: Object is possibly 'undefined'.";
+const CONTRACT_TYPE_ERR = "contexts/shop/src/domain/orders/orders.contract.ts(9,1): error TS2304: Cannot find name 'Isbn'.";
 
 describe("isNotImplementedFailure", () => {
   test("matches a NotImplementedError message by name", () => {
@@ -246,6 +238,7 @@ describe("classifyRed", () => {
         results: [{ name: "a", status: "failed", message: "NotImplementedError: NotImplemented: a" }],
       }),
       tsc(TEST_TYPE_ERR),
+      TS_ZONE,
     );
     expect(r.code).toBe(1);
     expect(r.verdict).toBe("block");
@@ -277,6 +270,7 @@ describe("classifyRed", () => {
         results: [{ name: "math", status: "failed", message: "AssertionError: expected 1 to be 2" }],
       }),
       tsc(TEST_TYPE_ERR),
+      TS_ZONE,
     );
     expect(r.code).toBe(1);
     expect(r.lines[0]).toMatch(/wrong-reason red/);

@@ -19,7 +19,7 @@
 // So a worker's typecheck is SCOPED BY ITS ROLE, using the same ownership
 // function the gates route with (ownerOfPath) and the same read decision the
 // path gate enforces (decide). Diagnostics in the caller's own zone, in the
-// shared interface (the contracts and spec.md, architect-owned by ZONES), and
+// shared interface (the contracts and spec.md, architect-owned by the path policy), and
 // in files the caller could legally read (project config included: no role
 // owns it, ADR 2026-054) are shown in full. Everything else collapses to a
 // COUNT plus the owning role: no path, no line number, no message, no symbol
@@ -35,7 +35,7 @@
 // Pure: no fs, no spawn, no logging. The tool wiring (hosts/pi/extensions/dev-tools.ts)
 // resolves the role and writes the guard event.
 
-import { decide, ownerOfPath, type Role } from "../../../src/path-policy.ts";
+import { decide, ownerOfPath, UNREADABLE_LAYOUT, type PathLayout, type Role } from "../../../src/path-policy.ts";
 import { diagnosticPath, isDiagnosticStart, locatedPath } from "./typecheck-routing.ts";
 import { formatTypecheck, type TypecheckResult } from "./typecheck.ts";
 
@@ -58,20 +58,20 @@ const VISIBLE: Visibility = { visible: true };
  * May `role` see a diagnostic located in `path`?
  *
  * Ownership first (the routing rule the gates already use), then the path
- * gate's own read decision for files no pipeline role owns — that last arm is
- * what keeps `tests/generated/**` (the machine-written value-object law suite,
- * which no role may WRITE and so has no owner) out of the builder's view.
+ * gate's own read decision for files no pipeline role owns — so a generated
+ * file (no role may write it, every role may read it, ADR 2026-058) is shown,
+ * and a file the layout cannot place (an unreadable composition) is not.
  */
 export function visibilityOf(
   path: string | undefined,
   role: Role,
-  contracts: readonly string[] = [],
+  layout: PathLayout = UNREADABLE_LAYOUT,
 ): Visibility {
   // A path-less global error (`error TS18003: No inputs were found…`) is a
   // project-level failure that blocks everyone and names no zone. Shown — and
   // scrubbed below, in case its message quotes a foreign file.
   if (path === undefined) return VISIBLE;
-  const owner = ownerOfPath(path, contracts);
+  const owner = ownerOfPath(path, layout);
   if (owner === role) return VISIBLE;
   // The shared interface: contracts and spec.md, which the architect owns.
   // Declaration-only by construction, and every role works against them —
@@ -81,7 +81,7 @@ export function visibilityOf(
   if (owner !== null) return { visible: false, owner };
   // Unowned. Visible only if the path gate would let this role read the file,
   // so the scoping can never be laxer than the gate it backs up.
-  return decide(role, "read", { path }, { cwd: "/" }).allow
+  return decide(role, "read", { path }, { cwd: "/", ...layout }).allow
     ? VISIBLE
     : { visible: false };
 }
@@ -95,10 +95,10 @@ const PATH_TOKEN =
 const FOREIGN_PLACEHOLDER = "[another role's file]";
 
 /** Replace every path token the role may not see with a fixed placeholder. */
-export function scrubForeignPaths(line: string, role: Role, contracts: readonly string[] = []): string {
+export function scrubForeignPaths(line: string, role: Role, layout: PathLayout = UNREADABLE_LAYOUT): string {
   return line.replace(PATH_TOKEN, (token) => {
     const path = token.replace(/\(\d+,\d+\)$/, "");
-    return visibilityOf(path, role, contracts).visible ? token : FOREIGN_PLACEHOLDER;
+    return visibilityOf(path, role, layout).visible ? token : FOREIGN_PLACEHOLDER;
   });
 }
 
@@ -140,11 +140,13 @@ const HIDDEN_OWNER_ORDER: readonly Role[] = ["architect", "test-writer", "builde
  * read everything the pipeline produces anyway, so scoping would only cost
  * them information.
  */
-/** `contracts`: the composed packs' contract globs (`contractGlobs(cwd)`). */
+/** `layout`: the composed path layout (`pathLayoutOrUnreadable(cwd)`).
+ *  Omitted, it is unreadable: no source file is the caller's, so everything
+ *  under a possible source root collapses to a count. */
 export function scopeTypecheck(
   result: TypecheckResult,
   role: Role | undefined,
-  contracts: readonly string[] = [],
+  layout: PathLayout = UNREADABLE_LAYOUT,
 ): ScopedTypecheck {
   if (!isScopedRole(role)) {
     return {
@@ -169,7 +171,7 @@ export function scopeTypecheck(
 
   for (const line of result.diagnostics) {
     if (isDiagnosticStart(line)) {
-      current = visibilityOf(diagnosticPath(line), role, contracts);
+      current = visibilityOf(diagnosticPath(line), role, layout);
       counted += 1;
       if (current.visible) shown += 1;
       else bump(hiddenCounts, current.owner);
@@ -181,10 +183,10 @@ export function scopeTypecheck(
       // else (summaries, reporter noise) belongs to no diagnostic and is
       // dropped: it is not counted, so showing it could only mislead.
       const located = locatedPath(line);
-      current = located === undefined ? undefined : visibilityOf(located, role, contracts);
+      current = located === undefined ? undefined : visibilityOf(located, role, layout);
       if (current === undefined) continue;
     }
-    if (current.visible) shownLines.push(scrubForeignPaths(line, role, contracts));
+    if (current.visible) shownLines.push(scrubForeignPaths(line, role, layout));
   }
 
   // The total is tsc's own count where it is larger: a diagnostic this parser

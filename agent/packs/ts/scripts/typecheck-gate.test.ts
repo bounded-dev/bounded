@@ -12,7 +12,7 @@ const projects: TempProject[] = [];
 afterAll(() => projects.forEach((p) => p.cleanup()));
 
 function project(): string {
-  const p = makeTempProject({}, { prefix: "typecheck-gate-" });
+  const p = makeTempProject({}, { prefix: "typecheck-gate-", packs: ["ts", "ts-hexagonal"] });
   projects.push(p);
   return p.dir;
 }
@@ -22,8 +22,8 @@ function fakeTsc(stdout: string, code: number): CommandRunner {
   return async () => ({ stdout, stderr: "", code });
 }
 
-const SRC_ERR = "src/a.ts(1,2): error TS2322: Type 'string' is not assignable to type 'number'.";
-const TEST_ERR = "tests/a.test.ts(5,3): error TS2304: Cannot find name 'Secret'.";
+const SRC_ERR = "contexts/pm/src/domain/a.ts(1,2): error TS2322: Type 'string' is not assignable to type 'number'.";
+const TEST_ERR = "contexts/pm/src/domain/a.test.ts(5,3): error TS2304: Cannot find name 'Secret'.";
 
 describe("typecheckGate", () => {
   test("clean project: PASS, one guard event saying so", async () => {
@@ -55,7 +55,7 @@ describe("typecheckGate", () => {
     const text = r.lines.join("\n");
     expect(text).toContain(SRC_ERR);
     expect(text).not.toContain("Secret");
-    expect(text).not.toContain("tests/a.test.ts");
+    expect(text).not.toContain("a.test.ts");
     expect(text).toMatch(/1 further error in another role's zone \(test-writer's\)/);
     expect(r.detail).toEqual({ ok: false, errorCount: 1, scoped: true, hidden: 1 });
     const [event] = readGuardLog(dir);

@@ -9,19 +9,11 @@ import { testsTreeHash } from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
-import { contractGlobs } from "../../../src/pack-contrib.ts";
-import { mkdtempSync as createZoneDir } from "node:fs";
+import { pathLayoutFor } from "../../../src/pack-contrib.ts";
 
-// The architect's zone as a ts-composed project declares it (pack contrib data).
-const TS_ZONE = (() => {
-  const dir = createZoneDir(join(tmpdir(), "zone-"));
-  try {
-    writeProjectPacks(dir, ["ts"]);
-    return contractGlobs(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-})();
+// The layout a hexagonal ts project composes (pack contrib data): who owns
+// each file a diagnostic names.
+const TS_ZONE = pathLayoutFor(["ts", "ts-hexagonal"]);
 
 /** The gate's own entry. The green gate also runs the src escape-hatch lint,
  *  which logs its own line, so "the last entry" is no longer the gate's. */
@@ -57,9 +49,10 @@ function tsc(...diagnostics: string[]): TypecheckResult {
   return { ok: false, errorCount: diagnostics.length, diagnostics };
 }
 
-const TEST_TYPE_ERR = "tests/reading-list.test.ts(12,5): error TS2532: Object is possibly 'undefined'.";
-const SRC_TYPE_ERR = "src/reading-list/reading-list.ts(4,3): error TS2345: Argument of type 'string'…";
-const CONTRACT_TYPE_ERR = "src/reading-list/reading-list.contract.ts(9,1): error TS2304: Cannot find name 'Isbn'.";
+const RL = "contexts/library/src/domain/reading-list";
+const TEST_TYPE_ERR = `${RL}/reading-list.test.ts(12,5): error TS2532: Object is possibly 'undefined'.`;
+const SRC_TYPE_ERR = `${RL}/reading-list.ts(4,3): error TS2345: Argument of type 'string'…`;
+const CONTRACT_TYPE_ERR = `${RL}/reading-list.contract.ts(9,1): error TS2304: Cannot find name 'Isbn'.`;
 
 // --- pure core: classifyGreen -------------------------------------------------
 
@@ -141,23 +134,23 @@ const passing = (n: number): Partial<RunTestsResult> => ({
 
 describe("classifyGreen + typecheck (#7)", () => {
   test("passing suite with type errors is NOT green", () => {
-    const r = classifyGreen(run(passing(22)), tsc(TEST_TYPE_ERR));
+    const r = classifyGreen(run(passing(22)), tsc(TEST_TYPE_ERR), [], [], [], TS_ZONE);
     expect(r.code).toBe(1);
     expect(r.verdict).toBe("block");
     expect(r.lines[0]).toMatch(/green-gate: FAIL — 1 type error/);
     expect(r.lines[0]).toMatch(/suite passes/);
   });
 
-  test("type errors confined to tests\/** route to the test-writer", () => {
-    const r = classifyGreen(run(passing(22)), tsc(TEST_TYPE_ERR, TEST_TYPE_ERR));
+  test("type errors confined to test files route to the test-writer", () => {
+    const r = classifyGreen(run(passing(22)), tsc(TEST_TYPE_ERR, TEST_TYPE_ERR), [], [], [], TS_ZONE);
     expect(r.lines).toContain("green-gate: route → test-writer");
     expect(r.lines.join("\n")).toContain("  test-writer (2):");
     expect(r.lines.join("\n")).toContain(TEST_TYPE_ERR);
     expect(r.detail).toMatchObject({ route: "test-writer", typeErrors: 2 });
   });
 
-  test("type errors in src/** route to the builder", () => {
-    const r = classifyGreen(run(passing(3)), tsc(SRC_TYPE_ERR));
+  test("type errors in implementation files route to the builder", () => {
+    const r = classifyGreen(run(passing(3)), tsc(SRC_TYPE_ERR), [], [], [], TS_ZONE);
     expect(r.lines).toContain("green-gate: route → builder");
   });
 
@@ -254,7 +247,7 @@ afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true }
 
 function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  writeProjectPacks(dir, ["ts"]);
+  writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   tmpDirs.push(dir);
   writeFileSync(join(dir, "run.json"), runJson);
   writeFileSync(join(dir, "tsc.txt"), tscOutput);
@@ -330,7 +323,7 @@ describe("green-gate CLI (fixture repos)", () => {
     const dir = fixtureRepo(
       "green-falsegreen-",
       vitestJson([{ name: "adds a book", status: "passed" }, { name: "lists books", status: "passed" }]),
-      `${TEST_TYPE_ERR}\nFound 1 error in tests/reading-list.test.ts:12\n`,
+      `${TEST_TYPE_ERR}\nFound 1 error in ${RL}/reading-list.test.ts:12\n`,
     );
     const r = runGate(dir, true);
     expect(r.status).toBe(1);
@@ -405,14 +398,17 @@ describe("repeated identical failures reroute to the test-writer", () => {
 // checker off is the same class of false green as a passing suite that does not
 // compile.
 
-describe("green-gate CLI: src escape hatches", () => {
+// A source root of the composed hexagonal layout: where the escape-hatch lint looks.
+const SRC_ROOT = join("contexts", "billing", "src");
+
+describe("green-gate CLI: source escape hatches", () => {
   const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
 
-  test("a non-null assertion in src/ blocks the green and routes to the builder", () => {
+  test("a non-null assertion in a source root blocks the green and routes to the builder", () => {
     const dir = fixtureRepo("green-hatch-", allPassing);
-    mkdirSync(join(dir, "src"), { recursive: true });
+    mkdirSync(join(dir, SRC_ROOT), { recursive: true });
     writeFileSync(
-      join(dir, "src", "billing.ts"),
+      join(dir, SRC_ROOT, "billing.ts"),
       [
         "interface Invoice { id: string }",
         "function find(xs: Invoice[], id: string): Invoice | undefined { return xs.find(i => i.id === id); }",
@@ -427,10 +423,10 @@ describe("green-gate CLI: src escape hatches", () => {
     expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "block", detail: { escapeHatches: 1 } });
   });
 
-  test("a clean src/ still passes", () => {
+  test("a clean source root still passes", () => {
     const dir = fixtureRepo("green-clean-", allPassing);
-    mkdirSync(join(dir, "src"), { recursive: true });
-    writeFileSync(join(dir, "src", "billing.ts"), "export const rate = { pct: 5 } as const;\n");
+    mkdirSync(join(dir, SRC_ROOT), { recursive: true });
+    writeFileSync(join(dir, SRC_ROOT, "billing.ts"), "export const rate = { pct: 5 } as const;\n");
     const r = runGate(dir);
     expect(r.status).toBe(0);
     expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });

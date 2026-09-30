@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { contractGlobs } from "../../../src/pack-contrib.ts";
-import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { pathLayoutFor } from "../../../src/pack-contrib.ts";
 import { formatTypecheck, type TypecheckResult } from "./typecheck.ts";
 import {
   formatScopedTypecheck,
@@ -20,16 +16,16 @@ import {
 // never read. Every assertion here exists to make that transcript impossible.
 
 const SRC_ERR =
-  "src/billing/billing.ts(12,7): error TS2322: Type 'string' is not assignable to type 'number'.";
+  "contexts/billing/src/domain/billing/billing.ts(12,7): error TS2322: Type 'string' is not assignable to type 'number'.";
 const SRC_ERR_2 =
-  "src/billing/billing.ts(40,1): error TS2554: Expected 1 arguments, but got 0.";
+  "contexts/billing/src/domain/billing/billing.ts(40,1): error TS2554: Expected 1 arguments, but got 0.";
 const CONTRACT_ERR =
-  "src/billing/billing.contract.ts(4,1): error TS2304: Cannot find name 'Money'.";
+  "contexts/billing/src/domain/billing/billing.contract.ts(4,1): error TS2304: Cannot find name 'Money'.";
 const SPEC_CONFIG_ERR =
   "tsconfig.json(3,5): error TS5023: Unknown compiler option 'strictNess'.";
 const TEST_ERR =
-  "tests/billing.test.ts(5,3): error TS2459: Module '\"./billing.js\"' declares 'CalendarDate' locally, but it is not exported.";
-const TEST_ERR_2 = "tests/billing.test.ts(9,1): error TS2554: Expected 2 arguments, but got 1.";
+  "contexts/billing/src/domain/billing/billing.test.ts(5,3): error TS2459: Module '\"./billing.js\"' declares 'CalendarDate' locally, but it is not exported.";
+const TEST_ERR_2 = "contexts/billing/src/domain/billing/billing.test.ts(9,1): error TS2554: Expected 2 arguments, but got 1.";
 const GLOBAL_ERR = "error TS18003: No inputs were found in config file 'tsconfig.json'.";
 
 const result = (diagnostics: string[], ok = false): TypecheckResult => ({
@@ -38,21 +34,14 @@ const result = (diagnostics: string[], ok = false): TypecheckResult => ({
   diagnostics,
 });
 
-/** The contract globs a ts-composed project resolves, as the gates pass it. */
-const TS_ZONE = (() => {
-  const dir = mkdtempSync(join(tmpdir(), "typecheck-scope-zone-"));
-  try {
-    writeProjectPacks(dir, ["ts"]);
-    return contractGlobs(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-})();
+/** The layout a hexagonal ts project composes, as the gates pass it. */
+const TS_ZONE = pathLayoutFor(["ts", "ts-hexagonal"]);
 
+const DIR = "contexts/billing/src/domain/billing";
 const MIXED = [SRC_ERR, SRC_ERR_2, CONTRACT_ERR, TEST_ERR, TEST_ERR_2];
 
 describe("each role's view over one mixed diagnostic set", () => {
-  test("the builder sees src/** and the shared interface; tests/** collapse to a count", () => {
+  test("the builder sees implementation files and the shared interface; test files collapse to a count", () => {
     const s = scopeTypecheck(result(MIXED), "builder", TS_ZONE);
     expect(s.scoped).toBe(true);
     expect(s.shown).toBe(3);
@@ -61,7 +50,7 @@ describe("each role's view over one mixed diagnostic set", () => {
     expect(s.diagnostics).toEqual([SRC_ERR, SRC_ERR_2, CONTRACT_ERR]);
   });
 
-  test("the test-writer sees tests/** and the contract; src/** collapse to the builder's", () => {
+  test("the test-writer sees test files and the contract; implementation files collapse to the builder's", () => {
     const s = scopeTypecheck(result(MIXED), "test-writer", TS_ZONE);
     expect(s.shown).toBe(3);
     expect(s.hidden).toBe(2);
@@ -84,10 +73,10 @@ describe("each role's view over one mixed diagnostic set", () => {
       expect(visibilityOf("tsconfig.json", role, TS_ZONE).visible).toBe(true);
       expect(visibilityOf("package.json", role, TS_ZONE).visible).toBe(true);
       expect(visibilityOf("vitest.config.ts", role, TS_ZONE).visible).toBe(true);
-      expect(visibilityOf("spec.md", role).visible).toBe(true);
-      expect(visibilityOf("src/billing/billing.contract.ts", role, TS_ZONE).visible).toBe(true);
+      expect(visibilityOf("spec.md", role, TS_ZONE).visible).toBe(true);
+      expect(visibilityOf("contexts/billing/src/domain/billing/billing.contract.ts", role, TS_ZONE).visible).toBe(true);
     }
-    const s = scopeTypecheck(result([SPEC_CONFIG_ERR, TEST_ERR]), "builder");
+    const s = scopeTypecheck(result([SPEC_CONFIG_ERR, TEST_ERR]), "builder", TS_ZONE);
     expect(s.diagnostics).toEqual([SPEC_CONFIG_ERR]);
   });
 });
@@ -109,7 +98,7 @@ describe("the worker-facing output", () => {
   });
 
   test("clean HERE, red THERE never renders as OK", () => {
-    const text = formatScopedTypecheck(scopeTypecheck(result([TEST_ERR, TEST_ERR_2]), "builder"));
+    const text = formatScopedTypecheck(scopeTypecheck(result([TEST_ERR, TEST_ERR_2]), "builder", TS_ZONE));
     expect(text).toBe(
       [
         "typecheck: clean in your zone — no type errors you can fix",
@@ -121,7 +110,7 @@ describe("the worker-facing output", () => {
   });
 
   test("one foreign error reads in the singular", () => {
-    const text = formatScopedTypecheck(scopeTypecheck(result([TEST_ERR]), "builder"));
+    const text = formatScopedTypecheck(scopeTypecheck(result([TEST_ERR]), "builder", TS_ZONE));
     expect(text).toContain(
       "typecheck: 1 further error in another role's zone (test-writer's) — not yours to fix; it does not block you",
     );
@@ -146,7 +135,7 @@ describe("zero leak: nothing but a count and an owner crosses the boundary", () 
     const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "builder", TS_ZONE));
     for (const leak of [
       "CalendarDate",
-      "tests/billing.test.ts",
+      "billing.test.ts",
       "billing.test",
       "TS2459",
       "(5,3)",
@@ -160,24 +149,24 @@ describe("zero leak: nothing but a count and an owner crosses the boundary", () 
 
   test("the test-writer cannot read the implementation's state either", () => {
     const text = formatScopedTypecheck(scopeTypecheck(result(MIXED), "test-writer", TS_ZONE));
-    for (const leak of ["src/billing/billing.ts", "TS2322", "(12,7)", "not assignable"]) {
+    for (const leak of ["contexts/billing/src/domain/billing/billing.ts", "TS2322", "(12,7)", "not assignable"]) {
       expect(text).not.toContain(leak);
     }
   });
 
   test("a foreign path quoted INSIDE a visible diagnostic is scrubbed", () => {
     const quoting =
-      "src/billing/billing.ts(3,1): error TS2307: Cannot find module '../tests/helpers/mint.ts' or its corresponding type declarations.";
-    const text = formatScopedTypecheck(scopeTypecheck(result([quoting]), "builder"));
-    expect(text).not.toContain("tests/helpers/mint.ts");
+      "contexts/billing/src/domain/billing/billing.ts(3,1): error TS2307: Cannot find module 'contexts/billing/src/domain/billing/mint.test-support.ts' or its corresponding type declarations.";
+    const text = formatScopedTypecheck(scopeTypecheck(result([quoting]), "builder", TS_ZONE));
+    expect(text).not.toContain("mint.test-support.ts");
     expect(text).toContain("[another role's file]");
-    expect(text).toContain("src/billing/billing.ts(3,1)");
+    expect(text).toContain("contexts/billing/src/domain/billing/billing.ts(3,1)");
   });
 
   test("scrubForeignPaths leaves the caller's own and shared paths alone", () => {
-    const line = "note: src/a.ts, src/a.contract.ts, tsconfig.json, tests/a.test.ts";
-    expect(scrubForeignPaths(line, "builder")).toBe(
-      "note: src/a.ts, src/a.contract.ts, tsconfig.json, [another role's file]",
+    const line = `note: ${DIR}/a.ts, ${DIR}/a.contract.ts, tsconfig.json, ${DIR}/a.test.ts`;
+    expect(scrubForeignPaths(line, "builder", TS_ZONE)).toBe(
+      `note: ${DIR}/a.ts, ${DIR}/a.contract.ts, tsconfig.json, [another role's file]`,
     );
   });
 
@@ -185,21 +174,30 @@ describe("zero leak: nothing but a count and an owner crosses the boundary", () 
     const s = scopeTypecheck(
       result([TEST_ERR, "  Types of property 'due' are incompatible.", SRC_ERR]),
       "builder",
+      TS_ZONE,
     );
     expect(s.diagnostics).toEqual([SRC_ERR]);
     expect(formatScopedTypecheck(s)).not.toContain("due");
   });
 
   test("tsc related-information lines are classified by their OWN file", () => {
-    const related = "tests/billing.test.ts(2,10): The expected type comes from property 'total'.";
-    const s = scopeTypecheck(result([SRC_ERR, related]), "builder");
+    const related = "contexts/billing/src/domain/billing/billing.test.ts(2,10): The expected type comes from property 'total'.";
+    const s = scopeTypecheck(result([SRC_ERR, related]), "builder", TS_ZONE);
     expect(s.diagnostics).toEqual([SRC_ERR]);
     expect(s.shown).toBe(1);
   });
 
-  test("the generated law suite is nobody's to write and still never reaches the builder", () => {
-    const generated = "tests/generated/value-object-laws.test.ts(7,1): error TS2345: Argument of type 'Isbn'…";
-    const s = scopeTypecheck(result([generated]), "builder");
+  test("a generated law suite is nobody's to write, so every role may see it (ADR 2026-058)", () => {
+    const generated = `${DIR}/money.laws.test.ts(7,1): error TS2345: Argument of type 'Isbn'…`;
+    for (const role of ["builder", "test-writer", "reviewer"] as const) {
+      const s = scopeTypecheck(result([generated]), role, TS_ZONE);
+      expect(s.diagnostics).toEqual([generated]);
+      expect(s.hidden).toBe(0);
+    }
+  });
+
+  test("with an unreadable layout no source file is placed, so nothing under a root reaches the builder", () => {
+    const s = scopeTypecheck(result([SRC_ERR]), "builder");
     expect(s.diagnostics).toEqual([]);
     expect(s.hidden).toBe(1);
     expect(s.hiddenGroups).toEqual([{ count: 1 }]);
@@ -207,7 +205,7 @@ describe("zero leak: nothing but a count and an owner crosses the boundary", () 
     expect(text).toContain(
       "typecheck: 1 further error outside your zone — not yours to fix; it does not block you",
     );
-    expect(text).not.toContain("Isbn");
+    expect(text).not.toContain("not assignable");
   });
 
   test("an error this parser cannot attribute is counted as hidden, never dropped", () => {
@@ -216,6 +214,7 @@ describe("zero leak: nothing but a count and an owner crosses the boundary", () 
     const s = scopeTypecheck(
       { ok: false, errorCount: 2, diagnostics: [SRC_ERR, "[path]: error TS6059: File is not under 'rootDir'."] },
       "builder",
+      TS_ZONE,
     );
     expect(s.shown).toBe(1);
     expect(s.hidden).toBe(1);
@@ -255,12 +254,12 @@ describe("the guard log records the split, never the content", () => {
   });
 
   test("nothing hidden ⇒ a null owner, not a missing field", () => {
-    const detail = scopeGuardDetail(scopeTypecheck(result([SRC_ERR]), "builder"));
+    const detail = scopeGuardDetail(scopeTypecheck(result([SRC_ERR]), "builder", TS_ZONE));
     expect(detail).toEqual({ role: "builder", scoped: true, shown: 1, hidden: 0, hiddenOwner: null });
   });
 
   test("a global config error is shown to the worker (it names no zone)", () => {
-    const s = scopeTypecheck(result([GLOBAL_ERR]), "builder");
+    const s = scopeTypecheck(result([GLOBAL_ERR]), "builder", TS_ZONE);
     expect(s.diagnostics).toEqual([GLOBAL_ERR]);
     expect(s.hidden).toBe(0);
   });

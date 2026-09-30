@@ -83,7 +83,8 @@ import { computeManifest } from "./checksum-gate.ts";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
 import { lintTests } from "./lint-src.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
-import { mostUpstream, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
+import { mostUpstream, projectOwnerOf, routeTypecheck, typecheckLines, type OwnerOf } from "./typecheck-routing.ts";
+import { UNREADABLE_LAYOUT, type PathLayout } from "../../../src/path-policy.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
 import { containedSupportTargets } from "./support-targets.ts";
 import { contractGlobs, fileNameGlobs, fileNameMatcher } from "../../../src/pack-contrib.ts";
@@ -243,10 +244,11 @@ function classifySuite(run: RunTestsResult): GateResult {
 export function classifyRed(
   run: RunTestsResult,
   tsc: TypecheckResult,
-  contracts: readonly string[] = [],
+  /** Who owns each file: the composed layout or `projectOwnerOf(cwd)`. */
+  ownership: PathLayout | OwnerOf = UNREADABLE_LAYOUT,
 ): GateResult {
   const suite = classifySuite(run);
-  const types = routeTypecheck(tsc.diagnostics, contracts);
+  const types = routeTypecheck(tsc.diagnostics, ownership);
 
   if (!tsc.ok && types.errorCount === 0) {
     return {
@@ -745,7 +747,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
     // is the last gate where the fix is cheap and the test-writer is live.
     lintTests(cwd),
   ]);
-  let base = classifyRed(run, tsc, contractGlobs(cwd));
+  let base = classifyRed(run, tsc, projectOwnerOf(cwd));
   if (base.code === 0 && testLint.code === 1) {
     base = {
       code: 1,
