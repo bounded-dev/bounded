@@ -14,7 +14,7 @@
 // whenever that pack is composed.
 
 import type { EmittedFile, Emitter, ProjectFacts } from "../../ts/pack.ts";
-import { firstInputlessQuery, hostedTrpcContext, routerCompositionRoot } from "../../ts-trpc/scripts/router-host.ts";
+import { firstInputlessQuery, hostedTrpcContext, MOUNT, routerCompositionRoot } from "../../ts-trpc/scripts/router-host.ts";
 
 export const DESKTOP_KIND = "desktop";
 
@@ -58,7 +58,8 @@ export function emitDesktopApps(facts: ProjectFacts): EmittedFile[] {
       skeleton(`${src}/renderer/main.tsx`, [
         'import { createRoot } from "react-dom/client";',
         "",
-        'createRoot(document.getElementById("root")!).render(<h1>Hello</h1>);',
+        ...MOUNT,
+        "createRoot(root).render(<h1>Hello</h1>);",
       ]),
     );
   }

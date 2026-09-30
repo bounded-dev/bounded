@@ -54,11 +54,18 @@ describe("the web app of the worked example", () => {
       'import { useEffect, useState } from "react";',
       "  useEffect(() => {",
       "  }, []);",
-      'createRoot(document.getElementById("root")!).render(<App />);',
     ]) {
       expect(example, line).toContain(line);
       expect(client, line).toContain(line);
     }
+    // One deliberate deviation: the example mounts with a non-null assertion,
+    // which the builder's own lint refuses, so the skeleton checks instead.
+    expect(example).toContain('createRoot(document.getElementById("root")!).render(<App />);');
+    for (const line of [
+      'const root = document.getElementById("root");',
+      'if (root === null) throw new Error("index.html has no #root element");',
+      "createRoot(root).render(<App />);",
+    ]) expect(client, line).toContain(line);
     // Like the example, the page calls an input-less query on mount: the
     // context's first one, in area then feature order.
     expect(client).toContain("    api.notes.list.query().then(setData);");

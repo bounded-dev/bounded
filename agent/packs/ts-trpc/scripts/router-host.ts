@@ -37,6 +37,13 @@ export function firstInputlessQuery(facts: ProjectFacts, context: string): strin
 }
 
 /** `composeApp(): <Router>` — the router-hosting composition root skeleton. */
+/** A React page's mount: find the root element, refusing a page without one.
+ *  No non-null assertion, so an app skeleton passes the builder's own lint. */
+export const MOUNT: readonly string[] = [
+  'const root = document.getElementById("root");',
+  'if (root === null) throw new Error("index.html has no #root element");',
+];
+
 export function routerCompositionRoot(path: string, scope: string, context: string): EmittedFile {
   const router = contextRouterType(context);
   return {

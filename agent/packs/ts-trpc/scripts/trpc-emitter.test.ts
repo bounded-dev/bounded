@@ -121,6 +121,21 @@ describe("refusals", () => {
     expect(() => emitTrpcAdapters(exampleFacts({ contracts }))).toThrow(/route key 'notes\.list'/);
   });
 
+  test("a context named like one of its areas: both routers would be one name", () => {
+    const facts = exampleFacts();
+    const renamed = {
+      ...facts,
+      workspaces: facts.workspaces.map((w) => w.dir !== EXAMPLE_CONTEXT ? w : {
+        ...w, dir: "contexts/notes", name: "notes", packageName: "@example/notes", sourceRoot: "contexts/notes/src",
+        contracts: w.contracts.map((c) => ({
+          path: c.path.replace(EXAMPLE_CONTEXT, "contexts/notes"),
+          source: c.source.replaceAll("@example/project-management", "@example/notes"),
+        })),
+      }),
+    };
+    expect(() => emitTrpcAdapters(renamed)).toThrow(/context 'notes' has an area named 'notes': the context router and the area router would both be createNotesRouter/);
+  });
+
   test("a contract outside the grammar names the file and the fix", () => {
     const contracts = withContract(CREATE_NOTE, (s) => s.replace("readonly text: string;", "readonly text?: string;"));
     expect(() => emitTrpcAdapters(exampleFacts({ contracts }))).toThrow(/create-note\.contract\.ts: CreateNoteInput\.text must be readonly and required \(optional fields are refused for now\)/);

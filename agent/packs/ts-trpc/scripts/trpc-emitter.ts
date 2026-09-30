@@ -213,6 +213,14 @@ export function emitTrpcAdapters(facts: ProjectFacts): EmittedFile[] {
   for (const [context, features] of byContext(featuresExposedVia(facts, TRPC))) {
     const dir = inAdapterDir(context, TRPC);
     const areas = [...new Set(features.map((f) => f.area))].sort(byCodePoint);
+    const clash = areas.find((area) => areaRouterFactory(area) === contextRouterFactory(context));
+    if (clash !== undefined) {
+      // router.ts would declare the context's factory and import the area's
+      // under one name. Refused rather than renamed: the names are the
+      // example's, and a context is the larger thing its areas sit in.
+      throw new Error(`context '${context}' has an area named '${clash}': the context router and the area router would both be ` +
+        `${contextRouterFactory(context)}; name the context for the larger capability (e.g. '${context}-management') or rename the area`);
+    }
     out.push(file(`${dir}/trpc.ts`, [
       'import { initTRPC } from "@trpc/server";',
       "",

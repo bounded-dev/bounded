@@ -185,7 +185,7 @@ function commandLawsSource(m: ContextModel, f: FeatureContractModel): string[] {
     braced("import", concepts, `from "${domainImport(m)}";`),
     braced("import", [command], `from "./${f.feature}.command.ts";`),
     "",
-    `const INVALID = { ok: false, error: "Invalid ${f.feature.split("-").join(" ")} input" };`,
+    `const INVALID = { ok: false as const, error: "Invalid ${f.feature.split("-").join(" ")} input" };`,
     ...wireTypes.map((w) => `const ${SAMPLES[w].list} = ${SAMPLES[w].values};`),
     "",
     "function wire(i: number, j: number): Record<string, unknown> {",

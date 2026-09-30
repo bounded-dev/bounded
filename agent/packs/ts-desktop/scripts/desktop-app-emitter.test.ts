@@ -24,9 +24,14 @@ describe("the desktop app of the worked example", () => {
     ]);
   });
 
-  test("the renderer is the example's, byte for byte", () => {
+  test("the renderer is the example's, except that it mounts without a non-null assertion", () => {
     expect(content("renderer/index.html")).toBe(readExample(`${APP}/renderer/index.html`));
-    expect(content("renderer/main.tsx")).toBe(readExample(`${APP}/renderer/main.tsx`));
+    // The example's `getElementById("root")!` is refused by the builder's own
+    // lint, so the skeleton checks for the element instead.
+    expect(content("renderer/main.tsx")).toBe(readExample(`${APP}/renderer/main.tsx`).replace(
+      'createRoot(document.getElementById("root")!).render(<h1>Hello</h1>);',
+      'const root = document.getElementById("root");\nif (root === null) throw new Error("index.html has no #root element");\ncreateRoot(root).render(<h1>Hello</h1>);',
+    ));
   });
 
   test("the main process hosts the router in-process and opens the window, as the example does", () => {

@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { NoteText, ProjectId } from "@example/project-management/domain";
 import { CreateNoteCommand } from "./create-note.command.ts";
 
-const INVALID = { ok: false, error: "Invalid create note input" };
+const INVALID = { ok: false as const, error: "Invalid create note input" };
 const STRINGS = ["", " ", "a", "Hello, world", "not-a-uuid", "00000000-0000-4000-8000-000000000000", "x".repeat(300)];
 
 function wire(i: number, j: number): Record<string, unknown> {

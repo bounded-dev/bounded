@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { ProjectName } from "@example/project-management/domain";
 import { CreateProjectCommand } from "./create-project.command.ts";
 
-const INVALID = { ok: false, error: "Invalid create project input" };
+const INVALID = { ok: false as const, error: "Invalid create project input" };
 const STRINGS = ["", " ", "a", "Hello, world", "not-a-uuid", "00000000-0000-4000-8000-000000000000", "x".repeat(300)];
 
 function wire(i: number, j: number): Record<string, unknown> {

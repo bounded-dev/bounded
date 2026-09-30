@@ -14,7 +14,7 @@
 // the first run. A web app hosts exactly one context's router.
 
 import type { EmittedFile, Emitter, ProjectFacts } from "../../ts/pack.ts";
-import { contextTitle, firstInputlessQuery, hostedTrpcContext, routerCompositionRoot } from "../../ts-trpc/scripts/router-host.ts";
+import { contextTitle, firstInputlessQuery, hostedTrpcContext, MOUNT, routerCompositionRoot } from "../../ts-trpc/scripts/router-host.ts";
 import { contextRouterType } from "../../ts-trpc/scripts/trpc-emitter.ts";
 
 export const WEB_KIND = "web";
@@ -63,7 +63,8 @@ function clientMain(scope: string, context: string, query: string | undefined): 
       "  );",
       "}",
     ];
-  return [...head, ...app, "", 'createRoot(document.getElementById("root")!).render(<App />);'];
+  // No non-null assertion: the skeleton must pass the builder's own lint.
+  return [...head, ...app, "", ...MOUNT, "createRoot(root).render(<App />);"];
 }
 
 export function emitWebApps(facts: ProjectFacts): EmittedFile[] {
