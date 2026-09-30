@@ -531,6 +531,15 @@ function finishDesignGate(
  * read and keeps the passing narrative in the canonical order, which is the half
  * of the transcript anyone reads twice.
  */
+/** The composed contract globs (one per source root and contract suffix, ADR
+ *  2026-056), or undefined — the purity gate's own default — when the
+ *  composition declares none. An unreadable composition throws: the design
+ *  gate must not guess which files are contracts. */
+function composedContractPatterns(cwd: string): readonly string[] | undefined {
+  const globs = contractGlobs(cwd);
+  return globs.length > 0 ? globs : undefined;
+}
+
 export async function runDesignGate(
   cwd: string,
   patterns?: readonly string[],
@@ -571,7 +580,7 @@ export async function runDesignGate(
     readonly step: DesignStep;
     readonly run: () => Promise<{ code: number; lines: readonly string[] }>;
   }[] = [
-    { step: "contract-purity", run: () => runContractPurity(cwd, patterns) },
+    { step: "contract-purity", run: () => runContractPurity(cwd, patterns ?? composedContractPatterns(cwd)) },
     { step: "scaffold", run: async () => runScaffold(cwd) },
     {
       step: "typecheck",

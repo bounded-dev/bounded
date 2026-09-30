@@ -87,7 +87,7 @@ import { mostUpstream, projectOwnerOf, routeTypecheck, typecheckLines, type Owne
 import { UNREADABLE_LAYOUT, type PathLayout } from "../../../src/path-policy.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
 import { containedSupportTargets } from "./support-targets.ts";
-import { contractGlobs, fileNameGlobs, fileNameMatcher } from "../../../src/pack-contrib.ts";
+import { fileNameGlobs, fileNameMatcher } from "../../../src/pack-contrib.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
 import { configDriftBlock } from "./project-config.ts";
 import type { GateResult } from "../../../src/gate-result.ts";

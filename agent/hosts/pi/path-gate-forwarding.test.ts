@@ -9,14 +9,8 @@ import { makeTempProject, type TempProject } from "../../test/support/temp-proje
 // takes `pattern`, and the extension hands the tool call's input to the gate
 // unchanged — this file pins that the fields arrive, so the gate judges the
 // call that will run. (It lives here, not beside the extension, because pi
-// loads every top-level file in extensions/ as an extension.)
-//
-// The layout the composed packs will contribute (ADRs 2026-056…058) is
-// overlaid until an installed pack does: see src/hexagonal-layout.test-support.ts.
-vi.mock("../../src/pack-contrib.ts", async (importOriginal) => {
-  const { withHexagonalLayout } = await import("../../src/hexagonal-layout.test-support.ts");
-  return withHexagonalLayout(await importOriginal());
-});
+// loads every top-level file in extensions/ as an extension.) The project
+// composes the hexagonal layout pack, which contributes the source roots.
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -46,7 +40,7 @@ function project(): string {
   const p = makeTempProject({
     [`${C}/domain/note.ts`]: "export {};\n",
     [`${C}/domain/note.test.ts`]: "test('x', () => {});\n",
-  }, { prefix: "pi-forward-" });
+  }, { prefix: "pi-forward-", packs: ["ts", "ts-hexagonal"] });
   projects.push(p);
   return p.dir;
 }

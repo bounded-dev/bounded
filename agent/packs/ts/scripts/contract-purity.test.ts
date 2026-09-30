@@ -254,6 +254,22 @@ describe("contract-purity CLI", () => {
     expect(readGuardLog(dir)[0]).toMatchObject({ guard: "contract-purity", verdict: "error" });
   });
 
+  // One glob per composed source root (ADR 2026-056): a root with no files yet
+  // (no apps/ before the first app) must not sink the roots that have some.
+  test("a source root with no contracts yet does not stop the others being linted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "purity-roots-"));
+    writeProjectPacks(dir, ["ts"]);
+    tmpDirs.push(dir);
+    mkdirSync(join(dir, "contexts", "pm", "src"), { recursive: true });
+    writeFileSync(join(dir, "contexts", "pm", "src", "good.contract.ts"), GOOD_CONTRACT);
+    const r = runCli(dir, ["apps/*/src/**/*.contract.ts", "contexts/*/src/**/*.contract.ts"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/contract-purity: OK \(1 file\)/);
+    const none = runCli(dir, ["apps/*/src/**/*.contract.ts", "lib/*/src/**/*.contract.ts"]);
+    expect(none.status).toBe(2);
+    expect(none.stderr).toMatch(/contract-purity: no files matched/);
+  });
+
   // The architect's scratch zone (Fix 4): the default gate scope is
   // src/**/*.contract.ts, so a probe in the top-level scratch/ is never linted —
   // even an impure one. The zone overlaps no gate that globs the project.

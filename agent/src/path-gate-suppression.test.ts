@@ -14,12 +14,6 @@ import {
 } from "./path-gate.ts";
 import { writeProjectPacks } from "./project-composition.ts";
 
-// The layout the composed packs will contribute (ADRs 2026-056…058), overlaid
-// until an installed pack does: see hexagonal-layout.test-support.ts.
-vi.mock("./pack-contrib.ts", async (importOriginal) => {
-  const { withHexagonalLayout } = await import("./hexagonal-layout.test-support.ts");
-  return withHexagonalLayout(await importOriginal());
-});
 
 // THE BUG THIS EXISTS FOR (dogfood Run 6, 2026-09-02)
 //
@@ -50,8 +44,9 @@ vi.mock("./pack-contrib.ts", async (importOriginal) => {
 // A real directory: the gate resolves links against the project root, and a
 // root that does not exist fails closed.
 const CTX = { cwd: mkdtempSync(join(tmpdir(), "gate-suppression-")) } as const;
-// A ts-composed project: its contract suffix is what the builder may not write.
-writeProjectPacks(CTX.cwd, ["ts"]);
+// A hexagonal ts project: its source roots and contract suffix decide what the
+// builder may not write.
+writeProjectPacks(CTX.cwd, ["ts", "ts-hexagonal"]);
 afterAll(() => rmSync(CTX.cwd, { recursive: true, force: true }));
 
 const write = (path: string) => ({ toolName: "write", input: { path }, cwd: CTX.cwd });

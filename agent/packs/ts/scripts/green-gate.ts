@@ -45,7 +45,6 @@ import { typecheck, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, projectOwnerOf, routeTypecheck, typecheckLines, type FixOwner, type OwnerOf } from "./typecheck-routing.ts";
 import { UNREADABLE_LAYOUT, type PathLayout } from "../../../src/path-policy.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
-import { contractGlobs } from "../../../src/pack-contrib.ts";
 import { configDriftBlock } from "./project-config.ts";
 import { lintSrc } from "./lint-src.ts";
 import { checkProjectSurfaces } from "./surface-check.ts";

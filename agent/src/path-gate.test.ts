@@ -7,12 +7,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { logGuardEvent, readGuardLog } from "./guard-log.ts";
 import { asRole, evaluatePathGate, expandSourceRoots, PIPELINE_ROLES, projectPathFacts } from "./path-gate.ts";
 
-// The layout the composed packs will contribute (ADRs 2026-056…058), overlaid
-// until an installed pack does: see hexagonal-layout.test-support.ts.
-vi.mock("./pack-contrib.ts", async (importOriginal) => {
-  const { withHexagonalLayout } = await import("./hexagonal-layout.test-support.ts");
-  return withHexagonalLayout(await importOriginal());
-});
 
 const C = "contexts/orders/src";
 import { devStageModelsPath } from "./dev-stage-models.ts";

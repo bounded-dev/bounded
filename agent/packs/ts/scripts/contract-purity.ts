@@ -87,6 +87,10 @@ export function createContractLinter(cwd?: string): ESLint {
   const packPlugins = contributedPurityPlugins(overrides);
   return new ESLint({
     ...(cwd === undefined ? {} : { cwd }),
+    // A composed layout has one contract glob per source root (ADR 2026-056),
+    // and a project need not have every root yet (no apps/ before the first
+    // app). The gate still refuses when the patterns match nothing at all.
+    errorOnUnmatchedPattern: false,
     // The gate owns the whole config: no project eslint config is consulted,
     // so results are identical in every repo.
     overrideConfigFile: true,

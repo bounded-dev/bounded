@@ -7,14 +7,6 @@ import { HOST_ENV } from "../../src/host.ts";
 import { errorOpenRead, runHook } from "./path-gate-hook.ts";
 import { makeTempProject as makeProject, type TempProject } from "../../test/support/temp-project.ts";
 
-// In-process runs (`runHere`) see the layout the composed packs will
-// contribute (ADRs 2026-056…058), overlaid until an installed pack does — see
-// src/hexagonal-layout.test-support.ts. Spawned runs (`run`) see the real
-// composition, which declares no source root yet.
-vi.mock("../../src/pack-contrib.ts", async (importOriginal) => {
-  const { withHexagonalLayout } = await import("../../src/hexagonal-layout.test-support.ts");
-  return withHexagonalLayout(await importOriginal());
-});
 
 const C = "contexts/m/src";
 
@@ -26,8 +18,12 @@ const C = "contexts/m/src";
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), "path-gate-hook.ts");
 
 const projects: TempProject[] = [];
-function makeTempProject(files: Readonly<Record<string, string>>): string {
-  const project = makeProject(files, { prefix: "cc-hook-" });
+function makeTempProject(
+  files: Readonly<Record<string, string>>,
+  // The hexagonal layout pack contributes the source roots (ADR 2026-056).
+  packs: readonly string[] = ["ts", "ts-hexagonal"],
+): string {
+  const project = makeProject(files, { prefix: "cc-hook-", packs });
   projects.push(project);
   return project.dir;
 }
@@ -183,7 +179,7 @@ describe("path-gate-hook — the path gate, by role file", () => {
   });
 
   test("with no source root composed, no role writes source (spawned, real composition)", () => {
-    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" }, ["ts"]);
     const r = run(dir, payload(dir, "Write", { file_path: join(dir, `${C}/a.ts`), content: "x" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("no composed pack declares a source root");

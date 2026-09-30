@@ -164,12 +164,15 @@ Ordering, the arithmetic and its tie-break, identity: everything the two blind
 roles must agree on that TypeScript cannot say.
 `;
 
+/** A source root of the composed hexagonal layout: where contracts live. */
+const ROOT = join("contexts", "money", "src");
+
 function fixtureRepo(prefix: string, contract: string, tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  writeProjectPacks(dir, ["ts"]);
+  writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   tmpDirs.push(dir);
-  mkdirSync(join(dir, "src", "money"), { recursive: true });
-  writeFileSync(join(dir, "src", "money", "money.contract.ts"), contract);
+  mkdirSync(join(dir, ROOT, "money"), { recursive: true });
+  writeFileSync(join(dir, ROOT, "money", "money.contract.ts"), contract);
   writeFileSync(join(dir, "spec.md"), SPEC);
   writeFileSync(join(dir, "package.json"), '{"name":"fixture"}\n');
   // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
@@ -199,10 +202,10 @@ function runGate(dir: string, typeErrors = false) {
 }
 
 const MANIFEST = join(".bounded", "contract-checksums.json");
-const SKELETON = join("src", "money", "money.ts");
+const SKELETON = join(ROOT, "money", "money.ts");
 
-const CONTRACT_TYPE_ERR = "src/money/money.contract.ts(3,1): error TS2304: Cannot find name 'Iso'.";
-const SKELETON_TYPE_ERR = "src/money/money.ts(9,3): error TS2322: Type 'string' is not assignable.";
+const CONTRACT_TYPE_ERR = "contexts/money/src/money/money.contract.ts(3,1): error TS2304: Cannot find name 'Iso'.";
+const SKELETON_TYPE_ERR = "contexts/money/src/money/money.ts(9,3): error TS2322: Type 'string' is not assignable.";
 
 describe("design-gate CLI: the whole design phase in one call", () => {
   test("a ticket TN must be active before its reviewed design freezes", () => {
@@ -211,7 +214,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
     writeFileSync(join(dir, "docs/tn/README.md"), "# Technical Notes\n");
     const note = join(dir, "docs/tn/TN-24.md");
     const front = (status: string) =>
-      `---\nissue: 24\nstatus: ${status}\ncontracts:\n  - src/money/money.contract.ts\n---\n\n${SPEC}`;
+      `---\nissue: 24\nstatus: ${status}\ncontracts:\n  - contexts/money/src/money/money.contract.ts\n---\n\n${SPEC}`;
     writeFileSync(note, front("draft"));
     const prior = process.env.BOUNDED_TICKET;
     process.env.BOUNDED_TICKET = "24";
@@ -282,7 +285,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
     }
     expect(
       checkSpawnPrecondition("test-writer", {
-        contracts: ["src/money/money.contract.ts"],
+        contracts: ["contexts/money/src/money/money.contract.ts"],
         specText:
           "# Money\n\n## Intake\n\nNothing stripped.\n\n## Rules\n\n" +
           "Ordering, arithmetic, tie-breaks and identity. ".repeat(12),
@@ -393,8 +396,8 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
 // generated skeleton wearing the builder's path) still does, and a FIRST
 // freeze keeps the full block.
 describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", () => {
-  const TESTS_TYPE_ERR = "tests/money.test.ts(3,3): error TS2339: Property 'reformat' does not exist.";
-  const HAND_IMPL_ERR = "src/money/helper.ts(1,1): error TS2322: Type 'string' is not assignable.";
+  const TESTS_TYPE_ERR = "contexts/money/src/money/money.test.ts(3,3): error TS2339: Property 'reformat' does not exist.";
+  const HAND_IMPL_ERR = "contexts/money/src/money/helper.ts(1,1): error TS2322: Type 'string' is not assignable.";
 
   /** Freeze once clean, then hand the gate a dirty tsc for the second pass. */
   function frozenFixture(prefix: string): string {
@@ -402,7 +405,7 @@ describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", (
     review(dir);
     expect(runGate(dir).status).toBe(0);
     // A hand-written implementation file (no generated marker): builder-owned.
-    writeFileSync(join(dir, "src", "money", "helper.ts"), "export const rounding = 1;\n");
+    writeFileSync(join(dir, ROOT, "money", "helper.ts"), "export const rounding = 1;\n");
     return dir;
   }
 
@@ -436,12 +439,12 @@ describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", (
 
   test("a diagnostic in a generated skeleton is the contract's, and still blocks", () => {
     const dir = frozenFixture("design-refreeze-skeleton-");
-    // src/money/money.ts was scaffolded during the first pass, marker intact.
+    // contexts/money/src/money/money.ts was scaffolded during the first pass, marker intact.
     writeFileSync(join(dir, "tsc.txt"), `${SKELETON_TYPE_ERR}\nFound 1 error.\n`);
     const r = runGate(dir, true);
     expect(r.status).toBe(1);
     expect(r.stdout).toContain(
-      "note: src/money/money.ts is a generated skeleton — those diagnostics are the contract's own, not builder drift",
+      "note: contexts/money/src/money/money.ts is a generated skeleton — those diagnostics are the contract's own, not builder drift",
     );
     expect(r.stdout).toContain("design-gate: route → architect");
   });
@@ -727,7 +730,7 @@ describe("design-gate CLI: the freeze requires a fresh review", () => {
     const dir = fixtureRepo("design-contract-edit-", CLEAN_CONTRACT);
     review(dir);
     writeFileSync(
-      join(dir, "src", "money", "money.contract.ts"),
+      join(dir, ROOT, "money", "money.contract.ts"),
       `${CLEAN_CONTRACT}\nexport declare function reformat(money: Money): Currency;\n`,
     );
     const r = runGate(dir);
@@ -739,11 +742,11 @@ describe("design-gate CLI: the freeze requires a fresh review", () => {
   test("a contract ADDED after the review voids it — a review covers a file set", () => {
     const dir = fixtureRepo("design-contract-added-", CLEAN_CONTRACT);
     review(dir);
-    writeFileSync(join(dir, "src", "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
     const r = runGate(dir);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain("the reviewer never saw src/money/ticker.contract.ts");
-    expect(r.stdout).toContain("  added since the review: src/money/ticker.contract.ts");
+    expect(r.stdout).toContain("the reviewer never saw contexts/money/src/money/ticker.contract.ts");
+    expect(r.stdout).toContain("  added since the review: contexts/money/src/money/ticker.contract.ts");
     expect(r.stdout).toContain("design-gate: FAIL — design-review missing (or stale); freeze did not run");
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
   });
@@ -752,12 +755,12 @@ describe("design-gate CLI: the freeze requires a fresh review", () => {
     const dir = fixtureRepo("design-contract-removed-", CLEAN_CONTRACT);
     // Two contracts reviewed together, then one is deleted: the shape the fresh
     // mind read is gone, so the design must be challenged again.
-    writeFileSync(join(dir, "src", "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
     review(dir);
-    rmSync(join(dir, "src", "money", "ticker.contract.ts"));
+    rmSync(join(dir, ROOT, "money", "ticker.contract.ts"));
     const r = runGate(dir);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain("  removed since the review: src/money/ticker.contract.ts");
+    expect(r.stdout).toContain("  removed since the review: contexts/money/src/money/ticker.contract.ts");
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
   });
 
@@ -853,12 +856,12 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     const before = guardCounts(dir);
 
     // A NEW contract file — surface the review never saw — is what stales it now.
-    writeFileSync(join(dir, "src", "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
     const r = runGate(dir);
     expect(r.status).toBe(1);
     expect(r.stdout).toContain(EARLY);
-    expect(r.stdout).toContain("the reviewer never saw src/money/ticker.contract.ts");
-    expect(r.stdout).toContain("  added since the review: src/money/ticker.contract.ts");
+    expect(r.stdout).toContain("the reviewer never saw contexts/money/src/money/ticker.contract.ts");
+    expect(r.stdout).toContain("  added since the review: contexts/money/src/money/ticker.contract.ts");
     expect(r.stdout).toContain(
       "design-gate: FAIL — design-review missing (or stale); contract-purity, scaffold, typecheck, freeze did not run",
     );
@@ -881,7 +884,7 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     const dir = fixtureRepo("design-refreeze-log-", CLEAN_CONTRACT);
     review(dir);
     expect(runGate(dir).status).toBe(0);
-    writeFileSync(join(dir, "src", "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
     expect(runGate(dir).status).toBe(1);
 
     const composite = readGuardLog(dir).filter((e) => e.guard === "design-gate");
@@ -909,7 +912,7 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     review(dir);
     expect(runGate(dir).status).toBe(0);
     const frozen = readFileSync(join(dir, MANIFEST), "utf8");
-    writeFileSync(join(dir, "src", "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
     expect(runGate(dir).status).toBe(1);
     expect(readFileSync(join(dir, MANIFEST), "utf8")).toBe(frozen);
   });
@@ -922,7 +925,7 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     review(dir);
     expect(runGate(dir).status).toBe(0);
     writeFileSync(
-      join(dir, "src", "money", "money.contract.ts"),
+      join(dir, ROOT, "money", "money.contract.ts"),
       `${CLEAN_CONTRACT}\nexport declare function reformat(money: Money): Currency;\n`,
     );
     const r = runGate(dir);
