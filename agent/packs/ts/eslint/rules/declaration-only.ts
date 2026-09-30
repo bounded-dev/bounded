@@ -2,7 +2,9 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
 // TN-26-001 architect zone rule: `*.contract.ts` files are declaration-only —
 // types, interfaces and ambient (declare) declarations; no function bodies,
-// no value bindings, no runtime imports. Which files the rule applies to is
+// no value bindings, no runtime imports. Classes are refused in every form:
+// `declare class` was the contract model ADR 2026-059 retired, and its
+// message teaches the interface + factory form that replaced it. Which files the rule applies to is
 // gate wiring (flat-config `files:`), not the rule's concern.
 //
 // Error messages are written for an agent reader, not a human (TN appendix,
@@ -14,6 +16,7 @@ type MessageId =
   | "missingDeclare"
   | "valueBinding"
   | "classBody"
+  | "retiredDeclareClass"
   | "enumRuntime"
   | "namespaceRuntime"
   | "valueImport"
@@ -41,7 +44,8 @@ export const declarationOnly = createRule<[], MessageId>({
       functionBody: `${DECLARATION_ONLY} '{{name}}' has a function body — keep only the signature here; the scaffolder generates the throwing skeleton in the sibling .ts and the builder implements there.`,
       missingDeclare: `${DECLARATION_ONLY} '{{name}}' is a bodiless function signature missing 'declare' — write 'export declare function {{name}}(...): ...;' instead. Without 'declare', tsc treats a bodiless signature as an incomplete implementation (TS2391 "Function implementation is missing or not immediately following the declaration") and the contract fails to compile.`,
       valueBinding: `${DECLARATION_ONLY} '{{name}}' is a value binding and would emit runtime code — declare the shape with 'export declare const {{name}}: …' or move the value into the implementation.`,
-      classBody: `${DECLARATION_ONLY} class '{{name}}' has a runtime body — use 'export declare class {{name}}' for the shape and implement in the sibling .ts.`,
+      classBody: `${DECLARATION_ONLY} class '{{name}}' has a runtime body — a contract declares interfaces only: 'export interface {{name}}' for the instance side and 'export interface {{name}}Factory' for the static side (ADR 2026-059). The implementation class, '{{name}}Impl', is generated into the sibling .ts.`,
+      retiredDeclareClass: `'export declare class {{name}}' is the retired contract form (ADR 2026-059 replaced ADRs 2026-015/023/026). The contract owns the name as two interfaces — the instance side and the static side:\n  import type { Result } from "../shared/result.ts";\n  export interface {{name}} {\n    readonly __brand: "{{name}}";\n    readonly value: string;\n    equals(other: {{name}}): boolean;\n    toJSON(): string;\n  }\n  export interface {{name}}Factory {\n    parse(raw: unknown): Result<{{name}}>;\n  }\nAn identifier's factory adds 'generate(): {{name}};'; an entity's factory is 'new (…fields): {{name}};' instead of parse. The emitter generates '{{name}}Impl' and the file's two exports; the builder writes only the class body.`,
       enumRuntime: `${DECLARATION_ONLY} enum '{{name}}' is not allowed (the scaffolder cannot skeleton enums) — use a string-literal union: type {{name}} = 'a' | 'b'.`,
       namespaceRuntime: `${DECLARATION_ONLY} namespace '{{name}}' emits runtime code — use 'declare namespace' with type members only.`,
       valueImport: `${DECLARATION_ONLY} '{{source}}' is imported as a value — use 'import type … from "{{source}}"'; concrete infra (db, http, fs) belongs behind ports in the implementation, never in a contract.`,
@@ -91,7 +95,14 @@ export const declarationOnly = createRule<[], MessageId>({
           return;
 
         case TSESTree.AST_NODE_TYPES.ClassDeclaration:
-          if (node.declare) return;
+          if (node.declare) {
+            context.report({
+              node,
+              messageId: "retiredDeclareClass",
+              data: { name: node.id ? node.id.name : "Name" },
+            });
+            return;
+          }
           context.report({
             node,
             messageId: "classBody",

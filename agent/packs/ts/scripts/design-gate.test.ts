@@ -117,10 +117,10 @@ const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 /** A contract that passes purity, scaffolds and typechecks. Its value object
- *  (Currency) lives in its own contract file, imported here from the
- *  implementation module — a value object may not share a file with the
- *  operations over it (value-objects-own-contract, ADR 2026-026). */
-const CLEAN_CONTRACT = `import type { Currency } from "../shared/currency.js";
+ *  (Currency) lives in its own contract file, imported from that contract —
+ *  a contract imports only other contracts (contract-imports-contracts-only,
+ *  ADR 2026-059). */
+const CLEAN_CONTRACT = `import type { Currency } from "../shared/currency.contract.ts";
 
 export interface Money {
   readonly currency: Currency;
@@ -138,14 +138,25 @@ export interface Ledger {
 }
 `;
 
-/** A second clean contract, for the file a review never saw. A value object in
- *  its own contract file — the shape value-objects-own-contract steers toward. */
-const TICKER_CONTRACT = `/** Ticker: an exchange symbol — one to five uppercase letters. */
-export declare class Ticker {
-  private readonly __brand: "Ticker";
-  private constructor();
+/** A second clean contract, for the file a review never saw: the ADR
+ *  2026-059 interface + factory pair (the retired `declare class` form now
+ *  fails contract-purity). */
+const TICKER_CONTRACT = `import type { Result } from "../shared/result.ts";
+
+/**
+ * An exchange symbol: one to five uppercase letters.
+ * @accepts "AAPL"
+ * @accepts "MSFT"
+ */
+export interface Ticker {
+  readonly __brand: "Ticker";
   readonly value: string;
-  static parse(raw: unknown): Ticker | undefined;
+  equals(other: Ticker): boolean;
+  toJSON(): string;
+}
+
+export interface TickerFactory {
+  parse(raw: unknown): Result<Ticker>;
 }
 `;
 

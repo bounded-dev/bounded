@@ -207,25 +207,34 @@ follow that one:
 surface), `bounded-ts/no-branded-aliases` (a primitive intersected with a
 brand object is banned — optional brands enforce nothing and required ones
 need a cast the builder cannot legally write), `bounded-ts/value-object-shape`
-(every exported class is a value object: private `__brand` matching the class
-name, private constructor, `static parse(raw: unknown): T | undefined`, all
-instance properties readonly, no extends), and
-`bounded-ts/value-object-documented` (a doc comment stating the validity
-rule — plus two `@accepts` examples so the generated laws all run), and
-`bounded-ts/value-objects-own-contract` (a value object may not share a file
-with an interface / type-alias / operation that references it — value objects
-get their own `*.contract.ts`; see below), and
-`bounded-ts/no-cross-contract-type-import` (a contract may not `import type`
-or `export type … from` another `*.contract.ts` — reach a sibling component
-through its implementation module; see below), and
+(ADR 2026-059, the contract owns the name: a value object is `interface
+<Name>` opening with `readonly __brand: "<Name>"`, one `readonly value` of a
+primitive, `equals(other: <Name>): boolean` and `toJSON()`, plus `interface
+<Name>Factory { parse(raw: unknown): Result<<Name>>; }` — an identifier adds
+`generate(): <Name>`; one concept per `<concept>.contract.ts`, the file named
+after it; the retired `declare class` form is refused by `declaration-only`),
+`bounded-ts/entity-shape` (an entity's factory is exactly `new (…fields):
+<Name>`, the fields in declaration order with `id` first, each a value object
+or identifier; `toJSON()` returns one readonly primitive per field), and
+`bounded-ts/value-object-documented` (every value object — not an
+identifier — carries a doc comment with its validity rule and two
+`@accepts` examples that differ after trimming, each a literal of the
+value's type: they are the generated laws' samples, so no law is skipped),
+and `bounded-ts/contract-imports-contracts-only` (every contract
+imports only other `*.contract.ts` files and `../shared/result.ts`, as
+`import type { … }` — never an implementation file, never an
+`import("…")` type, no re-exports; an application contract may also import
+its context's generated `@<scope>/<context>/domain` barrel, and a contract
+outside the hexagonal layers a package or a composed pack's shipped support
+module), and
 `bounded-ts-trpc/no-erased-router` (tRPC pack; a type-erased tRPC type —
 `AnyRouter` and kin — may not appear in a contract: the router's real type is
 generated with the in adapter from your `@exposedVia trpc` tags; ADR 2026-030),
 and
 `bounded-ts/no-schema-on-surface` (nothing from zod may appear in a
 contract — the schema is the value object's internal engine, and the
-contract's whole validation surface is `static parse(raw: unknown)`; ADR
-2026-031).
+contract's whole validation surface is the factory's `parse(raw: unknown):
+Result<<Name>>`; ADR 2026-031).
 
 `design_gate` runs that check as its first step and then carries the phase
 through: purity → scaffold → project typecheck → design-review → freeze, one
@@ -245,41 +254,17 @@ path survives byte-identical — and a blocked run prunes nothing, since a run
 that stopped at purity has established nothing about what ought to exist. Do
 not tidy up after yourself; you cannot, and you do not need to.
 
-**One identity per value object — a contract never imports from another
-contract.** A contract's `declare class Money` and the runtime `class Money`
-the scaffolder writes into that contract's sibling implementation module are
-two declarations of the same private `__brand`, and TypeScript treats those as
-unrelated types. So cross-component types come from the IMPLEMENTATION module —
-`import type { Money } from "../values/values.js"`, never
-`"../values/values.contract.js"` — which re-exports everything its own contract
-declares and shadows the ambient class with the real one. The
-`no-cross-contract-type-import` rule refuses the contract-to-contract form at
-`contract_purity` — the first design_gate step — and names the replacement
-import in the block; it covers a `export type … from` re-export too, the
-identical defect one level further out. The scaffolder keeps the same refusal as
-a backstop if purity is ever bypassed (ADR 2026-027). This is not a
-style rule you can trade away for convenience: r15 froze a design that reached
-`Money` through `values.contract.js`, and the shadow red came back with 41
-"separate declarations of a private property" errors over a value object no
-test could construct through any legal route — ~44 of that arm's 76 live
-minutes, ending in eight invented `parse*` functions and a mid-loop re-freeze
-(ADR 2026-023).
-
-**Value objects live in their own contract file — never beside the operations
-over them.** The same `__brand` clash has a same-file twin: if one contract file
-both declares a nominal value-object class and an interface / type-alias /
-operation / const that references it, the scaffolder emits the value object as a
-runtime class in the skeleton, and the compile-time conformance check compares
-that runtime identity against the contract's ambient `declare class` — two
-`__brand` declarations again, and the skeleton does not compile. So a
-value-object class and the interfaces/operations that consume it belong in
-*different* `*.contract.ts` files: the value objects in their own, and the
-operations importing them from the implementation module
-(`import type { BuildingId } from "../ids/ids.js"`), which resolves to one
-identity. The `value-objects-own-contract` rule refuses the same-file shape at
-`contract_purity`, naming the value object to move — a file mixing value objects
-with the operations over them is a decomposition failure, not one cohesive area
-(ADR 2026-026).
+**The contract owns the name (ADR 2026-059).** A domain concept is one
+`<concept>.contract.ts` holding `interface <Name>` and `interface
+<Name>Factory`, and nothing else; the emitter writes the sibling
+`<concept>.ts` with a hidden `<Name>Impl` and the two exports
+`export type <Name> = Contract.<Name>;` and
+`export const <Name>: Contract.<Name>Factory = <Name>Impl;`, so `<Name>` is
+one type everywhere. Contracts therefore import each other directly —
+`import type { ProjectId } from "../projects/project-id.contract.ts"` — and
+never an implementation file (`contract-imports-contracts-only`). The old
+`declare class` form, and the two rules that patched its double identity
+(`value-objects-own-contract`, `no-cross-contract-type-import`), are retired.
 
 **Revising a contract mid-loop is cheap now; it was not.** The scaffold step
 writes a skeleton only where the target is absent or is itself a generated

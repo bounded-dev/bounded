@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -29,17 +29,29 @@ function trackedProject(): string {
   execFileSync("git", ["-C", dir, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.invalid", "commit", "-qm", "baseline"]);
   return dir;
 }
+/** A clean, implemented project in the flat layout adoption checks today:
+ *  one contract, its implementation, and the config the gates read. (It used
+ *  to copy packs/ts/reference, which now holds the hexagonal worked example,
+ *  ADR 2026-059.) */
 function referenceProject(): string {
   const dir = temp();
-  const reference = join(import.meta.dirname, "..", "reference");
-  cpSync(reference, dir, { recursive: true, filter: (path) => !/[\\/](?:node_modules|\.bounded|\.git)(?:[\\/]|$)/.test(path) });
-  writeFileSync(join(dir, "spec.md"), readFileSync(join(dir, "src/readings/spec.md"), "utf8"));
+  mkdirSync(join(dir, "src/clock"), { recursive: true });
+  writeFileSync(join(dir, "spec.md"), "# Clock\n\nA tick advances nothing and returns nothing.\n");
+  writeFileSync(join(dir, "src/clock/clock.contract.ts"), "export declare function tick(): void;\n");
+  writeFileSync(join(dir, "src/clock/clock.ts"), "export function tick(): void {}\n");
+  writeFileSync(join(dir, "package.json"), '{ "name": "adopt-fixture", "private": true, "type": "module" }\n');
+  writeFileSync(
+    join(dir, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true },
+      include: ["src/**/*.ts"],
+    }),
+  );
   const modules = join(import.meta.dirname, "..", "..", "..", "node_modules");
   // Git canonicalizes macOS temporary paths (/var -> /private/var).
   symlinkSync(modules, join(dir, "node_modules"), "dir");
   writeProjectPacks(dir, ["ts"]);
-  const ignore = join(dir, ".gitignore");
-  writeFileSync(ignore, `${readFileSync(ignore, "utf8")}\n.bounded/\nnode_modules/\n`);
+  writeFileSync(join(dir, ".gitignore"), ".bounded/\nnode_modules/\n");
   execFileSync("git", ["-C", dir, "init", "-q"]);
   execFileSync("git", ["-C", dir, "add", "-A"]);
   execFileSync("git", ["-C", dir, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.invalid", "commit", "-qm", "baseline"]);

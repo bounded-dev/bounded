@@ -26,7 +26,6 @@ import {
   SHADOW_RELATIVE,
   shadowProjectDir,
   testsTreeHash,
-  typecheckShadowWithForwardImports,
 } from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
@@ -577,10 +576,11 @@ describe("contract-triggered support and forward types", () => {
   writeProjectPacks(live, ["ts", "ts-hexagonal", "ts-trpc"]);
   mkdirSync(join(live, "src", "api"), { recursive: true });
   mkdirSync(join(live, "tests"), { recursive: true });
+  // No forward import of `./api.js`: a contract imports only contracts and
+  // shipped support modules (contract-imports-contracts-only, ADR 2026-059),
+  // so the forward-type path below is exercised through its diagnostics only.
   writeFileSync(join(live, "src/api/api.contract.ts"),
     'import type { Ack } from "./service-runtime.js";\n' +
-    'import type { serviceRouter } from "./api.js";\n' +
-    'export type ServiceRouter = typeof serviceRouter;\n' +
     'export declare function submit(): Ack;\n');
   writeFileSync(join(live, "src/api/api.ts"), "export const serviceRouter = { submit: true };\n");
   writeFileSync(join(live, "tests/api.test.ts"), "// pending\n");
@@ -629,57 +629,46 @@ describe("contract-triggered support and forward types", () => {
     }
   });
 
+  /** The forward-type recognisers read the live contract's own text. A
+   *  forward import of the implementation can no longer pass purity or the
+   *  scaffolder (contract-imports-contracts-only, ADR 2026-059), so these
+   *  pin the recognisers on a fixture of their own until the path retires. */
+  const forward = createTempDir(join(tmpdir(), "pi-red-forward-diag-"));
+  writeProjectPacks(forward, ["ts", "ts-trpc"]);
+  mkdirSync(join(forward, "src", "api"), { recursive: true });
+  writeFileSync(join(forward, "src/api/api.contract.ts"),
+    'import type { Ack } from "./service-runtime.js";\n' +
+    'import type { serviceRouter } from "./api.js";\n' +
+    'export type ServiceRouter = typeof serviceRouter;\n' +
+    'export declare function submit(): Ack;\n');
+  writeFileSync(join(forward, "src/api/api.ts"), "export const serviceRouter = { submit: true };\n");
+  afterAll(() => rmSync(forward, { recursive: true, force: true }));
+
   test("recognizes only a type-only forward import of a real sibling export", () => {
     const matching = 'src/api/api.contract.ts(2,15): error TS2724: \'"./api.js"\' has no exported member named \'serviceRouter\'. Did you mean \'ServiceRouter\'?';
-    expect(isForwardTypeImportDiagnostic(live, matching)).toBe(true);
-    expect(isForwardTypeImportDiagnostic(live, matching.replace("(2,15)", "(4,15)"))).toBe(false);
-    expect(isForwardTypeImportDiagnostic(live, matching.replace("serviceRouter'.", "missing'."))).toBe(false);
-    expect(isForwardTypeImportDiagnostic(live, matching.replace("TS2724", "TS2307"))).toBe(false);
+    expect(isForwardTypeImportDiagnostic(forward, matching)).toBe(true);
+    expect(isForwardTypeImportDiagnostic(forward, matching.replace("(2,15)", "(4,15)"))).toBe(false);
+    expect(isForwardTypeImportDiagnostic(forward, matching.replace("serviceRouter'.", "missing'."))).toBe(false);
+    expect(isForwardTypeImportDiagnostic(forward, matching.replace("TS2724", "TS2307"))).toBe(false);
   });
 
   test("at first freeze, accepts the forward import only while the sibling is a generated skeleton", () => {
     const matching = 'src/api/api.contract.ts(2,15): error TS2724: \'"./api.js"\' has no exported member named \'serviceRouter\'. Did you mean \'ServiceRouter\'?';
-    const impl = join(live, "src/api/api.ts");
+    const impl = join(forward, "src/api/api.ts");
     const built = readFileSync(impl, "utf8");
     try {
-      expect(isSkeletonForwardTypeImportDiagnostic(live, matching)).toBe(false); // a hand-written implementation
+      expect(isSkeletonForwardTypeImportDiagnostic(forward, matching)).toBe(false); // a hand-written implementation
       writeFileSync(impl, "// GENERATED from api.contract.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\nexport {};\n");
-      expect(isSkeletonForwardTypeImportDiagnostic(live, matching)).toBe(true);
-      expect(isForwardTypeImportDiagnostic(live, matching)).toBe(false);
-      expect(isSkeletonForwardTypeImportDiagnostic(live, matching.replace("(2,15)", "(4,15)"))).toBe(false);
-      expect(isSkeletonForwardTypeImportDiagnostic(live, matching.replace("TS2724", "TS2307"))).toBe(false);
+      expect(isSkeletonForwardTypeImportDiagnostic(forward, matching)).toBe(true);
+      expect(isForwardTypeImportDiagnostic(forward, matching)).toBe(false);
+      expect(isSkeletonForwardTypeImportDiagnostic(forward, matching.replace("(2,15)", "(4,15)"))).toBe(false);
+      expect(isSkeletonForwardTypeImportDiagnostic(forward, matching.replace("TS2724", "TS2307"))).toBe(false);
     } finally {
       writeFileSync(impl, built);
     }
   });
 
-  test("accepts the forward type only when the live project typechecks", async () => {
-    writeFileSync(join(live, "package.json"), '{"type":"module"}\n');
-    writeFileSync(join(live, "tsconfig.json"), JSON.stringify({
-      compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true },
-      include: ["src/**/*.ts", "tests/**/*.ts"],
-    }));
-    symlinkSync(join(import.meta.dirname, "../../../node_modules"), join(live, "node_modules"), "dir");
-    const impl = join(live, "src/api/api.ts");
-    const original = readFileSync(impl, "utf8");
-    writeFileSync(impl, 'import type { Ack } from "./service-runtime.js";\nexport const serviceRouter = { submit: true };\nexport function submit(): Ack { return { outcome: "applied" }; }\n');
-    try {
-      // The real project has the same shipped support file as the shadow.
-      writeFileSync(join(live, "src/api/service-runtime.ts"),
-        readFileSync(SERVICE_RUNTIME, "utf8"));
-      const shadow = materializeShadowProject(live, redGateProjectPlan(collectRedGateSources(live)));
-      expect(await typecheckShadowWithForwardImports(live, shadow)).toMatchObject({ ok: true, errorCount: 0 });
-
-      writeFileSync(impl, original + "missingName();\n");
-      const blocked = await typecheckShadowWithForwardImports(live, shadow);
-      expect(blocked.ok).toBe(false);
-      expect(blocked.diagnostics.join("\n")).toContain("missingName");
-    } finally {
-      writeFileSync(impl, original);
-    }
-  });
-
-  test("a real red run passes with generated support and a verified forward type", async () => {
+  test("a real red run passes with generated support", async () => {
     writeFileSync(join(live, "package.json"), '{"type":"module"}\n');
     writeFileSync(join(live, "tsconfig.json"), JSON.stringify({
       compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true },
@@ -706,7 +695,7 @@ describe("contract-triggered support and forward types", () => {
 // Vitest tests through the real gates. A generated project now type-checks
 // only its composed source roots and runs `bun test`, so the flat tree has no
 // inputs. WI-8 rebuilds this end-to-end on the monorepo.
-test.skip("project-local init, design freeze, inferred router re-freeze, and red use the copied harness", async () => {
+test.skip("project-local init, design freeze, re-freeze, and red use the copied harness", async () => {
   const dir = createTempDir(join(tmpdir(), "bounded-red-init-"));
   tmpDirs.push(dir);
   const selected = ["ts-trpc"];
@@ -730,12 +719,13 @@ test.skip("project-local init, design freeze, inferred router re-freeze, and red
   expect(firstFreeze.status, firstFreeze.stdout + firstFreeze.stderr).toBe(0);
   expect(existsSync(join(dir, ".bounded/tickets/24/contract-checksums.json"))).toBe(true);
 
+  // The re-freeze changes the surface. (It used to re-export the inferred
+  // router type from ./api.js; a contract may no longer import an
+  // implementation, ADR 2026-059, and the legacy service runtime is retiring.)
   writeFileSync(join(dir, "src/api/api.ts"),
-    'import type { Ack } from "./service-runtime.js";\nexport const serviceRouter = { submit: true };\nexport function submit(): Ack { return { outcome: "applied" }; }\n');
+    'import type { Ack } from "./api.contract.ts";\nexport function submit(): Ack { return "applied"; }\n');
   writeFileSync(contract,
-    'import type { Ack } from "./service-runtime.js";\n' +
-    'import type { serviceRouter } from "./api.js";\n' +
-    'export type ServiceRouter = typeof serviceRouter;\n' +
+    'export type Ack = "applied" | "rejected";\n' +
     'export declare function submit(): Ack;\n');
   mkdirSync(join(dir, "tests"));
   writeFileSync(join(dir, "tests/api.test.ts"),

@@ -9,7 +9,7 @@ form: skills are on-demand, so presence in a non-TS session costs nothing.
 | Kind | Lives here? | Notes |
 | ---- | ----------- | ----- |
 | Procedural skills (new TS service, release, db migration, …) | **yes** — `skills/` | Agent-facing glue; point at scaffolders, don't duplicate them |
-| Scaffolder scripts (new-route, new-value-object, …) | **yes** — `scripts/` | Deterministic shape is *generated*, not remembered |
+| Scaffolders and emitters (the domain emitter, …) | **yes** — `scripts/` | Deterministic shape is *generated*, not remembered |
 | Shared lint/architecture rules (hexagonal boundaries, …) | template, vendored | Projects own their copy and may drift; update the template as the source of truth |
 | Project template (committed `.pi/settings.json`, AGENTS.md, canonical commands) | template repo | ADR 2026-007 — the vehicle projects are created from |
 | Anything language-agnostic | **no** — harness root | Root stays portable and stock-pi compatible |

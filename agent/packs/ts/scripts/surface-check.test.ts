@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import { checkProjectSurfaces, compareSurfaces } from "./surface-check.ts";
 import type { SurfaceViolation } from "./surface-check.ts";
+import { parseDomainConcept } from "./domain-concept.ts";
+import { implementationSkeleton } from "./domain-emitter.ts";
+import { EXAMPLE_CONCEPTS, exampleConcept } from "./testdata/example-domain.ts";
 
 // --- fixtures ------------------------------------------------------------------
 
@@ -480,5 +483,92 @@ describe("a typeof alias declares an inferred implementation value", () => {
 
   test("a type-only import from another module does not declare it", () => {
     expect(undeclared(`import type { router } from "./other.js";\nexport type Router = typeof router;\n`)).toEqual(["router"]);
+  });
+});
+
+// --- the contract-owns-the-name form (ADR 2026-059) -------------------------------
+//
+// The compiler checks a concept's two sides through the generated tail; this
+// gate adds what the compiler cannot see: a tail edited so it stops checking,
+// and public surface exported beside it. Fixtures are the worked example's.
+
+describe("concept contracts (ADR 2026-059)", () => {
+  const surfaceOf = (stem: string, impl?: string): SurfaceViolation[] => {
+    const c = exampleConcept(stem);
+    return compareSurfaces(c.contract, c.contractPath, impl ?? c.implementation, c.contractPath.replace(".contract.ts", ".ts"));
+  };
+
+  test.each(EXAMPLE_CONCEPTS.map((c) => [c.contractPath, c] as const))("%s: the example implementation matches", (_p, c) => {
+    expect(compareSurfaces(c.contract, c.contractPath, c.implementation, c.contractPath.replace(".contract.ts", ".ts"))).toEqual([]);
+  });
+
+  test("an emitted skeleton matches too", () => {
+    for (const c of EXAMPLE_CONCEPTS) {
+      const skeleton = implementationSkeleton(parseDomainConcept(c.contractPath, c.contract));
+      expect(compareSurfaces(c.contract, c.contractPath, skeleton, c.contractPath.replace(".contract.ts", ".ts"))).toEqual([]);
+    }
+  });
+
+  test("an edited tail is a violation that prints the tail to restore", () => {
+    const edited = exampleConcept("note-id").implementation.replace(
+      "export const NoteId: Contract.NoteIdFactory = NoteIdImpl;",
+      "export const NoteId = NoteIdImpl;",
+    );
+    const found = surfaceOf("note-id", edited);
+    expect(found.map((v) => v.kind)).toEqual(["concept-tail"]);
+    expect(found[0]!.message).toContain("export const NoteId: Contract.NoteIdFactory = NoteIdImpl;");
+  });
+
+  test("surface exported beside the tail is undeclared", () => {
+    const extra = exampleConcept("note-text").implementation.replace("const schema = z.string()", "export const schema = z.string()");
+    const found = surfaceOf("note-text", extra);
+    expect(found.map((v) => [v.kind, v.exportName])).toEqual([["undeclared-export", "schema"]]);
+  });
+
+  test("an exported Impl class is undeclared surface", () => {
+    const leaked = exampleConcept("project").implementation.replace("class ProjectImpl", "export class ProjectImpl");
+    expect(surfaceOf("project", leaked).map((v) => v.exportName)).toEqual(["ProjectImpl"]);
+  });
+});
+
+describe("checkProjectSurfaces over source roots (ADR 2026-056)", () => {
+  const dirs: string[] = [];
+  afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
+  function monorepo(extra: Record<string, string> = {}): string {
+    const root = mkdtempSync(join(tmpdir(), "surface-roots-"));
+    dirs.push(root);
+    const files: Record<string, string> = { ...extra };
+    for (const c of EXAMPLE_CONCEPTS) {
+      files[c.contractPath] = c.contract;
+      files[c.contractPath.replace(".contract.ts", ".ts")] = c.implementation;
+    }
+    for (const [rel, source] of Object.entries(files)) {
+      mkdirSync(join(root, rel, ".."), { recursive: true });
+      writeFileSync(join(root, rel), source, "utf8");
+    }
+    return root;
+  }
+
+  test("walks every directory a root glob names", () => {
+    const run = checkProjectSurfaces(monorepo(), ["contexts/*/src", "apps/*/src"]);
+    expect(run.lines).toEqual(["surface-check: OK (6 contract pairs)"]);
+    expect(run.code).toBe(0);
+  });
+
+  test("feature contracts are not surface pairs: generated and handler files implement them", () => {
+    const run = checkProjectSurfaces(
+      monorepo({
+        "contexts/project-management/src/application/notes/create-note/create-note.contract.ts":
+          "export interface CreateNote { execute(): Promise<void>; }\n",
+      }),
+      ["contexts/*/src"],
+    );
+    expect(run.code).toBe(0);
+  });
+
+  test("the default root is src/, so a monorepo without its roots matches nothing", () => {
+    const run = checkProjectSurfaces(monorepo());
+    expect(run.code).toBe(2);
+    expect(run.lines[0]).toMatch(/no src\/\*\*\/\*\.contract\.ts found/);
   });
 });

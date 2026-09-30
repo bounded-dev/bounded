@@ -1,196 +1,122 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
+import { conceptPairs, inDomainLayer, memberName, PRIMITIVE_KEYWORDS, textOf } from "./concept-pairs.ts";
+import { distinctExamples } from "../../scripts/value-object-laws.ts";
 
-// TN-26-001 architect zone rule: every exported class carries a doc comment
-// stating what makes an instance valid.
+// ADR 2026-059 contract rule: every value object states two valid examples,
+// and a concept's doc comment, when present, says something usable.
 //
-//   /** ISO-4217 alphabetic code: exactly three uppercase letters. */
-//   export declare class Currency { … }
+//   /**
+//    * The name of a project: any string that is not empty once trimmed.
+//    * @accepts "Website relaunch"
+//    * @accepts "Office move"
+//    */
+//   export interface ProjectName { … }
 //
-// The trigger is the same as `value-object-shape`'s, and rests on the same
-// assumption: in this pack's contract style ports, DTOs and aggregates are
-// interfaces, so an exported class IS a value object. That rule checks the
-// class is nominal; this one checks it says what it means.
+// * **Two different `@accepts` examples per value object — required.** They
+//   are the generated laws' samples (the domain emitter): the first runs the
+//   equality, determinism and toJSON round-trip laws and lets every entity
+//   holding the value object get identity laws; the second is what "equals
+//   discriminates" compares against. With this rule the laws are never
+//   emitted as skips. "Different" means different after trimming a string's
+//   whitespace, because a value object that trims would parse `" a "` and
+//   `"a"` to one value. (An identifier is exempt: `generate()` supplies its
+//   samples. The worked example's two plain value objects carry no examples,
+//   so the reference adds them — this is the one place the harness is
+//   stricter than the example, and it buys laws that actually run.)
+// * Each example is a literal of the value's own type — a double-quoted
+//   string for `value: string`, a decimal number for `number`, `true`/`false`
+//   for `boolean` — because it is printed verbatim into the laws.
+// * An empty `/** */` tells the test-writer nothing, and `@accepts` on an
+//   entity means nothing (it has no `parse`); both are refused.
 //
-// --- Why this is a gate and not advice -----------------------------------------
-//
-// The test-writer reads spec.md and the contract. Nothing else — not the
-// implementation (it does not exist yet), not the architect's reasoning, not
-// this conversation. So a validity rule that lives only in the architect's
-// head is a rule the test-writer has to invent: it guesses "three letters",
-// the builder guesses "any non-empty string", both are internally consistent,
-// both pass their own gates, and they agree only by luck. The same failure as
-// an unstated precondition order, and just as invisible on review — the suite
-// is green, the types line up, and the domain rule is whatever the last agent
-// assumed.
-//
-// The generated law suite covers what is true of *every* value object (parse
-// refuses null, [], 42, "", a Date). It cannot cover the case that matters:
-// an input of the right base type and the wrong value. `"usd"` is a string —
-// only someone told what a currency is knows it must fail. This comment is
-// how they are told, which is why an empty `/** */` is reported as loudly as
-// no comment at all: it satisfies a checklist and hands the reader nothing.
-//
-// --- SCOPE ---------------------------------------------------------------------
-//
-// * **Presence, not quality.** The rule cannot judge whether "the code" is a
-//   useful description; it checks there is a non-whitespace body. Whether the
-//   stated rule has as many axes as the real one (case, length, character
-//   class…) is the architect's judgement, and the skill's brief for the
-//   test-writer is where that is pressed.
-// * **JSDoc block comments only.** A `//` line comment above a class is not
-//   read as documentation by editors, by `tsc`'s quick-info, or by an agent
-//   scanning a contract for the domain rules — so it does not count, and the
-//   message says so rather than leaving the author to guess why.
-// * **Only exported classes**, by every route (`export class`,
-//   `export declare class`, `export default class`, `export { Currency }`,
-//   ambient namespace members). An anonymous default-export class is skipped:
-//   `value-object-shape` already treats it as out of scope.
-// * **Interfaces, type aliases and functions are untouched.** Documenting a
-//   DTO is good manners; documenting a value object is the difference between
-//   a test-writer that knows the rule and one that invents it. Only the second
-//   is worth a gate.
-//
-// Error messages are written for an agent reader, not a human (TN appendix,
-// Kinney: "write lint error messages like prompts"): each names the sin AND
-// the exact declaration to write instead.
+// Only a tag that opens its own line counts; "add an @accepts tag" in prose
+// is prose (the generator reads tags the same way).
 
-type MessageId = "missingDoc" | "emptyDoc";
-
-const WHY =
-  "The test-writer reads only spec.md and this contract — not the implementation, which does not exist yet. An unstated rule is a rule it has to invent: it guesses 'three letters', the builder guesses 'any non-empty string', both suites go green, and they agree only by luck.";
-
-const EXAMPLE =
-  'Write the rule directly above the class, e.g. /** ISO-4217 alphabetic code: exactly three uppercase letters. */ — name every axis it has (length, case, character class, range), because each axis is a rejection case the test-writer can then choose deliberately instead of guessing.';
+type MessageId = "emptyDoc" | "badAccepts" | "acceptsOnEntity" | "missingAccepts" | "sameAccepts";
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 
-/** A JSDoc block comment — the only form editors, tsc quick-info and an
- *  agent scanning a contract all read as documentation. */
+const LITERAL: Readonly<Record<string, RegExp>> = {
+  string: /^"(?:[^"\\\n]|\\.)*"$/,
+  number: /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/,
+  boolean: /^(?:true|false)$/,
+};
+
 function isJsDoc(comment: TSESTree.Comment): boolean {
   return comment.type === TSESTree.AST_TOKEN_TYPES.Block && comment.value.startsWith("*");
 }
 
-/** The prose inside a JSDoc block, with the leading `*` of each line stripped.
- *  Empty means the comment documents nothing. */
-function jsDocBody(comment: TSESTree.Comment): string {
+/** The lines of a JSDoc block with the leading `*` stripped. */
+function jsDocLines(comment: TSESTree.Comment): string[] {
   return comment.value
     .slice(1)
     .split("\n")
-    .map((line) => line.replace(/^\s*\*/, ""))
-    .join("\n")
-    .trim();
+    .map((line) => line.replace(/^\s*\*?/, "").trim());
 }
 
 export const valueObjectDocumented = createRule<[], MessageId>({
   name: "value-object-documented",
   meta: {
     type: "problem",
-    messages: {
-      missingDoc: `Every value object states what makes it valid (TN-26-001, ts-contract-authoring): exported class '{{name}}' has no doc comment. ${EXAMPLE} ${WHY} A '//' line comment does not count — use a '/** … */' block, directly above 'class {{name}}' (above the 'export', if it is exported inline).`,
-      emptyDoc: `Every value object states what makes it valid (TN-26-001, ts-contract-authoring): exported class '{{name}}' has an empty doc comment, which satisfies a checklist and tells the reader nothing. Fill it in: /** … what makes a {{name}} valid … */ ${EXAMPLE} ${WHY}`,
-    },
     schema: [],
+    messages: {
+      emptyDoc: `'{{name}}' has an empty doc comment, which satisfies a checklist and tells the reader nothing. Either delete it or say what makes a {{name}} valid, e.g. /** The name of a project: not empty once trimmed. @accepts "Website relaunch" */ (ts-contract-authoring).`,
+      badAccepts: `'@accepts {{example}}' on '{{name}}' is not a {{type}} literal — an @accepts example is printed verbatim into the generated laws as a sample '{{name}}.parse' must accept, so write one literal of the value's type per tag, e.g. {{sample}}, and nothing else on the line.`,
+      missingAccepts: `'{{name}}' is a value object, so its doc comment states its validity rule and two different valid examples, one '@accepts <literal>' tag per line — found {{found}}. They are the generated laws' samples: without two, the equality and round-trip laws cannot run. E.g.\n/**\n * {{rule}}\n * {{sample}}\n * {{sample2}}\n */`,
+      sameAccepts: `'{{name}}''s @accepts examples {{examples}} are the same value once whitespace is trimmed — a value object that trims parses them to one value, so "equals discriminates" has nothing to compare. Give two genuinely different examples.`,
+      acceptsOnEntity: `'@accepts' on the entity '{{name}}' means nothing — an entity has no 'parse'; it is built from value objects. Put the examples on the value objects it holds.`,
+    },
   },
   defaultOptions: [],
   create(context) {
     const sourceCode = context.sourceCode;
-
-    /** `node` is the class; `docNode` is where its doc comment sits — the
-     *  export statement when the class is exported inline (`export class X`),
-     *  the class itself when it is exported separately (`export { X }`). */
-    interface Candidate {
-      readonly node: TSESTree.ClassDeclaration;
-      readonly docNode: TSESTree.Node;
-    }
-
-    function checkClass({ node, docNode }: Candidate): void {
-      // Anonymous default export: no name to document, and out of scope for
-      // `value-object-shape` too (see header).
-      if (!node.id) return;
-      const name = node.id.name;
-      const comments = sourceCode.getCommentsBefore(docNode);
-      const last = comments[comments.length - 1];
-      if (!last || !isJsDoc(last)) {
-        context.report({ node: node.id, messageId: "missingDoc", data: { name } });
-        return;
-      }
-      if (jsDocBody(last) === "") {
-        context.report({ node: node.id, messageId: "emptyDoc", data: { name } });
-      }
-    }
-
-    // --- the public boundary --------------------------------------------------
-    //
-    // Same indexing shape as `no-naked-primitives` and `value-object-shape`:
-    // classes are collected first and checked afterwards in source order, so
-    // `export { Currency }` reaches a class declared either side of it and the
-    // gate's output stays stable and greppable.
-
-    const declared = new Map<string, Candidate[]>();
-    const exportedNames = new Set<string>();
-    const pending: Candidate[] = [];
-    const checked = new Set<TSESTree.ClassDeclaration>();
-
-    function indexStatement(node: TSESTree.Node, docNode: TSESTree.Node, exported: boolean): void {
-      switch (node.type) {
-        case TSESTree.AST_NODE_TYPES.ClassDeclaration: {
-          const candidate: Candidate = { node, docNode };
-          if (node.id) {
-            const list = declared.get(node.id.name);
-            if (list) list.push(candidate);
-            else declared.set(node.id.name, [candidate]);
-          }
-          if (exported) pending.push(candidate);
-          return;
-        }
-        case TSESTree.AST_NODE_TYPES.TSModuleDeclaration:
-          // Ambient namespace: every member of an ambient block is exported.
-          if (node.body) {
-            for (const stmt of node.body.body) indexStatement(unwrapExport(stmt), stmt, true);
-          }
-          return;
-        default:
-          return;
-      }
-    }
-
-    function unwrapExport(stmt: TSESTree.Node): TSESTree.Node {
-      return stmt.type === TSESTree.AST_NODE_TYPES.ExportNamedDeclaration && stmt.declaration
-        ? stmt.declaration
-        : stmt;
-    }
-
+    const source = sourceCode.getText();
     return {
       Program(program) {
-        for (const stmt of program.body) {
-          switch (stmt.type) {
-            case TSESTree.AST_NODE_TYPES.ExportNamedDeclaration:
-              if (stmt.declaration) {
-                // The doc comment sits above `export`, not above `class`.
-                indexStatement(stmt.declaration, stmt, true);
-              } else if (!stmt.source) {
-                for (const spec of stmt.specifiers) {
-                  if (spec.local.type === TSESTree.AST_NODE_TYPES.Identifier) {
-                    exportedNames.add(spec.local.name);
-                  }
-                }
-              }
-              break;
-            case TSESTree.AST_NODE_TYPES.ExportDefaultDeclaration:
-              indexStatement(stmt.declaration as TSESTree.Node, stmt, true);
-              break;
-            default:
-              indexStatement(stmt, stmt, false);
+        for (const pair of conceptPairs(program, inDomainLayer(context.filename))) {
+          if (pair.kind === "command") continue;
+          const docNode = pair.instance.parent;
+          const comments = sourceCode.getCommentsBefore(docNode);
+          const last = comments[comments.length - 1];
+          const doc = last !== undefined && isJsDoc(last) ? jsDocLines(last) : undefined;
+          if (doc !== undefined && doc.every((l) => l === "")) {
+            context.report({ node: pair.instance.id, messageId: "emptyDoc", data: { name: pair.name } });
           }
-        }
-        for (const name of exportedNames) {
-          for (const candidate of declared.get(name) ?? []) pending.push(candidate);
-        }
-        pending.sort((a, b) => a.node.range[0] - b.node.range[0]);
-        for (const candidate of pending) {
-          if (checked.has(candidate.node)) continue;
-          checked.add(candidate.node);
-          checkClass(candidate);
+          const tags = (doc ?? []).filter((l) => /^@accepts(?:\s|$)/.test(l)).map((l) => l.slice("@accepts".length).trim());
+          if (pair.kind === "entity") {
+            if (tags.length > 0) context.report({ node: pair.instance.id, messageId: "acceptsOnEntity", data: { name: pair.name } });
+            continue;
+          }
+          const value = pair.instance.body.body.find(
+            (m): m is TSESTree.TSPropertySignature => m.type === TSESTree.AST_NODE_TYPES.TSPropertySignature && memberName(m) === "value",
+          );
+          const typeText = textOf(source, value?.typeAnnotation?.typeAnnotation);
+          const type = PRIMITIVE_KEYWORDS.has(typeText) ? typeText : "string";
+          const samples = type === "string"
+            ? ['@accepts "Website relaunch"', '@accepts "Office move"']
+            : type === "number" ? ["@accepts 42", "@accepts 7"] : ["@accepts true", "@accepts false"];
+          const valid: string[] = [];
+          for (const example of tags) {
+            if (LITERAL[type]!.test(example)) valid.push(example);
+            else context.report({ node: pair.instance.id, messageId: "badAccepts", data: { name: pair.name, example, type, sample: samples[0]! } });
+          }
+          const identifier = pair.factory.body.body.some((m) => memberName(m) === "generate");
+          if (identifier) continue;
+          if (tags.length < 2) {
+            context.report({
+              node: pair.instance.id,
+              messageId: "missingAccepts",
+              data: {
+                name: pair.name,
+                found: tags.length === 0 ? (doc === undefined ? "no doc comment" : "no @accepts tag") : "one @accepts tag",
+                rule: `What makes a ${pair.name} valid.`,
+                sample: samples[0]!,
+                sample2: samples[1]!,
+              },
+            });
+          } else if (valid.length === tags.length && distinctExamples(valid).length < 2) {
+            context.report({ node: pair.instance.id, messageId: "sameAccepts", data: { name: pair.name, examples: valid.join(" and ") } });
+          }
         }
       },
     };

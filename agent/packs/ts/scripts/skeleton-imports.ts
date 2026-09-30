@@ -23,6 +23,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, posix, relative, sep } from "node:path";
 import { Node, Project } from "ts-morph";
+import { expandSourceRoots } from "./surface-check.ts";
 
 /** The red-phase shared errors module, project-relative. Scaffolded skeletons
  *  import NotImplementedError (and the `notImplemented` helper) from here. */
@@ -65,22 +66,35 @@ export function tsFilesUnder(root: string, dir: string): string[] {
 }
 
 /** Does this module specifier, written in `fromRel`, resolve to the shared
- *  errors module? (Relative specifiers only — that is how it is ever imported.) */
-export function refersToErrors(fromRel: string, specifier: string): boolean {
+ *  errors module? (Relative specifiers only — that is how it is ever imported.)
+ *  `errorsModules` are the project-relative errors modules in play; the
+ *  default is the flat layout's one. */
+export function refersToErrors(fromRel: string, specifier: string, errorsModules: readonly string[] = [ERRORS_REL]): boolean {
   if (!specifier.startsWith(".")) return false;
   const resolved = posix.normalize(posix.join(posix.dirname(fromRel), specifier));
   const noExt = resolved.replace(/\.(js|ts)$/, "");
-  return noExt === ERRORS_REL.replace(/\.ts$/, "");
+  return errorsModules.some((m) => noExt === m.replace(/\.ts$/, ""));
+}
+
+/**
+ * The red-phase errors modules of a monorepo's source roots (ADR 2026-056):
+ * each root's `shared/errors.ts` (the flat layout) and its
+ * `domain/shared/errors.ts` (TN-26-012, where domain skeletons import
+ * NotImplementedError from). Project-relative; whether they exist is not
+ * asked — an import of a deleted one is still a skeleton import.
+ */
+export function errorsModulesFor(cwd: string, sourceRoots: readonly string[]): string[] {
+  return expandSourceRoots(cwd, sourceRoots).flatMap((dir) => [`${dir}/shared/errors.ts`, `${dir}/domain/shared/errors.ts`]);
 }
 
 /** Names a file imports from the shared errors module ([] if none). AST, not
  *  grep: a mention in a comment or string must not count. */
-export function errorsImportsOf(source: string, fileRel: string): string[] {
+export function errorsImportsOf(source: string, fileRel: string, errorsModules: readonly string[] = [ERRORS_REL]): string[] {
   const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
   const sf = project.createSourceFile(basename(fileRel), source, { overwrite: true });
   const names: string[] = [];
   for (const stmt of sf.getStatements()) {
-    if (Node.isImportDeclaration(stmt) && refersToErrors(fileRel, stmt.getModuleSpecifierValue())) {
+    if (Node.isImportDeclaration(stmt) && refersToErrors(fileRel, stmt.getModuleSpecifierValue(), errorsModules)) {
       const clause = stmt.getImportClause();
       const bindings = clause?.getNamedBindings();
       if (bindings && Node.isNamedImports(bindings)) names.push(...bindings.getElements().map((e) => e.getName()));
@@ -88,7 +102,7 @@ export function errorsImportsOf(source: string, fileRel: string): string[] {
       else names.push(clause?.getDefaultImport()?.getText() ?? "(side effect)");
     } else if (Node.isExportDeclaration(stmt)) {
       const spec = stmt.getModuleSpecifierValue();
-      if (spec !== undefined && refersToErrors(fileRel, spec)) names.push("(re-export)");
+      if (spec !== undefined && refersToErrors(fileRel, spec, errorsModules)) names.push("(re-export)");
     }
   }
   return names;
@@ -109,6 +123,25 @@ export function findSkeletonImportsInSrc(cwd: string): SkeletonImporter[] {
     if (rel === ERRORS_REL || rel.endsWith(".contract.ts")) continue;
     const names = errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel);
     if (names.length > 0) out.push({ file: rel, names });
+  }
+  return out;
+}
+
+/**
+ * The same scan over a monorepo's source roots (ADR 2026-056): every
+ * non-contract file under them that still imports a red-phase errors module
+ * (`errorsModulesFor`) — an unimplemented skeleton that reached this stage.
+ * The errors modules themselves are excluded; they are the definition.
+ */
+export function findSkeletonImports(cwd: string, sourceRoots: readonly string[]): SkeletonImporter[] {
+  const errorsModules = errorsModulesFor(cwd, sourceRoots);
+  const out: SkeletonImporter[] = [];
+  for (const dir of expandSourceRoots(cwd, sourceRoots)) {
+    for (const rel of tsFilesUnder(cwd, join(cwd, dir))) {
+      if (errorsModules.includes(rel) || rel.endsWith(".contract.ts")) continue;
+      const names = errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel, errorsModules);
+      if (names.length > 0) out.push({ file: rel, names });
+    }
   }
   return out;
 }

@@ -1,7 +1,10 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
 // TN-26-001 architect zone rule: branded TYPE ALIASES are banned in contracts —
-// the nominal class is the only value-object form the system can keep honest.
+// the interface + factory pair of ADR 2026-059 (whose implementation class has
+// a private constructor) is the only value-object form the system can keep
+// honest. (Written against the retired `declare class` form; the reasoning
+// below is unchanged, only the prescribed shape moved.)
 //
 // Run 9 is why. Under escape-hatch pressure (`as` is banned in src/), the
 // architect rewrote every value object as
@@ -37,14 +40,19 @@ export const noBrandedAliases = ESLintUtils.RuleCreator.withoutDocs({
     messages: {
       brandedAlias:
         "'{{name}}' is a branded type alias — a primitive intersected with a brand object. " +
-        "{{teeth}} Write the nominal class instead (ts-contract-authoring, \"The canonical shape is a nominal class\"):\n" +
-        "  export declare class {{name}} {\n" +
-        "    private readonly __brand: \"{{name}}\";\n" +
-        "    private constructor();\n" +
+        "{{teeth}} Write the value object as the contract-owns-the-name pair instead (ADR 2026-059, ts-contract-authoring), " +
+        "in its own '<concept>.contract.ts':\n" +
+        "  import type { Result } from \"../shared/result.ts\";\n" +
+        "  export interface {{name}} {\n" +
+        "    readonly __brand: \"{{name}}\";\n" +
         "    readonly value: {{base}};\n" +
-        "    static parse(raw: unknown): {{name}} | undefined;\n" +
+        "    equals(other: {{name}}): boolean;\n" +
+        "    toJSON(): {{base}};\n" +
         "  }\n" +
-        "Generate it: node new-value-object.ts <contract> {{name}}{{baseArg}} upgrades this alias in place.",
+        "  export interface {{name}}Factory {\n" +
+        "    parse(raw: unknown): Result<{{name}}>;\n" +
+        "  }\n" +
+        "The emitter generates '{{name}}Impl', whose private constructor is the only way to build one.",
     },
   },
   defaultOptions: [],
@@ -80,10 +88,9 @@ export const noBrandedAliases = ESLintUtils.RuleCreator.withoutDocs({
           data: {
             name: node.id.name,
             base,
-            baseArg: base === "string" ? "" : `=${base}`,
             teeth: optionalBrand
               ? "The brand is OPTIONAL, so every bare " + base + " is assignable and it enforces nothing at all."
-              : "It can only be constructed with a cast, and casts are banned in src/ with no exemption list — the contract would demand what the builder cannot legally write.",
+              : "It can only be constructed with a cast, and casts are banned in implementation code with no exemption list — the contract would demand what the builder cannot legally write.",
           },
         });
       },

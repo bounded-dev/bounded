@@ -1,21 +1,11 @@
 import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { valueObjectShape } from "./value-object-shape.ts";
+import { EXAMPLE_CONCEPTS, exampleConcept } from "../../scripts/testdata/example-domain.ts";
 
-// TN-26-001 architect zone rule: an exported class IS a value object, so it
-// must have the canonical shape the skill prescribes (ts-contract-authoring,
-// "The canonical shape is a nominal class") — private brand, private
-// constructor, `static parse(raw: unknown): X | undefined`, readonly fields,
-// no `extends`. `no-naked-primitives` deliberately exempts class bodies
-// because a class is already nominal; this rule is what makes that exemption
-// safe, by checking the class really is one.
-//
-// The valid[] list is the load-bearing half: a rule that fires on correct
-// designs gets switched off. It has to accept both halves of the pack's world
-// — the bodiless `export declare class` of a *.contract.ts and the
-// parameter-property implementation in the sibling .ts — and everything the
-// skill explicitly welcomes (extra smart constructors, behaviour methods,
-// getters for derived values).
+// ADR 2026-059: a value object's contract is `interface <Name>` +
+// `interface <Name>Factory`. Every example contract passes; every near miss of
+// the canonical form fails with the message naming the fix.
 
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
@@ -23,303 +13,233 @@ RuleTester.it = it;
 
 const ruleTester = new RuleTester();
 
-/** The shape the skill prescribes, verbatim from ts-contract-authoring. */
-const CANONICAL = `export declare class Currency {
-  private readonly __brand: "Currency";
-  private constructor();
-  readonly code: string;
-  static parse(raw: unknown): Currency | undefined;
-  equals(other: Currency): boolean;
-}`;
+const RESULT = 'import type { Result } from "../shared/result.ts";\n';
+
+/** A value object contract with one part swapped out. */
+function vo(opts: { instance?: string; factory?: string; name?: string } = {}): string {
+  const name = opts.name ?? "ProjectName";
+  const instance = opts.instance ??
+    `readonly __brand: "${name}";\n  readonly value: string;\n  equals(other: ${name}): boolean;\n  toJSON(): string;`;
+  const factory = opts.factory ?? `parse(raw: unknown): Result<${name}>;`;
+  return `${RESULT}\nexport interface ${name} {\n  ${instance}\n}\n\nexport interface ${name}Factory {\n  ${factory}\n}\n`;
+}
+
+const FILE = "contexts/pm/src/domain/projects/project-name.contract.ts";
 
 ruleTester.run("value-object-shape", valueObjectShape, {
   valid: [
-    // --- the canonical shape, both halves of the world ---
-    CANONICAL,
-    // the implementation form: parameter property + `#` brand + real bodies
-    `export class Money {
-      readonly #brand: "Money" = "Money";
-      private constructor(readonly amount: number) {}
-      static parse(raw: unknown): Money | undefined {
-        return typeof raw === "number" ? new Money(raw) : undefined;
-      }
-    }`,
-    // `undefined | X` is the same type as `X | undefined`
-    `export declare class Currency {
-      private readonly __brand: "Currency";
-      private constructor();
-      static parse(raw: unknown): undefined | Currency;
-    }`,
-
-    // --- everything the skill explicitly welcomes ---
-    // extra smart constructors, behaviour, a derived getter, statics
-    `export class Money {
-      private readonly __brand: "Money";
-      static readonly ZERO: Money;
-      private constructor(readonly minorUnits: number, readonly currency: Currency) {}
-      static parse(raw: unknown): Money | undefined { return undefined; }
-      static of(minorUnits: number, currency: Currency): Money { return new Money(minorUnits, currency); }
-      get major(): number { return this.minorUnits / 100; }
-      plus(other: Money): Money { return other; }
-      equals(other: Money): boolean { return this.minorUnits === other.minorUnits; }
-      toString(): string { return String(this.minorUnits); }
-    }`,
-    // an optional readonly field is still readonly
-    `export declare class Book {
-      private readonly __brand: "Book";
-      private constructor();
-      readonly title: BookTitle;
-      readonly subtitle?: BookTitle;
-      static parse(raw: unknown): Book | undefined;
-    }`,
-    // a private method's locals and parameters are not property declarations
-    `export declare class Currency {
-      private readonly __brand: "Currency";
-      private constructor();
-      private static check(raw: string): boolean;
-      static parse(raw: unknown): Currency | undefined;
-    }`,
-
-    // --- the export boundary is where the rule applies ---
-    // `export { X }` reaches a correct class: still nothing to say
-    `class Currency {
-      private readonly __brand: "Currency";
-      private constructor() {}
-      static parse(raw: unknown): Currency | undefined { return undefined; }
-    }
-    export { Currency };`,
-    // unexported classes are internal — not the contract's public surface
-    "declare class Internal { code: string; constructor(); }",
-    // ambient namespace members are exported, and this one is correct
-    `export declare namespace Money {
-      class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: unknown): Currency | undefined;
-      }
-    }`,
-
-    // --- non-class exports are somebody else's rule ---
-    "export interface Book { readonly isbn: Isbn }",
-    'export type Isbn = string & { readonly __brand: "Isbn" };',
-    "export declare function parseIsbn(raw: unknown): Isbn | undefined;",
-    "",
+    // Every contract of the worked example, at its own path.
+    ...EXAMPLE_CONCEPTS.map((c) => ({ code: c.contract, filename: c.contractPath })),
+    { code: vo(), filename: FILE },
+    // an identifier: generate() beside parse, in either order
+    {
+      code: vo({ name: "ProjectId", factory: "parse(raw: unknown): Result<ProjectId>;\n  generate(): ProjectId;" }),
+      filename: "contexts/pm/src/domain/projects/project-id.contract.ts",
+    },
+    // number and boolean values
+    {
+      code: vo({ name: "Quantity", instance: 'readonly __brand: "Quantity";\n  readonly value: number;\n  equals(other: Quantity): boolean;\n  toJSON(): number;' }),
+      filename: "contexts/pm/src/domain/orders/quantity.contract.ts",
+    },
+    // behaviour on the instance side is welcome
+    {
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  initials(): string;' }),
+      filename: FILE,
+    },
+    // entities are entity-shape's; an application command is the feature parser's
+    exampleConcept("note").contract,
+    `export interface CreateNoteInput { readonly text: string; }
+export interface CreateNoteCommand { readonly __brand: "CreateNoteCommand"; readonly text: NoteText; }
+export interface CreateNoteCommandFactory { parse(raw: unknown): Result<CreateNoteCommand>; }`,
+    // plain interfaces and a factory that is not a concept's are out of scope
+    "export interface CreateNoteStore { save(note: Note): Promise<void>; }",
+    "export interface WidgetFactory { build(): Widget; }",
+    // outside a contract file name the stem is not checked
+    { code: vo(), filename: "file.ts" },
   ],
 
   invalid: [
-    // --- 1. the brand: without it the class is a DTO in a value object's
-    // clothing, structurally assignable from any matching object literal ---
+    // --- the brand -------------------------------------------------------------
     {
-      code: `export declare class Currency {
-        private constructor();
-        readonly code: string;
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "missingBrand", data: { name: "Currency" } }],
+      code: vo({ instance: "readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;" }),
+      filename: FILE,
+      errors: [{ messageId: "brand" }],
+    },
+    // brand string differs from the name: two unrelated types
+    {
+      code: vo({ instance: 'readonly __brand: "Projectname";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "brand" }],
+    },
+    // brand not readonly
+    {
+      code: vo({ instance: '__brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "brand" }],
+    },
+    // optional brand: any object literal passes (and no member is optional)
+    {
+      code: vo({ instance: 'readonly __brand?: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "shape" }, { messageId: "brand" }],
+    },
+    // brand not first
+    {
+      code: vo({ instance: 'readonly value: string;\n  readonly __brand: "ProjectName";\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "brand" }],
+    },
+    // brand typed string, not the literal
+    {
+      code: vo({ instance: "readonly __brand: string;\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;" }),
+      filename: FILE,
+      errors: [{ messageId: "brand" }],
+    },
+    // --- the value field -------------------------------------------------------
+    {
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly text: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "valueField" }],
     },
     {
-      // a public brand does not flip nominal comparison: an object literal
-      // can simply supply it
-      code: `export declare class Currency {
-        readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "missingBrand", data: { name: "Currency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "valueField" }],
     },
     {
-      // private, but not a literal type: `string` names nothing
-      code: `export declare class Currency {
-        private readonly __brand: string;
-        private constructor();
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "missingBrand", data: { name: "Currency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  readonly slug: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "valueField" }],
     },
     {
-      // THE invisible typo new-value-object.ts exists to prevent
-      code: `export declare class Currency {
-        private readonly __brand: "Curency";
-        private constructor();
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "brandMismatch", data: { name: "Currency", brand: "Curency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: Date;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "valueField" }],
     },
     {
-      // copy-pasted from the value object next door
-      code: `export class Currency {
-        readonly #brand: "Money" = "Money";
-        private constructor(readonly code: string) {}
-        static parse(raw: unknown): Currency | undefined { return undefined; }
-      }`,
-      errors: [{ messageId: "brandMismatch", data: { name: "Currency", brand: "Money" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "mutableField" }],
     },
-
-    // --- 2. the private constructor: the single door in ---
+    // --- equals / toJSON ---------------------------------------------------------
     {
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        readonly code: string;
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "missingPrivateConstructor", data: { name: "Currency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "equals" }],
     },
     {
-      code: `export class Currency {
-        private readonly __brand: "Currency";
-        constructor(readonly code: string) {}
-        static parse(raw: unknown): Currency | undefined { return undefined; }
-      }`,
-      errors: [{ messageId: "constructorNotPrivate", data: { name: "Currency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: string): boolean;\n  toJSON(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "equals" }],
     },
     {
-      // `protected` is not private: a subclass can still skip parse
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        protected constructor();
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "constructorNotPrivate", data: { name: "Currency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;' }),
+      filename: FILE,
+      errors: [{ messageId: "toJSON" }],
     },
-
-    // --- 3. static parse: missing, wrong parameter, wrong return ---
+    // toJSON must return the value's own type
     {
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        readonly code: string;
-      }`,
-      errors: [{ messageId: "missingParse", data: { name: "Currency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): number;' }),
+      filename: FILE,
+      errors: [{ messageId: "toJSON" }],
     },
+    // --- the factory ---------------------------------------------------------------
+    // the retired return: T | undefined
+    { code: vo({ factory: "parse(raw: unknown): ProjectName | undefined;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    { code: vo({ factory: "parse(raw: string): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    { code: vo({ factory: "parse(raw?: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }, { messageId: "shape" }] },
+    { code: vo({ factory: "parse(raw: unknown, strict: boolean): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    { code: vo({ factory: "parse(raw: unknown): Result<ProjectId>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    { code: vo({ factory: "parse?(raw: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "shape" }, { messageId: "parse" }] },
+    // no parse at all
+    { code: vo({ factory: "generate(): ProjectName;" }), filename: FILE, errors: [{ messageId: "parse" }] },
     {
-      // an instance `parse` cannot be the boundary: it needs an instance first
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "missingParse", data: { name: "Currency" } }],
+      code: vo({ factory: "parse(raw: unknown): Result<ProjectName>;\n  generate(seed: string): ProjectName;" }),
+      filename: FILE,
+      errors: [{ messageId: "generate" }],
     },
     {
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: string): Currency | undefined;
-      }`,
-      errors: [{ messageId: "parseParamNotUnknown", data: { name: "Currency" } }],
+      code: vo({ factory: "parse(raw: unknown): Result<ProjectName>;\n  fromParts(a: string): ProjectName;" }),
+      filename: FILE,
+      errors: [{ messageId: "factoryMember" }],
     },
     {
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(): Currency | undefined;
-      }`,
-      errors: [{ messageId: "parseParamNotUnknown", data: { name: "Currency" } }],
+      code: vo({ factory: "parse(raw: unknown): Result<ProjectName>;\n  readonly max: number;" }),
+      filename: FILE,
+      errors: [{ messageId: "factoryMember" }],
+    },
+    // accessors and index signatures are not part of a value object
+    {
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  get initials(): string;' }),
+      filename: FILE,
+      errors: [{ messageId: "member" }],
     },
     {
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: unknown, strict: boolean): Currency | undefined;
-      }`,
-      errors: [{ messageId: "parseParamNotUnknown", data: { name: "Currency" } }],
+      code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  [key: string]: unknown;' }),
+      filename: FILE,
+      errors: [{ messageId: "member" }],
+    },
+    // --- as strict as the domain-concept parser (lint-passing implies emittable) ---
+    {
+      code: vo().replace("export interface ProjectName {", "export interface ProjectName extends Mut {") + "export interface Mut { owner: string }\n",
+      filename: FILE,
+      errors: [{ messageId: "shape" }, { messageId: "domainFile" }],
     },
     {
-      // returning the bare class means failure has to throw
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: unknown): Currency;
-      }`,
-      errors: [{ messageId: "parseReturnNotOptional", data: { name: "Currency" } }],
+      code: vo().replace("export interface ProjectNameFactory {", "export interface ProjectNameFactory extends Extra {"),
+      filename: FILE,
+      errors: [{ messageId: "shape" }],
+    },
+    { code: vo().replace("export interface ProjectName {", "export interface ProjectName<T> {"), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals?(other: ProjectName): boolean;\n  toJSON(): string;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  toJSON(): string;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals<T>(other: ProjectName): boolean;\n  toJSON(): string;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  initials();' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ instance: 'readonly __brand: "ProjectName";\n  readonly value: string;\n  equals(other: ProjectName): boolean;\n  toJSON(): string;\n  join(...parts: ProjectName[]): ProjectName;' }), filename: FILE, errors: [{ messageId: "shape" }] },
+    { code: vo({ factory: "parse(input: unknown): Result<ProjectName>;" }), filename: FILE, errors: [{ messageId: "parse" }] },
+    // Result must RESOLVE to the shared import, not merely read "Result"
+    { code: vo().replace(RESULT, "type Result<T> = T | undefined;\n"), filename: FILE, errors: [{ messageId: "domainFile" }, { messageId: "resultSource" }] },
+    { code: vo().replace(RESULT, "type Result<T> = T | undefined;\n"), filename: "src/readings/project-name.contract.ts", errors: [{ messageId: "resultSource" }] },
+    { code: vo().replace("../shared/result.ts", "../shared/results.ts"), filename: FILE, errors: [{ messageId: "resultSource" }] },
+    { code: vo().replace(RESULT, ""), filename: FILE, errors: [{ messageId: "resultSource" }] },
+    // a domain contract is one concept and nothing else
+    { code: `${vo()}export type Shade = "a" | "b";\n`, filename: FILE, errors: [{ messageId: "domainFile" }] },
+    {
+      code: `${RESULT}export interface FooInput { readonly x: string }\nexport interface FooCommand { readonly __brand: "FooCommand"; readonly value: string; equals(other: FooCommand): boolean; toJSON(): string; }\nexport interface FooCommandFactory { parse(raw: unknown): Result<FooCommand>; }\n`,
+      filename: "contexts/pm/src/domain/notes/foo.contract.ts",
+      errors: [{ messageId: "domainFile" }, { messageId: "fileName" }],
     },
     {
-      // parse is pure and synchronous; the boundary is not IO
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: unknown): Promise<Currency | undefined>;
-      }`,
-      errors: [{ messageId: "parseReturnNotOptional", data: { name: "Currency" } }],
+      code: vo().replace(RESULT, `${RESULT}import type { ProjectName } from "./project-name.contract.ts";\n`),
+      filename: FILE,
+      errors: [{ messageId: "domainFile" }],
     },
+    // --- pairing and files ---------------------------------------------------------
+    // branded, but no factory: no door in
     {
-      // copy-paste again: parse hands back the neighbouring value object
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: unknown): Money | undefined;
-      }`,
-      errors: [{ messageId: "parseReturnNotOptional", data: { name: "Currency" } }],
+      code: 'export interface ProjectName { readonly __brand: "ProjectName"; readonly value: string; }',
+      errors: [{ messageId: "missingFactory" }],
     },
-
-    // --- 4. readonly fields: parse validated the value, nothing may rewrite it ---
+    // the factory must be exported beside it, not merely declared
     {
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        code: string;
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "mutableProperty", data: { name: "Currency", member: "code" } }],
+      code: `${RESULT}export interface ProjectName { readonly __brand: "ProjectName"; readonly value: string; equals(other: ProjectName): boolean; toJSON(): string; }
+interface ProjectNameFactory { parse(raw: unknown): Result<ProjectName>; }`,
+      errors: [{ messageId: "missingFactory" }],
     },
+    // file stem must be the concept's kebab-case
+    { code: vo(), filename: "contexts/pm/src/domain/projects/name.contract.ts", errors: [{ messageId: "fileName" }] },
+    { code: vo(), filename: "contexts/pm/src/domain/projects/projectname.contract.ts", errors: [{ messageId: "fileName" }] },
+    // one concept per file
     {
-      // a parameter property is a property declaration too
-      code: `export class Currency {
-        private readonly __brand: "Currency";
-        private constructor(private code: string) {}
-        static parse(raw: unknown): Currency | undefined { return undefined; }
-      }`,
-      errors: [{ messageId: "mutableProperty", data: { name: "Currency", member: "code" } }],
+      code: `${vo()}\n${vo({ name: "ProjectCode" }).replace(RESULT, "")}`,
+      filename: FILE,
+      errors: [{ messageId: "oneConceptPerFile", data: { name: "ProjectCode", stem: "project-code" } }],
     },
-
-    // --- 5. extends: a value object is a leaf ---
+    // a value object beside an entity is still a second concept
     {
-      code: `export class Money extends Amount {
-        private readonly __brand: "Money";
-        private constructor(readonly minorUnits: number) { super(); }
-        static parse(raw: unknown): Money | undefined { return undefined; }
-      }`,
-      errors: [{ messageId: "classExtends", data: { name: "Money", super: "Amount" } }],
-    },
-
-    // --- the whole failure at once: the shape an agent reaches for by
-    // default, which every gate used to pass ---
-    {
-      code: `export class Currency {
-        constructor(public code: string) {}
-      }`,
-      errors: [
-        { messageId: "missingBrand", data: { name: "Currency" } },
-        { messageId: "missingParse", data: { name: "Currency" } },
-        { messageId: "constructorNotPrivate", data: { name: "Currency" } },
-        { messageId: "mutableProperty", data: { name: "Currency", member: "code" } },
-      ],
-    },
-
-    // --- every route onto the public boundary is checked ---
-    {
-      code: `class Currency {
-        private constructor() {}
-        static parse(raw: unknown): Currency | undefined { return undefined; }
-      }
-      export { Currency };`,
-      errors: [{ messageId: "missingBrand", data: { name: "Currency" } }],
-    },
-    {
-      code: `export default class Currency {
-        private constructor() {}
-        static parse(raw: unknown): Currency | undefined { return undefined; }
-      }`,
-      errors: [{ messageId: "missingBrand", data: { name: "Currency" } }],
-    },
-    {
-      code: `export declare namespace Money {
-        class Currency {
-          private readonly __brand: "Currency";
-          private constructor();
-        }
-      }`,
-      errors: [{ messageId: "missingParse", data: { name: "Currency" } }],
+      code: `${exampleConcept("project").contract}\n${vo().replace(RESULT, "")}`,
+      filename: "contexts/pm/src/domain/projects/project.contract.ts",
+      errors: [{ messageId: "oneConceptPerFile" }, { messageId: "resultSource" }],
     },
   ],
 });

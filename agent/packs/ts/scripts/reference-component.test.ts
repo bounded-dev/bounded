@@ -1,166 +1,211 @@
-import { writeProjectPacks } from "../../../src/project-composition.ts";
-// The gate-verified reference component (TN-26-008).
+// The gate-verified reference (TN-26-008), now the worked example's domain
+// (ADR 2026-059): packs/ts/reference/contexts/project-management/src/domain.
 //
-// packs/ts/reference/ is a complete, copyable worked example in a neutral domain
-// (an append-only log of temperature readings). Its whole value is that it is
-// built through the REAL gates on every `npm run check`: an example the gates
-// keep green can never demonstrate a shape the gates would reject, so the
-// example and the enforcement cannot drift. This file is that wiring.
+// Its whole value is that the checks the harness enforces run over it on
+// every `npm run check`, so the example an agent copies can never show a
+// shape the gates would refuse. This file is that wiring:
 //
-// The cheap, read-only checks (purity, surface, the red gate's coverage
-// obligations, the generated-laws golden) run in-process against the committed
-// reference. The three that need a running project — the red gate, the green
-// gate and mutation — run against a throwaway copy with node_modules symlinked
-// from the harness, exactly as the other gate-CLI tests build their fixtures.
+//   * every contract passes contract-purity;
+//   * every implementation passes impl-tail and zod-backed-parse, and its
+//     tail is exactly the emitter's;
+//   * the committed laws are exactly what the domain emitter emits today;
+//   * with `bun`: the context typechecks under `bunx tsc`, its suite (laws
+//     and hand-written tests) passes, and against the emitted skeletons the
+//     same suite fails only with NotImplementedError — a valid red.
 //
-// If a gate legitimately cannot apply to a static reference, that is stated
-// rather than worked around: there is none here — the reference is a real
-// project, so every gate applies to it as it would to any dogfood arm.
+// The flat-layout red/green/mutation gate runs that used to live here return
+// when those gates move to the monorepo layout (WI-8); until then this file
+// drives the same evidence through the toolchain directly.
 
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+import { ESLint } from "eslint";
+import parser from "@typescript-eslint/parser";
+import plugin from "../eslint/index.ts";
 import { lintContractSource } from "./contract-purity.ts";
-import { checkProjectSurfaces } from "./surface-check.ts";
-import {
-  calledNames,
-  checkBoundaryBlocks,
-  declaredExports,
-  readAllTests,
-  readContracts,
-  readHandWrittenTests,
-  unreachedExports,
-  valueObjectClasses,
-} from "./test-obligations.ts";
-import { lawsPathFor, valueObjectLawsSource } from "./value-object-laws.ts";
-import { runMutationScore, type SuiteOutcome, type SuiteRunner } from "./mutation-score.ts";
+import { lawsPathOf } from "./domain-concept.ts";
+import { emitDomain, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
+import type { WorkspaceFacts } from "../pack.ts";
+import { DOCUMENTED_CONCEPTS } from "./testdata/example-domain.ts";
 
 const REFERENCE_DIR = join(import.meta.dirname, "..", "reference");
+const CONTEXT = "contexts/project-management";
+const DOMAIN = `${CONTEXT}/src/domain`;
 const HARNESS_MODULES = join(import.meta.dirname, "..", "..", "..", "node_modules");
-const REAL_VITEST = join(HARNESS_MODULES, ".bin", "vitest");
-const REAL_TSC = join(HARNESS_MODULES, ".bin", "tsc");
 
-/** The project's suite as the gates run it: vitest, JSON reporter, and the
- *  `.bounded/**` exclusion the harness always carries (red leaves a shadow
- *  project there whose copied tests would otherwise be collected). */
-const SUITE_ARGS = ["run", "--reporter=json", "--exclude=**/.bounded/**"];
+function contracts(): { path: string; source: string }[] {
+  const out: { path: string; source: string }[] = [];
+  for (const area of readdirSync(join(REFERENCE_DIR, DOMAIN)).sort()) {
+    if (area === "shared" || area.endsWith(".ts")) continue;
+    for (const file of readdirSync(join(REFERENCE_DIR, DOMAIN, area)).sort()) {
+      if (file.endsWith(".contract.ts")) {
+        const path = `${DOMAIN}/${area}/${file}`;
+        out.push({ path, source: readFileSync(join(REFERENCE_DIR, path), "utf8") });
+      }
+    }
+  }
+  return out;
+}
 
-const VALUE_OBJECT_CONTRACTS = [
-  "src/readings/reading-id.contract.ts",
-  "src/readings/celsius.contract.ts",
-] as const;
-const ALL_CONTRACTS = [...VALUE_OBJECT_CONTRACTS, "src/readings/readings.contract.ts"] as const;
+const CONTRACTS = contracts();
+const WORKSPACE: WorkspaceFacts = {
+  dir: CONTEXT,
+  name: "project-management",
+  kind: "context",
+  packageName: "@example/project-management",
+  sourceRoot: `${CONTEXT}/src`,
+  contracts: CONTRACTS,
+};
+const EMITTED = emitDomain(WORKSPACE);
 
-// --- in-process checks against the committed reference (read-only) ------------
+test("the reference holds the worked example's six concepts", () => {
+  expect(CONTRACTS.map((c) => c.path.split("/").slice(-2).join("/"))).toEqual([
+    "notes/note-id.contract.ts",
+    "notes/note-text.contract.ts",
+    "notes/note.contract.ts",
+    "projects/project-id.contract.ts",
+    "projects/project-name.contract.ts",
+    "projects/project.contract.ts",
+  ]);
+});
 
-describe("the reference passes contract-purity", () => {
-  for (const rel of ALL_CONTRACTS) {
-    test(rel, async () => {
-      const problems = await lintContractSource(readFileSync(join(REFERENCE_DIR, rel), "utf8"), rel);
-      expect(problems).toEqual([]);
-    });
+describe("every reference contract passes contract-purity", () => {
+  test.each(CONTRACTS.map((c) => [c.path, c.source] as const))("%s", async (path, source) => {
+    expect(await lintContractSource(source, path)).toEqual([]);
+  });
+});
+
+describe("every reference implementation keeps the generated tail and parses over zod", () => {
+  const linter = new ESLint({
+    overrideConfigFile: true,
+    overrideConfig: [
+      {
+        files: ["**/*.ts"],
+        languageOptions: { parser },
+        plugins: { "bounded-ts": plugin as unknown as ESLint.Plugin },
+        rules: { "bounded-ts/impl-tail": "error", "bounded-ts/zod-backed-parse": "error" },
+      },
+    ],
+  });
+  test.each(CONTRACTS.map((c) => [c.path.replace(".contract.ts", ".ts")] as const))("%s", async (path) => {
+    const source = readFileSync(join(REFERENCE_DIR, path), "utf8");
+    const [result] = await linter.lintText(source, { filePath: join(REFERENCE_DIR, path) });
+    expect(result!.messages).toEqual([]);
+    const skeleton = EMITTED.find((f) => f.path === path)!;
+    const tail = (text: string): string => text.trimEnd().split("\n").slice(-2).join("\n");
+    expect(tail(source)).toBe(tail(skeleton.content));
+  });
+});
+
+test("the committed laws are exactly what the domain emitter emits today", () => {
+  for (const c of CONTRACTS) {
+    const path = lawsPathOf(c.path);
+    const emitted = EMITTED.find((f) => f.path === path)!;
+    expect(emitted.mode).toBe("generated");
+    expect(readFileSync(join(REFERENCE_DIR, path), "utf8"), `${path} is stale — regenerate it from the domain emitter`).toBe(
+      emitted.content,
+    );
   }
 });
 
-test("the reference passes surface-check", () => {
-  const run = checkProjectSurfaces(REFERENCE_DIR);
-  expect(run.lines.join("\n")).toMatch(/surface-check: OK/);
-  expect(run.code).toBe(0);
-});
-
-test("the reference discharges the red gate's coverage obligations", () => {
-  const contracts = readContracts(REFERENCE_DIR);
-  // Boundaries: every value object has its `<Name> — boundaries` block with an
-  // accepted literal and at least two distinct base-typed rejections.
-  const boundaries = checkBoundaryBlocks(valueObjectClasses(contracts), readHandWrittenTests(REFERENCE_DIR));
-  expect(boundaries).toEqual([]);
-  // Reachability: every declared value export is called by some test.
-  const reached = new Set(calledNames(readAllTests(REFERENCE_DIR)));
-  const unreached = unreachedExports(declaredExports(contracts), reached);
-  expect(unreached).toEqual([]);
-});
-
-test("the committed generated laws are exactly what the generator emits today", () => {
-  for (const rel of VALUE_OBJECT_CONTRACTS) {
-    const regenerated = valueObjectLawsSource(readFileSync(join(REFERENCE_DIR, rel), "utf8"), rel);
-    const committed = readFileSync(join(REFERENCE_DIR, lawsPathFor(rel)), "utf8");
-    expect(committed, `${lawsPathFor(rel)} is stale — re-run value-object-laws.ts`).toBe(regenerated);
+test("the reference contracts are the worked example's, documented as the gate requires", () => {
+  for (const c of DOCUMENTED_CONCEPTS) {
+    expect(readFileSync(join(REFERENCE_DIR, c.contractPath), "utf8"), c.contractPath).toBe(c.contract);
+    expect(readFileSync(join(REFERENCE_DIR, c.contractPath.replace(".contract.ts", ".ts")), "utf8"), c.contractPath).toBe(c.implementation);
   }
 });
 
-// --- the running-project gates against a throwaway copy -----------------------
+test("every value object documents two @accepts examples, so no law is skipped", () => {
+  for (const c of CONTRACTS) {
+    const laws = EMITTED.find((f) => f.path === lawsPathOf(c.path))!.content;
+    expect(laws, c.path).not.toContain("test.skip");
+  }
+});
+
+// --- the running project ----------------------------------------------------------
+
+const HAS_BUN = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
+if (!HAS_BUN) console.warn("reference-component.test: bun is not on PATH — skipping the typecheck and suite runs");
 
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-/** A fresh, isolated copy of the reference with node_modules symlinked from the
- *  harness — the same fixture shape red-gate.test.ts and the others use. The
- *  gates write into `.bounded/` and mutation edits src/ in place, so each heavy
- *  test gets its own copy rather than dirtying the committed tree. */
+/** A throwaway copy of the reference context with a typecheck config and the
+ *  harness's node_modules (zod, typescript). */
 function freshCopy(): string {
   const dir = mkdtempSync(join(tmpdir(), "pi-reference-"));
   tmpDirs.push(dir);
-  cpSync(REFERENCE_DIR, dir, {
-    recursive: true,
-    filter: (src) => !/[\\/](?:node_modules|\.bounded|\.vite|\.git)(?:[\\/]|$)/.test(src),
-  });
-  writeProjectPacks(dir, ["ts"]);
+  cpSync(join(REFERENCE_DIR, "contexts"), join(dir, "contexts"), { recursive: true });
+  writeFileSync(join(dir, "bun-test.d.ts"), 'declare module "bun:test" {\n  export { describe, expect, test } from "vitest";\n}\n');
+  writeFileSync(
+    join(dir, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: {
+        lib: ["ESNext", "DOM"],
+        target: "ESNext",
+        module: "Preserve",
+        moduleDetection: "force",
+        moduleResolution: "bundler",
+        allowImportingTsExtensions: true,
+        verbatimModuleSyntax: true,
+        noEmit: true,
+        strict: true,
+        skipLibCheck: true,
+        noUncheckedIndexedAccess: true,
+        noImplicitOverride: true,
+        types: [],
+      },
+      include: ["contexts/*/src", "bun-test.d.ts"],
+    }),
+  );
   symlinkSync(HARNESS_MODULES, join(dir, "node_modules"), "dir");
   return dir;
 }
 
-function runGate(script: string, dir: string) {
-  return spawnSync(process.execPath, [join(import.meta.dirname, script), dir], {
-    cwd: dir,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      BOUNDED_GATE_TEST_CMD: REAL_VITEST,
-      BOUNDED_GATE_TEST_ARGS: JSON.stringify(SUITE_ARGS),
-      BOUNDED_GATE_TSC_CMD: REAL_TSC,
-      BOUNDED_GATE_TSC_ARGS: JSON.stringify(["--noEmit", "--pretty", "false"]),
-    },
-  });
-}
-
-describe("the reference is built through the real red and green gates", () => {
-  test(
-    "red gate → a valid red against a regenerated skeleton; green gate → delivered",
-    () => {
-      const dir = freshCopy();
-
-      // Red runs against a shadow project it regenerates from the contracts and
-      // tests: every failure is a NotImplementedError, the project typechecks,
-      // and the coverage obligations are discharged.
-      const red = runGate("red-gate.ts", dir);
-      expect(red.stdout + red.stderr).toMatch(/red-gate: OK/);
-      expect(red.status).toBe(0);
-
-      // Green runs against the delivered implementation in the same tree, so it
-      // reads the red pass red just logged: suite green, typecheck clean,
-      // surface matches, no escape hatches, no surviving skeleton.
-      const green = runGate("green-gate.ts", dir);
-      expect(green.stdout + green.stderr).toMatch(/green-gate: OK/);
-      expect(green.status).toBe(0);
-    },
-    120_000,
-  );
+test("CI installs an exactly pinned Bun and refuses to skip the bun checks", () => {
+  const workflow = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", ".github", "workflows", "check.yml"), "utf8");
+  expect(workflow).toMatch(/uses: oven-sh\/setup-bun@v\d+/);
+  expect(workflow).toMatch(/bun-version: \d+\.\d+\.\d+\s*$/m);
+  expect(workflow).toMatch(/BOUNDED_REQUIRE_BUN: "1"/);
 });
 
-test(
-  "the reference's suite kills every mutant (no survivors)",
-  async () => {
+// CI sets BOUNDED_REQUIRE_BUN=1 (.github/workflows/check.yml pins Bun), so
+// there a missing bun fails instead of skipping the reference typecheck, suite and valid-red runs.
+test("bun is present wherever the environment requires it", () => {
+  if (process.env["BOUNDED_REQUIRE_BUN"] === "1") expect(HAS_BUN, "BOUNDED_REQUIRE_BUN=1 but bun is not on PATH").toBe(true);
+});
+
+describe.skipIf(!HAS_BUN)("the reference runs", () => {
+  test("it typechecks under bunx tsc", () => {
     const dir = freshCopy();
-    const runSuite: SuiteRunner = async (cwd, timeoutMs): Promise<SuiteOutcome> => {
-      const r = spawnSync(REAL_VITEST, SUITE_ARGS, { cwd, encoding: "utf8", timeout: timeoutMs, env: process.env });
-      return r.status === 0 ? { ok: true, note: "green" } : { ok: false, note: `exit ${r.status ?? "signal"}` };
-    };
-    const result = await runMutationScore(dir, { runSuite });
-    expect(result.code).toBe(0);
-    expect(result.sites).toBeGreaterThan(0);
-    expect(result.survived, result.lines.join("\n")).toBe(0);
-  },
-  120_000,
-);
+    const tsc = spawnSync("bunx", ["tsc", "-p", "tsconfig.json"], { cwd: dir, encoding: "utf8" });
+    expect(tsc.stdout + tsc.stderr).toBe("");
+    expect(tsc.status).toBe(0);
+  }, 60_000);
+
+  test("its suite — generated laws and hand-written tests — passes under bun test", () => {
+    const run = spawnSync("bun", ["test"], { cwd: join(REFERENCE_DIR, CONTEXT), encoding: "utf8" });
+    const output = run.stdout + run.stderr;
+    expect(output).toMatch(/\b0 fail\b/);
+    expect(output).not.toMatch(/\bskip\b/);
+    expect(run.status).toBe(0);
+  }, 60_000);
+
+  test("against the emitted skeletons the same suite is a valid red: every failure a NotImplementedError", () => {
+    const dir = freshCopy();
+    writeFileSync(join(dir, DOMAIN, "shared", "errors.ts"), NOT_IMPLEMENTED_MODULE_SOURCE);
+    for (const file of EMITTED) if (file.mode === "skeleton") writeFileSync(join(dir, file.path), file.content);
+    const tsc = spawnSync("bunx", ["tsc", "-p", "tsconfig.json"], { cwd: dir, encoding: "utf8" });
+    expect(tsc.stdout + tsc.stderr).toBe("");
+    const run = spawnSync("bun", ["test"], { cwd: dir, encoding: "utf8" });
+    const output = run.stdout + run.stderr;
+    const failures = output.split("\n").filter((l) => /^\(fail\)/.test(l)).length;
+    const notImplemented = output.split("\n").filter((l) => /NotImplementedError: Not implemented: /.test(l)).length;
+    expect(output).toMatch(/\b0 pass\b/);
+    expect(failures).toBeGreaterThan(0);
+    expect(notImplemented).toBe(failures);
+  }, 60_000);
+});

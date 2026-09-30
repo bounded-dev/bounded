@@ -1,9 +1,10 @@
 // surface-check (TN-26-001): the semantic public-surface gate that makes a
 // *.contract.ts binding FOREVER, not just at scaffold time.
 //
-//   node surface-check.ts [projectRoot]
+//   node surface-check.ts [projectRoot [sourceRoot…]]
 //
-// Finds every src/**/*.contract.ts (node_modules skipped), pairs each with its
+// Finds every <sourceRoot>/**/*.contract.ts (default root `src`; the monorepo
+// passes its sourceRoots, e.g. `contexts/*/src`), pairs each with its
 // implementation sibling (foo.contract.ts → foo.ts), and compares the two
 // PUBLIC SURFACES as sets. Exit 0 clean · 1 violations (one greppable line
 // each) · 2 misuse (no contracts found / a contract with no implementation).
@@ -131,7 +132,8 @@ export type ViolationKind =
   | "member-mismatch"
   | "undeclared-export"
   | "undeclared-member"
-  | "missing-type-reexport";
+  | "missing-type-reexport"
+  | "concept-tail";
 
 export interface SurfaceViolation {
   /** The implementation file — where the edit (or the dispute) starts. */
@@ -545,6 +547,59 @@ function typeStarMatches(specifier: string, contractFileName: string): boolean {
   return spec.replace(/\.d\.ts$|\.ts$|\.js$/, "") === stem;
 }
 
+// --- the contract-owns-the-name form (ADR 2026-059) -------------------------------
+//
+// A concept contract is `interface <Name>` (branded) + `interface
+// <Name>Factory`, and its implementation hides `<Name>Impl` and ends with
+// `export type <Name> = Contract.<Name>;` and
+// `export const <Name>: Contract.<Name>Factory = <Name>Impl;`. The compiler
+// checks both sides of that pair (the `implements` clause and the const's
+// factory annotation), so member-by-member comparison would only duplicate
+// it. What the compiler cannot see is surface ADDED beside the tail, or a
+// tail edited so that it stops checking — those are this section's.
+
+/** The concept a contract declares in the ADR 2026-059 form, or undefined. */
+function conceptNameOf(contract: SourceFile): string | undefined {
+  const exported = contract.getInterfaces().filter((i) => i.isExported());
+  for (const iface of exported) {
+    const name = iface.getName();
+    const branded = iface.getProperty("__brand") !== undefined;
+    if (branded && exported.some((f) => f.getName() === `${name}Factory`)) return name;
+  }
+  return undefined;
+}
+
+function compareConceptImplementation(
+  name: string,
+  contractFileName: string,
+  impl: SourceFile,
+  implFileName: string,
+): SurfaceViolation[] {
+  const out: SurfaceViolation[] = [];
+  const tail = [`export type ${name} = Contract.${name};`, `export const ${name}: Contract.${name}Factory = ${name}Impl;`];
+  const statements = impl.getStatements();
+  const last = statements.slice(-2).map((st) => st.getText());
+  if (last[0] !== tail[0] || last[1] !== tail[1]) {
+    out.push({
+      file: implFileName,
+      exportName: name,
+      kind: "concept-tail",
+      message: `${name}: ${implFileName} must end with exactly the two generated exports, which make ${contractFileName}'s interface the one type named ${name} and check ${name}Impl against ${name}Factory (ADR 2026-059):\n${tail.join("\n")}`,
+    });
+  }
+  for (const [exported, declarations] of impl.getExportedDeclarations()) {
+    if (exported === name) continue;
+    const kind = declarations[0]?.getKindName() ?? "declaration";
+    out.push({
+      file: implFileName,
+      exportName: exported,
+      kind: "undeclared-export",
+      message: `${exported}: the implementation exports ${kind} '${exported}', which ${contractFileName} does not declare — a concept's implementation exports only '${name}' (the tail); keep '${exported}' module-local or move it to its own module (${DISPUTE})`,
+    });
+  }
+  return out;
+}
+
 /**
  * Compare the contract's exported surface against the implementation's.
  * Pure: strings in, typed violations out; no I/O, no logging, no exit codes.
@@ -557,6 +612,10 @@ export function compareSurfaces(
 ): SurfaceViolation[] {
   const project = new Project({ useInMemoryFileSystem: true });
   const contractFile = project.createSourceFile("/__contract__.ts", contractSource);
+  const concept = conceptNameOf(contractFile);
+  if (concept !== undefined) {
+    return compareConceptImplementation(concept, contractFileName, project.createSourceFile("/__impl__.ts", implSource), implFileName);
+  }
   const contract = moduleSurface(contractFile);
   const typeQueriedValues = typeQueriedImplementationValues(contractFile, implFileName);
   // The scratch name carries the implementation's REAL extension: ts-morph
@@ -685,16 +744,58 @@ export interface SurfaceCheckRun {
   readonly violations: readonly SurfaceViolation[];
 }
 
-/** Find every src/**\/*.contract.ts under `root`, pair each with its sibling
- *  implementation, and compare. One implementation of the verdict for the CLI
- *  and the future gate wrapper alike. */
-export function checkProjectSurfaces(root: string): SurfaceCheckRun {
-  const contracts = walkContracts(root, join(root, "src"));
+/** The concrete directories a source-root glob names: each segment literal
+ *  or exactly `*` (one directory level), as the sourceRoots socket allows
+ *  (ADR 2026-056). Sorted; directories only. */
+function expandRoot(root: string, glob: string): string[] {
+  let dirs = [""];
+  for (const segment of glob.split("/")) {
+    const next: string[] = [];
+    for (const dir of dirs) {
+      const abs = join(root, dir);
+      if (segment !== "*") {
+        const candidate = dir === "" ? segment : `${dir}/${segment}`;
+        if (existsSync(join(root, candidate))) next.push(candidate);
+        continue;
+      }
+      if (!existsSync(abs)) continue;
+      for (const entry of readdirSync(abs, { withFileTypes: true })) {
+        if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") {
+          next.push(dir === "" ? entry.name : `${dir}/${entry.name}`);
+        }
+      }
+    }
+    dirs = next;
+  }
+  return dirs.sort();
+}
+
+/** Every concrete directory the source-root globs name under `root`,
+ *  project-relative, sorted and deduplicated. */
+export function expandSourceRoots(root: string, globs: readonly string[]): string[] {
+  return [...new Set(globs.flatMap((glob) => expandRoot(root, glob)))].sort();
+}
+
+/** A feature contract in the hexagonal application layer (TN-26-012) is
+ *  implemented by generated and handler files, not by a `<feature>.ts`
+ *  sibling, so it is not a surface pair. */
+function isFeatureContract(rel: string): boolean {
+  return /(^|\/)application\/[^/]+\/[^/]+\/[^/]+\.contract\.ts$/.test(rel);
+}
+
+/** Find every *.contract.ts under the source roots (`src` unless the caller
+ *  passes the composition's `sourceRoots`, ADR 2026-056), pair each with its
+ *  sibling implementation, and compare. One implementation of the verdict for
+ *  the CLI and the gate wrappers alike. */
+export function checkProjectSurfaces(root: string, sourceRoots: readonly string[] = ["src"]): SurfaceCheckRun {
+  const dirs = expandSourceRoots(root, sourceRoots);
+  const contracts = dirs.flatMap((dir) => walkContracts(root, join(root, dir))).filter((rel) => !isFeatureContract(rel)).sort();
   if (contracts.length === 0) {
+    const where = sourceRoots.map((r) => `${r}/**/*.contract.ts`).join(", ");
     return {
       code: 2,
       violations: [],
-      lines: ["surface-check: no src/**/*.contract.ts found — a gate that matches nothing is a broken gate"],
+      lines: [`surface-check: no ${where} found — a gate that matches nothing is a broken gate`],
     };
   }
 
@@ -741,7 +842,8 @@ export function checkProjectSurfaces(root: string): SurfaceCheckRun {
 // --- CLI ------------------------------------------------------------------------
 
 function main(argv: string[]): number {
-  const result = checkProjectSurfaces(argv[0] ?? process.cwd());
+  const [root, ...roots] = argv;
+  const result = checkProjectSurfaces(root ?? process.cwd(), roots.length > 0 ? roots : undefined);
   for (const line of result.lines) {
     if (result.code === 2) console.error(line);
     else console.log(line);

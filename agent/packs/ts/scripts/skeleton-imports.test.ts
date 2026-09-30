@@ -2,7 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { errorsImportsOf, findSkeletonImportsInSrc } from "./skeleton-imports.ts";
+import { errorsImportsOf, errorsModulesFor, findSkeletonImports, findSkeletonImportsInSrc } from "./skeleton-imports.ts";
+import { parseDomainConcept } from "./domain-concept.ts";
+import { implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
+import { exampleConcept } from "./testdata/example-domain.ts";
 
 // The shared predicate behind two callers (r16): green-gate blocks on it and
 // deliver keeps its own call to it. A src/** non-contract file still importing
@@ -77,5 +80,53 @@ describe("errorsImportsOf (AST, not grep)", () => {
   test("a real import from the shared errors module counts", () => {
     const src = 'import { NotImplementedError, notImplemented } from "./shared/errors.js";\n';
     expect(errorsImportsOf(src, "src/x.ts")).toEqual(["NotImplementedError", "notImplemented"]);
+  });
+});
+
+// ADR 2026-056/060: in the monorepo a domain skeleton imports
+// NotImplementedError from its context's `domain/shared/errors.ts`, and the
+// scan walks every source root.
+describe("findSkeletonImports over source roots", () => {
+  const ROOTS = ["contexts/*/src", "apps/*/src"];
+  const noteId = exampleConcept("note-id");
+  const skeleton = implementationSkeleton(parseDomainConcept(noteId.contractPath, noteId.contract));
+  const errors = "contexts/project-management/src/domain/shared/errors.ts";
+
+  test("names a domain skeleton that still imports the errors module", () => {
+    const dir = proj({
+      [errors]: NOT_IMPLEMENTED_MODULE_SOURCE,
+      [noteId.contractPath]: noteId.contract,
+      [noteId.contractPath.replace(".contract.ts", ".ts")]: skeleton,
+      "contexts/project-management/src/domain/notes/note-text.ts": exampleConcept("note-text").implementation,
+    });
+    expect(findSkeletonImports(dir, ROOTS)).toEqual([
+      { file: noteId.contractPath.replace(".contract.ts", ".ts"), names: ["NotImplementedError"] },
+    ]);
+  });
+
+  test("an implemented tree is clean, and the errors module is not its own importer", () => {
+    const dir = proj({
+      [errors]: NOT_IMPLEMENTED_MODULE_SOURCE,
+      [noteId.contractPath.replace(".contract.ts", ".ts")]: noteId.implementation,
+    });
+    expect(findSkeletonImports(dir, ROOTS)).toEqual([]);
+  });
+
+  test("files under every root are scanned, apps included", () => {
+    const dir = proj({
+      "apps/web/src/shared/errors.ts": "export class NotImplementedError extends Error {}\n",
+      "apps/web/src/server/main.ts": 'import { NotImplementedError } from "../shared/errors.ts";\nthrow new NotImplementedError();\n',
+    });
+    expect(findSkeletonImports(dir, ROOTS).map((i) => i.file)).toEqual(["apps/web/src/server/main.ts"]);
+  });
+
+  test("the errors modules are each root's shared/ and domain/shared/", () => {
+    const dir = proj({ "contexts/a/src/x.ts": "", "contexts/b/src/x.ts": "" });
+    expect(errorsModulesFor(dir, ["contexts/*/src"])).toEqual([
+      "contexts/a/src/shared/errors.ts",
+      "contexts/a/src/domain/shared/errors.ts",
+      "contexts/b/src/shared/errors.ts",
+      "contexts/b/src/domain/shared/errors.ts",
+    ]);
   });
 });

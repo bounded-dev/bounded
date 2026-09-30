@@ -1,51 +1,36 @@
-// Value-object law generator (TN-26-001): contract → machine-generated laws.
+// Domain-concept law generator (ADR 2026-059, TN-26-012 §7): one domain
+// concept contract → its colocated `<concept>.laws.test.ts`, run by `bun test`.
 //
-//   src/pricing/pricing.contract.ts  →  tests/generated/pricing.laws.test.ts
+//   contexts/pm/src/domain/notes/note-text.contract.ts
+//     → contexts/pm/src/domain/notes/note-text.laws.test.ts   (generated)
 //
-// Same spirit as the scaffolder: pure core (valueObjectLawsSource: string →
-// string) + thin CLI, and the output carries a "GENERATED … do not edit"
-// header. Skeletons are machine-generated so there is nothing to police; the
-// laws that hold for EVERY value object are machine-generated for the same
-// reason. What is left for the test-writer is the part no generator can know —
-// which strings are valid currencies (ts-contract-authoring, "Boundaries").
+// The laws are what holds for EVERY concept of a kind, whatever the domain:
 //
-// In this contract style an exported class IS a value object: private brand,
-// private constructor, `static parse(raw: unknown)`. So every exported class
-// gets a law suite, and a class that cannot carry one (no `parse`, generic,
-// abstract) is reported rather than silently dropped.
+//   value object  parse refuses cross-type junk with a reason; equality is by
+//                 value; toJSON round-trips through parse; parsing is
+//                 deterministic.
+//   identifier    all of that, plus generate() yields distinct, parseable ids.
+//   entity        equality is by identity, not content; toJSON is each
+//                 field's own wire form, and every id in it parses back.
 //
-// ── Two decisions the red gate forces ────────────────────────────────────
+// What no generator can know is left to the test-writer's `<concept>.test.ts`:
+// which strings are valid project names. A law that needs a valid input takes
+// it from the concept itself — `generate()` for an identifier, and the two
+// different `@accepts` examples every value object's instance interface must
+// carry (`value-object-documented` enforces them at contract-purity). So no
+// law is ever skipped: a value object without two distinct examples is a
+// contract the gate refused, and this generator refuses it too rather than
+// emit a weaker suite.
 //
-// 1. A MISSING `@accepts` EXAMPLE IS SKIPPED, NEVER FAILED. The generated
-//    file runs inside the red gate, which rejects any failure that is not a
-//    NotImplementedError. An `expect.fail("add @accepts")` would therefore be
-//    a WRONG-REASON RED: it blocks the entire pipeline, and red-gate routes
-//    the fix to the test-writer — who cannot make it, because the fix is a
-//    JSDoc tag in a checksum-frozen contract owned by the architect. A skip
-//    names the gap in the runner output; the CLI additionally warns on
-//    stderr at generation time, which is where the architect is standing.
+// Forced by the red gate, which accepts only NotImplementedError failures
+// (ADR 2026-024): `parse()` is never wrapped in try/catch, and no law runs
+// concept code at module load — against the throwing skeleton the
+// NotImplementedError must reach the runner inside a test.
 //
-// 2. `parse()` IS NEVER WRAPPED IN try/catch. Against the throwing skeleton
-//    the NotImplementedError must reach the runner — that is precisely what
-//    makes these laws a valid red. Treating a throw as "rejected" would leave
-//    the whole suite vacuously green at the red phase, which is the failure
-//    this pipeline exists to prevent. It is also correct at green: a `parse`
-//    declared `T | undefined` rejects by returning, never by throwing.
-//
-// Known limit: the output path is keyed on the contract's BASENAME, so two
-// contracts named the same in different directories would collide. The CLI
-// takes one contract at a time and says where it wrote.
+// Pure: the same model and lookup always give the same bytes.
 
-import { basename, dirname, isAbsolute, posix, relative, resolve } from "node:path";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { CodeBlockWriter, Node, Project, SyntaxKind, ts } from "ts-morph";
-import type { ClassDeclaration } from "ts-morph";
-
-const CONTRACT_SUFFIX = ".contract.ts";
-
-/** Where generated law suites live in the target project. */
-export const GENERATED_TESTS_DIR = "tests/generated";
+import type { DomainConceptModel } from "./feature-model.ts";
+import { implementationSpecifierOf, RESULT_SPECIFIER, valueTypeOf } from "./domain-concept.ts";
 
 export class ValueObjectLawsError extends Error {
   constructor(message: string) {
@@ -54,24 +39,15 @@ export class ValueObjectLawsError extends Error {
   }
 }
 
-function fail(message: string): never {
-  throw new ValueObjectLawsError(`value-object-laws: ${message}`);
-}
+/** The generator named in the laws file's first-line marker. */
+export const LAWS_GENERATOR = "packs/ts/scripts/value-object-laws.ts";
 
 /**
- * The UNIVERSAL hostile-input corpus — verbatim expression source, emitted into
- * the generated file as a named const so a failure can name which ones wrongly
- * passed. Every entry is hostile to SOME value object; which entries are hostile
- * to a GIVEN one depends on its base primitive (see `hostileExpressionsFor`).
- *
- * The rule (ADR 2026-024): an input is hostile to a value object iff it is
- * CROSS-TYPE to the VO's base primitive, OR a SAME-TYPE pathological sentinel no
- * VO of that base could accept (`NaN`/`Infinity` for `number`). A same-type
- * ORDINARY value — `0`/`-1` for a numeric base, `""`/`" "` for a string base —
- * is a RANGE decision this law cannot make (a Kelvin of 0–80 accepts 0; a
- * Percent rejects -1), so it is left to the test-writer's boundaries block.
- * Cross-type inputs stay hostile for every base: a string VO must still reject
- * the number 0, a numeric VO must reject "" and [].
+ * The universal hostile-input corpus, as expression source. Which entries are
+ * hostile to a given value object depends on the type of its `value`: an input
+ * is hostile when it is cross-type, or a same-type sentinel no value of that
+ * type could mean (`NaN`, `Infinity`). A same-type ordinary value (`""`, `0`)
+ * is a range decision the test-writer makes, so it is not asserted here.
  */
 export const HOSTILE_INPUT_EXPRESSIONS: readonly string[] = [
   "undefined",
@@ -92,12 +68,6 @@ export const HOSTILE_INPUT_EXPRESSIONS: readonly string[] = [
   "9007199254740993n",
 ];
 
-/** Base primitives a value object can wrap — the domains we can filter against.
- *  A base outside this set (or an undetectable one) keeps the whole corpus. */
-const KNOWN_PRIMITIVES: ReadonlySet<string> = new Set(["number", "string", "boolean", "bigint", "symbol"]);
-
-/** Static typeof-classification of each fixed corpus expression. `undefined` and
- *  `null` are given kinds that match no base, so they stay hostile everywhere. */
 const HOSTILE_KIND: Readonly<Record<string, string>> = {
   undefined: "undefined",
   null: "null",
@@ -117,558 +87,353 @@ const HOSTILE_KIND: Readonly<Record<string, string>> = {
   "9007199254740993n": "bigint",
 };
 
-/** Same-type sentinels that NO value object of the base could accept, so they
- *  stay hostile even though their typeof matches the base. */
-const PATHOLOGICAL_SAME_TYPE: Readonly<Record<string, ReadonlySet<string>>> = {
+const PATHOLOGICAL: Readonly<Record<string, ReadonlySet<string>>> = {
   number: new Set(["NaN", "Infinity"]),
 };
 
-const NO_PATHOLOGICAL: ReadonlySet<string> = new Set();
-
-/** Classify a single `@accepts` example expression to its base primitive, for
- *  the fallback when the nominal shape carries no `readonly value` field. */
-function classifyLiteral(expr: string): string | undefined {
-  const t = expr.trim();
-  if (/^["'`]/.test(t)) return "string";
-  if (/^[-+]?\d[\d_]*n$/.test(t)) return "bigint";
-  if (/^[-+]?(\d[\d_]*(\.\d*)?|\.\d+)(e[-+]?\d+)?$/i.test(t)) return "number";
-  if (t === "NaN" || t === "Infinity" || t === "-Infinity" || t === "+Infinity") return "number";
-  if (t === "true" || t === "false") return "boolean";
-  return undefined;
+/** The corpus entries hostile to a value object whose `value` is `base`. An
+ *  `@accepts` example is never also asserted hostile. */
+export function hostileExpressionsFor(base: string, accepts: readonly string[] = []): readonly string[] {
+  const pathological = PATHOLOGICAL[base] ?? new Set<string>();
+  return HOSTILE_INPUT_EXPRESSIONS.filter(
+    (expr) => !accepts.includes(expr) && (HOSTILE_KIND[expr] !== base || pathological.has(expr)),
+  );
 }
 
-/**
- * The corpus entries hostile to THIS value object. Cross-type entries and
- * same-type pathological sentinels are kept; same-type ordinary values are
- * dropped as range decisions. A VO's own `@accepts` example is ALWAYS excluded
- * (belt and braces): the equality laws call `parse(example)` and REQUIRE it to
- * succeed, so it can never also be asserted hostile — the contradiction that
- * blocked dogfood run r17. When the base is unknown we keep the whole corpus and
- * still honour that exclusion (fail safe toward more rejection).
- */
-export function hostileExpressionsFor(vo: ValueObjectInfo): readonly string[] {
-  const base = vo.base;
-  const known = base !== undefined && KNOWN_PRIMITIVES.has(base);
-  const pathological = base !== undefined ? (PATHOLOGICAL_SAME_TYPE[base] ?? NO_PATHOLOGICAL) : NO_PATHOLOGICAL;
-  return HOSTILE_INPUT_EXPRESSIONS.filter((expr) => {
-    if (vo.accepts.includes(expr)) return false;
-    if (!known) return true;
-    const kind = HOSTILE_KIND[expr];
-    if (kind !== base) return true; // cross-type: hostile to every base
-    return pathological.has(expr); // same-type: only pathological sentinels
+/** What the laws need to know about a concept other than the one under test:
+ *  an entity's fields are built from these. */
+export interface ConceptSampleSource {
+  readonly model: DomainConceptModel;
+  /** `@accepts` examples on its instance interface, as expression source. */
+  readonly examples: readonly string[];
+}
+
+/** The concepts of the same domain, by interface name. */
+export type ConceptLookup = (name: string) => ConceptSampleSource | undefined;
+
+/** `.../<stem>.contract.ts` → `.../<stem>.laws.test.ts` */
+export function lawsPathFor(contractPath: string): string {
+  if (!contractPath.endsWith(".contract.ts")) {
+    throw new ValueObjectLawsError(`value-object-laws: '${contractPath}' is not a *.contract.ts path`);
+  }
+  return contractPath.slice(0, -".contract.ts".length) + ".laws.test.ts";
+}
+
+const q = (text: string): string => JSON.stringify(text);
+
+/** Deterministic import order, the one the worked example uses: packages
+ *  first, then relative paths, compared with `.` sorting before every other
+ *  character (so `./note.contract.ts` precedes `./note-id.contract.ts`). */
+export function compareSpecifiers(a: string, b: string): number {
+  const rank = (s: string): number => (s.startsWith(".") ? 1 : 0);
+  if (rank(a) !== rank(b)) return rank(a) - rank(b);
+  const key = (s: string): string => s.replace(/\./g, "\u0001");
+  const ka = key(a);
+  const kb = key(b);
+  return ka < kb ? -1 : ka > kb ? 1 : 0;
+}
+
+/** The examples that still differ once a string's whitespace is trimmed (a
+ *  value object that trims would parse " a " and "a" to one value, so they
+ *  cannot discriminate), first occurrence kept, in order. */
+export function distinctExamples(examples: readonly string[]): string[] {
+  const key = (ex: string): string => {
+    if (!ex.startsWith('"')) return ex;
+    try {
+      return `s:${String(JSON.parse(ex)).trim()}`;
+    } catch {
+      return ex;
+    }
+  };
+  const seen = new Set<string>();
+  return examples.filter((ex) => {
+    const k = key(ex);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
   });
 }
 
-// --- paths --------------------------------------------------------------------
-
-function toPosix(p: string): string {
-  return p.replace(/\\/g, "/").replace(/^\.\//, "");
+interface Sample {
+  /** An expression producing a valid instance (no module-load evaluation). */
+  readonly first: string;
+  /** An expression producing a different valid instance. */
+  readonly second: string;
+  /** Uses `mustParse`, so the file needs the helper and the Result type. */
+  readonly parses: boolean;
 }
 
-/** tests/generated/<contract-basename>.laws.test.ts */
-export function lawsPathFor(contractPath: string): string {
-  const base = basename(toPosix(contractPath));
-  if (!base.endsWith(CONTRACT_SUFFIX)) {
-    fail(`'${contractPath}' is not a *.contract.ts path`);
+function sampleFor(source: ConceptSampleSource): Sample | undefined {
+  const { model, examples } = source;
+  if (model.kind === "identifier") {
+    return { first: `${model.name}.generate()`, second: `${model.name}.generate()`, parses: false };
   }
-  return `${GENERATED_TESTS_DIR}/${base.slice(0, -CONTRACT_SUFFIX.length)}.laws.test.ts`;
-}
-
-/**
- * Specifier for the IMPLEMENTATION module — the scaffolded sibling of the
- * contract, not the contract itself. Target projects are NodeNext, so the
- * runtime import carries `.js` even though the file is `.ts`.
- */
-export function implementationModuleFor(contractPath: string): string {
-  const p = toPosix(contractPath);
-  if (!p.endsWith(CONTRACT_SUFFIX)) fail(`'${contractPath}' is not a *.contract.ts path`);
-  if (isAbsolute(p) || p.startsWith("/")) {
-    fail(`'${contractPath}' is absolute — pass the contract path relative to the project root`);
-  }
-  const impl = p.slice(0, -CONTRACT_SUFFIX.length) + ".js";
-  const rel = posix.relative(posix.dirname(lawsPathFor(p)), impl);
-  return rel.startsWith(".") ? rel : "./" + rel;
-}
-
-// --- reading the contract -----------------------------------------------------
-
-export interface ValueObjectInfo {
-  readonly name: string;
-  /** Verbatim expression texts from JSDoc `@accepts` tags, in source order. */
-  readonly accepts: readonly string[];
-  readonly hasEquals: boolean;
-  /** Instance `toJSON()` declared — the value object states its wire form, so
-   *  the round-trip law parse(toJSON(v)) ≡ v applies (TN-26-004). */
-  readonly hasToJson: boolean;
-  /** The base primitive this value object wraps ("number" | "string" | …), read
-   *  from the nominal `readonly value: <primitive>` field (ADR 2026-015) or, when
-   *  absent, inferred from the first `@accepts` example. Absent when unknowable,
-   *  in which case the whole hostile corpus is kept. Drives `hostileExpressionsFor`. */
-  readonly base?: string;
-  /** Why this class gets no executable laws. Absent when it gets them. */
-  readonly unsupported?: string;
-}
-
-/** The base primitive from the nominal `readonly value: <primitive>` field
- *  (ADR 2026-015), else the first `@accepts` example's literal type, else
- *  undefined. Kept only when it names a primitive we know how to filter. */
-function baseOf(cls: ClassDeclaration, accepts: readonly string[]): string | undefined {
-  const prop = cls.getProperty("value");
-  const fromField = prop?.getTypeNode()?.getText() ?? cls.getGetAccessor("value")?.getReturnTypeNode()?.getText();
-  if (fromField !== undefined && KNOWN_PRIMITIVES.has(fromField)) return fromField;
-  const first = accepts[0];
-  if (first !== undefined) {
-    const inferred = classifyLiteral(first);
-    if (inferred !== undefined) return inferred;
-  }
-  return undefined;
-}
-
-/** Static `parse(raw: unknown)` is the single door in; without it there is
- *  nothing a law can call. Anything else about parse being wrong is a contract
- *  defect, and is raised rather than worked around. */
-function checkParse(cls: ClassDeclaration, name: string): string | undefined {
-  const parse = cls
-    .getMembers()
-    .filter(Node.isMethodDeclaration)
-    .find((m) => m.getName() === "parse" && m.hasModifier(SyntaxKind.StaticKeyword));
-  if (!parse) {
-    return `'${name}' declares no 'static parse(raw: unknown)', which is the single door in for a value object`;
-  }
-  const params = parse.getParameters();
-  const first = params[0];
-  if (!first) {
-    fail(`'${name}.parse' takes no parameter — a value object's parse faces raw input: 'static parse(raw: unknown)'`);
-  }
-  const typeText = first.getTypeNode()?.getText();
-  if (typeText !== "unknown") {
-    fail(
-      `'${name}.parse' takes '${typeText ?? "(untyped)"}' — it must take 'unknown', or it cannot be handed the hostile inputs every value object must refuse`,
+  if (model.kind !== "value-object") return undefined;
+  const distinct = distinctExamples(examples);
+  if (distinct.length < 2) {
+    throw new ValueObjectLawsError(
+      `value-object-laws: ${model.contractPath}: ${model.name} needs two @accepts examples that differ after trimming — ` +
+        `found ${examples.length === 0 ? "none" : examples.join(", ")}; value-object-documented refuses this contract at contract-purity`,
     );
   }
-  for (const extra of params.slice(1)) {
-    if (!extra.isOptional() && !extra.isRestParameter() && !extra.hasInitializer()) {
-      fail(
-        `'${name}.parse' requires a second argument '${extra.getName()}' — parse must be callable with the raw input alone`,
-      );
-    }
+  const parse = (ex: string): string => `mustParse(${model.name}.parse(${ex}), ${q(`${model.name}.parse(${ex})`)})`;
+  return { first: parse(distinct[0]!), second: parse(distinct[1]!), parses: true };
+}
+
+class Writer {
+  private readonly lines: string[] = [];
+  private depth = 0;
+  line(text = ""): this {
+    this.lines.push(text === "" ? "" : "  ".repeat(this.depth) + text);
+    return this;
   }
-  return undefined;
-}
-
-/** `@accepts <expression>` on the class JSDoc. Validated here so a bad tag is a
- *  loud generator error, never a generated file that fails to parse. */
-function acceptsOf(cls: ClassDeclaration, name: string): string[] {
-  const out: string[] = [];
-  const fullText = cls.getSourceFile().getFullText();
-  for (const doc of cls.getJsDocs()) {
-    for (const tag of doc.getTags()) {
-      if (tag.getTagName() !== "accepts") continue;
-      // TypeScript's JSDoc parser treats `@accepts` as a tag even mid-sentence,
-      // so the prose "the architect forgot the @accepts tag" arrives here as a
-      // tag whose body is "tag." — and blew up generation on a doc comment that
-      // was merely talking about the convention. A tag counts only where a
-      // reader would see one: opening its own line, or opening the comment.
-      // Anything with prose in front of it on the line is prose.
-      const lineStart = fullText.lastIndexOf("\n", tag.getStart() - 1) + 1;
-      if (!/^\s*(\/\*\*)?[\s*]*$/.test(fullText.slice(lineStart, tag.getStart()))) continue;
-      const raw = (tag.getCommentText() ?? "").trim();
-      if (raw === "") {
-        fail(`'${name}' has an empty '@accepts' tag — write the example expression, e.g. '@accepts "USD"'`);
-      }
-      if (raw.includes("\n")) {
-        fail(`'${name}' has a multi-line '@accepts' tag — one single-line expression per tag, e.g. '@accepts "USD"'`);
-      }
-      const diagnostics =
-        ts.transpileModule(`const __accepts = (${raw});`, {
-          reportDiagnostics: true,
-          compilerOptions: { target: ts.ScriptTarget.ES2022 },
-        }).diagnostics ?? [];
-      if (diagnostics.length > 0) {
-        fail(
-          `'${name}' has an '@accepts' tag that is not an expression: ${raw} — the tag holds the example and nothing else (no prose, no trailing comment)`,
-        );
-      }
-      out.push(raw);
-    }
+  open(text: string): this {
+    this.line(text);
+    this.depth += 1;
+    return this;
   }
-  return out;
-}
-
-/** Every exported class in the contract, with what the laws need to know. */
-export function valueObjectsOf(contractSource: string, contractFileName: string): readonly ValueObjectInfo[] {
-  const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
-  const sf = project.createSourceFile(basename(toPosix(contractFileName)), contractSource, { overwrite: true });
-
-  const out: ValueObjectInfo[] = [];
-  for (const stmt of sf.getStatements()) {
-    if (!Node.isClassDeclaration(stmt)) continue;
-    if (!stmt.hasModifier(SyntaxKind.ExportKeyword)) continue;
-    const name = stmt.getName();
-    if (name === undefined) continue; // default-exported anonymous class: the scaffolder rejects it
-
-    const accepts = acceptsOf(stmt, name);
-    const hasEquals = stmt
-      .getMembers()
-      .filter(Node.isMethodDeclaration)
-      .some((m) => m.getName() === "equals" && !m.hasModifier(SyntaxKind.StaticKeyword));
-    const hasToJson = stmt
-      .getMembers()
-      .filter(Node.isMethodDeclaration)
-      .some((m) => m.getName() === "toJSON" && !m.hasModifier(SyntaxKind.StaticKeyword));
-
-    let unsupported: string | undefined;
-    if (stmt.getTypeParameters().length > 0) {
-      unsupported = `'${name}' is generic — value-object laws apply to a concrete type, so instantiate it in the contract or drop the type parameter`;
-    } else if (stmt.hasModifier(SyntaxKind.AbstractKeyword)) {
-      unsupported = `'${name}' is abstract — an abstract class has no instances to compare, so it is not a value object`;
-    } else {
-      unsupported = checkParse(stmt, name);
-    }
-
-    const base = baseOf(stmt, accepts);
-    out.push({
-      name,
-      accepts,
-      hasEquals,
-      hasToJson,
-      ...(base !== undefined ? { base } : {}),
-      ...(unsupported !== undefined ? { unsupported } : {}),
-    });
+  close(text: string): this {
+    this.depth -= 1;
+    return this.line(text);
   }
-  return out;
+  toString(): string {
+    return this.lines.join("\n") + "\n";
+  }
 }
 
-// --- rendering ------------------------------------------------------------------
-
-export interface ValueObjectLawsOptions {
-  /** Override the implementation module specifier (default: the scaffolded
-   *  sibling of the contract, resolved from tests/generated). */
-  readonly implementationModule?: string;
-}
-
-function q(text: string): string {
-  return JSON.stringify(text);
-}
-
-const HEADER = (contractBase: string): readonly string[] => [
-  `// GENERATED from ${contractBase} by packs/ts/scripts/value-object-laws.ts — do not edit.`,
-  "// The laws that hold for EVERY value object, whatever the domain: parse refuses",
-  "// junk, equality is by value, parsing is deterministic. What these CANNOT cover",
-  '// is an input of the right base type and the wrong value — "usd" is a string,',
-  "// and only someone thinking about currencies knows it must fail. Likewise a",
-  "// same-type value at the edge of a range — 0 for a Kelvin, -1 for a Percent —",
-  "// is a domain decision this file cannot make, so the hostile-input law does",
-  "// not assert on it. Both belong to the test-writer's `<Name> — boundaries`",
-  "// block (see ts-contract-authoring).",
-  "//",
-  "// Two properties of this file are forced by the red gate, which rejects any",
-  "// failure that is not a NotImplementedError:",
-  "//",
-  "//   * A missing `@accepts` example is SKIPPED, never failed. A hard failure",
-  "//     here would be a wrong-reason red: it would block the whole pipeline and",
-  "//     route the fix to the test-writer, when the fix is a JSDoc tag in the",
-  "//     frozen contract and belongs to the architect. The generator warns about",
-  "//     the same gap on stderr, where the architect is standing.",
-  "//   * `parse()` is never wrapped in try/catch. Against the throwing skeleton",
-  "//     the NotImplementedError must reach the runner — that is what makes this",
-  "//     file a valid red. Swallowing it would leave these laws vacuously green",
-  "//     at exactly the phase they exist to fail.",
+const MUST_PARSE = [
+  "/** The value a parse produced, or a failure naming the refused example. A",
+  " *  throwing skeleton never reaches this line: its NotImplementedError",
+  " *  propagates first, which is what the red gate looks for. */",
+  "function mustParse<T>(result: Result<T>, what: string): T {",
+  "  if (!result.ok) throw new Error(`${what} was refused: ${String(result.error)}`);",
+  "  return result.value;",
+  "}",
 ];
 
-function skipMarker(w: CodeBlockWriter, title: string, why: string): void {
-  w.writeLine("test.skip(");
-  w.setIndentationLevel(w.getIndentationLevel() + 1);
-  w.writeLine(`${q(title)},`);
-  w.write("() => ").inlineBlock(() => {
-    w.writeLine(`expect.fail(${q(why)});`);
+function header(model: DomainConceptModel): string[] {
+  const file = model.contractPath.split("/").at(-1)!;
+  return [`// GENERATED from ${file} by ${LAWS_GENERATOR} — do not edit.`];
+}
+
+function imports(entries: ReadonlyMap<string, { names: Set<string>; typeOnly: boolean }>): string[] {
+  return [...entries.keys()].sort(compareSpecifiers).map((specifier) => {
+    const { names, typeOnly } = entries.get(specifier)!;
+    return `import ${typeOnly ? "type " : ""}{ ${[...names].sort().join(", ")} } from ${q(specifier)};`;
   });
-  w.write(",").newLine();
-  w.setIndentationLevel(w.getIndentationLevel() - 1);
-  w.writeLine(");");
+}
+
+function valueObjectLaws(model: DomainConceptModel, examples: readonly string[]): string {
+  const name = model.name;
+  const base = valueTypeOf(model);
+  const hostile = hostileExpressionsFor(base, examples);
+  const sample = sampleFor({ model, examples });
+  const usesParse = sample?.parses ?? false;
+  // The round-trip and equality laws parse a sample's wire form, so every
+  // file with a sample needs the helper; so does an identifier's.
+  const needsHelper = sample !== undefined;
+
+  const importMap = new Map<string, { names: Set<string>; typeOnly: boolean }>();
+  importMap.set("bun:test", { names: new Set(["describe", "expect", "test"]), typeOnly: false });
+  if (needsHelper) importMap.set(RESULT_SPECIFIER, { names: new Set(["Result"]), typeOnly: true });
+  importMap.set(`./${model.stem}.ts`, { names: new Set([name]), typeOnly: false });
+
+  const w = new Writer();
+  for (const l of header(model)) w.line(l);
+  for (const l of imports(importMap)) w.line(l);
+  w.line();
+  w.line("/** Inputs no value of this type may accept, labelled so a failing law names them. */");
+  w.open("const HOSTILE_INPUTS: readonly (readonly [string, unknown])[] = [");
+  for (const expr of hostile) w.line(`[${q(expr)}, ${expr}],`);
+  w.close("];");
+  if (needsHelper) {
+    w.line();
+    for (const l of MUST_PARSE) w.line(l);
+  }
+  w.line();
+  const kindLabel = model.kind === "identifier" ? "identifier" : "value-object";
+  w.open(`describe(${q(`${name} — ${kindLabel} laws (generated)`)}, () => {`);
+
+  w.open(`test("parse refuses every hostile input", () => {`);
+  w.line(`const wronglyAccepted = HOSTILE_INPUTS.filter(([, raw]) => ${name}.parse(raw).ok).map(([label]) => label);`);
+  w.line("expect(wronglyAccepted).toEqual([]);");
+  w.close("});");
+  w.line();
+  w.open(`test("parse gives a reason for every refusal", () => {`);
+  w.open("const silent = HOSTILE_INPUTS.filter(([, raw]) => {");
+  w.line(`const result = ${name}.parse(raw);`);
+  w.line(`return !result.ok && !(typeof result.error === "string" && result.error.trim() !== "");`);
+  w.close("}).map(([label]) => label);");
+  w.line("expect(silent).toEqual([]);");
+  w.close("});");
+
+  if (sample !== undefined) {
+    const a = sample.first;
+    const reparse = (x: string): string => `mustParse(${name}.parse(${x}.toJSON()), ${q(`${name}.parse(toJSON())`)})`;
+    if (usesParse) {
+      w.line();
+      w.open(`test("parse accepts the contract's @accepts examples", () => {`);
+      for (const ex of examples) w.line(`expect(${name}.parse(${ex}).ok).toBe(true);`);
+      w.close("});");
+    }
+    w.line();
+    w.open(`test("toJSON is the ${base} wire form", () => {`);
+    w.line(`expect(typeof ${a}.toJSON()).toBe(${q(base)});`);
+    w.close("});");
+    w.line();
+    w.open(`test("toJSON round-trips through parse", () => {`);
+    w.line(`const a = ${a};`);
+    w.line(`const back = ${reparse("a")};`);
+    w.line("expect(back.equals(a)).toBe(true);");
+    w.line("expect(back.toJSON()).toStrictEqual(a.toJSON());");
+    w.close("});");
+    w.line();
+    w.open(`test("parses deterministically", () => {`);
+    w.line(`const a = ${a};`);
+    w.line(`expect(${reparse("a")}.toJSON()).toStrictEqual(${reparse("a")}.toJSON());`);
+    w.close("});");
+    w.line();
+    w.open(`test("equals is reflexive", () => {`);
+    w.line(`const a = ${a};`);
+    w.line("expect(a.equals(a)).toBe(true);");
+    w.close("});");
+    w.line();
+    w.open(`test("equals compares by value, not by reference", () => {`);
+    w.line(`const a = ${a};`);
+    w.line(`const b = ${reparse("a")};`);
+    w.line("expect(a.equals(b)).toBe(true);");
+    w.line("expect(b.equals(a)).toBe(true);");
+    w.close("});");
+    w.line();
+    {
+      w.open(`test("equals discriminates two different values", () => {`);
+      w.line(`const a = ${a};`);
+      w.line(`const other = ${sample.second};`);
+      w.line("expect(a.equals(other)).toBe(false);");
+      w.line("expect(other.equals(a)).toBe(false);");
+      w.close("});");
+    }
+    if (model.kind === "identifier") {
+      w.line();
+      w.open(`test("generate yields distinct identifiers", () => {`);
+      w.line(`expect(${name}.generate().equals(${name}.generate())).toBe(false);`);
+      w.close("});");
+    }
+  }
+  w.close("});");
+  return w.toString();
+}
+
+/** Locals the entity laws declare beside one `const` per field. */
+const RESERVED_LOCALS: ReadonlySet<string> = new Set([
+  "a", "sameId", "otherId", "json", "mustParse", "describe", "expect", "test", "Result",
+]);
+
+function entityLaws(model: DomainConceptModel, lookup: ConceptLookup): string {
+  const name = model.name;
+  const specifierOf = new Map<string, string>();
+  for (const imp of model.imports) for (const n of imp.names) specifierOf.set(n, imp.specifier);
+
+  const samples = new Map<string, Sample>();
+  for (const field of model.fields) {
+    const conceptName = field.type.kind === "concept" ? field.type.name : field.type.text;
+    const source = lookup(conceptName);
+    if (source === undefined) {
+      throw new ValueObjectLawsError(
+        `value-object-laws: ${model.contractPath}: ${name}.${field.name} is '${conceptName}', which is not a concept contract in this domain`,
+      );
+    }
+    if (source.model.kind === "entity") {
+      throw new ValueObjectLawsError(
+        `value-object-laws: ${model.contractPath}: ${name}.${field.name} holds the entity '${conceptName}' — an entity refers to another entity by its id value object only`,
+      );
+    }
+    // a value object without two examples throws here, naming its contract
+    samples.set(field.name, sampleFor(source)!);
+  }
+
+  const idField = model.fields[0]!;
+  const idConcept = idField.type.kind === "concept" ? idField.type.name : idField.type.text;
+  const identifierFields = model.fields.filter((f) => f.type.kind === "concept" && lookup(f.type.name)?.model.kind === "identifier");
+  const needsHelper = [...samples.values()].some((s) => s.parses) || identifierFields.length > 0;
+
+  const importMap = new Map<string, { names: Set<string>; typeOnly: boolean }>();
+  importMap.set("bun:test", { names: new Set(["describe", "expect", "test"]), typeOnly: false });
+  if (needsHelper) importMap.set(RESULT_SPECIFIER, { names: new Set(["Result"]), typeOnly: true });
+  importMap.set(`./${model.stem}.ts`, { names: new Set([name]), typeOnly: false });
+  for (const field of model.fields) {
+    const conceptName = field.type.kind === "concept" ? field.type.name : field.type.text;
+    const specifier = implementationSpecifierOf(specifierOf.get(conceptName)!);
+    const entry = importMap.get(specifier) ?? { names: new Set<string>(), typeOnly: false };
+    entry.names.add(conceptName);
+    importMap.set(specifier, entry);
+  }
+
+  const w = new Writer();
+  for (const l of header(model)) w.line(l);
+  for (const l of imports(importMap)) w.line(l);
+  if (needsHelper) {
+    w.line();
+    for (const l of MUST_PARSE) w.line(l);
+  }
+  w.line();
+  w.open(`describe(${q(`${name} — entity laws (generated)`)}, () => {`);
+  const clash = model.fields.find((f) => RESERVED_LOCALS.has(f.name));
+  if (clash !== undefined) {
+    throw new ValueObjectLawsError(
+      `value-object-laws: ${model.contractPath}: ${name}.${clash.name} shadows a name the generated laws use — rename the field`,
+    );
+  }
+  const firsts = model.fields.map((f) => samples.get(f.name)!.first);
+  const construct = (args: readonly string[]): string => `new ${name}(${args.join(", ")})`;
+
+  w.open(`test("equals compares by identity, not by content", () => {`);
+  w.line(`const id = ${firsts[0]};`);
+  const rest = model.fields.slice(1);
+  rest.forEach((f, i) => w.line(`const ${f.name} = ${firsts[i + 1]};`));
+  const others = rest.map((f) => samples.get(f.name)!.second);
+  w.line(`const a = ${construct(["id", ...rest.map((f) => f.name)])};`);
+  w.line(`const sameId = ${construct(["id", ...others])};`);
+  w.line(`const otherId = ${construct([samples.get(idField.name)!.second, ...rest.map((f) => f.name)])};`);
+  w.line("expect(a.equals(a)).toBe(true);");
+  w.line("expect(a.equals(sameId)).toBe(true);");
+  w.line("expect(sameId.equals(a)).toBe(true);");
+  w.line("expect(a.equals(otherId)).toBe(false);");
+  w.line("expect(otherId.equals(a)).toBe(false);");
+  w.close("});");
+  w.line();
+
+  w.open(`test("toJSON is each field's own wire form", () => {`);
+  model.fields.forEach((f, i) => w.line(`const ${f.name} = ${firsts[i]};`));
+  w.line(`const json = ${construct(model.fields.map((f) => f.name))}.toJSON();`);
+  for (const f of model.fields) w.line(`expect(json.${f.name}).toStrictEqual(${f.name}.toJSON());`);
+  w.close("});");
+
+  if (identifierFields.length > 0) {
+    w.line();
+    w.open(`test("every id in toJSON parses back to the same identifier", () => {`);
+    model.fields.forEach((f, i) => w.line(`const ${f.name} = ${firsts[i]};`));
+    w.line(`const json = ${construct(model.fields.map((f) => f.name))}.toJSON();`);
+    for (const f of identifierFields) {
+      const concept = f.type.kind === "concept" ? f.type.name : idConcept;
+      w.line(`expect(mustParse(${concept}.parse(json.${f.name}), ${q(`${concept}.parse(json.${f.name})`)}).equals(${f.name})).toBe(true);`);
+    }
+    w.close("});");
+  }
+  w.close("});");
+  return w.toString();
 }
 
 /**
- * Emit the law suite for one contract. Pure: source in, source out.
- *
- * Throws ValueObjectLawsError when the contract declares no exported class —
- * an empty vitest file is a SUITE ERROR, which the red gate reads as "suite did
- * not run", so refusing to write one is the point. Call `valueObjectsOf` first
- * if you need to ask without catching.
+ * The laws file for one domain concept. `examples` are the concept's own
+ * `@accepts` examples; `lookup` finds the other concepts of the same domain
+ * (an entity's fields). Throws ValueObjectLawsError when an entity names a
+ * field concept the domain does not declare, or holds another entity.
  */
-export function valueObjectLawsSource(
-  contractSource: string,
-  contractFileName: string,
-  options: ValueObjectLawsOptions = {},
+export function conceptLawsSource(
+  model: DomainConceptModel,
+  examples: readonly string[],
+  lookup: ConceptLookup,
 ): string {
-  const contractBase = basename(toPosix(contractFileName));
-  const valueObjects = valueObjectsOf(contractSource, contractFileName);
-  if (valueObjects.length === 0) {
-    fail(
-      `${contractBase} declares no exported class, so it has no value objects and no laws — do not write a laws file for it (an empty vitest file is a suite error, which the red gate reads as a broken suite)`,
-    );
-  }
-
-  const implModule = options.implementationModule ?? implementationModuleFor(contractFileName);
-  const testable = valueObjects.filter((vo) => vo.unsupported === undefined);
-  const withExample = testable.filter((vo) => vo.accepts.length > 0);
-
-  const w = new CodeBlockWriter({ newLine: "\n", indentNumberOfSpaces: 2, useSingleQuote: false, useTabs: false });
-
-  for (const line of HEADER(contractBase)) w.writeLine(line);
-  w.blankLine();
-  w.writeLine(`import { describe, expect, test } from "vitest";`);
-  // Only classes that are actually referenced are imported: an unused import
-  // is a compile error under noUnusedLocals, and a laws file that does not
-  // compile is a wrong-reason red at the worst possible moment.
-  if (testable.length > 0) {
-    w.writeLine(`import { ${testable.map((vo) => vo.name).join(", ")} } from ${q(implModule)};`);
-  }
-
-  if (testable.length > 0) {
-    w.blankLine();
-    w.writeLine("/** Inputs no value object may accept, whatever its domain. Labelled so a");
-    w.writeLine(" *  failing law names which ones wrongly got through. */");
-    w.writeLine("const HOSTILE_INPUTS: readonly (readonly [string, unknown])[] = [");
-    w.setIndentationLevel(1);
-    for (const expr of HOSTILE_INPUT_EXPRESSIONS) w.writeLine(`[${q(expr)}, ${expr}],`);
-    w.setIndentationLevel(0);
-    w.writeLine("];");
-  }
-
-  if (withExample.length > 0) {
-    w.blankLine();
-    w.writeLine("/** Narrow a parse result without a cast. A throwing skeleton never reaches");
-    w.writeLine(" *  this line: its NotImplementedError propagates first, which is what the");
-    w.writeLine(" *  red gate is looking for. */");
-    w.write("function mustParse<T>(result: T | undefined | null, what: string): T").block(() => {
-      w.write("if (result === undefined || result === null)").block(() => {
-        w.writeLine(
-          "throw new Error(`${what} rejected the @accepts example from the contract — fix the tag, or fix the parser`);",
-        );
-      });
-      w.writeLine("return result;");
-    });
-  }
-
-  for (const vo of valueObjects) {
-    w.blankLine();
-    w.write(`describe(${q(`${vo.name} — value-object laws (generated)`)}, () => `).inlineBlock(() => {
-      writeLaws(w, vo, contractBase);
-    });
-    w.write(");").newLine();
-  }
-
-  let text = w.toString();
-  if (!text.endsWith("\n")) text += "\n";
-  return text;
-}
-
-function writeLaws(w: CodeBlockWriter, vo: ValueObjectInfo, contractBase: string): void {
-  const { name } = vo;
-
-  if (vo.unsupported !== undefined) {
-    skipMarker(
-      w,
-      `${name}: no laws generated — ${vo.unsupported}. Fix ${contractBase} and re-generate.`,
-      `${name} carries no value-object laws: ${vo.unsupported}`,
-    );
-    return;
-  }
-
-  // Law 1 — needs no example, so it runs for every value object.
-  const hostiles = hostileExpressionsFor(vo);
-  w.write(`test("refuses every hostile input", () => `).inlineBlock(() => {
-    w.writeLine("// The corpus entries hostile to THIS value object's base primitive:");
-    w.writeLine("// cross-type inputs, plus same-type pathological sentinels. Same-type");
-    w.writeLine("// ordinary values (a range decision) and this VO's own @accepts");
-    w.writeLine("// examples are excluded — see the generator's hostileExpressionsFor.");
-    w.write("const applicable = new Set<string>([");
-    w.newLine();
-    w.setIndentationLevel(w.getIndentationLevel() + 1);
-    for (const expr of hostiles) w.writeLine(`${q(expr)},`);
-    w.setIndentationLevel(w.getIndentationLevel() - 1);
-    w.writeLine("]);");
-    w.writeLine("const wronglyAccepted = HOSTILE_INPUTS");
-    w.setIndentationLevel(w.getIndentationLevel() + 1);
-    w.writeLine(".filter(([label]) => applicable.has(label))");
-    w.write(".filter(([, raw]) => ").inlineBlock(() => {
-      w.writeLine(`const result = ${name}.parse(raw);`);
-      w.writeLine("return result !== undefined && result !== null;");
-    });
-    w.write(")").newLine();
-    w.writeLine(".map(([label]) => label);");
-    w.setIndentationLevel(w.getIndentationLevel() - 1);
-    w.writeLine("expect(wronglyAccepted).toEqual([]);");
-  });
-  w.write(");").newLine();
-
-  const first = vo.accepts[0];
-  if (first === undefined) {
-    w.blankLine();
-    skipMarker(
-      w,
-      `${name}: the laws needing a valid example are SKIPPED — add a JSDoc \`@accepts <expression>\` tag to \`declare class ${name}\` in ${contractBase} (e.g. \`@accepts "USD"\`), and a second \`@accepts\` so equality can be checked to discriminate. Skipped rather than failed: this file runs in the red gate, which rejects any failure that is not a NotImplementedError.`,
-      `${name} has no @accepts example in ${contractBase}`,
-    );
-    return;
-  }
-
-  const parseFirst = `${name}.parse(${first})`;
-  const mustFirst = `mustParse(${parseFirst}, ${q(parseFirst)})`;
-
-  // Law 2 — equal by value, not by reference.
-  w.blankLine();
-  w.write(`test("is equal by value, not by reference", () => `).inlineBlock(() => {
-    w.writeLine(`const a = ${mustFirst};`);
-    w.writeLine(`const b = ${mustFirst};`);
-    w.writeLine("// Content equality is the law. Identity deliberately is NOT: interning");
-    w.writeLine("// (returning a cached instance for the same input) is a legitimate");
-    w.writeLine("// value-object implementation, and a law that fires on a correct design");
-    w.writeLine("// gets switched off. The reference-based `equals` that distinct");
-    w.writeLine("// identities would have caught is checked below instead, where it can");
-    w.writeLine("// be checked without forbidding interning.");
-    w.writeLine("expect(a).toStrictEqual(b);");
-  });
-  w.write(");").newLine();
-
-  // Law 3 — deterministic.
-  w.blankLine();
-  w.write(`test("parses deterministically", () => `).inlineBlock(() => {
-    w.writeLine(`expect(${mustFirst}).toStrictEqual(${mustFirst});`);
-  });
-  w.write(");").newLine();
-
-  // Law 3b — the wire round trip (TN-26-004). Only for value objects that
-  // DECLARE a wire form: toJSON() is the opt-in, made when the value crosses
-  // an API boundary. JSON.stringify exercises toJSON exactly as the transport
-  // will, nesting included, and the parse door must accept what it emitted.
-  if (vo.hasToJson) {
-    w.blankLine();
-    w.write(`test("round-trips through its wire form", () => `).inlineBlock(() => {
-      w.writeLine(`const v = ${mustFirst};`);
-      w.writeLine("const wire: unknown = JSON.parse(JSON.stringify(v));");
-      w.writeLine(
-        `const again = mustParse(${name}.parse(wire), ${q(`${name}.parse(<its own wire form>)`)});`,
-      );
-      w.writeLine("expect(again).toStrictEqual(v);");
-    });
-    w.write(");").newLine();
-  }
-
-  if (!vo.hasEquals) return;
-
-  // Law 4 — equals.
-  const second = vo.accepts[1];
-
-  w.blankLine();
-  w.write(`test("equals is reflexive", () => `).inlineBlock(() => {
-    w.writeLine(`const a = ${mustFirst};`);
-    w.writeLine("expect(a.equals(a)).toBe(true);");
-  });
-  w.write(");").newLine();
-
-  w.blankLine();
-  w.write(`test("equals is not reference-based", () => `).inlineBlock(() => {
-    w.writeLine(`const a = ${mustFirst};`);
-    w.writeLine(`const b = ${mustFirst};`);
-    w.writeLine("// Two parses of the same input must be equal. If the implementation");
-    w.writeLine("// interns, a and b ARE the same instance and `equals` by reference is");
-    w.writeLine("// correct — so the discriminating case only exists when they differ.");
-    w.writeLine("expect(a.equals(b)).toBe(true);");
-    w.write("if (a !== b) ").inlineBlock(() => {
-      w.writeLine("// Not interned: an `equals` that compares references would now be");
-      w.writeLine("// wrong for every other pair, so prove it compares content.");
-      w.writeLine("expect(Object.is(a, b)).toBe(false);");
-      w.writeLine("expect(a.equals(b)).toBe(true);");
-    });
-    w.newLine();
-  });
-  w.write(");").newLine();
-
-  w.blankLine();
-  w.write(`test("equals is symmetric", () => `).inlineBlock(() => {
-    w.writeLine(`const a = ${mustFirst};`);
-    w.writeLine(`const b = ${mustFirst};`);
-    w.writeLine("expect(a.equals(b)).toBe(b.equals(a));");
-  });
-  w.write(");").newLine();
-
-  w.blankLine();
-  if (second === undefined) {
-    skipMarker(
-      w,
-      `${name}: "equals discriminates" is SKIPPED — it needs a SECOND, different valid input. Add a second \`@accepts\` tag to \`declare class ${name}\` in ${contractBase}. Skipped rather than failed: this file runs in the red gate, which rejects any failure that is not a NotImplementedError.`,
-      `${name} has only one @accepts example, so equality cannot be shown to discriminate`,
-    );
-    return;
-  }
-  const parseSecond = `${name}.parse(${second})`;
-  const mustSecond = `mustParse(${parseSecond}, ${q(parseSecond)})`;
-  w.write(`test("equals discriminates two different valid inputs", () => `).inlineBlock(() => {
-    w.writeLine(`const a = ${mustFirst};`);
-    w.writeLine(`const other = ${mustSecond};`);
-    w.writeLine("expect(a.equals(other)).toBe(false);");
-    w.writeLine("expect(other.equals(a)).toBe(false);");
-  });
-  w.write(");").newLine();
-}
-
-// --- CLI ------------------------------------------------------------------------
-
-// Symlink-safe main check (invoked via the ~/.pi/agent symlink): compare realpaths.
-function isMainModule(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isMainModule()) {
-  const arg = process.argv[2];
-  if (!arg) {
-    console.error("usage: node value-object-laws.ts <path/to/foo.contract.ts>   (run from the project root)");
-    process.exit(2);
-  }
-  const cwd = process.cwd();
-  const contractPath = toPosix(relative(cwd, resolve(cwd, arg)));
-  try {
-    const source = readFileSync(resolve(cwd, arg), "utf8");
-    const valueObjects = valueObjectsOf(source, contractPath);
-    if (valueObjects.length === 0) {
-      console.log(`value-object-laws: ${contractPath} declares no exported class — nothing to generate`);
-      process.exit(0);
-    }
-    const text = valueObjectLawsSource(source, contractPath);
-    const out = resolve(cwd, lawsPathFor(contractPath));
-    mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, text);
-    console.log(`value-object-laws: wrote ${lawsPathFor(contractPath)} (${valueObjects.length} value object(s))`);
-
-    // The gaps a skip cannot shout about. Warn here, where the architect is
-    // standing, rather than failing inside the red gate where the message
-    // would be routed to the wrong role.
-    for (const vo of valueObjects) {
-      if (vo.unsupported !== undefined) {
-        console.error(`value-object-laws: WARN — ${vo.unsupported}; its laws are skipped`);
-      } else if (vo.accepts.length === 0) {
-        console.error(
-          `value-object-laws: WARN — '${vo.name}' has no '@accepts' example, so only the hostile-input law runs; add '@accepts "…"' to ${contractPath}`,
-        );
-      } else if (vo.hasEquals && vo.accepts.length < 2) {
-        console.error(
-          `value-object-laws: WARN — '${vo.name}' has one '@accepts' example, so 'equals discriminates' is skipped; add a second tag to ${contractPath}`,
-        );
-      }
-    }
-  } catch (e) {
-    if (e instanceof ValueObjectLawsError) {
-      console.error(e.message);
-      process.exit(1);
-    }
-    throw e;
-  }
+  return model.kind === "entity" ? entityLaws(model, lookup) : valueObjectLaws(model, examples);
 }

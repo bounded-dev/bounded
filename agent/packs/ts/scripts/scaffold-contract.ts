@@ -3,6 +3,15 @@
 //   src/orders/orders.contract.ts  →  src/orders/orders.ts   (fixed naming rule)
 //   src/ui/badge.contract.ts       →  src/ui/badge.tsx       (declares a component)
 //
+// DOMAIN CONCEPTS (ADR 2026-059/060) do not take the path described below: a
+// contract at contexts/<ctx>/src/domain/<area>/<concept>.contract.ts is
+// scaffolded by the domain emitter's functions (domain-emitter.ts), which
+// write the `<Name>Impl` skeleton only where no file exists and regenerate the
+// colocated `<concept>.laws.test.ts` (see "domain concepts" above runScaffold).
+// Everything else here is the flat-layout scaffolder the gates still call
+// until they move to the emitter socket; its `declare class` handling serves
+// only contracts that contract-purity now refuses.
+//
 // Contracts are always `.ts` — declaration-only files have no JSX to spell —
 // but a contract whose exported surface returns a React element scaffolds to a
 // `.tsx` sibling, because the builder's replacement for that skeleton will
@@ -22,14 +31,11 @@
 // module (template convention: <root>/shared/errors.ts) so its identity is
 // stable across components and gates.
 //
-// ONE CLASS IDENTITY PER VALUE OBJECT (ADR 2026-023). A contract's
-// `declare class Money` and the runtime `class Money` in its sibling
-// implementation module are two declarations of the same private `__brand`,
-// and TypeScript treats those as unrelated nominal types. So a contract may
-// NOT import types from another contract's `*.contract.ts`: it imports them
-// from that contract's IMPLEMENTATION module (`../values/values.js`), which
-// re-exports every type its contract declares and shadows the ambient class
-// with the real one. Anything else is rejected below, loudly, with the fix.
+// CONTRACTS IMPORT ONLY CONTRACTS (ADR 2026-059). The retired rule here was
+// the opposite (reach a value object through its implementation module, ADR
+// 2026-023). Now the backstop below asks contract-imports-contracts-only's
+// own predicate, so the scaffolder refuses exactly what contract-purity
+// refuses: lint-passing implies scaffoldable.
 //
 // v1 known limits (fail loudly, by design): enums (use string-literal
 // unions — the declaration-only lint rule agrees), value exports inside
@@ -52,13 +58,22 @@ import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
-import { lawsPathFor, ValueObjectLawsError, valueObjectLawsSource, valueObjectsOf } from "./value-object-laws.ts";
+import { conceptLawsSource, ValueObjectLawsError, type ConceptSampleSource } from "./value-object-laws.ts";
+import {
+  acceptsExamplesOf,
+  DomainConceptError,
+  isDomainConceptPath,
+  lawsPathOf,
+  parseDomainConcept,
+} from "./domain-concept.ts";
+import { implementationSkeleton, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
 import { findContractFiles, findFilesUnder } from "./checksum-gate.ts";
 import { mergedContribution } from "../../../src/pack-contrib.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
-import { composedPacks } from "../../installed.ts";
+import { composedPacks, installedPacks } from "../../installed.ts";
 import { contractSupportFiles, type ContractSupportFile } from "../pack.ts";
 import { containedSupportTargets } from "./support-targets.ts";
+import { contractImportProblem } from "../eslint/rules/contract-imports-contracts-only.ts";
 import type {
   ClassDeclaration,
   ClassMemberTypes,
@@ -274,6 +289,19 @@ function isOwnArtifact(source: string): boolean {
 // from the composed pack that owns the capability (`contractSupportFiles`). A
 // project that did not compose that pack gets nothing shipped.
 
+/**
+ * The module names of every installed pack's shipped support files
+ * (`service-runtime` for `packs/ts-service/api/service-runtime.ts`): the
+ * relative imports `contract-imports-contracts-only` lets a contract make,
+ * because the file is generated machinery, not builder code (ADR 2026-046).
+ * The pure scaffolder asks the INSTALLED set so it never refuses what a
+ * composition's purity gate accepted; which files ship is still decided by
+ * the composition (`contractSupportFor`).
+ */
+export function supportModuleNames(files: readonly ContractSupportFile[] = installedPacks().read(contractSupportFiles)): string[] {
+  return [...new Set(files.map((f) => basename(f.canonical).replace(/\.[cm]?[jt]sx?$/, "")))].sort();
+}
+
 /** The support files the project's composed packs contribute. */
 export function contractSupportFor(cwd: string): readonly ContractSupportFile[] {
   return composedPacks(cwd).read(contractSupportFiles);
@@ -352,14 +380,6 @@ function relativeSpecifier(fromFile: string, toModuleNoExt: string): string {
 
 function fail(message: string): never {
   throw new ScaffoldError(`scaffold: ${message}`);
-}
-
-/** `./values.contract.js` → `./values.js`; anything that is not a contract
- *  module → undefined. Extension is preserved (NodeNext writes `.js`; a
- *  bare `./values.contract` keeps its bare form). */
-export function implementationSpecifierFor(moduleSpecifier: string): string | undefined {
-  const m = /^(.*)\.contract(\.[cm]?[jt]s)?$/.exec(moduleSpecifier);
-  return m === null ? undefined : `${m[1]}${m[2] ?? ""}`;
 }
 
 // --- AST collection -----------------------------------------------------------
@@ -522,8 +542,14 @@ function renderClass(node: ClassDeclaration): ValueExport & { kind: "class" } {
   return { kind: "class", name, head, members, nominal };
 }
 
-function collect(sf: SourceFile): ContractInfo {
+function collect(sf: SourceFile, contractPath: string = sf.getFilePath()): ContractInfo {
   const info: ContractInfo = { values: [], exportedTypes: [], localTypes: [], imports: [] };
+  // BACKSTOP for contract-imports-contracts-only: an `import("…")` type is an
+  // import no declaration shows, refused whatever it names.
+  const importType = sf.getFirstDescendantByKind(SyntaxKind.ImportType);
+  if (importType !== undefined) {
+    fail(`'${sf.getBaseName()}' uses '${importType.getText()}' — declare the import at the top as 'import type { … }' (contract-imports-contracts-only)`);
+  }
 
   for (const stmt of sf.getStatements()) {
     if (Node.isImportDeclaration(stmt)) {
@@ -551,31 +577,14 @@ function collect(sf: SourceFile): ContractInfo {
         if (!typeOnly) {
           fail(`value import '${source}' in contract — use 'import type' (declaration-only lint should have caught this)`);
         }
-        // ONE IDENTITY PER VALUE OBJECT (ADR 2026-023). BACKSTOP: contract-purity's
-        // `no-cross-contract-type-import` rule now catches this at the FIRST
-        // design_gate step, and names the rule-id in the architect brief; this
-        // fail() is the last line if purity is ever bypassed (ADR 2026-027).
-        // Reaching into a sibling
-        // CONTRACT picks up its ambient `declare class`, which is a second,
-        // nominally distinct declaration of the same private `__brand` — so a
-        // test that builds the value through the only legal route (the runtime
-        // class in the implementation module) cannot pass it to any operation
-        // declared this way. That is r15's 41-error unsatisfiable red, and no
-        // amount of skeleton rewriting fixes it, because the contract's own
-        // interfaces carry the wrong identity too. The implementation module
-        // re-exports every type its contract declares, so the fix is total.
-        const implSpecifier = implementationSpecifierFor(source);
-        if (implSpecifier !== undefined) {
-          const what = named.length > 0 ? named.slice().sort().join(", ") : "types";
-          fail(
-            `'${sf.getBaseName()}' imports { ${what} } from "${source}" — a contract's ambient ` +
-              `declarations are a SECOND identity: a value object declared there is nominally distinct from ` +
-              `the runtime class in that contract's implementation module, and TypeScript rejects every value ` +
-              `built through the real class with "separate declarations of a private property '__brand'". ` +
-              `There is exactly one identity per value object, so import the implementation module instead — ` +
-              `it re-exports every type its contract declares: ` +
-              `import type { ${what} } from "${implSpecifier}";`,
-          );
+        // CONTRACTS IMPORT ONLY CONTRACTS (ADR 2026-059). BACKSTOP:
+        // contract-purity's `contract-imports-contracts-only` rule catches this
+        // at the FIRST design_gate step; this fail() is the last line if purity
+        // is ever bypassed (ADR 2026-027), and it asks the rule's own predicate,
+        // so the two can never disagree about what a contract may import.
+        const problem = contractImportProblem(source, contractPath, supportModuleNames());
+        if (problem !== undefined) {
+          fail(`'${sf.getBaseName()}' imports from "${source}": ${problem.text} (contract-imports-contracts-only)`);
         }
         info.imports.push({ source, names: named, verbatim: stmt.getText() });
       }
@@ -635,18 +644,14 @@ function collect(sf: SourceFile): ContractInfo {
     }
     if (Node.isExportDeclaration(stmt)) {
       if (!stmt.isTypeOnly()) fail("value re-export in contract — use 'export type …'");
-      // Re-exporting another contract's declarations launders the second
-      // identity into this contract's surface, which is the same defect one
-      // level of indirection further out. BACKSTOP: contract-purity's
-      // `no-cross-contract-type-import` rule catches this re-export form first
-      // (ADR 2026-027); this fail() is the last line if purity is bypassed.
+      // A contract declares its own names and re-exports nothing. BACKSTOP:
+      // contract-purity's `contract-imports-contracts-only` rule refuses every
+      // re-export first (ADR 2026-059); this fail() is the last line.
       const from = stmt.getModuleSpecifierValue();
-      const implSpecifier = from === undefined ? undefined : implementationSpecifierFor(from);
-      if (from !== undefined && implSpecifier !== undefined) {
+      if (from !== undefined) {
         fail(
-          `'${sf.getBaseName()}' re-exports from "${from}" — a contract's ambient declarations are a ` +
-            `SECOND identity for every value object they declare. Re-export the implementation module ` +
-            `instead: export type … from "${implSpecifier}";`,
+          `'${sf.getBaseName()}' re-exports from "${from}" — a contract declares its own names and re-exports ` +
+            "nothing (contract-imports-contracts-only); import the names where they are used",
         );
       }
       continue;
@@ -921,6 +926,90 @@ export function scaffoldContract(
  * carrying the generated marker. Real work is never a casualty of re-running
  * a generator (ADR 2026-023).
  */
+// --- domain concepts (ADR 2026-059, TN-26-012) ---------------------------------
+//
+// A domain concept contract (`contexts/<ctx>/src/domain/<area>/<concept>.contract.ts`)
+// is scaffolded by the domain emitter's own functions, not by the legacy
+// declare-class path below: the skeleton is `<Name>Impl` plus the two-export
+// tail, written only where no file exists (a skeleton is builder-owned once
+// written, ADR 2026-060), and the colocated laws are regenerated every run.
+// The red-phase errors module lands at `domain/shared/errors.ts`, where the
+// skeleton imports it from.
+
+interface DomainScaffold {
+  /** Every domain concept in the project, by context directory then name. */
+  readonly byContext: ReadonlyMap<string, ReadonlyMap<string, ConceptSampleSource>>;
+}
+
+function readDomainConcepts(cwd: string): DomainScaffold {
+  const byContext = new Map<string, Map<string, ConceptSampleSource>>();
+  for (const abs of findContractFiles(cwd)) {
+    const rel = relative(cwd, abs).split(sep).join("/");
+    if (!isDomainConceptPath(rel)) continue;
+    const source = readFileSync(abs, "utf8");
+    const model = parseDomainConcept(rel, source);
+    const concepts = byContext.get(model.context) ?? new Map<string, ConceptSampleSource>();
+    const clash = concepts.get(model.name);
+    if (clash !== undefined) {
+      throw new DomainConceptError(`${rel}: '${model.name}' is also declared by ${clash.model.contractPath} — a concept name is unique within its context`);
+    }
+    concepts.set(model.name, { model, examples: acceptsExamplesOf(rel, source, model.name) });
+    byContext.set(model.context, concepts);
+  }
+  return { byContext };
+}
+
+function scaffoldDomainConcept(
+  cwd: string,
+  rel: string,
+  contractText: string,
+  domain: DomainScaffold,
+  generated: Set<string>,
+  lines: string[],
+): { code: number; lines: readonly string[] } | undefined {
+  let skeleton: string;
+  let laws: string;
+  try {
+    const model = parseDomainConcept(rel, contractText);
+    const concepts = domain.byContext.get(model.context) ?? new Map<string, ConceptSampleSource>();
+    skeleton = implementationSkeleton(model);
+    laws = conceptLawsSource(model, acceptsExamplesOf(rel, contractText, model.name), (n) => concepts.get(n));
+  } catch (e) {
+    if (!(e instanceof DomainConceptError) && !(e instanceof ValueObjectLawsError)) throw e;
+    logGuardEvent(cwd, { guard: "scaffold", verdict: "block", summary: e.message, detail: { contract: rel } });
+    return { code: 1, lines: [...lines, `scaffold: BLOCK — ${e.message}`] };
+  }
+
+  const errorsRel = posix.join(posix.dirname(posix.dirname(rel)), "shared", "errors.ts");
+  if (!existsSync(join(cwd, errorsRel))) {
+    mkdirSync(dirname(join(cwd, errorsRel)), { recursive: true });
+    writeFileSync(join(cwd, errorsRel), NOT_IMPLEMENTED_MODULE_SOURCE);
+    lines.push(`scaffold: created ${errorsRel} (red-phase errors module)`);
+  }
+
+  const implRel = rel.replace(/\.contract\.ts$/, ".ts");
+  if (existsSync(join(cwd, implRel))) {
+    lines.push(`scaffold: kept ${implRel} — a skeleton is written only where no file exists`);
+  } else {
+    writeFileSync(join(cwd, implRel), skeleton);
+    lines.push(`scaffold: wrote ${implRel}`);
+  }
+  // Kept or written, the implementation is never an orphan of this sync.
+  generated.add(resolve(cwd, implRel));
+
+  const lawsRel = lawsPathOf(rel);
+  writeFileSync(join(cwd, lawsRel), laws);
+  generated.add(resolve(cwd, lawsRel));
+  lines.push(`scaffold: wrote ${lawsRel} (domain laws)`);
+  logGuardEvent(cwd, {
+    guard: "scaffold",
+    verdict: "pass",
+    summary: `scaffolded ${rel}`,
+    detail: { contract: rel, skeleton: implRel, laws: lawsRel },
+  });
+  return undefined;
+}
+
 export function runScaffold(
   cwd: string,
   contractPaths?: readonly string[],
@@ -951,12 +1040,31 @@ export function runScaffold(
   // contract, and the prune at the end of a complete pass removes it.
   const generated = new Set<string>();
 
+  // Domain concepts (ADR 2026-059) are read as one set: an entity's laws are
+  // built from the value objects beside it, whichever contracts this run was
+  // asked to scaffold.
+  let domain: DomainScaffold;
+  try {
+    domain = readDomainConcepts(cwd);
+  } catch (e) {
+    if (!(e instanceof DomainConceptError)) throw e;
+    logGuardEvent(cwd, { guard: "scaffold", verdict: "block", summary: e.message });
+    return { code: 1, lines: [`scaffold: BLOCK — ${e.message}`] };
+  }
+
   for (const contractPath of contracts) {
     // Read ONCE. Every decision this iteration makes — what to generate, which
     // extension it lands on, whether it ships a runtime, whether it has laws —
     // must be taken over the same bytes, or a contract edited mid-run could be
     // scaffolded as one thing and named as another.
     const contractText = readFileSync(contractPath, "utf8");
+    const domainRel = relative(cwd, resolve(cwd, contractPath)).split(sep).join("/");
+    if (isDomainConceptPath(domainRel)) {
+      const blocked = scaffoldDomainConcept(cwd, domainRel, contractText, domain, generated, lines);
+      if (blocked !== undefined) return blocked;
+      implementable += 1;
+      continue;
+    }
     let skeleton: string;
     try {
       // Generate first: this is the step that rejects a bad contract, and it
@@ -1103,50 +1211,9 @@ export function runScaffold(
       }
     }
 
-    // The value-object law suite is generated from the same frozen contract, in
-    // the same breath, for the same reason the skeleton is: nobody hand-writes
-    // it, so nobody can forget it. Run 7's suite tested 6 of 15 exports and
-    // never touched a single parser.
-    //
-    // Blindness is untouched — the laws are derived from the CONTRACT, never
-    // from the tests, exactly like the skeleton. And a contract with no value
-    // objects simply has no laws to state, which is not an error.
-    const contractRel = relative(cwd, contractPath).split(sep).join("/");
-    // A contract with no value objects simply has no laws to state; anything
-    // else that goes wrong here is a real error and must be said out loud. An
-    // exception used as control flow would have hidden a genuine failure behind
-    // "nothing to generate" — which is how a gate stops being a gate.
-    if (valueObjectsOf(contractText, contractRel).length > 0) {
-      const lawsRel = lawsPathFor(contractRel);
-      const lawsPath = join(cwd, lawsRel);
-      let laws: string;
-      try {
-        laws = valueObjectLawsSource(contractText, contractRel);
-      } catch (e) {
-        if (!(e instanceof ValueObjectLawsError)) throw e;
-        logGuardEvent(cwd, {
-          guard: "scaffold",
-          verdict: "block",
-          summary: e.message,
-          detail: { contract: contractRel },
-        });
-        return { code: 1, lines: [...lines, e.message] };
-      }
-      mkdirSync(dirname(lawsPath), { recursive: true });
-      writeFileSync(lawsPath, laws);
-      generated.add(resolve(cwd, lawsPath));
-      lines.push(`scaffold: wrote ${lawsRel} (value-object laws)`);
-      logGuardEvent(cwd, {
-        guard: "scaffold",
-        verdict: "pass",
-        summary: `wrote ${lawsRel}`,
-        detail: { contract: contractRel, laws: lawsRel },
-      });
-    }
-    // A contract that has lost its last value object simply generates no laws
-    // file this run, so it is not in `generated` — the sync below removes the
-    // stale suite for exactly the same reason it removes a deleted contract's,
-    // and says so, where the old bespoke unlink was silent.
+    // Law suites are generated for domain concepts only (ADR 2026-059), in
+    // the domain branch above; the retired `declare class` form had its own
+    // and is refused at contract-purity.
   }
 
   if (implementable === 0) {

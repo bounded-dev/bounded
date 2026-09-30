@@ -1,16 +1,12 @@
 import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { valueObjectDocumented } from "./value-object-documented.ts";
+import { DOCUMENTED_CONCEPTS, exampleConcept } from "../../scripts/testdata/example-domain.ts";
 
-// TN-26-001 architect zone rule: every exported class (i.e. every value
-// object — see `value-object-shape` for that assumption) carries a doc comment
-// saying what makes an instance valid. `value-object-shape` checks the class
-// is nominal; this one checks the class says what it means, because the shape
-// is exactly the part of a value object that no downstream reader can infer.
-//
-// The valid[] list is the load-bearing half: a rule that fires on correct
-// designs gets switched off — so a one-line JSDoc, a multi-line one with
-// tags, and every export route all have to pass.
+// ADR 2026-059: every value object carries two different `@accepts` examples
+// (the generated laws' samples, so no law is ever skipped), each a literal of
+// the value's own type; an identifier is exempt (generate() samples it); a doc
+// comment is never empty; an entity takes no @accepts.
 
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
@@ -18,126 +14,80 @@ RuleTester.it = it;
 
 const ruleTester = new RuleTester();
 
+function vo(doc: string, valueType = "string", name = "ProjectName"): string {
+  return `import type { Result } from "../shared/result.ts";
+
+${doc}
+export interface ${name} {
+  readonly __brand: "${name}";
+  readonly value: ${valueType};
+  equals(other: ${name}): boolean;
+  toJSON(): ${valueType};
+}
+
+export interface ${name}Factory {
+  parse(raw: unknown): Result<${name}>;
+}
+`;
+}
+
+const TWO = '/**\n * The name of a project.\n * @accepts "Website relaunch"\n * @accepts "Office move"\n */';
+
+const ENTITY = `/**
+ * A project.
+ * @accepts "x"
+ */
+export interface Project {
+  readonly __brand: "Project";
+  readonly id: ProjectId;
+  equals(other: Project): boolean;
+  toJSON(): { readonly id: string };
+}
+
+export interface ProjectFactory {
+  new (id: ProjectId): Project;
+}
+`;
+
 ruleTester.run("value-object-documented", valueObjectDocumented, {
   valid: [
-    // --- the shape the skill prescribes, verbatim ---
-    `/** ISO-4217 alphabetic code: exactly three uppercase letters. */
-    export declare class Currency {
-      private readonly __brand: "Currency";
-      private constructor();
-      static parse(raw: unknown): Currency | undefined;
-    }`,
-    // multi-line, with the axes spelled out — what the test-writer needs
-    `/**
-     * A 13-digit ISBN: 13 digits, optionally hyphenated, with a valid
-     * check digit. Rejects ISBN-10 and rejects a wrong check digit.
-     */
-    export class Isbn {
-      private readonly __brand: "Isbn";
-      private constructor(readonly digits: string) {}
-      static parse(raw: unknown): Isbn | undefined { return undefined; }
-    }`,
-    // tags after the prose are fine — the body is non-empty
-    `/**
-     * Positive minor units of a currency.
-     * @see spec.md "Money"
-     */
-    export declare class Money { private readonly __brand: "Money"; }`,
-    // a single-line block that happens to hold the whole rule
-    `/** Exactly three uppercase ASCII letters. */ export declare class Currency {}`,
-
-    // --- every export route, documented ---
-    `/** Exactly three uppercase letters. */
-    export default class Currency {}`,
-    `/** Exactly three uppercase letters. */
-    class Currency {}
-    export { Currency };`,
-    `export declare namespace Money {
-      /** Exactly three uppercase letters. */
-      class Currency {}
-    }`,
-
-    // --- not the trigger ---
-    // unexported: internal scaffolding, not the contract's surface
-    "class Internal {}",
-    // interfaces and aliases are ports/DTOs — a different rule's business
-    "export interface Book { readonly isbn: Isbn }",
-    'export type Isbn = string & { readonly __brand: "Isbn" };',
-    "",
+    // the worked example as the gates require it: documented value objects,
+    // and identifiers and entities with no examples at all
+    ...DOCUMENTED_CONCEPTS.map((c) => c.contract),
+    vo(TWO),
+    vo('/** @accepts "Website relaunch"\n * @accepts "Office move" */'),
+    vo('/** Escapes are fine. @accepts is prose here.\n * @accepts "say \\"hi\\""\n * @accepts "bye"\n */'),
+    vo("/**\n * Pages read.\n * @accepts 0\n * @accepts 12.5\n * @accepts -3\n */", "number", "PagesRead"),
+    vo("/**\n * A flag.\n * @accepts true\n * @accepts false\n */", "boolean", "Flag"),
+    // an entity with a doc comment but no @accepts
+    ENTITY.replace(' * @accepts "x"\n', ""),
+    // interfaces that are not concepts are out of scope
+    '/** @accepts nonsense */\nexport interface Store { save(): Promise<void>; }',
   ],
-
   invalid: [
-    // --- absent ---
-    {
-      code: `export declare class Currency {
-        private readonly __brand: "Currency";
-        private constructor();
-        static parse(raw: unknown): Currency | undefined;
-      }`,
-      errors: [{ messageId: "missingDoc", data: { name: "Currency" } }],
-    },
-    {
-      // a line comment is not a doc comment: nothing downstream reads it as one
-      code: `// ISO-4217 alphabetic code: exactly three uppercase letters.
-      export declare class Currency {}`,
-      errors: [{ messageId: "missingDoc", data: { name: "Currency" } }],
-    },
-    {
-      // a plain block comment is not JSDoc either
-      code: `/* ISO-4217 alphabetic code. */
-      export declare class Currency {}`,
-      errors: [{ messageId: "missingDoc", data: { name: "Currency" } }],
-    },
-    {
-      // the comment belongs to the member, not the class
-      code: `export declare class Currency {
-        /** The three-letter code. */
-        readonly code: string;
-      }`,
-      errors: [{ messageId: "missingDoc", data: { name: "Currency" } }],
-    },
-
-    // --- present but says nothing ---
-    {
-      code: `/** */
-      export declare class Currency {}`,
-      errors: [{ messageId: "emptyDoc", data: { name: "Currency" } }],
-    },
-    {
-      code: `/**
-       *
-       */
-      export declare class Currency {}`,
-      errors: [{ messageId: "emptyDoc", data: { name: "Currency" } }],
-    },
-
-    // --- every export route is checked ---
-    {
-      code: "export default class Currency {}",
-      errors: [{ messageId: "missingDoc", data: { name: "Currency" } }],
-    },
-    {
-      code: `class Currency {}
-      export { Currency };`,
-      errors: [{ messageId: "missingDoc", data: { name: "Currency" } }],
-    },
-    {
-      code: `export declare namespace Money {
-        class Currency {}
-      }`,
-      errors: [{ messageId: "missingDoc", data: { name: "Currency" } }],
-    },
-
-    // --- one report per undocumented value object, in source order ---
-    {
-      code: `/** Exactly three uppercase letters. */
-      export declare class Currency {}
-      export declare class Money {}
-      export declare class Isbn {}`,
-      errors: [
-        { messageId: "missingDoc", data: { name: "Money" } },
-        { messageId: "missingDoc", data: { name: "Isbn" } },
-      ],
-    },
+    // the worked example's plain value objects, as the example ships them
+    { code: exampleConcept("note-text").contract, errors: [{ messageId: "missingAccepts", data: { name: "NoteText", found: "no doc comment", rule: "What makes a NoteText valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
+    { code: exampleConcept("project-name").contract, errors: [{ messageId: "missingAccepts" }] },
+    // a `//` comment is not a doc comment
+    { code: vo("// just a note"), errors: [{ messageId: "missingAccepts" }] },
+    { code: vo("/** The name of a project: not empty once trimmed. */"), errors: [{ messageId: "missingAccepts", data: { name: "ProjectName", found: "no @accepts tag", rule: "What makes a ProjectName valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
+    { code: vo('/** @accepts "Website relaunch" */'), errors: [{ messageId: "missingAccepts" }] },
+    // mid-sentence mentions are prose, not tags
+    { code: vo("/** Add an @accepts example when you know one. */"), errors: [{ messageId: "missingAccepts" }] },
+    // two examples that trim to one value
+    { code: vo('/**\n * @accepts "Office"\n * @accepts "  Office "\n */'), errors: [{ messageId: "sameAccepts" }] },
+    { code: vo('/**\n * @accepts "Office"\n * @accepts "Office"\n */'), errors: [{ messageId: "sameAccepts" }] },
+    { code: vo("/**\n * @accepts 3\n * @accepts 3\n */", "number", "PagesRead"), errors: [{ messageId: "sameAccepts" }] },
+    { code: vo("/** */"), errors: [{ messageId: "emptyDoc", data: { name: "ProjectName" } }, { messageId: "missingAccepts" }] },
+    // an example that is not a literal, or not of the value's type
+    { code: vo('/**\n * @accepts Website relaunch\n * @accepts "Office move"\n */'), errors: [{ messageId: "badAccepts" }] },
+    { code: vo("/**\n * @accepts 'Website'\n * @accepts \"Office move\"\n */"), errors: [{ messageId: "badAccepts" }] },
+    { code: vo('/**\n * @accepts "Website" // the usual\n * @accepts "Office move"\n */'), errors: [{ messageId: "badAccepts" }] },
+    { code: vo('/**\n * @accepts 42\n * @accepts "Office move"\n */'), errors: [{ messageId: "badAccepts", data: { name: "ProjectName", example: "42", type: "string", sample: '@accepts "Website relaunch"' } }] },
+    { code: vo('/**\n * @accepts "12"\n * @accepts 3\n */', "number", "PagesRead"), errors: [{ messageId: "badAccepts" }] },
+    { code: vo("/**\n * @accepts 1e3\n * @accepts 3\n */", "number", "PagesRead"), errors: [{ messageId: "badAccepts" }] },
+    { code: vo('/**\n * @accepts "true"\n * @accepts false\n */', "boolean", "Flag"), errors: [{ messageId: "badAccepts" }] },
+    // an entity has no parse, so @accepts means nothing there
+    { code: ENTITY, errors: [{ messageId: "acceptsOnEntity", data: { name: "Project" } }] },
   ],
 });

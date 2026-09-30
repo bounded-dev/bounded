@@ -1,6 +1,7 @@
 // contract-purity gate (TN-26-001, DESIGN stage): *.contract.ts files must be
-// declaration-only AND express the domain in value objects. Thin CLI over
-// ESLint + the bounded-ts plugin (declaration-only + no-naked-primitives).
+// declaration-only, express the domain in value objects, and use the
+// contract-owns-the-name form of ADR 2026-059. Thin CLI over ESLint + the
+// bounded-ts plugin.
 // The orchestrator runs this; the architect never lints its own work.
 //
 // The two rules answer different questions: declaration-only asks "is this a
@@ -20,7 +21,8 @@ import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
 import plugin from "../eslint/index.ts";
 import { composedPacks, installedPacks } from "../../installed.ts";
-import { contractPurityOverrides, type ContractPurityOverride } from "../pack.ts";
+import { contractPurityOverrides, contractSupportFiles, type ContractPurityOverride } from "../pack.ts";
+import { supportModuleNames } from "./scaffold-contract.ts";
 import { formatProblems, toProblems, type Problem } from "./lint-report.ts";
 export { formatProblems, type Problem };
 // Harness-core guard log (NOTE: this relative import only resolves when the
@@ -33,9 +35,9 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "bounded-ts/no-naked-primitives",
   "bounded-ts/no-branded-aliases",
   "bounded-ts/value-object-shape",
+  "bounded-ts/entity-shape",
   "bounded-ts/value-object-documented",
-  "bounded-ts/value-objects-own-contract",
-  "bounded-ts/no-cross-contract-type-import",
+  "bounded-ts/contract-imports-contracts-only",
   "bounded-ts/no-schema-on-surface",
 ];
 
@@ -83,6 +85,7 @@ function contributedPurityPlugins(overrides: readonly ContractPurityOverride[]):
 }
 
 export function createContractLinter(cwd?: string): ESLint {
+  const registry = cwd === undefined ? installedPacks() : composedPacks(cwd);
   const overrides = contributedPurityOverrides(cwd);
   const packPlugins = contributedPurityPlugins(overrides);
   return new ESLint({
@@ -106,29 +109,31 @@ export function createContractLinter(cwd?: string): ESLint {
           "bounded-ts/no-naked-primitives": "error",
           // Run 9: a branded ALIAS with an optional brand passed every gate
           // and enforced nothing; the required form cannot be built without a
-          // cast the src lint bans. Classes only.
+          // cast the src lint bans. Concepts are interface pairs instead.
           "bounded-ts/no-branded-aliases": "error",
-          // The value object rules. no-naked-primitives says a primitive may
-          // not cross the boundary; these two say what must be there instead,
-          // and that its validity rule is written down where the test-writer
-          // (which reads only spec.md and the contract) can see it.
+          // The contract-owns-the-name model (ADR 2026-059): a concept is
+          // 'interface <Name>' + 'interface <Name>Factory'. no-naked-primitives
+          // says a primitive may not cross the boundary; these say what must
+          // be there instead — a value object's brand, single 'value', parse
+          // returning Result; an entity's fields, construct signature and
+          // identity — one concept per file named after it.
           "bounded-ts/value-object-shape": "error",
+          "bounded-ts/entity-shape": "error",
+          // An optional doc comment, but when present its '@accepts'
+          // examples feed the generated laws, so they must be literals of the
+          // value's own type.
           "bounded-ts/value-object-documented": "error",
-          // A value object and the operations over it may not share a contract
-          // file: the value object becomes a runtime class in its skeleton, and
-          // a same-file reference to it binds a second '__brand' identity that
-          // does not compile (the same-file twin of ADR 2026-023, dogfood
-          // r18/r19). Value objects get their own '*.contract.ts'; operations
-          // import them from the implementation module (ADR 2026-026).
-          "bounded-ts/value-objects-own-contract": "error",
-          // The cross-FILE twin of value-objects-own-contract: a contract may
-          // not import or re-export types from another '*.contract.ts' — reach
-          // the sibling component through its implementation module, which
-          // re-exports every type its own contract declares. Together the two
-          // rules put the whole "one identity per value object" concern (ADR
-          // 2026-023) at contract-purity; the scaffolder keeps the same refusal
-          // as a backstop (ADR 2026-027).
-          "bounded-ts/no-cross-contract-type-import": "error",
+          // A contract imports only other contracts and the shared Result, as
+          // types — every contract, so the frozen design never depends on a
+          // builder-written file (contract-first freezing). An application
+          // contract may also import its context's generated domain barrel
+          // (ADR 2026-059, lead decision Q3). It replaces the retired
+          // no-cross-contract-type-import, whose rule was the opposite under
+          // the declare-class model.
+          "bounded-ts/contract-imports-contracts-only": [
+            "error",
+            { supportModules: supportModuleNames(registry.read(contractSupportFiles)) },
+          ],
           // zod is the engine inside a value object, never a public identity:
           // nothing from zod may appear in a contract (ADR 2026-031).
           "bounded-ts/no-schema-on-surface": "error",
