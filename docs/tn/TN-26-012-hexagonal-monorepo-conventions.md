@@ -546,3 +546,6 @@ substitutes it; no other placeholder is allowed there.
 8. **Export order.** The example lists adapter exports in a hand-picked
    order. Generated manifests sort them, and comparisons treat `exports` as a
    map.
+9. **TODO (integration): `docs/architecture/readme.md` is shipped lowercase** because the ts
+   pack's shipped-file path check allows only lowercase paths. Rename it to `README.md`, as in
+   the worked example, once that check accepts it.
