@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import {
+  contractGlobs, contractGlobsFor, contractGlobsOrUnreadable, pathLayoutFor, pathLayoutOrUnreadable,
   fileNameGlobs, generatedFileGlobs, generatedFileGlobsFor, generatedFileGlobsOrUnreadable, hasTestFileSuffix,
   mergedContribution, pathGlobMatcher, projectCommandNames, projectConfigSources, projectDependencyDirs,
   projectIgnoreRules, sourceRootOf, sourceRoots, sourceRootsFor, sourceRootsOrUnreadable, specTechNouns,
@@ -283,6 +284,73 @@ describe("layout sockets (ADRs 2026-056, 2026-057, 2026-058)", () => {
       expect(sourceRootsOrUnreadable(cwd, dir)).toEqual(["contexts/*/src"]);
       expect(testFileSuffixesOrUnreadable(cwd, dir)).toEqual([".test.ts"]);
       expect(generatedFileGlobsOrUnreadable(cwd, dir)).toEqual(["**/*.laws.test.ts"]);
+    });
+  });
+
+  describe("contract globs and the path layout (WI-2)", () => {
+    const hexagonal = () => packsDir({
+      lang: JSON.stringify({ contractFileSuffixes: [".contract.ts"], testFileSuffixes: [".test.ts", ".test-support.ts"] }),
+      layout: JSON.stringify({
+        dependsOnPacks: ["lang"],
+        sourceRoots: ["contexts/*/src", "apps/*/src"],
+        generatedFileGlobs: ["**/*.laws.test.ts"],
+      }),
+    });
+
+    test("contract globs are every source root crossed with every contract suffix", () => {
+      expect(contractGlobsFor(["lang", "layout"], hexagonal())).toEqual([
+        "apps/*/src/**/*.contract.ts",
+        "contexts/*/src/**/*.contract.ts",
+      ]);
+    });
+
+    test("no source root, or no contract suffix, means no contract file", () => {
+      expect(contractGlobsFor(["lang"], hexagonal())).toEqual([]);
+      const dir = packsDir({ layout: JSON.stringify({ sourceRoots: ["lib"] }) });
+      expect(contractGlobsFor(["layout"], dir)).toEqual([]);
+    });
+
+    test("the core contributes no root: a project composing only a language has no contract globs", () => {
+      const cwd = packsDir({});
+      writeProjectPacks(cwd, ["lang"]);
+      expect(contractGlobs(cwd, hexagonal())).toEqual([]);
+      expect(contractGlobsOrUnreadable(cwd, hexagonal())).toEqual([]);
+    });
+
+    test("pathLayoutFor reads the four fields strictly", () => {
+      expect(pathLayoutFor(["lang", "layout"], hexagonal())).toEqual({
+        sourceRoots: ["apps/*/src", "contexts/*/src"],
+        contractGlobs: ["apps/*/src/**/*.contract.ts", "contexts/*/src/**/*.contract.ts"],
+        testSuffixes: [".test-support.ts", ".test.ts"],
+        generatedGlobs: ["**/*.laws.test.ts"],
+      });
+      const bad = packsDir({ p: JSON.stringify({ sourceRoots: ["**"] }) });
+      expect(() => pathLayoutFor(["p"], bad)).toThrow(/sourceRoots entry/);
+    });
+
+    test("pathLayoutOrUnreadable closes each field on its own", () => {
+      const cwd = packsDir({});
+      writeProjectPacks(cwd, ["p"]);
+      const dir = packsDir({ p: JSON.stringify({
+        sourceRoots: ["src"], contractFileSuffixes: [".contract.ts"], testFileSuffixes: [".ts"], generatedFileGlobs: ["x/**"],
+      }) });
+      expect(pathLayoutOrUnreadable(cwd, dir)).toEqual({
+        sourceRoots: ["src"],
+        contractGlobs: ["src/**/*.contract.ts"],
+        testSuffixes: "unreadable",
+        generatedGlobs: ["x/**"],
+      });
+      const bare = packsDir({});
+      expect(pathLayoutOrUnreadable(bare)).toEqual({
+        sourceRoots: "unreadable", contractGlobs: "unreadable", testSuffixes: "unreadable", generatedGlobs: "unreadable",
+      });
+    });
+
+    test("a bad root makes the contract globs unreadable too", () => {
+      const cwd = packsDir({});
+      writeProjectPacks(cwd, ["p"]);
+      const dir = packsDir({ p: JSON.stringify({ sourceRoots: ["a/**"], contractFileSuffixes: [".contract.ts"] }) });
+      expect(contractGlobsOrUnreadable(cwd, dir)).toBe("unreadable");
     });
   });
 });

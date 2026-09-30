@@ -10,8 +10,15 @@ import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-
 // forbiddenWhy reason. Table-driven over all four roles so a change to
 // ROLE_TOOLS shows up here as a changed row, never as a silent widening.
 
-// The architect's contract write zone comes from composed pack data (ADR 2026-052).
-const CTX = { cwd: "/proj", contractGlobs: ["src/**/*.contract.ts"] };
+// The layout comes from composed pack data (ADRs 2026-052, 2026-056…058), as
+// the hook passes it.
+const CTX = {
+  cwd: "/proj",
+  sourceRoots: ["contexts/*/src"],
+  contractGlobs: ["contexts/*/src/**/*.contract.ts"],
+  testSuffixes: [".test.ts"],
+  generatedGlobs: ["**/*.laws.test.ts"],
+};
 type Verdict = "allow" | "deny";
 type Row = readonly [command: string, expected: Readonly<Record<Role, Verdict>>];
 
@@ -97,11 +104,11 @@ const TABLE: readonly Row[] = [
   ["sleep 5 5", all("deny")],
   ["sleep abc", all("deny")],
   // rm: one path, judged as a pi `remove` — so the write zones apply.
-  ["rm tests/a.test.ts", only("test-writer")],
-  ["rm /proj/tests/a.test.ts", only("test-writer")],
-  ["rm src/x.ts", only("builder")],
-  ["rm /proj/src/x.ts", only("builder")],
-  ["rm src/x.contract.ts", only("architect")],
+  ["rm contexts/m/src/a.test.ts", only("test-writer")],
+  ["rm /proj/contexts/m/src/a.test.ts", only("test-writer")],
+  ["rm contexts/m/src/x.ts", only("builder")],
+  ["rm /proj/contexts/m/src/x.ts", only("builder")],
+  ["rm contexts/m/src/x.contract.ts", only("architect")],
   ["rm spec.md", only("architect")],
   ["rm .bounded/guard-log.jsonl", all("deny")],
   ["rm -rf src", all("deny")],
@@ -188,10 +195,23 @@ describe("refusal reasons — specific, and the pi wording where pi has one", ()
     }
   });
   test("rm outside the zone gets decide()'s own zone reason", () => {
-    const d = decideBash("builder", "rm tests/a.test.ts", CTX);
-    if (!d.allow) expect(d.reason).toBe("path-gate: builder may not write 'tests/a.test.ts': outside builder write zones — the builder's writable surface is src/**");
+    const d = decideBash("builder", "rm contexts/m/src/a.test.ts", CTX);
+    expect(d.allow).toBe(false);
+    if (!d.allow) {
+      expect(d.reason).toBe("path-gate: builder may not write 'contexts/m/src/a.test.ts': it is a test file (name ends with '.test.ts') — the test-writer's; you may list its name, never read or write it");
+    }
     const r = decideBash("reviewer", "rm spec.md", CTX);
     if (!r.allow) expect(r.reason).toContain("reviewer has no write zone");
+  });
+  test("rm of a generated file is refused to every role", () => {
+    for (const role of PIPELINE_ROLES) {
+      expect(decideBash(role, "rm contexts/m/src/x.laws.test.ts", CTX).allow, role).toBe(false);
+    }
+  });
+  test("a ctx without the layout refuses every blind role's rm (fail closed)", () => {
+    const bare = { cwd: "/proj" };
+    expect(decideBash("builder", "rm contexts/m/src/x.ts", bare).allow).toBe(false);
+    expect(decideBash("test-writer", "rm contexts/m/src/a.test.ts", bare).allow).toBe(false);
   });
   test("a long command is quoted bounded, on one line", () => {
     const d = decideBash("builder", `npm ${"x".repeat(200)}`, CTX);

@@ -58,15 +58,27 @@ describe("MultiEdit → one edit per distinct path", () => {
 });
 
 describe("search tools → find/grep, defaulting to the session cwd", () => {
-  test("Glob {pattern, path} → find {path}", () => {
-    expect(map("Glob", { pattern: "**/*.ts", path: "/proj/src" })).toEqual([{ toolName: "find", input: { path: "/proj/src" } }]);
+  test("Glob {pattern, path} → find {path, pattern}", () => {
+    expect(map("Glob", { pattern: "**/*.ts", path: "/proj/app" })).toEqual([{ toolName: "find", input: { path: "/proj/app", pattern: "**/*.ts" } }]);
   });
   test("Glob without path searches cwd, so cwd is what is judged", () => {
-    expect(map("Glob", { pattern: "**/*.ts" })).toEqual([{ toolName: "find", input: { path: CWD } }]);
+    expect(map("Glob", { pattern: "**/*.ts" })).toEqual([{ toolName: "find", input: { path: CWD, pattern: "**/*.ts" } }]);
   });
   test("Grep {pattern, path} → grep {path}; without path → cwd", () => {
-    expect(map("Grep", { pattern: "TODO", path: "/proj/tests" })).toEqual([{ toolName: "grep", input: { path: "/proj/tests" } }]);
+    expect(map("Grep", { pattern: "TODO", path: "/proj/app" })).toEqual([{ toolName: "grep", input: { path: "/proj/app" } }]);
     expect(map("Grep", { pattern: "TODO" })).toEqual([{ toolName: "grep", input: { path: CWD } }]);
+  });
+  // ADR 2026-057: a blind role's directory search is judged on its file glob,
+  // so the glob must reach the gate exactly as the tool will use it.
+  test("Grep's glob rides along under pi's own field name", () => {
+    expect(map("Grep", { pattern: "TODO", path: "/proj/app", glob: "*.handler.ts" }))
+      .toEqual([{ toolName: "grep", input: { path: "/proj/app", glob: "*.handler.ts" } }]);
+    expect(map("Grep", { pattern: "TODO", glob: "!*.test.ts" }))
+      .toEqual([{ toolName: "grep", input: { path: CWD, glob: "!*.test.ts" } }]);
+  });
+  test("a malformed filter is passed through for the gate to refuse, never dropped", () => {
+    expect(map("Grep", { pattern: "TODO", glob: ["*.ts"] })).toEqual([{ toolName: "grep", input: { path: CWD, glob: ["*.ts"] } }]);
+    expect(map("Glob", { pattern: 7 })).toEqual([{ toolName: "find", input: { path: CWD, pattern: 7 } }]);
   });
   test("LS {path} → ls", () => {
     expect(map("LS", { path: "/proj/tests" })).toEqual([{ toolName: "ls", input: { path: "/proj/tests" } }]);

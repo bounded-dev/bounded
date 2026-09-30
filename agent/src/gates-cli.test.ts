@@ -180,11 +180,11 @@ describe("contract-purity", () => {
 describe("typecheck (runs the real tsc once)", () => {
   const TSCONFIG = JSON.stringify({
     compilerOptions: { strict: true, noEmit: true, types: [], skipLibCheck: true },
-    include: ["src"],
+    include: ["contexts"],
   });
 
   test("PASS on a clean one-file project", () => {
-    const dir = project({ "tsconfig.json": TSCONFIG, "src/a.ts": "export const x: number = 1;\n" }, true);
+    const dir = project({ "tsconfig.json": TSCONFIG, "contexts/m/src/a.ts": "export const x: number = 1;\n" }, true);
     const r = run(["typecheck"], dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("typecheck: OK — no type errors\ntypecheck: PASS\n");
@@ -192,7 +192,7 @@ describe("typecheck (runs the real tsc once)", () => {
   });
 
   test("BLOCK on a type error, --role builder scopes and --json carries the detail", () => {
-    const dir = project({ "tsconfig.json": TSCONFIG, "src/a.ts": 'export const x: number = "s";\n' }, true);
+    const dir = project({ "tsconfig.json": TSCONFIG, "contexts/m/src/a.ts": 'export const x: number = "s";\n' }, true);
     const r = run(["typecheck", "--role", "builder", "--json"], dir);
     expect(r.status).toBe(1);
     expect(parseJson(r.stdout)).toMatchObject({
@@ -202,7 +202,7 @@ describe("typecheck (runs the real tsc once)", () => {
       summary: "1 error",
       detail: { ok: false, errorCount: 1, scoped: true, hidden: 0 },
     });
-    expect(r.stdout).toContain("src/a.ts(1,14): error TS2322");
+    expect(r.stdout).toContain("contexts/m/src/a.ts(1,14): error TS2322");
     expect(gateEvents(dir)[0]).toMatchObject({ guard: "typecheck", verdict: "block", detail: { role: "builder" } });
   });
 
@@ -217,7 +217,7 @@ describe("typecheck (runs the real tsc once)", () => {
   // the gate never resolves one itself, because it would resolve it against
   // the TARGET directory — Run 15's hole.
   test("BOUNDED_DEV_STAGE_ROLE scopes typecheck with no --role", () => {
-    const dir = project({ "tsconfig.json": TSCONFIG, "src/a.ts": 'export const x: number = "s";\n' }, true);
+    const dir = project({ "tsconfig.json": TSCONFIG, "contexts/m/src/a.ts": 'export const x: number = "s";\n' }, true);
     const r = spawnSync(process.execPath, [CLI, "typecheck", "--json"], {
       cwd: dir,
       encoding: "utf8",
