@@ -8,6 +8,7 @@ import { writeProjectPacks } from "../../../src/project-composition.ts";
 import {
   bunLockProblems,
   bunVersionProblem,
+  lockFingerprint,
   checkedProjectName,
   pinnedBunVersion,
   configFiles,
@@ -419,12 +420,68 @@ describe("bun.lock verification, without the network (ADR 2026-062)", () => {
     expect(bunLockProblems(PROBE, pinned)).toContain("'ts-morph' is not resolved");
   });
 
-  test("lockfileFor keeps a lockfile that verifies, and never calls bun for it", () => {
-    expect(lockfileFor(probeManifests, PROBE, () => { throw new Error("bun was called"); })).toBe(PROBE);
+  test("review repro: a tampered registry URL, a fake integrity and an injected transitive dependency are all caught", () => {
+    const tampered = PROBE
+      .replace('"zod@4.1.12", "", {}, "sha512-JIn', '"zod@4.1.12", "https://evil.example/zod.tgz", { "dependencies": { "evil": "1.0.0" } }, "sha512-AAA')
+      .replace('"zod": ["zod', '"evil": ["evil@1.0.0", "https://evil.example/e.tgz", {}, "sha512-x"],\n    "zod": ["zod');
+    expect(tampered).not.toBe(PROBE);
+    const problems = bunLockProblems(tampered, probeManifests, lockFingerprint(PROBE));
+    expect(problems).toEqual(expect.arrayContaining([
+      "package 'zod' comes from \"https://evil.example/zod.tgz\", not the default registry",
+      "package 'evil' comes from \"https://evil.example/e.tgz\", not the default registry",
+      "package 'zod' differs from the clean resolution (its version, registry URL, dependencies or integrity)",
+      "package 'evil' is not in the clean resolution",
+    ]));
+    // Each alone: a changed integrity, and an injection consistent on its own.
+    const integrityOnly = PROBE.replace('"sha512-JIn', '"sha512-AAA');
+    expect(bunLockProblems(integrityOnly, probeManifests, lockFingerprint(PROBE)))
+      .toEqual(["package 'zod' differs from the clean resolution (its version, registry URL, dependencies or integrity)"]);
+    const injected = PROBE
+      .replace('"zod@4.1.12", "", {}', '"zod@4.1.12", "", { "dependencies": { "evil": "1.0.0" } }')
+      .replace('"zod": ["zod', '"evil": ["evil@1.0.0", "", {}, "sha512-eHg="],\n    "zod": ["zod');
+    expect(bunLockProblems(injected, probeManifests)).toEqual([]); // consistent on its own: only the fingerprint knows
+    expect(bunLockProblems(injected, probeManifests, lockFingerprint(PROBE))).toEqual([
+      "package 'zod' differs from the clean resolution (its version, registry URL, dependencies or integrity)",
+      "package 'evil' is not in the clean resolution",
+    ]);
+  });
+
+  test("the closure: a real lock with nested and optional platform packages is consistent; an orphan or a dangling dependency is not", () => {
+    const DRIZZLE = readFileSync(join(import.meta.dirname, "testdata", "bun-lock", "drizzle.lock.txt"), "utf8");
+    const manifests = new Map<string, Manifest>([
+      ["", { name: "big", workspaces: ["contexts/*"], devDependencies: { typescript: "5.9.3", "@types/bun": "1.3.14", "ts-morph": "28.0.0" } }],
+      ["contexts/pm", { name: "@big/pm", dependencies: { zod: "4.1.12", "drizzle-orm": "0.45.3", pg: "8.23.1" }, devDependencies: { "drizzle-kit": "0.31.11", "@types/pg": "8.23.1" } }],
+    ]);
+    expect(bunLockProblems(DRIZZLE, manifests, lockFingerprint(DRIZZLE))).toEqual([]);
+    const orphan = DRIZZLE.replace('"packages": {', '"packages": {\n    "left-pad": ["left-pad@1.3.0", "", {}, "sha512-eHg="],');
+    expect(bunLockProblems(orphan, manifests)).toEqual(["package 'left-pad' is reachable from no generated manifest"]);
+    const dangling = DRIZZLE.replace(/\n\s*"tsx": \["tsx@[^\n]*/, "");
+    expect(bunLockProblems(dangling, manifests)).toContain("'tsx', a dependency of 'drizzle-kit', resolves to no entry");
+  });
+
+  test("lockfileFor keeps a lockfile that verifies against its fingerprint, and never calls bun for it", () => {
+    const kept = lockfileFor(probeManifests, { lock: PROBE, fingerprint: lockFingerprint(PROBE) }, () => { throw new Error("bun was called"); });
+    expect(kept.lock).toBe(PROBE);
+  });
+
+  test("a lockfile with no fingerprint, or a tampered one, is never kept or used as a seed", () => {
+    const seeds: (string | undefined)[] = [];
+    const maker = (dir: string) => {
+      seeds.push(existsSync(join(dir, "bun.lock")) ? readFileSync(join(dir, "bun.lock"), "utf8") : undefined);
+      writeFileSync(join(dir, "bun.lock"), PROBE);
+    };
+    expect(lockfileFor(probeManifests, { lock: PROBE }, maker).lock).toBe(PROBE);
+    const tampered = PROBE.replace('"zod@4.1.12", ""', '"zod@4.1.12", "https://evil.example/zod.tgz"');
+    lockfileFor(probeManifests, { lock: tampered, fingerprint: lockFingerprint(PROBE) }, maker);
+    expect(seeds).toEqual([undefined, undefined]);
+    // A lockfile that matches its fingerprint but not new manifests IS a seed.
+    const more = new Map(probeManifests).set("apps/mcp", { name: "@probe/mcp" });
+    try { lockfileFor(more, { lock: PROBE, fingerprint: lockFingerprint(PROBE) }, maker); } catch { /* PROBE lacks apps/mcp */ }
+    expect(seeds[2]).toBe(PROBE);
   });
 
   test("lockfileFor refuses a produced lockfile that does not verify, or a maker that fails", () => {
-    expect(() => lockfileFor(probeManifests, undefined, (dir) => writeFileSync(join(dir, "bun.lock"), PROBE.replace("zod@4.1.12", "zod@9.9.9"))))
+    expect(() => lockfileFor(probeManifests, undefined, (dir) => writeFileSync(join(dir, "bun.lock"), PROBE.replace('"zod@4.1.12"', '"zod@9.9.9"'))))
       .toThrow(/does not verify: 'zod' resolves to zod@9\.9\.9/);
     expect(() => lockfileFor(probeManifests, undefined, () => { throw new Error("offline"); }))
       .toThrow(/bun\.lock cannot be produced: .*offline.*needs bun on PATH/);
@@ -479,8 +536,8 @@ describe.skipIf(!HAS_BUN)("real bun: bun.lock from the generated manifests", () 
     const f = fixture({ base: "base", pins: false });
     const project = example(f);
     const generated = generatedManifests(project, f.packs, f.packsDir, "example");
-    const lock = lockfileFor(generated.manifests, undefined);
-    expect(bunLockProblems(lock, generated.manifests)).toEqual([]);
+    const { lock, fingerprint } = lockfileFor(generated.manifests, undefined);
+    expect(bunLockProblems(lock, generated.manifests, fingerprint)).toEqual([]);
     expect(lock).toContain('"@example/project-management": ["@example/project-management@workspace:contexts/project-management"]');
     // And bun's own frozen install accepts exactly these manifests with it.
     const scratch = tempDir("frozen-");
@@ -500,7 +557,7 @@ describe.skipIf(!HAS_BUN)("real bun: bun.lock from the generated manifests", () 
     expect(refused.status).not.toBe(0);
     expect(refused.stderr).toContain("lockfile is frozen");
     expect(bunLockProblems(lock, new Map(generated.manifests).set("apps/web", added)))
-      .toEqual(["workspace 'apps/web' dependencies differ from its manifest", "'zod' is not resolved"]);
+      .toEqual(["workspace 'apps/web' dependencies differ from its manifest", "'zod' is not resolved", "'zod', a dependency of apps/web, resolves to no entry"]);
     // A removed dependency: bun 1.3.14's frozen install lets it through (checked
     // here so a bun that tightens this is noticed); the offline check does not.
     const removed = { name: "@example/web", private: true };

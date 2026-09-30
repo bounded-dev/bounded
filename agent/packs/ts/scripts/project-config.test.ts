@@ -108,7 +108,18 @@ describe("the generated monorepo config (ADR 2026-054, ADR 2026-061)", () => {
     writeFileSync(join(project, "bun.lock"), lock.replace('"zod@4.1.12"', '"zod@4.1.13"'));
     const [drift] = configDrift(project, f.harness);
     expect(drift?.path).toBe("bun.lock");
-    expect(drift?.problem).toMatch(/does not resolve exactly the generated manifests and pins \('zod' resolves to zod@4\.1\.13, not zod@4\.1\.12\)/);
+    expect(drift?.problem).toMatch(/does not resolve exactly the generated manifests and pins \('zod' resolves to zod@4\.1\.13, not zod@4\.1\.12; package 'zod' differs from the clean resolution/);
+    // An edit that keeps name@version but changes where the package comes from.
+    writeFileSync(join(project, "bun.lock"), lock.replace(/"zod@4\.1\.12",\s*""/, '"zod@4.1.12", "https://evil.example/zod.tgz"'));
+    expect(configDrift(project, f.harness)[0]?.problem).toMatch(/not the default registry/);
+    // The fingerprint is the clean resolution's record: without it nothing verifies.
+    writeFileSync(join(project, "bun.lock"), lock);
+    rmSync(join(project, ".bounded", "lockfile-fingerprint.json"));
+    expect(configDrift(project, f.harness)).toEqual([
+      { path: ".bounded/lockfile-fingerprint.json", problem: "missing or malformed: nothing records the clean resolution bun.lock must match" },
+    ]);
+    expect(syncProjectConfig(project, f.harness, fake).lines).toContain("sync-config: wrote .bounded/lockfile-fingerprint.json");
+    expect(configDrift(project, f.harness)).toEqual([]);
     rmSync(join(project, "bun.lock"));
     expect(configDrift(project, f.harness)).toEqual([{ path: "bun.lock", problem: "missing" }]);
     expect(syncProjectConfig(project, f.harness, fake).lines).toContain("sync-config: wrote bun.lock");

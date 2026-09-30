@@ -40,6 +40,7 @@
 // manifest's `name`, set at init from the project directory's name. The
 // package scope is `@<name>`.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -72,6 +73,9 @@ export type RootManifest = {
 export const MANIFEST = "package.json";
 export const LOCKFILE = "bun.lock";
 export const TSCONFIG = "tsconfig.json";
+/** Where the fingerprint of bun.lock's clean resolution is recorded: harness
+ *  state no role may write (every role is refused `.bounded/`). */
+export const LOCK_FINGERPRINT = ".bounded/lockfile-fingerprint.json";
 /** The workspace template kind whose workspaces come from contract paths. */
 export const CONTEXT_KIND = "context";
 /** The name a project gets when the initializer is given none. */
@@ -695,7 +699,11 @@ function sameRecord(a: unknown, b: unknown): boolean {
  * version, and carry nothing the manifests do not declare (overrides,
  * patches, trusted dependencies, catalogs).
  */
-export function bunLockProblems(lockText: string, manifests: ReadonlyMap<string, Manifest>): string[] {
+export function bunLockProblems(
+  lockText: string,
+  manifests: ReadonlyMap<string, Manifest>,
+  fingerprint?: LockFingerprint,
+): string[] {
   let lock: Record<string, unknown>;
   try {
     lock = parseBunLock(lockText);
@@ -742,6 +750,131 @@ export function bunLockProblems(lockText: string, manifests: ReadonlyMap<string,
     if (workspace !== null && workspaceOf.get(workspace[1]!) !== workspace[2]) {
       problems.push(`package '${key}' is a workspace no generated manifest declares`);
     }
+  }
+  problems.push(...closureProblems(packages, manifests));
+  if (fingerprint !== undefined) problems.push(...fingerprintProblems(packages, fingerprint));
+  return problems;
+}
+
+const INTEGRITY = /^sha512-[A-Za-z0-9+/]+={0,2}$/;
+
+/** A lockfile key as its chain of package names: `tsx/esbuild` →
+ *  [tsx, esbuild], `@a/b/@c/d` → [@a/b, @c/d]. */
+function chainOf(key: string): string[] {
+  const parts = key.split("/");
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) out.push(parts[i]!.startsWith("@") && i + 1 < parts.length ? `${parts[i]}/${parts[++i]}` : parts[i]!);
+  return out;
+}
+
+/** The key a dependency of `parent` resolves to: bun's nearest-first lookup
+ *  (`parent/dep`, then each ancestor's `…/dep`, then top-level `dep`). */
+function resolveKey(packages: Record<string, unknown>, parent: string, dep: string): string | undefined {
+  const chain = chainOf(parent);
+  for (let n = chain.length; n >= 0; n--) {
+    const key = [...chain.slice(0, n), dep].join("/");
+    if (Object.hasOwn(packages, key)) return key;
+  }
+  return undefined;
+}
+
+/**
+ * The lockfile's own consistency, without the registry: every package
+ * comes from the default registry (bun writes an empty URL for it), carries
+ * a sha512 integrity, every dependency a package declares resolves to an
+ * entry, and every entry is reachable from a generated manifest (nothing is
+ * injected beside the tree). Optional dependencies may be absent; peers are
+ * not followed.
+ */
+function closureProblems(packages: Record<string, unknown>, manifests: ReadonlyMap<string, Manifest>): string[] {
+  const problems: string[] = [];
+  const meta = (key: string): Record<string, unknown> => {
+    const entry = packages[key];
+    return Array.isArray(entry) && entry[2] !== null && typeof entry[2] === "object" ? entry[2] as Record<string, unknown> : {};
+  };
+  for (const [key, entry] of Object.entries(packages)) {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string") {
+      problems.push(`package '${key}' is not a bun lockfile entry`);
+      continue;
+    }
+    if (/@workspace:/.test(entry[0])) continue;
+    if (entry[1] !== "") problems.push(`package '${key}' comes from ${JSON.stringify(entry[1])}, not the default registry`);
+    if (typeof entry[3] !== "string" || !INTEGRITY.test(entry[3])) problems.push(`package '${key}' has no sha512 integrity`);
+  }
+  const reached = new Set<string>();
+  const queue: string[] = [];
+  const visit = (parent: string, dep: string, optional: boolean, from: string): void => {
+    const key = parent === "" ? (Object.hasOwn(packages, dep) ? dep : undefined) : resolveKey(packages, parent, dep);
+    if (key === undefined) {
+      if (!optional) problems.push(`'${dep}', a dependency of ${from}, resolves to no entry`);
+      return;
+    }
+    if (!reached.has(key)) {
+      reached.add(key);
+      queue.push(key);
+    }
+  };
+  for (const [dir, manifest] of manifests) {
+    for (const section of DEPENDENCY_SECTIONS) {
+      for (const dep of Object.keys((manifest[section] ?? {}) as Record<string, string>)) visit("", dep, false, dir || "the root");
+    }
+  }
+  while (queue.length > 0) {
+    const key = queue.shift()!;
+    const m = meta(key);
+    for (const [field, optional] of [["dependencies", false], ["optionalDependencies", true]] as const) {
+      for (const dep of Object.keys((m[field] ?? {}) as Record<string, string>)) visit(key, dep, optional, `'${key}'`);
+    }
+  }
+  for (const key of Object.keys(packages)) {
+    const entry = packages[key];
+    const isWorkspace = Array.isArray(entry) && typeof entry[0] === "string" && /@workspace:/.test(entry[0]);
+    if (!reached.has(key) && !isWorkspace) problems.push(`package '${key}' is reachable from no generated manifest`);
+  }
+  return problems;
+}
+
+/** What a clean resolution produced: one hash per lockfile entry, over the
+ *  whole entry (resolved version, registry URL, dependencies, integrity). */
+export interface LockFingerprint {
+  readonly version: 1;
+  readonly packages: Readonly<Record<string, string>>;
+}
+
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) =>
+  v !== null && typeof v === "object" && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : v);
+
+/** The fingerprint of a lockfile, recorded when bun produced it. */
+export function lockFingerprint(lockText: string): LockFingerprint {
+  const packages = (parseBunLock(lockText)["packages"] ?? {}) as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(packages).sort()) out[key] = createHash("sha256").update(canonical(packages[key])).digest("hex");
+  return { version: 1, packages: out };
+}
+
+export function parseLockFingerprint(text: string): LockFingerprint {
+  const value = JSON.parse(text) as Partial<LockFingerprint>;
+  if (value.version !== 1 || value.packages === null || typeof value.packages !== "object" ||
+      Object.values(value.packages).some((h) => typeof h !== "string" || !/^[0-9a-f]{64}$/.test(h))) {
+    throw new Error("the lockfile fingerprint is malformed");
+  }
+  return value as LockFingerprint;
+}
+
+export const serializeLockFingerprint = (fingerprint: LockFingerprint): string => JSON.stringify(fingerprint, null, 2) + "\n";
+
+function fingerprintProblems(packages: Record<string, unknown>, fingerprint: LockFingerprint): string[] {
+  const problems: string[] = [];
+  const actual = new Map(Object.keys(packages).map((key) => [key, createHash("sha256").update(canonical(packages[key])).digest("hex")]));
+  for (const [key, hash] of Object.entries(fingerprint.packages)) {
+    const now = actual.get(key);
+    if (now === undefined) problems.push(`package '${key}' of the clean resolution is missing`);
+    else if (now !== hash) problems.push(`package '${key}' differs from the clean resolution (its version, registry URL, dependencies or integrity)`);
+  }
+  for (const key of actual.keys()) {
+    if (!Object.hasOwn(fingerprint.packages, key)) problems.push(`package '${key}' is not in the clean resolution`);
   }
   return problems;
 }
@@ -801,25 +934,48 @@ export const bunLockfileMaker: LockfileMaker = (dir) => {
   });
 };
 
+/** A lockfile with the fingerprint of the clean resolution that produced it. */
+export interface FingerprintedLock {
+  readonly lock: string;
+  readonly fingerprint: LockFingerprint;
+}
+
 /**
- * The lockfile for these manifests: `previous` when it already verifies,
- * otherwise one made by `maker` in a scratch directory seeded with the
- * manifests and `previous` (so unchanged resolutions are kept), then
- * verified. Throws naming the first problem; never touches the project.
+ * The lockfile for these manifests. `previous` is kept when it verifies
+ * against the manifests AND against its own recorded fingerprint. Otherwise
+ * `maker` resolves in a scratch directory holding the manifests, seeded
+ * with the previous lockfile only when that one still matches its
+ * fingerprint (so unchanged resolutions are kept, and a tampered lockfile is
+ * never trusted as a seed). The result is verified and fingerprinted.
+ * Throws naming the first problem; never touches the project.
  */
 export function lockfileFor(
   manifests: ReadonlyMap<string, Manifest>,
-  previous: string | undefined,
+  previous: Partial<FingerprintedLock> | undefined,
   maker: LockfileMaker = bunLockfileMaker,
-): string {
-  if (previous !== undefined && bunLockProblems(previous, manifests).length === 0) return previous;
+): FingerprintedLock {
+  const prevLock = previous?.lock;
+  const prevFingerprint = previous?.fingerprint;
+  if (prevLock !== undefined && prevFingerprint !== undefined &&
+      bunLockProblems(prevLock, manifests, prevFingerprint).length === 0) {
+    return { lock: prevLock, fingerprint: prevFingerprint };
+  }
+  let trustedSeed: string | undefined;
+  if (prevLock !== undefined && prevFingerprint !== undefined) {
+    try {
+      const packages = (parseBunLock(prevLock)["packages"] ?? {}) as Record<string, unknown>;
+      if (fingerprintProblems(packages, prevFingerprint).length === 0) trustedSeed = prevLock;
+    } catch {
+      trustedSeed = undefined;
+    }
+  }
   const scratch = mkdtempSync(join(tmpdir(), "bounded-lock-"));
   try {
     for (const [dir, manifest] of manifests) {
       mkdirSync(join(scratch, dir), { recursive: true });
       writeFileSync(join(scratch, manifestPath(dir)), serializeManifest(manifest));
     }
-    if (previous !== undefined) writeFileSync(join(scratch, LOCKFILE), previous);
+    if (trustedSeed !== undefined) writeFileSync(join(scratch, LOCKFILE), trustedSeed);
     try {
       maker(scratch);
     } catch (error) {
@@ -832,7 +988,7 @@ export function lockfileFor(
     const lock = readFileSync(lockPath, "utf8");
     const problems = bunLockProblems(lock, manifests);
     if (problems.length > 0) throw new Error(`the ${LOCKFILE} bun produced does not verify: ${problems.join("; ")}`);
-    return lock;
+    return { lock, fingerprint: lockFingerprint(lock) };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -859,7 +1015,9 @@ export function writeProjectPackage(
   const files = new Map<string, string>();
   for (const [dir, manifest] of generated.manifests) files.set(manifestPath(dir), serializeManifest(manifest));
   files.set(TSCONFIG, tsconfigFor(packs, packsDir));
-  files.set(LOCKFILE, lockfileFor(generated.manifests, undefined, maker));
+  const resolved = lockfileFor(generated.manifests, undefined, maker);
+  files.set(LOCKFILE, resolved.lock);
+  files.set(LOCK_FINGERPRINT, serializeLockFingerprint(resolved.fingerprint));
   const shipped = shippedFiles(packs, packsDir);
   for (const path of [...files.keys(), ...shipped.map((f) => f.path)]) {
     if (existsSync(join(project, path))) {
