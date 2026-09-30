@@ -1,34 +1,36 @@
-// Project configuration is generated from the composed packs, never written
-// by a role (ADR 2026-054).
+// Project configuration is generated from the composed packs and the design,
+// never written by a role (ADR 2026-054, ADR 2026-061, ADR 2026-062).
 //
-// In a project-local installation (`bounded init`), the package manifest, its
-// lockfile, the compiler config and every other file the composed packs name
-// as project config are a pure function of the composition: the package
-// template, pins and scripts (project-package.ts) and each pack's
-// `projectConfigFiles` reference copies. This module computes that function
-// and compares the project against it.
+// In a project-local installation (`bounded init`), every package manifest
+// (the root's and each workspace's), `bun.lock`, `tsconfig.json`, the
+// composed packs' `projectConfigFiles` reference copies and their shipped
+// files are a pure function of the composition, the design contracts and the
+// TNs' `workspaces:` maps (project-package.ts). This module computes that
+// function and compares the project against it.
 //
 // · Every gate and tool that runs the test runner, type-checker or bundler
 //   (design, red, green, deliver, run-tests, typecheck, mutation-score, the
 //   web render) calls `configDriftBlock` first, and the two spawning
 //   primitives (runTests, typecheck) refuse through `configDriftReason`: a
-//   changed, missing or extra config file is a BLOCK, whoever made it. Some
-//   of these files are loaded as code (the test runner's config), so nothing
-//   may run over config the packs did not produce. "Extra" covers the root
-//   (`projectConfigNames`) and, below it, the files Node and the test
-//   runner's transform read per directory (`projectNestedConfigNames`: a
-//   nested package.json or tsconfig), and any nested dependency directory
-//   (`projectDependencyDirs`), `.git` or `.bounded`, which the tools would
-//   honour before the root's.
+//   changed, missing or extra config file is a BLOCK, whoever made it.
+//   "Extra" covers the root (`projectConfigNames`) and, below it, the files
+//   Bun and the type-checker read per directory (`projectNestedConfigNames`:
+//   a nested package.json, tsconfig or bunfig.toml that is not a generated
+//   workspace manifest), and any dependency directory (`projectDependencyDirs`),
+//   `.git` or `.bounded` below the root, except the dependency directory
+//   directly under a generated workspace, where Bun's isolated installs link
+//   that workspace's dependencies. A nested config-named file that a composed
+//   `generatedFileGlobs` entry covers belongs to its generator's own drift
+//   check, not this one.
+// · `bun.lock` must be the lockfile of exactly the generated manifests: its
+//   workspaces match them and every pin resolves to exactly its version
+//   (`bunLockProblems`, no network), including each entry's registry URL,
+//   integrity and dependencies against the fingerprint of the clean
+//   resolution recorded when bun produced it (.bounded/lockfile-fingerprint.json).
 // · `sync-config` (the user's command, scripts/sync-config.ts) rewrites the
-//   files from the same function, then reinstalls through the composed
-//   packs' setup commands when anything changed.
-//
-// The lockfile is derived, not copied: it must hold exactly the closure of the
-// generated pins. The expectation is taken from the project's own lockfile
-// (so a project-local harness, which carries no full source lock, can still
-// check it); sync falls back to the harness's source lock when the pins have
-// moved past what the project's lockfile holds.
+//   files from the same function, derives the lockfile when the old one no
+//   longer verifies, then reinstalls through the composed packs' setup
+//   commands when anything changed.
 //
 // A project that was not initialized by `bounded init` (an adopted repository,
 // a global-harness arm) had its config written by someone else, so there is
@@ -41,14 +43,40 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
-import { fileNameGlobs, fileNameMatcher, projectConfigSources, projectDependencyDirs } from "../../../src/pack-contrib.ts";
+import {
+  fileNameGlobs,
+  fileNameMatcher,
+  generatedFileGlobsFor,
+  pathGlobMatcher,
+  projectDependencyDirs,
+} from "../../../src/pack-contrib.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
-import { lockFor } from "../../../src/runtime-lock.ts";
 import { HARNESS_RELATIVE, HOST_PACKAGE_DIRS, INSTALLATION_RELATIVE, setupPlan, type SetupPlan } from "../../../src/setup-state.ts";
-import { packageFor, shippedFiles } from "./project-package.ts";
+import {
+  bunLockfileMaker,
+  bunLockProblems,
+  configFiles,
+  generatedManifests,
+  type FingerprintedLock,
+  LOCK_FINGERPRINT,
+  type LockFingerprint,
+  LOCKFILE,
+  lockfileFor,
+  parseLockFingerprint,
+  serializeLockFingerprint,
+  type LockfileMaker,
+  type Manifest,
+  MANIFEST,
+  manifestPath,
+  type ProjectWorkspace,
+  readProjectName,
+  serializeManifest,
+  shippedFiles,
+  TSCONFIG,
+  tsconfigFor,
+} from "./project-package.ts";
 
-export const MANIFEST = "package.json";
-export const LOCKFILE = "package-lock.json";
+export { LOCKFILE, MANIFEST };
 /** Where the user runs the sync from, in a project-local installation. */
 export const SYNC_COMMAND = "bash .bounded/harness/scripts/bounded sync-config";
 
@@ -62,95 +90,58 @@ export function configIsGenerated(project: string): boolean {
   return existsSync(join(project, INSTALLATION_RELATIVE));
 }
 
-const json = (value: unknown): string => JSON.stringify(value, null, 2) + "\n";
-
-/** The directories the nested walk never enters at the ROOT: version control,
- *  harness state and the composed packs' dependency directories (whose own
- *  manifests are theirs). Below the root, any of them is drift: the stack's
- *  tools resolve a nested dependency directory or manifest before the root's,
- *  and git treats a nested repository as a boundary. */
+/** The directories the nested walk never enters at the ROOT: version control
+ *  and harness state. Below the root, either is drift. */
 const CORE_ROOT_SKIP = [".git", ".bounded"] as const;
 /** Host package installs (pi's `.pi/npm`, `.pi/git`) hold the host's own
  *  dependency trees; no stack tool reads them, so the walk never enters them. */
 const HOST_SKIP: ReadonlySet<string> = new Set(HOST_PACKAGE_DIRS);
 
-/** Nested problems below the root: config files `isNested` names, and any
- *  directory `protectedDir` names. A protected directory is reported once and
- *  not entered. */
-function nestedProblems(
-  project: string,
-  isNested: (name: string) => boolean,
-  protectedDirs: ReadonlySet<string>,
-): ConfigDrift[] {
-  const out: ConfigDrift[] = [];
-  const walk = (rel: string): void => {
-    for (const entry of readdirSync(join(project, rel), { withFileTypes: true })) {
-      const path = `${rel}/${entry.name}`;
-      if (HOST_SKIP.has(path)) continue;
-      if (protectedDirs.has(entry.name.toLowerCase())) {
-        out.push({ path, problem: "a dependency, version-control or harness directory below the project root, which the stack's tools would honour before the root's" });
-      } else if (entry.isDirectory()) walk(path);
-      else if (isNested(entry.name)) out.push({ path, problem: "no composed pack generates it" });
-    }
-  };
-  for (const entry of readdirSync(project, { withFileTypes: true })) {
-    if (entry.isDirectory() && !protectedDirs.has(entry.name.toLowerCase())) walk(entry.name);
-  }
-  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-}
+const byPath = (a: { path: string }, b: { path: string }): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
-/** What the composed packs generate, file by file, except the lockfile. */
+/** What the composed packs generate, file by file, and how to judge the rest. */
 export interface GeneratedConfig {
-  readonly pkg: ReturnType<typeof packageFor>;
-  /** Project-relative path → exact bytes. */
+  /** The root manifest. */
+  readonly pkg: Manifest;
+  /** Every generated manifest by workspace directory (`""` is the root). */
+  readonly manifests: ReadonlyMap<string, Manifest>;
+  readonly workspaces: readonly ProjectWorkspace[];
+  /** Project-relative path → exact bytes, every generated file except the lockfile. */
   readonly files: ReadonlyMap<string, string>;
   /** Does a root entry name count as project config? */
   readonly isConfig: (entry: string) => boolean;
   /** Does a file name count as project config at any depth below the root? */
   readonly isNestedConfig: (name: string) => boolean;
-  /** Directory names (lowercase) skipped at the root and drift below it:
-   *  the core's `.git` and `.bounded`, and the packs' dependency directories. */
+  /** Is a project path owned by a composed generator (`generatedFileGlobs`)? */
+  readonly isGenerated: (path: string) => boolean;
+  /** Directory names (lowercase) that are drift below the root: the core's
+   *  `.git` and `.bounded`, and the packs' dependency directories. */
   readonly protectedDirs: ReadonlySet<string>;
+  /** Dependency directory names (lowercase), expected directly under a workspace. */
+  readonly dependencyDirs: ReadonlySet<string>;
 }
 
 export function generatedConfig(project: string, harnessRoot = harnessRootOf()): GeneratedConfig {
   const packsDir = join(harnessRoot, "packs");
   const packs = readProjectPacks(project);
-  const pkg = packageFor(packs, packsDir);
-  const files = new Map<string, string>([[MANIFEST, json(pkg)]]);
-  for (const { pack, source, target } of projectConfigSources(packs, packsDir)) {
-    if (target === MANIFEST || target === LOCKFILE) throw new Error(`Capability '${pack}' may not ship ${target} as a config file`);
-    files.set(target, readFileSync(source, "utf8"));
-  }
+  const generated = generatedManifests(project, packs, packsDir, readProjectName(project));
+  const files = new Map<string, string>();
+  for (const [dir, manifest] of generated.manifests) files.set(manifestPath(dir), serializeManifest(manifest));
+  files.set(TSCONFIG, tsconfigFor(packs, packsDir));
+  for (const [target, content] of configFiles(packs, packsDir, generated.name)) files.set(target, content);
   for (const { path, source } of shippedFiles(packs, packsDir)) files.set(path, readFileSync(source, "utf8"));
+  const dependencyDirs = new Set(projectDependencyDirs(packs, packsDir).map((name) => name.toLowerCase()));
   return {
-    pkg,
+    pkg: generated.manifests.get("")!,
+    manifests: generated.manifests,
+    workspaces: generated.workspaces,
     files,
     isConfig: fileNameMatcher(fileNameGlobs("projectConfigNames", packs, packsDir)),
     isNestedConfig: fileNameMatcher(fileNameGlobs("projectNestedConfigNames", packs, packsDir)),
-    protectedDirs: new Set([...CORE_ROOT_SKIP, ...projectDependencyDirs(packs, packsDir)].map((name) => name.toLowerCase())),
+    isGenerated: pathGlobMatcher(generatedFileGlobsFor(packs, packsDir)),
+    protectedDirs: new Set([...CORE_ROOT_SKIP, ...dependencyDirs]),
+    dependencyDirs,
   };
-}
-
-/** Config present that no composed pack generates: root files by
- *  `projectConfigNames`, nested files by `projectNestedConfigNames`, and any
- *  protected directory below the root. */
-function extraConfig(project: string, generated: GeneratedConfig, expected: ReadonlySet<string>): ConfigDrift[] {
-  const root = readdirSync(project)
-    .filter((entry) => generated.isConfig(entry))
-    .map((path) => ({ path, problem: "no composed pack generates it" }));
-  return [...root, ...nestedProblems(project, generated.isNestedConfig, generated.protectedDirs)]
-    .filter(({ path }) => !expected.has(path.toLowerCase()))
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-}
-
-/** The lockfile the pins require, derived from `sourceRoot`'s lockfile; undefined when it cannot supply them. */
-function lockFrom(pkg: GeneratedConfig["pkg"], sourceRoot: string): string | undefined {
-  try {
-    return json(lockFor(pkg, sourceRoot));
-  } catch {
-    return undefined;
-  }
 }
 
 export interface ConfigDrift {
@@ -158,27 +149,78 @@ export interface ConfigDrift {
   readonly problem: string;
 }
 
+/** Nested problems below the root: config-named files no pack generates, and
+ *  every protected directory except a dependency directory directly under a
+ *  generated workspace. A protected directory is reported once and not
+ *  entered. */
+function nestedProblems(project: string, generated: GeneratedConfig, expected: ReadonlySet<string>): ConfigDrift[] {
+  const out: ConfigDrift[] = [];
+  const workspaceDirs = new Set(generated.workspaces.map((w) => w.dir.toLowerCase()));
+  const walk = (rel: string): void => {
+    for (const entry of readdirSync(join(project, rel), { withFileTypes: true })) {
+      const path = `${rel}/${entry.name}`;
+      if (HOST_SKIP.has(path)) continue;
+      const lower = entry.name.toLowerCase();
+      if (generated.protectedDirs.has(lower)) {
+        if (generated.dependencyDirs.has(lower) && workspaceDirs.has(rel.toLowerCase())) continue;
+        out.push({ path, problem: "a dependency, version-control or harness directory where none belongs, which the stack's tools would honour before the root's" });
+      } else if (entry.isDirectory()) walk(path);
+      else if (generated.isNestedConfig(entry.name) && !expected.has(path.toLowerCase()) && !generated.isGenerated(path)) {
+        out.push({ path, problem: "no composed pack generates it" });
+      }
+    }
+  };
+  for (const entry of readdirSync(project, { withFileTypes: true })) {
+    if (entry.isDirectory() && !generated.protectedDirs.has(entry.name.toLowerCase())) walk(entry.name);
+  }
+  return out;
+}
+
+/** Config present that no composed pack generates: root files by
+ *  `projectConfigNames`, nested files and directories as above. */
+function extraConfig(project: string, generated: GeneratedConfig, expected: ReadonlySet<string>): ConfigDrift[] {
+  const root = readdirSync(project)
+    .filter((entry) => generated.isConfig(entry) && !expected.has(entry.toLowerCase()))
+    .map((path) => ({ path, problem: "no composed pack generates it" }));
+  return [...root, ...nestedProblems(project, generated, expected)].sort(byPath);
+}
+
+const readIfPresent = (path: string): string | undefined => (existsSync(path) ? readFileSync(path, "utf8") : undefined);
+
+/** The recorded fingerprint of bun.lock's clean resolution, or undefined. */
+function readFingerprint(project: string): LockFingerprint | undefined {
+  const text = readIfPresent(join(project, LOCK_FINGERPRINT));
+  if (text === undefined) return undefined;
+  try {
+    return parseLockFingerprint(text);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Every way the project's config differs from what its packs generate. */
 export function configDrift(project: string, harnessRoot = harnessRootOf()): ConfigDrift[] {
   const generated = generatedConfig(project, harnessRoot);
   const drift: ConfigDrift[] = [];
-  const read = (name: string): string | undefined => {
-    const path = join(project, name);
-    return existsSync(path) ? readFileSync(path, "utf8") : undefined;
-  };
   for (const [name, content] of generated.files) {
-    const actual = read(name);
+    const actual = readIfPresent(join(project, name));
     if (actual === undefined) drift.push({ path: name, problem: "missing" });
     else if (actual !== content) drift.push({ path: name, problem: "differs from what the composed packs generate" });
   }
-  const lock = read(LOCKFILE);
+  const lock = readIfPresent(join(project, LOCKFILE));
+  const fingerprint = readFingerprint(project);
   if (lock === undefined) drift.push({ path: LOCKFILE, problem: "missing" });
-  else if (lockFrom(generated.pkg, project) !== lock) {
-    drift.push({ path: LOCKFILE, problem: "does not hold exactly the dependencies the composed packs pin" });
+  else if (fingerprint === undefined) {
+    drift.push({ path: LOCK_FINGERPRINT, problem: "missing or malformed: nothing records the clean resolution bun.lock must match" });
+  } else {
+    const problems = bunLockProblems(lock, generated.manifests, fingerprint);
+    if (problems.length > 0) {
+      drift.push({ path: LOCKFILE, problem: `does not resolve exactly the generated manifests and pins (${problems.slice(0, 3).join("; ")})` });
+    }
   }
   const expected = new Set([...generated.files.keys(), LOCKFILE].map((name) => name.toLowerCase()));
   drift.push(...extraConfig(project, generated, expected));
-  return drift;
+  return drift.sort(byPath);
 }
 
 /**
@@ -222,7 +264,7 @@ export function configDriftBlock(gate: string, cwd: string, harnessRoot = harnes
     lines: [
       `${gate}: BLOCK — ${summary}`,
       ...drift.map((d) => `  ${d.path}: ${d.problem}`),
-      "  No role may edit project config (ADR 2026-054): it is generated from the composed packs' reference files and pins.",
+      "  No role may edit project config (ADR 2026-054): it is generated from the composed packs and the design.",
       `  Escalate to the user: \`${SYNC_COMMAND}\` restores it, and a dependency or setting the project needs belongs in a pack.`,
       `${gate}: route → orchestrator`,
     ],
@@ -239,45 +281,50 @@ export interface SyncResult {
   readonly changed?: number;
 }
 
+export interface SyncOptions {
+  /** How `bun.lock` is produced when the old one no longer verifies. */
+  readonly makeLockfile?: LockfileMaker;
+}
+
 /**
- * Rewrite the project's config from its composed packs: every generated file,
- * the lockfile derived for the generated pins, and the removal of any config
- * file no pack generates. Everything is computed before anything is written,
- * so a refusal leaves the project untouched.
+ * Rewrite the project's config from its composed packs and design: every
+ * generated file, `bun.lock` (kept when it still verifies, otherwise derived
+ * by `bun install --lockfile-only` in a scratch copy), and the removal of
+ * every config file and misplaced dependency directory no pack generates.
+ * Everything is computed before anything is written, so a refusal leaves the
+ * project untouched. The design gate calls this too, when the design adds a
+ * workspace (ADR 2026-061).
  */
-export function syncProjectConfig(project: string, harnessRoot = harnessRootOf()): SyncResult {
+export function syncProjectConfig(project: string, harnessRoot = harnessRootOf(), options: SyncOptions = {}): SyncResult {
   if (!configIsGenerated(project)) {
     return { code: 1, lines: ["sync-config: BLOCK — this project was not initialized by bounded init, so its config was never generated by its packs"] };
   }
   let generated: GeneratedConfig;
+  let lock: FingerprintedLock;
   try {
     generated = generatedConfig(project, harnessRoot);
+    const previous = { lock: readIfPresent(join(project, LOCKFILE)), fingerprint: readFingerprint(project) };
+    lock = lockfileFor(generated.manifests, previous, options.makeLockfile ?? bunLockfileMaker);
   } catch (error) {
-    return { code: 1, lines: [`sync-config: BLOCK — ${error instanceof Error ? error.message : String(error)}`] };
-  }
-  const lock = lockFrom(generated.pkg, project) ?? lockFrom(generated.pkg, harnessRoot);
-  if (lock === undefined) {
     return {
       code: 1,
-      lines: [
-        "sync-config: BLOCK — neither the project's lockfile nor this harness's source lock holds every pinned dependency version.",
-        "  Nothing was written. Run the sync from a harness whose source lock carries the new pins.",
-      ],
+      lines: [`sync-config: BLOCK — ${error instanceof Error ? error.message : String(error)}`, "  Nothing was written."],
     };
   }
-  const writes = new Map(generated.files).set(LOCKFILE, lock);
+  const writes = new Map(generated.files).set(LOCKFILE, lock.lock).set(LOCK_FINGERPRINT, serializeLockFingerprint(lock.fingerprint));
+  const expected = new Set([...writes.keys()].map((name) => name.toLowerCase()));
+  const removals = extraConfig(project, generated, expected);
   const lines: string[] = [];
   let changed = 0;
   for (const [name, content] of writes) {
     const path = join(project, name);
-    if (existsSync(path) && readFileSync(path, "utf8") === content) continue;
+    if (readIfPresent(path) === content) continue;
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
     changed += 1;
     lines.push(`sync-config: wrote ${name}`);
   }
-  const expected = new Set([...writes.keys()].map((name) => name.toLowerCase()));
-  for (const { path } of extraConfig(project, generated, expected)) {
+  for (const { path } of removals) {
     rmSync(join(project, path), { recursive: true, force: true });
     changed += 1;
     lines.push(`sync-config: removed ${path} (no composed pack generates it)`);
@@ -304,8 +351,13 @@ const execSetup: SetupRun = (command, args, cwd) => {
  * committed lockfile and never run the project's lifecycle scripts. This is
  * the one reinstall after the first run, and only the user reaches it.
  */
-export function syncConfigCommand(project: string, harnessRoot = harnessRootOf(), run: SetupRun = execSetup): SyncResult {
-  const sync = syncProjectConfig(project, harnessRoot);
+export function syncConfigCommand(
+  project: string,
+  harnessRoot = harnessRootOf(),
+  run: SetupRun = execSetup,
+  options: SyncOptions = {},
+): SyncResult {
+  const sync = syncProjectConfig(project, harnessRoot, options);
   if (sync.code !== 0) return sync;
   const root = resolve(project);
   let plan: SetupPlan;

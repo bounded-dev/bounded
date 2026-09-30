@@ -1,10 +1,17 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import {
   type CommandRunner,
   formatTypecheck,
+  generatedLayoutProblem,
   parseTscOutput,
   redactAbsolutePaths,
   typecheck,
+  TYPECHECK_COMMAND,
 } from "./typecheck.ts";
 
 function fakeRunner(stdout: string, stderr = "", code: number | null = 0): CommandRunner {
@@ -83,5 +90,50 @@ describe("formatTypecheck", () => {
     });
     expect(text).toContain("src/a.ts(1,2): error TS2322: bad");
     expect(text).toMatch(/1 error/i);
+  });
+});
+
+describe("the type-check invocation (ADR 2026-062)", () => {
+  test("bunx tsc on the generated tsconfig.json, one-line diagnostics", async () => {
+    const seen: string[][] = [];
+    await typecheck("/proj", { run: async (command, args) => { seen.push([command, ...args]); return { stdout: "", stderr: "", code: 0 }; } });
+    expect(seen).toEqual([["bunx", "tsc", "-p", "tsconfig.json", "--pretty", "false"]]);
+    expect(TYPECHECK_COMMAND).toEqual({ command: "bunx", args: ["tsc", "-p", "tsconfig.json", "--pretty", "false"] });
+  });
+});
+
+describe("a generated project with no source roots", () => {
+  test("is refused with the fix, not handed to tsc with an empty include", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "typecheck-noroots-"));
+    try {
+      writeProjectPacks(dir, ["ts"]);
+      writeFileSync(join(dir, ".bounded", "installation.json"), "{}\n");
+      expect(generatedLayoutProblem(dir)).toMatch(/no composed pack contributes sourceRoots.*compose the layout pack/);
+      // A project whose config the packs did not generate keeps its own tsconfig.
+      rmSync(join(dir, ".bounded", "installation.json"));
+      expect(generatedLayoutProblem(dir)).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+const HAS_BUN = spawnSync("bun", ["--version"]).status === 0;
+if (!HAS_BUN) console.warn("typecheck.test.ts: skipping the real bunx tsc test — `bun` is not on PATH");
+
+describe.skipIf(!HAS_BUN)("real bunx tsc", () => {
+  test("reports a monorepo type error by its project-relative path", { timeout: 60_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "typecheck-bunx-"));
+    try {
+      mkdirSync(join(dir, "contexts", "pm", "src"), { recursive: true });
+      writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, noEmit: true, types: [] }, include: ["contexts/*/src"] }));
+      writeFileSync(join(dir, "contexts", "pm", "src", "note.test.ts"), "export const n: number = 'x';\n");
+      symlinkSync(join(import.meta.dirname, "..", "..", "..", "node_modules"), join(dir, "node_modules"), "dir");
+      const r = await typecheck(dir);
+      expect(r.ok).toBe(false);
+      expect(r.diagnostics[0]).toMatch(/^contexts\/pm\/src\/note\.test\.ts\(1,14\): error TS2322/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

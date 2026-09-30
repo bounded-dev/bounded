@@ -1,0 +1,39 @@
+import { describe, expect, test } from "bun:test";
+import { parseNote } from "./note.ts";
+
+describe("Note <parse> & \"quotes\"", () => {
+  test("implementation throws", () => {
+    const hiddenInput = "secret-input-literal";
+    expect(parseNote(hiddenInput)).toBe("x");
+  });
+
+  test("console.error then fail", () => {
+    console.error("error: leaked-console-error-line");
+    console.error("    12 | const fakeFrame = 1;");
+    expect(["alpha", "beta"]).toContain("gamma-secret");
+  });
+
+  test("custom message", () => {
+    expect(3, "should be the magic secret number").toBe(4);
+  });
+
+  test("throws a string", () => {
+    throw "a thrown string secret";
+  });
+
+  test("multi-line error message", () => {
+    throw new Error("first line\nsecond line with /abs/path/file.ts:3:4");
+  });
+
+  test("toThrow mismatch", () => {
+    expect(() => parseNote("ok")).toThrow("expected-secret-message");
+  });
+
+  test("rejects async", async () => {
+    await Promise.reject(new RangeError("async-range"));
+  });
+
+  test("timeout", async () => {
+    await new Promise((r) => setTimeout(r, 200));
+  }, 50);
+});

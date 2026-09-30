@@ -26,7 +26,7 @@ export function parseRole(raw: string | undefined): Role | undefined {
 }
 
 /**
- * Run `tsc --noEmit` on `cwd`, scope the diagnostics to `role` (none: the
+ * Type-check `cwd` (`bunx tsc -p tsconfig.json`), scope the diagnostics to `role` (none: the
  * whole project), and log one guard event. The event's summary is always the
  * WHOLE project's verdict — the guard log is the orchestrator's evidence, and
  * it is never scoped — while the lines are what the caller may see.

@@ -1,0 +1,4 @@
+import { test, expect } from "bun:test";
+const fixture = { id: "fixture-id-value", payload: "hidden-payload" };
+test("a", () => { expect(1).toBe(2); });
+test("logs", () => { console.error("dump " + JSON.stringify(fixture)); console.error(`  multi\n  const hiddenExpr = compute(fixture) + 1;`); process.exit(3); });

@@ -527,11 +527,12 @@ describe("collectRedGateSources", () => {
   test("copies every root file the composed packs name as config, the bundler's included", () => {
     const web = liveTree();
     try {
-      writeFileSync(join(web, "vite.config.ts"), "export default {};\n");
-      writeFileSync(join(web, "vitest.config.mts"), "export default {};\n");
+      // ADR 2026-062: Bun's config names replaced Vite's and Vitest's.
+      writeFileSync(join(web, "bunfig.toml"), "[test]\n");
+      writeFileSync(join(web, "bun.lock"), "{}\n");
       writeFileSync(join(web, "notes.md"), "not config\n");
       expect(collectRedGateSources(web).configFiles)
-        .toEqual(["package.json", "tsconfig.json", "vite.config.ts", "vitest.config.mts"]);
+        .toEqual(["bun.lock", "bunfig.toml", "package.json", "tsconfig.json"]);
     } finally {
       rmSync(web, { recursive: true, force: true });
     }
@@ -707,7 +708,11 @@ describe("contract-triggered support and forward types", () => {
   });
 });
 
-test("project-local init, design freeze, inferred router re-freeze, and red use the copied harness", async () => {
+// Skipped by WI-4 (ADR 2026-062): this drives the retired flat layout with
+// Vitest tests through the real gates. A generated project now type-checks
+// only its composed source roots and runs `bun test`, so the flat tree has no
+// inputs. WI-8 rebuilds this end-to-end on the monorepo.
+test.skip("project-local init, design freeze, inferred router re-freeze, and red use the copied harness", async () => {
   const dir = createTempDir(join(tmpdir(), "bounded-red-init-"));
   tmpDirs.push(dir);
   const selected = ["ts-trpc"];
@@ -956,8 +961,12 @@ describe("red-gate CLI: downstream exports are reached by call site", () => {
 describe("red-gate CLI: escape hatches in test sources", () => {
   test("a non-null assertion in a test helper blocks an otherwise valid red", () => {
     const dir = fixtureRepo("red-testhatch-", vitestJson([{ name: "create order", status: "failed", message: NI }]));
+    // The gate composes the hexagonal layout, so the tests lint walks the
+    // composed source roots (lint-src.ts, `lintScope`): the helper is a
+    // test-side file inside one.
+    mkdirSync(join(dir, "contexts", "money", "src"), { recursive: true });
     writeFileSync(
-      join(dir, "tests", "helpers.ts"),
+      join(dir, "contexts", "money", "src", "helpers.test-support.ts"),
       "export function d(x: string | undefined): string { return x!; }\n",
     );
     const r = runGate(dir);

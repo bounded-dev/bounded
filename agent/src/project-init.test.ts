@@ -53,8 +53,9 @@ describe("project-local initialization", () => {
     expect(plan.createdFiles["apps/README.md"]).toBeDefined();
     await applyInit(target, host, ["ts-web", "ts-trpc"], plan.digest);
     const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { scripts: Record<string, string>; dependencies: Record<string, string> };
-    expect(pkg.scripts["check"]).toContain('--exclude="**/.bounded/**"');
-    expect(pkg.scripts["test"]).toContain('--exclude="**/.bounded/**"');
+    expect(pkg.scripts["check"]).toContain("bun test");
+    expect(pkg.scripts["test"]).toBe("bun test");
+    expect(existsSync(join(target, "bun.lock"))).toBe(true);
     expect(existsSync(join(target, ".bounded/harness/packs/ts-trpc"))).toBe(true);
   });
 

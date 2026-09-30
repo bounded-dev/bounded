@@ -35,7 +35,8 @@ describe("contrib.json through the core's validators", () => {
 
   test("test-side files are the colocated suffixes", () => {
     const suffixes = testFileSuffixesFor(PACKS, packsDir);
-    expect(suffixes).toEqual([".test-support.ts", ".test.ts", ".test.tsx"]);
+    // The ts pack adds bun's snapshot files: they hold expected values (ADR 2026-062).
+    expect(suffixes).toEqual([".test-support.ts", ".test.ts", ".test.ts.snap", ".test.tsx", ".test.tsx.snap"]);
     expect(hasTestFileSuffix("x/create-note.store.test-support.ts", suffixes)).toBe(true);
     expect(hasTestFileSuffix("x/create-note.handler.ts", suffixes)).toBe(false);
   });

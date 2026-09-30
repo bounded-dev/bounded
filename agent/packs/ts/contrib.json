@@ -25,43 +25,46 @@
     "capture-baseline": "scripts/capture-baseline.ts",
     "sync-config": "scripts/sync-config.ts"
   },
-  "//projectSetup": "Project dependency setup sockets (ADR 2026-051). projectSetupCommands are argv lists the host entry runs in order, without a shell, in the project root; each must install only from a committed lockfile and never run the project package's own lifecycle scripts: no role may write package.json (ADR 2026-054), and refusing its scripts keeps that true even for a hand edit the drift check has not yet seen. projectSetupProbes are project-relative paths that exist only after those commands succeed. projectIgnoreRules are .gitignore lines for what setup and builds produce.",
-  "projectSetupCommands": [["npm", "ci", "--ignore-scripts"]],
-  "projectSetupProbes": ["node_modules/.package-lock.json"],
+  "//projectSetup": "Project dependency setup sockets (ADR 2026-051, ADR 2026-062). projectSetupCommands are argv lists the host entry runs in order, without a shell, in the project root; each must install only from the committed lockfile and never run the project package's own lifecycle scripts: no role may write package.json (ADR 2026-054), and refusing its scripts keeps that true even for a hand edit the drift check has not yet seen. A frozen Bun install refuses a bun.lock that does not match the manifests. projectSetupProbes are project-relative paths that exist only after those commands succeed: node_modules/.bun is the store Bun's isolated installs (the default for a workspace project) link every package from, checked against bun 1.3.14; neither `bun install --lockfile-only` nor a failed resolution creates it. projectIgnoreRules are .gitignore lines for what setup and builds produce. The core accepts only root-anchored rules with a literal first segment, so the per-workspace node_modules and dist directories are ignored by the pack that owns the workspace layout.",
+  "projectSetupCommands": [["bun", "install", "--frozen-lockfile", "--ignore-scripts"]],
+  "projectSetupProbes": ["node_modules/.bun"],
   "projectIgnoreRules": ["/node_modules/", "/dist/"],
-  "//projectManifest": "projectManifestScripts are pack-relative scripts the project initializer runs (node, project dir and harness source root as argv) after it writes its own files (ADR 2026-051): this pack writes the project's package manifest and lockfile. The script reads projectPackageTemplate (exactly one across the composition), and every composed pack's projectScripts and pins.",
+  "//projectManifest": "projectManifestScripts are pack-relative scripts the project initializer runs (node, project dir and harness source root as argv, then optionally the project name) after it writes its own files (ADR 2026-051): this pack writes the project's package manifests, its generated tsconfig.json and its bun.lock (ADR 2026-061, ADR 2026-062). The script reads projectPackageTemplate (exactly one across the composition), every composed pack's projectScripts and pins, and the workspaceTemplates and adapterTechnologies sockets.",
   "projectManifestScripts": ["scripts/project-package.ts"],
   "projectPackageTemplate": "reference/package.json",
-  "projectConfigFiles": ["reference/tsconfig.json"],
+  "projectConfigFiles": ["reference/tsconfig.base.json"],
   "contractFileSuffixes": [".contract.ts"],
-  "//projectConfig": "Project configuration is generated, never written by a role (ADR 2026-054). pins, projectScripts and projectCheckScripts feed scripts/project-package.ts: ts-morph is pinned because the delivered surface check needs it, and check:surface is folded into the generated check so delivery finds the manifest already wired. projectCheckScripts are script names folded into `check` in composition order. projectShippedFiles (project path → pack-relative source) are copied verbatim at init, so the surface checker check:surface runs exists from the start; delivery finds it already shipped. projectNestedConfigNames are file-name globs that count as config at any depth: Node and the test runner's transform read the nearest package.json and tsconfig for each file, so a nested one no pack generates is drift, and the path policy refuses every role a write to one. projectDependencyDirs are the directory names installed dependencies resolve from: skipped by the drift walk only at the root; a nested one anywhere is drift and write-denied for every role, because Node, the type-checker and the bundler resolve it before the root's. projectConfigNames are root file-name globs that count as project config for this stack: scripts/project-config.ts refuses at the phase gates when any of them differs from, or is missing from, or is not produced by, what the composed packs generate; `bounded sync-config` (the user's command) rewrites them.",
+  "//layout": "Layout sockets (ADRs 2026-057 and 2026-058; TN-26-012 sections 7 and 8). testFileSuffixes make a file under a source root test-side: the tests themselves, the shared store conformance suites, and bun's snapshot files (`__snapshots__/<test file>.snap`), which are expected values the builder must neither read nor write; run_tests also runs bun with CI=true so a run never writes one. generatedFileGlobs: the generated law suites, which only generators write.",
+  "testFileSuffixes": [".test.ts", ".test.tsx", ".test-support.ts", ".test.ts.snap", ".test.tsx.snap"],
+  "generatedFileGlobs": ["**/*.laws.test.ts"],
+  "//projectConfig": "Project configuration is generated, never written by a role (ADR 2026-054, ADR 2026-061). pins, projectScripts and projectCheckScripts feed scripts/project-package.ts: ts-morph is pinned because the delivered surface check needs it, and check:surface is folded into the generated check so delivery finds the manifest already wired. Shipped scripts run with bun (ADR 2026-062). projectCheckScripts are script names folded into `check` in composition order. projectShippedFiles (project path to pack-relative source) are copied verbatim at init, so the surface checker check:surface runs exists from the start. projectNestedConfigNames are file-name globs that count as config at any depth: Bun and the type-checker read the nearest package.json, tsconfig and bunfig.toml for each file, so a nested one is drift unless it is a generated workspace manifest or a file a composed generator owns, and the path policy refuses every role a write to one. projectDependencyDirs are the directory names installed dependencies resolve from: expected only at the project root and directly under a generated workspace directory, where Bun's isolated installs link each workspace's dependencies; anywhere else one is drift and write-denied for every role, because Bun, the type-checker and the bundler resolve it before the root's. projectConfigNames are root file-name globs that count as project config for this stack: scripts/project-config.ts refuses at the phase gates when any of them differs from, is missing from, or is not produced by what the composed packs generate; `bounded sync-config` (the user's command) rewrites them. The other package managers' lockfiles stay listed, because Bun migrates from one when bun.lock is missing.",
   "pins": {
     "devDependencies": {
       "ts-morph": "28.0.0"
     }
   },
   "projectScripts": {
-    "check:surface": "node --experimental-strip-types scripts/surface-check.ts"
+    "check:surface": "bun scripts/surface-check.ts"
   },
   "projectCheckScripts": ["check:surface"],
   "projectShippedFiles": {
     "scripts/surface-check.ts": "scripts/surface-check.ts"
   },
-  "projectNestedConfigNames": ["package.json", "tsconfig*.json", "jsconfig*.json"],
+  "projectNestedConfigNames": ["package.json", "tsconfig*.json", "jsconfig*.json", "bunfig.toml", ".npmrc"],
   "projectDependencyDirs": ["node_modules"],
   "projectConfigNames": [
     "package.json",
+    "bun.lock",
+    "bun.lockb",
     "package-lock.json",
     "npm-shrinkwrap.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
     ".npmrc",
+    "bunfig.toml",
     "tsconfig*.json",
     "jsconfig*.json",
-    "vitest.config.*",
-    "vitest.workspace.*",
-    "vite.config.*",
-    "postcss.config.*",
-    "tailwind.config.*",
-    "babel.config.*",
-    ".babelrc*"
+    "drizzle.config.*",
+    "docker-compose.yml"
   ]
 }

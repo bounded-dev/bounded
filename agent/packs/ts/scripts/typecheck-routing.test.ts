@@ -2,7 +2,14 @@ import { describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { routeTypecheck as routeWithZone, typecheckLines, mostUpstream, type FixOwner } from "./typecheck-routing.ts";
+import {
+  projectOwnerOf,
+  routeTypecheck as routeWithZone,
+  suffixOwnerOf,
+  typecheckLines,
+  mostUpstream,
+  type FixOwner,
+} from "./typecheck-routing.ts";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { contractGlobs } from "../../../src/pack-contrib.ts";
 
@@ -117,5 +124,69 @@ describe("typecheckLines", () => {
 
   test("clean typecheck produces no lines", () => {
     expect(typecheckLines(routeTypecheck([]))).toEqual([]);
+  });
+});
+
+// --- suffix ownership (ADR 2026-057), stubbed until the path policy has it ------
+
+describe("routing a monorepo's diagnostics by file suffix", () => {
+  const LAYOUT = {
+    sourceRoots: ["apps/*/src", "contexts/*/src"],
+    testSuffixes: [".test.ts", ".test.tsx", ".test-support.ts"],
+    contractSuffixes: [".contract.ts"],
+    generatedGlobs: ["**/*.laws.test.ts", "contexts/*/src/application/*/*/*.command.ts", "architecture.test.ts"],
+  };
+  const ownerOf = suffixOwnerOf(LAYOUT);
+
+  test("contract → architect; test-side → test-writer; implementation → builder; generated and outside → nobody", () => {
+    const cases: [string, string | null][] = [
+      ["contexts/pm/src/application/notes/create-note/create-note.contract.ts", "architect"],
+      ["contexts/pm/src/application/notes/create-note/create-note.test.ts", "test-writer"],
+      ["contexts/pm/src/application/notes/create-note/create-note.store.test-support.ts", "test-writer"],
+      ["apps/web/src/client/app.test.tsx", "test-writer"],
+      ["contexts/pm/src/application/notes/create-note/create-note.handler.ts", "builder"],
+      ["apps/web/src/server/composition-root.ts", "builder"],
+      ["contexts/pm/src/domain/notes/note-text.laws.test.ts", null],
+      ["contexts/pm/src/application/notes/create-note/create-note.command.ts", null],
+      ["architecture.test.ts", null],
+      ["tsconfig.json", null],
+      ["contexts/pm/package.json", null],
+      ["/abs/contexts/pm/src/x.ts", null],
+      ["contexts/pm/src/../../x.ts", null],
+    ];
+    for (const [path, owner] of cases) expect(ownerOf(path), path).toBe(owner);
+  });
+
+  test("case is ignored", () => {
+    expect(ownerOf("contexts/pm/src/X.TEST.TS")).toBe("test-writer");
+    expect(ownerOf("Contexts/pm/src/x.ts")).toBe("builder");
+  });
+
+  test("a test file's type error bounces to the test-writer, an implementation's to the builder, upstream first", () => {
+    const routing = routeWithZone([
+      "contexts/pm/src/application/notes/create-note/create-note.handler.ts(3,1): error TS2322: bad",
+      "contexts/pm/src/application/notes/create-note/create-note.test.ts(9,5): error TS2345: bad",
+      "  continuation of the test error",
+      "contexts/pm/src/domain/notes/note-text.laws.test.ts(1,1): error TS2304: bad",
+    ], ownerOf);
+    expect(routing.owners).toEqual(["orchestrator", "test-writer", "builder"]);
+    expect(routing.route).toBe("orchestrator");
+    expect(routing.byOwner["test-writer"]).toEqual([
+      "contexts/pm/src/application/notes/create-note/create-note.test.ts(9,5): error TS2345: bad",
+      "  continuation of the test error",
+    ]);
+  });
+
+  test("projectOwnerOf: the path policy's zones where no source roots are composed; nobody when unreadable", () => {
+    const dir = mkdtempSync(join(tmpdir(), "routing-owner-"));
+    try {
+      writeProjectPacks(dir, ["ts"]);
+      expect(projectOwnerOf(dir)("src/a.ts")).toBe("builder");
+      expect(projectOwnerOf(dir)("contexts/pm/src/a.ts")).toBe(null);
+      rmSync(join(dir, ".bounded"), { recursive: true, force: true });
+      expect(projectOwnerOf(dir)("src/a.test.ts")).not.toBe("test-writer");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

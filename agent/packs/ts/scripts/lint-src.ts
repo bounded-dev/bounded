@@ -52,6 +52,8 @@ import { lintSrcRuleId, lintSrcRules, type LintSrcRuleContribution } from "../pa
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
+import { generatedFileGlobsFor, sourceRootsFor, testFileSuffixesFor } from "../../../src/pack-contrib.ts";
+import { readProjectPacks } from "../../../src/project-composition.ts";
 
 const GUARD = "lint-src";
 
@@ -78,6 +80,49 @@ export const DEFAULT_PATTERNS: readonly string[] = ["src/**/*.ts", "src/**/*.tsx
  *  is free. */
 export const TEST_PATTERNS: readonly string[] = ["tests/**/*.ts", "tests/**/*.tsx"];
 const SIZE_RULES = new Set(["complexity", "max-lines-per-function", "max-lines", "max-depth"]);
+
+/** What the two runs walk, and what each leaves out. */
+export interface LintScope {
+  /** Implementation globs (the src run). */
+  readonly src: readonly string[];
+  /** Test-side globs (the tests run). */
+  readonly tests: readonly string[];
+  /** Left out of the src run: test-side files and generated files. */
+  readonly srcIgnores: readonly string[];
+  /** Left out of the tests run: generated files (the laws). */
+  readonly testIgnores: readonly string[];
+}
+
+/** The flat layout's scope: `src/**` and `tests/**` (no source roots composed). */
+export const FLAT_SCOPE: LintScope = { src: DEFAULT_PATTERNS, tests: TEST_PATTERNS, srcIgnores: [], testIgnores: [] };
+
+/**
+ * The lint scope a composition declares (ADRs 2026-056 to 2026-058). With
+ * source roots, the src run walks every `.ts`/`.tsx` under each root except
+ * the test-side and generated files; the tests run walks every test-side
+ * file under each root except the generated ones (the generator answers for
+ * those, as it does for skeletons). Without source roots, the flat layout.
+ * An unreadable composition is the flat scope too: in a monorepo that
+ * matches nothing, and a gate that matches nothing errors — fail-closed.
+ */
+export function lintScope(cwd: string, packsDir?: string): LintScope {
+  let packs: readonly string[];
+  try {
+    packs = readProjectPacks(cwd);
+  } catch {
+    return FLAT_SCOPE;
+  }
+  const roots = sourceRootsFor(packs, packsDir);
+  if (roots.length === 0) return FLAT_SCOPE;
+  const suffixes = testFileSuffixesFor(packs, packsDir).filter((s) => /\.tsx?$/.test(s));
+  const generated = generatedFileGlobsFor(packs, packsDir);
+  return {
+    src: roots.flatMap((root) => [`${root}/**/*.ts`, `${root}/**/*.tsx`]),
+    tests: roots.flatMap((root) => suffixes.map((suffix) => `${root}/**/*${suffix}`)),
+    srcIgnores: [...suffixes.map((suffix) => `**/*${suffix}`), ...generated],
+    testIgnores: generated,
+  };
+}
 // Value objects live in src/**; a test file declares none, so the zod rule
 // would only ever fire on a test HELPER faking one — which the laws own.
 const SRC_ONLY_RULES = new Set(["bounded-ts/zod-backed-parse"]);
@@ -170,7 +215,7 @@ function contributedSrcOnlyIds(cwd?: string): ReadonlySet<string> {
   );
 }
 
-export function createSrcLinter(cwd?: string): ESLint {
+export function createSrcLinter(cwd?: string, ignores: readonly string[] = []): ESLint {
   return new ESLint({
     // The gate owns the whole config: no project eslint config is consulted,
     // so results are identical in every repo.
@@ -190,7 +235,7 @@ export function createSrcLinter(cwd?: string): ESLint {
       // never enter the results at all, so they cannot inflate the file count
       // that decides "did this gate match anything?". Contracts are `.ts`-only
       // by design (see DEFAULT_PATTERNS), so one pattern still covers them all.
-      { ignores: ["**/*.contract.ts"] },
+      { ignores: ["**/*.contract.ts", ...ignores] },
       {
         // @typescript-eslint/parser turns JSX parsing on from the FILENAME, so
         // the same parser instance handles both extensions with no options
@@ -295,9 +340,11 @@ export interface LintSrcResult {
  */
 export async function lintSrc(
   cwd: string,
-  patterns: readonly string[] = DEFAULT_PATTERNS,
+  patterns?: readonly string[],
+  packsDir?: string,
 ): Promise<LintSrcResult> {
-  const result = await classify(cwd, [...patterns]);
+  const scope = lintScope(cwd, packsDir);
+  const result = await classify(cwd, [...(patterns ?? scope.src)], { ignores: scope.srcIgnores });
   logGuardEvent(cwd, {
     guard: GUARD,
     verdict: result.verdict,
@@ -313,8 +360,9 @@ export async function lintSrc(
  * way the scaffolder is). Run inside the red gate, so an offending helper is
  * the test-writer's to fix at the moment fixing is cheap.
  */
-export async function lintTests(cwd: string): Promise<LintSrcResult> {
-  const base = await classify(cwd, [...TEST_PATTERNS], { dropSizeRules: true });
+export async function lintTests(cwd: string, packsDir?: string): Promise<LintSrcResult> {
+  const scope = lintScope(cwd, packsDir);
+  const base = await classify(cwd, [...scope.tests], { dropSizeRules: true, ignores: scope.testIgnores });
   const result = base.code === 2
     ? // No test files yet is a legitimate state mid-loop, not a broken gate.
       { ...base, code: 0 as const, verdict: "pass" as const, summary: "no test files yet", lines: [`${GUARD}: no test files yet`] }
@@ -323,7 +371,11 @@ export async function lintTests(cwd: string): Promise<LintSrcResult> {
   return result;
 }
 
-async function classify(cwd: string, patterns: string[], options: { dropSizeRules?: boolean } = {}): Promise<LintSrcResult> {
+async function classify(
+  cwd: string,
+  patterns: string[],
+  options: { dropSizeRules?: boolean; ignores?: readonly string[] } = {},
+): Promise<LintSrcResult> {
   // ESLint throws its own wording when a pattern matches nothing — two
   // wordings, in fact: "No files matching …" when the glob found nothing at
   // all, and "All files matched … are ignored" when src/ holds only contract
@@ -341,7 +393,7 @@ async function classify(cwd: string, patterns: string[], options: { dropSizeRule
 
   let results: ESLint.LintResult[];
   try {
-    results = await createSrcLinter(cwd).lintFiles(patterns);
+    results = await createSrcLinter(cwd, options.ignores).lintFiles(patterns);
   } catch (e) {
     if (e instanceof Error && NOTHING_TO_LINT.test(e.message)) return noMatch();
     throw e;

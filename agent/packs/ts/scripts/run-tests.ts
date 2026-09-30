@@ -1,28 +1,35 @@
-// run_tests custom tool core (TN-26-001, §"Custom tools" #3).
+// run_tests custom tool core (TN-26-001, §"Custom tools" #3; ADR 2026-062).
 //
 // The builder subagent is blind to test SOURCE but must see failure output to
-// debug. run_tests runs the project's vitest suite with the JSON reporter and
-// pipes stdout through the ALREADY-BUILT sanitizer (sanitizeTestRun) — the
-// only thing that ever reaches the builder is the sanitizer's whitelist:
-// test name, status, and a source-scrubbed assertion diff. Same suite binary
-// as the orchestrator's gates (vitest), different reporter.
+// debug. run_tests runs the project's suite with `bun test` and its JUnit
+// reporter, and hands the report and the console output to the sanitizer
+// (sanitize-test-output.ts). The only thing that ever reaches the builder is
+// the sanitizer's whitelist: test name, status, and the error's text with
+// every frame, path, console line and quoted test line removed. To make that
+// last filter provable rather than heuristic, this module reads every
+// test-side file of the project first and passes their lines as forbidden.
 //
-// This module owns spawning + shaping; sanitization is NOT reimplemented here.
-// The command runner is injectable so the logic is unit-testable against the
-// sanitizer's real captured fixtures without spawning vitest.
+// This module owns spawning and shaping; sanitization is NOT reimplemented
+// here. The command runner is injectable so the logic is unit-testable
+// against the real captured reports in testdata/bun-junit/ without spawning.
 
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, relative, sep } from "node:path";
 import {
+  forbiddenLines,
   SanitizeError,
   type SanitizedResult,
-  sanitizeMessage,
-  sanitizeTestRun,
+  sanitizeBunRun,
+  sanitizeLegacyJsonRun,
 } from "./sanitize-test-output.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
+import { hasTestFileSuffix, testFileSuffixes } from "../../../src/pack-contrib.ts";
 import { configDriftBlock, configDriftReason } from "./project-config.ts";
+import { bunVersionProblem } from "./project-package.ts";
 
 /** Captured output of one command invocation. */
 export interface CommandOutput {
@@ -43,7 +50,8 @@ export type CommandRunner = (
 export interface RunTestsOptions {
   /** Override the command runner (tests inject a fake). */
   readonly run?: CommandRunner;
-  /** Override the vitest invocation. Default: `npx vitest run --reporter=json`. */
+  /** Override the suite invocation. Default: {@link testCommand}. With a
+   *  replaced command, the JUnit report may also arrive on stdout. */
   readonly command?: string;
   readonly args?: string[];
 }
@@ -60,68 +68,90 @@ export interface RunSummary {
 export interface RunTestsResult extends RunSummary {
   /** True when the suite ran, no test failed, AND no unhandled error escaped. */
   readonly ok: boolean;
-  /** Sanitized per-test outcomes, in reporter order. */
+  /** Sanitized per-test outcomes, in report order; errors raised outside any
+   *  test follow as failed results named `(outside any test)`. */
   readonly results: SanitizedResult[];
-  /** Present ONLY when vitest produced no parseable JSON report (BLOCKED): a
-   *  sanitized (path-scrubbed) explanation drawn from stderr/stdout. */
+  /** Present ONLY when the suite produced no readable report (BLOCKED): a
+   *  sanitized explanation drawn from the console output. */
   readonly blocked?: string;
-  /** Present when the suite ran to a report in which every assertion passed but
-   *  the process still exited non-zero — an UNHANDLED error (a throw outside any
-   *  assertion: an async rejection, or a throw inside an event handler or effect
-   *  during a test). Vitest does not count these among `assertionResults`, so a
-   *  runner that only tallies pass/fail would call this run green. It is not.
-   *  The value is a FIXED, source-free explanation — never the raw error text,
-   *  which can carry test source — so surfacing it does not widen what a blind
-   *  builder can see. */
+  /** Present when the suite ran to a report in which nothing failed but the
+   *  process still exited non-zero: an error this module could not attribute
+   *  to a test or to an unhandled-error block. The value is FIXED,
+   *  source-free text, so surfacing it widens nothing the builder sees. */
   readonly unhandled?: string;
 }
 
 /**
- * The blind-safe note surfaced when a suite exits non-zero with every assertion
- * passing — an unhandled error (dogfood Run 29). FIXED text: it names the
- * failure CLASS and nothing about the test that raised it, because the raw error
- * (message, stack, the identifier that threw) is test source the builder must
- * not see. "Green is a positive claim" — a suite that leaked an error did not
- * make it.
+ * The blind-safe note surfaced when a suite exits non-zero with every test
+ * passing (dogfood Run 29). FIXED text: it names the failure CLASS and nothing
+ * about the test that raised it. "Green is a positive claim" — a suite that
+ * leaked an error did not make it.
  */
 export const UNHANDLED_ERROR_NOTE =
   "the suite raised an unhandled error — a throw outside any assertion (an async " +
   "rejection, or a throw inside an event handler or effect during a test). Every " +
-  "assertion passed, but the run exited non-zero, so the suite did not pass. Vitest " +
-  "reports this as an UNHANDLED error, not a failed assertion.";
+  "test passed, but the run exited non-zero, so the suite did not pass.";
 
 /**
- * Did a parsed run leak an unhandled error? The robust in-band signal is the
- * process exit: vitest exits non-zero on an unhandled error even when every
- * assertion passed, so `failed === 0` AND a non-zero exit AND tests that
- * actually ran is exactly that shape. A failing suite exits non-zero too but
- * reports `failed > 0`, so it is not caught here; a suite that produced no
+ * Did a parsed run leak an error? The robust in-band signal is the process
+ * exit: bun exits non-zero whenever anything failed, so `failed === 0` AND a
+ * non-zero exit AND tests that actually ran is exactly that shape. A failing
+ * suite exits non-zero too but reports `failed > 0`; a suite that produced no
  * report at all is the `blocked` path and never reaches this.
  */
 export function hasUnhandledError(code: number | null, failed: number, ran: number): boolean {
   return code !== 0 && failed === 0 && ran > 0;
 }
 
-const DEFAULT_COMMAND = "npx";
-// The default args carry `--exclude` for the harness's own scratch space:
-// `.bounded/**` must never be collected by the project's suite. The red gate
-// rebuilds a SHADOW project at `.bounded/shadow-red/` (red-gate.ts) whose tests are
-// copies of the project's own, running against regenerated skeletons — and
-// vitest globs test files with `dot: true` while its default exclude covers
-// only node_modules and .git. Without the flag every live run would collect
-// the shadow's copies too, and every one of them would fail with
-// NotImplementedError. The flag is ADDITIVE in vitest (`cliExclude`), so the
-// built-in excludes still apply.
-const DEFAULT_ARGS = ["vitest", "run", "--reporter=json", "--exclude=**/.bounded/**"];
+/** The harness's own scratch space is never collected by a project's suite.
+ *  Bun already skips dot-directories while collecting; the flag says so
+ *  explicitly, so the red gate's shadow copy (`.bounded/shadow-red/`) can
+ *  never be run by a live suite whatever a future bun decides. Running bun
+ *  INSIDE the shadow still collects the shadow's own tests (verified). */
+export const IGNORE_HARNESS_STATE = "--path-ignore-patterns=**/.bounded/**";
 
-/** Default runner: spawn, capture stdout/stderr, resolve on close.
+/** Silences console output in the test process (see the file). */
+export const TEST_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), "bun-test-preload.ts");
+
+/** The suite invocation: bun's runner with its JUnit reporter into `report`,
+ *  console output silenced by {@link TEST_PRELOAD}. */
+export function testCommand(report: string): { command: string; args: string[] } {
+  return {
+    command: "bun",
+    args: ["test", "--reporter=junit", `--reporter-outfile=${report}`, IGNORE_HARNESS_STATE, `--preload=${TEST_PRELOAD}`],
+  };
+}
+
+/**
+ * The environment every suite run gets. `CI=true` makes bun FAIL a missing
+ * or mismatched snapshot instead of writing it, so a builder's own run can
+ * never rewrite a test (verified with bun 1.3.14, file and inline
+ * snapshots). Inherited `BUN_*` variables are dropped: they configure the
+ * runtime and its test runner from outside the generated config. Colour is
+ * off so the console report is plain text. A global `~/.bunfig.toml` or
+ * `$XDG_CONFIG_HOME/.bunfig.toml` is not applied to `bun test` by bun
+ * 1.3.14 (checked with a `[test] preload`; see run-tests.test.ts).
+ */
+export function testEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) if (!/^BUN_/i.test(key)) env[key] = value;
+  return { ...env, CI: "true", NO_COLOR: "1", FORCE_COLOR: "0" };
+}
+
+/** Default runner: spawn in {@link testEnvironment}, capture stdout/stderr,
+ *  resolve on close.
  *
  *  Exported so a caller that needs the real spawn PLUS something runTests does
  *  not itself expose can compose it — mutation-score wraps it with an
  *  AbortSignal to bound each mutant's suite run. Rejects if the signal aborts. */
 export const spawnRunner: CommandRunner = (command, args, cwd, signal) =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, signal, shell: process.platform === "win32" });
+    const child = spawn(command, args, {
+      cwd,
+      signal,
+      shell: process.platform === "win32",
+      env: testEnvironment(),
+    });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (d: Buffer) => (stdout += d.toString()));
@@ -129,18 +159,6 @@ export const spawnRunner: CommandRunner = (command, args, cwd, signal) =>
     child.on("error", reject);
     child.on("close", (code) => resolve({ stdout, stderr, code }));
   });
-
-/**
- * Extract the reporter's JSON object from captured stdout. Vitest's JSON
- * reporter emits one top-level object; other runners/plugins occasionally
- * bracket it with log noise, so slice from the first `{` to the last `}`.
- */
-export function extractReporterJson(stdout: string): string {
-  const start = stdout.indexOf("{");
-  const end = stdout.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) return stdout.trim();
-  return stdout.slice(start, end + 1);
-}
 
 const isSkip = (status: string) =>
   status === "skipped" || status === "todo" || status === "pending";
@@ -157,46 +175,152 @@ export function summarizeResults(results: readonly SanitizedResult[]): RunSummar
   return { total: results.length, passed, failed, skipped };
 }
 
+// Bun's own test-file pattern (`bun test --help`: *.test.*, *.spec.*,
+// *_test_*, *_spec_*), so every file bun runs is covered even where no pack
+// contributed a suffix, plus the composed test-side suffixes: a support file
+// such as `x.store.test-support.ts` is test source too.
+const BUN_TEST_FILE = /(?:\.(?:test|spec)\.[cm]?[jt]sx?|_(?:test|spec)_[^/]*\.[cm]?[jt]sx?)$/i;
+const MAX_TEST_SOURCE_BYTES = 16 * 1024 * 1024;
+
+/** The text of every test-side file under `cwd`, in path order. */
+export function testSources(cwd: string): string[] {
+  return testFiles(cwd).map((f) => f.text);
+}
+
+/** Every test-side file under `cwd` by project-relative path, in path order
+ *  (dependency directories and dot-directories skipped): what the sanitizer
+ *  must never let through, by content and by name. */
+export function testFiles(cwd: string): { path: string; text: string }[] {
+  let suffixes: readonly string[];
+  try {
+    suffixes = testFileSuffixes(cwd);
+  } catch {
+    suffixes = [];
+  }
+  const out: { path: string; text: string }[] = [];
+  let bytes = 0;
+  const walk = (dir: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile() && (BUN_TEST_FILE.test(entry.name) || hasTestFileSuffix(entry.name, suffixes))) {
+        const size = statSync(path).size;
+        if (bytes + size > MAX_TEST_SOURCE_BYTES) continue;
+        bytes += size;
+        out.push({ path: relative(cwd, path).split(sep).join("/"), text: readFileSync(path, "utf8") });
+      }
+    }
+  };
+  walk(cwd);
+  return out;
+}
+
+/** The machine directories whose paths are redacted: the project (as given
+ *  and resolved), the temp directory and the home directory. */
+export function machineRoots(cwd: string): string[] {
+  const roots = [cwd, tmpdir(), homedir()];
+  const out = new Set<string>();
+  for (const root of roots) {
+    out.add(root);
+    try {
+      out.add(realpathSync(root));
+    } catch {
+      // a root that does not resolve is still redacted as given
+    }
+  }
+  return [...out];
+}
+
+/** What the builder sees when bun wrote no report: fixed text only. Whatever
+ *  the run printed may be a test's own output, so none of it is shown. */
+export const NO_TEST_FILES = "no test files were found: bun ran nothing";
+export const NO_REPORT =
+  "the test run ended without a report (a test or the code under test exited the process, " +
+  "or the runner crashed); nothing the run printed is shown, because it can carry test source";
+
+/** The fixed explanation for a run with no report. */
+export function noReportExplanation(stderr: string, code: number | null): string {
+  if (/^error: 0 test files matching /m.test(stderr)) return NO_TEST_FILES;
+  return `${NO_REPORT} (exit code ${code ?? "none"})`;
+}
+
+/** The report a run left: the JUnit file, or JUnit XML on stdout from a
+ *  replaced command. */
+function reportOf(report: string, stdout: string): string | undefined {
+  if (existsSync(report)) return readFileSync(report, "utf8");
+  return stdout.trimStart().startsWith("<") ? stdout : undefined;
+}
+
 /**
- * Run the project's vitest suite (JSON reporter) in `cwd` and return the
- * sanitized, blind-safe view. Never throws for an ordinary failing suite;
- * an unparseable run is reported via {@link RunTestsResult.blocked}.
+ * Run the project's suite in `cwd` and return the sanitized, blind-safe view.
+ * Never throws for an ordinary failing suite; a run with no readable report
+ * is reported via {@link RunTestsResult.blocked}.
  */
 export async function runTests(cwd: string, options: RunTestsOptions = {}): Promise<RunTestsResult> {
-  // The test runner loads the project's config as code: refuse to spawn it
-  // over config the composed packs did not generate (ADR 2026-054).
+  // The test runner loads the project's config: refuse to spawn it over
+  // config the composed packs did not generate (ADR 2026-054).
   const drift = configDriftReason(cwd);
   if (drift !== undefined) return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: drift };
-  const run = options.run ?? spawnRunner;
-  const command = options.command ?? DEFAULT_COMMAND;
-  const args = options.args ?? DEFAULT_ARGS;
-
-  const { stdout, stderr, code } = await run(command, args, cwd);
-
-  let results: SanitizedResult[];
-  try {
-    results = sanitizeTestRun(extractReporterJson(stdout));
-  } catch (e) {
-    if (e instanceof SanitizeError) {
-      // The suite could not even produce a report (config/import error, crash).
-      // Surface a sanitized, path-free explanation — never the raw stderr.
-      const raw = stderr.trim() !== "" ? stderr : stdout;
-      const blocked = sanitizeMessage(raw) || `vitest exited with code ${code ?? "null"} and no JSON report`;
-      return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked };
-    }
-    throw e;
+  if (options.run === undefined && options.command === undefined) {
+    const version = bunVersionProblem();
+    if (version !== undefined) return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: version };
   }
+  const run = options.run ?? spawnRunner;
+  const reportDir = mkdtempSync(join(tmpdir(), "bounded-junit-"));
+  const report = join(reportDir, "report.xml");
+  try {
+    const invocation = testCommand(report);
+    const command = options.command ?? invocation.command;
+    const args = options.args ?? (options.command === undefined ? invocation.args : []);
+    const files = testFiles(cwd);
+    const context = {
+      forbidden: forbiddenLines(files.map((f) => f.text)),
+      pathRoots: machineRoots(cwd),
+      testPaths: files.map((f) => f.path),
+    };
+    const { stdout, stderr, code } = await run(command, args, cwd);
+    const xml = reportOf(report, stdout);
 
-  const summary = summarizeResults(results);
-  const unhandled = hasUnhandledError(code, summary.failed, results.length)
-    ? UNHANDLED_ERROR_NOTE
-    : undefined;
-  return {
-    ok: summary.failed === 0 && unhandled === undefined,
-    ...summary,
-    results,
-    ...(unhandled !== undefined ? { unhandled } : {}),
-  };
+    let results: SanitizedResult[];
+    try {
+      if (xml !== undefined) results = sanitizeBunRun(xml, stderr, context);
+      else if (options.command !== undefined && stdout.includes("testResults")) {
+        // TRANSITIONAL: a replaced command's canned JSON report (see the end
+        // of sanitize-test-output.ts). The default invocation never gets here.
+        const start = stdout.indexOf("{");
+        const end = stdout.lastIndexOf("}");
+        results = sanitizeLegacyJsonRun(start === -1 || end < start ? stdout : stdout.slice(start, end + 1), context);
+      } else throw new SanitizeError("no report");
+    } catch (e) {
+      if (e instanceof SanitizeError) {
+        // No report (no test files, a process.exit, a crash): fixed text only.
+        // What the run printed may be a test's own output, so none of it
+        // reaches the builder.
+        return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: noReportExplanation(stderr, code) };
+      }
+      throw e;
+    }
+
+    const summary = summarizeResults(results);
+    const unhandled = hasUnhandledError(code, summary.failed, results.length)
+      ? UNHANDLED_ERROR_NOTE
+      : undefined;
+    return {
+      ok: summary.failed === 0 && unhandled === undefined,
+      ...summary,
+      results,
+      ...(unhandled !== undefined ? { unhandled } : {}),
+    };
+  } finally {
+    rmSync(reportDir, { recursive: true, force: true });
+  }
 }
 
 // --- convergence detection (dogfood Run 4) -----------------------------------
@@ -249,7 +373,7 @@ export function repeatedFailureNudge(
   const n = current.length;
   return [
     `run_tests: this is the ${ordinal(streak)} consecutive run with the same ${n} failing test${n === 1 ? "" : "s"} — you are not converging.`,
-    "You are blind to test source by design and cannot read tests/ (the path gate will refuse it), so re-reading the spec again is unlikely to break the tie.",
+    "You are blind to test source by design and cannot read test files (the path gate will refuse it), so re-reading the spec again is unlikely to break the tie.",
     "Follow the dispute protocol now: return DISPUTE naming the failing tests, the spec clause you implemented and your reading of it, and your best-guess fix.",
   ].join("\n");
 }
