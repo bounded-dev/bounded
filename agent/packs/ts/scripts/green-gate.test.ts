@@ -398,8 +398,9 @@ describe("repeated identical failures reroute to the test-writer", () => {
 // checker off is the same class of false green as a passing suite that does not
 // compile.
 
-// A source root of the composed hexagonal layout: where the escape-hatch lint looks.
-const SRC_ROOT = join("contexts", "billing", "src");
+// A domain folder under a source root of the composed hexagonal layout: where
+// the escape-hatch lint looks, and where a concept file has a role.
+const SRC_ROOT = join("contexts", "billing", "src", "domain", "invoices");
 
 describe("green-gate CLI: source escape hatches", () => {
   const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
@@ -408,7 +409,7 @@ describe("green-gate CLI: source escape hatches", () => {
     const dir = fixtureRepo("green-hatch-", allPassing);
     mkdirSync(join(dir, SRC_ROOT), { recursive: true });
     writeFileSync(
-      join(dir, SRC_ROOT, "billing.ts"),
+      join(dir, SRC_ROOT, "invoice.ts"),
       [
         "interface Invoice { id: string }",
         "function find(xs: Invoice[], id: string): Invoice | undefined { return xs.find(i => i.id === id); }",
@@ -426,7 +427,7 @@ describe("green-gate CLI: source escape hatches", () => {
   test("a clean source root still passes", () => {
     const dir = fixtureRepo("green-clean-", allPassing);
     mkdirSync(join(dir, SRC_ROOT), { recursive: true });
-    writeFileSync(join(dir, SRC_ROOT, "billing.ts"), "export const rate = { pct: 5 } as const;\n");
+    writeFileSync(join(dir, SRC_ROOT, "invoice.ts"), "export const rate = { pct: 5 } as const;\n");
     const r = runGate(dir);
     expect(r.status).toBe(0);
     expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });

@@ -12,9 +12,9 @@ import {
   sourceRootsFor,
   testFileSuffixesFor,
 } from "../../src/pack-contrib.ts";
-import { composePacks, contribute, definePack } from "../../src/socket-registry.ts";
+import { composePacks } from "../../src/socket-registry.ts";
 import { INSTALLED_PACKS } from "../installed.ts";
-import { adapterTechnologies, lintSrcRules, lintSrcRuleId, skeletonEmitters, TS_PACK, tsPack, workspaceTemplates } from "../ts/pack.ts";
+import { adapterTechnologies, lintSrcRules, lintSrcRuleId, skeletonEmitters, TS_PACK, workspaceTemplates } from "../ts/pack.ts";
 import { shippedFiles } from "../ts/scripts/project-package.ts";
 import { TS_HEXAGONAL_LINT_RULES, TS_HEXAGONAL_PACK, TS_HEXAGONAL_PLUGIN, tsHexagonalPack } from "./pack.ts";
 import { TS_HEXAGONAL_EMITTERS } from "./scripts/emitters.ts";
@@ -135,13 +135,8 @@ describe("the code half through the ts pack's sockets", () => {
     expect(tsHexagonalPack.dependsOnPacks).toEqual([TS_PACK]);
   });
 
-  test("the nine lint rules pass the lintSrcRules socket's validation under the pack's name", () => {
-    const withRules = definePack({
-      name: TS_HEXAGONAL_PACK,
-      dependsOnPacks: [TS_PACK],
-      contributes: [contribute(lintSrcRules, TS_HEXAGONAL_LINT_RULES)],
-    });
-    const ids = composePacks([tsPack, withRules], PACKS).read(lintSrcRules).map(lintSrcRuleId);
+  test("the pack contributes its lint rules to the builder's lint, under its own name", () => {
+    const ids = composePacks(INSTALLED_PACKS, PACKS).read(lintSrcRules).map(lintSrcRuleId);
     expect(ids).toEqual([
       "layer-dependency", "no-cross-context-import", "file-role-suffix", "naming", "handler-shape",
       "composition-root-only-constructs", "entry-hosts-only", "client-type-only-server-imports", "in-adapter-uses-in-port",

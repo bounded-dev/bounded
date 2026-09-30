@@ -179,6 +179,39 @@ import of `bun` or `bun:*`, the `Bun` global, and `import.meta.main` / `dir` /
 `file` / `path` / `env` are refused. That code runs on Node, where they are
 undefined and fail only when invoked. Use Node or web-standard APIs.
 
+**The hexagonal layout is enforced where you write** (when the hexagonal
+layout pack is composed; the rulebook is `docs/architecture/`):
+- `bounded-ts-hexagonal/layer-dependency`: dependencies point inwards,
+  domain ← application ← adapters. Adapters never import other adapters;
+  domain and application use no library but zod; apps reach a context only
+  through its export paths (`domain`, `application`, `adapters/<tech>`).
+- `bounded-ts-hexagonal/no-cross-context-import`: a context never imports
+  another context or an app, except an out adapter calling another
+  context's `application`.
+- `bounded-ts-hexagonal/no-io-in-core`: domain and application code does no
+  I/O: no `node:fs`, `fs`, `node:child_process`, `node:net` or `bun` import,
+  and no `Bun.file`, `Bun.write`, `Bun.spawn` or `process.env`. What such
+  code needs comes in through an out port or the command.
+- `bounded-ts-hexagonal/file-role-suffix`: every file under a source root
+  sits where its role says and is named for it (`<feature>.handler.ts`,
+  `<feature>.store.ts`, `<concept>.ts`, …); no stray `utils.ts`.
+- `bounded-ts-hexagonal/naming`: areas are plural nouns, features verb
+  first, and handler and adapter classes carry exactly the names the
+  generators derive.
+- `bounded-ts-hexagonal/handler-shape`: a handler file exports one
+  `class <InPort>Handler implements <InPort>`, takes its out ports as
+  `private readonly <role>: <Port>` constructor parameters, and has
+  `execute` as its only public method.
+- `bounded-ts-hexagonal/composition-root-only-constructs`: only an app's
+  `composition-root.ts` constructs handlers and adapters or loads
+  application and adapter code at runtime.
+- `bounded-ts-hexagonal/entry-hosts-only`: an app's other files import
+  what the composition root returns, and context code as types only.
+- `bounded-ts-hexagonal/client-type-only-server-imports`: browser code
+  (`client/`, `renderer/`) imports server code with `import type` only.
+- `bounded-ts-hexagonal/in-adapter-uses-in-port`: in adapters depend on
+  in-port interfaces, never on handler classes.
+
 **Value objects parse with zod** — `bounded-ts/zod-backed-parse`: a
 branded class's `static parse` must delegate to a zod schema (module-level
 `const schema = z.…`, then `schema.safeParse(raw)`), composing the schemas of

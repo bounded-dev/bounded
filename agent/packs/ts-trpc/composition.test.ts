@@ -33,8 +33,10 @@ const WITH = ["ts", "ts-hexagonal", "ts-trpc"];
 
 describe("tRPC behaviour follows ts-trpc composition", () => {
   test("the builder's lint rules", () => {
-    expect(composedPacks(project(WITHOUT)).read(lintSrcRules)).toEqual([]);
-    expect(composedPacks(project(WITH)).read(lintSrcRules).map(lintSrcRuleId)).toEqual([
+    // ts-hexagonal's own rules are the baseline; ts-trpc adds exactly its three.
+    const baseline = new Set(composedPacks(project(WITHOUT)).read(lintSrcRules).map(lintSrcRuleId));
+    expect([...baseline].every((id) => id.startsWith("bounded-ts-hexagonal/"))).toBe(true);
+    expect(composedPacks(project(WITH)).read(lintSrcRules).map(lintSrcRuleId).filter((id) => !baseline.has(id))).toEqual([
       "bounded-ts-trpc/raw-framework-entry",
       "bounded-ts-trpc/no-erased-router",
       "bounded-ts-trpc/router-type-reexported",
