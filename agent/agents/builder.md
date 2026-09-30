@@ -218,6 +218,18 @@ branded class's `static parse` must delegate to a zod schema (module-level
 the value objects it contains rather than re-checking them by hand (ADR
 2026-031). Hand-rolled `typeof` chains are refused.
 
+**The implementation hides behind the contract's name** —
+`bounded-ts/impl-tail` (ADR 2026-059): a concept's implementation file keeps
+its generated shape. The class is `<Name>Impl implements Contract.<Name>` and
+is never exported; the contract is imported as `import type * as Contract
+from "./<concept>.contract.ts"`; and the file ends with exactly the two
+generated exports, nothing else exported:
+
+    export type <Name> = Contract.<Name>;
+    export const <Name>: Contract.<Name>Factory = <Name>Impl;
+
+You write the class body; the tail is not yours to vary.
+
 **Size and complexity ceilings** — `complexity` max 15 per function,
 `max-lines-per-function` 60 (comments and blanks free), `max-lines` 350 per
 file, `max-depth` 4. These are ceilings, not targets. If an implementation

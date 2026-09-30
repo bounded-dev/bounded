@@ -125,7 +125,8 @@ export function lintScope(cwd: string, packsDir?: string): LintScope {
 }
 // Value objects live in src/**; a test file declares none, so the zod rule
 // would only ever fire on a test HELPER faking one — which the laws own.
-const SRC_ONLY_RULES = new Set(["bounded-ts/zod-backed-parse"]);
+// impl-tail binds a concept's implementation file, which is never test-side.
+const SRC_ONLY_RULES = new Set(["bounded-ts/zod-backed-parse", "bounded-ts/impl-tail"]);
 
 /** Every rule id the src gate enforces — exported so guard-doc-drift.test.ts
  *  can require each one to be named in builder.md. The deterministic-check
@@ -143,6 +144,7 @@ export const SRC_RULE_IDS: readonly string[] = [
   "@typescript-eslint/ban-ts-comment",
   "bounded-ts/blessed-stacks-only",
   "bounded-ts/zod-backed-parse",
+  "bounded-ts/impl-tail",
 ];
 
 /** The subset enforced on tests/** (size ceilings excluded). */
@@ -301,6 +303,10 @@ export function createSrcLinter(cwd?: string, ignores: readonly string[] = []): 
           // hand-rolled typeof-chains drift across builders and blunt the
           // generated hostile laws. src/** only (see TEST_RULE_IDS).
           "bounded-ts/zod-backed-parse": "error",
+          // --- The hidden implementation (ADR 2026-059) --------------------
+          // A concept's implementation hides <Name>Impl and ends with exactly
+          // the two exports the emitter generated. src/** only.
+          "bounded-ts/impl-tail": "error",
           // --- Contributed rules (the ts pack's lintSrcRules socket) --------
           // Appended LAST, so a contributed rule can never quietly restate one
           // of the ts pack's own at a lower severity: everything above is

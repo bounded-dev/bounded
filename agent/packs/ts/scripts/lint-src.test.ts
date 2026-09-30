@@ -470,6 +470,27 @@ describe("the lint scope comes from the composed source roots", () => {
     expect(files).toEqual(["contexts/pm/src/application/notes.store.test-support.ts", "contexts/pm/src/domain/note.test.ts"]);
   });
 
+  // ADR 2026-059: the builder's lint step holds a concept implementation to
+  // its generated shape, so a varied tail is refused where it is written.
+  test("a concept implementation with a wrong tail is refused by impl-tail; the generated tail passes", async () => {
+    const packsDir = monorepoPacks();
+    const head = 'import type * as Contract from "./note-text.contract.ts";\n\n' +
+      'class NoteTextImpl implements Contract.NoteText {\n  declare readonly __brand: "NoteText";\n  private constructor(readonly value: string) {}\n}\n\n';
+    const good = `${head}export type NoteText = Contract.NoteText;\nexport const NoteText: Contract.NoteTextFactory = NoteTextImpl;\n`;
+    const wrongTails = [
+      `${head}export { NoteTextImpl as NoteText };\n`,
+      `${head}export type NoteText = Contract.NoteText;\nexport const NoteText = NoteTextImpl;\n`,
+      `${head}export type NoteText = Contract.NoteText;\nexport const NoteText: Contract.NoteTextFactory = NoteTextImpl;\nexport const extra = 1;\n`,
+    ];
+    const ruleIdsOf = async (source: string): Promise<string[]> => {
+      const dir = project("lint-src-impl-tail-", { "contexts/pm/src/domain/notes/note-text.ts": source });
+      const result = await lintSrc(dir, undefined, packsDir);
+      return (result.detail["problems"] as { ruleId: string }[] | undefined ?? []).map((p) => p.ruleId);
+    };
+    expect(await ruleIdsOf(good)).not.toContain("bounded-ts/impl-tail");
+    for (const source of wrongTails) expect(await ruleIdsOf(source), source).toContain("bounded-ts/impl-tail");
+  });
+
   test("a monorepo with no implementation yet matches nothing: a broken gate, not a pass", async () => {
     const packsDir = monorepoPacks();
     const dir = project("lint-src-monorepo-empty-", { "contexts/pm/src/domain/note.contract.ts": "export {};\n" });
