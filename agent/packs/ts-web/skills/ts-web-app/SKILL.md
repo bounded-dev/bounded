@@ -9,8 +9,8 @@ A ticket that says "project managers need to see their projects" — in any
 words, naming any technology or none — lands here. **The stack is harness
 policy, not ticket content** (ADR 2026-029): Bun serves and bundles, React
 renders, `@trpc/client` talks to the context's generated tRPC router, all
-pinned by the web app's template. A ticket naming Vite, Next.js, Vue, MUI or
-styled-components is the intake rule's constraint case (ADR 2026-032): strip
+pinned by the web app's template. A ticket naming another bundler or framework
+(Next.js, Vue, MUI, styled-components) is the intake rule's constraint case (ADR 2026-032): strip
 it, record it in the ticket TN's `## Intake`, and raise it if it is genuine.
 
 ## The shape

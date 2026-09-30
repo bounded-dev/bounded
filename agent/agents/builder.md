@@ -51,14 +51,15 @@ table of names and a section for you; the worked example, with a test at
 every level, is `packs/ts-hexagonal/reference/`. Both are readable. Copy the
 shapes, not the domain.
 
-**Every file under a source root is one of four kinds, and only one is yours:**
+**Every file under a source root is one of these kinds, and only the last two are yours:**
 
 | Kind | Examples | You |
 |---|---|---|
 | Contract | `*.contract.ts` | read only; the architect's |
 | Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` | may see the NAME, never the content |
 | Generated | `domain/index.ts`, `domain/shared/result.ts`, `domain/shared/errors.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle `drizzle-database.ts`, `schema/<context>.schema.ts` and `migrations/`, every `*.laws.test.ts` | read freely; no role edits them, you included |
-| Skeleton, then yours | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, `<feature>.<role>.ts` out adapters, `<tech>-database.ts` for in-memory, `schema/<area>.ts`, `<concept>.mapper.ts`, each app's `composition-root.ts` | you write these |
+| Skeleton, then yours | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, `<feature>.<role>.ts` out adapters, `<tech>-database.ts` for in-memory, `schema/<area>.ts`, each app's `composition-root.ts` | you fill these in |
+| Yours from scratch | `<concept>.mapper.ts` in an out adapter's area folder | you create these |
 
 The design gate writes each skeleton once, with every declaration in place and
 every body throwing `NotImplementedError("<Class>.<member>")`. Keep the
@@ -103,8 +104,12 @@ packs' pins. If you need a package that is not there, that is a
   `<Tech><Port>` in `adapters/out/<tech>/<area>/<feature>.<role>.ts`.
 - **Composition root** `apps/<app>/src/**/composition-root.ts`: the only place
   that constructs handlers, stores and in-adapter factories. It creates one
-  database object and passes it to every store. A router-hosting app exports
-  `composeApp()`; a Lambda app exports one `compose<InPort>()` per Lambda.
+  database object and passes it to every store. Its skeleton fixes the
+  function names, which the app's smoke test calls: a `web` or `desktop` app
+  exports `composeApp()` returning the context's tRPC router, an `mcp` app
+  `composeApp()` returning the context's MCP server, and a `lambdas` app one
+  `compose<InPort>()` per Lambda (`composeExportProjects()`) returning its
+  handler.
   Entry files (`main.ts`, `export-projects.ts`, …) only host what it returns.
 
 ## Your tools, and how to find things

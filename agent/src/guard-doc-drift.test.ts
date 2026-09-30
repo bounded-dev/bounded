@@ -210,7 +210,14 @@ describe("the role docs describe the monorepo the gates enforce", () => {
 
   test.each(Object.keys(roleDocs))("%s names no retired layout or toolchain", (name) => {
     // `src/**` as the project's one root, not a workspace's (`apps/<app>/src/**`).
-    const retired = /(?<![/\w])src\/\*\*|tests\/|\bvitest\b|\bnpm (?:run|ci|install)\b|\bFSD\b|\btheme\b|sqlite/i;
+    // The theme check names the retired theme machinery (a ThemeProvider,
+    // theme tokens, a theme file), not the ordinary word, which prose may use.
+    const retired = new RegExp([
+      String.raw`(?<![/\w])src\/\*\*`, String.raw`tests\/`, String.raw`\bvitest\b`, String.raw`\bvite\b`,
+      String.raw`\bnpx\b`, String.raw`\bjsdom\b`, String.raw`\bnpm (?:run|ci|install)\b`, String.raw`\bFSD\b`,
+      String.raw`\bsqlite\b`, String.raw`\bThemeProvider\b`, String.raw`\btheme[- ]tokens?\b`, String.raw`\btheme\.(?:css|ts)\b`,
+      String.raw`\bfeature-sliced\b`,
+    ].join("|"), "i");
     const hit = roleDocs[name]!.split("\n").find((line) => retired.test(line));
     expect(hit, `${name}: ${hit}`).toBeUndefined();
   });
@@ -257,6 +264,20 @@ describe("the role docs describe the monorepo the gates enforce", () => {
       ["developer-stage/SKILL.md", developerStage], ["team-lead/SKILL.md", teamLead]] as const) {
       expect(doc, name).toMatch(/Docker/);
     }
+  });
+
+  test("both workers are told the composition functions a smoke test calls, per app kind", () => {
+    for (const doc of [builder, testWriter]) {
+      expect(doc).toContain("`composeApp()`");
+      expect(doc).toContain("`compose<InPort>()`");
+      for (const kind of ["web", "desktop", "mcp", "lambdas"]) expect(doc).toContain(`\`${kind}\``);
+    }
+  });
+
+  test("mappers are not listed as skeletons (TN-26-012 section 7)", () => {
+    const skeletonRow = builder.split("\n").find((line) => line.startsWith("| Skeleton"));
+    expect(skeletonRow).toBeDefined();
+    expect(skeletonRow).not.toContain("mapper");
   });
 
   test("the commands named are Bun's", () => {

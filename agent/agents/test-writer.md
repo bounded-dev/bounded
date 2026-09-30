@@ -82,8 +82,16 @@ repeat what they cover (wrong-type input, the parse/`toJSON` round trip).
   them anyway: they are the only proof a store works.
 - **App smoke tests run at green only.** The composition root is the
   builder's, so at red it is a skeleton; the red gate does not run these.
-  One smoke test per app: build the app with its `compose…()` function and
-  make one call through what it returns.
+  One smoke test per app, next to its composition root: build the app with
+  its composition function and make one call through what it returns. The
+  function names are fixed by the app's kind:
+
+  | App kind | Composition root | Function |
+  |---|---|---|
+  | `web` | `apps/<app>/src/server/composition-root.ts` | `composeApp()`, returning the context's tRPC router (call it with `.createCaller({})`) |
+  | `desktop` | `apps/<app>/src/main/composition-root.ts` | `composeApp()`, returning the context's tRPC router |
+  | `mcp` | `apps/<app>/src/composition-root.ts` | `composeApp()`, returning the context's MCP server |
+  | `lambdas` | `apps/<app>/src/composition-root.ts` | one `compose<InPort>()` per Lambda (`composeExportProjects()`), returning the handler function |
 - Use `bun:test` (`describe`, `test`, `expect`, `beforeEach`, `spyOn`).
 
 ## Your tools, and how to find things
