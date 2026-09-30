@@ -45,7 +45,7 @@ describe("contrib.json through the core's validators", () => {
     const generated = pathGlobMatcher(generatedFileGlobsFor(PACKS, packsDir));
     const C = "contexts/project-management/src";
     for (const path of [
-      "architecture.test.ts", "docs/architecture/readme.md", `${C}/domain/index.ts`, `${C}/domain/shared/result.ts`,
+      "architecture.test.ts", "docs/architecture/README.md", `${C}/domain/index.ts`, `${C}/domain/shared/result.ts`,
       `${C}/domain/shared/errors.ts`, `${C}/application/index.ts`, `${C}/application/notes/create-note/create-note.command.ts`,
       `${C}/application/notes/create-note/create-note.command.laws.test.ts`, `${C}/adapters/out/in-memory/index.ts`,
       `${C}/adapters/out/drizzle/index.ts`,
@@ -105,7 +105,7 @@ describe("the shipped rulebook", () => {
   });
 
   test("has no open decisions left: the desktop shell and cross-context calls are decided", () => {
-    const readme = text("readme.md");
+    const readme = text("README.md");
     expect(readme).not.toMatch(/Open decisions/);
     expect(readme).toMatch(/Desktop shell:\*\* Electron/);
     expect(readme).toMatch(/Cross-context calls:\*\*/);

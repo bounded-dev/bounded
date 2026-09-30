@@ -38,7 +38,7 @@
   },
   "projectShippedFiles": {
     "architecture.test.ts": "reference/architecture-test.ts",
-    "docs/architecture/readme.md": "reference/docs/architecture/readme.md",
+    "docs/architecture/README.md": "reference/docs/architecture/README.md",
     "docs/architecture/adapters.md": "reference/docs/architecture/adapters.md",
     "docs/architecture/agent-workflow.md": "reference/docs/architecture/agent-workflow.md",
     "docs/architecture/application.md": "reference/docs/architecture/application.md",

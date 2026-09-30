@@ -749,16 +749,18 @@ export interface ShippedFile {
 export function shippedFiles(packs: readonly string[], packsDir: string): ShippedFile[] {
   const out: ShippedFile[] = [];
   const seen = new Set<string>();
+  // Upper case is allowed (a README.md), but two paths that differ only in
+  // case are one file on a case-insensitive filesystem, so they conflict.
   const safe = (path: unknown): path is string => typeof path === "string" &&
-    /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/.test(path) && !path.split("/").includes("..");
+    /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(path) && !path.split("/").includes("..");
   for (const { pack, value } of contributionsByPack("projectShippedFiles", packs, packsDir)) {
     if (!value || typeof value !== "object" || Array.isArray(value) ||
       Object.entries(value).some(([path, source]) => !safe(path) || !safe(source))) {
       throw new Error(`Capability '${pack}' has invalid projectShippedFiles`);
     }
     for (const [path, source] of Object.entries(value as Record<string, string>)) {
-      if (seen.has(path)) throw new Error(`Shipped file '${path}' conflicts with capability '${pack}'`);
-      seen.add(path);
+      if (seen.has(path.toLowerCase())) throw new Error(`Shipped file '${path}' conflicts with capability '${pack}'`);
+      seen.add(path.toLowerCase());
       out.push({ path, source: join(packsDir, pack, source) });
     }
   }

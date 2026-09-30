@@ -25,6 +25,7 @@ import {
   projectNameFromDirectory,
   projectWorkspaces,
   readProjectName,
+  shippedFiles,
   tnWorkspaces,
   tsconfigFor,
   workspaceGlobs,
@@ -408,6 +409,46 @@ describe("root config files take {{project}} (TN-26-012 §10)", () => {
     const pkg = packageFor(POSTGRES, join(agentRoot, "packs"), { name: "example" });
     expect(pkg.scripts["check"]).toBe("tsc -p tsconfig.json && bun test && bun run check:surface && bun run check:db");
     expect(pkg.scripts["check"]).not.toMatch(/\bnpm\b/);
+  });
+});
+
+describe("shipped files (ADR 2026-054)", () => {
+  function packsWith(shipped: Record<string, Record<string, string>>): string {
+    const dir = mkdtempSync(join(tmpdir(), "shipped-"));
+    for (const [pack, files] of Object.entries(shipped)) {
+      mkdirSync(join(dir, pack), { recursive: true });
+      writeFileSync(join(dir, pack, "contrib.json"), JSON.stringify({ projectShippedFiles: files }));
+    }
+    return dir;
+  }
+
+  test("upper case is allowed in a path, as in the example's docs/architecture/README.md", () => {
+    const dir = packsWith({ a: { "docs/architecture/README.md": "reference/README.md" } });
+    try {
+      expect(shippedFiles(["a"], dir)).toEqual([{ path: "docs/architecture/README.md", source: join(dir, "a", "reference/README.md") }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("two paths differing only in case are one file on a case-insensitive disk, so they conflict", () => {
+    const dir = packsWith({ a: { "docs/README.md": "r.md" }, b: { "docs/readme.md": "r.md" } });
+    try {
+      expect(() => shippedFiles(["a", "b"], dir)).toThrow(/Shipped file 'docs\/readme.md' conflicts with capability 'b'/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("traversal, absolute and odd-character paths are still refused", () => {
+    for (const path of ["../x.md", "/x.md", "docs/../x.md", "docs/x y.md", ".hidden/x.md"]) {
+      const dir = packsWith({ a: { [path]: "r.md" } });
+      try {
+        expect(() => shippedFiles(["a"], dir), path).toThrow(/invalid projectShippedFiles/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
   });
 });
 

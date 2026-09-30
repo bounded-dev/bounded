@@ -10,7 +10,7 @@ The project is a Bun monorepo: one package per bounded context under
 `src/` is split into `domain/`, `application/` and `adapters/in|out/<tech>/`,
 and dependencies point inwards only: domain ← application ← adapters ← apps.
 
-The project's own rulebook is `docs/architecture/` (start at `readme.md`).
+The project's own rulebook is `docs/architecture/` (start at `README.md`).
 The complete worked example is this pack's `reference/`: one context with
 every file kind and a test at every level. Copy its shapes.
 
