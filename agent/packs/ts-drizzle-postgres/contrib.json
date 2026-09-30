@@ -18,6 +18,10 @@
           "drizzle-kit": "0.31.11",
           "testcontainers": "12.2.0"
         }
+      },
+      "workspaceScripts": {
+        "db:generate": "drizzle-kit generate",
+        "db:migrate": "bun --env-file=../../.env run drizzle-kit migrate"
       }
     }
   ],

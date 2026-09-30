@@ -30,10 +30,11 @@ says otherwise. The derivation functions are in
 ```
 package.json  tsconfig.base.json  tsconfig.json  bun.lock      config (ADR 2026-054)
 architecture.test.ts                                            generated
-docker-compose.yml  .env.example                                shipped (ts-drizzle-postgres)
+docker-compose.yml  .env.example                                config (ts-drizzle-postgres)
 docs/architecture/*.md                                          generated (ts-hexagonal)
 contexts/<context>/
-  package.json  drizzle.config.ts                               config
+  package.json                                                  config
+  drizzle.config.ts                                             generated (ts-drizzle-postgres)
   src/                                                          source root
     domain/index.ts                                             generated
     domain/shared/result.ts                                     generated
@@ -395,6 +396,7 @@ The globs are the `generatedFileGlobs` each pack contributes:
 | `contexts/*/src/adapters/in/trpc/**` | ts-trpc | WI-7 |
 | `contexts/*/src/adapters/in/mcp/**` | ts-mcp | WI-7 |
 | `contexts/*/src/adapters/in/lambda/**` | ts-lambda | WI-7 |
+| `contexts/*/drizzle.config.ts` | ts-drizzle-postgres | WI-6 |
 | `contexts/*/src/adapters/out/drizzle/drizzle-database.ts` | ts-drizzle-postgres | WI-6 |
 | `contexts/*/src/adapters/out/drizzle/schema/*.schema.ts` | ts-drizzle-postgres | WI-6 |
 | `contexts/*/src/adapters/out/drizzle/migrations/**` | ts-drizzle-postgres | WI-6 |
@@ -402,9 +404,18 @@ The globs are the `generatedFileGlobs` each pack contributes:
 
 Generated laws include `<concept>.laws.test.ts`,
 `<feature>.command.laws.test.ts` and the in-adapter laws
-`in/<tech>/<area>/<feature>.<role>.laws.test.ts`. Manifests, `tsconfig*`,
-`bun.lock` and `drizzle.config.ts` are generated **config** (ADR
-2026-054), protected by the config-name sockets rather than these globs.
+`in/<tech>/<area>/<feature>.<role>.laws.test.ts`. Manifests, `tsconfig*`
+and `bun.lock` are generated **config** (ADR 2026-054), protected by the
+config-name sockets rather than these globs.
+
+A context's `drizzle.config.ts` is an emitted, generated file, not config:
+it depends on the context's name, which only the emitters see. It is the
+worked example's config plus one line,
+`migrations: { schema: "drizzle", table: "__drizzle_migrations_<snake(context)>" }`.
+Drizzle's migrator applies only migrations newer than the latest row in its
+table, so contexts sharing one database and one table would skip each
+other's migrations. The generated store-test support migrates into the same
+per-context table.
 
 **Skeleton** (mode `skeleton`; written only where absent, then the builder's):
 
@@ -477,7 +488,7 @@ workspaces:
 | `testFileSuffixes` | data | core, same file | `string[]`; `testFileSuffixes(cwd)`, `testFileSuffixesFor(packs)`, `testFileSuffixesOrUnreadable(cwd)`, `hasTestFileSuffix(path, suffixes)` |
 | `generatedFileGlobs` | data | core, same file | `string[]`; `generatedFileGlobs(cwd)`, `generatedFileGlobsFor(packs)`, `generatedFileGlobsOrUnreadable(cwd)`, `pathGlobMatcher(globs)` |
 | `skeletonEmitters` | code | ts, `agent/packs/ts/pack.ts` | `Emitter { name; description; emit(facts: ProjectFacts): readonly EmittedFile[] }`, `EmittedFile { path; content; mode }`, `emittedFileProblem(file, emitter)` |
-| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), pins? }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
+| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), pins?, workspaceScripts? }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
 | `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
 
 `ProjectFacts` is `{ scope, phase: "design" | "red" | "deliver", packs,
@@ -493,6 +504,21 @@ Workspace template text may use only `{{scope}}` (`@example`), `{{name}}`
 `exports` are `./domain`, `./application`, then `./adapters/<tech>` for each
 technology folder present, in-direction ids sorted, then out-direction ids
 sorted.
+
+`workspaceScripts` is an optional object of npm script name → command. A
+context workspace's manifest takes a technology's scripts, like its `pins`,
+exactly when its tree has that technology's folder. Names are lowercase words
+joined by `:` or `-`. Commands are one line, non-empty, with no surrounding
+whitespace, and are copied verbatim, so they are relative to the workspace
+directory. An empty object, and one script name contributed by two
+technologies, are refused. ts-drizzle-postgres contributes the example's
+`db:generate` (`drizzle-kit generate`) and `db:migrate`
+(`bun --env-file=../../.env run drizzle-kit migrate`).
+
+Root config files may use `{{project}}`: the scope without its `@`
+(`example`). ts-drizzle-postgres's `docker-compose.yml` and `.env.example`
+use it as the database name, as the example does. The config generator
+substitutes it; no other placeholder is allowed there.
 
 ## Changes from the plan
 

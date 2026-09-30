@@ -21,6 +21,12 @@ The exact list is in TN-26-012. Migrations now live inside the source tree,
 in `contexts/<context>/src/adapters/out/drizzle/migrations/`, protected by
 this socket.
 
+Each context's `drizzle.config.ts` is a generated file too, emitted per
+context, not root config. It adds one line to the worked example's config: a
+per-context migrations table, `drizzle.__drizzle_migrations_<context>`.
+Drizzle's migrator applies only migrations newer than the latest row in its
+table, so contexts sharing one table would skip each other's migrations.
+
 ## Why
 
 Which files are generated depends on the stack, so the core cannot know it.

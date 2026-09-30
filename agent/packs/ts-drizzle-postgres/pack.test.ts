@@ -23,6 +23,13 @@ describe("the drizzle adapter technology", () => {
     expect(adapterTechnologies(PACKS, packsDir)).toHaveLength(1);
   });
 
+  test("gives each context the example's own db:generate and db:migrate scripts", () => {
+    expect(drizzle!.workspaceScripts).toEqual({
+      "db:generate": "drizzle-kit generate",
+      "db:migrate": "bun --env-file=../../.env run drizzle-kit migrate",
+    });
+  });
+
   test("pins exact versions of the example's packages, which the harness itself installs", () => {
     expect(drizzle!.pins).toEqual({
       dependencies: { "drizzle-orm": "0.45.3", pg: "8.23.1" },
@@ -58,8 +65,15 @@ describe("root config, scripts and ignore rules", () => {
     expect(compose).toContain(`    image: ${POSTGRES_IMAGE}\n`);
     const [user, password, db] = ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"]
       .map((key) => new RegExp(`${key}: (\\S+)`).exec(compose)![1]);
+    // The database is the project's name, as in the worked example.
+    expect(db).toBe("{{project}}");
     expect(readFileSync(join(here, "reference/.env.example"), "utf8"))
       .toBe(`DATABASE_URL=postgres://${user}:${password}@localhost:5432/${db}\n`);
+    // `{{project}}` is the only placeholder root config may use (TN-26-012 §10).
+    for (const file of ["reference/docker-compose.yml", "reference/.env.example"]) {
+      const placeholders = [...readFileSync(join(here, file), "utf8").matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+      expect(new Set(placeholders), file).toEqual(new Set(["project"]));
+    }
   });
 
   test("the root manifest gets db:up, db:migrate over every context, and check:db folded into check", () => {

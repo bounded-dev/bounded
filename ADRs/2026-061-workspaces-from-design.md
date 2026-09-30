@@ -16,6 +16,10 @@
   out-adapter storage flag, exact pins). Both are strict: unknown fields,
   duplicates across the composition, range pins and missing template files
   are refused.
+- An adapter technology may also declare `workspaceScripts` (script name →
+  command). A context workspace's manifest takes them with the pins when its
+  tree has the technology's folder. This is how each context gets the worked
+  example's `db:generate` and `db:migrate` (TN-26-012 §10).
 - The project package generator writes the root manifest and every
   workspace manifest. Each workspace manifest's `exports` has one entry per
   layer and one per adapter technology folder present. Its `workspace:*`
