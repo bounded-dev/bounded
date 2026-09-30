@@ -72,6 +72,7 @@ import {
 import {
   ERRORS_MODULE_SOURCE,
   errorsModuleFor,
+  isGeneratedArtifact,
   scaffoldContract,
   skeletonPathFor,
   componentTypeNames,
@@ -550,22 +551,42 @@ export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan):
 
 /**
  * A contract can borrow the inferred type of a value that the builder adds to
- * its sibling implementation. The shadow skeleton intentionally lacks that
- * extra value. Accept only the resulting missing-export diagnostic, and only
- * after the full live project typechecks. No declaration or `any` stand-in is
- * inserted into the shadow: tests still execute only against throwing code.
+ * its sibling implementation (`import type { serviceRouter } from "./api.js"`).
+ * The shadow skeleton intentionally lacks that extra value. Accept only the
+ * resulting missing-export diagnostic, and only after the full live project
+ * typechecks. No declaration or `any` stand-in is inserted into the shadow:
+ * tests still execute only against throwing code.
  */
 export function isForwardTypeImportDiagnostic(cwd: string, diagnostic: string): boolean {
+  const forward = forwardTypeImport(cwd, diagnostic);
+  if (forward === undefined) return false;
+  const project = new Project({ useInMemoryFileSystem: true });
+  return project.createSourceFile("implementation.ts", forward.implementationSource).getExportedDeclarations().has(forward.name);
+}
+
+/**
+ * The same forward import at FIRST freeze, before any builder exists: the
+ * sibling is still the generated skeleton, which cannot carry a value only
+ * the builder writes. The red gate's shadow and the green gate's clean
+ * typecheck both still require the export once it is built.
+ */
+export function isSkeletonForwardTypeImportDiagnostic(cwd: string, diagnostic: string): boolean {
+  const forward = forwardTypeImport(cwd, diagnostic);
+  return forward !== undefined && isGeneratedArtifact(forward.implementationSource);
+}
+
+/** A TS2724 on a type-only named import, in a contract, of its own sibling implementation. */
+function forwardTypeImport(cwd: string, diagnostic: string): { readonly name: string; readonly implementationSource: string } | undefined {
   const match = /^(.+\.contract\.ts)\((\d+),\d+\): error TS2724: '\"([^\"]+)\"' has no exported member named '([^']+)'\./.exec(diagnostic);
-  if (!match) return false;
+  if (!match) return undefined;
   const [, contractRel, lineText, quotedModule, name] = match;
-  if (!contractRel || !lineText || !quotedModule || !name) return false;
+  if (!contractRel || !lineText || !quotedModule || !name) return undefined;
   const contract = resolve(cwd, contractRel);
-  if (!contract.startsWith(`${resolve(cwd)}${sep}`) || !existsSync(contract)) return false;
+  if (!contract.startsWith(`${resolve(cwd)}${sep}`) || !existsSync(contract)) return undefined;
   const sibling = `./${contractRel.split("/").at(-1)!.replace(/\.contract\.ts$/, ".js")}`;
-  if (quotedModule !== sibling) return false;
+  if (quotedModule !== sibling) return undefined;
   const implementation = resolve(dirname(contract), sibling.replace(/\.js$/, ".ts"));
-  if (!existsSync(implementation)) return false;
+  if (!existsSync(implementation)) return undefined;
 
   const project = new Project({ useInMemoryFileSystem: true });
   const contractAst = project.createSourceFile("contract.ts", readFileSync(contract, "utf8"));
@@ -576,10 +597,7 @@ export function isForwardTypeImportDiagnostic(cwd: string, diagnostic: string): 
       named.getName() === name && named.getNameNode().getStartLineNumber() === line,
     ),
   );
-  if (!forwardImport) return false;
-
-  const implementationAst = project.createSourceFile("implementation.ts", readFileSync(implementation, "utf8"));
-  return implementationAst.getExportedDeclarations().has(name);
+  return forwardImport ? { name, implementationSource: readFileSync(implementation, "utf8") } : undefined;
 }
 
 export async function typecheckShadowWithForwardImports(cwd: string, shadow: string): Promise<TypecheckResult> {

@@ -19,6 +19,7 @@ import {
   collectRedGateSources,
   isNotImplementedFailure,
   isForwardTypeImportDiagnostic,
+  isSkeletonForwardTypeImportDiagnostic,
   materializeShadowProject,
   redGateProjectPlan,
   runRedGate,
@@ -639,6 +640,22 @@ describe("contract-triggered support and forward types", () => {
     expect(isForwardTypeImportDiagnostic(live, matching.replace("(2,15)", "(4,15)"))).toBe(false);
     expect(isForwardTypeImportDiagnostic(live, matching.replace("serviceRouter'.", "missing'."))).toBe(false);
     expect(isForwardTypeImportDiagnostic(live, matching.replace("TS2724", "TS2307"))).toBe(false);
+  });
+
+  test("at first freeze, accepts the forward import only while the sibling is a generated skeleton", () => {
+    const matching = 'src/api/api.contract.ts(2,15): error TS2724: \'"./api.js"\' has no exported member named \'serviceRouter\'. Did you mean \'ServiceRouter\'?';
+    const impl = join(live, "src/api/api.ts");
+    const built = readFileSync(impl, "utf8");
+    try {
+      expect(isSkeletonForwardTypeImportDiagnostic(live, matching)).toBe(false); // a hand-written implementation
+      writeFileSync(impl, "// GENERATED from api.contract.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\nexport {};\n");
+      expect(isSkeletonForwardTypeImportDiagnostic(live, matching)).toBe(true);
+      expect(isForwardTypeImportDiagnostic(live, matching)).toBe(false);
+      expect(isSkeletonForwardTypeImportDiagnostic(live, matching.replace("(2,15)", "(4,15)"))).toBe(false);
+      expect(isSkeletonForwardTypeImportDiagnostic(live, matching.replace("TS2724", "TS2307"))).toBe(false);
+    } finally {
+      writeFileSync(impl, built);
+    }
   });
 
   test("accepts the forward type only when the live project typechecks", async () => {

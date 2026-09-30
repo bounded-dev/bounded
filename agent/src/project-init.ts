@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { mergedContribution, projectCommandNames, projectConfigSources, projectIgnoreRules } from "./pack-contrib.ts";
 import { COMPOSITION_FILE, writeProjectPacks } from "./project-composition.ts";
 import { lockFor, sourceLockPath, type RuntimePackage } from "./runtime-lock.ts";
-import { SETUP_COMMAND } from "./setup-state.ts";
+import { HOST_PACKAGE_DIRS, SETUP_COMMAND } from "./setup-state.ts";
 
 export type InitHost = "pi" | "claude-code";
 export interface InitPlan {
@@ -387,7 +387,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   const existingIgnore = existsSync(ignoreFile) ? readFileSync(ignoreFile, "utf8").trimEnd() + "\n" : "";
   // Selected capabilities name what their setup and builds produce; the core
   // names only its own state and the harness's own runtime install.
-  const rules = [...projectIgnoreRules(packs, join(agentRoot, "packs")), ".pi/npm/", ".pi/git/",
+  const rules = [...projectIgnoreRules(packs, join(agentRoot, "packs")), ...HOST_PACKAGE_DIRS.map((dir) => `${dir}/`),
     ".bounded/*", "!.bounded/harness/", ".bounded/harness/node_modules/", "!.bounded/composed-packs.json", "!.bounded/installation.json"];
   writeFileSync(ignoreFile, existingIgnore + rules.filter((rule) => !existingIgnore.split("\n").includes(rule)).join("\n") + "\n");
 }

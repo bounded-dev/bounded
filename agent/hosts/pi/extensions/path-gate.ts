@@ -149,8 +149,14 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     ambientRole: () => (isProjectLocalHarness(cwd) ? undefined : fallback!(cwd)),
   });
   const leadSession = (cwd: string): boolean => seatFor(cwd).kind === "lead";
+  // Only the ambient install offers the lead tools. A pipeline child loads the
+  // project's ambient extension AND its per-role loader into one process, and
+  // pi refuses a tool name registered twice — so a role loader registering
+  // them too stopped every architect, test-writer, builder and reviewer at
+  // startup. A bound role is never the lead, so it loses nothing.
+  const leadTools = projectCopy && boundRole === undefined;
 
-  if (projectCopy) pi.registerTool({
+  if (leadTools) pi.registerTool({
     name: LEAD_PREPARE_TOOL,
     label: "Prepare ticket run",
     description: `Open or resume the active ticket's run (the shell form is \`${LEAD_PREPARE_USAGE}\`). Pass new: true after final delivery to start another ticket; include ticket for a tracked issue or omit it for the next local number.`,
@@ -174,7 +180,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     },
   });
 
-  if (projectCopy) pi.registerTool({
+  if (leadTools) pi.registerTool({
     name: LEAD_SETUP_TOOL,
     label: "Install project dependencies",
     description: "Install exactly the project's and local harness's lockfile-pinned dependencies: before the first ticket run, or to repair a completed setup whose dependency trees are missing. Project package lifecycle scripts never run.",

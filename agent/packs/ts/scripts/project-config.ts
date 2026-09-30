@@ -44,7 +44,7 @@ import { logGuardEvent } from "../../../src/guard-log.ts";
 import { fileNameGlobs, fileNameMatcher, projectConfigSources, projectDependencyDirs } from "../../../src/pack-contrib.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
 import { lockFor } from "../../../src/runtime-lock.ts";
-import { HARNESS_RELATIVE, INSTALLATION_RELATIVE, setupPlan, type SetupPlan } from "../../../src/setup-state.ts";
+import { HARNESS_RELATIVE, HOST_PACKAGE_DIRS, INSTALLATION_RELATIVE, setupPlan, type SetupPlan } from "../../../src/setup-state.ts";
 import { packageFor, shippedFiles } from "./project-package.ts";
 
 export const MANIFEST = "package.json";
@@ -70,6 +70,9 @@ const json = (value: unknown): string => JSON.stringify(value, null, 2) + "\n";
  *  tools resolve a nested dependency directory or manifest before the root's,
  *  and git treats a nested repository as a boundary. */
 const CORE_ROOT_SKIP = [".git", ".bounded"] as const;
+/** Host package installs (pi's `.pi/npm`, `.pi/git`) hold the host's own
+ *  dependency trees; no stack tool reads them, so the walk never enters them. */
+const HOST_SKIP: ReadonlySet<string> = new Set(HOST_PACKAGE_DIRS);
 
 /** Nested problems below the root: config files `isNested` names, and any
  *  directory `protectedDir` names. A protected directory is reported once and
@@ -83,6 +86,7 @@ function nestedProblems(
   const walk = (rel: string): void => {
     for (const entry of readdirSync(join(project, rel), { withFileTypes: true })) {
       const path = `${rel}/${entry.name}`;
+      if (HOST_SKIP.has(path)) continue;
       if (protectedDirs.has(entry.name.toLowerCase())) {
         out.push({ path, problem: "a dependency, version-control or harness directory below the project root, which the stack's tools would honour before the root's" });
       } else if (entry.isDirectory()) walk(path);

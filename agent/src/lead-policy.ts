@@ -27,6 +27,8 @@ export type SeatAction =
   | { readonly kind: "lookup"; readonly tool: string }
   /** Watch or wait on commissioned seats, or report back to the commissioning seat. */
   | { readonly kind: "observe"; readonly tool: string }
+  /** Answer a decision request from a seat this session commissioned. */
+  | { readonly kind: "reply" }
   /** Start one seat on one task. */
   | { readonly kind: "commission"; readonly role: unknown; readonly task: unknown }
   /** Select the ticket and open, resume or change its run. */
@@ -62,13 +64,17 @@ function judgeRead(seat: string, action: Extract<SeatAction, { kind: "read" }>, 
   return resolved.allow ? ALLOW : refuse(seat, resolved.reason);
 }
 
-/** The lead may inspect, look things up, prepare a ticket, or commission one bound seat. */
+/** The lead may inspect, look things up, prepare a ticket, commission one
+ *  bound seat, or answer a commissioned seat that asks it for a decision —
+ *  otherwise a seat that escalates to the lead waits for an answer that
+ *  cannot come. */
 export function decideLead(action: SeatAction, cwd: string): SeatDecision {
   switch (action.kind) {
     case "read":
       return judgeRead(LEAD_SEAT, action, cwd);
     case "lookup":
     case "observe":
+    case "reply":
     case "prepare":
       return ALLOW;
     case "setup":

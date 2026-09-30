@@ -25,6 +25,10 @@ import { readProjectPacks } from "./project-composition.ts";
 export const SETUP_COMPLETE_RELATIVE = ".bounded/setup-complete";
 export const INSTALLATION_RELATIVE = ".bounded/installation.json";
 export const HARNESS_RELATIVE = ".bounded/harness";
+/** Where pi installs the project's own pi packages (its settings' "packages").
+ *  The host's runtime state, not project config: ignored by git and skipped by
+ *  the config drift check. */
+export const HOST_PACKAGE_DIRS = [".pi/npm", ".pi/git"] as const;
 /** The one shell command a host without a setup tool may run before setup. */
 export const SETUP_COMMAND = "bash .bounded/harness/scripts/bounded setup";
 export const SETUP_COMMANDS_SOCKET = "projectSetupCommands";

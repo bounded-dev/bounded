@@ -56,7 +56,7 @@ import { isGeneratedArtifact, runScaffold } from "./scaffold-contract.ts";
 import { hasManifest, runChecksumGate } from "./checksum-gate.ts";
 import { findingLines, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
 import type { Finding } from "./sign-off.ts";
-import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
+import { gateTypecheckOptionsFromEnv, isSkeletonForwardTypeImportDiagnostic } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
 import { diagnosticPath, isDiagnosticStart, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog, type GuardVerdict, type LoggedGuardEvent } from "../../../src/guard-log.ts";
@@ -195,6 +195,19 @@ async function runProjectTypecheck(
 ): Promise<{ code: number; lines: readonly string[]; drift?: TypecheckDrift }> {
   const result = await typecheck(cwd, gateTypecheckOptionsFromEnv());
   if (result.ok) return { code: 0, lines: [formatTypecheck(result)] };
+  // The service skill's router type is a type-only import of a value only the
+  // builder writes, so no first design could freeze without this (dogfood).
+  if (result.diagnostics.length > 0 && result.diagnostics.every((line) => isSkeletonForwardTypeImportDiagnostic(cwd, line))) {
+    const n = result.diagnostics.length;
+    return {
+      code: 0,
+      lines: [
+        `typecheck: OK — ${n} forward type import${n === 1 ? "" : "s"} of a value the builder adds to a generated skeleton`,
+        ...result.diagnostics.map((l) => `  ${l}`),
+        "  the red gate's shadow and the green gate's clean typecheck still require the builder to export it",
+      ],
+    };
+  }
 
   const routing = routeTypecheck(result.diagnostics, contractGlobs(cwd));
   if (routing.errorCount === 0) {

@@ -261,6 +261,18 @@ describe("every tool that spawns the test runner or type-checker refuses drifted
     expect(configDrift(web.project, web.harness)).toEqual([]);
     expect(existsSync(join(web.project, "node_modules", "dep", "package.json"))).toBe(true);
   });
+
+  test("pi's own package installs are the host's, not drift; the rest of .pi is still walked", () => {
+    for (const dir of [".pi/npm/node_modules/pi-subagents", ".pi/git/example/node_modules", ".pi/extensions/node_modules"]) {
+      mkdirSync(join(web.project, dir), { recursive: true });
+    }
+    writeFileSync(join(web.project, ".pi", "npm", "package.json"), "{}\n");
+    writeFileSync(join(web.project, ".pi", "npm", "node_modules", "pi-subagents", "package.json"), "{}\n");
+    expect(configDrift(web.project, web.harness).map((d) => d.path)).toEqual([".pi/extensions/node_modules"]);
+    syncProjectConfig(web.project, web.harness);
+    expect(configDrift(web.project, web.harness)).toEqual([]);
+    expect(existsSync(join(web.project, ".pi", "npm", "package.json"))).toBe(true);
+  });
 });
 
 describe("where the drift check does not apply", () => {

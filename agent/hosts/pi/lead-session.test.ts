@@ -12,7 +12,7 @@ import { makeLeadProject } from "../../test/support/lead-project.ts";
 // Claude Code; this file pins the pi adapter's wiring.
 
 const FULL = ["read", "grep", "find", "ls", "bash", "edit", "write", "web_search", "subagent", "subagent_wait",
-  "contact_supervisor", "lead_prepare", "lead_setup"];
+  "contact_supervisor", "subagent_supervisor", "lead_prepare", "lead_setup"];
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 interface Tool { readonly name: string; execute(...args: unknown[]): Promise<{ content: { text: string }[]; details: unknown }> }
@@ -25,7 +25,11 @@ function fakePi() {
     on(event: string, handler: Handler) { handlers.set(event, [...(handlers.get(event) ?? []), handler]); },
     getActiveTools: () => [...active],
     setActiveTools(names: string[]) { active = [...names]; },
-    registerTool(tool: Tool) { tools.set(tool.name, tool); },
+    // Like pi, refuse a tool name registered twice in one process.
+    registerTool(tool: Tool) {
+      if (tools.has(tool.name)) throw new Error(`Tool "${tool.name}" conflicts`);
+      tools.set(tool.name, tool);
+    },
   };
   return {
     pi: pi as unknown as Parameters<typeof installPathGate>[0],
@@ -74,7 +78,14 @@ describe("pi lead session", () => {
     expect([...fake.tools.keys()].sort()).toEqual(["lead_prepare", "lead_setup"]);
     fake.start(dir);
     expect(fake.active()).toEqual(["read", "grep", "find", "ls", "web_search", "subagent", "subagent_wait",
-      "contact_supervisor", "lead_prepare", "lead_setup"]);
+      "contact_supervisor", "subagent_supervisor", "lead_prepare", "lead_setup"]);
+  });
+
+  test("a pipeline child loads the ambient gate and its role loader without a tool conflict", () => {
+    const fake = fakePi();
+    installPathGate(fake.pi, undefined, { projectCopy: true });
+    installPathGate(fake.pi, "architect", { projectCopy: true });
+    expect([...fake.tools.keys()].sort()).toEqual(["lead_prepare", "lead_setup"]);
   });
 
   test("tool calls go through the lead policy", async () => {
@@ -84,6 +95,10 @@ describe("pi lead session", () => {
     expect(await fake.call(dir, "read", { path: "docs/a.md" })).toBeUndefined();
     expect(await fake.call(dir, "subagent", { agent: "scout", task: "look" })).toBeUndefined();
     expect(await fake.call(dir, "subagent", { action: "status" })).toBeUndefined();
+    // A commissioned seat that escalates must be answerable (dogfood: an
+    // architect paused on a supervisor request the lead could not reply to).
+    expect(await fake.call(dir, "subagent_supervisor", { action: "reply", replyTo: "r1", message: "go ahead" })).toBeUndefined();
+    expect(await fake.call(dir, "subagent_supervisor", { action: "pending" })).toBeUndefined();
     const refused: readonly [string, Record<string, unknown>, string][] = [
       ["bash", { command: "ls" }, "outside the read-only lead toolset"],
       ["write", { path: "a", content: "" }, "outside the read-only lead toolset"],
@@ -107,6 +122,9 @@ describe("pi lead session", () => {
       ["subagent", { agent: "builder", task: "x" }, "only scout and architect"],
       ["subagent", { agent: "architect", task: "x" }, "prepare the ticket's run boundary"],
       ["subagent", { action: "resume", id: "r" }, "cannot be used by the lead"],
+      ["subagent_supervisor", { action: "send", to: "architect", message: "x" }, "does not start them"],
+      ["subagent_supervisor", { action: "ask", to: "architect", message: "x" }, "does not start them"],
+      ["subagent_supervisor", { action: "reply", replyTo: "r1", message: "x", timeoutMs: 1 }, "may not carry 'timeoutMs'"],
     ];
     for (const [tool, input, why] of refused) {
       const r = await fake.call(dir, tool, input);
@@ -146,7 +164,8 @@ describe("pi child sessions", () => {
     expect(await fake.call(dir, "read", { path: "docs/a.md" })).toBeUndefined();
     expect(await fake.call(dir, "contact_supervisor", { reason: "need_decision" })).toBeUndefined();
     for (const [tool, input] of [["bash", { command: "ls" }], ["write", { path: "a" }], ["web_search", { query: "x" }],
-      ["subagent", { agent: "scout", task: "x" }], ["lead_prepare", {}], ["read", { path: ".git/HEAD" }]] as const) {
+      ["subagent", { agent: "scout", task: "x" }], ["lead_prepare", {}], ["read", { path: ".git/HEAD" }],
+      ["subagent_supervisor", { action: "reply", replyTo: "r1", message: "x" }]] as const) {
       expect((await fake.call(dir, tool, input))?.reason, tool).toMatch(/^scout: /);
     }
     expect(await fake.run("lead_prepare", {}, dir)).toContain("only the project-local lead");

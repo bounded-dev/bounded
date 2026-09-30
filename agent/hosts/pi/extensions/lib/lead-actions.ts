@@ -21,6 +21,12 @@ const COMMISSION_FIELDS: ReadonlySet<string> = new Set(["agent", "task", "action
 /** The only fields a watch on commissioned children may carry. */
 const OBSERVE_FIELDS: ReadonlySet<string> = new Set(["action", "id", "runId", "index", "view", "lines", "timeoutMs"]);
 
+/** pi-subagents' parent side of the supervisor channel. The lead may see
+ *  pending requests and answer one; it may not open a conversation. */
+const SUPERVISOR_TOOL = "subagent_supervisor";
+const SUPERVISOR_OBSERVE_ACTIONS: ReadonlySet<unknown> = new Set(["list", "pending", "status"]);
+const SUPERVISOR_FIELDS: ReadonlySet<string> = new Set(["action", "to", "replyTo", "message"]);
+
 type ProjectRead = typeof PROJECT_READS extends Set<infer T> ? T : never;
 
 const unknownField = (input: Readonly<Record<string, unknown>>, allowed: ReadonlySet<string>): string | undefined =>
@@ -51,6 +57,16 @@ function subagentAction(input: Readonly<Record<string, unknown>>): SeatAction {
   return { kind: "commission", role: input["agent"], task: input["task"] };
 }
 
+function supervisorAction(input: Readonly<Record<string, unknown>>): SeatAction {
+  const extra = unknownField(input, SUPERVISOR_FIELDS);
+  if (extra !== undefined) return { kind: "refused", reason: `${SUPERVISOR_TOOL} may not carry '${extra}'` };
+  const action = input["action"];
+  if (SUPERVISOR_OBSERVE_ACTIONS.has(action)) return { kind: "observe", tool: `${SUPERVISOR_TOOL} ${String(action)}` };
+  // No action is how the session-start strip asks whether the tool is held at all.
+  if (action === "reply" || action === undefined) return { kind: "reply" };
+  return { kind: "refused", reason: `${SUPERVISOR_TOOL} action '${String(action)}' cannot be used by the lead; it answers requests, it does not start them` };
+}
+
 /** A read whose search pattern could leave its directory or name .git is refused here, as on every host. */
 function readAction(tool: ProjectRead, input: Readonly<Record<string, unknown>>): SeatAction {
   const pattern = tool === "grep" ? input["glob"] : tool === "find" ? input["pattern"] : undefined;
@@ -67,5 +83,6 @@ export function piSeatAction(toolName: string, input: Readonly<Record<string, un
   if (toolName === LEAD_PREPARE_TOOL) return { kind: "prepare" };
   if (toolName === LEAD_SETUP_TOOL) return { kind: "setup" };
   if (toolName === "subagent") return subagentAction(input);
+  if (toolName === SUPERVISOR_TOOL) return supervisorAction(input);
   return { kind: "other", tool: toolName };
 }
