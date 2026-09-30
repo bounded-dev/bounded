@@ -1,6 +1,8 @@
 // The ts-hexagonal pack as the harness reads it: its data through the core's
 // validators, its code through the ts pack's sockets, and its shipped files.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
@@ -8,6 +10,7 @@ import {
   generatedFileGlobsFor,
   hasTestFileSuffix,
   pathGlobMatcher,
+  projectIgnoreRules,
   sourceRootOf,
   sourceRootsFor,
   testFileSuffixesFor,
@@ -31,6 +34,28 @@ describe("contrib.json through the core's validators", () => {
     expect(sourceRootOf("apps/web/src/server/main.ts", roots)).toBe("apps/web/src");
     expect(sourceRootOf("architecture.test.ts", roots)).toBeUndefined();
     expect(sourceRootOf("contexts/project-management/package.json", roots)).toBeUndefined();
+  });
+
+  test("ignore rules cover each workspace's installed dependencies and build output, and pass the core's validator", () => {
+    const rules = projectIgnoreRules(PACKS, packsDir);
+    expect(rules).toEqual(expect.arrayContaining(["/contexts/*/node_modules/", "/apps/*/node_modules/", "/contexts/*/dist/", "/apps/*/dist/"]));
+    const dir = mkdtempSync(join(tmpdir(), "hex-ignore-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      writeFileSync(join(dir, ".gitignore"), `${rules.join("\n")}\n`);
+      const ignored = (path: string) => spawnSync("git", ["check-ignore", "-q", "--no-index", path], { cwd: dir }).status === 0;
+      for (const path of [
+        "node_modules/zod/index.js", "dist/x.js",
+        "contexts/project-management/node_modules/zod/index.js", "apps/web/node_modules/.bin/x",
+        "apps/lambdas/dist/export-projects.js", "contexts/project-management/dist/x.js",
+      ]) expect(ignored(path), path).toBe(true);
+      for (const path of [
+        "contexts/project-management/src/domain/notes/note.ts", "apps/web/src/server/main.ts",
+        "contexts/project-management/package.json", "apps/web/src/dist/x.ts",
+      ]) expect(ignored(path), path).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("test-side files are the colocated suffixes", () => {
