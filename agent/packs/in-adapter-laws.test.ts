@@ -103,8 +103,10 @@ describe.skipIf(!hasBun)("the generated adapter laws under bun test", () => {
       const source = contract.source
         .replace(from, to)
         .replace(/@exposedVia [a-z ]+/, "@exposedVia trpc mcp lambda")
+        // Result joins the domain import only where the new shape uses it: the
+        // parser refuses an import a contract does not use.
         .replace(/import type \{ ([^}]+) \} from/, (_, names: string) =>
-          `import type { ${[...new Set([...names.split(", "), "Result"])].sort().join(", ")} } from`);
+          `import type { ${[...new Set([...names.split(", "), ...(to.includes("Result<") ? ["Result"] : [])])].sort().join(", ")} } from`);
       return { ...contract, source };
     });
     const facts = exampleFacts({ contracts });

@@ -74,6 +74,6 @@ describe("the shapes the example does not show", () => {
 describe("refusals", () => {
   test("an MCP feature without an in-port summary", () => {
     const contracts = withContract(LIST_PROJECTS, (s) => s.replace(" * List all projects\n", ""));
-    expect(() => emitMcpAdapters(exampleFacts({ contracts }))).toThrow(/list-projects\.contract\.ts: a feature exposed via mcp needs a JSDoc summary/);
+    expect(() => emitMcpAdapters(exampleFacts({ contracts }))).toThrow(/list-projects\.contract\.ts: ListProjects is exposed via mcp, so its \/\*\* \*\/ block needs a summary line/);
   });
 });

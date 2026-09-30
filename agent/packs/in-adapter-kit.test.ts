@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { EXAMPLE_CONTEXT, exampleContracts } from "./example-suite/example-facts.ts";
-import { depsFunctionHead, importLine, listing, parseFeatureContract, pluralVariable } from "./ts-trpc/scripts/in-adapter-kit.ts";
+import { EXAMPLE_CONTEXT, exampleContracts, exampleFacts } from "./example-suite/example-facts.ts";
+import { ContractShapeError, parseFeatureContract } from "./ts-hexagonal/pack.ts";
+import { depsFunctionHead, featureContracts, importLine, listing, pluralVariable } from "./ts-trpc/scripts/in-adapter-kit.ts";
 
 // The kit is copied into ts-trpc, ts-mcp and ts-lambda because a pack may
 // import only across its declared edges (the file's header says why). Three
@@ -23,8 +24,15 @@ describe("the in-adapter kit", () => {
   });
 });
 
-describe("the parser stand-in reads the worked example", () => {
-  const features = exampleContracts().filter((c) => c.path.includes("/application/")).map((c) => parseFeatureContract(c, "@example"));
+describe("the kit reads the worked example through ts-hexagonal's parser", () => {
+  const features = featureContracts(exampleFacts());
+
+  test("each model is exactly what the hexagonal parser returns", () => {
+    const direct = exampleContracts()
+      .filter((c) => /\/application\/[^/]+\/[^/]+\/[^/]+\.contract\.ts$/.test(c.path))
+      .map((c) => parseFeatureContract(c.path, c.source, { scope: "@example" }));
+    expect(features).toEqual(direct);
+  });
 
   test("every feature, with its tags, input and return shape", () => {
     expect(features.map((f) => [f.area, f.feature, f.kind, f.exposedVia.join(" "), f.inPort.returns.shape, f.inPort.returns.result, f.input?.fields.length ?? 0]))
@@ -58,18 +66,19 @@ describe("the parser stand-in reads the worked example", () => {
   });
 
   const path = `${EXAMPLE_CONTEXT}/src/application/notes/list-notes/list-notes.contract.ts`;
-  const source = exampleContracts().find((c) => c.path === path)!.source;
-  const refused = (edit: (s: string) => string, message: RegExp) =>
-    expect(() => parseFeatureContract({ path, source: edit(source) }, "@example")).toThrow(message);
+  const withEdit = (target: string, edit: (s: string) => string) => exampleFacts({
+    contracts: exampleContracts().map((c) => (c.path === path ? { path: target, source: edit(c.source) } : c)),
+  });
 
-  test("refuses what the grammar does not allow, naming the file", () => {
-    refused((s) => s.replace("@example/project-management/domain", "../../../domain/index.ts"), /list-notes\.contract\.ts: the only import allowed/);
-    refused((s) => s.replace("Promise<Note[]>;\n}", "Promise<string>;\n}"), /execute must return Promise<R>/);
-    refused((s) => s.replace("@exposedVia trpc", "@exposedVia trpc trpc"), /names an id twice/);
-    refused((s) => s.replace("@exposedVia trpc", "@exposedBy trpc"), /is not an @exposedVia or @implementedBy tag line/);
-    refused((s) => s.replace("export interface ListNotesStore", "export interface ListNotesRepositoryStore"), /the only store port is ListNotesStore/);
-    refused((s) => s.replace("execute(): Promise<Note[]>;", "execute(): Promise<Note[]>;\n  count(): Promise<number>;"), /exactly one member, execute/);
-    refused((s) => `${s}\nexport type Extra = string;\n`, /holds only exported interfaces/);
+  test("a contract the parser refuses stops the kit, naming the file", () => {
+    const refused = withEdit(path, (s) => s.replace("Promise<Note[]>;\n}", "Promise<string>;\n}"));
+    expect(() => featureContracts(refused)).toThrow(ContractShapeError);
+    expect(() => featureContracts(refused)).toThrow(/list-notes\.contract\.ts/);
+  });
+
+  test("a misnamed feature contract is refused, not skipped", () => {
+    const misnamed = withEdit(path.replace("list-notes.contract.ts", "listing.contract.ts"), (s) => s);
+    expect(() => featureContracts(misnamed)).toThrow(/must be named 'list-notes\.contract\.ts'/);
   });
 });
 

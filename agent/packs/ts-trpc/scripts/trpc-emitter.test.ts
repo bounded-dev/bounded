@@ -123,6 +123,6 @@ describe("refusals", () => {
 
   test("a contract outside the grammar names the file and the fix", () => {
     const contracts = withContract(CREATE_NOTE, (s) => s.replace("readonly text: string;", "readonly text?: string;"));
-    expect(() => emitTrpcAdapters(exampleFacts({ contracts }))).toThrow(/create-note\.contract\.ts: optional field text is refused/);
+    expect(() => emitTrpcAdapters(exampleFacts({ contracts }))).toThrow(/create-note\.contract\.ts: CreateNoteInput\.text must be readonly and required \(optional fields are refused for now\)/);
   });
 });
