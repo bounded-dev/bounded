@@ -36,26 +36,38 @@ function project(packs: readonly string[], options: { generated?: boolean; froze
 
 const lastEvent = (dir: string) => readGuardLog(dir).filter((e) => e.guard === GUARD).at(-1);
 
+const POSTGRES = ["ts", "ts-hexagonal", "ts-drizzle-postgres"];
+
+/** A context with Drizzle persistence: its generated config and one table. */
+function drizzleContext(dir: string): void {
+  const schema = join(dir, "contexts/pm/src/adapters/out/drizzle/schema");
+  mkdirSync(schema, { recursive: true });
+  writeFileSync(join(dir, "contexts/pm/drizzle.config.ts"),
+    'import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "postgresql", schema: "./src/adapters/out/drizzle/schema", out: "./src/adapters/out/drizzle/migrations" });\n');
+  writeFileSync(join(schema, "pm.ts"),
+    'import { pgSchema, uuid } from "drizzle-orm/pg-core";\nexport const pm = pgSchema("pm");\nexport const t = pm.table("t", { id: uuid("id").primaryKey() });\n');
+}
+
 describe("generate_artifacts", () => {
   test("refuses drifted project config before anything else, routed to the orchestrator", () => {
-    const dir = project(["ts", "ts-drizzle-sqlite"], { generated: true, frozen: true });
-    writeFileSync(join(dir, "drizzle.config.ts"), 'export default { out: "./src/db" };\n');
+    const dir = project(POSTGRES, { generated: true, frozen: true });
+    writeFileSync(join(dir, "docker-compose.yml"), "services: {}\n");
     const result = runArtifactGenerators(dir);
     expect(result.code).toBe(1);
     expect(result.detail["step"]).toBe("config-drift");
-    expect(result.lines.join("\n")).toContain("drizzle.config.ts: differs from what the composed packs generate");
+    expect(result.lines.join("\n")).toContain("docker-compose.yml: differs from what the composed packs generate");
     expect(result.lines).toContain(`${GUARD}: route → orchestrator`);
     expect(lastEvent(dir)?.verdict).toBe("block");
   });
 
-  test("the generated Drizzle config and the shipped check are part of the drift check", () => {
-    const dir = project(["ts", "ts-drizzle-sqlite"], { generated: true, frozen: true });
+  test("the generated database config and the shipped check are part of the drift check", () => {
+    const dir = project(POSTGRES, { generated: true, frozen: true });
     writeFileSync(join(dir, "scripts/check-db.ts"), "process.exit(0);\n");
     expect(runArtifactGenerators(dir).lines.join("\n")).toContain("scripts/check-db.ts: differs");
   });
 
   test("refuses before the design is frozen, routed to the architect", () => {
-    const dir = project(["ts", "ts-drizzle-sqlite"]);
+    const dir = project(POSTGRES);
     const result = runArtifactGenerators(dir);
     expect(result.code).toBe(1);
     expect(result.summary).toBe("no frozen design");
@@ -73,24 +85,23 @@ describe("generate_artifacts", () => {
   });
 
   test("a failing generator blocks with its name and message", () => {
-    const dir = project(["ts", "ts-drizzle-sqlite"], { frozen: true });
-    writeFileSync(join(dir, "src/db/schema.ts"), "export {};\n");
+    const dir = project(POSTGRES, { frozen: true });
+    drizzleContext(dir);
     const result = runArtifactGenerators(dir);
     expect(result.code).toBe(1);
-    expect(result.summary).toBe("database-migration: project dependencies are missing: drizzle-kit is not installed");
+    expect(result.summary).toBe("database-migration: project dependencies are missing: drizzle-kit is not installed for contexts/pm");
     expect(result.detail["generator"]).toBe("database-migration");
     expect(lastEvent(dir)?.verdict).toBe("block");
   });
 
   test("runs the composed migration generator once the design is frozen", () => {
-    const dir = project(["ts", "ts-drizzle-sqlite"], { generated: true, frozen: true });
+    const dir = project(POSTGRES, { generated: true, frozen: true });
     symlinkSync(join(agentRoot, "node_modules"), join(dir, "node_modules"), "dir");
-    writeFileSync(join(dir, "src/db/schema.ts"),
-      'import { integer, sqliteTable } from "drizzle-orm/sqlite-core";\nexport const t = sqliteTable("t", { id: integer("id").primaryKey() });\n');
+    drizzleContext(dir);
     const result = runArtifactGenerators(dir);
     expect(result.code, result.lines.join("\n")).toBe(0);
     expect(result.detail["generators"]).toEqual(["database-migration"]);
-    expect(result.lines).toContain("database-migration: migrations generated from the schema");
+    expect(result.lines).toContain("database-migration: contexts/pm: migrations generated from the schema (3 file(s) written)");
   }, 60_000);
 
   test("is the architect's alone, on both hosts", () => {

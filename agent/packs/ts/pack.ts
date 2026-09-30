@@ -505,7 +505,33 @@ export interface AdapterTechnology {
   readonly storage: boolean;
   /** Pins a context workspace takes when its tree has this technology's folder. */
   readonly pins: Pins;
+  /** Scripts a context workspace's manifest takes when its tree has this
+   *  technology's folder (`db:generate` → `drizzle-kit generate`), keys
+   *  sorted. Present only when the contrib entry declares it. A script name
+   *  belongs to one technology across the composition. */
+  readonly workspaceScripts?: Readonly<Record<string, string>>;
   readonly description: string;
+}
+
+const SCRIPT_NAME = /^[a-z][a-z0-9]*(?:[:-][a-z0-9]+)*$/;
+
+function checkedScripts(value: unknown, where: string): Record<string, string> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0) {
+    throw new Error(`${where} workspaceScripts must be a non-empty object of script name → command`);
+  }
+  const out: Record<string, string> = {};
+  for (const name of Object.keys(value).sort()) {
+    const command = (value as Record<string, unknown>)[name];
+    if (!SCRIPT_NAME.test(name)) {
+      throw new Error(`${where} workspaceScripts name '${name}' must be lowercase words joined by ':' or '-'`);
+    }
+    // eslint-disable-next-line no-control-regex
+    if (typeof command !== "string" || command.trim() !== command || command === "" || /[\u0000-\u001f\u007f]/.test(command)) {
+      throw new Error(`${where} workspaceScripts '${name}' must be a one-line command with no surrounding whitespace`);
+    }
+    out[name] = command;
+  }
+  return out;
 }
 
 function checkedPins(value: unknown, where: string): Pins {
@@ -538,19 +564,22 @@ function strictObject(value: unknown, keys: readonly string[], where: string): R
 
 /**
  * The composed packs' `adapterTechnologies`, sorted by id. Each contrib.json
- * entry is `{ id, direction, description, featureRole?, storage?, pins? }`:
- * an in adapter declares `featureRole` and no `storage`; an out adapter
- * declares `storage` and no `featureRole`. Unknown fields, a duplicate id
- * across the composition, or a pin that is not exact are refused.
+ * entry is `{ id, direction, description, featureRole?, storage?, pins?,
+ * workspaceScripts? }`: an in adapter declares `featureRole` and no
+ * `storage`; an out adapter declares `storage` and no `featureRole`. Unknown
+ * fields, a duplicate id across the composition, a pin that is not exact, and
+ * a workspace script name that is malformed, empty-commanded or contributed
+ * by two technologies are refused.
  */
 export function adapterTechnologies(packs: readonly string[], packsDir = defaultPacksDir()): AdapterTechnology[] {
   const out: AdapterTechnology[] = [];
   const ids = new Set<string>();
+  const scriptOwners = new Map<string, string>();
   for (const { pack, value } of contributionsByPack("adapterTechnologies", packs, packsDir)) {
     if (!Array.isArray(value)) throw new Error(`Selected pack '${pack}' adapterTechnologies must be an array`);
     for (const raw of value) {
       const where = `Selected pack '${pack}' adapterTechnologies entry`;
-      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "pins"], where);
+      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "pins", "workspaceScripts"], where);
       const { id, direction, description, featureRole, storage } = entry;
       if (typeof id !== "string" || !KEBAB.test(id)) throw new Error(`${where} needs a kebab-case id`);
       const named = `${where} '${id}'`;
@@ -567,12 +596,19 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
       } else {
         throw new Error(`${named} needs direction 'in' or 'out'`);
       }
+      const scripts = entry.workspaceScripts === undefined ? undefined : checkedScripts(entry.workspaceScripts, named);
+      for (const name of Object.keys(scripts ?? {})) {
+        const owner = scriptOwners.get(name);
+        if (owner !== undefined) throw new Error(`${named} workspace script '${name}' is already contributed by '${owner}'`);
+        scriptOwners.set(name, id);
+      }
       ids.add(id);
       out.push({
         pack, id, direction, description,
         ...(direction === "in" ? { featureRole: featureRole as string } : {}),
         storage: direction === "out" && storage === true,
         pins: checkedPins(entry.pins, named),
+        ...(scripts === undefined ? {} : { workspaceScripts: scripts }),
       });
     }
   }

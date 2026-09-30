@@ -10,7 +10,7 @@
     "./packs/ts",
     "./packs/ts-web",
     "packs/ts-service",
-    "packs/ts-drizzle-sqlite"
+    "packs/ts-drizzle-postgres"
   ],
   "subagents": {
     "disableBuiltins": true

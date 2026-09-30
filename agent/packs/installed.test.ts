@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import { composePacks } from "../src/socket-registry.ts";
 import { installedPacks, INSTALLED_PACKS } from "./installed.ts";
 import { artifactGenerators, contractPurityOverrides, contractSupportFiles, deliverChecks, lintSrcRules, skeletonEmitters, TS_PACK } from "./ts/pack.ts";
-import { TS_DRIZZLE_SQLITE_PACK } from "./ts-drizzle-sqlite/pack.ts";
+import { TS_DRIZZLE_POSTGRES_PACK } from "./ts-drizzle-postgres/pack.ts";
 import { TS_WEB_PACK } from "./ts-web/pack.ts";
 
 // The real composition, composed for real. socket-registry.test.ts proves the
@@ -23,7 +23,7 @@ describe("the harness's own composition", () => {
 
   test("composes ts before every pack that declares the edge to it", () => {
     expect(installedPacks().packs).toEqual([
-      TS_PACK, "ts-hexagonal", "ts-desktop", "ts-drizzle-postgres", TS_DRIZZLE_SQLITE_PACK, "ts-lambda", "ts-mcp",
+      TS_PACK, "ts-hexagonal", "ts-desktop", TS_DRIZZLE_POSTGRES_PACK, "ts-lambda", "ts-mcp",
       "ts-service", TS_WEB_PACK,
     ]);
   });
@@ -106,7 +106,7 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
   });
 
   test("the rework's stub packs compose, and contribute nothing yet", () => {
-    const stubs = ["ts-hexagonal", "ts-drizzle-postgres", "ts-mcp", "ts-lambda", "ts-desktop"];
+    const stubs = ["ts-hexagonal", "ts-mcp", "ts-lambda", "ts-desktop"];
     const registry = composePacks(INSTALLED_PACKS, [TS_PACK, ...stubs]);
     expect(registry.read(skeletonEmitters)).toEqual([]);
     for (const name of stubs) {
@@ -117,12 +117,13 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
     expect(() => composePacks(INSTALLED_PACKS, [TS_PACK, "ts-mcp"])).toThrow(/depends on pack 'ts-hexagonal'/);
   });
 
-  test("the migration generator exists only where ts-drizzle-sqlite is composed", () => {
+  test("the migration generator exists only where ts-drizzle-postgres is composed", () => {
     const names = (packs: readonly string[]) => composePacks(INSTALLED_PACKS, packs).read(artifactGenerators).map((g) => g.name);
+    const postgres = [TS_PACK, "ts-hexagonal", TS_DRIZZLE_POSTGRES_PACK];
     expect(names([TS_PACK, "ts-service", TS_WEB_PACK])).toEqual([]);
-    expect(names([TS_PACK, TS_DRIZZLE_SQLITE_PACK])).toEqual(["database-migration"]);
+    expect(names(postgres)).toEqual(["database-migration"]);
     // It contributes no delivery check: its check rides the project's own `check`.
-    expect(composePacks(INSTALLED_PACKS, [TS_PACK, TS_DRIZZLE_SQLITE_PACK]).read(deliverChecks)).toEqual([]);
+    expect(composePacks(INSTALLED_PACKS, postgres).read(deliverChecks)).toEqual([]);
   });
 
   test("composing ts-web without ts is refused — the edge is not optional", () => {

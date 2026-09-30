@@ -92,8 +92,28 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     ["a pin section typo", [{ ...MCP, pins: { deps: {} } }], /only dependencies and devDependencies/],
     ["a bad package name", [{ ...MCP, pins: { dependencies: { "Bad Name": "1.0.0" } } }], /exact version/],
     ["an entry that is not an object", ["mcp"], /must be an object/],
+    ["workspace scripts that are not an object", [{ ...MEMORY, workspaceScripts: ["db:up"] }], /non-empty object/],
+    ["empty workspace scripts", [{ ...MEMORY, workspaceScripts: {} }], /non-empty object/],
+    ["a malformed script name", [{ ...MEMORY, workspaceScripts: { "DB Up": "x" } }], /script name|name 'DB Up'/],
+    ["a script name with a trailing colon", [{ ...MEMORY, workspaceScripts: { "db:": "x" } }], /name 'db:'/],
+    ["an empty command", [{ ...MEMORY, workspaceScripts: { "db:up": "" } }], /one-line command/],
+    ["a multi-line command", [{ ...MEMORY, workspaceScripts: { "db:up": "a\nb" } }], /one-line command/],
+    ["a padded command", [{ ...MEMORY, workspaceScripts: { "db:up": " a" } }], /one-line command/],
+    ["a non-string command", [{ ...MEMORY, workspaceScripts: { "db:up": 1 } }], /one-line command/],
+    ["one script from two technologies", [
+      { ...MEMORY, workspaceScripts: { "db:up": "a" } }, { ...CONSOLE, workspaceScripts: { "db:up": "a" } },
+    ], /workspace script 'db:up' is already contributed by 'in-memory'/],
   ])("refuses %s", (_label, value, message) => {
     expect(() => adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: value } }))).toThrow(message);
+  });
+
+  test("workspace scripts are read with sorted names, and absent when not declared", () => {
+    const withScripts = { ...MEMORY, workspaceScripts: { "db:migrate": "tool migrate", "db:generate": "tool generate" } };
+    const [read] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [withScripts] } }));
+    expect(read!.workspaceScripts).toEqual({ "db:generate": "tool generate", "db:migrate": "tool migrate" });
+    expect(Object.keys(read!.workspaceScripts!)).toEqual(["db:generate", "db:migrate"]);
+    const [plain] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [MEMORY] } }));
+    expect(plain).not.toHaveProperty("workspaceScripts");
   });
 
   test("one id contributed by two packs is refused", () => {
