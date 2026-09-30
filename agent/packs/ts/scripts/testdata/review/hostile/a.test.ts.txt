@@ -1,0 +1,20 @@
+import { test, expect, describe } from "bun:test";
+import { leakFile, leakFileRaw, leakStack, take } from "./impl.ts";
+const SECRET_EXPECTED_TOTAL = 4242;
+describe("grp", () => {
+  test("toBe literal", () => { expect(computeHiddenAnswer()).toBe(SECRET_EXPECTED_TOTAL); });
+  test("toEqual obj", () => { expect({ a: 1 }).toEqual({ a: 1, hiddenKeyFromTest: "zzsecretzz" }); });
+  test("jsc typeerror", () => { const secretVarName: any = undefined; secretVarName.propertyFromTest.x; });
+  test("impl typeerror", () => { take({ deeply: undefined }); });
+  test("refError", () => { undefinedIdentifierInTestSource(); });
+  test("console then throw string", () => { console.error("CONSOLE_SECRET_LINE from test"); throw "thrown string value"; });
+  test("console after caret-like", () => { console.error("   ^"); console.error("CONSOLE_AFTER_CARET secret"); throw { notAnError: true }; });
+  test("b64", () => { leakFile(); });
+  test("raw", () => { leakFileRaw(); });
+  test("stack", () => { leakStack(); });
+  test("snapshot", () => { expect({ hiddenSnap: "snapsecret" }).toMatchInlineSnapshot(`{ "hiddenSnap": "other" }`); });
+  test("assert msg", () => { expect(1, "custom message from test source").toBe(2); });
+  test("toThrow", () => { expect(() => {}).toThrow(/regexFromTestSource/); });
+  test("async reject", async () => { await Promise.reject(new Error("rejected: " + "concat")); });
+});
+function computeHiddenAnswer() { return 1; }

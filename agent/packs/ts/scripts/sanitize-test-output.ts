@@ -63,13 +63,49 @@ export interface SanitizedResult {
 
 // --- shared line filters ------------------------------------------------------
 
-// A path token: file:// URIs, POSIX absolute/relative paths, or Windows drive
-// paths, with an optional trailing :line:col. Redacted to a fixed placeholder
-// so a leaked location can never survive even inside otherwise-safe text.
-const PATH_TOKEN =
-  /(?:file:\/\/)?(?:[A-Za-z]:)?(?:\.\.?\/|\/)[\w.\-/\\@+]*(?::\d+(?::\d+)?)?/g;
+// Paths are redacted by WHAT THEY ARE, not by their shape: a slash-led value
+// in an assertion (`"/api/projects/create"`, a regex) is the builder's
+// debugging data and stays. What goes is a real filesystem location: any
+// path under a machine root the caller names (the project, the temp
+// directory, the home directory), with an optional `file://` and trailing
+// `:line:col`; any test file named by its project path or its file name;
+// and any Windows drive path. Stack frames and code frames are dropped whole
+// before this runs, so they never depend on it.
 const WINDOWS_PATH = /[A-Za-z]:\\[\w.\-\\]*/g;
 const PATH_PLACEHOLDER = "[path]";
+
+/** What the sanitizer knows about the run it is cleaning. */
+export interface SanitizeContext {
+  /** Lines of test files that must never survive ({@link forbiddenLines}). */
+  readonly forbidden?: ReadonlySet<string>;
+  /** Absolute machine directories: every path under one is redacted. */
+  readonly pathRoots?: readonly string[];
+  /** Project-relative paths of test-side files: redacted wherever they, or
+   *  their file names, appear. */
+  readonly testPaths?: readonly string[];
+}
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+const PATH_TAIL = "(?:[\\/\\\\][^\\s'\"`()<>\\[\\]{},;:]*)?(?::\\d+(?::\\d+)?)?";
+
+function pathRedactors(ctx: SanitizeContext): RegExp[] {
+  const roots = [...new Set((ctx.pathRoots ?? []).map((r) => r.replace(/[\\/]+$/, "")).filter((r) => r.length > 1))]
+    .sort((a, b) => b.length - a.length);
+  const out = roots.map((root) => new RegExp(`(?:file:\\/\\/)?${escapeRegExp(root)}${PATH_TAIL}`, "g"));
+  const names = new Set<string>();
+  for (const path of ctx.testPaths ?? []) {
+    names.add(path);
+    names.add(path.split("/").at(-1)!);
+  }
+  for (const name of [...names].filter((n) => n !== "").sort((a, b) => b.length - a.length)) {
+    out.push(new RegExp(`(?<![\\w.-])(?:file:\\/\\/)?(?:\\/|\\.{1,2}\\/)?(?:[\\w.@-]+\\/)*${escapeRegExp(name)}(?::\\d+(?::\\d+)?)?(?![\\w-])`, "g"));
+  }
+  out.push(WINDOWS_PATH);
+  return out;
+}
+
+const asContext = (ctx: SanitizeContext | ReadonlySet<string> | undefined): SanitizeContext =>
+  ctx === undefined ? {} : ctx instanceof Set ? { forbidden: ctx } : (ctx as SanitizeContext);
 // ANSI SGR, cursor and OSC sequences.
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007]*\u0007/g;
 
@@ -131,15 +167,19 @@ const MAX_MESSAGE_CHARS = 4000;
  * Strip source-leaking material from one piece of free text while keeping
  * the error text and any expected/received diff: ANSI escapes, stack and
  * code-frame lines, console-capture headers and reporter chrome are dropped;
- * any residual path is redacted to `[path]`; any line quoting a forbidden
- * test line is dropped. Blank-line runs collapse; the result is bounded.
+ * real filesystem paths are redacted to `[path]` (see the context); any line
+ * quoting a forbidden test line is dropped. Blank-line runs collapse; the
+ * result is bounded.
  */
-export function sanitizeMessage(message: string, forbidden: ReadonlySet<string> = new Set()): string {
+export function sanitizeMessage(message: string, context?: SanitizeContext | ReadonlySet<string>): string {
+  const ctx = asContext(context);
+  const forbidden = ctx.forbidden ?? new Set<string>();
+  const redactors = pathRedactors(ctx);
   const kept: string[] = [];
   for (const rawLine of message.replace(ANSI, "").split(/\r?\n/)) {
     if (isSourceLeakingLine(rawLine)) continue;
     if (quotesForbidden(rawLine, forbidden)) continue;
-    const redacted = rawLine.replace(PATH_TOKEN, PATH_PLACEHOLDER).replace(WINDOWS_PATH, PATH_PLACEHOLDER);
+    const redacted = redactors.reduce((line, pattern) => line.replace(pattern, PATH_PLACEHOLDER), rawLine);
     if (quotesForbidden(redacted, forbidden)) continue;
     kept.push(redacted);
   }
@@ -251,7 +291,8 @@ export function parseJUnitReport(xml: string): JUnitCase[] {
 
 // --- stderr: failure blocks and unhandled errors ---------------------------------
 
-const FAIL_LINE = /^\(fail\) (.*?)(?: \[\d+(?:\.\d+)?m?s\])?$/;
+// bun's genuine marker always carries the test's duration.
+const FAIL_LINE = /^\(fail\) (.*) \[\d+(?:\.\d+)?m?s\]$/;
 const CARET_LINE = /^\s*\^\s*$/;
 const ERROR_HEADER = /^(?:error|[A-Z][A-Za-z0-9]*(?:Error|Exception))(?::|$)/;
 const STACK_FRAME = /^\s+at\s/;
@@ -292,17 +333,32 @@ export interface StderrReport {
 
 /**
  * Split bun's console report into per-test failure text and unhandled-error
- * text, each already sanitized with `forbidden`. Pure over the captured text.
+ * text, each already sanitized with `context`. Pure over the captured text.
+ *
+ * Console output is on the same stream as the report, so a marker is only
+ * believed when it could be bun's own: `(fail) <name> [<duration>]` for a
+ * name the JUnit report lists as failed (`expectedFailures`, counts per
+ * name), no more often than the report says. Any other marker-shaped line is
+ * ordinary text inside a window, and every window starts after bun's own
+ * caret. The runner also silences console output in the test process
+ * (bun-test-preload.ts), so imitating a marker takes a deliberate raw write
+ * to the process's error stream (ADR 2026-062, known limits).
  */
-export function readStderrReport(stderr: string, forbidden: ReadonlySet<string> = new Set()): StderrReport {
+export function readStderrReport(
+  stderr: string,
+  context?: SanitizeContext | ReadonlySet<string>,
+  expectedFailures?: ReadonlyMap<string, number>,
+): StderrReport {
   const lines = stderr.replace(ANSI, "").split(/\r?\n/);
   const failures = new Map<string, string[]>();
+  const pending = expectedFailures === undefined ? undefined : new Map(expectedFailures);
   const unhandled: string[] = [];
   let block: string[] = [];
   let inUnhandled = false;
   let unhandledRules = 0;
   let errorCount = 0;
-  const text = (window: string[] | undefined): string => (window === undefined ? "" : sanitizeMessage(window.join("\n"), forbidden));
+  const ctx = asContext(context);
+  const text = (window: string[] | undefined): string => (window === undefined ? "" : sanitizeMessage(window.join("\n"), ctx));
   for (const line of lines) {
     if (inUnhandled) {
       if (RULE.test(line)) {
@@ -322,8 +378,10 @@ export function readStderrReport(stderr: string, forbidden: ReadonlySet<string> 
       continue;
     }
     const failed = FAIL_LINE.exec(line);
-    if (failed !== null) {
+    const left = failed === null || pending === undefined ? undefined : pending.get(failed[1]!) ?? 0;
+    if (failed !== null && (left === undefined || left > 0)) {
       const name = failed[1]!;
+      if (pending !== undefined) pending.set(name, left! - 1);
       const list = failures.get(name) ?? [];
       list.push(text(errorWindow(block)));
       failures.set(name, list);
@@ -360,10 +418,12 @@ export const UNREADABLE_UNHANDLED = "an error was raised outside any test (for e
 export function sanitizeBunRun(
   junitXml: string,
   stderr: string,
-  forbidden: ReadonlySet<string> = new Set(),
+  context?: SanitizeContext | ReadonlySet<string>,
 ): SanitizedResult[] {
   const cases = parseJUnitReport(junitXml);
-  const report = readStderrReport(stderr, forbidden);
+  const expected = new Map<string, number>();
+  for (const c of cases) if (c.status === "failed") expected.set(c.name, (expected.get(c.name) ?? 0) + 1);
+  const report = readStderrReport(stderr, context, expected);
   const used = new Map<string, number>();
   const results: SanitizedResult[] = cases.map((c) => {
     if (c.status !== "failed") return { name: c.name, status: c.status };
@@ -400,7 +460,8 @@ interface LegacyAssertion {
 const asString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
 
 /** Sanitize a canned JSON report (`testResults[].assertionResults[]`). */
-export function sanitizeLegacyJsonRun(rawJson: string, forbidden: ReadonlySet<string> = new Set()): SanitizedResult[] {
+export function sanitizeLegacyJsonRun(rawJson: string, context?: SanitizeContext | ReadonlySet<string>): SanitizedResult[] {
+  const forbidden = asContext(context);
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);

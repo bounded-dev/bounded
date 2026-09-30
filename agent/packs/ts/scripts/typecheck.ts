@@ -15,7 +15,9 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import type { CommandOutput, CommandRunner } from "./run-tests.ts";
-import { configDriftReason } from "./project-config.ts";
+import { configDriftReason, configIsGenerated } from "./project-config.ts";
+import { bunVersionProblem } from "./project-package.ts";
+import { sourceRoots } from "../../../src/pack-contrib.ts";
 
 export type { CommandOutput, CommandRunner };
 
@@ -94,12 +96,37 @@ export function parseTscOutput(
   return { ok: code === 0, errorCount, diagnostics };
 }
 
+/**
+ * A generated project's tsconfig.json includes exactly the composed source
+ * roots (ADR 2026-056), so a composition with none has nothing to check:
+ * refused with the fix, instead of tsc's "No inputs were found". Projects
+ * whose config the packs did not generate keep their own tsconfig.
+ */
+export function generatedLayoutProblem(cwd: string): string | undefined {
+  if (!configIsGenerated(cwd)) return undefined;
+  let roots: readonly string[];
+  try {
+    roots = sourceRoots(cwd);
+  } catch {
+    return undefined; // the drift check above already reported an unreadable composition
+  }
+  if (roots.length > 0) return undefined;
+  return "typecheck: no composed pack contributes sourceRoots, so the generated tsconfig.json includes nothing to check; " +
+    "compose the layout pack (ts-hexagonal) that declares where source lives";
+}
+
 /** Type-check `cwd` and return the redacted diagnostics view. */
 export async function typecheck(cwd: string, options: TypecheckOptions = {}): Promise<TypecheckResult> {
   // The type-checker reads the project's config: refuse to spawn it over
   // config the composed packs did not generate (ADR 2026-054).
   const drift = configDriftReason(cwd);
   if (drift !== undefined) return { ok: false, errorCount: 0, diagnostics: [drift] };
+  const layout = generatedLayoutProblem(cwd);
+  if (layout !== undefined) return { ok: false, errorCount: 0, diagnostics: [layout] };
+  if (options.run === undefined && options.command === undefined) {
+    const version = bunVersionProblem();
+    if (version !== undefined) return { ok: false, errorCount: 0, diagnostics: [`typecheck: ${version}`] };
+  }
   const run = options.run ?? spawnRunner;
   const command = options.command ?? TYPECHECK_COMMAND.command;
   const args = options.args ?? [...TYPECHECK_COMMAND.args];

@@ -3,9 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import {
   type CommandRunner,
   formatTypecheck,
+  generatedLayoutProblem,
   parseTscOutput,
   redactAbsolutePaths,
   typecheck,
@@ -97,6 +99,22 @@ describe("the type-check invocation (ADR 2026-062)", () => {
     await typecheck("/proj", { run: async (command, args) => { seen.push([command, ...args]); return { stdout: "", stderr: "", code: 0 }; } });
     expect(seen).toEqual([["bunx", "tsc", "-p", "tsconfig.json", "--pretty", "false"]]);
     expect(TYPECHECK_COMMAND).toEqual({ command: "bunx", args: ["tsc", "-p", "tsconfig.json", "--pretty", "false"] });
+  });
+});
+
+describe("a generated project with no source roots", () => {
+  test("is refused with the fix, not handed to tsc with an empty include", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "typecheck-noroots-"));
+    try {
+      writeProjectPacks(dir, ["ts"]);
+      writeFileSync(join(dir, ".bounded", "installation.json"), "{}\n");
+      expect(generatedLayoutProblem(dir)).toMatch(/no composed pack contributes sourceRoots.*compose the layout pack/);
+      // A project whose config the packs did not generate keeps its own tsconfig.
+      rmSync(join(dir, ".bounded", "installation.json"));
+      expect(generatedLayoutProblem(dir)).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import {
@@ -9,6 +9,10 @@ import {
   formatRunTests,
   hasUnhandledError,
   IGNORE_HARNESS_STATE,
+  NO_REPORT,
+  NO_TEST_FILES,
+  TEST_PRELOAD,
+  testEnvironment,
   repeatedFailureNudge,
   type RunTestsResult,
   runTests,
@@ -69,7 +73,7 @@ describe("the suite invocation (ADR 2026-062)", () => {
   test("bun's runner, its JUnit reporter into the given file, harness state ignored", () => {
     expect(testCommand("/tmp/r/report.xml")).toEqual({
       command: "bun",
-      args: ["test", "--reporter=junit", "--reporter-outfile=/tmp/r/report.xml", IGNORE_HARNESS_STATE],
+      args: ["test", "--reporter=junit", "--reporter-outfile=/tmp/r/report.xml", IGNORE_HARNESS_STATE, `--preload=${TEST_PRELOAD}`],
     });
   });
 
@@ -127,7 +131,7 @@ describe("runTests on real bun output", () => {
     expect(r.passed).toBe(1);
     const outside = r.results.filter((x) => x.name === UNHANDLED_NAME);
     expect(outside).toHaveLength(2);
-    expect(outside[0]?.message).toBe("error: Cannot find module '[path]' from '[path]'");
+    expect(outside[0]?.message).toBe("error: Cannot find module './does-not-exist.ts' from '[path]'");
     expect(outside[1]?.message).toBe("error: module failed while loading top-level-secret");
     expect(JSON.stringify(r)).not.toContain("hiddenTopLevelValue");
   });
@@ -140,13 +144,15 @@ describe("the forbidden lines come from the project's test files", () => {
       "contexts/pm/src/b.spec.tsx": "B_SPEC",
       "contexts/pm/src/c_test_d.js": "C_UNDERSCORE",
       "contexts/pm/src/e.store.test-support.ts": "E_SUPPORT",
+      "contexts/pm/src/__snapshots__/a.test.ts.snap": "S_SNAPSHOT",
       "contexts/pm/src/f.ts": "F_IMPLEMENTATION",
       "node_modules/dep/g.test.ts": "G_DEPENDENCY",
       ".bounded/shadow-red/h.test.ts": "H_SHADOW",
     });
     // The composed test-side suffixes join bun's pattern (the ts pack's `.test-support.ts`).
     writeProjectPacks(dir, ["ts"]);
-    expect(testSources(dir).sort()).toEqual(["A_TEST", "B_SPEC", "C_UNDERSCORE", "E_SUPPORT"]);
+    // Snapshots are test-side too: they hold the expected values (`.test.ts.snap`).
+    expect(testSources(dir).sort()).toEqual(["A_TEST", "B_SPEC", "C_UNDERSCORE", "E_SUPPORT", "S_SNAPSHOT"]);
     // Without a readable composition, bun's own pattern still applies.
     rmSync(join(dir, ".bounded", "composed-packs.json"));
     expect(testSources(dir).sort()).toEqual(["A_TEST", "B_SPEC", "C_UNDERSCORE"]);
@@ -204,17 +210,30 @@ describe("runTests (0 failed, non-zero exit)", () => {
 });
 
 describe("runTests (suite could not run)", () => {
-  test("no report: a sanitized BLOCKED result, paths redacted", async () => {
+  test("no test files: fixed text", async () => {
     const stderr = 'error: 0 test files matching **{.test,.spec,_test_,_spec_}.{js,ts,jsx,tsx} in --cwd="/Users/secret/proj"';
     const r = await runTests(project(), { run: silentRunner("bun test v1.3.14\n", stderr) });
-    expect(r).toMatchObject({ ok: false, results: [] });
-    expect(r.blocked).not.toContain("/Users/secret");
-    expect(r.blocked).toContain("[path]");
+    expect(r).toMatchObject({ ok: false, results: [], blocked: NO_TEST_FILES });
   });
 
-  test("no report and no output: a fixed explanation", async () => {
-    const r = await runTests(project(), { run: silentRunner("", "", 1) });
-    expect(r.blocked).toBe("the test runner exited with code 1 and wrote no report");
+  test("h4: a run that ends without a report shows fixed text only — none of what it printed", async () => {
+    // Captured from the review's h4 repro: a failing test, then a test that
+    // dumps a fixture and a source-shaped line and calls process.exit(3).
+    const stderr = [
+      "g.test.ts:",
+      "3 | test(\"a\", () => { expect(1).toBe(2); });",
+      "                                   ^",
+      "error: expect(received).toBe(expected)",
+      "Expected: 2",
+      "Received: 1",
+      "(fail) a [0.10ms]",
+      'dump {"id":"fixture-id-value","payload":"hidden-payload"}',
+      "  multi",
+      "  const hiddenExpr = compute(fixture) + 1;",
+    ].join("\n");
+    const r = await runTests(project(), { run: silentRunner("", stderr, 3) });
+    expect(r.blocked).toBe(`${NO_REPORT} (exit code 3)`);
+    expect(formatRunTests(r)).not.toMatch(/hidden|fixture|compute/);
   });
 
   test("the retired JSON report is read only from a replaced command (transitional seam)", async () => {
@@ -332,6 +351,104 @@ describe.skipIf(!HAS_BUN)("real bun", () => {
     write(shadow, "package.json", '{"name":"probe","private":true,"type":"module"}\n');
     write(shadow, "a.test.ts", 'import { expect, test } from "bun:test";\ntest("in shadow", () => { expect(1).toBe(1); });\n');
     expect((await runTests(shadow)).results.map((r) => r.name)).toEqual(["in shadow"]);
+  });
+
+  /** A temp project holding one of the review's repro directories
+   *  (testdata/review/<name>/*.txt, written back under their real names). */
+  function repro(name: string): string {
+    const dir = mkdtempSync(join(tmpdir(), `run-tests-review-${name}-`));
+    dirs.push(dir);
+    write(dir, "package.json", '{"name":"repro","private":true,"type":"module"}\n');
+    const from = join(import.meta.dirname, "testdata", "review", name);
+    for (const file of readdirSync(from)) write(dir, file.replace(/\.txt$/, ""), readFileSync(join(from, file), "utf8"));
+    return dir;
+  }
+  const allText = (r: RunTestsResult): string => `${formatRunTests(r)}\n${JSON.stringify(r)}`;
+  const expectNoLineOf = (text: string, dir: string, files: readonly string[]) => {
+    for (const file of files) {
+      for (const line of readFileSync(join(dir, file), "utf8").split("\n").map((l) => l.trim()).filter((l) => l.length >= 8)) {
+        expect(text, `${file}: ${line}`).not.toContain(line);
+      }
+    }
+  };
+
+  test("hostile: no test line, machine path, console line or snapshot write survives the real run", { timeout: 60_000 }, async () => {
+    const dir = repro("hostile");
+    const before = readFileSync(join(dir, "a.test.ts"), "utf8");
+    const r = await runTests(dir);
+    const text = allText(r);
+    expectNoLineOf(text, dir, ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"]);
+    for (const leak of [dir, realpathSync(dir), homedir(), "CONSOLE_SECRET_LINE", "CONSOLE_AFTER_CARET"]) {
+      expect(text).not.toContain(leak);
+    }
+    // The inline snapshot mismatch never passes (b.test.ts's late throw can
+    // make bun drop the case from the report), and CI=true stops bun
+    // rewriting the test file.
+    expect(r.results.find((x) => x.name === "grp > snapshot")?.status).not.toBe("passed");
+    expect(readFileSync(join(dir, "a.test.ts"), "utf8")).toBe(before);
+    // A slash-led value in an assertion is the builder's data and stays.
+    const toThrow = r.results.find((x) => x.name === "grp > toThrow");
+    if (toThrow !== undefined) expect(toThrow.message).toContain("/regexFromTestSource/");
+  });
+
+  test("h2: values survive, fixture data logged before a failure does not", { timeout: 60_000 }, async () => {
+    const dir = repro("h2");
+    const r = await runTests(dir);
+    const text = allText(r);
+    expect(r.results.find((x) => x.name === "route")?.message).toBe(
+      'error: expect(received).toBe(expected)\nExpected: "/api/projects/list"\nReceived: "/api/projects/create"');
+    for (const leak of ["secretlogged", "secret2", "secret4", "LOGGED"]) expect(text).not.toContain(leak);
+    expectNoLineOf(text, dir, ["e.test.ts"]);
+  });
+
+  test("h3: a test that fakes another test's failure marker moves nothing onto it", { timeout: 60_000 }, async () => {
+    const dir = repro("h3");
+    const r = await runTests(dir);
+    expect(r.results).toEqual([
+      { name: "logs", status: "passed" },
+      { name: "target", status: "failed", message: "error: expect(received).toBe(expected)\nExpected: 2\nReceived: 1" },
+    ]);
+  });
+
+  test("h4: process.exit ends the run without a report; fixed text only", { timeout: 60_000 }, async () => {
+    const dir = repro("h4");
+    const r = await runTests(dir);
+    expect(r.blocked).toBe(`${NO_REPORT} (exit code 3)`);
+    expect(allText(r)).not.toMatch(/fixture|hidden|compute/);
+  });
+
+  test("snapshots are never written by a run: a missing file snapshot and an empty inline one both fail", { timeout: 60_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "run-tests-snap-"));
+    dirs.push(dir);
+    write(dir, "package.json", '{"name":"snap","private":true,"type":"module"}\n');
+    write(dir, "s.test.ts", 'import { test, expect } from "bun:test";\ntest("snap", () => { expect({ total: 1 }).toMatchSnapshot(); });\n');
+    const inline = 'import { test, expect } from "bun:test";\ntest("inline", () => { expect({ total: 1 }).toMatchInlineSnapshot(); });\n';
+    write(dir, "i.test.ts", inline);
+    const r = await runTests(dir);
+    expect(r.results.map((x) => [x.name, x.status]).sort()).toEqual([["inline", "failed"], ["snap", "failed"]]);
+    expect(readFileSync(join(dir, "i.test.ts"), "utf8")).toBe(inline);
+    // bun 1.3.14 may create the snapshot file, but only its header: no value is written.
+    const snap = join(dir, "__snapshots__", "s.test.ts.snap");
+    if (existsSync(snap)) expect(readFileSync(snap, "utf8")).not.toContain("total");
+  });
+
+  test("a global bunfig in the home or config directory is not applied to the run", { timeout: 60_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "run-tests-bunfig-"));
+    dirs.push(dir);
+    write(dir, "home/.bunfig.toml", `[test]\npreload = ["${join(dir, "evil.ts")}"]\n`);
+    write(dir, "evil.ts", 'require("node:fs").writeFileSync(require("node:path").join(import.meta.dir, "EVIL_RAN"), "");\n');
+    write(dir, "p/a.test.ts", 'import { test } from "bun:test";\ntest("t", () => {});\n');
+    const env = testEnvironment({ ...process.env, HOME: join(dir, "home"), XDG_CONFIG_HOME: join(dir, "home") });
+    const run = spawnSync("bun", ["test"], { cwd: join(dir, "p"), env, encoding: "utf8" });
+    expect(run.status, run.stderr).toBe(0);
+    expect(existsSync(join(dir, "EVIL_RAN"))).toBe(false);
+  });
+});
+
+describe("the suite's environment", () => {
+  test("CI=true, colour off, and every inherited BUN_ variable dropped", () => {
+    const env = testEnvironment({ PATH: "/bin", BUN_CONFIG_REGISTRY: "x", bun_options: "y", BUN_UPDATE_SNAPSHOTS: "1", CI: "false", HOME: "/h" });
+    expect(env).toEqual({ PATH: "/bin", HOME: "/h", CI: "true", NO_COLOR: "1", FORCE_COLOR: "0" });
   });
 });
 

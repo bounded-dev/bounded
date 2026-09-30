@@ -7,7 +7,9 @@ import { afterAll, describe, expect, test } from "vitest";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
 import {
   bunLockProblems,
+  bunVersionProblem,
   checkedProjectName,
+  pinnedBunVersion,
   configFiles,
   renderConfigFile,
   declaredWorkspaces,
@@ -103,6 +105,17 @@ describe("the root manifest (ADR 2026-051, ADR 2026-062)", () => {
     expect(workspaceGlobs([t("web", "apps"), t("context", "contexts"), t("tool", "tools"), t("mcp", "apps")]))
       .toEqual(["contexts/*", "apps/*", "tools/*"]);
     expect(workspaceGlobs([])).toEqual([]);
+  });
+});
+
+describe("the pinned bun release is a precondition (ADR 2026-062)", () => {
+  test("pinned by the ts pack's @types/bun; major and minor must match, the patch may differ", () => {
+    expect(pinnedBunVersion()).toBe("1.3.14");
+    expect(bunVersionProblem("1.3.14", "1.3.14")).toBeUndefined();
+    expect(bunVersionProblem("1.3.2", "1.3.14")).toBeUndefined();
+    expect(bunVersionProblem("1.4.0", "1.3.14")).toMatch(/bun 1\.4\.0 is on PATH, but this project's toolchain is pinned to bun 1\.3\.x/);
+    expect(bunVersionProblem("2.3.14", "1.3.14")).toMatch(/pinned to bun 1\.3\.x/);
+    expect(bunVersionProblem(null, "1.3.14")).toMatch(/bun is not on PATH/);
   });
 });
 

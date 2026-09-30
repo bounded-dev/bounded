@@ -43,6 +43,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { isMainModule } from "../../../src/is-main-module.ts";
 import {
   contributionsByPack,
@@ -745,6 +746,44 @@ export function bunLockProblems(lockText: string, manifests: ReadonlyMap<string,
   return problems;
 }
 
+// --- the bun version ----------------------------------------------------------------
+
+/** The bun release the ts pack is pinned to: its `@types/bun` pin, which
+ *  bun versions in step with the runtime. */
+export function pinnedBunVersion(): string {
+  const template = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "reference", "package.json"), "utf8")) as
+    { devDependencies: Record<string, string> };
+  return template.devDependencies["@types/bun"]!;
+}
+
+let installedBun: string | null | undefined;
+
+/** `bun --version`, once per process; null when bun is not on PATH. */
+export function installedBunVersion(): string | null {
+  if (installedBun === undefined) {
+    try {
+      installedBun = execFileSync("bun", ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+      installedBun = null;
+    }
+  }
+  return installedBun;
+}
+
+/**
+ * Why the bun on PATH cannot run this project's toolchain, or undefined. The
+ * lockfile, the test run's report format and the console report the
+ * sanitizer reads are all bun's, so a different major or minor release is
+ * refused rather than trusted.
+ */
+export function bunVersionProblem(actual: string | null = installedBunVersion(), pinned: string = pinnedBunVersion()): string | undefined {
+  const want = pinned.split(".").slice(0, 2).join(".");
+  if (actual === null) return `bun is not on PATH: this project's toolchain is bun ${want}.x (ADR 2026-062); install it and retry`;
+  const have = actual.split(".").slice(0, 2).join(".");
+  if (have !== want) return `bun ${actual} is on PATH, but this project's toolchain is pinned to bun ${want}.x (ADR 2026-062); install bun ${pinned} and retry`;
+  return undefined;
+}
+
 /** Produces `bun.lock` in a directory holding the manifests (and any
  *  previous lockfile). Throws when it cannot. */
 export type LockfileMaker = (dir: string) => void;
@@ -752,6 +791,8 @@ export type LockfileMaker = (dir: string) => void;
 /** `bun install --lockfile-only`: resolves from the registry (or bun's cache),
  *  installs nothing, runs nothing. */
 export const bunLockfileMaker: LockfileMaker = (dir) => {
+  const version = bunVersionProblem();
+  if (version !== undefined) throw new Error(version);
   execFileSync("bun", ["install", "--lockfile-only", "--ignore-scripts", "--no-progress", "--no-summary"], {
     cwd: dir,
     stdio: "pipe",

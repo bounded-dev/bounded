@@ -1,0 +1,4 @@
+import { test } from "bun:test";
+test("fine", () => {});
+setTimeout(() => { throw new Error("late throw outside tests with CONTEXT_SECRET"); }, 0);
+throw new Error("module scope throw message");

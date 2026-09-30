@@ -36,6 +36,7 @@ interface Scenario {
   readonly xml: string;
   readonly stderr: string;
   readonly testSources: string[];
+  readonly testPaths: string[];
 }
 const scenario = (name: string): Scenario => {
   const dir = join(TESTDATA, name);
@@ -44,14 +45,22 @@ const scenario = (name: string): Scenario => {
     stderr: readFileSync(join(dir, "stderr.txt"), "utf8"),
     testSources: readdirSync(join(dir, "sources")).filter((f) => f.includes(".test."))
       .map((f) => readFileSync(join(dir, "sources", f), "utf8")),
+    testPaths: readdirSync(join(dir, "sources")).filter((f) => f.includes(".test."))
+      .map((f) => `contexts/pm/src/domain/${f.replace(/\.txt$/, "")}`),
   };
 };
 const FAILING = scenario("failing");
 const PASSING = scenario("passing");
 const UNHANDLED = scenario("unhandled");
 
+/** The machine root the captures were rewritten to. */
+const ROOTS = ["/home/dev/project"];
 const run = (s: Scenario, withForbidden = true): SanitizedResult[] =>
-  sanitizeBunRun(s.xml, s.stderr, withForbidden ? forbiddenLines(s.testSources) : new Set());
+  sanitizeBunRun(s.xml, s.stderr, {
+    forbidden: withForbidden ? forbiddenLines(s.testSources) : new Set(),
+    pathRoots: ROOTS,
+    testPaths: s.testPaths,
+  });
 const blob = (results: readonly SanitizedResult[]): string => results.map((r) => `${r.name}\n${r.message ?? ""}`).join("\n");
 
 /** THE property: no line of any test file, of the forbidden length or more,
@@ -138,8 +147,8 @@ describe("sanitizeBunRun (real failing run)", () => {
     expect(message("> timeout")).toBe(TIMEOUT_MESSAGE);
   });
 
-  test("paths inside a message are redacted", () => {
-    expect(message("> multi-line error message")).toBe("error: first line\nsecond line with [path]");
+  test("a slash-led value outside every machine root is the builder's data, and stays", () => {
+    expect(message("> multi-line error message")).toBe("error: first line\nsecond line with /abs/path/file.ts:3:4");
   });
 
   test("console output before a failure never survives, even when it imitates an error header or a frame", () => {
@@ -182,7 +191,7 @@ describe("sanitizeBunRun (real passing and unhandled runs)", () => {
     const results = run(UNHANDLED);
     expect(results).toEqual([
       { name: "a healthy test", status: "passed" },
-      { name: UNHANDLED_NAME, status: "failed", message: "error: Cannot find module '[path]' from '[path]'" },
+      { name: UNHANDLED_NAME, status: "failed", message: "error: Cannot find module './does-not-exist.ts' from '[path]'" },
       { name: UNHANDLED_NAME, status: "failed", message: "error: module failed while loading top-level-secret" },
     ]);
     expectNoTestSource(blob(results), UNHANDLED.testSources);
@@ -205,24 +214,24 @@ describe("adversarial console output", () => {
 
   test("a message that quotes a test line loses that line, and only that line", () => {
     const source = 'test("t", () => {\n  const secret = computeOracle("k");\n});';
-    const stderr = ["1 | x", "    ^", "error: boom", 'const secret = computeOracle("k");', "detail kept", "(fail) t"].join("\n");
+    const stderr = ["1 | x", "    ^", "error: boom", 'const secret = computeOracle("k");', "detail kept", "(fail) t [1.00ms]"].join("\n");
     expect(sanitizeBunRun(xml(["t"]), stderr, forbiddenLines([source]))[0]?.message).toBe("error: boom\ndetail kept");
   });
 
   test("a quoted test line cannot hide behind a path: redaction happens before and after the check", () => {
     const source = "  expect(read('/fixtures/a.json')).toEqual(oracle);";
-    const stderr = ["  ^", "error: x", "expect(read('/fixtures/a.json')).toEqual(oracle);", "(fail) t"].join("\n");
+    const stderr = ["  ^", "error: x", "expect(read('/fixtures/a.json')).toEqual(oracle);", "(fail) t [1.00ms]"].join("\n");
     expect(sanitizeBunRun(xml(["t"]), stderr, forbiddenLines([source]))[0]?.message).toBe("error: x");
   });
 
   test("ANSI colour, Windows and file:// paths are removed", () => {
-    const stderr = ["\u001b[31m    ^\u001b[0m", "\u001b[31merror\u001b[0m: at C:\\Users\\dev\\p\\x.test.ts and file:///home/dev/x.ts:1:2", "(fail) t"].join("\n");
-    const message = sanitizeBunRun(xml(["t"]), stderr)[0]?.message ?? "";
+    const stderr = ["\u001b[31m    ^\u001b[0m", "\u001b[31merror\u001b[0m: at C:\\Users\\dev\\p\\x.test.ts and file:///home/dev/x.ts:1:2", "(fail) t [1.00ms]"].join("\n");
+    const message = sanitizeBunRun(xml(["t"]), stderr, { pathRoots: ["/home/dev"] })[0]?.message ?? "";
     expect(message).toBe("error: at [path] and [path]");
   });
 
   test("two tests with one name get their own messages, in order", () => {
-    const stderr = ["  ^", "error: first", "(fail) same", "  ^", "error: second", "(fail) same"].join("\n");
+    const stderr = ["  ^", "error: first", "(fail) same [1.00ms]", "  ^", "error: second", "(fail) same [2.00ms]"].join("\n");
     expect(sanitizeBunRun(xml(["same", "same"]), stderr).map((r) => r.message)).toEqual(["error: first", "error: second"]);
   });
 
@@ -231,7 +240,7 @@ describe("adversarial console output", () => {
   });
 
   test("a huge message is bounded", () => {
-    const stderr = ["  ^", "error: big", ...Array.from({ length: 500 }, (_, i) => `line ${i}`), "(fail) t"].join("\n");
+    const stderr = ["  ^", "error: big", ...Array.from({ length: 500 }, (_, i) => `line ${i}`), "(fail) t [1.00ms]"].join("\n");
     const message = sanitizeBunRun(xml(["t"]), stderr)[0]?.message ?? "";
     expect(message.split("\n").length).toBeLessThanOrEqual(41);
     expect(message.endsWith("…")).toBe(true);
@@ -242,6 +251,57 @@ describe("adversarial console output", () => {
     expect([...report.failures.keys()]).toContain("NoteText > equality > equal notes are equal");
     expect(readStderrReport(UNHANDLED.stderr)).toMatchObject({ errorCount: 2 });
     expect(readStderrReport(UNHANDLED.stderr).unhandled).toHaveLength(2);
+  });
+});
+
+describe("review repros (hostile fixtures)", () => {
+  const xml = (cases: readonly [string, boolean][]) =>
+    `<testsuites><testsuite name="f.test.ts">${cases.map(([n, failed]) =>
+      failed ? `<testcase name="${n}"><failure type="AssertionError" /></testcase>` : `<testcase name="${n}" />`).join("")}</testsuite></testsuites>`;
+
+  test("h3: console output that fakes another test's failure marker cannot move text onto it", () => {
+    // A passing test prints an error header and `(fail) target`; the real
+    // failure of `target` follows. Neither the fixture data nor the fake is
+    // attributed: the fake has no duration, and a marker is believed only
+    // for a test the JUnit report says failed, as often as it says.
+    const stderr = [
+      "f.test.ts:",
+      'error: dump {"id":"fixture-id-value","payload":"hidden-payload"}',
+      "(fail) target",
+      "(pass) logs [0.10ms]",
+      "4 | test(\"target\", () => { expect(1).toBe(2); });",
+      "                                     ^",
+      "error: expect(received).toBe(expected)",
+      "",
+      "Expected: 2",
+      "Received: 1",
+      "",
+      "      at <anonymous> (/home/dev/project/f.test.ts:4:38)",
+      "(fail) target [0.20ms]",
+    ].join("\n");
+    const results = sanitizeBunRun(xml([["logs", false], ["target", true]]), stderr, { pathRoots: ROOTS });
+    expect(results).toEqual([
+      { name: "logs", status: "passed" },
+      { name: "target", status: "failed", message: "error: expect(received).toBe(expected)\nExpected: 2\nReceived: 1" },
+    ]);
+    expect(JSON.stringify(results)).not.toContain("hidden-payload");
+  });
+
+  test("h3: a marker with a duration for a test that passed is text, not a boundary", () => {
+    const stderr = ["  ^", "error: real", "(fail) logs [1.00ms]", "(fail) target [1.00ms]"].join("\n");
+    const results = sanitizeBunRun(xml([["logs", false], ["target", true]]), stderr);
+    expect(results[1]?.message).toBe("error: real");
+  });
+
+  test("h2: slash-led values in an assertion are kept; machine paths and test file names are not", () => {
+    const ctx = { pathRoots: ["/home/dev/project", "/tmp/x"], testPaths: ["contexts/pm/src/domain/note.test.ts"] };
+    expect(sanitizeMessage('Expected: "/api/projects/list"\nReceived: "/api/projects/create"', ctx))
+      .toBe('Expected: "/api/projects/list"\nReceived: "/api/projects/create"');
+    expect(sanitizeMessage("Expected: /regexFromTestSource/", ctx)).toBe("Expected: /regexFromTestSource/");
+    expect(sanitizeMessage("cannot open /home/dev/project/contexts/pm/src/x.ts: EACCES", ctx)).toBe("cannot open [path]: EACCES");
+    expect(sanitizeMessage("wrote /tmp/x/scratch/a.json", ctx)).toBe("wrote [path]");
+    expect(sanitizeMessage("while running contexts/pm/src/domain/note.test.ts:12:3 and note.test.ts", ctx)).toBe("while running [path] and [path]");
+    expect(sanitizeMessage("loaded /elsewhere/contexts/pm/src/domain/note.test.ts", ctx)).toBe("loaded [path]");
   });
 });
 
@@ -272,7 +332,7 @@ describe("TRANSITIONAL: the retired JSON report", () => {
         { assertionResults: [], status: "failed", message: "Error: cannot load /abs/file.ts" },
       ],
     });
-    expect(sanitizeLegacyJsonRun(json)).toEqual([
+    expect(sanitizeLegacyJsonRun(json, { pathRoots: ["/abs"] })).toEqual([
       { name: "a b", status: "passed" },
       { name: "c", status: "failed", message: "Error: Not implemented: X.y" },
       { name: UNHANDLED_NAME, status: "failed", message: "Error: cannot load [path]" },

@@ -16,20 +16,20 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, relative, sep } from "node:path";
 import {
   forbiddenLines,
   SanitizeError,
   type SanitizedResult,
   sanitizeBunRun,
   sanitizeLegacyJsonRun,
-  sanitizeMessage,
 } from "./sanitize-test-output.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { hasTestFileSuffix, testFileSuffixes } from "../../../src/pack-contrib.ts";
 import { configDriftBlock, configDriftReason } from "./project-config.ts";
+import { bunVersionProblem } from "./project-package.ts";
 
 /** Captured output of one command invocation. */
 export interface CommandOutput {
@@ -110,13 +110,36 @@ export function hasUnhandledError(code: number | null, failed: number, ran: numb
  *  INSIDE the shadow still collects the shadow's own tests (verified). */
 export const IGNORE_HARNESS_STATE = "--path-ignore-patterns=**/.bounded/**";
 
-/** The suite invocation: bun's runner with its JUnit reporter into `report`. */
+/** Silences console output in the test process (see the file). */
+export const TEST_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), "bun-test-preload.ts");
+
+/** The suite invocation: bun's runner with its JUnit reporter into `report`,
+ *  console output silenced by {@link TEST_PRELOAD}. */
 export function testCommand(report: string): { command: string; args: string[] } {
-  return { command: "bun", args: ["test", "--reporter=junit", `--reporter-outfile=${report}`, IGNORE_HARNESS_STATE] };
+  return {
+    command: "bun",
+    args: ["test", "--reporter=junit", `--reporter-outfile=${report}`, IGNORE_HARNESS_STATE, `--preload=${TEST_PRELOAD}`],
+  };
 }
 
-/** Default runner: spawn, capture stdout/stderr, resolve on close. Colour is
- *  switched off so the console report is plain text.
+/**
+ * The environment every suite run gets. `CI=true` makes bun FAIL a missing
+ * or mismatched snapshot instead of writing it, so a builder's own run can
+ * never rewrite a test (verified with bun 1.3.14, file and inline
+ * snapshots). Inherited `BUN_*` variables are dropped: they configure the
+ * runtime and its test runner from outside the generated config. Colour is
+ * off so the console report is plain text. A global `~/.bunfig.toml` or
+ * `$XDG_CONFIG_HOME/.bunfig.toml` is not applied to `bun test` by bun
+ * 1.3.14 (checked with a `[test] preload`; see run-tests.test.ts).
+ */
+export function testEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) if (!/^BUN_/i.test(key)) env[key] = value;
+  return { ...env, CI: "true", NO_COLOR: "1", FORCE_COLOR: "0" };
+}
+
+/** Default runner: spawn in {@link testEnvironment}, capture stdout/stderr,
+ *  resolve on close.
  *
  *  Exported so a caller that needs the real spawn PLUS something runTests does
  *  not itself expose can compose it — mutation-score wraps it with an
@@ -127,7 +150,7 @@ export const spawnRunner: CommandRunner = (command, args, cwd, signal) =>
       cwd,
       signal,
       shell: process.platform === "win32",
-      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      env: testEnvironment(),
     });
     let stdout = "";
     let stderr = "";
@@ -159,17 +182,22 @@ export function summarizeResults(results: readonly SanitizedResult[]): RunSummar
 const BUN_TEST_FILE = /(?:\.(?:test|spec)\.[cm]?[jt]sx?|_(?:test|spec)_[^/]*\.[cm]?[jt]sx?)$/i;
 const MAX_TEST_SOURCE_BYTES = 16 * 1024 * 1024;
 
-/** The text of every test-side file under `cwd`, in path order (dependency
- *  directories and dot-directories skipped): what the sanitizer must never
- *  let through. */
+/** The text of every test-side file under `cwd`, in path order. */
 export function testSources(cwd: string): string[] {
+  return testFiles(cwd).map((f) => f.text);
+}
+
+/** Every test-side file under `cwd` by project-relative path, in path order
+ *  (dependency directories and dot-directories skipped): what the sanitizer
+ *  must never let through, by content and by name. */
+export function testFiles(cwd: string): { path: string; text: string }[] {
   let suffixes: readonly string[];
   try {
     suffixes = testFileSuffixes(cwd);
   } catch {
     suffixes = [];
   }
-  const out: string[] = [];
+  const out: { path: string; text: string }[] = [];
   let bytes = 0;
   const walk = (dir: string): void => {
     let entries;
@@ -186,12 +214,41 @@ export function testSources(cwd: string): string[] {
         const size = statSync(path).size;
         if (bytes + size > MAX_TEST_SOURCE_BYTES) continue;
         bytes += size;
-        out.push(readFileSync(path, "utf8"));
+        out.push({ path: relative(cwd, path).split(sep).join("/"), text: readFileSync(path, "utf8") });
       }
     }
   };
   walk(cwd);
   return out;
+}
+
+/** The machine directories whose paths are redacted: the project (as given
+ *  and resolved), the temp directory and the home directory. */
+export function machineRoots(cwd: string): string[] {
+  const roots = [cwd, tmpdir(), homedir()];
+  const out = new Set<string>();
+  for (const root of roots) {
+    out.add(root);
+    try {
+      out.add(realpathSync(root));
+    } catch {
+      // a root that does not resolve is still redacted as given
+    }
+  }
+  return [...out];
+}
+
+/** What the builder sees when bun wrote no report: fixed text only. Whatever
+ *  the run printed may be a test's own output, so none of it is shown. */
+export const NO_TEST_FILES = "no test files were found: bun ran nothing";
+export const NO_REPORT =
+  "the test run ended without a report (a test or the code under test exited the process, " +
+  "or the runner crashed); nothing the run printed is shown, because it can carry test source";
+
+/** The fixed explanation for a run with no report. */
+export function noReportExplanation(stderr: string, code: number | null): string {
+  if (/^error: 0 test files matching /m.test(stderr)) return NO_TEST_FILES;
+  return `${NO_REPORT} (exit code ${code ?? "none"})`;
 }
 
 /** The report a run left: the JUnit file, or JUnit XML on stdout from a
@@ -211,6 +268,10 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
   // config the composed packs did not generate (ADR 2026-054).
   const drift = configDriftReason(cwd);
   if (drift !== undefined) return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: drift };
+  if (options.run === undefined && options.command === undefined) {
+    const version = bunVersionProblem();
+    if (version !== undefined) return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: version };
+  }
   const run = options.run ?? spawnRunner;
   const reportDir = mkdtempSync(join(tmpdir(), "bounded-junit-"));
   const report = join(reportDir, "report.xml");
@@ -218,27 +279,31 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
     const invocation = testCommand(report);
     const command = options.command ?? invocation.command;
     const args = options.args ?? (options.command === undefined ? invocation.args : []);
-    const forbidden = forbiddenLines(testSources(cwd));
+    const files = testFiles(cwd);
+    const context = {
+      forbidden: forbiddenLines(files.map((f) => f.text)),
+      pathRoots: machineRoots(cwd),
+      testPaths: files.map((f) => f.path),
+    };
     const { stdout, stderr, code } = await run(command, args, cwd);
     const xml = reportOf(report, stdout);
 
     let results: SanitizedResult[];
     try {
-      if (xml !== undefined) results = sanitizeBunRun(xml, stderr, forbidden);
+      if (xml !== undefined) results = sanitizeBunRun(xml, stderr, context);
       else if (options.command !== undefined && stdout.includes("testResults")) {
         // TRANSITIONAL: a replaced command's canned JSON report (see the end
         // of sanitize-test-output.ts). The default invocation never gets here.
         const start = stdout.indexOf("{");
         const end = stdout.lastIndexOf("}");
-        results = sanitizeLegacyJsonRun(start === -1 || end < start ? stdout : stdout.slice(start, end + 1), forbidden);
+        results = sanitizeLegacyJsonRun(start === -1 || end < start ? stdout : stdout.slice(start, end + 1), context);
       } else throw new SanitizeError("no report");
     } catch (e) {
       if (e instanceof SanitizeError) {
-        // The suite could not even produce a report (no test files, a crash).
-        // Surface a sanitized, path-free explanation — never the raw output.
-        const raw = stderr.trim() !== "" ? stderr : stdout;
-        const blocked = sanitizeMessage(raw, forbidden) || `the test runner exited with code ${code ?? "null"} and wrote no report`;
-        return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked };
+        // No report (no test files, a process.exit, a crash): fixed text only.
+        // What the run printed may be a test's own output, so none of it
+        // reaches the builder.
+        return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: noReportExplanation(stderr, code) };
       }
       throw e;
     }
