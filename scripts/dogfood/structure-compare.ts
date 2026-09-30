@@ -15,14 +15,21 @@
 //               product should reproduce exactly;
 //   · contracts the exported names of every contract both trees have, where
 //               they differ;
-//   · tests     which test levels each tree has. Test files are compared by
-//               level only: which tests a run writes is its own business, that
-//               every level exists is the structure's.
+//   · tests     the test levels the project's own files require (TN-26-012 §8,
+//               ADR 2026-063) that its tests do not reach. Levels are checked
+//               against that list, not against the example's tests (the
+//               example has almost none): which tests a run writes is its own
+//               business, that every required level exists is the structure's.
+//
+// Known differences the example owns (it is unfinished in places, and has a
+// file the product spec does not ask for) are listed in EXPECTED_DELTAS, each
+// with its reason; they are reported but not counted, so a faithful run
+// reports 0 unexpected deltas.
 //
 // Harness artifacts (.bounded/, agent instructions, ticket notes, shipped
 // check scripts), dependencies, build output and lockfiles are ignored.
 // Deterministic: the same two trees always give the same report. Exit 0 when
-// there is no delta, 1 when there is one, 2 on misuse.
+// there is no unexpected delta, 1 when there is one, 2 on misuse.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -78,15 +85,16 @@ function migrationName(segment: string): string {
   return segment.replace(/^\d{4}_[a-z0-9_]+\.sql$/, "<migration>.sql").replace(/^\d{4}_snapshot\.json$/, "<migration>_snapshot.json");
 }
 
-/** The path with the sole context's name replaced by `<context>`. */
+/** The path with the sole context's name replaced by `<context>` exactly where
+ *  a path names the context: the segment directly under `contexts/`, and the
+ *  stem of the Drizzle schema namespace file (`schema/<context>.schema.ts`).
+ *  An area or a file that merely shares the context's name keeps it. */
 export function namedPath(path: string, context: string | undefined): string {
   const segments = path.split("/").map((segment, i, all) => {
-    let s = all[i - 1] === "migrations" || all[i - 2] === "migrations" ? migrationName(segment) : segment;
-    if (context !== undefined) {
-      if (s === context) s = "<context>";
-      else if (s.startsWith(`${context}.`)) s = `<context>${s.slice(context.length)}`;
-      else if (s.startsWith(`${context}-`)) s = `<context>${s.slice(context.length)}`;
-    }
+    const s = all[i - 1] === "migrations" || all[i - 2] === "migrations" ? migrationName(segment) : segment;
+    if (context === undefined || all[0] !== "contexts") return s;
+    if (i === 1 && s === context) return "<context>";
+    if (i === all.length - 1 && all[i - 1] === "schema" && s === `${context}.schema.ts`) return "<context>.schema.ts";
     return s;
   });
   return segments.join("/");
@@ -180,13 +188,97 @@ export function testLevel(path: string): string {
   return "other";
 }
 
+// --- the test levels a tree must have ------------------------------------------------
+
+/**
+ * The test levels the project's own files require (TN-26-012 §8, ADR
+ * 2026-063), worked out from the project alone: a domain concept needs its
+ * unit tests and its generated laws; a feature its handler test, and its
+ * command laws when it has a command; a store its feature's conformance suite
+ * and a store test per storage technology; any other out adapter its own
+ * test; each in-adapter technology its generated laws; each app with a
+ * composition root its smoke test; any context the architecture test.
+ */
+export function requiredTestLevels(files: Iterable<string>): string[] {
+  const levels = new Set<string>();
+  for (const path of files) {
+    const parts = path.split("/");
+    if (parts[0] === "apps" && parts.at(-1) === "composition-root.ts") levels.add(`app smoke (${parts[1]})`);
+    if (parts[0] !== "contexts" || parts[2] !== "src") continue;
+    levels.add("architecture");
+    const [layer, a, b, c] = parts.slice(3);
+    const name = parts.at(-1)!;
+    if (layer === "domain" && a !== "shared" && name.endsWith(".contract.ts")) {
+      levels.add("domain unit");
+      levels.add("domain laws");
+    }
+    if (layer === "application" && a !== "shared" && name.endsWith(".contract.ts")) levels.add("handler");
+    if (layer === "application" && name.endsWith(".command.ts")) levels.add("command laws");
+    if (layer === "adapters" && a === "in" && b !== undefined && c !== undefined) levels.add(`in-adapter laws (${b})`);
+    if (layer === "adapters" && a === "out" && b !== undefined && parts.length === 8) {
+      if (name.endsWith(".store.ts")) {
+        levels.add("store conformance suite");
+        levels.add(`store (${b})`);
+      } else if (/^[^.]+\.[a-z-]+\.ts$/.test(name) && !name.endsWith(".mapper.ts") &&
+        parts[6] !== "schema" && parts[6] !== "migrations") {
+        levels.add(`out adapter (${b})`);
+      }
+    }
+  }
+  return [...levels].sort(byCodePoint);
+}
+
+// --- deltas the worked example owns ------------------------------------------------
+
+/** A structural difference that is known and explained: the worked example is
+ *  unfinished in places, and has one file the product spec does not ask for.
+ *  A faithful run shows these and no others. Each entry names which side has
+ *  the file (`extra`: only the project; `missing`: only the example). */
+export interface ExpectedDelta {
+  readonly side: "extra" | "missing";
+  readonly pattern: RegExp;
+  readonly reason: string;
+}
+
+const C = String.raw`^contexts\/<context>\/src`;
+
+export const EXPECTED_DELTAS: readonly ExpectedDelta[] = [
+  {
+    side: "extra",
+    pattern: new RegExp(String.raw`${C}\/adapters\/out\/drizzle\/[^/]+\/[^/]+\.store\.ts$`),
+    reason: "the example declares Postgres (schema and migrations) but has no Drizzle stores yet; a run that keeps data writes one per store port",
+  },
+  {
+    side: "extra",
+    pattern: new RegExp(String.raw`${C}\/adapters\/out\/drizzle\/[^/]+\/[^/]+\.mapper\.ts$`),
+    reason: "the example has no Drizzle mappers, because it has no Drizzle stores yet",
+  },
+  {
+    side: "extra",
+    pattern: new RegExp(String.raw`${C}\/adapters\/out\/drizzle\/(?:drizzle-database|index)\.ts$`),
+    reason: "generated for a context with Drizzle stores (the shared database and the adapter barrel); the example has none yet",
+  },
+  {
+    side: "extra",
+    pattern: new RegExp(String.raw`${C}\/domain\/shared\/errors\.ts$`),
+    reason: "the red-phase NotImplementedError module; delivery removes it, so it shows only on an undelivered run",
+  },
+  {
+    side: "missing",
+    pattern: /^apps\/web\/src\/server\/seed\.ts$/,
+    reason: "the example seeds sample projects for local development; the product spec does not ask for it",
+  },
+];
+
+function expectedReason(side: ExpectedDelta["side"], path: string): string | undefined {
+  return EXPECTED_DELTAS.find((entry) => entry.side === side && entry.pattern.test(path))?.reason;
+}
+
 // --- the signature and the comparison ----------------------------------------------
 
 export interface TreeSignature {
   /** Named path → exported names (contracts) or null (every other file). */
   readonly files: ReadonlyMap<string, readonly string[] | null>;
-  /** Shape → how many files have it. */
-  readonly shapes: ReadonlyMap<string, number>;
   /** Test level → how many test files are at it. */
   readonly testLevels: ReadonlyMap<string, number>;
 }
@@ -196,7 +288,6 @@ export function signatureOf(root: string): TreeSignature {
   const all = productFiles(root);
   const context = soleContext(all);
   const files = new Map<string, readonly string[] | null>();
-  const shapes = new Map<string, number>();
   const testLevels = new Map<string, number>();
   for (const path of all) {
     const named = namedPath(path, context);
@@ -206,53 +297,73 @@ export function signatureOf(root: string): TreeSignature {
       continue;
     }
     files.set(named, path.endsWith(".contract.ts") ? exportedNames(readFileSync(join(root, path), "utf8")) : null);
-    const shape = shapeOf(named);
-    shapes.set(shape, (shapes.get(shape) ?? 0) + 1);
   }
-  return { files, shapes, testLevels };
+  return { files, testLevels };
 }
 
 export interface StructureReport {
+  /** Shapes whose count differs, the expected deltas left out of both sides. */
   readonly shapes: readonly { shape: string; expected: number; actual: number }[];
   readonly missingFiles: readonly string[];
   readonly extraFiles: readonly string[];
   readonly contracts: readonly { path: string; missing: readonly string[]; extra: readonly string[] }[];
+  /** Levels the project's own files require and its tests do not reach. */
   readonly missingTestLevels: readonly string[];
-  readonly extraTestLevels: readonly string[];
+  /** Known, explained differences: listed, never counted. */
+  readonly expectedDeltas: readonly { side: ExpectedDelta["side"]; path: string; reason: string }[];
+  /** Test files per level in each tree, for reading only. */
   readonly testLevels: readonly { level: string; expected: number; actual: number }[];
+  /** Unexpected deltas: 0 for a run faithful to the example. */
   readonly deltas: number;
 }
 
 const byCodePoint = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
+function shapeCounts(paths: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const path of paths) counts.set(shapeOf(path), (counts.get(shapeOf(path)) ?? 0) + 1);
+  return counts;
+}
+
 export function compareSignatures(expected: TreeSignature, actual: TreeSignature): StructureReport {
-  const shapeKeys = [...new Set([...expected.shapes.keys(), ...actual.shapes.keys()])].sort(byCodePoint);
-  const shapes = shapeKeys
-    .map((shape) => ({ shape, expected: expected.shapes.get(shape) ?? 0, actual: actual.shapes.get(shape) ?? 0 }))
+  const onlyExpected = [...expected.files.keys()].filter((path) => !actual.files.has(path)).sort(byCodePoint);
+  const onlyActual = [...actual.files.keys()].filter((path) => !expected.files.has(path)).sort(byCodePoint);
+  const expectedDeltas = [
+    ...onlyExpected.flatMap((path) => {
+      const reason = expectedReason("missing", path);
+      return reason === undefined ? [] : [{ side: "missing" as const, path, reason }];
+    }),
+    ...onlyActual.flatMap((path) => {
+      const reason = expectedReason("extra", path);
+      return reason === undefined ? [] : [{ side: "extra" as const, path, reason }];
+    }),
+  ];
+  const explained = new Set(expectedDeltas.map((row) => row.path));
+  const missingFiles = onlyExpected.filter((path) => !explained.has(path));
+  const extraFiles = onlyActual.filter((path) => !explained.has(path));
+
+  const expectedShapes = shapeCounts([...expected.files.keys()].filter((path) => !explained.has(path)));
+  const actualShapes = shapeCounts([...actual.files.keys()].filter((path) => !explained.has(path)));
+  const shapes = [...new Set([...expectedShapes.keys(), ...actualShapes.keys()])].sort(byCodePoint)
+    .map((shape) => ({ shape, expected: expectedShapes.get(shape) ?? 0, actual: actualShapes.get(shape) ?? 0 }))
     .filter((row) => row.expected !== row.actual);
-  const missingFiles = [...expected.files.keys()].filter((path) => !actual.files.has(path)).sort(byCodePoint);
-  const extraFiles = [...actual.files.keys()].filter((path) => !expected.files.has(path)).sort(byCodePoint);
+
   const contracts = [...expected.files.entries()]
     .filter(([path, names]) => names !== null && actual.files.get(path) != null)
     .map(([path, names]) => {
       const theirs = actual.files.get(path)!;
-      return {
-        path,
-        missing: names!.filter((name) => !theirs.includes(name)),
-        extra: theirs.filter((name) => !names!.includes(name)),
-      };
+      return { path, missing: names!.filter((n) => !theirs.includes(n)), extra: theirs.filter((n) => !names!.includes(n)) };
     })
     .filter((row) => row.missing.length > 0 || row.extra.length > 0)
     .sort((a, b) => byCodePoint(a.path, b.path));
+
+  const missingTestLevels = requiredTestLevels(actual.files.keys()).filter((level) => !actual.testLevels.has(level));
   const levelKeys = [...new Set([...expected.testLevels.keys(), ...actual.testLevels.keys()])].sort(byCodePoint);
   const testLevels = levelKeys.map((level) => ({
     level, expected: expected.testLevels.get(level) ?? 0, actual: actual.testLevels.get(level) ?? 0,
   }));
-  const missingTestLevels = testLevels.filter((row) => row.expected > 0 && row.actual === 0).map((row) => row.level);
-  const extraTestLevels = testLevels.filter((row) => row.expected === 0 && row.actual > 0).map((row) => row.level);
-  const deltas = shapes.length + missingFiles.length + extraFiles.length + contracts.length +
-    missingTestLevels.length + extraTestLevels.length;
-  return { shapes, missingFiles, extraFiles, contracts, missingTestLevels, extraTestLevels, testLevels, deltas };
+  const deltas = shapes.length + missingFiles.length + extraFiles.length + contracts.length + missingTestLevels.length;
+  return { shapes, missingFiles, extraFiles, contracts, missingTestLevels, expectedDeltas, testLevels, deltas };
 }
 
 export function compareTrees(exampleRoot: string, projectRoot: string): StructureReport {
@@ -261,9 +372,10 @@ export function compareTrees(exampleRoot: string, projectRoot: string): Structur
 
 export function formatReport(report: StructureReport): string {
   const lines: string[] = [];
+  const expected = report.expectedDeltas.length === 0 ? "" : ` (${report.expectedDeltas.length} expected, listed below)`;
   lines.push(report.deltas === 0
-    ? "structure: no structural delta against the example"
-    : `structure: ${report.deltas} structural delta(s) against the example`);
+    ? `structure: 0 unexpected structural deltas against the example${expected}`
+    : `structure: ${report.deltas} unexpected structural delta(s) against the example${expected}`);
   const section = (title: string, rows: readonly string[]): void => {
     if (rows.length === 0) return;
     lines.push("", `${title}:`, ...rows.map((row) => `  ${row}`));
@@ -274,8 +386,9 @@ export function formatReport(report: StructureReport): string {
   section("files the project has and the example lacks", report.extraFiles);
   section("contracts whose exported names differ", report.contracts.map((row) =>
     `${row.path}${row.missing.length ? `  missing ${row.missing.join(", ")}` : ""}${row.extra.length ? `  extra ${row.extra.join(", ")}` : ""}`));
-  section("test levels the example has and the project lacks", report.missingTestLevels);
-  section("test levels the project has and the example lacks", report.extraTestLevels);
+  section("test levels the project's files require and its tests lack", report.missingTestLevels);
+  section("expected deltas, owned by the example", report.expectedDeltas.map((row) =>
+    `${row.side === "extra" ? "project only" : "example only"}  ${row.path} — ${row.reason}`));
   section("test files per level (example / project)", report.testLevels.map((row) => `${row.level}  ${row.expected} / ${row.actual}`));
   return lines.join("\n") + "\n";
 }

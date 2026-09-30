@@ -21,17 +21,31 @@ see the list of all projects. A project's name is required: leading and
 trailing spaces don't count, so a name that is empty or only spaces is
 refused with the message "Project name is required". The name is kept
 without those surrounding spaces. Every project gets its own identity when it
-is created, and two projects may share a name.
+is created, and two projects may share a name. A request to create a project
+that has no name at all, or gives it as something other than text, is refused
+with "Invalid create project input".
 
-**Notes.** Anyone can add a note to a project by giving the project and the
-note's text, and anyone can see the list of all notes, each showing which
+**Notes.** Anyone can create a note for a project by giving the project and
+the note's text, and anyone can see the list of all notes, each showing which
 project it belongs to and its text. The text is required on the same terms as
 a project's name: empty or only spaces is refused with "Note text is
 required", and it is kept without surrounding spaces. A note always belongs to
-exactly one project that already exists: adding a note to a project that
-doesn't exist is refused with "Project not found", and a project reference
-that isn't a valid project identity at all is refused with "Invalid project
-id". Every note gets its own identity when it is created.
+exactly one project that already exists. Every note gets its own identity
+when it is created.
+
+Creating a note checks these in order, and the first that fails is the answer:
+
+1. The request gives both the project and the text, each as text; otherwise
+   "Invalid create note input".
+2. The project reference is a valid project identity; otherwise "Invalid
+   project id".
+3. The note's text is not empty once trimmed; otherwise "Note text is
+   required".
+4. The project exists; otherwise "Project not found".
+
+So a malformed project reference together with blank text is answered
+"Invalid project id", and blank text for a project that doesn't exist is
+answered "Note text is required".
 
 A refused request changes nothing, and whoever made it gets the reason in
 exactly the words above rather than a generic error.
@@ -44,8 +58,8 @@ out where the job runs, so we can see it happen.
 **Where people use it.**
 
 - **In a browser:** a web app whose first screen lists the projects by name.
-  Through the web app, people can create and list projects and add and list
-  notes.
+  Through the web app, people can create and list projects and create and
+  list notes.
 - **On the desktop:** an installable desktop app with the same four actions
   as the web app.
 - **From AI assistants:** assistants such as Claude can create a project and

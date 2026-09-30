@@ -141,9 +141,13 @@ BOUNDED_EXAMPLE_PROJECT=<path-to-example> node scripts/dogfood/structure-compare
 
 The report lists file shapes whose counts differ, files one tree has and the
 other lacks (context name and migration names normalised), contracts whose
-exported names differ, and test levels present in one tree only. Harness
-artifacts, dependencies, lockfiles and build output are ignored. It exits 1 on
-any delta. `scripts/dogfood/archive` writes the same report to
+exported names differ, and the test levels the project's own files require
+(TN-26-012 §8) that its tests do not reach. Differences the example owns (no
+Drizzle stores or mappers yet, the web app's sample-data `seed.ts`, the
+red-phase errors module on an undelivered run) are listed with their reasons
+in the script's `EXPECTED_DELTAS` and reported without being counted, so a
+faithful run reports 0 unexpected deltas. Harness artifacts, dependencies,
+lockfiles and build output are ignored. It exits 1 on any unexpected delta. `scripts/dogfood/archive` writes the same report to
 `.run/STRUCTURE.txt` (and `.run/structure.json`) when
 `BOUNDED_EXAMPLE_PROJECT` is set.
 

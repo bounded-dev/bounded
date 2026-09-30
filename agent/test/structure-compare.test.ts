@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
-  compareTrees, EXAMPLE_ENV, exportedNames, formatReport, main, namedPath, productFiles, shapeOf, signatureOf, testLevel,
+  compareTrees, EXAMPLE_ENV, EXPECTED_DELTAS, exportedNames, formatReport, main, namedPath, productFiles, requiredTestLevels,
+  shapeOf, signatureOf, testLevel,
 } from "../../scripts/dogfood/structure-compare.ts";
 
 const temporary: string[] = [];
@@ -53,8 +54,10 @@ function exampleFiles(context = "project-management", migration = "0000_mute_won
     [`${c}/src/application/notes/create-note/create-note.handler.ts`]: "",
     [`${c}/src/application/notes/create-note/create-note.test.ts`]: "",
     [`${c}/src/application/notes/create-note/create-note.store.test-support.ts`]: "",
+    [`${c}/src/application/notes/create-note/create-note.command.laws.test.ts`]: "",
     [`${c}/src/adapters/in/trpc/notes/notes.router.ts`]: "",
     [`${c}/src/adapters/in/trpc/notes/create-note.procedure.ts`]: "",
+    [`${c}/src/adapters/in/trpc/notes/create-note.procedure.laws.test.ts`]: "",
     [`${c}/src/adapters/out/in-memory/notes/create-note.store.ts`]: "",
     [`${c}/src/adapters/out/in-memory/notes/create-note.store.test.ts`]: "",
     [`${c}/src/adapters/out/drizzle/schema/${context}.schema.ts`]: "",
@@ -94,6 +97,19 @@ describe("normalising a tree", () => {
     expect(namedPath("contexts/billing/src/adapters/out/drizzle/migrations/meta/0003_snapshot.json", "billing"))
       .toBe("contexts/<context>/src/adapters/out/drizzle/migrations/meta/<migration>_snapshot.json");
     expect(namedPath("apps/web/src/server/main.ts", "billing")).toBe("apps/web/src/server/main.ts");
+  });
+
+  test("only the context segment and the schema namespace file are renamed, even when an area shares the name", () => {
+    expect(namedPath("contexts/notes/src/domain/notes/note-text.ts", "notes")).toBe("contexts/<context>/src/domain/notes/note-text.ts");
+    expect(namedPath("contexts/notes/src/application/notes/list-notes/list-notes.handler.ts", "notes"))
+      .toBe("contexts/<context>/src/application/notes/list-notes/list-notes.handler.ts");
+    expect(namedPath("contexts/notes/src/adapters/out/drizzle/schema/notes.schema.ts", "notes"))
+      .toBe("contexts/<context>/src/adapters/out/drizzle/schema/<context>.schema.ts");
+    expect(namedPath("contexts/notes/src/adapters/out/drizzle/schema/notes.ts", "notes"))
+      .toBe("contexts/<context>/src/adapters/out/drizzle/schema/notes.ts");
+    expect(namedPath("contexts/notes/src/domain/notes/notes-summary.contract.ts", "notes"))
+      .toBe("contexts/<context>/src/domain/notes/notes-summary.contract.ts");
+    expect(namedPath("apps/notes/src/main.ts", "notes")).toBe("apps/notes/src/main.ts");
   });
 
   test("a shape takes the business names out and keeps the role", () => {
@@ -138,7 +154,7 @@ describe("normalising a tree", () => {
     expect([...signature.files.keys()].some((path) => path.includes(".test."))).toBe(false);
     expect(Object.fromEntries(signature.testLevels)).toEqual({
       architecture: 1, "domain unit": 1, "domain laws": 1, handler: 1, "store conformance suite": 1,
-      "store (in-memory)": 1, "app smoke (web)": 1,
+      "store (in-memory)": 1, "app smoke (web)": 1, "command laws": 1, "in-adapter laws (trpc)": 1,
     });
   });
 });
@@ -147,7 +163,7 @@ describe("comparing two trees", () => {
   test("the same structure under another context name and other migration names has no delta", () => {
     const report = compareTrees(tree(exampleFiles()), tree(exampleFiles("notebook", "0000_brave_hulk")));
     expect(report.deltas).toBe(0);
-    expect(formatReport(report)).toMatch(/^structure: no structural delta/);
+    expect(formatReport(report)).toMatch(/^structure: 0 unexpected structural deltas/);
   });
 
   test("a missing file, an extra file, a changed contract and a missing test level are each a delta", () => {
@@ -167,16 +183,15 @@ describe("comparing two trees", () => {
       missing: ["CreateNoteStore"], extra: ["NoteRepository"],
     }]);
     expect(report.missingTestLevels).toEqual(["app smoke (web)"]);
-    expect(report.extraTestLevels).toEqual([]);
     expect(report.shapes).toEqual([
       { shape: "contexts/<context>/src/adapters/in/trpc/<area>/<area>.router.ts", expected: 1, actual: 0 },
       { shape: "contexts/<context>/src/utils.ts", expected: 0, actual: 1 },
     ]);
-    // Two domain unit files instead of one is not a delta: levels are compared by presence.
+    // Two domain unit files instead of one is not a delta: levels are checked by presence.
     expect(report.testLevels.find((row) => row.level === "domain unit")).toEqual({ level: "domain unit", expected: 1, actual: 2 });
     expect(report.deltas).toBe(6);
     const text = formatReport(report);
-    expect(text).toMatch(/^structure: 6 structural delta/);
+    expect(text).toMatch(/^structure: 6 unexpected structural delta/);
     expect(text).toContain("missing CreateNoteStore  extra NoteRepository");
   });
 
@@ -188,6 +203,52 @@ describe("comparing two trees", () => {
     expect(report.shapes).toEqual([]);
     expect(report.missingFiles.length).toBeGreaterThan(0);
     expect(report.missingFiles.length).toBe(report.extraFiles.length);
+  });
+
+  test("test levels are checked against what the project's files require, not against the example's tests", () => {
+    // An example with no tests beyond the architecture test, like the worked
+    // example, does not excuse a project from any level.
+    const bare = Object.fromEntries(Object.entries(exampleFiles())
+      .filter(([path]) => !/\.test(?:-support)?\.ts$/.test(path) || path === "architecture.test.ts"));
+    const project = exampleFiles();
+    delete project["contexts/project-management/src/application/notes/create-note/create-note.test.ts"];
+    project["contexts/project-management/src/adapters/out/console/notes/export-notes.exporter.ts"] = "";
+    const report = compareTrees(tree(bare), tree(project));
+    expect(report.missingTestLevels).toEqual(["handler", "out adapter (console)"]);
+    expect(requiredTestLevels(signatureOf(tree(exampleFiles())).files.keys())).toEqual([
+      "app smoke (web)", "architecture", "command laws", "domain laws", "domain unit", "handler",
+      "in-adapter laws (trpc)", "store (in-memory)", "store conformance suite",
+    ]);
+  });
+
+  test("the example's known gaps are listed with their reasons and not counted", () => {
+    const example = { ...exampleFiles(), "apps/web/src/server/seed.ts": "" };
+    const d = "contexts/project-management/src/adapters/out/drizzle";
+    const project = {
+      ...exampleFiles(),
+      [`${d}/notes/create-note.store.ts`]: "", [`${d}/notes/create-note.store.test.ts`]: "",
+      [`${d}/notes/note.mapper.ts`]: "", [`${d}/drizzle-database.ts`]: "", [`${d}/index.ts`]: "",
+      "contexts/project-management/src/domain/shared/errors.ts": "",
+    };
+    const report = compareTrees(tree(example), tree(project));
+    expect(report.deltas).toBe(0);
+    expect(report.expectedDeltas.map((row) => `${row.side} ${row.path}`)).toEqual([
+      "missing apps/web/src/server/seed.ts",
+      "extra contexts/<context>/src/adapters/out/drizzle/drizzle-database.ts",
+      "extra contexts/<context>/src/adapters/out/drizzle/index.ts",
+      "extra contexts/<context>/src/adapters/out/drizzle/notes/create-note.store.ts",
+      "extra contexts/<context>/src/adapters/out/drizzle/notes/note.mapper.ts",
+      "extra contexts/<context>/src/domain/shared/errors.ts",
+    ]);
+    for (const row of report.expectedDeltas) expect(row.reason.length).toBeGreaterThan(20);
+    for (const entry of EXPECTED_DELTAS) expect(entry.reason, String(entry.pattern)).toMatch(/\w{3,}/);
+    expect(formatReport(report)).toMatch(/^structure: 0 unexpected structural deltas against the example \(6 expected/);
+    // The allowlist is exact about its side: a seed file the project adds is
+    // not the example's gap, and a Drizzle store the example has but the
+    // project lacks is a real delta.
+    const reversed = compareTrees(tree(project), tree(example));
+    expect(reversed.expectedDeltas).toEqual([]);
+    expect(reversed.deltas).toBeGreaterThan(0);
   });
 
   test("the report is deterministic", () => {
@@ -203,7 +264,7 @@ describe("the command", () => {
     const project = tree(exampleFiles("notebook"));
     expect(main([project], {}).code).toBe(2);
     expect(main([project], {}).out).toContain(EXAMPLE_ENV);
-    expect(main([project], { [EXAMPLE_ENV]: example })).toEqual({ code: 0, out: expect.stringMatching(/no structural delta/) });
+    expect(main([project], { [EXAMPLE_ENV]: example })).toEqual({ code: 0, out: expect.stringMatching(/0 unexpected structural deltas/) });
     expect(main(["--example", example, project], {}).code).toBe(0);
     expect(main(["--example", example], {}).code).toBe(2);
   });
