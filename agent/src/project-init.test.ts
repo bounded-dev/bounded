@@ -1,11 +1,16 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "vitest";
+import { decide } from "./path-policy.ts";
 import {
-  applyInit, defaultSelection, describeInit, exampleContracts, planInit, projectNameOf, withoutTemplateText,
+  applyInit, declaresNoInitializer, defaultSelection, describeInit, exampleContracts, exampleWorkspaces, localPackPaths,
+  planInit, projectNameOf, withoutTemplateText,
 } from "./project-init.ts";
+
+/** The whole stack, in the order packs/default-stack.json records it. */
+const DEFAULT_STACK = ["ts", "ts-hexagonal", "ts-trpc", "ts-mcp", "ts-lambda", "ts-web", "ts-desktop", "ts-drizzle-postgres"];
 
 const temporary: string[] = [];
 function empty(): string {
@@ -22,20 +27,47 @@ describe("project-local initialization", () => {
     expect(choice.hosts).toEqual(["pi", "claude-code"]);
   });
 
-  test("the TN README's example contract sits under the source root the design drives", () => {
-    // ts-hexagonal's roots are apps/*/src and contexts/*/src; only the second
-    // has generated files in it, so that is where contracts live.
-    expect(exampleContracts(["ts", "ts-hexagonal"])).toEqual(["contracts:", "  - contexts/example/src/example/example.contract.ts"]);
-    // A suffix with no source root, or nothing at all, names no file.
+  test("the TN README's example follows the composed layout: a concept, a feature, and the apps", () => {
+    expect(exampleContracts(["ts", "ts-hexagonal"])).toEqual([
+      "contracts:",
+      "  - contexts/<context>/src/domain/<area>/<concept>.contract.ts",
+      "  - contexts/<context>/src/application/<area>/<feature>/<feature>.contract.ts",
+    ]);
+    // The core invents no path: without a pack naming one, the list is empty.
     expect(exampleContracts(["ts"])).toEqual(["contracts: []"]);
     expect(exampleContracts([])).toEqual(["contracts: []"]);
+    expect(exampleWorkspaces(DEFAULT_STACK)).toEqual([
+      "workspaces:", "  apps/desktop: desktop", "  apps/lambdas: lambdas", "  apps/mcp: mcp", "  apps/web: web",
+    ]);
+    expect(exampleWorkspaces(["ts", "ts-hexagonal", "ts-trpc", "ts-web"])).toEqual(["workspaces:", "  apps/web: web"]);
+    expect(exampleWorkspaces(["ts", "ts-hexagonal"])).toEqual([]);
   });
 
-  test("the default selection is every installed capability: the whole stack", () => {
-    expect(defaultSelection()).toEqual([
-      "ts", "ts-desktop", "ts-drizzle-postgres", "ts-hexagonal", "ts-lambda", "ts-mcp", "ts-trpc", "ts-web",
-    ]);
-    expect((describeInit() as { defaultSelection: string[] }).defaultSelection).toEqual(defaultSelection());
+  test("the default selection is the explicit stack list, installed and closed under its dependencies", () => {
+    expect(defaultSelection()).toEqual(DEFAULT_STACK);
+    const installed = readdirSync(join(import.meta.dirname, "..", "packs"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(import.meta.dirname, "..", "packs", entry.name, "pack.ts")))
+      .map((entry) => entry.name);
+    for (const pack of DEFAULT_STACK) {
+      expect(installed, pack).toContain(pack);
+      const deps = (JSON.parse(readFileSync(join(import.meta.dirname, "..", "packs", pack, "contrib.json"), "utf8")) as
+        { dependsOnPacks?: string[] }).dependsOnPacks ?? [];
+      for (const dep of deps) expect(DEFAULT_STACK, `${pack} needs ${dep}`).toContain(dep);
+    }
+    expect((describeInit() as { defaultSelection: string[] }).defaultSelection).toEqual(DEFAULT_STACK);
+  });
+
+  test("a pack without an initializer counts as covered only when it says so", () => {
+    expect(declaresNoInitializer("ts-drizzle-postgres")).toBe(true);
+    // Omitting the field is not the declaration.
+    expect(declaresNoInitializer("ts-hexagonal")).toBe(false);
+    expect(declaresNoInitializer("ts-web")).toBe(false);
+  });
+
+  test("harness pack paths in instructions become the project-local ones", () => {
+    expect(localPackPaths("read `packs/ts-hexagonal/reference/` and `packs/ts/x.md`"))
+      .toBe("read `.bounded/harness/packs/ts-hexagonal/reference/` and `.bounded/harness/packs/ts/x.md`");
+    expect(localPackPaths("the packs/ directory")).toBe("the packs/ directory");
   });
 
   test("imports inside template literals are generated text, not harness dependencies", () => {
@@ -70,9 +102,7 @@ describe("project-local initialization", () => {
     mkdirSync(target);
     const packs = defaultSelection();
     const plan = await planInit(target, "claude-code", packs);
-    expect(plan.packs).toEqual([
-      "ts", "ts-hexagonal", "ts-trpc", "ts-desktop", "ts-drizzle-postgres", "ts-lambda", "ts-mcp", "ts-web",
-    ]);
+    expect(plan.packs).toEqual(DEFAULT_STACK);
     // The harness's own files: its install, its host config, the root
     // instructions, the ticket notes, the shipped checks, and the apps note.
     const harness = (path: string): boolean =>
@@ -92,7 +122,42 @@ describe("project-local initialization", () => {
     // The directory's name is the project's name, so the scope is @example-project.
     expect(pkg.name).toBe("example-project");
     expect(pkg.workspaces).toEqual(["contexts/*", "apps/*"]);
-  });
+
+    // The worked example ships with its tests: the briefs tell the workers to
+    // copy their shape, so they must exist where the briefs point.
+    const reference = ".bounded/harness/packs/ts-hexagonal/reference/contexts/project-management/src";
+    for (const file of ["domain/projects/project-name.test.ts", "application/notes/create-note/create-note.test.ts",
+      "application/notes/create-note/create-note.store.test-support.ts",
+      "adapters/out/in-memory/notes/create-note.store.test.ts"]) {
+      expect(existsSync(join(target, reference, file)), file).toBe(true);
+    }
+    // They are harness reference, not project source: in no source root, so
+    // not test-side for either blind role, and readable by both.
+    const refTest = `${reference}/application/notes/create-note/create-note.test.ts`;
+    const refImpl = `${reference}/application/notes/create-note/create-note.handler.ts`;
+    const ctx = {
+      cwd: target, sourceRoots: ["apps/*/src", "contexts/*/src"],
+      testSuffixes: [".test.ts", ".test.tsx", ".test-support.ts"], contractGlobs: [], generatedGlobs: [],
+    };
+    for (const role of ["builder", "test-writer"] as const) {
+      for (const path of [refTest, refImpl]) expect(decide(role, "read", { path }, ctx).allow, `${role} ${path}`).toBe(true);
+    }
+    // The briefs and skills name those paths as the project sees them.
+    for (const brief of [".bounded/harness/agents/builder.md", ".claude/agents/test-writer.md", ".claude/agents/architect.md",
+      ".claude/skills/developer-stage/SKILL.md"]) {
+      const text = readFileSync(join(target, brief), "utf8");
+      expect(text, brief).toContain("`.bounded/harness/packs/ts-hexagonal/");
+      expect(text, brief).not.toMatch(/`packs\//);
+    }
+    // On Claude Code the composed packs' skills are installed as skills.
+    for (const skill of ["ts-hexagonal", "ts-contract-authoring", "ts-api-service", "ts-web-app", "ts-drizzle-postgres"]) {
+      expect(existsSync(join(target, ".claude/skills", skill, "SKILL.md")), skill).toBe(true);
+    }
+    // The TN README shows a real layout path and the apps' workspaces block.
+    const tnReadme = readFileSync(join(target, "docs/tn/README.md"), "utf8");
+    expect(tnReadme).toContain("  - contexts/<context>/src/application/<area>/<feature>/<feature>.contract.ts");
+    expect(tnReadme).toContain("workspaces:\n  apps/desktop: desktop");
+  }, 120_000);
 
   test("refuses a nonempty project before any write", async () => {
     const target = empty();

@@ -1,10 +1,24 @@
 {
   "//": "The ts-hexagonal pack (ADR 2026-063): the hexagonal monorepo layout of TN-26-012 — bounded contexts under contexts/, apps under apps/, each context split into domain, application and adapters. This file is the DATA half of the pack: what a host reads without executing pack code. sourceRoots are where roles author code (ADR 2026-056). testFileSuffixes repeat the ts family's suffixes so the layout is complete on its own; identical entries merge (ADR 2026-057). generatedFileGlobs are the files only this pack's emitters write, write-denied to every role and drift-checked (ADR 2026-058, TN-26-012 §7). adapterTechnologies are the two out technologies every hexagonal context can use without another pack: in-memory storage and the console stand-in (ADR 2026-061). workspaceTemplates.context is the manifest every context workspace starts from; the generator adds name, private, exports and the adapter pins. projectShippedFiles copy the architecture rulebook and the architecture test into a new project; both are generated files from then on.",
-  "dependsOnPacks": ["ts"],
-  "sourceRoots": ["apps/*/src", "contexts/*/src"],
+  "dependsOnPacks": [
+    "ts"
+  ],
+  "sourceRoots": [
+    "apps/*/src",
+    "contexts/*/src"
+  ],
   "//projectIgnoreRules": "What setup and builds produce inside each workspace: Bun's isolated installs link every context and app its own node_modules, and an app's build writes dist/. The ts pack ignores the root ones; this pack owns the workspace layout, so it ignores the per-workspace ones (the core accepts only root-anchored rules with a literal first segment).",
-  "projectIgnoreRules": ["/contexts/*/node_modules/", "/apps/*/node_modules/", "/contexts/*/dist/", "/apps/*/dist/"],
-  "testFileSuffixes": [".test.ts", ".test.tsx", ".test-support.ts"],
+  "projectIgnoreRules": [
+    "/contexts/*/node_modules/",
+    "/apps/*/node_modules/",
+    "/contexts/*/dist/",
+    "/apps/*/dist/"
+  ],
+  "testFileSuffixes": [
+    ".test.ts",
+    ".test.tsx",
+    ".test-support.ts"
+  ],
   "generatedFileGlobs": [
     "architecture.test.ts",
     "docs/architecture/**",
@@ -52,5 +66,10 @@
     "docs/architecture/layers-and-dependencies.md": "reference/docs/architecture/layers-and-dependencies.md",
     "docs/architecture/persistence.md": "reference/docs/architecture/persistence.md",
     "docs/architecture/testing.md": "reference/docs/architecture/testing.md"
-  }
+  },
+  "//tnExampleContracts": "The contract paths bounded init shows in the example front matter of docs/tn/README.md: one domain concept and one feature, in this layout (TN-26-012 section 1).",
+  "tnExampleContracts": [
+    "contexts/<context>/src/domain/<area>/<concept>.contract.ts",
+    "contexts/<context>/src/application/<area>/<feature>/<feature>.contract.ts"
+  ]
 }

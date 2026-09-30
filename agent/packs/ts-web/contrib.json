@@ -49,5 +49,9 @@
   ],
   "projectShippedFiles": {
     "scripts/web-build-check.ts": "scripts/web-build-check.ts"
+  },
+  "//tnExampleWorkspaces": "The app this pack's template makes, as bounded init shows it in the example workspaces map of docs/tn/README.md.",
+  "tnExampleWorkspaces": {
+    "apps/web": "web"
   }
 }

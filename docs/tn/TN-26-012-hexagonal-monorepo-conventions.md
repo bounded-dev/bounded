@@ -175,15 +175,37 @@ path and the fix:
 
 ## 4. Tags
 
-Two JSDoc tags carry meaning; contract lint allows them and no other tag has
+Three JSDoc tags carry meaning; contract lint allows them and no other tag has
 semantics. A tag lives in the `/** … */` block directly above the interface
 it describes.
 
 ```
 exposed    = "@exposedVia"    1*( SP tech-id )      ; on the in port only
 implemented = "@implementedBy" 1*( SP tech-id )     ; on a non-store out port only
+accepts    = "@accepts" SP literal                  ; on a value object's interface
 tech-id    = kebab-case id of a composed adapter technology
+literal    = a TypeScript literal of the value's primitive type ("Website relaunch", 42)
 ```
+
+`@accepts` (ADR 2026-059, rule `bounded-ts/value-object-documented`): every
+value object that is not an identifier carries a doc comment stating its
+validity rule and exactly two `@accepts` lines, one tag per line, whose
+literals differ after trimming. They are the valid samples the generated laws
+(`<concept>.laws.test.ts`) parse; without them the laws of `equals` and
+`parse` would have nothing to run on. An identifier needs none, because its
+factory's `generate()` supplies samples. Example:
+
+```ts
+/**
+ * The name of a project: not empty once trimmed.
+ * @accepts "Website relaunch"
+ * @accepts "Office move"
+ */
+export interface ProjectName { … }
+```
+
+The worked example's own value objects carry no `@accepts` yet; the harness's
+reference copy adds them (see `agent/packs/ts/reference/README.md`).
 
 - The tag line is `^\s*\*\s*@exposedVia(\s+[a-z][a-z0-9]*(-[a-z0-9]+)*)+\s*$`
   (likewise `@implementedBy`). At most one tag of each kind per interface.
@@ -502,6 +524,13 @@ workspaces:
 | `skeletonEmitters` | code | ts, `agent/packs/ts/pack.ts` | `Emitter { name; description; emit(facts: ProjectFacts): readonly EmittedFile[] }`, `EmittedFile { path; content; mode }`, `emittedFileProblem(file, emitter)` |
 | `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), pins?, workspaceScripts? }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
 | `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
+| `tnExampleContracts` | data | core, `agent/src/project-init.ts` | `string[]`: contract paths (placeholders allowed) `bounded init` shows in `docs/tn/README.md`; each must lie under a composed source root and end with a composed contract suffix. ts-hexagonal names a concept and a feature |
+| `tnExampleWorkspaces` | data | core, same file | `{ <dir>: <kind> }`: the apps shown in that README's example `workspaces:` block; each app pack names its own |
+
+`bounded init` with no `--pack` selects the explicit list in
+`agent/packs/default-stack.json` (the whole stack). A pack with nothing to
+scaffold at init declares `"projectInitScripts": []`; omitting the field is not
+that declaration.
 
 `ProjectFacts` is `{ scope, phase: "design" | "red" | "deliver", packs,
 workspaces: WorkspaceFacts[], adapterTechnologies, workspaceTemplates }`.

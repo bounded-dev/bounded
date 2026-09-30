@@ -40,7 +40,9 @@ export const INSTALLED_PACKS: readonly PackDefinition[] = Object.freeze([
 
 let memo: SocketRegistry | undefined;
 
-/** Installed definitions for harness introspection; never a project default. */
+/** Installed definitions for harness introspection; never a project default.
+ *  The selection `bounded init` makes when none is named is the explicit list
+ *  in `packs/default-stack.json`, not this set. */
 export function installedPacks(): SocketRegistry {
   memo ??= composePacks(INSTALLED_PACKS);
   return memo;

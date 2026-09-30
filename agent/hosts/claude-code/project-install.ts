@@ -1,7 +1,7 @@
 // Claude Code discovery files for a project-local Bounded installation.
 // The caller assembles the harness in a staging project before invoking this.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
 import { SETUP_COMMAND } from "../../src/setup-state.ts";
@@ -86,6 +86,18 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
   mkdirSync(join(target, ".claude", "skills"), { recursive: true });
   cpSync(skill, skillDest, { recursive: true, force: false, errorOnExist: true });
   cpSync(leadSkill, join(target, ".claude", "skills", "team-lead"), { recursive: true, force: false, errorOnExist: true });
+  // The composed packs' skills (the layout, contract and stack guidance the
+  // briefs name) are skills here too, as they are on pi; the copied harness
+  // holds only the composed packs, so nothing uncomposed is installed.
+  const packsDir = join(harnessRoot, "packs");
+  for (const pack of existsSync(packsDir) ? readdirSync(packsDir).sort() : []) {
+    const skills = join(packsDir, pack, "skills");
+    if (!existsSync(skills)) continue;
+    for (const name of readdirSync(skills).sort()) {
+      if (!existsSync(join(skills, name, "SKILL.md"))) continue;
+      cpSync(join(skills, name), join(target, ".claude", "skills", name), { recursive: true, force: false, errorOnExist: true });
+    }
+  }
   writeFileSync(settingsPath, JSON.stringify(merged.value, null, 2) + "\n");
   const leadInstructions = [
     "# Bounded project entry",
