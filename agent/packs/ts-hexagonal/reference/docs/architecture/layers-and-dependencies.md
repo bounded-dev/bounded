@@ -38,14 +38,15 @@ An **adapter** is the technology-specific code on either side of a port. A tRPC 
 
 ## Enforcement
 
-- **`architecture.test.ts`** (run with `bun test`) reads every import of every file under `contexts/*/src` and `apps/*/src` with the TypeScript parser: static, side-effect, re-export, `import x = require()`, `require()`, dynamic `import()` and `import("…").Type`. It fails when:
+- **`architecture.test.ts`** (run with `bun test`) reads every import of every TypeScript and JavaScript file under `contexts/*/src` and `apps/*/src`, dot-files included, with the TypeScript parser: static, side-effect, re-export, `import x = require()`, `require()`, `require.resolve()`, dynamic `import()`, `import.meta.require()` and `import("…").Type`. It fails when:
   - a context file sits outside `domain/`, `application/` and `adapters/in|out/<tech>/`,
   - domain imports application or adapters, application imports adapters, or an adapter imports another adapter,
   - domain or application code imports a library other than `zod` (tests excepted),
   - a context imports another context (except an out adapter calling the other context's `application`) or an app,
   - an app imports another app, reaches outside its own `src/` by relative path, or imports a context other than through its export paths,
   - browser code (`client/`, `renderer/`) imports server code other than with `import type`,
-  - an in adapter uses a handler class.
+  - an in adapter uses a handler class, or takes application code whole (a namespace, default or `export *` import, or a runtime load), where a handler class could hide,
+  - anything but a composition root or a test loads application or adapter code at runtime.
 - **Lint rules** check the same boundaries as each file is written, plus the file-role suffixes, naming, handler shape, and that only composition roots construct handlers and adapters.
 - **Package boundaries:** Bun installs each workspace package's dependencies in isolation, so a package can only import what its `package.json` declares.
 - **Type checking:** `bunx tsc -p tsconfig.json` type-checks every context and app together.

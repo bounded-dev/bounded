@@ -17,7 +17,7 @@ const APP = `import { CreateNoteHandler } from "@example/project-management/appl
 const MEMORY = `import { InMemoryCreateNoteStore, InMemoryDatabase } from "@example/project-management/adapters/in-memory";\n`;
 const ROUTER = `import { createProjectManagementRouter } from "@example/project-management/adapters/trpc";\n`;
 const at = (filename: string, code: string) => ({ code, filename, options });
-const bad = <Id extends "construct" | "factory" | "value">(filename: string, code: string, ...ids: Id[]) =>
+const bad = <Id extends "construct" | "factory" | "namespace" | "loader" | "value">(filename: string, code: string, ...ids: Id[]) =>
   ({ code, filename, options, errors: ids.map((messageId) => ({ messageId })) });
 
 ruleTester.run("composition-root-only-constructs", compositionRootOnlyConstructs, {
@@ -37,6 +37,13 @@ ruleTester.run("composition-root-only-constructs", compositionRootOnlyConstructs
     at(MAIN, `import type { ProjectManagementRouter } from "@example/project-management/adapters/trpc";\nlet r: ProjectManagementRouter;`),
     at(MAIN, `import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";\nnew StdioServerTransport();`),
     at(MAIN, `import { composeApp } from "./composition-root.ts";\nconst app = composeApp();`),
+    // Only composition roots and tests may load wiring dynamically, or take it whole.
+    at(ROOT, `const { CreateNoteHandler } = await import("@example/project-management/application");`),
+    at(ROOT, `import * as App from "@example/project-management/application";\nnew App.CreateNoteHandler(store);`),
+    at("apps/web/src/server/composition-root.test.ts", `const m = await import("@example/project-management/adapters/in-memory");`),
+    at(MAIN, `import type * as App from "@example/project-management/application";\nlet h: App.CreateNoteHandler;`),
+    at(MAIN, `import * as z from "zod";\nconst page = await import("./page.ts");`),
+    at(`${C}/adapters/in/trpc/router.ts`, `import * as notes from "./notes/notes.router.ts";`),
   ],
   invalid: [
     bad(MAIN, `${APP}new CreateNoteHandler(store);`, "construct"),
@@ -49,6 +56,13 @@ ruleTester.run("composition-root-only-constructs", compositionRootOnlyConstructs
     bad(`${C}/adapters/out/in-memory/notes/create-note.store.ts`, `${MEMORY}new InMemoryDatabase();`, "construct"),
     // A file named like the root, in the wrong place, is not the root.
     bad("apps/web/src/server/composition-root-helpers.ts", `${APP}new CreateNoteHandler(store);`, "construct"),
+    bad(MAIN, `import * as App from "@example/project-management/application";\nnew App.CreateNoteHandler(store);`, "namespace", "construct"),
+    bad(MAIN, `import * as App from "@example/project-management/application";\nnew App["CreateNoteHandler"](store);`, "namespace", "construct"),
+    bad(MAIN, `import * as Memory from "@example/project-management/adapters/in-memory";\nconst M = Memory;\nnew M.InMemoryDatabase();`, "namespace"),
+    bad(MAIN, `const { CreateNoteHandler } = await import("@example/project-management/application");`, "loader"),
+    bad(MAIN, `const path = require.resolve("@example/project-management/adapters/in-memory");`, "loader"),
+    bad(`${C}/domain/notes/note.ts`, `const m = import.meta.require("../../application/index.ts");`, "loader"),
+    bad(`${C}/adapters/in/trpc/router.ts`, `const m = await import("../../out/in-memory/index.ts");`, "loader"),
   ],
 });
 

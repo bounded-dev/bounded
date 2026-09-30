@@ -122,10 +122,10 @@ The lint rules that bind you, with the fix each one names:
 | `file-role-suffix` | a file whose folder and suffix match no row of the layout |
 | `naming` | a singular area, a noun-first or one-word feature, a handler or adapter class not named as derived |
 | `handler-shape` | a handler that is not one exported `<InPort>Handler implements <InPort>` with `private readonly <role>: <Port>` constructor parameters and `execute` as its one public method |
-| `composition-root-only-constructs` | `new` of a handler or adapter class, or a call to an in-adapter factory, outside a composition root (tests excepted) |
+| `composition-root-only-constructs` | `new` of a handler or adapter class (also off a namespace), a call to an in-adapter factory, a value namespace import or a runtime load of application or adapter code, outside a composition root (tests excepted) |
 | `entry-hosts-only` | an app file other than the composition root importing a context by value |
 | `client-type-only-server-imports` | browser code importing server code other than with `import type` |
-| `in-adapter-uses-in-port` | an in adapter naming a handler class |
+| `in-adapter-uses-in-port` | an in adapter naming a handler class, or taking application code whole (namespace, default, `export *`, runtime load) |
 
 `architecture.test.ts` checks the same boundaries over the whole tree with
 `bun test`. The checks that end a change are `bun test` and
