@@ -84,7 +84,7 @@ A renamed column or table is ambiguous: Drizzle must ask whether it is a
 rename or a drop-and-create, and the gate refuses with nothing written. Make
 the change in two steps (add the new column, generate, then drop the old one
 and generate again), or escalate to the user, who runs
-`bunx drizzle-kit generate` in that context in a terminal.
+`bun run db:generate` in that context in a terminal.
 
 ## Docker
 
