@@ -1,7 +1,44 @@
 {
-  "//": "The ts-drizzle-postgres pack (ADR 2026-063): Postgres persistence through Drizzle, one Postgres schema per context, generated migrations under each context's adapters/out/drizzle/migrations (ADR 2026-058). It will contribute the drizzle storage adapter technology, its store emitter and the migration generator. A stub until WI-6: it contributes nothing yet.",
-  "dependsOnPacks": [
-    "ts",
-    "ts-hexagonal"
-  ]
+  "//": "The ts-drizzle-postgres pack (ADR 2026-063, ADR 2026-058, ADR 2026-064): Postgres persistence through Drizzle, one Postgres schema per context. It contributes the `drizzle` storage adapter technology (pins go to every context workspace whose tree has adapters/out/drizzle), the generated files each context with a store gets (drizzle.config.ts, drizzle-database.ts, schema/<context>.schema.ts, the Testcontainers test support; migrations come only from the generate_artifacts gate), the root docker-compose.yml and .env.example as generated config, the shipped check-db and db-migrate scripts, and ignores the root .env. Each context's drizzle.config.ts names its own migrations table, so contexts sharing one database never read each other's history; that is the one line it adds to the worked example's config.",
+  "dependsOnPacks": ["ts", "ts-hexagonal"],
+  "adapterTechnologies": [
+    {
+      "id": "drizzle",
+      "direction": "out",
+      "storage": true,
+      "description": "Postgres through Drizzle ORM: one store per feature, sharing the context's DrizzleDatabase (Drizzle's generic Postgres database type, never a driver), tested against real Postgres with Testcontainers.",
+      "pins": {
+        "dependencies": {
+          "drizzle-orm": "0.45.3",
+          "pg": "8.23.1"
+        },
+        "devDependencies": {
+          "@testcontainers/postgresql": "12.2.0",
+          "@types/pg": "8.23.1",
+          "drizzle-kit": "0.31.11",
+          "testcontainers": "12.2.0"
+        }
+      }
+    }
+  ],
+  "generatedFileGlobs": [
+    "contexts/*/drizzle.config.ts",
+    "contexts/*/src/adapters/out/drizzle/drizzle-database.ts",
+    "contexts/*/src/adapters/out/drizzle/drizzle-test-database.test-support.ts",
+    "contexts/*/src/adapters/out/drizzle/migrations/**",
+    "contexts/*/src/adapters/out/drizzle/schema/*.schema.ts"
+  ],
+  "projectScripts": {
+    "check:db": "bun scripts/check-db.ts",
+    "db:migrate": "bun scripts/db-migrate.ts",
+    "db:up": "docker compose up -d"
+  },
+  "projectCheckScripts": ["check:db"],
+  "projectShippedFiles": {
+    "scripts/check-db.ts": "scripts/check-db.ts",
+    "scripts/db-migrate.ts": "scripts/db-migrate.ts"
+  },
+  "projectConfigFiles": ["reference/docker-compose.yml", "reference/.env.example"],
+  "projectConfigNames": ["docker-compose.yml", ".env.example"],
+  "projectIgnoreRules": ["/.env"]
 }

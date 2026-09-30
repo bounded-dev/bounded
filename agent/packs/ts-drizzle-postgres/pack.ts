@@ -1,14 +1,42 @@
 // The ts-drizzle-postgres pack (ADR 2026-063): Postgres persistence through
-// Drizzle. A stub; WI-6 fills it. It contributes nothing yet.
-// Its data half is contrib.json beside this file.
-import { definePack } from "../../src/socket-registry.ts";
-import { TS_PACK } from "../ts/pack.ts";
+// Drizzle, one Postgres schema per context. Its data half (the `drizzle`
+// adapter technology and its pins, generated-file globs, root config, shipped
+// scripts) is contrib.json beside this file. Its code half:
+//
+//   skeletonEmitters     drizzle-persistence (generated per-context files) and
+//                        drizzle-stores (store and area-schema skeletons)
+//   artifactGenerators   database-migration: each context's next migration
+//
+// The container-runtime rule of ADR 2026-064 is exported for the red and
+// green gates from scripts/container-runtime.ts (`probeContainerRuntime`,
+// `drizzleStoreTests`, `storeTestDecision`).
+import { contribute, definePack } from "../../src/socket-registry.ts";
+import { artifactGenerators, skeletonEmitters, TS_PACK } from "../ts/pack.ts";
 import { TS_HEXAGONAL_PACK } from "../ts-hexagonal/pack.ts";
+import { emitDrizzlePersistence, emitDrizzleStores } from "./scripts/emit.ts";
+import { generateMigrations } from "./scripts/generate-migrations.ts";
 
 export const TS_DRIZZLE_POSTGRES_PACK = "ts-drizzle-postgres";
 
 export const tsDrizzlePostgresPack = definePack({
   name: TS_DRIZZLE_POSTGRES_PACK,
   dependsOnPacks: [TS_PACK, TS_HEXAGONAL_PACK],
-  contributes: [],
+  contributes: [
+    contribute(skeletonEmitters, [
+      {
+        name: "drizzle-persistence",
+        description: "Per context with a store: drizzle.config.ts, the DrizzleDatabase type, the pgSchema module and the Testcontainers store-test support.",
+        emit: (facts) => emitDrizzlePersistence(facts),
+      },
+      {
+        name: "drizzle-stores",
+        description: "Per store out port a Drizzle<Port> skeleton taking (db: DrizzleDatabase), and per area with a store a schema/<area>.ts skeleton.",
+        emit: (facts) => emitDrizzleStores(facts),
+      },
+    ]),
+    contribute(artifactGenerators, [{
+      name: "database-migration",
+      run: (cwd) => generateMigrations(cwd),
+    }]),
+  ],
 });

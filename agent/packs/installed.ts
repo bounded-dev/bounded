@@ -23,7 +23,6 @@
 import { composePacks, type PackDefinition, type SocketRegistry } from "../src/socket-registry.ts";
 import { readProjectPacks } from "../src/project-composition.ts";
 import { tsServicePack } from "./ts-service/pack.ts";
-import { tsDrizzleSqlitePack } from "./ts-drizzle-sqlite/pack.ts";
 import { tsPack } from "./ts/pack.ts";
 import { tsWebPack } from "./ts-web/pack.ts";
 import { tsHexagonalPack } from "./ts-hexagonal/pack.ts";
@@ -35,7 +34,7 @@ import { tsDesktopPack } from "./ts-desktop/pack.ts";
 /** Every pack installed in this harness, in no particular order — the registry
  *  sorts and dependency-orders them itself. */
 export const INSTALLED_PACKS: readonly PackDefinition[] = Object.freeze([
-  tsPack, tsWebPack, tsServicePack, tsDrizzleSqlitePack,
+  tsPack, tsWebPack, tsServicePack,
   tsHexagonalPack, tsDrizzlePostgresPack, tsMcpPack, tsLambdaPack, tsDesktopPack,
 ]);
 

@@ -1,0 +1,136 @@
+// ADR 2026-064's probe and decision, against fake Docker-API servers on
+// temporary unix sockets: deterministic, and no container runtime needed.
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { afterAll, describe, expect, test } from "vitest";
+import {
+  candidateEndpoints, drizzleStoreTests, probeContainerRuntime, storeTestDecision, type ContainerRuntimeProbe,
+} from "./scripts/container-runtime.ts";
+
+const temporary: string[] = [];
+const servers: ChildProcess[] = [];
+afterAll(() => {
+  for (const server of servers) server.kill();
+  for (const dir of temporary) rmSync(dir, { recursive: true, force: true });
+});
+
+// Unix socket paths are short-limited (104 bytes on macOS), so keep them in /tmp.
+function home(): string {
+  const dir = mkdtempSync(join("/tmp", "cr-"));
+  temporary.push(dir);
+  return dir;
+}
+
+/** A fake Docker API in its own process (the probe blocks this one while it
+ *  waits): answers `/_ping` with `status`, or never answers when null. */
+async function dockerApi(socket: string, status: number | null): Promise<void> {
+  mkdirSync(dirname(socket), { recursive: true });
+  const script = `require("node:http").createServer((q, r) => { ${status === null ? "" : `r.statusCode = q.url === "/_ping" ? ${status} : 404; r.end("OK");`} }).listen(${JSON.stringify(socket)});`;
+  servers.push(spawn(process.execPath, ["-e", script], { stdio: "ignore" }));
+  for (let i = 0; i < 200 && !existsSync(socket); i++) await sleep(25);
+  if (!existsSync(socket)) throw new Error(`fake Docker API did not start on ${socket}`);
+}
+
+const bare = { PATH: process.env.PATH };
+
+describe("candidateEndpoints", () => {
+  test("an explicit DOCKER_HOST is the only candidate", () => {
+    expect(candidateEndpoints({ DOCKER_HOST: "tcp://10.0.0.1:2375" }, home())).toEqual(["tcp://10.0.0.1:2375"]);
+  });
+
+  test("then the Testcontainers properties file", () => {
+    const dir = home();
+    writeFileSync(join(dir, ".testcontainers.properties"), "ryuk.disabled=false\ndocker.host = unix:///x/docker.sock\n");
+    expect(candidateEndpoints({}, dir)).toEqual(["unix:///x/docker.sock"]);
+  });
+
+  test("otherwise every known socket that exists, in a fixed order", async () => {
+    const dir = home();
+    await dockerApi(join(dir, ".colima/default/docker.sock"), 200);
+    await dockerApi(join(dir, ".docker/run/docker.sock"), 200);
+    const found = candidateEndpoints({}, dir).filter((e) => e.includes(dir));
+    expect(found).toEqual([`unix://${dir}/.docker/run/docker.sock`, `unix://${dir}/.colima/default/docker.sock`]);
+  });
+});
+
+describe("probeContainerRuntime", () => {
+  test("available when an endpoint answers the Docker API's ping", async () => {
+    const dir = home();
+    await dockerApi(join(dir, "d.sock"), 200);
+    expect(probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/d.sock` }, home: dir }))
+      .toEqual({ available: true, endpoint: `unix://${dir}/d.sock` });
+  });
+
+  test("unavailable, with the reason, when the endpoint refuses, errors or is missing", async () => {
+    const dir = home();
+    await dockerApi(join(dir, "sick.sock"), 500);
+    const sick = probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/sick.sock` }, home: dir });
+    expect(sick).toEqual({ available: false, reason: `no container runtime is answering (unix://${dir}/sick.sock: answered 500)` });
+    const gone = probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/gone.sock` }, home: dir });
+    expect(gone.available).toBe(false);
+    expect((gone as { reason: string }).reason).toMatch(/gone\.sock: ENOENT/);
+  });
+
+  test("an endpoint scheme it cannot ping fails closed", () => {
+    expect(probeContainerRuntime({ env: { ...bare, DOCKER_HOST: "ssh://me@host" }, home: home() }))
+      .toEqual({ available: false, reason: "no container runtime is answering (ssh://me@host: unsupported endpoint scheme)" });
+  });
+
+  test("a silent endpoint is cut off at the timeout", async () => {
+    const dir = home();
+    await dockerApi(join(dir, "slow.sock"), null);
+    const started = Date.now();
+    const probe = probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/slow.sock` }, home: dir, timeoutMs: 300 });
+    expect((probe as { reason: string }).reason).toMatch(/did not answer within 300ms/);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+});
+
+describe("storeTestDecision (ADR 2026-064)", () => {
+  const down: ContainerRuntimeProbe = { available: false, reason: "no container runtime found" };
+  const up: ContainerRuntimeProbe = { available: true, endpoint: "unix:///var/run/docker.sock" };
+  const tests = ["contexts/pm/src/adapters/out/drizzle/notes/create-note.store.test.ts"];
+
+  test("no store tests, or a runtime that answers: run", () => {
+    for (const phase of ["red", "green"] as const) {
+      expect(storeTestDecision(phase, [], down)).toEqual({ action: "run" });
+      expect(storeTestDecision(phase, tests, up)).toEqual({ action: "run" });
+    }
+  });
+
+  test("red without a runtime skips the store tests through the test support's variable, with the reason", () => {
+    const reason = "1 Drizzle store test file(s) skipped at red: no container runtime found";
+    expect(storeTestDecision("red", tests, down)).toEqual({ action: "skip", reason, env: { BOUNDED_STORE_TESTS_SKIP: reason } });
+  });
+
+  test("green without a runtime refuses, naming the tests and the fix, and never skips", () => {
+    const decision = storeTestDecision("green", tests, down);
+    expect(decision.action).toBe("refuse");
+    expect((decision as { reason: string }).reason).toContain(tests[0]);
+    expect((decision as { reason: string }).reason).toContain("Start Docker");
+    expect(decision).not.toHaveProperty("env");
+  });
+});
+
+describe("drizzleStoreTests", () => {
+  test("lists test files under every context's drizzle adapter, not the generated support or other adapters", () => {
+    const dir = home();
+    const touch = (path: string) => {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), "");
+    };
+    touch("contexts/pm/src/adapters/out/drizzle/notes/create-note.store.test.ts");
+    touch("contexts/pm/src/adapters/out/drizzle/notes/create-note.store.ts");
+    touch("contexts/pm/src/adapters/out/drizzle/drizzle-test-database.test-support.ts");
+    touch("contexts/pm/src/adapters/out/in-memory/notes/create-note.store.test.ts");
+    touch("contexts/billing/src/adapters/out/drizzle/invoices/send-invoice.store.test.ts");
+    touch("contexts/billing/node_modules/x/adapters/out/drizzle/a.test.ts");
+    expect(drizzleStoreTests(dir)).toEqual([
+      "contexts/billing/src/adapters/out/drizzle/invoices/send-invoice.store.test.ts",
+      "contexts/pm/src/adapters/out/drizzle/notes/create-note.store.test.ts",
+    ]);
+    expect(drizzleStoreTests(home())).toEqual([]);
+  });
+});
