@@ -6,13 +6,16 @@
 // (the team lead's run boundary) add their own conditions on top of it.
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { contractFileSuffixes, hasContractSuffix } from "./pack-contrib.ts";
+import { contractFileSuffixes, hasContractSuffix, sourceRootOf, sourceRoots } from "./pack-contrib.ts";
 
 export interface TicketDesign {
   readonly ticket: string;
   readonly note: string;
   readonly status: "draft" | "active" | "ratified" | "superseded";
   readonly contracts: readonly string[];
+  /** The apps the note declares (TN-26-012 §9): `<dir>` → workspace kind.
+   *  Shape-checked here; packs interpret it. Empty when absent. */
+  readonly workspaces: Readonly<Record<string, string>>;
 }
 
 export interface TicketWriteScope {
@@ -34,9 +37,12 @@ const INSTALLATION_RELATIVE = ".bounded/installation.json";
 const TN_DIR = "docs/tn";
 const TN_INDEX = "docs/tn/README.md";
 const NOTE_NAME = /^TN-([1-9][0-9]*)\.md$/;
-/** The safe project-relative shape of a contract path; the filename suffix
- *  that makes it a contract comes from the composed packs. */
-const CONTRACT_PATH = /^src\/(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+$/;
+/** The safe project-relative shape of a contract path. Which directory it must
+ *  sit under (a source root, ADR 2026-056) and the filename suffix that makes
+ *  it a contract (ADR 2026-052) come from the composed packs. */
+const CONTRACT_PATH = /^(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+$/;
+/** One `workspaces:` entry (TN-26-012 §9): `  <dir>: <kind>`. */
+const WORKSPACE_LINE = /^  ([a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*): ([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/;
 
 const UNSELECTED =
   "no active ticket — select the current issue with the team lead (it records " +
@@ -99,9 +105,22 @@ function suffixesFor(root: string): readonly string[] {
   }
 }
 
-function checkContractPath(path: string, suffixes: readonly string[], note: string): void {
-  if (!CONTRACT_PATH.test(path) || path.split("/").includes("..")) {
+function rootsFor(root: string): readonly string[] {
+  try {
+    return sourceRoots(root);
+  } catch (error) {
+    throw new Error(`cannot tell where source lives: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function checkContractPath(path: string, suffixes: readonly string[], roots: readonly string[], note: string): void {
+  if (!CONTRACT_PATH.test(path) || path.split("/").some((segment) => segment === ".." || segment === ".")) {
     throw new Error(`unsafe contract path '${path}' in ${note}`);
+  }
+  if (sourceRootOf(path, roots) === undefined) {
+    throw new Error(roots.length === 0
+      ? `${note} lists '${path}', but no composed pack declares a source root, so no file is a contract`
+      : `${note} lists '${path}', which is outside every source root (${roots.join(", ")})`);
   }
   if (!hasContractSuffix(path, suffixes)) {
     throw new Error(suffixes.length === 0
@@ -173,12 +192,42 @@ function parseActiveNote(root: string, ticket: string, freeze: boolean): TicketD
   }
   if (contracts.length) {
     const suffixes = suffixesFor(root);
+    const roots = rootsFor(root);
     for (const path of contracts) {
-      checkContractPath(path, suffixes, note);
+      checkContractPath(path, suffixes, roots, note);
       if (freeze) safeContract(root, path, note);
     }
   }
-  return { ticket, note, status: status as TicketDesign["status"], contracts: contracts.sort() };
+  const workspaces = workspaceMap(fm.lines);
+  if (typeof workspaces === "string") throw new Error(`${note} ${workspaces}`);
+  return { ticket, note, status: status as TicketDesign["status"], contracts: contracts.sort(), workspaces };
+}
+
+/**
+ * The `workspaces:` map (TN-26-012 §9): the apps a ticket declares, as
+ * `<dir>: <kind>`. Block form only; absent is an empty map, and so is a bare
+ * `workspaces:`. The core checks the shape alone — which kinds exist and
+ * where their directories may live is the composed packs' business. A
+ * malformed block is a string saying what is wrong.
+ */
+export function workspaceMap(lines: readonly string[]): Readonly<Record<string, string>> | string {
+  const starts = lines.filter((line) => /^workspaces\s*:/.test(line));
+  if (starts.length === 0) return {};
+  if (starts.length > 1 || starts[0] !== "workspaces:") {
+    return "needs one block-form 'workspaces:' line with nothing after the colon";
+  }
+  const map: Record<string, string> = {};
+  for (const line of lines.slice(lines.indexOf("workspaces:") + 1)) {
+    if (!/^\s/.test(line)) break;
+    const entry = WORKSPACE_LINE.exec(line);
+    if (entry === null) {
+      return `has an invalid workspaces: entry '${line.trim()}' — each is '  <dir>: <kind>', lowercase, such as '  apps/web: web'`;
+    }
+    const [, dir, kind] = entry as unknown as [string, string, string];
+    if (Object.hasOwn(map, dir)) return `declares workspace '${dir}' twice`;
+    map[dir] = kind;
+  }
+  return map;
 }
 
 /**

@@ -7,13 +7,39 @@ import {
   resolveTicketDesign, ticketWriteScope,
 } from "./ticket-design.ts";
 import { writeProjectPacks } from "./project-composition.ts";
-import { contractFileSuffixes, contractGlobs, hasContractSuffix } from "./pack-contrib.ts";
+import { contractFileSuffixes, hasContractSuffix } from "./pack-contrib.ts";
 import { computeManifest, runChecksumGate } from "../packs/ts/scripts/checksum-gate.ts";
 import { readReviewed, runRecordDesignReview } from "../packs/ts/scripts/design-review.ts";
 import { classifyReviewFreshness } from "../packs/ts/scripts/design-gate.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { decide } from "./path-policy.ts";
 import { evaluatePathGate } from "./path-gate.ts";
+
+// No installed pack contributes source roots yet (the hexagonal layout pack
+// does, ADR 2026-063), so this suite gives the composed ts project the
+// hexagonal context roots. The real reader still runs first, so an unreadable
+// composition still throws exactly as it would.
+vi.mock("./pack-contrib.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./pack-contrib.ts")>();
+  return {
+    ...actual,
+    sourceRoots: (cwd: string, packsDir?: string): string[] => {
+      actual.sourceRoots(cwd, packsDir);
+      return ["contexts/*/src"];
+    },
+  };
+});
+
+/** The layout decide() judges the architect's writes with, as a host passes it. */
+function layoutCtx(root: string) {
+  return {
+    cwd: root,
+    sourceRoots: ["contexts/*/src"],
+    contractGlobs: ["contexts/*/src/**/*.contract.ts"],
+    testSuffixes: [".test.ts"],
+    generatedGlobs: [],
+  };
+}
 
 const roots: string[] = [];
 afterEach(() => {
@@ -25,13 +51,13 @@ function project(): string {
   const root = mkdtempSync(join(tmpdir(), "bounded-ticket-design-"));
   roots.push(root);
   mkdirSync(join(root, "docs/tn"), { recursive: true });
-  mkdirSync(join(root, "src"));
+  mkdirSync(join(root, "contexts/notes/src"), { recursive: true });
   writeFileSync(join(root, "docs/tn/README.md"), "# Technical Notes\n");
   writeProjectPacks(root, ["ts"]);
   for (const n of [24, 25]) {
     writeFileSync(join(root, `docs/tn/TN-${n}.md`),
-      `---\nissue: ${n}\nstatus: active\ncontracts:\n  - src/t${n}.contract.ts\n---\n\n# Ticket ${n}\n`);
-    writeFileSync(join(root, `src/t${n}.contract.ts`), `export interface T${n} {}\n`);
+      `---\nissue: ${n}\nstatus: active\ncontracts:\n  - contexts/notes/src/t${n}.contract.ts\n---\n\n# Ticket ${n}\n`);
+    writeFileSync(join(root, `contexts/notes/src/t${n}.contract.ts`), `export interface T${n} {}\n`);
   }
   return root;
 }
@@ -46,10 +72,10 @@ describe("ticket-numbered design", () => {
     vi.stubEnv("BOUNDED_TICKET", "24");
     expect(activeTicketDesign(root)?.note).toBe("docs/tn/TN-24.md");
     writeFileSync(join(root, "docs/tn/TN-25.md"),
-      "---\r\nissue: 25\r\nstatus: active\r\ncontracts:\r\n  - src/t24.contract.ts\r\n---\r\n");
-    expect(() => activeTicketDesign(root)).toThrow(/both own src\/t24.contract.ts/);
+      "---\r\nissue: 25\r\nstatus: active\r\ncontracts:\r\n  - contexts/notes/src/t24.contract.ts\r\n---\r\n");
+    expect(() => activeTicketDesign(root)).toThrow(/both own contexts\/notes\/src\/t24.contract.ts/);
     writeFileSync(join(root, "docs/tn/TN-25.md"),
-      "---\nissue: 25\nstatus: superseded\ncontracts:\n  - src/t24.contract.ts\n---\n\nSuperseded by [TN-24](TN-24.md).\n");
+      "---\nissue: 25\nstatus: superseded\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n---\n\nSuperseded by [TN-24](TN-24.md).\n");
     expect(activeTicketDesign(root)?.ticket).toBe("24");
   });
 
@@ -58,39 +84,39 @@ describe("ticket-numbered design", () => {
     vi.stubEnv("BOUNDED_TICKET", "24");
     const scope = ticketWriteScope(root)!;
     expect(scope.contractSuffixes).toEqual([".contract.ts"]);
-    const ctx = { cwd: root, ticketScope: scope, contractGlobs: contractGlobs(root) };
-    expect(decide("architect", "write", { path: "src/t24.contract.ts" }, ctx).allow).toBe(true);
-    expect(decide("architect", "write", { path: "src/t25.contract.ts" }, ctx).allow).toBe(false);
-    expect(decide("architect", "write", { path: "src/T24.contract.ts" }, ctx).allow).toBe(false);
-    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "src/t25.contract.ts" }, cwd: root })?.reason)
+    const ctx = { ...layoutCtx(root), ticketScope: scope };
+    expect(decide("architect", "write", { path: "contexts/notes/src/t24.contract.ts" }, ctx).allow).toBe(true);
+    expect(decide("architect", "write", { path: "contexts/notes/src/t25.contract.ts" }, ctx).allow).toBe(false);
+    expect(decide("architect", "write", { path: "contexts/notes/src/T24.contract.ts" }, ctx).allow).toBe(false);
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason)
       .toContain("not owned by ticket #24");
     expect(decide("architect", "write", { path: "docs/tn/TN-25.md" }, ctx).allow).toBe(false);
     expect(decide("architect", "write", { path: "spec.md" }, ctx).allow).toBe(false);
     writeFileSync(join(root, "docs/tn/TN-24.md"),
-      "---\nissue: 24\nstatus: draft\ncontracts:\n  - src/t24.contract.ts\n  - src/new.contract.ts\n---\n");
-    expect(decide("architect", "write", { path: "src/new.contract.ts" },
-      { cwd: root, ticketScope: ticketWriteScope(root), contractGlobs: contractGlobs(root) }).allow).toBe(true);
+      "---\nissue: 24\nstatus: draft\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n  - contexts/notes/src/new.contract.ts\n---\n");
+    expect(decide("architect", "write", { path: "contexts/notes/src/new.contract.ts" },
+      { ...layoutCtx(root), ticketScope: ticketWriteScope(root) }).allow).toBe(true);
   });
 
   test("two tickets freeze and review only their own note and contracts", () => {
     const root = project();
     vi.stubEnv("BOUNDED_TICKET", "24");
-    expect(Object.keys(computeManifest(root).files)).toEqual(["src/t24.contract.ts"]);
+    expect(Object.keys(computeManifest(root).files)).toEqual(["contexts/notes/src/t24.contract.ts"]);
     expect(runRecordDesignReview(root, []).code).toBe(0);
     expect(runChecksumGate(root, true).code).toBe(0);
     const first = readReviewed(root);
     if (!first.ok) throw new Error(first.error);
-    expect(Object.keys(first.reviewed)).toEqual(["docs/tn/TN-24.md", "src/t24.contract.ts", "composition:ts"]);
+    expect(Object.keys(first.reviewed)).toEqual(["docs/tn/TN-24.md", "contexts/notes/src/t24.contract.ts", "composition:ts"]);
     vi.stubEnv("BOUNDED_TICKET", "25");
     expect(runRecordDesignReview(root, []).code).toBe(0);
     expect(runChecksumGate(root, true).code).toBe(0);
     expect(runChecksumGate(root, false).code).toBe(0);
     vi.stubEnv("BOUNDED_TICKET", "24");
-    writeFileSync(join(root, "src/t25.contract.ts"), "export interface T25 { changed: true }\n");
+    writeFileSync(join(root, "contexts/notes/src/t25.contract.ts"), "export interface T25 { changed: true }\n");
     expect(runChecksumGate(root, false).code).toBe(0);
     expect(classifyReviewFreshness(readGuardLog(root), first.reviewed, "24").state).toBe("fresh");
     writeFileSync(join(root, "docs/tn/TN-24.md"),
-      "---\nissue: 24\nstatus: active\ncontracts:\n  - src/t24.contract.ts\n---\n\n# Revised ticket\n");
+      "---\nissue: 24\nstatus: active\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n---\n\n# Revised ticket\n");
     expect(runChecksumGate(root, false).code).toBe(1);
   });
 });
@@ -166,7 +192,7 @@ describe("design resolution tolerates legitimate states and scopes refusals", ()
     const root = project();
     vi.stubEnv("BOUNDED_TICKET", "24");
     writeFileSync(join(root, "docs/tn/TN-25.md"), "---\nissue: 99\nstatus: superseded\n---\n\nNo successor link.\n");
-    writeFileSync(join(root, "docs/tn/TN-27.md"), "---\nissue: 27\nstatus: bogus\ncontracts:\n  - src/t27.contract.ts\n---\n");
+    writeFileSync(join(root, "docs/tn/TN-27.md"), "---\nissue: 27\nstatus: bogus\ncontracts:\n  - contexts/notes/src/t27.contract.ts\n---\n");
     expect(activeTicketDesign(root)?.ticket).toBe("24");
     expect(ticketWriteScope(root)?.error).toBeUndefined();
   });
@@ -180,21 +206,21 @@ describe("design resolution tolerates legitimate states and scopes refusals", ()
     expect(resolveTicketDesign(root)).toEqual({ kind: "refused", ticket: "24", reason });
     expect(() => activeTicketDesign(root)).toThrow(reason);
     expect(ticketWriteScope(root)?.error).toBe(reason);
-    expect(decide("architect", "write", { path: "src/t24.contract.ts" }, { cwd: root, ticketScope: ticketWriteScope(root) }))
+    expect(decide("architect", "write", { path: "contexts/notes/src/t24.contract.ts" }, { cwd: root, ticketScope: ticketWriteScope(root) }))
       .toEqual({ allow: false, reason: `path-gate: ${reason}` });
-    expect(decide("architect", "write", { path: "docs/tn/TN-24.md" }, { cwd: root, ticketScope: ticketWriteScope(root) }).allow)
+    expect(decide("architect", "write", { path: "docs/tn/TN-24.md" }, { ...layoutCtx(root), ticketScope: ticketWriteScope(root) }).allow)
       .toBe(true);
     expect(resolveTicketDesign(root, { siblings: "ignore" }).kind).toBe("ready");
-    writeFileSync(join(root, "docs/tn/TN-25.md"), "---\nissue: 25\nstatus: active\ncontracts:\n  src/t25.contract.ts\n---\n");
+    writeFileSync(join(root, "docs/tn/TN-25.md"), "---\nissue: 25\nstatus: active\ncontracts:\n  contexts/notes/src/t25.contract.ts\n---\n");
     expect(() => activeTicketDesign(root)).toThrow(/^docs\/tn\/TN-25.md has an unreadable contracts: list/);
   });
 
   test("a design problem becomes the refusal a gated spawn reads, not a hook error", () => {
     const root = project();
     vi.stubEnv("BOUNDED_TICKET", "24");
-    writeFileSync(join(root, "docs/tn/TN-24.md"), "---\nissue: 24\nstatus: active\ncontracts:\n  - src/gone.contract.ts\n---\n");
+    writeFileSync(join(root, "docs/tn/TN-24.md"), "---\nissue: 24\nstatus: active\ncontracts:\n  - contexts/notes/src/gone.contract.ts\n---\n");
     expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder", task: "go" }, cwd: root })
-      ?.reason).toBe("phase-gate: cannot commission the builder — docs/tn/TN-24.md names missing contract 'src/gone.contract.ts'");
+      ?.reason).toBe("phase-gate: cannot commission the builder — docs/tn/TN-24.md names missing contract 'contexts/notes/src/gone.contract.ts'");
     expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "scout", task: "look" }, cwd: root }))
       .toBeUndefined();
   });
@@ -225,9 +251,9 @@ describe("contract recognition is a composed pack's contribution", () => {
     const dir = packs({ plain: "{}", typed: '{"contractFileSuffixes":[".contract.ts"]}' });
     writeProjectPacks(root, ["plain"]);
     expect(contractFileSuffixes(root, dir)).toEqual([]);
-    expect(hasContractSuffix("src/t24.contract.ts", contractFileSuffixes(root, dir))).toBe(false);
+    expect(hasContractSuffix("contexts/notes/src/t24.contract.ts", contractFileSuffixes(root, dir))).toBe(false);
     writeProjectPacks(root, ["plain", "typed"]);
-    expect(hasContractSuffix("src/t24.contract.ts", contractFileSuffixes(root, dir))).toBe(true);
+    expect(hasContractSuffix("contexts/notes/src/t24.contract.ts", contractFileSuffixes(root, dir))).toBe(true);
     expect(() => contractFileSuffixes(root, packs({ bad: '{"contractFileSuffixes":["contract"]}' })))
       .toThrow(/Selected pack|dotted filename suffix/);
   });
@@ -235,9 +261,9 @@ describe("contract recognition is a composed pack's contribution", () => {
   test("the architect's ownership check follows the scope's suffixes, not a core literal", () => {
     const root = project();
     const scope = { ticket: "24", contracts: [], contractSuffixes: [".design.x"] };
-    expect(decide("architect", "write", { path: "src/a.design.x" }, { cwd: root, ticketScope: scope }).allow).toBe(false);
+    expect(decide("architect", "write", { path: "contexts/notes/src/a.design.x" }, { cwd: root, ticketScope: scope }).allow).toBe(false);
     const unknown = { ticket: "24", contracts: [], contractSuffixes: [], error: "cannot tell which files are contracts" };
-    expect(decide("architect", "write", { path: "src/t24.contract.ts" }, { cwd: root, ticketScope: unknown }))
+    expect(decide("architect", "write", { path: "contexts/notes/src/t24.contract.ts" }, { cwd: root, ticketScope: unknown }))
       .toEqual({ allow: false, reason: "path-gate: cannot tell which files are contracts" });
   });
 
@@ -247,5 +273,92 @@ describe("contract recognition is a composed pack's contribution", () => {
     rmSync(join(root, ".bounded/composed-packs.json"));
     expect(() => activeTicketDesign(root)).toThrow(/^cannot tell which files are contracts: Cannot read project composition/);
     expect(ticketWriteScope(root)).toMatchObject({ ticket: "24", contracts: [], contractSuffixes: [] });
+  });
+});
+
+describe("a contract path must lie under a composed source root (ADR 2026-056)", () => {
+  const note = (contracts: string[], extra = ""): string =>
+    `---\nissue: 24\nstatus: draft\ncontracts:\n${contracts.map((c) => `  - ${c}\n`).join("")}${extra}---\n`;
+
+  test.each([
+    ["src/t24.contract.ts", "outside every source root (contexts/*/src)"],
+    ["contexts/notes/t24.contract.ts", "outside every source root"],
+    ["contexts/notes/src", "outside every source root"],
+    ["docs/t24.contract.ts", "outside every source root"],
+    ["t24.contract.ts", "unsafe contract path"],
+    ["contexts/notes/src/../src/t24.contract.ts", "unsafe contract path"],
+    ["contexts/notes/src/./t24.contract.ts", "unsafe contract path"],
+    ["/abs/contexts/notes/src/t24.contract.ts", "unsafe contract path"],
+    ["contexts/notes/src/t24.ts", "is not a contract file"],
+  ])("%s is refused (%s)", (path, why) => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeFileSync(join(root, "docs/tn/TN-24.md"), note([path]));
+    expect(ticketWriteScope(root)?.error).toContain(why);
+  });
+
+  test("a case-varied root still counts as the root", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeFileSync(join(root, "docs/tn/TN-24.md"), note(["Contexts/Notes/SRC/t24.contract.ts"]));
+    expect(ticketWriteScope(root)?.error).toBeUndefined();
+  });
+
+  test("an unreadable composition refuses the note rather than guessing a root", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeProjectPacks(root, ["missing-pack"]);
+    expect(() => activeTicketDesign(root)).toThrow(/^cannot tell which files are contracts/);
+  });
+});
+
+describe("the workspaces: front matter (TN-26-012 §9)", () => {
+  const withWorkspaces = (block: string): string =>
+    `---\nissue: 24\nstatus: active\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n${block}---\n`;
+  const design = (block: string) => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeFileSync(join(root, "docs/tn/TN-24.md"), withWorkspaces(block));
+    return resolveTicketDesign(root);
+  };
+
+  test("absent is an empty map, and so is a bare workspaces:", () => {
+    expect(design("")).toMatchObject({ kind: "ready", design: { workspaces: {} } });
+    expect(design("workspaces:\n")).toMatchObject({ kind: "ready", design: { workspaces: {} } });
+  });
+
+  test("block form maps each directory to a kind", () => {
+    expect(design("workspaces:\n  apps/web: web\n  apps/mcp: mcp\n  apps/lambdas: lambda-node\n")).toMatchObject({
+      kind: "ready",
+      design: { workspaces: { "apps/web": "web", "apps/mcp": "mcp", "apps/lambdas": "lambda-node" } },
+    });
+  });
+
+  test("the block ends at the first unindented line", () => {
+    expect(design("workspaces:\n  apps/web: web\nsummary: x\n")).toMatchObject({
+      kind: "ready", design: { workspaces: { "apps/web": "web" } },
+    });
+  });
+
+  test.each([
+    ["workspaces: {apps/web: web}\n", "block-form"],
+    ["workspaces: []\n", "block-form"],
+    ["workspaces:\nworkspaces:\n", "block-form"],
+    ["workspaces:\n  apps/web: web\n  apps/web: api\n", "twice"],
+    ["workspaces:\n  apps/Web: web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  apps/web: Web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  apps/web:web\n", "invalid workspaces: entry"],
+    ["workspaces:\n    apps/web: web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  - apps/web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  ../web: web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  /apps/web: web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  apps/web/: web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  apps/web: web # the site\n", "invalid workspaces: entry"],
+    ["workspaces:\n  apps//web: web\n", "invalid workspaces: entry"],
+    ["workspaces:\n  apps/web: web-\n", "invalid workspaces: entry"],
+  ])("%j makes the note invalid (%s)", (block, why) => {
+    const state = design(block);
+    expect(state.kind).toBe("refused");
+    if (state.kind === "refused") expect(state.reason).toContain(why);
   });
 });

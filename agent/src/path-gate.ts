@@ -12,17 +12,24 @@
 // be unit-tested without spawning pi.
 
 import { logGuardEvent, RUN_START_GUARD } from "./guard-log.ts";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { resolvedProjectPath } from "./setup-state.ts";
 
 /** The tools whose `path` names a project file or directory. */
 const GATED_PATH_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls", "write", "edit", "remove"]);
-import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
+import { decide, FORBIDDEN_TOOLS, type Ctx, type PathFacts, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { checkSubagentCall, type PhaseEvidence } from "./phase-gate.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
-import { contractFileSuffixes, contractGlobsOrUnreadable, hasContractSuffix, writeProtectionOrUnreadable, specTechNouns } from "./pack-contrib.ts";
+import {
+  contractFileSuffixes,
+  hasContractSuffix,
+  pathLayoutOrUnreadable,
+  sourceRoots,
+  specTechNouns,
+  writeProtectionOrUnreadable,
+} from "./pack-contrib.ts";
 import type { KnownModel } from "./model-tier.ts";
 import { designNotePath, resolveTicketDesign, ticketWriteScope } from "./ticket-design.ts";
 import { createHash } from "node:crypto";
@@ -410,13 +417,7 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
     }
   }
 
-  const ctx = {
-    cwd: ev.cwd,
-    ...(ev.harnessRoot !== undefined ? { harnessRoot: ev.harnessRoot } : {}),
-    ...(role === "architect" ? { ticketScope: ticketWriteScope(ev.cwd) } : {}),
-    ...(role === "architect" || role === "test-writer" || role === "builder"
-      ? { contractGlobs: contractGlobsOrUnreadable(ev.cwd), writeProtection: writeProtectionOrUnreadable(ev.cwd) } : {}),
-  };
+  const ctx = pathGateCtx(role, ev.cwd, ev.harnessRoot);
   const decision = resolvedDecision(decide(role, ev.toolName, ev.input, ctx), role, ev, ctx);
   if (decision.allow) return undefined;
 
@@ -428,6 +429,25 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
     detail: { role, tool: ev.toolName, path: rawPath ?? null },
   });
   return { block: true, reason: decision.reason };
+}
+
+/**
+ * The Ctx the path gate judges a role's call with: the project's layout
+ * (source roots, contract globs, test suffixes, generated globs — ADRs
+ * 2026-056…058), its protected names and, for content search, what the
+ * filesystem says. Each socket is read independently and an unreadable one
+ * is passed as `"unreadable"`, which decide() treats fail-closed. Exported so
+ * every host builds the same context (the Claude Code bash policy included).
+ */
+export function pathGateCtx(role: Role, cwd: string, harnessRoot?: string): Ctx {
+  return {
+    cwd,
+    ...(harnessRoot !== undefined ? { harnessRoot } : {}),
+    ...(role === "architect" ? { ticketScope: ticketWriteScope(cwd) } : {}),
+    ...pathLayoutOrUnreadable(cwd),
+    writeProtection: writeProtectionOrUnreadable(cwd),
+    pathFacts: projectPathFacts(cwd),
+  };
 }
 
 /**
@@ -510,12 +530,13 @@ function gatherEvidence(
     }
   }
   const suffixes = contractFileSuffixes(cwd);
+  const roots = state.kind === "legacy" ? sourceRoots(cwd) : [];
   const selected = state.kind === "legacy" ? undefined :
     state.kind === "ready" ? state.design.ticket : state.ticket;
   const evidence: PhaseEvidence = {
     // An unwritten or refused design owns nothing yet, so every worker that
     // needs one is refused while a scout may still be commissioned.
-    contracts: state.kind === "legacy" ? findContracts(cwd, suffixes) : ticket?.contracts ?? [],
+    contracts: state.kind === "legacy" ? findContracts(cwd, roots, suffixes) : ticket?.contracts ?? [],
     contractSuffixes: suffixes,
     specText,
     events,
@@ -528,15 +549,45 @@ function gatherEvidence(
   return state.kind === "refused" ? { evidence, designProblem: state.reason } : { evidence };
 }
 
-/** Project-relative contract paths (by the composed packs' suffixes). A
- *  contract lives under src/ — every contract glob is `src/**\/*<suffix>`
- *  (ADR 2026-052) — so only src/ is searched, and hidden directories are
- *  skipped. Build output and installed dependencies are therefore never
- *  walked without the core naming any stack's directories. */
-function findContracts(root: string, suffixes: readonly string[]): string[] {
+/**
+ * The concrete directories a set of source-root globs names on disk (ADR
+ * 2026-056): each `*` segment expands to the real, non-hidden directories at
+ * that level, and links are not followed. Project-relative, sorted.
+ */
+export function expandSourceRoots(project: string, roots: readonly string[]): string[] {
+  const out = new Set<string>();
+  const expand = (prefix: string, rest: readonly string[]): void => {
+    if (rest.length === 0) {
+      if (prefix !== "") out.add(prefix);
+      return;
+    }
+    const [head, ...tail] = rest as [string, ...string[]];
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(join(project, prefix), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      if (head === "*" || head.toLowerCase() === entry.name.toLowerCase()) {
+        expand(prefix === "" ? entry.name : `${prefix}/${entry.name}`, tail);
+      }
+    }
+  };
+  for (const root of roots) expand("", root.split("/"));
+  return [...out].sort();
+}
+
+/** Project-relative contract paths (by the composed packs' suffixes), found
+ *  under the composed source roots only (ADR 2026-056) — every contract glob
+ *  is `<root>/**\/*<suffix>`. Hidden directories and links are skipped, so
+ *  nothing outside a root is walked and the core names no stack's
+ *  directories. No root, no contract. */
+function findContracts(project: string, roots: readonly string[], suffixes: readonly string[]): string[] {
   const out: string[] = [];
   const walk = (dir: string, depth: number): void => {
-    if (depth > 8) return;
+    if (depth > 16) return;
     let entries: import("node:fs").Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -546,11 +597,70 @@ function findContracts(root: string, suffixes: readonly string[]): string[] {
     for (const e of entries) {
       if (e.isDirectory()) {
         if (!e.name.startsWith(".")) walk(join(dir, e.name), depth + 1);
-      } else if (hasContractSuffix(e.name, suffixes)) {
-        out.push(relative(root, join(dir, e.name)).split(sep).join("/"));
+      } else if (e.isFile() && hasContractSuffix(e.name, suffixes)) {
+        out.push(relative(project, join(dir, e.name)).split(sep).join("/"));
       }
     }
   };
-  walk(join(root, "src"), 0);
-  return out;
+  for (const root of expandSourceRoots(project, roots)) walk(join(project, root), 0);
+  return out.sort();
+}
+
+/** The most entries `tree` lists before it gives up. */
+const TREE_ENTRY_LIMIT = 50_000;
+
+/**
+ * The filesystem facts the pure policy asks for on a content search
+ * (Ctx.pathFacts): what a path is, following links, and what lies below a
+ * directory — every non-directory name and every link, links not followed and
+ * `.git` skipped — or undefined when the listing is incomplete (unreadable,
+ * or larger than TREE_ENTRY_LIMIT). A path that resolves outside the project
+ * is reported absent, never inspected.
+ */
+export function projectPathFacts(project: string): PathFacts {
+  const inside = (rel: string): string | undefined => {
+    const abs = resolve(project, rel);
+    const back = relative(project, abs);
+    return back === ".." || back.startsWith(`..${sep}`) || isAbsolute(back) ? undefined : abs;
+  };
+  return {
+    kind(rel) {
+      const abs = inside(rel);
+      if (abs === undefined) return "absent";
+      try {
+        const stat = statSync(abs);
+        return stat.isDirectory() ? "directory" : "file";
+      } catch {
+        return "absent";
+      }
+    },
+    tree(rel) {
+      const abs = inside(rel);
+      if (abs === undefined) return undefined;
+      const fileNames: string[] = [];
+      const links: string[] = [];
+      const stack = [abs];
+      let seen = 0;
+      while (stack.length > 0) {
+        const dir = stack.pop()!;
+        let entries: import("node:fs").Dirent[];
+        try {
+          entries = readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return undefined;
+        }
+        for (const entry of entries) {
+          if (++seen > TREE_ENTRY_LIMIT) return undefined;
+          if (entry.isSymbolicLink()) {
+            links.push(relative(project, join(dir, entry.name)).split(sep).join("/"));
+          } else if (entry.isDirectory()) {
+            if (entry.name.toLowerCase() !== ".git") stack.push(join(dir, entry.name));
+          } else {
+            fileNames.push(entry.name);
+          }
+        }
+      }
+      return { fileNames, links: links.sort() };
+    },
+  };
 }

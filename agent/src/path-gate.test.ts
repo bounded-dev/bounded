@@ -2,9 +2,18 @@ import { writeProjectPacks } from "./project-composition.ts";
 import { mkdirSync, mkdtempSync as createTempDir, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { logGuardEvent, readGuardLog } from "./guard-log.ts";
-import { asRole, evaluatePathGate, PIPELINE_ROLES } from "./path-gate.ts";
+import { asRole, evaluatePathGate, expandSourceRoots, PIPELINE_ROLES, projectPathFacts } from "./path-gate.ts";
+
+// The layout the composed packs will contribute (ADRs 2026-056…058), overlaid
+// until an installed pack does: see hexagonal-layout.test-support.ts.
+vi.mock("./pack-contrib.ts", async (importOriginal) => {
+  const { withHexagonalLayout } = await import("./hexagonal-layout.test-support.ts");
+  return withHexagonalLayout(await importOriginal());
+});
+
+const C = "contexts/orders/src";
 import { devStageModelsPath } from "./dev-stage-models.ts";
 import type { KnownModel } from "./model-tier.ts";
 
@@ -63,22 +72,22 @@ type Case = {
 const CASES: Case[] = [
   {
     role: "architect",
-    allowed: { tool: "write", path: "src/orders/orders.contract.ts" },
-    blocked: { tool: "write", path: "src/orders/orders.ts" }, // implementation, not contract
+    allowed: { tool: "write", path: `${C}/domain/orders.contract.ts` },
+    blocked: { tool: "write", path: `${C}/domain/orders.ts` }, // implementation, not contract
   },
   {
     role: "test-writer",
-    allowed: { tool: "write", path: "tests/orders.test.ts" },
-    blocked: { tool: "read", path: "src/orders/orders.ts" }, // blind to src/
+    allowed: { tool: "write", path: `${C}/domain/orders.test.ts` },
+    blocked: { tool: "read", path: `${C}/domain/orders.ts` }, // blind to implementation
   },
   {
     role: "builder",
-    allowed: { tool: "write", path: "src/orders/orders.ts" },
-    blocked: { tool: "read", path: "tests/orders.test.ts" }, // blind to tests/
+    allowed: { tool: "write", path: `${C}/domain/orders.ts` },
+    blocked: { tool: "read", path: `${C}/domain/orders.test.ts` }, // blind to tests
   },
   {
     role: "reviewer",
-    allowed: { tool: "read", path: "src/orders/orders.contract.ts" }, // the design under review
+    allowed: { tool: "read", path: `${C}/domain/orders.contract.ts` }, // the design under review
     blocked: { tool: "write", path: "spec.md" }, // not even the file it is reviewing
   },
 ];
@@ -170,8 +179,8 @@ function readyProject(): string {
     join(cwd, "spec.md"),
     "## Intake\n\nNothing stripped.\n\n## Rules\n\n" + "x".repeat(4000),
   );
-  mkdirSync(join(cwd, "src"), { recursive: true });
-  writeFileSync(join(cwd, "src", "money.contract.ts"), "export type Money = number;\n");
+  mkdirSync(join(cwd, C), { recursive: true });
+  writeFileSync(join(cwd, C, "money.contract.ts"), "export type Money = number;\n");
   for (const guard of ["contract-purity", "scaffold", "checksum-gate"]) {
     logGuardEvent(cwd, { guard, verdict: "pass", summary: "step passed" });
   }
@@ -208,6 +217,17 @@ describe("commissioning a worker", () => {
       "commissioned test-writer",
       "commissioned builder",
     ]);
+  });
+
+  test("contracts are found under the source roots only (ADR 2026-056)", () => {
+    const cwd = readyProject();
+    rmSync(join(cwd, C), { recursive: true, force: true });
+    mkdirSync(join(cwd, "lib"), { recursive: true });
+    writeFileSync(join(cwd, "lib", "money.contract.ts"), "export type Money = number;\n");
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder" }, cwd })?.block).toBe(true);
+    mkdirSync(join(cwd, "apps/web/src/deep/er"), { recursive: true });
+    writeFileSync(join(cwd, "apps/web/src/deep/er/money.contract.ts"), "export type Money = number;\n");
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder" }, cwd })).toBeUndefined();
   });
 
   test("an unmet precondition blocks and is logged as a phase-gate refusal", () => {
@@ -447,29 +467,145 @@ describe("links inside the project", () => {
     const cwd = tmp();
     const outside = tmp();
     writeFileSync(join(outside, "passwd"), "secret\n");
-    mkdirSync(join(cwd, "src"), { recursive: true });
-    mkdirSync(join(cwd, "tests"), { recursive: true });
+    mkdirSync(join(cwd, C, "domain"), { recursive: true });
+    mkdirSync(join(cwd, "docs"), { recursive: true });
     mkdirSync(join(cwd, ".git"), { recursive: true });
-    writeFileSync(join(cwd, "src", "a.ts"), "export {};\n");
+    writeFileSync(join(cwd, C, "a.ts"), "export {};\n");
+    writeFileSync(join(cwd, C, "domain", "a.test.ts"), "test('x', () => {});\n");
+    writeFileSync(join(cwd, C, "domain", "a.handler.ts"), "export {};\n");
     writeFileSync(join(cwd, ".git", "config"), "[core]\n");
-    symlinkSync(outside, join(cwd, "src", "out"));
-    symlinkSync(join(cwd, ".git"), join(cwd, "src", "g"));
-    symlinkSync(join(cwd, "tests"), join(cwd, "src", "t"));
+    symlinkSync(outside, join(cwd, C, "out"));
+    symlinkSync(join(cwd, ".git"), join(cwd, C, "g"));
+    // Innocent names that resolve onto the other side.
+    symlinkSync(join(cwd, C, "domain", "a.test.ts"), join(cwd, C, "innocent.ts"));
+    symlinkSync(join(cwd, C, "domain", "a.handler.ts"), join(cwd, C, "innocent.test.ts"));
+    symlinkSync(join(cwd, C, "domain"), join(cwd, "docs", "domain-link"));
     return cwd;
   }
 
   test.each(["architect", "reviewer", "builder", "test-writer"])("%s cannot read out of the project or into .git through a link", (role) => {
     const cwd = linked();
-    for (const path of ["src/out/passwd", "src/g/config"]) {
+    for (const path of [`${C}/out/passwd`, `${C}/g/config`]) {
       expect(evaluatePathGate({ role, toolName: "read", input: { path }, cwd })?.block, path).toBe(true);
     }
-    if (role !== "test-writer") expect(evaluatePathGate({ role, toolName: "read", input: { path: "src/a.ts" }, cwd })).toBeUndefined();
+    if (role !== "test-writer") expect(evaluatePathGate({ role, toolName: "read", input: { path: `${C}/a.ts` }, cwd })).toBeUndefined();
   });
 
   test("a write through a link is held to the zone it lands in", () => {
     const cwd = linked();
-    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: "src/b.ts" }, cwd })).toBeUndefined();
-    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: "src/t/x.test.ts" }, cwd })?.block).toBe(true);
-    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: "src/out/x.ts" }, cwd })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: `${C}/b.ts` }, cwd })).toBeUndefined();
+    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: `${C}/innocent.ts` }, cwd })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: `${C}/out/x.ts` }, cwd })?.block).toBe(true);
+  });
+
+  test("an innocent name linked to the other side is judged by what it resolves to", () => {
+    const cwd = linked();
+    const read = (role: string, path: string) => evaluatePathGate({ role, toolName: "read", input: { path }, cwd });
+    expect(read("builder", `${C}/innocent.ts`)?.reason).toContain("it is a test file");
+    expect(read("test-writer", `${C}/innocent.test.ts`)?.reason).toContain("it is an implementation file");
+    const grep = evaluatePathGate({ role: "builder", toolName: "grep", input: { path: `${C}/innocent.ts`, pattern: "x" }, cwd });
+    expect(grep?.block).toBe(true);
+  });
+
+  test("a directory outside every root that links into one needs the glob proof", () => {
+    const cwd = linked();
+    const grep = (glob?: string) => evaluatePathGate({
+      role: "builder", toolName: "grep", cwd,
+      input: { path: "docs/domain-link", pattern: "x", ...(glob === undefined ? {} : { glob }) },
+    });
+    expect(grep()?.reason).toContain("can reach test files");
+    expect(grep("*.handler.ts")).toBeUndefined();
+    // Searching the directory that HOLDS the link is refused whatever the
+    // glob: whether a tool follows the link is the tool's business.
+    expect(evaluatePathGate({ role: "builder", toolName: "grep", input: { path: "docs", pattern: "x", glob: "*.handler.ts" }, cwd })?.reason)
+      .toContain("'docs/domain-link' is a link");
+  });
+});
+
+// The gate hands decide() what the filesystem says, so a content search can
+// be judged on what it would really read.
+describe("content search on the real tree", () => {
+  function tree(): string {
+    const cwd = tmp();
+    mkdirSync(join(cwd, C, "domain"), { recursive: true });
+    writeFileSync(join(cwd, C, "domain", "money.ts"), "export {};\n");
+    writeFileSync(join(cwd, C, "domain", "money.test.ts"), "test('x', () => {});\n");
+    return cwd;
+  }
+  const grep = (cwd: string, role: string, path: string, glob?: string) => evaluatePathGate({
+    role, toolName: "grep", cwd, input: { path, pattern: "x", ...(glob === undefined ? {} : { glob }) },
+  });
+
+  test("a grep of one implementation file needs no glob; of a directory it does", () => {
+    const cwd = tree();
+    expect(grep(cwd, "builder", `${C}/domain/money.ts`)).toBeUndefined();
+    expect(grep(cwd, "builder", `${C}/domain`)?.block).toBe(true);
+    expect(grep(cwd, "builder", `${C}/domain`, "*.money.ts")).toBeUndefined();
+    expect(grep(cwd, "test-writer", `${C}/domain`, "*.test.ts")).toBeUndefined();
+    expect(grep(cwd, "test-writer", `${C}/domain/money.ts`)?.block).toBe(true);
+  });
+
+  test("the refusal is logged with the path the role asked for", () => {
+    const cwd = tree();
+    const result = grep(cwd, "builder", C);
+    expect(result?.reason).toContain("pass a glob naming the files you want");
+    expect(readGuardLog(cwd).at(-1)).toMatchObject({ guard: "path-gate", verdict: "block", detail: { role: "builder", tool: "grep", path: C } });
+  });
+
+  test("an unreadable composition refuses every blind read inside a would-be root", () => {
+    const cwd = tree();
+    rmSync(join(cwd, ".bounded", "composed-packs.json"));
+    expect(evaluatePathGate({ role: "builder", toolName: "read", input: { path: `${C}/domain/money.test.ts` }, cwd })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "test-writer", toolName: "read", input: { path: `${C}/domain/money.ts` }, cwd })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "builder", toolName: "write", input: { path: `${C}/domain/money.ts` }, cwd })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "builder", toolName: "ls", input: { path: C }, cwd })).toBeUndefined();
+  });
+});
+
+describe("projectPathFacts", () => {
+  test("kind follows links and never looks outside the project", () => {
+    const cwd = tmp();
+    const outside = tmp();
+    mkdirSync(join(cwd, "d"));
+    writeFileSync(join(cwd, "d", "f.ts"), "");
+    symlinkSync(join(cwd, "d"), join(cwd, "dl"));
+    const facts = projectPathFacts(cwd);
+    expect(facts.kind("d")).toBe("directory");
+    expect(facts.kind("dl")).toBe("directory");
+    expect(facts.kind("d/f.ts")).toBe("file");
+    expect(facts.kind("d/none")).toBe("absent");
+    expect(facts.kind(`../${outside.split("/").at(-1)}`)).toBe("absent");
+  });
+
+  test("tree lists every name below and every link, skips .git, follows no nested link", () => {
+    const cwd = tmp();
+    const outside = tmp();
+    writeFileSync(join(outside, "hidden.TEST.ts"), "");
+    mkdirSync(join(cwd, "d", "e", ".git"), { recursive: true });
+    mkdirSync(join(cwd, "d", ".hidden"), { recursive: true });
+    writeFileSync(join(cwd, "d", "a.ts"), "");
+    writeFileSync(join(cwd, "d", "e", "b.Test.ts"), "");
+    writeFileSync(join(cwd, "d", ".hidden", "c.ts"), "");
+    writeFileSync(join(cwd, "d", "e", ".git", "HEAD"), "");
+    symlinkSync(outside, join(cwd, "d", "out"));
+    symlinkSync(join(cwd, "d", "a.ts"), join(cwd, "d", "e", "alias.ts"));
+    const tree = projectPathFacts(cwd).tree("d")!;
+    expect([...tree.fileNames].sort()).toEqual(["a.ts", "b.Test.ts", "c.ts"]);
+    expect(tree.links).toEqual(["d/e/alias.ts", "d/out"]);
+    expect(projectPathFacts(cwd).tree("missing")).toBeUndefined();
+    expect(projectPathFacts(cwd).tree("..")).toBeUndefined();
+  });
+});
+
+describe("expandSourceRoots", () => {
+  test("each '*' expands to real, non-hidden directories; case is ignored; links are not followed", () => {
+    const cwd = tmp();
+    for (const dir of ["contexts/a/src", "contexts/b/src", "contexts/c/lib", "contexts/.x/src", "Apps/web/SRC"]) {
+      mkdirSync(join(cwd, dir), { recursive: true });
+    }
+    writeFileSync(join(cwd, "contexts", "file"), "");
+    symlinkSync(join(cwd, "contexts", "a"), join(cwd, "contexts", "linked"));
+    expect(expandSourceRoots(cwd, ["contexts/*/src", "apps/*/src"])).toEqual(["Apps/web/SRC", "contexts/a/src", "contexts/b/src"]);
+    expect(expandSourceRoots(cwd, [])).toEqual([]);
   });
 });

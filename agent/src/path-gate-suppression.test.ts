@@ -14,6 +14,13 @@ import {
 } from "./path-gate.ts";
 import { writeProjectPacks } from "./project-composition.ts";
 
+// The layout the composed packs will contribute (ADRs 2026-056…058), overlaid
+// until an installed pack does: see hexagonal-layout.test-support.ts.
+vi.mock("./pack-contrib.ts", async (importOriginal) => {
+  const { withHexagonalLayout } = await import("./hexagonal-layout.test-support.ts");
+  return withHexagonalLayout(await importOriginal());
+});
+
 // THE BUG THIS EXISTS FOR (dogfood Run 6, 2026-09-02)
 //
 // A subagent installs TWO path-gate hooks, and neither knows about the other:
@@ -56,14 +63,14 @@ beforeEach(() => {
 describe("ambient path gate suppression", () => {
   test("with no bound role installed, the ambient gate is live", () => {
     expect(isAmbientSuppressed()).toBe(false);
-    const blocked = evaluateAmbientPathGate({ role: "architect", ...write("tests/x.test.ts") });
+    const blocked = evaluateAmbientPathGate({ role: "architect", ...write("contexts/m/src/x.test.ts") });
     expect(blocked?.block).toBe(true);
   });
 
   test("once a bound role is installed, the ambient gate stands down", () => {
     markBoundRoleInstalled();
     expect(isAmbientSuppressed()).toBe(true);
-    expect(evaluateAmbientPathGate({ role: "architect", ...write("tests/x.test.ts") })).toBeUndefined();
+    expect(evaluateAmbientPathGate({ role: "architect", ...write("contexts/m/src/x.test.ts") })).toBeUndefined();
   });
 
   // The exact live failure, as an executable case.
@@ -72,13 +79,13 @@ describe("ambient path gate suppression", () => {
     markBoundRoleInstalled();
 
     // ...the bound hook allows the write, as it always did:
-    expect(evaluatePathGate({ role: "test-writer", ...write("tests/start.test.ts") })).toBeUndefined();
+    expect(evaluatePathGate({ role: "test-writer", ...write("contexts/m/src/start.test.ts") })).toBeUndefined();
 
     // ...and the ambient hook, which would otherwise apply the PARENT's
     // architect role from .bounded/dev-stage-role, no longer fires. Before the fix
     // this returned a block reading "architect may not write
     // 'tests/start.test.ts'" and deadlocked the pipeline at its first worker.
-    expect(evaluateAmbientPathGate({ role: "architect", ...write("tests/start.test.ts") })).toBeUndefined();
+    expect(evaluateAmbientPathGate({ role: "architect", ...write("contexts/m/src/start.test.ts") })).toBeUndefined();
   });
 
   test("the bound gate still enforces the child's OWN zone — blindness is untouched", () => {
@@ -88,7 +95,7 @@ describe("ambient path gate suppression", () => {
     const peek = evaluatePathGate({
       role: "test-writer",
       toolName: "read",
-      input: { path: "src/money.ts" },
+      input: { path: "contexts/m/src/money.ts" },
       cwd: CTX.cwd,
     });
     expect(peek?.block).toBe(true);
@@ -98,12 +105,12 @@ describe("ambient path gate suppression", () => {
   test("a builder is likewise confined to its own zone, not the parent's", () => {
     markBoundRoleInstalled();
     // Allowed by its own zone...
-    expect(evaluatePathGate({ role: "builder", ...write("src/money.ts") })).toBeUndefined();
+    expect(evaluatePathGate({ role: "builder", ...write("contexts/m/src/money.ts") })).toBeUndefined();
     // ...and the parent's architect zone, which forbids src/**, does not apply.
-    expect(evaluateAmbientPathGate({ role: "architect", ...write("src/money.ts") })).toBeUndefined();
+    expect(evaluateAmbientPathGate({ role: "architect", ...write("contexts/m/src/money.ts") })).toBeUndefined();
     // ...but the builder still cannot touch the contract or the tests.
-    expect(evaluatePathGate({ role: "builder", ...write("src/money.contract.ts") })?.block).toBe(true);
-    expect(evaluatePathGate({ role: "builder", ...write("tests/x.test.ts") })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "builder", ...write("contexts/m/src/money.contract.ts") })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "builder", ...write("contexts/m/src/x.test.ts") })?.block).toBe(true);
   });
 
   // The reviewer is the case where suppression matters most in the design
@@ -117,7 +124,7 @@ describe("ambient path gate suppression", () => {
       evaluatePathGate({
         role: "reviewer",
         toolName: "read",
-        input: { path: "src/money.contract.ts" },
+        input: { path: "contexts/m/src/money.contract.ts" },
         cwd: CTX.cwd,
       }),
     ).toBeUndefined();
@@ -130,7 +137,7 @@ describe("ambient path gate suppression", () => {
   test("suppression is not order-dependent — the check happens per call, not at install", () => {
     // The ambient extension may well load BEFORE the bound loader; what matters
     // is the state at tool-call time.
-    const ev = { role: "architect" as const, ...write("tests/x.test.ts") };
+    const ev = { role: "architect" as const, ...write("contexts/m/src/x.test.ts") };
     expect(evaluateAmbientPathGate(ev)?.block).toBe(true); // ambient loaded first, still live
     markBoundRoleInstalled(); // bound loader arrives afterwards
     expect(evaluateAmbientPathGate(ev)).toBeUndefined();

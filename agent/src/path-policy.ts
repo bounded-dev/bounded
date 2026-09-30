@@ -1,12 +1,15 @@
-// Path policy for the developer-stage pipeline (TN-26-001).
+// Path policy for the developer-stage pipeline (TN-26-001; the sides are
+// source roots and file-name suffixes, ADRs 2026-056…058).
 //
-// Pure core: no pi imports, no fs. The tool_call path-gate extension
+// Pure core: no pi imports, no fs — what the filesystem says reaches it only
+// as data the host passes (Ctx.pathFacts). The tool_call path-gate extension
 // (Phase 2) is thin wiring over decide(). Every block returns a stable,
 // one-line, greppable reason — a deterministic system that is opaque when
 // it jams is just a deterministic jam.
 
 import picomatch from "picomatch";
 import type { TicketWriteScope } from "./ticket-design.ts";
+import { pathGlobMatcher, sourceRootOf } from "./pack-contrib.ts";
 
 export type Role = "architect" | "test-writer" | "builder" | "reviewer";
 
@@ -28,16 +31,39 @@ export interface Ctx {
   /** Resolved by the host's filesystem boundary; absent in legacy projects. */
   readonly ticketScope?: TicketWriteScope;
   /**
-   * Globs of the project's contract files (`src/**\/*<suffix>` for each
-   * suffix the composed packs contribute, ADR 2026-052). They become the
-   * architect's extra write zone, the test-writer's read exception inside
-   * its blind src/ zone and the builder's write deny. Absent means no pack
-   * contributes a suffix, so no file is a contract. `"unreadable"` means the
-   * composition could not be read: the architect may not write under src/,
-   * the test-writer gets no exception and the builder may not write under
-   * src/ at all, so an unknown contract cannot be overwritten.
+   * Globs of the project's contract files (`<root>/**\/*<suffix>` for each
+   * composed source root and contract suffix, ADRs 2026-052 and 2026-056).
+   * They become the architect's extra write zone, the test-writer's read
+   * exception and the builder's write deny. `"unreadable"` means the
+   * composition could not be read: no file is known to be a contract, so the
+   * architect writes none, the test-writer reads none and the builder may not
+   * write inside any source root. Absent is treated as unreadable.
    */
   readonly contractGlobs?: readonly string[] | "unreadable";
+  /**
+   * The composed `sourceRoots` (ADR 2026-056): the directories roles author
+   * source under. Absent or `"unreadable"` fails closed: every path that could
+   * lie under some root is the OTHER side for both blind roles.
+   */
+  readonly sourceRoots?: readonly string[] | "unreadable";
+  /**
+   * The composed `testFileSuffixes` (ADR 2026-057): a file inside a source
+   * root whose name ends with one is test-side. Absent or `"unreadable"`
+   * treats every file under a root as the other side for both blind roles.
+   */
+  readonly testSuffixes?: readonly string[] | "unreadable";
+  /**
+   * The composed `generatedFileGlobs` (ADR 2026-058): write-denied for every
+   * role, readable by every role. Absent or `"unreadable"` refuses every
+   * write, because which files are generated is unknown.
+   */
+  readonly generatedGlobs?: readonly string[] | "unreadable";
+  /**
+   * What the filesystem says about a project-relative path, when the host can
+   * look (the path gate can; a pure caller cannot). Only content search uses
+   * it. Absent means "cannot tell", which is judged the strict way.
+   */
+  readonly pathFacts?: PathFacts;
   /**
    * Names the composed packs protect at ANY depth (ADR 2026-054): their
    * dependency directory names and their nested config file names. A nested
@@ -50,6 +76,48 @@ export interface Ctx {
    */
   readonly writeProtection?: WriteProtection | "unreadable";
 }
+
+/** Filesystem facts a host supplies for content search (see Ctx.pathFacts). */
+export interface PathFacts {
+  /** What a project-relative path is, following links. */
+  kind(path: string): "file" | "directory" | "absent";
+  /**
+   * Everything below a project-relative directory, links not followed and
+   * `.git` skipped: the base name of every non-directory entry, and the
+   * project-relative path of every link — or undefined when the tree cannot
+   * be listed in full. A content search is allowed over a directory only when
+   * this is known and holds no link (a link could lead a search anywhere),
+   * and a `!*<suffix>` exclusion is proven against these names whatever
+   * their case.
+   */
+  tree(dir: string): PathTree | undefined;
+}
+
+/** What lies below a directory (see PathFacts.tree). */
+export interface PathTree {
+  readonly fileNames: readonly string[];
+  readonly links: readonly string[];
+}
+
+/**
+ * The layout data that decides who owns a file (ADRs 2026-056…058): the
+ * source roots, the contract globs, the test-side suffixes and the generated
+ * globs. Each field is the composed value or `"unreadable"`.
+ */
+export interface PathLayout {
+  readonly sourceRoots: readonly string[] | "unreadable";
+  readonly contractGlobs: readonly string[] | "unreadable";
+  readonly testSuffixes: readonly string[] | "unreadable";
+  readonly generatedGlobs: readonly string[] | "unreadable";
+}
+
+/** Every field unreadable: what a caller that passes no layout gets. */
+export const UNREADABLE_LAYOUT: PathLayout = {
+  sourceRoots: "unreadable",
+  contractGlobs: "unreadable",
+  testSuffixes: "unreadable",
+  generatedGlobs: "unreadable",
+};
 
 /** Pack-contributed names write-denied for every role at any depth. */
 export interface WriteProtection {
@@ -139,7 +207,7 @@ const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 //     blind roles, and it does the archaeology (reflog, bisect, blame) that a
 //     closed verb list would cage exactly when it is most needed.
 //
-// git is the sharper exclusion of the two: `git show HEAD:tests/x.test.ts`
+// git is the sharper exclusion of the two: `git show HEAD:<a test file>`
 // hands the builder the test source in a single call and `git log -p` does it
 // by accident, so full git in a blind role's hands defeats blindness more
 // completely than bash would.
@@ -212,7 +280,7 @@ export const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
 // orchestrator never grants a worker `subagent` or `bash`. Rationale:
 //
 //   · No `bash` for any worker — shell access defeats every path rule (a
-//     builder could `cat tests/`, an architect could read `src/`). The builder
+//     builder could `cat` a test file, `grep -r` would read every one). The builder
 //     sees test FAILURES, never test SOURCE, through the sanitized `run_tests`
 //     tool instead of a shell.
 //   · No `subagent` for any worker — only orchestrators orchestrate; a worker
@@ -327,20 +395,14 @@ const ALWAYS_DENY = [".git", ".git/**"] as const;
 // `fs`, which never passes through the tool hook, so they are unaffected.
 const ALWAYS_WRITE_DENY = [".bounded", ".bounded/**"] as const;
 
-// Denied for every role on WRITE, the test-writer included — and the test-writer
-// is the whole reason this is stated rather than inherited, because `tests/**`
-// is its write zone.
-//
-// `tests/generated/**` is the value-object law suite: generated from the
-// contract by the pack's `value-object-laws.ts`, asserting what is true of
-// EVERY value object (parse refuses `null`/`[]`/`42`/`""`, equality is by
-// value, parsing is deterministic). Nobody hand-writes it for the same reason
-// nobody hand-writes a skeleton — an
-// edit to a generated file is a claim the next regeneration silently discards,
-// and a test suite that quietly reverts is worse than no suite. Reads are
-// untouched: whoever can read `tests/` can read this.
-const GENERATED_WRITE_DENY = ["tests/generated", "tests/generated/**"] as const;
-
+// Generated files (ADR 2026-058) are denied for every role on WRITE, the
+// test-writer included — a generated law suite is test-side by name, and the
+// test-writer is exactly the role that would otherwise be let in. Nobody
+// hand-writes one for the same reason nobody hand-writes a skeleton: an edit to
+// a generated file is a claim the next regeneration silently discards, and a
+// suite that quietly reverts is worse than no suite. Which files are generated
+// is the composed packs' `generatedFileGlobs`; the core names none. Reads are
+// open to every role: blindness guards the other role's AUTHORED work only.
 // Directory names no role writes at ANY depth. The root `.git` and `.bounded`
 // are denied above; a nested one is the same kind of thing in a place tools
 // also honour (a nested `.git` is a repository boundary for git, a nested
@@ -362,16 +424,22 @@ function nameGlob(name: string): RegExp {
 function alwaysWriteDenied(
   path: string,
   protection: WriteProtection | "unreadable" | undefined,
+  generated: readonly string[] | "unreadable",
 ): { readonly reason: string } | null {
   if (matchesAny(ALWAYS_WRITE_DENY, path)) {
     return {
       reason: "'.bounded' is the guard log and checksum manifest — read-only for every role",
     };
   }
-  if (matchesAny(GENERATED_WRITE_DENY, path)) {
+  if (generated === "unreadable") {
     return {
-      reason:
-        "'tests/generated' is machine-generated — the value-object law suite, written by the pack's value-object-laws.ts from the contract. Regenerate it; a hand edit is discarded, never merged",
+      reason: "the project composition is unreadable, so which files are generated is unknown — every write waits; report it to the orchestrator",
+    };
+  }
+  const glob = generated.find((g) => pathGlobMatcher([g])(path));
+  if (glob !== undefined) {
+    return {
+      reason: `it is a generated file (matches '${glob}', ADR 2026-058) — a generator writes it from the design and a hand edit is discarded; read it freely, and report what should change to the orchestrator`,
     };
   }
   const segments = path.split("/");
@@ -396,16 +464,17 @@ function alwaysWriteDenied(
     };
   }
   const name = segments[segments.length - 1]!;
-  const glob = protection.fileNames.find((pattern) => nameGlob(pattern).test(name));
-  if (glob !== undefined) {
+  const config = protection.fileNames.find((pattern) => nameGlob(pattern).test(name));
+  if (config !== undefined) {
     return {
-      reason: `'${name}' is project config at any depth (ADR 2026-054, matches '${glob}'): the stack's tools read the nearest one per directory — no role writes it; report what needs changing to the orchestrator`,
+      reason: `'${name}' is project config at any depth (ADR 2026-054, matches '${config}'): the stack's tools read the nearest one per directory — no role writes it; report what needs changing to the orchestrator`,
     };
   }
   return null;
 }
 
-// --- Zones (v1: hardcoded globs, per TN-26-001) ------------------------------
+
+// --- Zones -------------------------------------------------------------------
 
 export interface Zone {
   /** Write is an allowlist: only the role's own artifact kind. */
@@ -422,15 +491,16 @@ export interface Zone {
 // The blindness is between TESTS and IMPLEMENTATION, and nowhere else:
 //
 //     artifact          architect   test-writer   builder
-//     contract          read        read          read     ← shared
-//     spec.md           read        read          read     ← shared
-//     implementation    –           –             write
-//     tests             –           write         –        ← the real blindness
+//     contract          write       read          read     ← shared
+//     spec / TN         write       read          read     ← shared
+//     generated         read        read          read     ← shared (ADR 2026-058)
+//     implementation    read        –             write
+//     tests             read        write         –        ← the real blindness
 //
 // The contract and the spec are the SHARED interface: all three roles work
 // against them, and they are declaration-only by construction (contract-purity
 // enforces it), so sharing them leaks nothing. An earlier version of this file
-// stated the rule as "src is ALWAYS blind, contracts included", which is a
+// stated the rule as "source is ALWAYS blind, contracts included", which is a
 // muddled reading of the same idea — and it killed a live run, because the
 // test-writer imports from contract paths it was then refused permission to
 // read. It escalated, was told the wall was intentional, and exited without
@@ -438,6 +508,16 @@ export interface Zone {
 //
 // So: deny an agent the OTHER SIDE's work product. Never deny it the interface
 // it is working against.
+//
+// WHERE THE SIDES ARE (ADRs 2026-056, 2026-057). Tests sit next to the code
+// they test, so the sides are told apart by FILE NAME, not by directory. Inside
+// a composed source root, a file whose name ends with a composed test suffix is
+// test-side, a contract is shared, a generated file is shared, and every other
+// file is implementation. The core names no root and no suffix: the blind
+// roles' static zones below are therefore empty, and decide() derives them
+// from the layout the host passes in Ctx. A NAME is not content: either blind
+// role may list and find the other side's file names; it may not read them,
+// search their content, or write them.
 export const ZONES: Record<Role, Zone> = {
   // The architect owns one ticket end to end: it designs, commissions the two
   // blind roles, and arbitrates between them. So it READS EVERYTHING and WRITES
@@ -449,15 +529,12 @@ export const ZONES: Record<Role, Zone> = {
   // commit it. Meanwhile the architect must read both: arbitrating "this test
   // contradicts the spec" is impossible without reading the test, and
   // answering "why is this failing?" is the human's whole reason for talking
-  // to it. An empty readDeny also leaves no pipeline blind zone for a search
-  // to overlap, so this role stops tripping most of issue #8's friction —
-  // `ls src` and `ls tests` now work. Root `ls .` still blocks, but on the
-  // `.git` overlap alone, which wants result filtering rather than a wider
-  // zone.
+  // to it. Root `ls .` still blocks, but on the `.git` overlap alone, which
+  // wants result filtering rather than a wider zone.
   architect: {
     // Contract files are NOT listed here: the composed packs contribute their
-    // suffixes, and zoneFor() adds `src/**/*<suffix>` from Ctx.contractGlobs
-    // (ADR 2026-052), so the core names no technology.
+    // roots and suffixes, and decide() adds Ctx.contractGlobs (ADRs 2026-052,
+    // 2026-056), so the core names no technology and no layout.
     //
     // No project configuration file is writable by the architect or any other
     // role (ADR 2026-054). The stack's compiler, package and test-runner
@@ -472,48 +549,26 @@ export const ZONES: Record<Role, Zone> = {
       "CONTEXT.md",
       "ADRs/*.md",
       // The architect's sanctioned scratch zone. THREE runs, three models each
-      // tried to write a throwaway type-probe (scratch-nominal-check.ts,
-      // src/__probe/probe.ts, src/scratch-probe/…) to test a type idea, and each
-      // was refused because it fell outside every write zone — then one smuggled
-      // it in as a real contract, polluting the deliverable and costing ~10min of
-      // cleanup. So the architect gets a legitimate sandbox. It is TOP-LEVEL, not
-      // under src/ or tests/, precisely so it overlaps no artifact zone: every
-      // gate that globs the project is rooted at src/ (contract-purity,
-      // surface-check) or skips it by name (the checksum/freeze walk and the
-      // scaffolder share IGNORE_DIRS in checksum-gate.ts), the scaffolded
-      // compiler config includes only src/ and tests/ so a broken probe cannot
-      // block a gate typecheck, deliver walks src/ and tests/ only so it never ships it,
-      // and dogfood-reset gitignores it. Only the architect writes it — the three
-      // blind roles' zones do not include it — so it is the architect's alone.
+      // tried to write a throwaway type-probe to test a type idea, and each
+      // was refused because it fell outside every write zone — then one
+      // smuggled it in as a real contract, polluting the deliverable and
+      // costing ~10min of cleanup. So the architect gets a legitimate sandbox.
+      // It is TOP-LEVEL, away from the source roots, so it overlaps no artifact
+      // zone: the checksum/freeze walk and the scaffolder skip it by name,
+      // deliver never ships it, and dogfood-reset gitignores it. Only the
+      // architect writes it — no other role's zone includes it.
       "scratch/**",
     ],
     writeDeny: [],
     readDeny: [],
     readExcept: [],
   },
-  // The contract is the interface under test, so the test-writer must be able
-  // to read it — it imports from those exact paths. Dogfood Run 5 died here:
-  // the task prompt told the test-writer to import from the contract, the gate
-  // refused the read, and the role escalated and exited without writing a
-  // test. Contracts are declaration-only (the contract-purity gate enforces
-  // it), so this leaks no implementation; blind to src/** means blind to the
-  // IMPLEMENTATION, never to the interface. Searches over src/ remain denied:
-  // a directory listing would reveal the implementation's shape.
-  "test-writer": {
-    writeAllow: ["tests/**"],
-    writeDeny: [],
-    readDeny: ["src", "src/**"],
-    // The contract files are the composed packs' contribution: zoneFor()
-    // adds Ctx.contractGlobs here (ADR 2026-052).
-    readExcept: [],
-  },
-  builder: {
-    writeAllow: ["src/**"],
-    // Contract files are denied through Ctx.contractGlobs (zoneFor()).
-    writeDeny: [],
-    readDeny: ["tests", "tests/**"],
-    readExcept: [],
-  },
+  // Writes test-side files inside the source roots; reads everything except
+  // implementation files. Derived from the layout in decide().
+  "test-writer": { writeAllow: [], writeDeny: [], readDeny: [], readExcept: [] },
+  // Writes implementation files inside the source roots; reads everything
+  // except test-side files. Derived from the layout in decide().
+  builder: { writeAllow: [], writeDeny: [], readDeny: [], readExcept: [] },
   // The reviewer reads the design as the two blind consumers will, and that is
   // all it does: EMPTY writeAllow, so every write, edit and remove is refused
   // whatever the path. Its findings are claims recorded in the guard log for
@@ -527,23 +582,16 @@ export const ZONES: Record<Role, Zone> = {
   // tree). It is no threat to the blindness because it writes nothing at all —
   // it cannot make a test agree with an implementation when it can write
   // neither.
-  reviewer: {
-    writeAllow: [],
-    writeDeny: [],
-    readDeny: [],
-    readExcept: [],
-  },
+  reviewer: { writeAllow: [], writeDeny: [], readDeny: [], readExcept: [] },
 };
 
 // --- Glob matching -----------------------------------------------------------
-// picomatch: conventional globstar semantics, one
-// pinned option. dot: true so wildcards match dotfile segments — otherwise
-// e.g. builder writes to 'src/.env.example' would fall outside src/**.
-// Zone patterns are a closed harness-owned vocabulary (literal segments,
-// '*', '**'); paths are the untrusted input and are normalized lexically
-// before matching. If zone globs ever become per-repo configurable, treat
-// the pattern side as untrusted too and audit picomatch's full language
-// (braces, extglobs) before enabling.
+// picomatch: conventional globstar semantics, one pinned option. dot: true so
+// wildcards match dotfile segments — otherwise a dotfile under a zone would
+// fall outside it. Zone patterns are a closed vocabulary (literal segments,
+// '*', '**': the harness's own and the contract globs pack-contrib builds from
+// validated roots and suffixes); paths are the untrusted input and are
+// normalized lexically before matching.
 
 const matcherCache = new Map<string, (path: string) => boolean>();
 
@@ -553,10 +601,9 @@ function matchGlob(pattern: string, path: string): boolean {
     // nocase: macOS and Windows filesystems are case-insensitive, so
     // case-sensitive matching is not merely unhelpful — it is wrong in both
     // directions. It refused the architect's `SPEC.md` when `spec.md` is
-    // literally the same file (dogfood Run 6), and, far worse, it would let
-    // `TESTS/orders.test.ts` slip past a `tests/**` denial and hand a blind
-    // role the other side's work. Zone patterns are a closed harness-owned
-    // vocabulary, so widening the match costs nothing and closes that hole.
+    // literally the same file (dogfood Run 6), and, far worse, it would let a
+    // case-varied path slip past a denial and hand a blind role the other
+    // side's work. Widening the match costs nothing and closes that hole.
     m = picomatch(pattern, { dot: true, nocase: true });
     matcherCache.set(pattern, m);
   }
@@ -575,14 +622,121 @@ function globBase(pattern: string): string {
 }
 
 /** Do the directory trees rooted at a and b overlap (either direction)?
- *  Case-insensitive for the reason matchGlob is: on macOS and Windows
- *  `.GIT` and `TESTS` are the same directories as `.git` and `tests`. */
+ *  Case-insensitive for the reason matchGlob is: on macOS and Windows `.GIT`
+ *  is the same directory as `.git`. */
 function overlaps(a: string, b: string): boolean {
   if (a === "." || b === ".") return true; // project root contains everything
   const x = a.toLowerCase();
   const y = b.toLowerCase();
   return x === y || x.startsWith(y + "/") || y.startsWith(x + "/");
 }
+
+// --- Sides (ADR 2026-057) -----------------------------------------------------
+//
+// Each question below answers true, false, or undefined for "cannot tell" (the
+// data it needs is unreadable). Every rule that uses one opens access only on
+// a definite answer, so unreadable data always closes.
+
+type Tri = boolean | undefined;
+
+/** Is the project-relative path strictly inside a composed source root? */
+function inSourceRoot(path: string, roots: readonly string[] | "unreadable"): Tri {
+  if (roots === "unreadable") {
+    // Every root has at least one segment and a path is inside a root only
+    // when strictly deeper, so a top-level name is never inside one; nor is
+    // anything under the two directories no root may name.
+    if (path === "." || !path.includes("/")) return false;
+    const first = path.slice(0, path.indexOf("/")).toLowerCase();
+    return first === ".git" || first === ".bounded" ? false : undefined;
+  }
+  return sourceRootOf(path, roots) !== undefined;
+}
+
+/** Could a search rooted at `path` reach a file inside a source root? True
+ *  when the path is inside a root, is a root, or lies above one. */
+function reachesSourceRoot(path: string, roots: readonly string[] | "unreadable"): Tri {
+  if (path === ".") return roots === "unreadable" ? undefined : roots.length > 0;
+  const inside = inSourceRoot(path, roots);
+  if (inside !== false) return inside;
+  if (roots === "unreadable") {
+    const first = path.split("/")[0]!.toLowerCase();
+    return first === ".git" || first === ".bounded" ? false : undefined;
+  }
+  const segments = path.toLowerCase().split("/");
+  return roots.some((root) => {
+    const rootSegments = root.toLowerCase().split("/");
+    return segments.length <= rootSegments.length &&
+      segments.every((segment, i) => rootSegments[i] === "*" || rootSegments[i] === segment);
+  });
+}
+
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/** The composed test suffix a file name ends with, ignoring case. */
+function testSuffixOf(path: string, suffixes: readonly string[]): string | undefined {
+  const lower = baseName(path).toLowerCase();
+  return suffixes.find((suffix) => lower.endsWith(suffix.toLowerCase()));
+}
+
+function isGenerated(path: string, globs: readonly string[] | "unreadable"): Tri {
+  return globs === "unreadable" ? undefined : pathGlobMatcher(globs)(path);
+}
+
+function isContract(path: string, globs: readonly string[] | "unreadable"): Tri {
+  return globs === "unreadable" ? undefined : matchesAny(globs, path);
+}
+
+/** Test-side: inside a root, named with a test suffix, not generated. */
+function isTestSide(path: string, layout: PathLayout): Tri {
+  const inside = inSourceRoot(path, layout.sourceRoots);
+  if (inside === false) return false;
+  if (isGenerated(path, layout.generatedGlobs) === true) return false;
+  if (layout.testSuffixes === "unreadable") return undefined;
+  if (testSuffixOf(path, layout.testSuffixes) === undefined) return false;
+  return inside === true && layout.generatedGlobs !== "unreadable" ? true : undefined;
+}
+
+/** Implementation: inside a root, neither test-side, contract nor generated. */
+function isImplementation(path: string, layout: PathLayout): Tri {
+  const inside = inSourceRoot(path, layout.sourceRoots);
+  if (inside === false) return false;
+  if (isGenerated(path, layout.generatedGlobs) === true) return false;
+  if (isContract(path, layout.contractGlobs) === true) return false;
+  if (layout.testSuffixes !== "unreadable" && testSuffixOf(path, layout.testSuffixes) !== undefined) return false;
+  const known = inside === true && layout.testSuffixes !== "unreadable" &&
+    layout.contractGlobs !== "unreadable" && layout.generatedGlobs !== "unreadable";
+  return known ? true : undefined;
+}
+
+type BlindRole = "builder" | "test-writer";
+
+function isBlind(role: Role): role is BlindRole {
+  return role === "builder" || role === "test-writer";
+}
+
+/** The side a blind role may not see: test-side for the builder,
+ *  implementation for the test-writer. */
+function isOtherSide(role: BlindRole, path: string, layout: PathLayout): Tri {
+  return role === "builder" ? isTestSide(path, layout) : isImplementation(path, layout);
+}
+
+/** The layout a Ctx carries; an absent field is unreadable (fail closed). */
+function layoutOf(ctx: Ctx): PathLayout {
+  return {
+    sourceRoots: ctx.sourceRoots ?? "unreadable",
+    contractGlobs: ctx.contractGlobs ?? "unreadable",
+    testSuffixes: ctx.testSuffixes ?? "unreadable",
+    generatedGlobs: ctx.generatedGlobs ?? "unreadable",
+  };
+}
+
+function list(values: readonly string[]): string {
+  return values.map((value) => `'${value}'`).join(", ");
+}
+
+const UNREADABLE_WHY = "the project composition is unreadable, so which files are tests, implementation, contracts or generated is unknown — report it to the orchestrator";
 
 // --- Normalization (lexical only — no fs, no symlink resolution) --------------
 
@@ -611,6 +765,77 @@ function normalize(raw: string, cwd: string): Normalized {
   return { ok: true, path: out.length === 0 ? "." : out.join("/") };
 }
 
+// --- Writes -------------------------------------------------------------------
+
+/**
+ * Why `role` may not write the project-relative path `t`, or null when it
+ * may. The one write rule: decide() and ownerOfPath() both ask it, so routing
+ * can never name a role the gate would then refuse.
+ */
+function writeRefusal(
+  role: Role,
+  t: string,
+  layout: PathLayout,
+  protection: WriteProtection | "unreadable" | undefined,
+): string | null {
+  const always = alwaysWriteDenied(t, protection, layout.generatedGlobs);
+  if (always !== null) return always.reason;
+  const inside = inSourceRoot(t, layout.sourceRoots);
+  // A name that ends with a test suffix in another case (`x.TEST.ext`) is
+  // test-side to the gate, which ignores case, but not to a case-sensitive
+  // file glob such as `!*.test.ext`. No role may create one, so every
+  // test-side file a role wrote carries its suffix exactly as composed.
+  if (layout.testSuffixes !== "unreadable" && inside !== false) {
+    const suffix = testSuffixOf(t, layout.testSuffixes);
+    if (suffix !== undefined && !baseName(t).endsWith(suffix)) {
+      return `'${baseName(t)}' ends with the test suffix '${suffix}' in another case — ambiguous to case-sensitive tools; name it with '${suffix}' exactly`;
+    }
+  }
+  switch (role) {
+    case "reviewer":
+      return `${role} has no write zone — it is read-only, and records what it found with record_design_review`;
+    case "architect": {
+      if (matchesAny(ZONES.architect.writeAllow, t)) return null;
+      const contract = isContract(t, layout.contractGlobs);
+      if (contract === true) return null;
+      if (contract === undefined && inside !== false) return `whether it is a contract is unknown: ${UNREADABLE_WHY}`;
+      const contracts = layout.contractGlobs === "unreadable" || layout.contractGlobs.length === 0
+        ? "" : ` and contract files (${layout.contractGlobs.join(", ")})`;
+      return `outside architect write zones — the architect's writable surface is ${ZONES.architect.writeAllow.join(", ")}${contracts}`;
+    }
+    case "builder":
+    case "test-writer": {
+      if (inside === undefined) return UNREADABLE_WHY;
+      if (!inside) {
+        const roots = layout.sourceRoots as readonly string[];
+        return roots.length === 0
+          ? "no composed pack declares a source root, so no role writes source — report it to the orchestrator"
+          : `outside every source root — the ${role} writes ${role === "builder" ? "implementation" : "test"} files under ${roots.join(", ")}`;
+      }
+      if (isContract(t, layout.contractGlobs) === true) {
+        return "it is a contract — the architect's; report what needs changing";
+      }
+      const test = isTestSide(t, layout);
+      const impl = isImplementation(t, layout);
+      if (role === "builder") {
+        if (impl === true) return null;
+        if (test === true) {
+          return `it is a test file (name ends with '${testSuffixOf(t, layout.testSuffixes as readonly string[])}') — the test-writer's; you may list its name, never read or write it`;
+        }
+        return UNREADABLE_WHY;
+      }
+      if (test === true) return null;
+      if (impl === true) {
+        const suffixes = layout.testSuffixes as readonly string[];
+        return suffixes.length === 0
+          ? "no composed pack declares a test file suffix, so no file is a test — report it to the orchestrator"
+          : `it is an implementation file — the builder's; the test-writer writes files named with ${list(suffixes)}`;
+      }
+      return UNREADABLE_WHY;
+    }
+  }
+}
+
 // --- Ownership (who may FIX a file) ------------------------------------------
 
 /** Upstream-first: the order the pipeline produces artifacts (contract → tests
@@ -630,51 +855,158 @@ export const ROLES_UPSTREAM_FIRST: readonly Role[] = [
 /**
  * The role whose write zone owns `path` — i.e. the only role the path gate
  * would let repair it — or `null` when no pipeline role may write it (config,
- * build files, anything outside the project).
+ * generated files, anything outside the project, anything the layout cannot
+ * place).
  *
- * Derived from the same ZONES that decide() enforces, so gate routing can
- * never drift from what the path gate actually permits. Input is a
- * PROJECT-RELATIVE path (type-check diagnostics are relativized before they get
- * here); absolute paths are unowned rather than guessed at.
+ * Derived from the same write rule decide() enforces, so gate routing can
+ * never drift from what the path gate actually permits: a test-side file
+ * routes to the test-writer, an implementation file to the builder, a
+ * contract to the architect. Input is a PROJECT-RELATIVE path (type-check
+ * diagnostics are relativized before they get here); absolute paths are
+ * unowned rather than guessed at.
+ *
+ * `layout` is the project's layout (`pathLayout(cwd)` in pack-contrib.ts). A
+ * bare array is the older contract-globs-only form: with no roots, suffixes
+ * or generated globs known, it owns nothing but the architect's static files
+ * — which, with generated files unknown, is nothing at all. Omitted, every
+ * field is unreadable.
  */
 export function ownerOfPath(
   path: string,
-  contractGlobs: readonly string[] | "unreadable" = [],
+  layout: PathLayout | readonly string[] | "unreadable" = UNREADABLE_LAYOUT,
   writeProtection?: WriteProtection | "unreadable",
 ): Role | null {
   if (path.startsWith("/")) return null;
   const n = normalize(path, "/");
   if (!n.ok || n.path === ".") return null;
-  // A file no role may write is unowned however well it matches a write zone —
-  // routing a generated law suite to the test-writer would deadlock the loop.
-  if (alwaysWriteDenied(n.path, writeProtection) !== null) return null;
-  return (
-    ROLES_UPSTREAM_FIRST.find((role) => {
-      const zone = zoneFor(role, contractGlobs);
-      return !matchesAny(zone.writeDeny, n.path) && matchesAny(zone.writeAllow, n.path);
-    }) ?? null
-  );
+  const resolved: PathLayout = layout === "unreadable" ? UNREADABLE_LAYOUT
+    : isPathLayout(layout) ? layout
+    : { ...UNREADABLE_LAYOUT, contractGlobs: layout };
+  return ROLES_UPSTREAM_FIRST.find((role) => writeRefusal(role, n.path, resolved, writeProtection) === null) ?? null;
 }
 
-/** A role's zone with the pack-contributed contract globs applied: the
- *  architect's contract writes, the test-writer's contract reads, the
- *  builder's contract write deny (fail-closed to all of src/ when the
- *  contracts are unknown; the architect then gets no contract write). */
-function zoneFor(
-  role: Role,
-  contractGlobs: readonly string[] | "unreadable",
-): Zone {
-  const zone = ZONES[role];
-  if (role === "architect" && contractGlobs !== "unreadable" && contractGlobs.length > 0) {
-    return { ...zone, writeAllow: [...zone.writeAllow, ...contractGlobs] };
+function isPathLayout(value: PathLayout | readonly string[]): value is PathLayout {
+  return !Array.isArray(value);
+}
+
+// --- Content search (ADR 2026-057) ----------------------------------------------
+//
+// A content search reads every file it reaches. A blind role may search a
+// directory only when the search provably cannot reach the other side: the
+// directory reaches no source root, or the file glob it passes provably
+// excludes every other-side name. "Provably" is decided from the glob's TEXT,
+// never from a guess about what it will match:
+//
+//   · builder, exclusion form: exactly `!*<S>`, where every composed test
+//     suffix ends with S. A case-sensitive tool excludes only names ending
+//     with S exactly, so this form is also checked against the file names
+//     below the directory (Ctx.pathFacts): a test name in another case voids
+//     it.
+//   · builder, inclusion form: a glob with none of `{ } [ ] ? ! \` whose
+//     literal tail T (after its last `*`, and after its last `/`) is disjoint
+//     from every test suffix: T does not end with one, and is not the end of
+//     one. A name that ends with T then cannot end with a test suffix,
+//     whatever the case of either.
+//   · test-writer, inclusion form only: the literal tail ends with a test
+//     suffix or a contract suffix, so everything it reaches is test-side, a
+//     contract or outside the roots.
+//
+// Anything else is refused, and the refusal names a glob that would pass.
+//
+// Whatever the glob, a directory search needs the host's account of the tree
+// below it (Ctx.pathFacts): complete, and with no link in it. A link could
+// lead a search into a root from outside one, or from an innocent name onto
+// the other side, and whether a tool follows it is the tool's business — so
+// a tree with a link is refused, as is one the host could not list.
+
+const GLOB_SPECIAL = /[{}[\]?!\\]/;
+
+/** The literal ending every name matched by an inclusion glob must have. */
+function literalTail(glob: string): string {
+  const afterStar = glob.slice(glob.lastIndexOf("*") + 1);
+  return afterStar.slice(afterStar.lastIndexOf("/") + 1).toLowerCase();
+}
+
+/** The contract suffixes behind the contract globs (`…/*<suffix>`). */
+function contractSuffixes(globs: readonly string[] | "unreadable"): readonly string[] {
+  if (globs === "unreadable") return [];
+  return globs.map(literalTail).filter((tail) => tail.length > 0);
+}
+
+/** A composed test suffix every other one ends with, if there is one. */
+function coveringSuffix(suffixes: readonly string[]): string | undefined {
+  return suffixes.find((candidate) => suffixes.every((suffix) => suffix.endsWith(candidate)));
+}
+
+/** The final dotted part of a suffix (`.ext` of `.test.ext`). */
+function finalPart(suffix: string): string {
+  return suffix.slice(suffix.lastIndexOf("."));
+}
+
+/** The builder's inclusion-form advice: a legal glob shape, in one clause. */
+function inclusionHint(suffixes: readonly string[]): string {
+  const ext = finalPart(suffixes[0]!);
+  return `a glob naming the files you want by their ending, such as '*.<name>${ext}' (never '*${ext}', which also matches a test name)`;
+}
+
+/** What a blind role should pass instead: one line, a legal glob in it. */
+function legalGlobHint(role: BlindRole, suffixes: readonly string[]): string {
+  if (role === "test-writer") {
+    return `pass glob '*${suffixes[0]}' (any glob whose fixed ending ends with ${list(suffixes)}), or grep one test or contract file by path`;
   }
-  if (role === "test-writer" && contractGlobs !== "unreadable" && contractGlobs.length > 0) {
-    return { ...zone, readExcept: [...zone.readExcept, ...contractGlobs] };
+  const covering = coveringSuffix(suffixes);
+  return covering !== undefined
+    ? `pass glob '!*${covering}', or ${inclusionHint(suffixes)}, or grep one non-test file by path`
+    : `pass ${inclusionHint(suffixes)}, or grep one non-test file by path — no single '!' exclusion covers all of ${list(suffixes)}`;
+}
+
+/** Null when `glob` provably keeps a search of `dir` off the other side. */
+function globRefusal(
+  role: BlindRole,
+  glob: unknown,
+  dir: string,
+  layout: PathLayout,
+  fileNames: readonly string[],
+): string | null {
+  if (layout.sourceRoots === "unreadable" || layout.testSuffixes === "unreadable") return UNREADABLE_WHY;
+  const suffixes = layout.testSuffixes.map((suffix) => suffix.toLowerCase());
+  if (suffixes.length === 0) {
+    // No file is test-side: nothing for the builder to be kept from, and
+    // nothing the test-writer's glob could name to prove itself.
+    return role === "builder" ? null
+      : "no composed pack declares a test file suffix, so no glob can prove it reaches no implementation — grep one contract file by path";
   }
-  if (role === "builder" && (contractGlobs === "unreadable" || contractGlobs.length > 0)) {
-    return { ...zone, writeDeny: [...zone.writeDeny, ...(contractGlobs === "unreadable" ? ["src/**"] : contractGlobs)] };
+  const hint = legalGlobHint(role, suffixes);
+  const caseHint = `pass ${inclusionHint(suffixes)}, or grep one non-test file by path`;
+  if (typeof glob !== "string" || glob.length === 0) {
+    return `a content search of '${dir}' can reach ${role === "builder" ? "test files" : "implementation files"} — ${hint}`;
   }
-  return zone;
+  if (role === "builder") {
+    const exclusion = /^!\*([^*{}[\]?!\\/]+)$/.exec(glob);
+    if (exclusion !== null) {
+      const excluded = exclusion[1]!;
+      if (!suffixes.every((suffix) => suffix.endsWith(excluded))) {
+        return `glob '${glob}' leaves ${list(suffixes.filter((suffix) => !suffix.endsWith(excluded)))} files searchable — ${hint}`;
+      }
+      const variant = fileNames.find((name) => testSuffixOf(name, suffixes) !== undefined && !name.endsWith(excluded));
+      if (variant !== undefined) {
+        return `glob '${glob}' is exact about case and '${variant}' under '${dir}' is a test name in another case — ${caseHint}`;
+      }
+      return null;
+    }
+  }
+  if (GLOB_SPECIAL.test(glob)) {
+    return `glob '${glob}' uses one of { } [ ] ? ! \\, so what it matches cannot be proven from its text — ${hint}`;
+  }
+  const tail = literalTail(glob);
+  if (role === "builder") {
+    const clash = suffixes.find((suffix) => tail.length === 0 || tail.endsWith(suffix) || suffix.endsWith(tail));
+    if (clash === undefined) return null;
+    return `glob '${glob}' could match a test file name ('${clash}') — ${hint}`;
+  }
+  const allowed = [...suffixes, ...contractSuffixes(layout.contractGlobs)];
+  if (tail.length > 0 && allowed.some((suffix) => tail.endsWith(suffix))) return null;
+  return `glob '${glob}' could match an implementation file — ${hint}`;
 }
 
 // --- decide() -----------------------------------------------------------------
@@ -683,6 +1015,17 @@ function verb(tool: string): string {
   if (WRITE_TOOLS.has(tool)) return "write";
   if (SEARCH_TOOLS.has(tool)) return "search";
   return "read";
+}
+
+/** Why a blind role may not read `t`, or null when it may. */
+function readRefusal(role: BlindRole, t: string, layout: PathLayout): string | null {
+  const other = isOtherSide(role, t, layout);
+  if (other === false) return null;
+  if (other === undefined) return UNREADABLE_WHY;
+  if (role === "builder") {
+    return `it is a test file (name ends with '${testSuffixOf(t, layout.testSuffixes as readonly string[])}') — the builder may list test names but never read their content; run_tests reports failures`;
+  }
+  return "it is an implementation file — the test-writer may list implementation names but reads only contracts, generated files and tests";
 }
 
 // --- Refusal ergonomics -------------------------------------------------------
@@ -694,8 +1037,8 @@ function verb(tool: string): string {
 // refusal pointed anywhere. Every message below therefore ends by naming the
 // legal route FOR THIS ROLE, in one clause.
 //
-// The strip (src/path-gate.ts) is what stops these turns being spent at all;
-// this is what a refusal says on the paths the strip cannot reach.
+// The strip (path-gate.ts) is what stops these turns being spent at all; this
+// is what a refusal says on the paths the strip cannot reach.
 
 /** The role's own named, non-path tools — what it reaches for instead of a
  *  shell. Kept in step with ROLE_TOOLS by path-policy.test.ts. */
@@ -732,6 +1075,13 @@ export function forbiddenWhy(role: Role, tool: string): string {
   return `${because} — use ${NAMED_TOOLS[role]}`;
 }
 
+/** A find pattern that names nothing outside the searched directory. */
+function patternContained(pattern: unknown): boolean {
+  if (pattern === undefined) return true;
+  if (typeof pattern !== "string") return false;
+  return !pattern.startsWith("/") && !pattern.split("/").includes("..") && !pattern.includes("\0");
+}
+
 export function decide(
   role: Role,
   tool: string,
@@ -763,10 +1113,8 @@ export function decide(
   }
   const t = n.path;
   const v = verb(tool);
-  const zone = zoneFor(role, ctx.contractGlobs ?? []);
+  const layout = layoutOf(ctx);
 
-  // Zone checks run before the .git catch-all: an overlap with the role's
-  // blind zone is the more actionable reason for the agent.
   const gitBlocked = (): Decision | null => {
     const gitHit = SEARCH_TOOLS.has(tool)
       ? ALWAYS_DENY.some((g) => overlaps(t, globBase(g)))
@@ -787,11 +1135,11 @@ export function decide(
         return block("path-gate: ticket-numbered projects write their ticket TN, not root spec.md");
       }
       // Which files are contracts is the composed packs' contribution
-      // (ADR 2026-052). When the suffixes could not be read at all, the
-      // architect's only source zone is contracts, so all of src/ waits.
+      // (ADR 2026-052). When the suffixes could not be read at all, every
+      // write that could be under a source root waits.
       const suffixes = scope.contractSuffixes;
       const lower = t.toLowerCase();
-      const unknown = suffixes.length === 0 && scope.error !== undefined && lower.startsWith("src/");
+      const unknown = suffixes.length === 0 && scope.error !== undefined && inSourceRoot(t, layout.sourceRoots) !== false;
       if (unknown || suffixes.some((suffix) => lower.endsWith(suffix))) {
         if (scope.error) return block(`path-gate: ${scope.error}`);
         if (!scope.contracts.includes(t)) {
@@ -799,47 +1147,52 @@ export function decide(
         }
       }
     }
-    const alwaysDenied = alwaysWriteDenied(t, ctx.writeProtection);
-    if (alwaysDenied !== null) {
-      return block(`path-gate: ${role} may not write '${t}': ${alwaysDenied.reason}`);
-    }
-    const denied = zone.writeDeny.find((g) => matchGlob(g, t));
-    if (denied) {
-      return block(
-        `path-gate: ${role} may not write '${t}': denied for ${role} (matches '${denied}') — that path is another role's; report what needs changing`,
-      );
-    }
-    // A role with NO write zone is read-only by construction, and "outside
-    // <role> write zones ()" would send it hunting for the zone it is inside.
-    // Say the true thing instead, and name what it has instead of a pen.
-    if (zone.writeAllow.length === 0) {
-      return block(
-        `path-gate: ${role} may not write '${t}': ${role} has no write zone — it is read-only, and records what it found with record_design_review`,
-      );
-    }
-    if (!matchesAny(zone.writeAllow, t)) {
-      return block(
-        `path-gate: ${role} may not write '${t}': outside ${role} write zones — the ${role}'s writable surface is ${zone.writeAllow.join(", ")}`,
-      );
+    const refusal = writeRefusal(role, t, layout, ctx.writeProtection);
+    if (refusal !== null) return block(`path-gate: ${role} may not write '${t}': ${refusal}`);
+    return gitBlocked() ?? ALLOW;
+  }
+
+  if (!isBlind(role)) return gitBlocked() ?? ALLOW;
+
+  if (tool === "ls" || tool === "find") {
+    // Names only: a blind role may list and find the other side's file NAMES
+    // (ADR 2026-057). A find pattern must stay inside the searched directory.
+    if (tool === "find" && !patternContained(input["pattern"])) {
+      return block(`path-gate: ${role} may not search '${t}': a find pattern must be relative and stay inside the searched directory (no leading '/', no '..')`);
     }
     return gitBlocked() ?? ALLOW;
   }
 
-  if (SEARCH_TOOLS.has(tool)) {
-    // Searching a directory that contains (or is inside) a blind zone leaks
-    // it — block on overlap either way, unless the target itself is an
-    // explicit exception (e.g. architect grepping a contract file).
-    const hit = zone.readDeny.find((g) => overlaps(t, globBase(g)));
-    if (hit && !matchesAny(zone.readExcept, t)) {
-      return block(`path-gate: ${role} may not search '${t}': overlaps denied zone '${hit}'`);
+  // read, or grep: both yield content. A path the host says is a directory
+  // holds no content of its own (a read of it yields at most names), so only
+  // a FILE, or a path the host could not stat, is judged as a file.
+  const kind = ctx.pathFacts?.kind(t);
+  if (kind !== "directory") {
+    const refusal = readRefusal(role, t, layout);
+    if (refusal !== null) {
+      return block(`path-gate: ${role} may not ${tool === "grep" ? "search" : "read"} '${t}': ${refusal}`);
     }
-    return gitBlocked() ?? ALLOW;
   }
-
-  // read (single path)
-  const hit = zone.readDeny.find((g) => matchGlob(g, t));
-  if (hit && !matchesAny(zone.readExcept, t)) {
-    return block(`path-gate: ${role} may not read '${t}': denied zone '${hit}'`);
+  // A read, or a grep of one file, yields exactly that file: allowed above.
+  if (tool === "read" || kind === "file") return gitBlocked() ?? ALLOW;
+  const git = gitBlocked();
+  if (git !== null) return git;
+  if (kind === "absent") {
+    return block(`path-gate: ${role} may not search '${t}': it does not exist — grep a directory or file that does`);
   }
-  return gitBlocked() ?? ALLOW;
+  // A grep over a directory, or over a path the host could not stat: allowed
+  // only over a fully listed tree with no link in it, and then when it reaches
+  // no source root or its glob provably keeps it off the other side.
+  const tree = ctx.pathFacts?.tree(t);
+  if (tree === undefined) {
+    return block(`path-gate: ${role} may not search '${t}': the tree below it could not be listed in full, so what a search reaches is unknown — grep a smaller directory, or one file by path`);
+  }
+  if (tree.links.length > 0) {
+    return block(`path-gate: ${role} may not search '${t}': '${tree.links[0]}' is a link, which could lead a search anywhere — grep the directory it points into, or one file by path`);
+  }
+  if (reachesSourceRoot(t, layout.sourceRoots) !== false) {
+    const why = globRefusal(role, input["glob"], t, layout, tree.fileNames);
+    if (why !== null) return block(`path-gate: ${role} may not search '${t}': ${why}`);
+  }
+  return ALLOW;
 }

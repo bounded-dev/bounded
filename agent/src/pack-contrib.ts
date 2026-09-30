@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { WriteProtection } from "./path-policy.ts";
+import type { PathLayout, WriteProtection } from "./path-policy.ts";
 import { readProjectPacks } from "./project-composition.ts";
 
 function defaultPacksDir(): string {
@@ -70,7 +70,12 @@ export function specTechNouns(cwd: string, packsDir?: string): string[] {
  *  packs (ADR 2026-052). The core never names one: with no composed pack
  *  contributing a suffix, no file is recognised as a contract. */
 export function contractFileSuffixes(cwd: string, packsDir?: string): string[] {
-  const suffixes = mergedContribution("contractFileSuffixes", readProjectPacks(cwd), packsDir);
+  return contractFileSuffixesFor(readProjectPacks(cwd), packsDir);
+}
+
+/** contractFileSuffixes() for an explicit composition. */
+export function contractFileSuffixesFor(packs: readonly string[], packsDir?: string): string[] {
+  const suffixes = mergedContribution("contractFileSuffixes", packs, packsDir);
   for (const suffix of suffixes) {
     if (!/^\.[a-z0-9]+(?:\.[a-z0-9]+)*$/.test(suffix)) {
       throw new Error(`contractFileSuffixes entry '${suffix}' must be a lowercase dotted filename suffix`);
@@ -85,10 +90,18 @@ export function hasContractSuffix(path: string, suffixes: readonly string[]): bo
   return suffixes.some((suffix) => lower.endsWith(suffix));
 }
 
-/** The project-relative globs of its contract files: `src/**\/*<suffix>`
- *  for each composed suffix (ADR 2026-052). */
+/** The project-relative globs of contract files for an explicit composition:
+ *  `<root>/**\/*<suffix>` for each composed source root and contract suffix
+ *  (ADRs 2026-052, 2026-056). No root, or no suffix, means no contract file. */
+export function contractGlobsFor(packs: readonly string[], packsDir?: string): string[] {
+  const roots = sourceRootsFor(packs, packsDir);
+  const suffixes = contractFileSuffixesFor(packs, packsDir);
+  return roots.flatMap((root) => suffixes.map((suffix) => `${root}/**/*${suffix}`));
+}
+
+/** contractGlobsFor() for this project's composition (throws when unreadable). */
 export function contractGlobs(cwd: string, packsDir?: string): string[] {
-  return contractFileSuffixes(cwd, packsDir).map((suffix) => `src/**/*${suffix}`);
+  return contractGlobsFor(readProjectPacks(cwd), packsDir);
 }
 
 /** contractGlobs() for a host's path gate: an unreadable composition is
@@ -99,6 +112,31 @@ export function contractGlobsOrUnreadable(cwd: string, packsDir?: string): reado
   } catch {
     return "unreadable";
   }
+}
+
+/**
+ * Everything the path policy needs to tell the sides apart (ADRs 2026-056…058),
+ * each field read independently so one bad field closes only what it decides.
+ * A host passes this to decide() (spread into its Ctx) and to ownerOfPath().
+ */
+export function pathLayoutOrUnreadable(cwd: string, packsDir?: string): PathLayout {
+  return {
+    sourceRoots: sourceRootsOrUnreadable(cwd, packsDir),
+    contractGlobs: contractGlobsOrUnreadable(cwd, packsDir),
+    testSuffixes: testFileSuffixesOrUnreadable(cwd, packsDir),
+    generatedGlobs: generatedFileGlobsOrUnreadable(cwd, packsDir),
+  };
+}
+
+/** pathLayoutOrUnreadable() for an explicit composition, strict: throws on
+ *  any invalid field. For gates and tests that already hold the pack list. */
+export function pathLayoutFor(packs: readonly string[], packsDir?: string): PathLayout {
+  return {
+    sourceRoots: sourceRootsFor(packs, packsDir),
+    contractGlobs: contractGlobsFor(packs, packsDir),
+    testSuffixes: testFileSuffixesFor(packs, packsDir),
+    generatedGlobs: generatedFileGlobsFor(packs, packsDir),
+  };
 }
 
 /**
