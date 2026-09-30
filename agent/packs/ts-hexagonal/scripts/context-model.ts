@@ -7,6 +7,7 @@ import type { ProjectFacts, WorkspaceFacts } from "../../ts/pack.ts";
 import type { FeatureContractModel } from "../../ts/scripts/feature-model.ts";
 import { type ConceptEntry, readDomainConcept } from "./domain-index.ts";
 import { ContractShapeError, parseFeatureContract } from "./feature-contract.ts";
+import { readSharedContract, type SharedContract } from "./shared-contract.ts";
 
 export interface ContextModel {
   readonly workspace: WorkspaceFacts;
@@ -19,6 +20,10 @@ export interface ContextModel {
   readonly concepts: readonly ConceptEntry[];
   /** Sorted by area, then feature. */
   readonly features: readonly FeatureContractModel[];
+  /** Port-level interfaces in application/shared/, sorted by path. */
+  readonly shared: readonly SharedContract[];
+  /** Every name the shared contracts export. */
+  readonly sharedNames: ReadonlySet<string>;
 }
 
 const cache = new WeakMap<ProjectFacts, readonly ContextModel[]>();
@@ -49,11 +54,13 @@ function contextModel(workspace: WorkspaceFacts, facts: ProjectFacts): ContextMo
   }
   const domain: { path: string; source: string }[] = [];
   const application: { path: string; source: string }[] = [];
+  const sharedSources: { path: string; source: string }[] = [];
   for (const contract of workspace.contracts) {
     if (contract.path.startsWith(`${root}/domain/`)) domain.push(contract);
+    else if (contract.path.startsWith(`${root}/application/shared/`)) sharedSources.push(contract);
     else if (contract.path.startsWith(`${root}/application/`)) application.push(contract);
     else {
-      throw new ContractShapeError(contract.path, "contracts live in a context's domain/<area>/ or application/<area>/<feature>/ folders only");
+      throw new ContractShapeError(contract.path, "contracts live in a context's domain/<area>/, application/<area>/<feature>/ or application/shared/ folders only");
     }
   }
   const concepts = domain.map((c) => readDomainConcept(c.path, c.source)).sort(byAreaThen((c) => [c.area, c.name]));
@@ -68,7 +75,16 @@ function contextModel(workspace: WorkspaceFacts, facts: ProjectFacts): ContextMo
       adapterTechnologies: facts.adapterTechnologies,
     }))
     .sort(byAreaThen((f) => [f.area, f.feature]));
+  const shared = sharedSources.map((c) => readSharedContract(c.path, c.source, facts.scope))
+    .sort((a, b) => (a.path < b.path ? -1 : 1));
   const ports = new Map<string, string>();
+  for (const contract of shared) {
+    for (const name of contract.names) {
+      const other = ports.get(name) ?? (kinds.has(name) ? "the domain" : undefined);
+      if (other !== undefined) throw new ContractShapeError(contract.path, `${name} is also declared by ${other}`);
+      ports.set(name, contract.path);
+    }
+  }
   for (const feature of features) {
     for (const name of [feature.inPort.name, ...feature.outPorts.map((p) => p.name)]) {
       const other = ports.get(name);
@@ -78,7 +94,8 @@ function contextModel(workspace: WorkspaceFacts, facts: ProjectFacts): ContextMo
       ports.set(name, feature.contractPath);
     }
   }
-  return { workspace, root, context, packageName: workspace.packageName, concepts, features };
+  const sharedNames = new Set(shared.flatMap((c) => c.names));
+  return { workspace, root, context, packageName: workspace.packageName, concepts, features, shared, sharedNames };
 }
 
 /** Area, then feature: the order of every per-feature list (TN-26-012 §6). */

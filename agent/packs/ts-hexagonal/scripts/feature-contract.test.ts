@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { readDomainConcept } from "./domain-index.ts";
 import { ContractShapeError, type FeatureParseOptions, parseFeatureContract } from "./feature-contract.ts";
+import { readSharedContract } from "./shared-contract.ts";
 import { APPLICATION_CONTRACTS, CREATE_NOTE, DOMAIN_CONTRACTS, ROOT, SCOPE, TECHNOLOGIES } from "./testdata/example-contracts.ts";
 
 const CONCEPTS = new Map(Object.entries(DOMAIN_CONTRACTS).map(([path, source]) => {
@@ -273,6 +274,48 @@ describe("parseFeatureContract refuses what TN-26-012 does not allow", () => {
 
   test("a scope outside the grammar is refused", () => {
     refuses(CREATE_NOTE, /scope 'example'/, CREATE_NOTE_PATH, { ...OPTIONS, scope: "example" });
+  });
+});
+
+describe("shared ports (application/shared/)", () => {
+  const DOMAIN_LINE = 'import type { Note, NoteText, ProjectId, Result } from "@example/project-management/domain";';
+  const withShared = (imports: string, save = "save(note: Note, clock: Clock): Promise<void>;") =>
+    CREATE_NOTE.replace(DOMAIN_LINE, `${DOMAIN_LINE}\n${imports}`).replace("save(note: Note): Promise<void>;", save);
+
+  test("a feature may import shared port types and use them in out-port signatures", () => {
+    const model = parse(withShared('import type { Clock } from "../../shared/clock.contract.ts";'));
+    expect(model.outPorts[0]!.methods[1]!.parameters[1]).toEqual({ name: "clock", type: { kind: "other", text: "Clock" } });
+    expect(model.domainTypes).toEqual(["Note", "NoteText", "ProjectId"]);
+  });
+
+  test.each([
+    ["an unused shared import", 'import type { Clock, Ticker } from "../../shared/clock.contract.ts";', /'Ticker' is imported but not used/],
+    ["a value import", 'import { Clock } from "../../shared/clock.contract.ts";', /must be exactly import type/],
+    ["unsorted shared imports", 'import type { Clock } from "../../shared/clock.contract.ts";\nimport type { Bus } from "../../shared/bus.contract.ts";', /sorted by path/],
+    ["the same file twice", 'import type { Clock } from "../../shared/clock.contract.ts";\nimport type { Bus } from "../../shared/clock.contract.ts";', /sorted by path/],
+    ["another feature's contract", 'import type { Clock } from "../list-notes/list-notes.contract.ts";', /only import allowed/],
+    ["a shared implementation", 'import type { Clock } from "../../shared/clock.ts";', /only import allowed/],
+  ])("%s is refused", (_, imports, message) => {
+    refuses(withShared(imports), message);
+  });
+
+  test("the domain import comes first", () => {
+    const source = CREATE_NOTE.replace(DOMAIN_LINE, `import type { Clock } from "../../shared/clock.contract.ts";\n${DOMAIN_LINE}`)
+      .replace("save(note: Note): Promise<void>;", "save(note: Note, clock: Clock): Promise<void>;");
+    refuses(source, /once, before any shared-port import/);
+  });
+
+  test("readSharedContract reads the exported interfaces and refuses anything else", () => {
+    const path = `${ROOT}/application/shared/event-publisher.contract.ts`;
+    const source = 'import type { Note } from "@example/project-management/domain";\n' +
+      "export interface EventPublisher {\n  publish(note: Note): Promise<void>;\n}\nexport interface Clock {\n  now(): Promise<string>;\n}\n";
+    expect(readSharedContract(path, source, SCOPE)).toEqual({ path, stem: "event-publisher", names: ["Clock", "EventPublisher"] });
+    expect(() => readSharedContract(`${ROOT}/application/shared/deep/x.contract.ts`, source, SCOPE)).toThrow(/shared port lives at/);
+    expect(() => readSharedContract(path, `${source}export const x = 1;\n`, SCOPE)).toThrow(/'export interface' declarations only/);
+    expect(() => readSharedContract(path, 'import type { X } from "@example/billing/domain";\n' + source, SCOPE)).toThrow(/imports only types/);
+    expect(() => readSharedContract(path, 'import { Note } from "@example/project-management/domain";\n', SCOPE)).toThrow(/imports only types/);
+    expect(() => readSharedContract(path, "/** @exposedVia trpc */\nexport interface Clock {}\n", SCOPE)).toThrow(/belong on feature contracts/);
+    expect(() => readSharedContract(path, "", SCOPE)).toThrow(/at least one exported interface/);
   });
 });
 

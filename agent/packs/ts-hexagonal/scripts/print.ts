@@ -36,14 +36,16 @@ export function localNames(feature: FeatureContractModel): Set<string> {
 
 /**
  * The names a set of printed types refer to, split by where they come from:
- * the domain barrel (concepts, and `Result`) or the feature's own contract.
+ * the domain barrel (concepts, and `Result`) or the application layer (the
+ * feature's own contract, and the context's shared ports).
  * Both lists are sorted.
  */
 export function referencedNames(
   feature: FeatureContractModel,
   types: readonly TypeRef[],
+  shared: ReadonlySet<string> = new Set(),
 ): { readonly domain: string[]; readonly local: string[] } {
-  const locals = localNames(feature);
+  const locals = new Set([...localNames(feature), ...shared]);
   const concepts = new Set(feature.domainTypes);
   const domain = new Set<string>();
   const local = new Set<string>();

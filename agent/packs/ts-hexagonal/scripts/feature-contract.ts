@@ -83,6 +83,9 @@ function bindingProblem(name: string): string | undefined {
   return undefined;
 }
 
+/** A feature's import of a port-level interface shared by the context. */
+const SHARED_IMPORT = /^\.\.\/\.\.\/shared\/[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.contract\.ts$/;
+
 const FEATURE_PATH =/^contexts\/([^/]+)\/src\/application\/([^/]+)\/([^/]+)\/([^/]+)\.contract\.ts$/;
 const TAG_NAMES = ["exposedVia", "implementedBy"] as const;
 type TagName = (typeof TAG_NAMES)[number];
@@ -119,14 +122,31 @@ export function parseFeatureContract(path: string, source: string, options: Feat
   const domainImport = `${options.scope}/${context}/domain`;
   const text = (node: ts.Node): string => node.getText(file).replace(/\s+/g, " ").trim();
 
-  // --- statements: at most one import, then exported interfaces only ---------
+  // --- statements: the domain import, shared-port imports, then interfaces ----
   const imported = new Set<string>();
+  /** Port-level interfaces from application/shared/, usable in signatures. */
+  const shared = new Set<string>();
+  const sharedSpecifiers: string[] = [];
   const interfaces: ts.InterfaceDeclaration[] = [];
   for (const statement of file.statements) {
     if (ts.isImportDeclaration(statement)) {
-      if (interfaces.length > 0) refuse("the import must come before every declaration");
-      if (imported.size > 0) refuse(`a feature contract has exactly one import, from "${domainImport}"`);
-      readImport(statement, domainImport, imported, refuse, text);
+      if (interfaces.length > 0) refuse("the imports must come before every declaration");
+      const specifier = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : "";
+      if (specifier === domainImport) {
+        if (imported.size > 0 || sharedSpecifiers.length > 0) {
+          refuse(`a feature contract imports "${domainImport}" once, before any shared-port import`);
+        }
+        readImport(statement, domainImport, imported, refuse, text);
+      } else if (SHARED_IMPORT.test(specifier)) {
+        if (sharedSpecifiers.length > 0 && specifier <= sharedSpecifiers.at(-1)!) {
+          refuse("import each shared contract once, sorted by path");
+        }
+        sharedSpecifiers.push(specifier);
+        readImport(statement, specifier, shared, refuse, text);
+      } else {
+        refuse(`imports "${specifier}"; the only import allowed is import type { … } from "${domainImport}" ` +
+          `(and, for port-level interfaces, import type { … } from "../../shared/<name>.contract.ts")`);
+      }
       continue;
     }
     if (ts.isInterfaceDeclaration(statement)) {
@@ -145,6 +165,10 @@ export function parseFeatureContract(path: string, source: string, options: Feat
   const duplicate = names.find((name, i) => names.indexOf(name) !== i);
   if (duplicate !== undefined) refuse(`interface ${duplicate} is declared twice`);
   const local = new Set(names);
+  for (const name of shared) {
+    if (imported.has(name)) refuse(`'${name}' is imported twice`);
+    if (local.has(name)) refuse(`'${name}' is both imported and declared`);
+  }
   for (const name of imported) {
     if (local.has(name)) refuse(`'${name}' is both imported and declared`);
     if (name !== "Result" && options.concepts !== undefined && !options.concepts.has(name)) {
@@ -158,7 +182,7 @@ export function parseFeatureContract(path: string, source: string, options: Feat
     if (ts.isTypeReferenceNode(node)) {
       if (!ts.isIdentifier(node.typeName)) refuse(`qualified type '${text(node.typeName)}' is not allowed`);
       const name = (node.typeName as ts.Identifier).text;
-      if (name !== "Promise" && !imported.has(name) && !local.has(name)) {
+      if (name !== "Promise" && !imported.has(name) && !shared.has(name) && !local.has(name)) {
         refuse(`type '${name}' is neither imported from "${domainImport}" nor declared here`);
       }
       used.add(name);
@@ -171,7 +195,7 @@ export function parseFeatureContract(path: string, source: string, options: Feat
     ts.forEachChild(node, visit);
   };
   for (const declaration of interfaces) visit(declaration);
-  for (const name of imported) if (!used.has(name)) refuse(`'${name}' is imported but not used`);
+  for (const name of [...imported, ...shared]) if (!used.has(name)) refuse(`'${name}' is imported but not used`);
 
   // --- tags: every mention of a semantic tag must be a well-formed one --------
   const docs = new Map(interfaces.map((i) => [i.name.text, readDoc(i, file, refuse)] as const));
@@ -293,10 +317,8 @@ function readImport(
   refuse: (problem: string) => never,
   text: (node: ts.Node) => string,
 ): void {
-  const specifier = ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : "";
   const clause = node.importClause;
   const shape = `import type { … } from "${domainImport}"`;
-  if (specifier !== domainImport) refuse(`imports "${specifier}"; the only import allowed is ${shape}`);
   if (clause === undefined || !clause.isTypeOnly || clause.name !== undefined || clause.namedBindings === undefined ||
       !ts.isNamedImports(clause.namedBindings) || node.attributes !== undefined) {
     refuse(`the import must be exactly ${shape}`);

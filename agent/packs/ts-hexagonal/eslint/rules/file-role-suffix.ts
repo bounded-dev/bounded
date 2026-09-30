@@ -38,6 +38,11 @@ export function fileRoleProblem(location: HexLocation): string | undefined {
       return "domain files are domain/<area>/<concept>.ts, .contract.ts, .test.ts or .laws.test.ts (or the generated domain/index.ts)";
     case "application": {
       if (inner.length === 2 && name === "index.ts") return undefined;
+      // Port-level interfaces shared by every feature of the context.
+      if (inner.length === 3 && inner[1] === "shared" &&
+          (matches(`${STEM}\\.contract\\.ts`) || matches(`${STEM}\\.test\\.ts`) || matches(`${STEM}(?:\\.${WORD})?\\.test-support\\.ts`))) {
+        return undefined;
+      }
       const feature = inner[2];
       if (inner.length === 4 && feature !== undefined) {
         const f = escape(feature);
@@ -47,7 +52,7 @@ export function fileRoleProblem(location: HexLocation): string | undefined {
         }
       }
       return "application files are application/<area>/<feature>/<feature>.contract.ts, .command.ts, .handler.ts, " +
-        ".test.ts or .<role>.test-support.ts, named after their feature folder";
+        ".test.ts or .<role>.test-support.ts, named after their feature folder, or application/shared/<name>.contract.ts";
     }
     case "adapters-in": {
       const rest = inner.slice(3);

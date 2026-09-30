@@ -60,6 +60,11 @@ You write `*.contract.ts` files and the apps a ticket needs.
      `void`, a concept or an array of one;
   4. the out ports. Their order is the handler's constructor order. No two may
      end in the same word.
+- **Shared ports** `contexts/<ctx>/src/application/shared/<name>.contract.ts`:
+  port-level interfaces every feature of the context may use (a clock, an
+  event publisher); type imports and `export interface` only. A feature
+  imports them after the domain barrel as
+  `import type { … } from "../../shared/<name>.contract.ts"`.
 - **Tags**, in the `/** */` block directly above the interface:
   `@exposedVia trpc mcp` on the in port names the in adapters to generate
   (the block's first line is the summary, required with `mcp`: it is the tool

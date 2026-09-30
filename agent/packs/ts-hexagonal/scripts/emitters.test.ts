@@ -185,6 +185,46 @@ describe("composition decides the out adapters", () => {
   });
 });
 
+describe("application/shared/: port-level interfaces every feature may use", () => {
+  const CLOCK = `import type { ProjectId } from "@example/project-management/domain";
+
+export interface Clock {
+  now(project: ProjectId): Promise<string>;
+}
+`;
+  const withClock = CREATE_NOTE
+    .replace('import type { Note, NoteText, ProjectId, Result } from "@example/project-management/domain";',
+      'import type { Note, NoteText, ProjectId, Result } from "@example/project-management/domain";\nimport type { Clock } from "../../shared/clock.contract.ts";')
+    .replace("  save(note: Note): Promise<void>;", "  save(note: Note, clock: Clock): Promise<void>;");
+  const shared = () => facts({ workspaces: [contextWorkspace(contracts({
+    "application/shared/clock.contract.ts": CLOCK,
+    "application/notes/create-note/create-note.contract.ts": withClock,
+  }))] });
+
+  test("the application barrel exports the shared ports first, as types", () => {
+    const barrel = applicationBarrelEmitter.emit(shared())[0]!.content;
+    expect(barrel.split("\n").slice(0, 3)).toEqual([
+      "// Contracts are exported as types. Commands are exported from their implementation file (type and value together).",
+      'export type { Clock } from "./shared/clock.contract.ts";',
+      "",
+    ]);
+  });
+
+  test("an out adapter using a shared port imports it from the application barrel", () => {
+    const store = inMemoryEmitter.emit(shared()).find((f) => f.path.endsWith("create-note.store.ts"))!.content;
+    expect(store).toContain('import type { Clock, CreateNoteStore } from "@example/project-management/application";');
+    expect(store).toContain("  async save(note: Note, clock: Clock): Promise<void> {");
+  });
+
+  test("a shared name clashing with a feature port or a concept is refused", () => {
+    const clash = (source: string) => () => emitAll(facts({ workspaces: [contextWorkspace(contracts({
+      "application/shared/ports.contract.ts": source,
+    }))] }));
+    expect(clash("export interface CreateNoteStore {\n  x(): Promise<void>;\n}\n")).toThrow(/CreateNoteStore is also declared by/);
+    expect(clash("export interface Note {\n  x(): Promise<void>;\n}\n")).toThrow(/Note is also declared by the domain/);
+  });
+});
+
 describe("emitter edge cases", () => {
   test("a handler with no out ports has no constructor; one with two takes them one per line in order", () => {
     const noPorts = `import type { Note } from "@example/project-management/domain";
@@ -236,7 +276,7 @@ export interface CountNotes {
 
   test("a contract outside the layout, or a context in the wrong place, is refused", () => {
     const stray = contextWorkspace([...contracts(), { path: `${ROOT}/adapters/out/x.contract.ts`, source: "" }]);
-    expect(() => emitAll(facts({ workspaces: [stray] }))).toThrow(/domain\/<area>\/ or application\/<area>\/<feature>\/ folders only/);
+    expect(() => emitAll(facts({ workspaces: [stray] }))).toThrow(/domain\/<area>\/, application\/<area>\/<feature>\/ or application\/shared\/ folders only/);
     const misplaced = { ...contextWorkspace(), sourceRoot: "contexts/project-management/lib" };
     expect(() => emitAll(facts({ workspaces: [misplaced] }))).toThrow(/source root at src/);
   });

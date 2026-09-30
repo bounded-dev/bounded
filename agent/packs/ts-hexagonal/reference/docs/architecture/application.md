@@ -7,6 +7,8 @@ The application layer holds the **features** (use cases). It orchestrates the do
 ```
 application/
   index.ts                                 generated
+  shared/
+    <name>.contract.ts                     port-level interfaces every feature may use (optional)
   <area>/
     <feature>/
       <feature>.contract.ts                wire input, command, in port, out ports (types only)
@@ -20,7 +22,6 @@ application/
 - Group by **business area** (plural), then by **feature**. There is no `features/`, `commands/`, `use-cases/` or `ports/` folder: everything for one feature lives together.
 - A feature that involves more than one area lives in **whichever area the business would look for it in**. There is no rule about which concept "owns" it.
 - `index.ts` exports commands, schemas and handlers, and exports contracts as types. It is generated.
-- There is no `application/shared/` yet: a port that several features need is declared by each of them, because out ports are per feature.
 
 ## CQRS
 
@@ -31,7 +32,7 @@ application/
 
 ## Contracts
 
-A feature's contract file describes the **whole** feature, and like every contract file it **never imports an implementation**. Its only import is the domain barrel, as types.
+A feature's contract file describes the **whole** feature, and like every contract file it **never imports an implementation**. It imports the domain barrel, as types, and, when it needs one, a shared port from `application/shared/`, also as types.
 
 ```ts
 // create-item.contract.ts
@@ -72,7 +73,7 @@ export interface CreateItemStore {
 
 The shape is fixed so generators can read it:
 
-- The one import is `import type { … } from "@<scope>/<context>/domain"`, names sorted, every name used.
+- The first import is `import type { … } from "@<scope>/<context>/domain"`; any others are `import type { … } from "../../shared/<name>.contract.ts"`, sorted by path. Names are sorted and every name is used.
 - `<Feature>Input`, `<Feature>Command` and `<Feature>CommandFactory` come first, in that order, and are all present or all absent.
 - `Input` fields are `readonly` and `string`, `number` or `boolean`. Optional and array fields are not supported yet.
 - `Command` starts with its `__brand`, then the `Input` fields in the same order, each typed by a value object or identifier.
@@ -92,6 +93,7 @@ The shape is fixed so generators can read it:
 - Named exactly `<Feature>Store` for storage, and a feature has at most one. It is implemented once for every storage technology the project uses.
 - For other capabilities, name what they do (`ItemExporter`, `ItemSummarizer`) and tag the port with `@implementedBy <tech>` (`console`, or a real technology) in the `/** */` block directly above it.
 - A feature may have several out ports, one per capability. Their declaration order is the handler's constructor order, and no two may end in the same word.
+- Port-level interfaces shared by **all** features in a context (a clock, an event publisher) may live in `application/shared/<name>.contract.ts`: type imports and exported interfaces only. The application barrel exports them as types.
 
 ## Commands
 

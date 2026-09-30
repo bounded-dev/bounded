@@ -90,6 +90,9 @@ export const applicationBarrelEmitter: Emitter = {
       lines.push(braced("export", [`${f.inPort.name}Handler`], `from "${base}.handler.ts";`));
       return lines;
     });
+    if (m.shared.length > 0) {
+      blocks.unshift(m.shared.map((c) => braced("export type", c.names, `from "./shared/${c.stem}.contract.ts";`)));
+    }
     const header = "// Contracts are exported as types. Commands are exported from their implementation file (type and value together).";
     return generated(`${m.root}/application/index.ts`, [header, ...(blocks.length === 0 ? ["export {};"] : joinBlocks(blocks))]);
   }),
@@ -296,7 +299,7 @@ function implementations(m: ContextModel, technology: AdapterTechnology): Implem
 
 function adapterSource(m: ContextModel, technology: AdapterTechnology, item: Implementation, path: string): string[] {
   const { feature, port, className } = item;
-  const names = referencedNames(feature, port.methods.flatMap((method) => [...method.parameters.map((p) => p.type), method.returns]));
+  const names = referencedNames(feature, port.methods.flatMap((method) => [...method.parameters.map((p) => p.type), method.returns]), m.sharedNames);
   const database = `${adapterClassPrefix(technology.id)}Database`;
   const methods = port.methods.map((method) => [
     `  async ${method.name}${signature(method.parameters, method.returns)} {`,
