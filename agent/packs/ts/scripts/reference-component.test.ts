@@ -165,6 +165,19 @@ function freshCopy(): string {
   return dir;
 }
 
+test("CI installs an exactly pinned Bun and refuses to skip the bun checks", () => {
+  const workflow = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", ".github", "workflows", "check.yml"), "utf8");
+  expect(workflow).toMatch(/uses: oven-sh\/setup-bun@v\d+/);
+  expect(workflow).toMatch(/bun-version: \d+\.\d+\.\d+\s*$/m);
+  expect(workflow).toMatch(/BOUNDED_REQUIRE_BUN: "1"/);
+});
+
+// CI sets BOUNDED_REQUIRE_BUN=1 (.github/workflows/check.yml pins Bun), so
+// there a missing bun fails instead of skipping the reference typecheck, suite and valid-red runs.
+test("bun is present wherever the environment requires it", () => {
+  if (process.env["BOUNDED_REQUIRE_BUN"] === "1") expect(HAS_BUN, "BOUNDED_REQUIRE_BUN=1 but bun is not on PATH").toBe(true);
+});
+
 describe.skipIf(!HAS_BUN)("the reference runs", () => {
   test("it typechecks under bunx tsc", () => {
     const dir = freshCopy();

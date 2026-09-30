@@ -311,6 +311,12 @@ function implement(dir: string): void {
   for (const c of EXAMPLE_CONCEPTS) writeFileSync(join(dir, c.contractPath.replace(".contract.ts", ".ts")), c.implementation);
 }
 
+// CI sets BOUNDED_REQUIRE_BUN=1 (.github/workflows/check.yml pins Bun), so
+// there a missing bun fails instead of skipping the compile-and-run checks.
+test("bun is present wherever the environment requires it", () => {
+  if (process.env["BOUNDED_REQUIRE_BUN"] === "1") expect(HAS_BUN, "BOUNDED_REQUIRE_BUN=1 but bun is not on PATH").toBe(true);
+});
+
 describe.skipIf(!HAS_BUN)("the emitted domain compiles and runs", () => {
   test("the skeleton project typechecks under bunx tsc", () => {
     const dir = fixtureProject();
