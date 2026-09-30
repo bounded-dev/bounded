@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "vitest";
 import { applyInit, describeInit, exampleContracts, planInit } from "./project-init.ts";
 
@@ -91,6 +92,14 @@ describe("project-local initialization", () => {
     const ignore = readFileSync(join(target, ".gitignore"), "utf8").split("\n");
     expect(ignore).toEqual(expect.arrayContaining(["/node_modules/", "/dist/", ".bounded/harness/node_modules/"]));
     expect(ignore.indexOf(".bounded/harness/node_modules/")).toBeGreaterThan(ignore.indexOf("!.bounded/harness/"));
+    // The lockfile fingerprint is committed (the config check verifies the
+    // lockfile against it on a fresh clone); the rest of .bounded/ is not.
+    execFileSync("git", ["init", "-q"], { cwd: target });
+    const ignored = (path: string) =>
+      spawnSync("git", ["check-ignore", "-q", "--no-index", path], { cwd: target }).status === 0;
+    expect(ignored(".bounded/lockfile-fingerprint.json")).toBe(false);
+    expect(ignored(".bounded/composed-packs.json")).toBe(false);
+    expect(ignored(".bounded/guard-log.jsonl")).toBe(true);
     const scripts = (JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
     expect(scripts["bounded:setup"]).toBeUndefined();
     expect(readFileSync(join(target, ".bounded/harness/scripts/bounded"), "utf8")).toContain('setup) shift; exec node "$DIR/../src/setup-state.ts"');

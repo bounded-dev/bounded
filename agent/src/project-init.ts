@@ -386,9 +386,12 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   const ignoreFile = join(stage, ".gitignore");
   const existingIgnore = existsSync(ignoreFile) ? readFileSync(ignoreFile, "utf8").trimEnd() + "\n" : "";
   // Selected capabilities name what their setup and builds produce; the core
-  // names only its own state and the harness's own runtime install.
+  // names only its own state and the harness's own runtime install. The
+  // lockfile fingerprint is committed state: it records the clean resolution
+  // the committed lockfile must match, so a fresh clone can verify it.
   const rules = [...projectIgnoreRules(packs, join(agentRoot, "packs")), ...HOST_PACKAGE_DIRS.map((dir) => `${dir}/`),
-    ".bounded/*", "!.bounded/harness/", ".bounded/harness/node_modules/", "!.bounded/composed-packs.json", "!.bounded/installation.json"];
+    ".bounded/*", "!.bounded/harness/", ".bounded/harness/node_modules/", "!.bounded/composed-packs.json", "!.bounded/installation.json",
+    "!.bounded/lockfile-fingerprint.json"];
   writeFileSync(ignoreFile, existingIgnore + rules.filter((rule) => !existingIgnore.split("\n").includes(rule)).join("\n") + "\n");
 }
 
