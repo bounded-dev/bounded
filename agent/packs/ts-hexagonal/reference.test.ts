@@ -4,7 +4,7 @@
 //
 //   - the pack's emitters reproduce every generated file in it exactly, and
 //     every skeleton's declarations;
-//   - it passes this pack's nine lint rules and a strict type check;
+//   - it passes this pack's lint rules and a strict type check;
 //   - it runs green under `bun test` in a throwaway project;
 //   - the shipped architecture.test.ts fails on each seeded violation (and the
 //     lint flags the same file), and passes on the reference.
@@ -133,7 +133,7 @@ interface ImportMeta { readonly dir: string }
 `;
 
 describe("the reference passes its own checks", () => {
-  test("the pack's nine lint rules find nothing, reading the workspaces from the manifests", async () => {
+  test("the pack's lint rules find nothing, reading the workspaces from the manifests", async () => {
     const dir = fixture();
     const results = await linter(dir).lintFiles(["contexts/**/*.ts"]);
     expect(results.length).toBeGreaterThan(40);
@@ -335,6 +335,19 @@ describe.skipIf(!HAS_BUN)("under bun test", () => {
     ["a domain property merely named process", `${CONTEXT_SRC}/domain/notes/seed.ts`, `export const o = { process: 1 };\nexport const p = o.process;\n`, [], undefined],
     ["an entry file loads application code at runtime", "apps/web/src/server/main.ts", `export const load = () => import("@example/project-management/application");\n`, [WIRING], "composition-root-only-constructs"],
     ["an entry file constructs a handler off a namespace", "apps/web/src/server/main.ts", `import * as App from "@example/project-management/application";\nexport const h = new App.CreateNoteHandler(undefined as never);\n`, [], "composition-root-only-constructs"],
+    // Test files (issue #36): the architecture test reads them too, and the test-writer's lint says so first.
+    ["a domain test imports the domain barrel", `${CONTEXT_SRC}/domain/notes/seed.test.ts`, `import { NoteText } from "@example/project-management/domain";\nexport { NoteText };\n`, [LAYERS], "test-imports"],
+    ["an application test imports the application barrel", `${CONTEXT_SRC}/application/notes/create-note/seed.test.ts`, `import { CreateNoteHandler } from "@example/project-management/application";\nexport { CreateNoteHandler };\n`, [LAYERS], "test-imports"],
+    ["a domain test imports a handler", `${CONTEXT_SRC}/domain/notes/seed.test.ts`, `import { CreateNoteHandler } from "../../application/notes/create-note/create-note.handler.ts";\nexport { CreateNoteHandler };\n`, [LAYERS], "test-imports"],
+    ["an out-adapter test imports another technology", `${CONTEXT_SRC}/adapters/out/console/projects/seed.exporter.test.ts`, `import { InMemoryDatabase } from "../../in-memory/in-memory-database.ts";\nexport { InMemoryDatabase };\n`, [LAYERS], "test-imports"],
+    ["a test imports another context", `${CONTEXT_SRC}/domain/notes/seed.test.ts`, `import type { InvoiceId } from "@example/billing/domain";\nexport type { InvoiceId };\n`, [CONTEXTS], "test-imports"],
+    ["a test outside the layers", `${CONTEXT_SRC}/seed.test.ts`, "export const x = 1;\n", [PLACEMENT], "test-imports"],
+    // A `.spec.ts` is test-side to the gates, the lint and the architecture test alike.
+    ["a domain .spec.ts imports the domain barrel", `${CONTEXT_SRC}/domain/notes/seed.spec.ts`, `import { NoteText } from "@example/project-management/domain";\nexport { NoteText };\n`, [LAYERS], "test-imports"],
+    ["a domain .spec.ts reads the environment, as a test may", `${CONTEXT_SRC}/domain/notes/seed.spec.ts`, `export const e = process.env.X;\n`, [], undefined],
+    ["a domain _test.ts uses a library, as a test may", `${CONTEXT_SRC}/domain/notes/seed_test.ts`, `import { expect } from "bun:test";\nexport { expect };\n`, [], undefined],
+    ["a domain test imports its concept by relative path",`${CONTEXT_SRC}/domain/notes/seed.test.ts`, `import { NoteText } from "./note-text.ts";\nexport { NoteText };\n`, [], undefined],
+    ["a handler test imports the domain barrel and its own command", `${CONTEXT_SRC}/application/notes/create-note/seed.test.ts`, `import { NoteText } from "@example/project-management/domain";\nimport { CreateNoteCommand } from "./create-note.command.ts";\nexport { CreateNoteCommand, NoteText };\n`, [], undefined],
   ];
 
   let dir = "";

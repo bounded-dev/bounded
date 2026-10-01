@@ -22,10 +22,26 @@ import { lintContractSource } from "../ts/scripts/contract-purity.ts";
 import { shippedFiles } from "../ts/scripts/project-package.ts";
 import { TS_HEXAGONAL_LINT_RULES, TS_HEXAGONAL_PACK, TS_HEXAGONAL_PLUGIN, tsHexagonalPack } from "./pack.ts";
 import { TS_HEXAGONAL_EMITTERS } from "./scripts/emitters.ts";
+import { isTestSide, TEST_SUFFIXES } from "./scripts/grammar.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packsDir = join(here, "..");
 const PACKS = [TS_PACK, TS_HEXAGONAL_PACK];
+
+// Review of #36: the lint rules, the gates and the shipped architecture test
+// each had their own idea of a test file (`.spec.ts` was test-side to the
+// gates, implementation to the rest). One definition, held here.
+describe("one definition of a test-side file", () => {
+  test("the grammar, the composed suffixes and the shipped architecture test agree", () => {
+    const composed = testFileSuffixesFor(PACKS, packsDir).filter((s) => /\.tsx?$/.test(s));
+    expect([...TEST_SUFFIXES].sort()).toEqual([...composed].sort());
+    const shipped = readFileSync(join(here, "reference", "architecture-test.ts"), "utf8");
+    const list = /^const TEST_SUFFIXES = (\[.*\]);$/m.exec(shipped)?.[1];
+    expect(list, "architecture-test.ts declares TEST_SUFFIXES").toBeDefined();
+    expect((JSON.parse(list!) as string[]).sort()).toEqual([...composed].sort());
+    expect(isTestSide("contexts/x/src/domain/notes/note.spec.ts")).toBe(true);
+  });
+});
 
 describe("contrib.json through the core's validators", () => {
   test("source roots are the context and app src folders", () => {
@@ -177,12 +193,14 @@ describe("the code half through the ts pack's sockets", () => {
     expect(tsHexagonalPack.dependsOnPacks).toEqual([TS_PACK]);
   });
 
-  test("the pack contributes its lint rules to the builder's lint, under its own name", () => {
-    const ids = composePacks(INSTALLED_PACKS, PACKS).read(lintSrcRules).map(lintSrcRuleId);
-    expect(ids).toEqual([
+  test("the pack contributes its lint rules under its own name: the builder's, then the test-writer's", () => {
+    const rules = composePacks(INSTALLED_PACKS, PACKS).read(lintSrcRules);
+    expect(rules.map(lintSrcRuleId)).toEqual([
       "layer-dependency", "no-cross-context-import", "no-io-in-core", "file-role-suffix", "naming", "handler-shape",
       "composition-root-only-constructs", "entry-hosts-only", "client-type-only-server-imports", "in-adapter-uses-in-port",
+      "test-imports",
     ].map((name) => `${TS_HEXAGONAL_PLUGIN}/${name}`));
+    expect(rules.filter((r) => r.namedIn === "test-writer").map((r) => r.name)).toEqual(["test-imports"]);
   });
 });
 
@@ -194,8 +212,20 @@ describe("the skill", () => {
     expect(skill).toMatch(/^name: ts-hexagonal$/m);
   });
 
-  test("names every rule that binds the builder, in the builder's section", () => {
+  test("names every rule in the section of the role it binds", () => {
     const builder = skill.slice(skill.indexOf("## Builder"));
-    for (const rule of TS_HEXAGONAL_LINT_RULES) expect(builder).toContain(`\`${rule.name}\``);
+    const testWriter = skill.slice(skill.indexOf("## Test writer"), skill.indexOf("## Builder"));
+    for (const rule of TS_HEXAGONAL_LINT_RULES) {
+      expect(rule.namedIn === "builder" ? builder : testWriter, rule.name).toContain(`\`${rule.name}\``);
+    }
+  });
+
+  test("tells the test-writer not to test generated code, and the import rules for test files", () => {
+    const testWriter = skill.slice(skill.indexOf("## Test writer"), skill.indexOf("## Builder"));
+    expect(testWriter).toMatch(/never test generated code/i);
+    expect(testWriter).toContain("`no-generated-subject`");
+    for (const line of ['import { NoteText } from "./note-text.ts";', 'import { NoteText } from "@example/project-management/domain";']) {
+      expect(testWriter).toContain(line);
+    }
   });
 });

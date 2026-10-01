@@ -84,7 +84,10 @@ function packageOf(spec: string): { name: string; subpath: string } | undefined 
   return { name: parts[0]!, subpath: parts.slice(1).join("/") };
 }
 
-const isTestSide = (path: string): boolean => /\.(test\.tsx?|test-support\.ts)$/i.test(path);
+/** Test-side file names: the harness's composed test suffixes, the same list
+ *  its lint rules and gates use. Matching ignores case. */
+const TEST_SUFFIXES = [".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", "_test.ts", "_test.tsx", "_spec.ts", "_spec.tsx", ".test-support.ts"];
+const isTestSide = (path: string): boolean => TEST_SUFFIXES.some((suffix) => path.toLowerCase().endsWith(suffix));
 const isCompositionRoot = (path: string): boolean => /(^|\/)composition-root\.ts$/.test(path);
 const WHOLE_MODULE: readonly Form[] = ["default", "namespace", "export-all", "loader"];
 

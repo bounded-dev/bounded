@@ -289,6 +289,23 @@ When you commission the workers, point each at the harness's
 and at `packs/ts-hexagonal/skills/ts-hexagonal/SKILL.md`, whose sections are
 written per role. They are readable by both and widen no zone.
 
+Two things to put in the test-writer's brief, because each has cost a red:
+
+- **Never test generated code**: no tests of a `<feature>.command.ts` (its
+  schema and `parse`), of anything under `adapters/in/`, or of what a
+  `*.laws.test.ts` covers. The generated laws test it, and generated code
+  works before anything is built, so such a test passes at red and red
+  refuses it. A handler test may build its input with the command.
+- **Test files follow the import rules `architecture.test.ts` enforces**: a
+  domain test imports each concept from its own file
+  (`import { NoteText } from "./note-text.ts";`), never through the domain
+  barrel (`import { NoteText } from "@example/project-management/domain";`
+  is wrong there); an application test takes domain values from that barrel
+  and its feature's own files by relative path.
+
+The test lint refuses both at red (`no-generated-subject`, `test-imports`),
+naming the fix; telling the test-writer up front saves the bounce.
+
 ## The gates that watch your contracts — write to pass them the FIRST time
 
 `contract_purity` enforces, by machine: `bounded-ts/declaration-only`

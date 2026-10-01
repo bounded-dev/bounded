@@ -1,6 +1,8 @@
 // The ts-hexagonal pack's lint rules, as contributions to the ts pack's
-// `lintSrcRules` socket. All of them bind the builder: they police the files
-// the builder writes under the source roots, and each message names the fix.
+// `lintSrcRules` socket. Each message names the fix. All but one bind the
+// builder: they police the files the builder writes under the source roots.
+// `test-imports` binds the test-writer: the same import boundaries, on the
+// test files the architecture test also reads (issue #36).
 
 import type { LintSrcRuleContribution } from "../../ts/pack.ts";
 import { clientTypeOnlyServerImports, inAdapterUsesInPort, layerDependency, noCrossContextImport } from "./rules/boundary-rules.ts";
@@ -9,6 +11,7 @@ import { fileRoleSuffix } from "./rules/file-role-suffix.ts";
 import { handlerShape } from "./rules/handler-shape.ts";
 import { naming } from "./rules/naming.ts";
 import { noIoInCore } from "./rules/no-io-in-core.ts";
+import { testImports } from "./rules/test-imports.ts";
 
 /** Flat-config namespace of this pack's rules. */
 export const TS_HEXAGONAL_PLUGIN = "bounded-ts-hexagonal";
@@ -24,4 +27,5 @@ export const TS_HEXAGONAL_LINT_RULES: readonly LintSrcRuleContribution[] = Objec
   { plugin: TS_HEXAGONAL_PLUGIN, name: "entry-hosts-only", rule: entryHostsOnly, namedIn: "builder" },
   { plugin: TS_HEXAGONAL_PLUGIN, name: "client-type-only-server-imports", rule: clientTypeOnlyServerImports, namedIn: "builder" },
   { plugin: TS_HEXAGONAL_PLUGIN, name: "in-adapter-uses-in-port", rule: inAdapterUsesInPort, namedIn: "builder" },
+  { plugin: TS_HEXAGONAL_PLUGIN, name: "test-imports", rule: testImports, namedIn: "test-writer" },
 ] as LintSrcRuleContribution[]);

@@ -44,12 +44,14 @@ both are readable. Copy the shapes, not the domain.
 |---|---|---|
 | Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` (`*.spec.ts` is test-side too; write `*.test.ts`) | you write these |
 | Contract | `*.contract.ts` | read; the architect's |
-| Generated | `domain/index.ts`, `domain/shared/result.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle test support `drizzle-test-database.test-support.ts`, every `*.laws.test.ts` | read and import freely; no role edits them, you included |
+| Generated | `domain/index.ts`, `domain/shared/result.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle test support `drizzle-test-database.test-support.ts`, every `*.laws.test.ts` | read and import freely; no role edits them, you included; never the subject of your tests |
 | Implementation | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, mappers, composition roots, … | never read; you may import them |
 
 A `*.laws.test.ts` file is generated from the contracts: the laws of every
 value object, every command and every in adapter. Do not write one and do not
-repeat what they cover (wrong-type input, the parse/`toJSON` round trip).
+repeat what they cover (wrong-type input, the parse/`toJSON` round trip). Do
+not test a command or an in adapter at all (see "Never test generated code"
+below).
 
 ### The test levels (ADR 2026-063)
 
@@ -98,11 +100,33 @@ name and by call site; a missing one blocks the red and names itself.
     }));
   });
   ```
-- **Import names from where the project exports them.** Domain values from
-  the barrel `@<scope>/<context>/domain`; a command from its generated
-  `<feature>.command.ts`; types from the feature's contract; the class under
-  test from its own file (`./create-note.handler.ts`). Importing is allowed;
-  reading an implementation file is not.
+- **Import as the code beside the test may import.** `architecture.test.ts`
+  reads test files too, and `test-imports` refuses at red every import it
+  would fail on, naming the fix. Importing is allowed; reading an
+  implementation file is not.
+
+  | Test in | Imports |
+  |---|---|
+  | `domain/` | each concept from its own file by relative path (`./note-text.ts`, `../projects/project-id.ts`), `Result` from `../shared/result.ts`; **never** the `@<scope>/<context>/domain` barrel, and nothing from application or adapters |
+  | `application/<area>/<feature>/` | domain values from the barrel `@<scope>/<context>/domain`; the handler, command and contract types from the feature's own files (`./create-note.handler.ts`); never the `/application` barrel or any adapter |
+  | `adapters/out/<tech>/` | domain values from the domain barrel, the conformance suite by relative path, stores and the database of the **same** technology by relative path; never another technology's files |
+  | `apps/<app>/` | the composition root by relative path; a context only through its `domain`, `application` or `adapters/<tech>` package paths |
+
+  Right and wrong, in `domain/notes/note.test.ts`:
+
+  ```ts
+  import { NoteText } from "./note-text.ts";                          // right
+  import { NoteText } from "@example/project-management/domain";     // wrong: a domain file never imports its own package
+  ```
+- **Never test generated code.** A feature's `<feature>.command.ts` (its zod
+  schema and `parse`), everything under `adapters/in/`, and whatever a
+  `*.laws.test.ts` covers already have generated laws, and generated code
+  works before anything is built, so a test of it passes at red and red
+  refuses it. `no-generated-subject` refuses a test (or a whole test file)
+  whose every subject is generated, before red. No `describe("CreateNoteCommand.parse")`
+  block: a command's wire checks, field order and error messages are the
+  laws' job. A handler test may still build its input with the command, as
+  the reference's `command()` helper does; what it tests is the handler.
 - **Store tests need a container runtime (ADR 2026-064).** Postgres store
   tests start a real Postgres through Docker. At the red gate, without one,
   they are skipped and the reason is logged; at the green gate they must run,
@@ -224,6 +248,11 @@ function projectName(raw: string): ProjectName {
   return name.value;
 }
 ```
+
+**Test imports and test subjects** — `test-imports` refuses an import
+`architecture.test.ts` would fail on (the table above), and
+`no-generated-subject` refuses a test whose only subjects are generated
+modules (a command, an in adapter). Both messages name the fix.
 
 **Non-blessed frameworks are banned in tests too** —
 `bounded-ts/blessed-stacks-only` refuses imports of non-blessed API

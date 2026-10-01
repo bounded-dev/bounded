@@ -20,7 +20,9 @@ import {
   shadowProjectDir,
   testFilesHash,
   testSideFiles,
+  withGeneratedOnly,
   withoutPolicySkips,
+  withTestLint,
 } from "./red-gate.ts";
 import { runTests, type RunTestsResult } from "./run-tests.ts";
 import { runScaffold } from "./scaffold-project.ts";
@@ -383,5 +385,116 @@ describe("runRedGate on the monorepo (canned suite)", () => {
     writeFileSync(join(f.dir, CONTEXT_SRC, "application/notes/list-notes/list-notes.contract.ts"), "export interface Broken {}\n");
     const result = await withEnv(cannedGateEnv(f.dir, RIGHT), () => runRedGate(f.dir));
     expect(result).toMatchObject({ code: 2, verdict: "error", detail: { reason: "shadow-project" } });
+  });
+});
+
+// Issue #36: in the 2026-10-01 dogfood red refused eight tests of a generated
+// command's parse as "passed against unimplemented skeleton", with nothing to
+// say why or what to do; and the test lint's refusals only showed on a red
+// that was otherwise valid.
+describe("tests of generated code, and the test lint, at red", () => {
+  const SPURIOUS = classifyRed(run({ total: 2, passed: 1, failed: 1, results: [
+    { name: "CreateNoteCommand.parse > refuses a number", status: "passed" },
+    { name: "b", status: "failed", message: NI("b") },
+  ] }), TYPE_CLEAN);
+  const ONLY = [{ name: "CreateNoteCommand.parse > refuses a number", subjects: ["CreateNoteCommand from ./create-note.command.ts"] }];
+  const VALID = classifyRed(run({ total: 1, failed: 1, results: [{ name: "b", status: "failed", message: NI("b") }] }), TYPE_CLEAN);
+  const CREATE_NOTE_TEST = `${CONTEXT_SRC}/application/notes/create-note/create-note.test.ts`;
+  const RIGHT = [{ name: "NoteText > parses", status: "failed" as const, message: NI("NoteText.parse") }];
+
+  test("a spurious pass that exercises only generated code says so and says to remove it; the route stays the test-writer's", () => {
+    const r = withGeneratedOnly(SPURIOUS, ONLY);
+    expect(r.lines.at(-1)).toBe("red-gate: route → test-writer");
+    expect(r.lines.join("\n")).toMatch(/1 of the passing tests exercises only generated code\..*Remove these tests; do not rewrite them to fail/);
+    expect(r.lines).toContain("  only generated code: CreateNoteCommand.parse > refuses a number (CreateNoteCommand from ./create-note.command.ts)");
+    expect(r.detail).toMatchObject({ reason: "spurious-pass", route: "test-writer", generatedOnly: [ONLY[0]!.name] });
+    expect(r.summary).toMatch(/1 exercises only generated code$/);
+  });
+
+  test("anything else is left as it was", () => {
+    expect(withGeneratedOnly(SPURIOUS, [])).toBe(SPURIOUS);
+    expect(withGeneratedOnly(VALID, ONLY)).toBe(VALID);
+  });
+
+  const lint = (ruleId: string) => ({
+    code: 1 as const,
+    summary: "1 problem in 3 files",
+    lines: [`x.test.ts:1:1  ${ruleId}  the fix`, "lint-src: 1 problem in 3 files"],
+    detail: { problems: [{ filePath: "x.test.ts", line: 1, column: 1, ruleId, message: "the fix" }] },
+  });
+
+  test("a valid red the test lint refuses blocks, naming each fix; escape hatches keep their own reason", () => {
+    const imports = withTestLint(VALID, lint("bounded-ts-hexagonal/test-imports"));
+    expect(imports).toMatchObject({ code: 1, detail: { reason: "test-lint", route: "test-writer" } });
+    expect(imports.lines).toContain("x.test.ts:1:1  bounded-ts-hexagonal/test-imports  the fix");
+    expect(imports.lines.join("\n")).not.toMatch(/non-null assertion/);
+    expect(withTestLint(VALID, lint("@typescript-eslint/no-explicit-any")).detail).toMatchObject({ reason: "test-escape-hatches" });
+  });
+
+  test("a red already refused for the test-writer carries the lint's lines too, before the route", () => {
+    const r = withTestLint(SPURIOUS, lint("bounded-ts/no-generated-subject"));
+    expect(r.detail).toMatchObject({ reason: "spurious-pass", route: "test-writer" });
+    expect(r.lines.at(-1)).toBe("red-gate: route → test-writer");
+    expect(r.lines).toContain("x.test.ts:1:1  bounded-ts/no-generated-subject  the fix");
+  });
+
+  test("a red routed upstream keeps its owner, and carries the lint's lines marked for the test-writer after that owner", () => {
+    const upstream = classifyRed(run({ total: 1, failed: 1, results: [{ name: "b", status: "failed", message: NI("b") }] }), tsc(CONTRACT_TYPE_ERR), TS_ZONE);
+    expect(upstream.detail.route).toBe("architect");
+    const r = withTestLint(upstream, lint("bounded-ts/no-generated-subject"));
+    expect(r.detail.route).toBe("architect");
+    expect(r.lines.at(-1)).toBe("red-gate: route → architect");
+    expect(r.lines).toContain("x.test.ts:1:1  bounded-ts/no-generated-subject  the fix");
+    expect(r.lines.join("\n")).toMatch(/for the test-writer, after the architect's fix above: the test lint also refused/);
+  });
+
+  test("a fully green suite whose tests exercise only generated code is explained too", () => {
+    const green = classifyRed(run({ total: 1, passed: 1, results: [{ name: ONLY[0]!.name, status: "passed" }] }), TYPE_CLEAN);
+    expect(green.detail.reason).toBe("fully-green");
+    const r = withGeneratedOnly(green, ONLY);
+    expect(r.lines).toContain(`  only generated code: ${ONLY[0]!.name} (CreateNoteCommand from ./create-note.command.ts)`);
+    expect(r.detail).toMatchObject({ reason: "fully-green", route: "test-writer", generatedOnly: [ONLY[0]!.name] });
+  });
+
+  test("a test the generated-only explanation lists is not listed again among the lint's lines", () => {
+    const listed = withGeneratedOnly(SPURIOUS, [{ ...ONLY[0]!, at: "x.test.ts:1" }]);
+    const same = withTestLint(listed, lint("bounded-ts/no-generated-subject"));
+    expect(same).toBe(listed);
+    const other = withTestLint(listed, {
+      ...lint("bounded-ts/no-generated-subject"),
+      lines: ["x.test.ts:1:1  bounded-ts/no-generated-subject  the fix", "x.test.ts:9:1  bounded-ts/no-generated-subject  the fix", "lint-src: 2 problems"],
+    });
+    expect(other.lines.filter((l) => l.includes("no-generated-subject  "))).toEqual(["x.test.ts:9:1  bounded-ts/no-generated-subject  the fix"]);
+  });
+
+  test("end to end: red names the generated-only passes and the lint refusals, routed to the test-writer", async () => {
+    const f = notebook();
+    writeFileSync(join(f.dir, CREATE_NOTE_TEST), `${readFileSync(join(f.dir, CREATE_NOTE_TEST), "utf8")}
+describe("CreateNoteCommand.parse", () => {
+  test("refuses a number", () => {
+    expect(CreateNoteCommand.parse(1).ok).toBe(false);
+  });
+});
+`);
+    const cases = [...RIGHT, { name: "CreateNoteCommand.parse > refuses a number", status: "passed" as const, file: CREATE_NOTE_TEST }];
+    const result = await withEnv(cannedGateEnv(f.dir, cases), () => runRedGate(f.dir));
+    expect(result).toMatchObject({
+      code: 1,
+      detail: { reason: "spurious-pass", route: "test-writer", generatedOnly: ["CreateNoteCommand.parse > refuses a number"] },
+    });
+    expect(result.lines).toContain(
+      "  only generated code: CreateNoteCommand.parse > refuses a number (CreateNoteCommand from ./create-note.command.ts)",
+    );
+    // The test lint refused the same test; it is said once, not twice.
+    expect(result.lines.filter((l) => l.includes("refuses a number") || l.includes("bounded-ts/no-generated-subject"))).toHaveLength(1);
+    expect(result.lines.at(-1)).toBe("red-gate: route → test-writer");
+  });
+
+  test("end to end: a passing test that reaches the handler is not called generated-only", async () => {
+    const f = notebook();
+    const cases = [...RIGHT, { name: "CreateNoteHandler > creates the note and saves it", status: "passed" as const, file: CREATE_NOTE_TEST }];
+    const result = await withEnv(cannedGateEnv(f.dir, cases), () => runRedGate(f.dir));
+    expect(result.detail).toMatchObject({ reason: "spurious-pass" });
+    expect(result.detail.generatedOnly).toBeUndefined();
   });
 });

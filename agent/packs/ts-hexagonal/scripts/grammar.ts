@@ -5,6 +5,9 @@
 // Every function here refuses rather than guesses: a name outside the grammar
 // is `false` / `undefined`, never "probably fine".
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 export const KEBAB = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 export const PASCAL = /^[A-Z][A-Za-z0-9]*$/;
 
@@ -53,8 +56,14 @@ export function featureNameProblem(area: string, feature: string): string | unde
   return undefined;
 }
 
-/** Test-side file names (TN-26-012 §8). Matching ignores case. */
-export const TEST_SUFFIXES: readonly string[] = Object.freeze([".test.ts", ".test.tsx", ".test-support.ts"]);
+/** Test-side file names (TN-26-012 §8): this pack's composed
+ *  `testFileSuffixes`, read from its own contrib.json so the lint rules, the
+ *  gates and the shipped architecture test (pinned to this list by
+ *  pack.test.ts) share one definition. Matching ignores case. */
+export const TEST_SUFFIXES: readonly string[] = Object.freeze(
+  (JSON.parse(readFileSync(fileURLToPath(new URL("../contrib.json", import.meta.url)), "utf8")) as { testFileSuffixes: string[] })
+    .testFileSuffixes.filter((suffix) => /\.tsx?$/.test(suffix)),
+);
 
 export function isTestSide(path: string): boolean {
   const lower = path.toLowerCase();

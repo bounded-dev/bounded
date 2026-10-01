@@ -149,10 +149,20 @@ export const SRC_RULE_IDS: readonly string[] = [
   "bounded-ts/no-test-runner-in-source",
 ];
 
-/** The subset enforced on tests/** (size ceilings excluded). */
-export const TEST_RULE_IDS: readonly string[] = SRC_RULE_IDS.filter(
-  (r) => !SIZE_RULES.has(r) && !SRC_ONLY_RULES.has(r),
-);
+/** Rules that bind test-side files only. Registered in the one flat config
+ *  like every other rule; each acts on test-side files and nothing else, and
+ *  the src run never sees a test-side file. */
+const TEST_ONLY_RULE_IDS: readonly string[] = [
+  // Tests of generated code (issue #36): see eslint/rules/no-generated-subject.ts.
+  "bounded-ts/no-generated-subject",
+];
+
+/** The subset enforced on tests/** (size ceilings excluded), plus the
+ *  test-only rules. */
+export const TEST_RULE_IDS: readonly string[] = [
+  ...SRC_RULE_IDS.filter((r) => !SIZE_RULES.has(r) && !SRC_ONLY_RULES.has(r)),
+  ...TEST_ONLY_RULE_IDS,
+];
 
 // --- Contributed rules (TN-26-005, the ts pack's `lintSrcRules` socket) -------
 //
@@ -312,6 +322,10 @@ export function createSrcLinter(cwd?: string, ignores: readonly string[] = []): 
           // --- No test runner in implementation code (final review) -------
           // mock.module, a bun:test import, or a name bun collects as a test.
           "bounded-ts/no-test-runner-in-source": "error",
+          // --- No tests of generated code (issue #36) ---------------------
+          // Test-side files only: a test whose every subject is generated
+          // passes against the skeletons and repeats the generated laws.
+          "bounded-ts/no-generated-subject": "error",
           // --- Contributed rules (the ts pack's lintSrcRules socket) --------
           // Appended LAST, so a contributed rule can never quietly restate one
           // of the ts pack's own at a lower severity: everything above is
@@ -366,7 +380,9 @@ export async function lintSrc(
 }
 
 /**
- * The tests/** variant: same escape-hatch rules, size ceilings filtered out,
+ * The tests/** variant: same escape-hatch rules plus the test-only ones (no
+ * tests of generated code) and the contributed rules that bind the
+ * test-writer, size ceilings filtered out,
  * `tests/generated/**` excluded (machine-written; the generator is trusted the
  * way the scaffolder is). Run inside the red gate, so an offending helper is
  * the test-writer's to fix at the moment fixing is cheap.

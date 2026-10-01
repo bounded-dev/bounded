@@ -491,7 +491,14 @@ case. The test-writer authors:
 | App smoke | `apps/<app>/src/**/composition-root.test.ts` next to the composition root, against `compose<Entry>()`; run at green only (Q2) |
 
 The in-adapter level is generated laws only. The test-writer writes nothing
-under `adapters/in/`, which is generated. Store tests follow ADR 2026-064:
+under `adapters/in/`, which is generated, and tests no generated module
+anywhere (issue #36): the test lint at red refuses a test whose only subjects
+are generated (`bounded-ts/no-generated-subject`, from `generatedFileGlobs`,
+following generated barrels to the module that defines a name) and a test
+import the architecture test would fail on (`bounded-ts-hexagonal/test-imports`,
+the same `boundaryProblems` the builder's boundary rules use). A red that
+refuses a test for passing against the skeletons says when the test exercises
+only generated code. Store tests follow ADR 2026-064:
 skipped with a logged reason at red without a container runtime, and a
 refusal at green. Before green (and mutation score, and deliver's check)
 runs any test, store tests' Testcontainers must start and stop one
