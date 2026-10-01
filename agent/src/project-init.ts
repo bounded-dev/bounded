@@ -389,17 +389,36 @@ export function withoutTemplateText(source: string): string {
   return out.join("");
 }
 
+/** A pack's runtime's own modules (`runtimeBuiltinModules`): each entry is
+ *  a module name, or a scheme ending in `:` that covers every specifier
+ *  starting with it. The core names only its own runtime's (`node:`). */
+export function runtimeBuiltinModules(packs: readonly string[], packsDir = join(agentRoot, "packs")): string[] {
+  return contributionsByPack("runtimeBuiltinModules", packs, packsDir).flatMap(({ pack, value }) => {
+    if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !/^[a-z][a-z0-9-]*:?$/.test(entry))) {
+      throw new Error(`Pack '${pack}' field 'runtimeBuiltinModules' must be an array of module names or schemes ending in ':'`);
+    }
+    return value as string[];
+  });
+}
+
+/** Is `specifier` one of the runtimes' builtins: the core's own (`node:`) or
+ *  one a pack declares in `runtimeBuiltinModules`? */
+function isBuiltin(specifier: string, builtins: readonly string[]): boolean {
+  if (specifier.startsWith("node:")) return true;
+  return builtins.some((entry) => (entry.endsWith(":") ? specifier.startsWith(entry) : specifier === entry));
+}
+
 /** The packages a harness source file imports: bare specifiers reduced to
  *  their package name. Relative and absolute paths, and the runtimes' own
- *  builtins (`node:fs`, `bun`, `bun:test`, `bun:sqlite`), are no package the
- *  harness depends on. Template-literal text (generated files) is ignored. */
-export function importedPackageNames(source: string): string[] {
+ *  builtins (`node:*`, and every pack's `runtimeBuiltinModules`), are no
+ *  package the harness depends on. Template-literal text (generated files)
+ *  is ignored. */
+export function importedPackageNames(source: string, builtins: readonly string[] = []): string[] {
   const names = new Set<string>();
   const imports = withoutTemplateText(source).matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[^;\n]*?\s+from\s+)?["']([^"']+)["']/gm);
   for (const match of imports) {
     const specifier = match[1]!;
-    if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("node:")) continue;
-    if (specifier === "bun" || specifier.startsWith("bun:")) continue;
+    if (specifier.startsWith(".") || specifier.startsWith("/") || isBuiltin(specifier, builtins)) continue;
     if (!/^(@[a-z0-9-]+\/[a-z0-9._-]+|[a-z0-9._-]+)/i.test(specifier)) continue;
     names.add(specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]!);
   }
@@ -410,10 +429,11 @@ function harnessPackageFor(harnessRoot: string): RuntimePackage {
   const sourcePkg = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as RuntimePackage;
   const sourceLock = JSON.parse(readFileSync(sourceLockPath(agentRoot), "utf8")) as { packages: Record<string, { version?: string }> };
   const names = new Set<string>();
+  const builtins = runtimeBuiltinModules([...availablePacks().keys()]);
   // A pack's reference/ files are content copied into projects, never harness
   // code: their imports are the project's dependencies, not the runtime's.
   for (const path of walk(harnessRoot).filter((path) => path.endsWith(".ts") && !/^packs\/[^/]+\/reference\//.test(path))) {
-    for (const name of importedPackageNames(readFileSync(join(harnessRoot, path), "utf8"))) names.add(name);
+    for (const name of importedPackageNames(readFileSync(join(harnessRoot, path), "utf8"), builtins)) names.add(name);
   }
   const dependencies: Record<string, string> = {};
   for (const name of [...names].sort()) {

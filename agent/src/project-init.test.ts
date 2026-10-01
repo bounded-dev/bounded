@@ -7,7 +7,7 @@ import { decide } from "./path-policy.ts";
 import { setupPlan } from "./setup-state.ts";
 import {
   applyInit, declaresNoInitializer, defaultSelection, describeInit, exampleContracts, exampleWorkspaces, localPackPaths,
-  importedPackageNames, planInit, projectNameOf, withoutTemplateText,
+  importedPackageNames, planInit, projectNameOf, runtimeBuiltinModules, withoutTemplateText,
 } from "./project-init.ts";
 
 /** The whole stack, in the order packs/default-stack.json records it. */
@@ -105,7 +105,16 @@ describe("project-local initialization", () => {
       'import { z } from "zod";',
       "`;",
     ].join("\n");
-    expect(importedPackageNames(source)).toEqual(["@trpc/server", "pg", "picomatch"]);
+    // The Bun names come from the ts pack's data, never from the core.
+    const builtins = runtimeBuiltinModules(["ts"]);
+    expect(builtins).toEqual(["bun", "bun:"]);
+    expect(importedPackageNames(source, builtins)).toEqual(["@trpc/server", "pg", "picomatch"]);
+    expect(importedPackageNames(source)).toEqual(["@trpc/server", "bun", "bun:sqlite", "bun:test", "pg", "picomatch"]);
+  });
+
+  test("the core names no Bun module: the runtime builtins it skips are the packs' data", () => {
+    const core = readFileSync(join(import.meta.dirname, "project-init.ts"), "utf8");
+    expect(core).not.toMatch(/["'`]bun:?["'`]|startsWith\("bun/);
   });
 
   test("the project name comes from the directory name", () => {
