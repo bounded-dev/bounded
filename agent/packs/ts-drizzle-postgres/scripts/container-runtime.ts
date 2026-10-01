@@ -16,10 +16,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { PhaseTestDecision, PhaseTestPolicy, PreparedTestService, TestFailure } from "../../ts/pack.ts";
+import type { PhaseTestDecision, PhaseTestPolicy, PreparedTestService, TestEnvChange, TestFailure } from "../../ts/pack.ts";
 import { startAppDatabase } from "./app-database.ts";
 import { DRIZZLE, DRIZZLE_PREFIX, POSTGRES_IMAGE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
-import { preflightTestcontainers, storeTestInfrastructureFailure } from "./testcontainers-preflight.ts";
+import { preflightAllStoreTests, storeTestInfrastructureFailure } from "./testcontainers-preflight.ts";
 import { CONTEXTS_DIR, drizzleContexts } from "./check-db.ts";
 
 export type ContainerRuntimeProbe =
@@ -210,7 +210,9 @@ export function appDatabaseRefusal(probe: Extract<ContainerRuntimeProbe, { avail
 
 /** Start `steps` in order as one service: a later failure releases what
  *  the earlier ones started, and the release takes them all down, last first. */
-export async function startInOrder(steps: readonly (() => Promise<PreparedTestService>)[]): Promise<PreparedTestService> {
+export async function startInOrder(
+  steps: readonly ((env: TestEnvChange) => Promise<PreparedTestService>)[], change: TestEnvChange,
+): Promise<PreparedTestService> {
   const started: PreparedTestService[] = [];
   const release = (): void => {
     for (const service of started.splice(0).reverse()) {
@@ -222,7 +224,12 @@ export async function startInOrder(steps: readonly (() => Promise<PreparedTestSe
     }
   };
   try {
-    for (const step of steps) started.push(await step());
+    // Each step sees the environment the earlier ones set, as the gate's own
+    // services do.
+    for (const step of steps) {
+      const set = Object.assign({}, change.set, ...started.map((service) => service.env)) as Record<string, string>;
+      started.push(await step({ set, unset: change.unset.filter((variable) => !(variable in set)) }));
+    }
   } catch (error) {
     release();
     throw error;
@@ -251,7 +258,7 @@ export function storeTestPhaseDecision(
   probe: () => ContainerRuntimeProbe,
   persists = false,
   startDatabase?: (endpoint: string) => Promise<PreparedTestService>,
-  preflight?: (endpoint: string) => Promise<PreparedTestService>,
+  preflight?: (endpoint: string, env: TestEnvChange) => Promise<PreparedTestService>,
   infrastructureFailure?: (endpoint: string) => (failure: TestFailure) => string | undefined,
 ): PhaseTestDecision {
   const needsRuntime = storeTests.length > 0 || (phase === "green" && persists);
@@ -266,12 +273,12 @@ export function storeTestPhaseDecision(
   if (!probed.available) return decision;
   const endpoint = probed.endpoint;
   const stores = storeTests.length > 0;
-  const steps: (() => Promise<PreparedTestService>)[] = [];
-  if (stores && preflight !== undefined) steps.push(() => preflight(endpoint));
+  const steps: ((env: TestEnvChange) => Promise<PreparedTestService>)[] = [];
+  if (stores && preflight !== undefined) steps.push((env) => preflight(endpoint, env));
   if (persists && startDatabase !== undefined) steps.push(() => startDatabase(endpoint));
   const classified = stores && infrastructureFailure !== undefined ? { infrastructureFailure: infrastructureFailure(endpoint) } : {};
   if (steps.length === 0) return { ...decision, ...classified };
-  return { ...decision, ...classified, prepare: () => (steps.length === 1 ? steps[0]!() : startInOrder(steps)) };
+  return { ...decision, ...classified, prepare: (env) => (steps.length === 1 ? steps[0]!(env) : startInOrder(steps, env)) };
 }
 
 export const storeTestPolicy: PhaseTestPolicy = {
@@ -290,7 +297,7 @@ export const storeTestPolicy: PhaseTestPolicy = {
       () => probeContainerRuntime(),
       phase === "green" && drizzleContexts(project).length > 0,
       (endpoint) => startAppDatabase(project, endpoint),
-      (endpoint) => preflightTestcontainers(project, storeTests[0]!, endpoint),
+      (endpoint, env) => preflightAllStoreTests(project, storeTests, endpoint, env),
       (endpoint) => storeTestInfrastructureFailure(storeTests, { image: POSTGRES_IMAGE, endpoint }),
     );
   },

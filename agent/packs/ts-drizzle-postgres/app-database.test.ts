@@ -68,7 +68,7 @@ describe("the decision (no Docker needed)", () => {
     expect(decision.action).toBe("run");
     if (decision.action !== "run") return;
     expect(endpoints).toEqual([]); // nothing starts while deciding
-    await decision.prepare!();
+    await decision.prepare!({ set: {}, unset: [] });
     expect(endpoints).toEqual(["unix:///run/docker.sock"]);
   });
 

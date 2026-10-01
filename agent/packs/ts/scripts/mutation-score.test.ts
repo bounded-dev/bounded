@@ -438,6 +438,28 @@ describe("runMutationScore", () => {
     expect(result.lines[0]).toBe("mutation-score: started a throwaway database");
   });
 
+  test("a run every failure of which is the machine's judges no mutant: it blocks, names the cause, and restores the tree", async () => {
+    const dir = proj();
+    let runs = 0;
+    let classifierPassed = false;
+    const infrastructure = () => ({ causes: ["x > (unnamed): the registry could not be reached"], all: true });
+    const result = await runMutationScore(dir, {
+      maxMutants: 3,
+      policy: { refusals: [], env: { set: {}, unset: [] }, prepares: [], infrastructure },
+      runSuite: async (_cwd, _timeout, _env, classify) => {
+        classifierPassed = classify === infrastructure;
+        runs++;
+        return runs === 1 ? { ok: true, note: "green" } : { ok: false, note: "the machine's failure", infrastructure: ["x > (unnamed): the registry could not be reached"] };
+      },
+    });
+    expect(classifierPassed).toBe(true);
+    expect(result).toMatchObject({ code: 1, outcomes: [], killed: 0 });
+    expect(result.lines).toContain("mutation-score: BLOCK — the suite failed because of the machine, not the code; no mutant was judged");
+    expect(result.lines).toContain("  x > (unnamed): the registry could not be reached");
+    expect(runs).toBe(2);
+    expect(dirtyFiles(dir)).toEqual([]);
+  });
+
   test("a policy refusal (no container runtime) blocks before any suite runs or file is mutated", async () => {
     const dir = proj();
     let ran = false;

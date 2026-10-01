@@ -22,7 +22,9 @@ import {
   type ContainerRuntimeProbe,
 } from "./scripts/container-runtime.ts";
 import { APP_DATABASE_ENV, dockerCli, startAppDatabase } from "./scripts/app-database.ts";
-import { DEFAULT_PREFLIGHT_DEPS, PREFLIGHT_LABEL_KEY, PREFLIGHT_LABEL_VALUE, preflightTestcontainers } from "./scripts/testcontainers-preflight.ts";
+import {
+  DEFAULT_PREFLIGHT_DEPS, PREFLIGHT_LABEL_KEY, PREFLIGHT_LABEL_VALUE, preflightTargets, preflightTestcontainers, testcontainersResolution,
+} from "./scripts/testcontainers-preflight.ts";
 import { combineDecisions, withPreparedServices } from "../ts/scripts/phase-policy.ts";
 import { emitDrizzlePersistence, POSTGRES_IMAGE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./scripts/emit.ts";
 import { generateMigrations } from "./scripts/generate-migrations.ts";
@@ -302,9 +304,28 @@ describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight o
 
   test("starts and removes one container from the pinned image through the store tests' own Testcontainers", { timeout: 900_000 }, async () => {
     const storeTest = drizzleStoreTests(dir)[0]!;
-    const service = await preflightTestcontainers(dir, storeTest, endpoint);
+    const hosts: string[] = [];
+    const deps = { ...DEFAULT_PREFLIGHT_DEPS, sweep: (run: string, host: string) => { hosts.push(host); DEFAULT_PREFLIGHT_DEPS.sweep(run, host); } };
+    const service = await preflightTestcontainers(dir, storeTest, endpoint, deps);
     expect(service.description).toContain(POSTGRES_IMAGE);
+    // The sweep targets the runtime Testcontainers' own client reported using.
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]).toMatch(/^(unix|tcp):\/\/./);
     expect(service.env).toEqual({});
+    expect(await leftovers()).toBe("");
+  });
+
+  test("the composed policy itself: every distinct Testcontainers preflights, then the app database starts, and nothing is left", { timeout: 900_000 }, async () => {
+    const decision = storeTestPolicy.decide({ project: dir, phase: "green" });
+    if (decision.action !== "run" || decision.prepare === undefined) throw new Error(`expected a run with a prepare, got ${decision.action}`);
+    expect(preflightTargets(drizzleStoreTests(dir), (file) => testcontainersResolution(dir, file))).toHaveLength(1);
+    const service = await decision.prepare({ set: {}, unset: [] });
+    try {
+      expect(service.description).toMatch(/^Testcontainers preflight: started and removed .*; started a throwaway /);
+      expect(service.env[APP_DATABASE_ENV]).toMatch(/^postgres:\/\//);
+    } finally {
+      service.release();
+    }
     expect(await leftovers()).toBe("");
   });
 

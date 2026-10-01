@@ -400,22 +400,35 @@ export interface SuiteOutcome {
   readonly note: string;
   /** The run was cut off by the per-mutant timeout. */
   readonly timedOut?: boolean;
+  /** Every failure was the machine's, not the code's (the policies'
+   *  infrastructure classifiers): the causes. Such a run judges nothing. */
+  readonly infrastructure?: readonly string[];
 }
 
 /** Runs the target's suite once, in the test environment `env` (the phase
  *  test policies' variables, services included). Injectable so tests never
  *  spawn bun. */
-export type SuiteRunner = (cwd: string, timeoutMs: number, env: PhaseRun["env"]) => Promise<SuiteOutcome>;
+export type SuiteRunner = (
+  cwd: string, timeoutMs: number, env: PhaseRun["env"], infrastructure?: PhaseRun["infrastructure"],
+) => Promise<SuiteOutcome>;
 
 /** The real runner: run_tests' bun runner, bounded by an AbortSignal, in the
  *  environment the gate prepared once for the whole measurement. */
-export const bunSuiteRunner: SuiteRunner = async (cwd, timeoutMs, env) => {
+export const bunSuiteRunner: SuiteRunner = async (cwd, timeoutMs, env, infrastructure) => {
   const signal = AbortSignal.timeout(timeoutMs);
   try {
     const result = await runTests(cwd, {
       env,
       run: (command, args, dir, _signal, childEnv) => spawnRunner(command, args, dir, signal, childEnv),
     });
+    if (!result.ok && infrastructure !== undefined) {
+      const verdict = infrastructure([
+        ...result.results.filter((r) => r.status === "failed").map((r) => ({ name: r.name, ...(r.message !== undefined ? { message: r.message } : {}), ...(r.file !== undefined ? { file: r.file } : {}) })),
+        ...(result.unhandled !== undefined ? [{ name: "unhandled error", message: result.unhandled }] : []),
+        ...(result.blocked !== undefined ? [{ name: "suite did not run", message: result.blocked }] : []),
+      ]);
+      if (verdict.all) return { ok: false, note: "the machine's failure", infrastructure: verdict.causes };
+    }
     if (result.blocked !== undefined) return { ok: false, note: "suite blocked" };
     return { ok: result.ok, note: result.ok ? "green" : `${result.failed} failed` };
   } catch (e) {
@@ -425,7 +438,7 @@ export const bunSuiteRunner: SuiteRunner = async (cwd, timeoutMs, env) => {
 };
 
 /** A run with no policy at all: what an injected suite runner gets by default. */
-const NO_POLICY: Pick<PhaseRun, "refusals" | "env" | "prepares"> = { refusals: [], env: { set: {}, unset: [] }, prepares: [] };
+const NO_POLICY: Pick<PhaseRun, "refusals" | "env" | "prepares"> & Partial<Pick<PhaseRun, "infrastructure">> = { refusals: [], env: { set: {}, unset: [] }, prepares: [] };
 
 // --- runner ---------------------------------------------------------------------
 
@@ -448,7 +461,7 @@ export interface MutationScoreOptions {
    *  project's green policies with the default runner, none with an injected
    *  one. Services they prepare (a throwaway database) are started once,
    *  before the baseline, and released after the last mutant. */
-  readonly policy?: Pick<PhaseRun, "refusals" | "env" | "prepares">;
+  readonly policy?: Pick<PhaseRun, "refusals" | "env" | "prepares"> & Partial<Pick<PhaseRun, "infrastructure">>;
 }
 
 export interface MutationScoreResult {
@@ -566,9 +579,11 @@ export async function runMutationScore(
     return { code: 1, lines: [...lines, ...policy.refusals.map((r) => `mutation-score: BLOCK — ${r}`)], sites: allSites.length, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
   }
 
-  const measured = await withPreparedServices(policy, async (env): Promise<MutantOutcome[] | string> => {
+  const classify = "infrastructure" in policy ? policy.infrastructure : undefined;
+  const measured = await withPreparedServices(policy, async (env): Promise<MutantOutcome[] | string | { readonly infrastructure: readonly string[] }> => {
     // --- baseline: a score against a red suite is meaningless ---
-    const baseline = await runSuite(cwd, timeoutMs, env);
+    const baseline = await runSuite(cwd, timeoutMs, env, classify);
+    if (baseline.infrastructure !== undefined) return { infrastructure: baseline.infrastructure };
     if (!baseline.ok) {
       return `the suite is not green before mutation (${baseline.note}) — ` +
         "every mutant would 'die' for a reason that has nothing to do with it";
@@ -584,7 +599,7 @@ export async function runMutationScore(
 
       let outcome: SuiteOutcome;
       try {
-        outcome = await runSuite(cwd, timeoutMs, env);
+        outcome = await runSuite(cwd, timeoutMs, env, classify);
       } finally {
         writeFileSync(abs, original);
         // Verify, do not trust: this is the user's repository.
@@ -595,6 +610,8 @@ export async function runMutationScore(
         }
       }
 
+      // A mutant "killed" by the machine says nothing about the suite.
+      if (outcome.infrastructure !== undefined) return { infrastructure: outcome.infrastructure };
       const verdict: MutantVerdict = outcome.timedOut === true ? "timeout" : outcome.ok ? "survived" : "killed";
       const record = { site, verdict, note: outcome.note };
       done.push(record);
@@ -607,6 +624,15 @@ export async function runMutationScore(
     return { code: 1, lines: [...lines, `mutation-score: BLOCK — ${measured.reason}`], sites: allSites.length, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
   }
   if (typeof measured.value === "string") return misuse(measured.value);
+  if (!Array.isArray(measured.value)) {
+    const causes = measured.value.infrastructure;
+    log("block", "the suite failed because of the machine, not the code", { reason: "infrastructure", causes });
+    return {
+      code: 1,
+      lines: [...lines, "mutation-score: BLOCK — the suite failed because of the machine, not the code; no mutant was judged", ...causes.map((c) => `  ${c}`)],
+      sites: allSites.length, outcomes: [], killed: 0, survived: 0, timedOut: 0,
+    };
+  }
   for (const line of measured.lines) lines.unshift(`mutation-score: ${line}`);
   const outcomes = measured.value;
 

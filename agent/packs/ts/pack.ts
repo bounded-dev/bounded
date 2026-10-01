@@ -461,6 +461,12 @@ export interface PreparedTestService {
   readonly release: () => void;
 }
 
+/** How a gate changes the test process's environment. */
+export interface TestEnvChange {
+  readonly set: Readonly<Record<string, string>>;
+  readonly unset: readonly string[];
+}
+
 /** One failing result of a gate's run, as the gate saw it. */
 export interface TestFailure {
   readonly name: string;
@@ -475,12 +481,16 @@ export type PhaseTestDecision =
    *  blocks the gate with its message, routed to the orchestrator), sets
    *  its `env`, and releases it afterwards. With `infrastructureFailure`,
    *  green asks it about every failure: a returned cause means the machine,
-   *  not the code, failed that test, and the gate routes to the
-   *  orchestrator instead of a role. */
+   *  not the code, failed that test. Only when every failure is claimed does
+   *  the gate route to the orchestrator; otherwise the claimed causes ride
+   *  along as a note. It must be conservative: unsure means unclaimed. */
   | {
       readonly action: "run";
       readonly unsetEnv: readonly string[];
-      readonly prepare?: () => Promise<PreparedTestService>;
+      /** Gets the run's environment change so far (the policies' set and
+       *  unset, earlier services' env included), as the test process will
+       *  see it. */
+      readonly prepare?: (env: TestEnvChange) => Promise<PreparedTestService>;
       readonly infrastructureFailure?: (failure: TestFailure) => string | undefined;
     }
   /** Red only: run with `env` set, and accept a skipped result exactly when

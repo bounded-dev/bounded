@@ -52,14 +52,19 @@ Testcontainers, and only the second can fail for a credential helper missing
 from PATH, an unreachable registry, a socket Testcontainers does not use, or
 a reaper (Ryuk) that cannot start; those failures used to reach the builder
 as failing store tests. So at green, with store tests and a runtime, the
-policy's `prepare` first starts and stops one container from the pinned image
-through the store tests' own Testcontainers, in a `bun` child resolving it
-from their directory, in the test process's environment (DOCKER_HOST,
-DOCKER_CONFIG, Ryuk settings untouched), the pull on its own timeout, its
-container removed on every path. Failure refuses green, mutation score and
-deliver's check with the cleaned cause and a remedy, routed to the
-orchestrator. As defence in depth, a run decision may carry
-`infrastructureFailure`, which green asks about every failure; a store test
-the pack recognises as failed by the machine routes to the orchestrator with
-its cause. The core learns no technology: the patterns are the pack's
-(`testcontainers-preflight.ts`).
+policy's `prepare` (which now receives the run's environment change) first
+starts and stops one container from the pinned image per distinct
+Testcontainers the contexts resolve, in a `bun` child resolving it from the
+store tests' directory, in exactly the test process's environment. The pull
+has its own timeout; the child removes its container through Testcontainers'
+own client, and the parent sweeps the run's label on the runtime the child
+reported, again after a grace period if it was killed. Failure refuses green,
+mutation score and deliver's check with the cleaned cause and a remedy,
+routed to the orchestrator. As a backstop, a run decision may carry
+`infrastructureFailure`: it claims only text Docker or Testcontainers produce,
+and green routes to the orchestrator only when every failure is claimed;
+otherwise the route stays the code's, with the machine's causes as a note.
+Mutation score refuses a run the machine failed rather than count mutants
+killed. Known limit: deliver's check runs `bun run check` as text, so it
+gets the preflight but not the backstop. The core learns no technology: the
+patterns are the pack's (`testcontainers-preflight.ts`).

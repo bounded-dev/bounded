@@ -504,26 +504,29 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
     });
   }
   const [run, tsc, lint] = prepared.value;
-  // A failure a policy recognises as the machine's (a container start that
-  // could not pull, authenticate or reach the runtime) is not the code's:
-  // no role can fix it, so it goes to the orchestrator with the cause.
-  const infrastructure = policy.infrastructureCauses([
+  // Failures a policy recognises as the machine's (a container start that
+  // could not pull, authenticate or reach the runtime). Only when EVERY
+  // failure is the machine's does the run go to the orchestrator: one such
+  // failure must never hide a real one, so on a mix the verdict stays the
+  // code's and the machine's causes ride along as a note.
+  const infrastructure = policy.infrastructure([
     ...run.results.filter((r) => r.status === "failed").map((r) => ({ name: r.name, ...(r.message !== undefined ? { message: r.message } : {}), ...(r.file !== undefined ? { file: r.file } : {}) })),
     ...(run.unhandled !== undefined ? [{ name: "unhandled error", message: run.unhandled }] : []),
     ...(run.blocked !== undefined ? [{ name: "suite did not run", message: run.blocked }] : []),
   ]);
-  if (infrastructure.length > 0) {
+  if (infrastructure.all) {
+    const n = infrastructure.causes.length;
     return blockAndLog(cwd, {
       code: 1,
       verdict: "block",
       summary: "tests failed because of the machine, not the code",
       lines: [
         ...prepared.lines.map((line) => `green-gate: ${line}`),
-        `green-gate: FAIL — ${infrastructure.length} test failure cause${infrastructure.length === 1 ? " is" : "s are"} the machine's, not the code's; no role can fix ${infrastructure.length === 1 ? "it" : "them"}`,
-        ...infrastructure.map((cause) => `  ${cause}`),
+        `green-gate: FAIL — every failure is the machine's, not the code's; no role can fix ${n === 1 ? "it" : "them"}`,
+        ...infrastructure.causes.map((cause) => `  ${cause}`),
         "green-gate: route → orchestrator",
       ],
-      detail: { reason: "infrastructure", causes: infrastructure, route: "orchestrator" },
+      detail: { reason: "infrastructure", causes: infrastructure.causes, route: "orchestrator" },
     });
   }
   // Surface check is synchronous ts-morph work; a code-2 (no contracts, or a
@@ -556,9 +559,23 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
       ? rerouteIfRepeated(obliged, failing, priorGreenFailures(cwd))
       : obliged;
 
-  const reported = prepared.lines.length === 0 ? result : { ...result, lines: [...prepared.lines.map((line) => `green-gate: ${line}`), ...result.lines] };
+  const noted = infrastructure.causes.length === 0 ? result : withInfrastructureNote(result, infrastructure.causes);
+  const reported = prepared.lines.length === 0 ? noted : { ...noted, lines: [...prepared.lines.map((line) => `green-gate: ${line}`), ...noted.lines] };
   logGuardEvent(cwd, { guard: GUARD, verdict: reported.verdict, summary: reported.summary, detail: reported.detail });
   return reported;
+}
+
+/** The code's verdict, with the failures that also look like the machine's
+ *  named just before the route line: the role still owns the run. */
+function withInfrastructureNote(base: GateResult, causes: readonly string[]): GateResult {
+  const note = [
+    `${GUARD}: note — ${causes.length === 1 ? "one failure looks" : `${causes.length} failures look`} like the machine's, not the code's; ` +
+      "the others are the code's, so the route stands. If the machine's persists, the orchestrator should fix it:",
+    ...causes.map((cause) => `  suspected infrastructure: ${cause}`),
+  ];
+  const at = base.lines.findIndex((line) => line.startsWith(`${GUARD}: route →`));
+  const lines = at < 0 ? [...base.lines, ...note] : [...base.lines.slice(0, at), ...note, ...base.lines.slice(at)];
+  return { ...base, lines, detail: { ...(base.detail as Record<string, unknown>), suspectedInfrastructure: causes } };
 }
 
 /** The green-only test obligations (an app's smoke test, ADR 2026-063). */

@@ -8,8 +8,8 @@
 //           is removed, so a variable leaked into the gate's environment
 //           cannot skip anything
 //   green   a policy may recognise a failure as the machine's, not the
-//           code's (`infrastructureFailure`): the gate routes it to the
-//           orchestrator instead of a role
+//           code's (`infrastructureFailure`): when every failure is the
+//           machine's, the gate routes to the orchestrator instead of a role
 //   both    a policy may ask for a service the run needs (`prepare`): the
 //           gate starts each in policy order just before the run, sets its
 //           environment over everything else, and releases every one after
@@ -18,7 +18,7 @@
 import { readProjectPacks } from "../../../src/project-composition.ts";
 import { composePacks } from "../../../src/socket-registry.ts";
 import { INSTALLED_PACKS } from "../../installed.ts";
-import { type PhaseTestDecision, phaseTestPolicies, type PreparedTestService, type TestFailure, type TestPhase } from "../pack.ts";
+import { type PhaseTestDecision, phaseTestPolicies, type PreparedTestService, type TestEnvChange, type TestFailure, type TestPhase } from "../pack.ts";
 
 export interface PhaseRun {
   /** Why the gate must not run the suite at all (green only). */
@@ -29,10 +29,17 @@ export interface PhaseRun {
   /** Is this skipped result one a policy skipped on purpose? */
   readonly skippedOnPurpose: (resultName: string) => boolean;
   /** Services to start for the run, in policy order. */
-  readonly prepares: readonly { readonly name: string; readonly prepare: () => Promise<PreparedTestService> }[];
-  /** The causes a policy recognises as the machine's in these failures, one
-   *  per failure it claims, deduplicated, in order. Empty: the code's. */
-  readonly infrastructureCauses: (failures: readonly TestFailure[]) => string[];
+  readonly prepares: readonly { readonly name: string; readonly prepare: (env: TestEnvChange) => Promise<PreparedTestService> }[];
+  /** Which of these failures a policy recognises as the machine's. */
+  readonly infrastructure: (failures: readonly TestFailure[]) => InfrastructureVerdict;
+}
+
+export interface InfrastructureVerdict {
+  /** The claimed causes, deduplicated, in order. */
+  readonly causes: readonly string[];
+  /** True only when there is at least one failure and every one is claimed:
+   *  the only case that is the machine's alone. */
+  readonly all: boolean;
 }
 
 /** Combine decisions. Pure. A skip at green, or a refusal at red, is a policy
@@ -43,7 +50,7 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
   const set: Record<string, string> = {};
   const unset = new Set<string>();
   const claims: ((name: string) => boolean)[] = [];
-  const prepares: { name: string; prepare: () => Promise<PreparedTestService> }[] = [];
+  const prepares: { name: string; prepare: (env: TestEnvChange) => Promise<PreparedTestService> }[] = [];
   const classifiers: ((failure: TestFailure) => string | undefined)[] = [];
   for (const { name, decision } of decisions) {
     if (decision.action === "run" && decision.prepare !== undefined) prepares.push({ name, prepare: decision.prepare });
@@ -64,8 +71,9 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
     env: { set, unset: [...unset].sort() },
     skippedOnPurpose: (resultName) => claims.some((claim) => claim(resultName)),
     prepares,
-    infrastructureCauses: (failures) => {
+    infrastructure: (failures) => {
       const causes = new Set<string>();
+      let claimed = 0;
       for (const failure of failures) {
         for (const classify of classifiers) {
           let cause: string | undefined;
@@ -76,11 +84,12 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
           }
           if (cause !== undefined) {
             causes.add(cause);
+            claimed++;
             break;
           }
         }
       }
-      return [...causes];
+      return { causes: [...causes], all: failures.length > 0 && claimed === failures.length };
     },
   };
 }
@@ -129,7 +138,7 @@ export async function withPreparedServices<T>(
     for (const { name, prepare } of run.prepares) {
       let service: PreparedTestService;
       try {
-        service = await prepare();
+        service = await prepare({ set: { ...set }, unset: run.env.unset.filter((variable) => !(variable in set)) });
       } catch (error) {
         return { ok: false, reason: `the '${name}' test policy could not start what the run needs: ${error instanceof Error ? error.message : String(error)}` };
       }
