@@ -6,8 +6,17 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { exampleFacts } from "../packs/example-suite/example-facts.ts";
+import { DESKTOP_KIND, emitDesktopApps } from "../packs/ts-desktop/scripts/desktop-app-emitter.ts";
+import { emitLambdaApps, LAMBDAS_KIND } from "../packs/ts-lambda/scripts/lambda-app-emitter.ts";
+import { emitLambdaAdapters } from "../packs/ts-lambda/scripts/lambda-emitter.ts";
+import { emitMcpApps, MCP_KIND } from "../packs/ts-mcp/scripts/mcp-app-emitter.ts";
+import { emitMcpAdapters } from "../packs/ts-mcp/scripts/mcp-emitter.ts";
+import { emitTrpcAdapters } from "../packs/ts-trpc/scripts/trpc-emitter.ts";
+import { emitWebApps, WEB_KIND } from "../packs/ts-web/scripts/web-app-emitter.ts";
 import {
-  checkConventions, compareTrees, declaredAppKinds, EXAMPLE_ENV, formatConventionsReport, interfaceTags, packTechnologies, EXPECTED_DELTAS, exportedNames, formatReport, main, namedPath, productFiles, requiredTestLevels,
+  APP_TEMPLATES, checkConventions, compareTrees, declaredAppKinds, EXAMPLE_ENV, formatConventionsReport, IN_TECH_ROOT_FILES,
+  interfaceTags, packTechnologies, EXPECTED_DELTAS, exportedNames, formatReport, main, namedPath, productFiles, requiredTestLevels,
   shapeOf, signatureOf, testLevel,
 } from "../../scripts/dogfood/structure-compare.ts";
 
@@ -305,11 +314,28 @@ function workedExample(): Record<string, string> {
       files[path.replace(/\.ts$/, ".laws.test.ts")] = "";
     }
     if (path.endsWith("/composition-root.ts")) files[path.replace(/\.ts$/, ".test.ts")] = "";
+    // The Drizzle side a delivered run has: the example declares Postgres but
+    // has no Drizzle stores yet, and the whole stack composes Drizzle.
+    const store = /^(contexts\/[^/]+\/src\/adapters\/out)\/in-memory\/(.+)\.store\.ts$/.exec(path);
+    if (store) {
+      files[`${store[1]}/drizzle/${store[2]}.store.ts`] = "";
+      files[`${store[1]}/drizzle/${store[2]}.store.test.ts`] = "";
+    }
   }
+  const drizzle = `${PM}/src/adapters/out/drizzle`;
+  Object.assign(files, {
+    ".bounded/composed-packs.json": readFileSync(join(PACKS, "default-stack.json"), "utf8").replace(/^[\s\S]*"packs":\s*(\[[^\]]*\])[\s\S]*$/, "$1"),
+    "docker-compose.yml": "", ".env.example": "", [`${PM}/drizzle.config.ts`]: "",
+    [`${drizzle}/index.ts`]: "", [`${drizzle}/drizzle-database.ts`]: "", [`${drizzle}/drizzle-test-database.test-support.ts`]: "",
+    [`${drizzle}/schema/project-management.schema.ts`]: "", [`${drizzle}/schema/notes.ts`]: "", [`${drizzle}/schema/projects.ts`]: "",
+    [`${drizzle}/migrations/0000_mute_wong.sql`]: "", [`${drizzle}/migrations/meta/_journal.json`]: "{}",
+    [`${drizzle}/notes/note.mapper.ts`]: "",
+  });
   return files;
 }
 
 const PM = "contexts/project-management";
+const STORE_FEATURES = ["notes/create-note", "notes/list-notes", "projects/create-project", "projects/export-projects", "projects/list-projects"];
 
 /** The findings on a tree, as `rule path`. */
 function findingsOf(files: Record<string, string>): string[] {
@@ -370,6 +396,7 @@ describe("judging a project against the conventions alone", () => {
       f[path] = f[path]!.replace("CreateNoteStore", "NoteStore");
     }, [
       `naming ${PM}/src/application/notes/create-note/create-note.contract.ts`,
+      `feature files ${PM}/src/adapters/out/drizzle/notes/create-note.store.ts`,
       `feature files ${PM}/src/adapters/out/in-memory/notes/create-note.store.ts`,
       `feature files ${PM}/src/application/notes/create-note/create-note.store.test-support.ts`,
     ]],
@@ -427,6 +454,28 @@ describe("judging a project against the conventions alone", () => {
     ["a missing app template file", (f) => { delete f["apps/web/src/client/main.tsx"]; }, ["apps apps/web/src/client/main.tsx"]],
     ["a missing Lambda entry", (f) => { delete f["apps/lambdas/src/export-projects.ts"]; }, ["apps apps/lambdas/src/export-projects.ts"]],
     ["an app of no known kind", (f) => { f["apps/cli/src/run.ts"] = ""; f["apps/cli/package.json"] = "{}"; }, ["apps apps/cli"]],
+    ["code outside contexts/ and apps/", (f) => {
+      f["src/index.ts"] = ""; f["lib/clock.ts"] = "";
+    }, ["layout lib/clock.ts", "layout src/index.ts"]],
+    ["a stray file at the top of an in technology", (f) => {
+      f[`${PM}/src/adapters/in/trpc/helpers.ts`] = "";
+    }, [`layout ${PM}/src/adapters/in/trpc/helpers.ts`]],
+    ["a missing root file of an in technology", (f) => {
+      delete f[`${PM}/src/adapters/in/mcp/server.ts`];
+    }, [`layout ${PM}/src/adapters/in/mcp/server.ts`]],
+    ["the composed storage technology's stores deleted", (f) => {
+      for (const path of Object.keys(f)) if (/\/out\/drizzle\/[^/]+\/[^/]+\.store(?:\.test)?\.ts$/.test(path)) delete f[path];
+    }, [
+      ...STORE_FEATURES.map((feature) => `feature files ${PM}/src/adapters/out/drizzle/${feature}.store.ts`),
+      ...STORE_FEATURES.map((feature) => `test levels ${PM}/src/adapters/out/drizzle/${feature}.store.test.ts`),
+    ]],
+    ["the composed storage technology's database deleted", (f) => {
+      delete f[`${PM}/src/adapters/out/drizzle/drizzle-database.ts`];
+    }, [`layout ${PM}/src/adapters/out/drizzle/drizzle-database.ts`]],
+    ["an in adapter for a feature whose contract does not expose it there", (f) => {
+      const path = `${PM}/src/application/notes/list-notes/list-notes.contract.ts`;
+      f[path] = f[path]!.replace(/^ \* @exposedVia trpc\n/m, "");
+    }, [`feature files ${PM}/src/adapters/in/trpc/notes/list-notes.procedure.ts`]],
   ])("a mutated copy is flagged: %s", (_name, mutate, expected) => {
     const files = workedExample();
     mutate(files);
@@ -442,6 +491,34 @@ describe("judging a project against the conventions alone", () => {
     expect([...declaredAppKinds(root)]).toEqual([["apps/web", "mcp"], ["apps/mcp", "mcp"]]);
     expect(checkConventions(root).findings.map((f) => `${f.rule} ${f.path}`))
       .toEqual(["apps apps/web/src/composition-root.ts", "apps apps/web/src/main.ts"]);
+  });
+
+  test("with no composition recorded, a storage technology the tree has must hold every store", () => {
+    const files = workedExample();
+    delete files[".bounded/composed-packs.json"];
+    for (const path of Object.keys(files)) if (/\/out\/drizzle\/(?!schema|migrations)[^/]+\/[^/]+\.ts$/.test(path)) delete files[path];
+    delete files[`${PM}/src/adapters/out/drizzle/drizzle-database.ts`];
+    const found = findingsOf(files);
+    expect(found).toContain(`layout ${PM}/src/adapters/out/drizzle/drizzle-database.ts`);
+    expect(found).toContain(`feature files ${PM}/src/adapters/out/drizzle/notes/create-note.store.ts`);
+    expect(found.filter((f) => f.startsWith("feature files"))).toHaveLength(5);
+  });
+
+  test("the app templates and in technologies' root files are what the emitters produce", () => {
+    const facts = exampleFacts();
+    const emitted = [...emitWebApps(facts), ...emitDesktopApps(facts), ...emitMcpApps(facts), ...emitLambdaApps(facts)];
+    for (const [kind, app] of [[WEB_KIND, "apps/web"], [DESKTOP_KIND, "apps/desktop"], [MCP_KIND, "apps/mcp"], [LAMBDAS_KIND, "apps/lambdas"]] as const) {
+      const files = emitted.filter((f) => f.path.startsWith(`${app}/`)).map((f) => f.path.slice(app.length + 1))
+        .filter((path) => kind !== LAMBDAS_KIND || !emitted.find((f) => f.path === `${app}/${path}`)?.entry).sort();
+      expect(files, kind).toEqual([...APP_TEMPLATES[kind]!.files].sort());
+    }
+    const inAdapters = [...emitTrpcAdapters(facts), ...emitMcpAdapters(facts), ...emitLambdaAdapters(facts)];
+    for (const tech of Object.keys(IN_TECH_ROOT_FILES)) {
+      const top = `${PM}/src/adapters/in/${tech}/`;
+      const files = inAdapters.map((f) => f.path).filter((p) => p.startsWith(top) && !p.slice(top.length).includes("/"))
+        .map((p) => p.slice(top.length)).sort();
+      expect(files, tech).toEqual([...IN_TECH_ROOT_FILES[tech]!].sort());
+    }
   });
 
   test("tags are read from the block directly above each interface", () => {

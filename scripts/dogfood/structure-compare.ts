@@ -9,20 +9,29 @@
 // (TN-26-012), so a run of any product can be scored and copying the worked
 // example's file list earns nothing. The findings are:
 //
-//   · layout        the root config, each context's generated and required
-//                   files, and nothing outside the places the layout defines
-//                   (domain/<area>/<concept>, application/<area>/<feature>,
-//                   adapters/in|out/<technology>/<area>, an app's src/);
+//   · layout        the root config; nothing outside contexts/ and apps/
+//                   but ROOT_FILES, docs/ and scripts/; each context's
+//                   generated barrels and result.ts; nothing in a context
+//                   outside domain/<area>/<concept>, application/<area>/
+//                   <feature>, adapters/in|out/<technology>/; exactly the
+//                   root files TN-26-012 §6 gives each in technology
+//                   (IN_TECH_ROOT_FILES); each out technology's barrel, and
+//                   each storage technology's <tech>-database.ts; an app's
+//                   manifest and src/ only;
 //   · naming        kebab-case names, plural areas, two-word features, files
 //                   named for their feature, the role suffixes of each layer,
 //                   the in port and store names a contract must export, one
 //                   feature role per in technology;
 //   · feature files each concept's and feature's file set as its contract
 //                   calls for it: a handler, a command iff the contract has an
-//                   Input, a store per storage technology in use when it has a
-//                   store port, an adapter per @exposedVia and @implementedBy
-//                   technology, and no adapter for a feature or port that
-//                   does not exist;
+//                   Input; when it has a store port, a store in every storage
+//                   technology the project composes (.bounded/composed-
+//                   packs.json; with none recorded, every known storage
+//                   technology whose folder the context has, or any folder
+//                   with a <tech>-database.ts); an adapter per @exposedVia and
+//                   @implementedBy technology; and no adapter for a feature
+//                   or port that does not exist, nor an in adapter its
+//                   feature's @exposedVia does not name;
 //   · test levels   every required level, file by file (TN-26-012 §8, ADR
 //                   2026-063): unit tests and laws per concept, a handler
 //                   test per feature, command laws, the store conformance
@@ -456,11 +465,13 @@ export interface ConventionsReport {
 }
 
 /** The adapter technologies the packs declare: in technologies' feature roles,
- *  out technologies' storage flag. Unknown technologies are judged by what the
- *  tree shows (a `<tech>-database.ts` makes storage; one role per in folder). */
+ *  out technologies' storage flag, and which pack declares each. Unknown
+ *  technologies are judged by what the tree shows (a `<tech>-database.ts`
+ *  makes storage; one role per in folder). */
 export interface KnownTechnologies {
   readonly featureRoles: ReadonlyMap<string, string>;
   readonly storage: ReadonlyMap<string, boolean>;
+  readonly packOf: ReadonlyMap<string, string>;
 }
 
 const PACKS_DIR = resolve(new URL(".", import.meta.url).pathname, "../../agent/packs");
@@ -468,7 +479,8 @@ const PACKS_DIR = resolve(new URL(".", import.meta.url).pathname, "../../agent/p
 export function packTechnologies(packsDir: string = PACKS_DIR): KnownTechnologies {
   const featureRoles = new Map<string, string>();
   const storage = new Map<string, boolean>();
-  if (!existsSync(packsDir)) return { featureRoles, storage };
+  const packOf = new Map<string, string>();
+  if (!existsSync(packsDir)) return { featureRoles, storage, packOf };
   for (const pack of readdirSync(packsDir).sort()) {
     const contrib = join(packsDir, pack, "contrib.json");
     if (!existsSync(contrib)) continue;
@@ -476,18 +488,50 @@ export function packTechnologies(packsDir: string = PACKS_DIR): KnownTechnologie
     if (!Array.isArray(parsed.adapterTechnologies)) continue;
     for (const tech of parsed.adapterTechnologies as { id?: unknown; direction?: unknown; featureRole?: unknown; storage?: unknown }[]) {
       if (typeof tech.id !== "string") continue;
+      packOf.set(tech.id, pack);
       if (tech.direction === "in" && typeof tech.featureRole === "string") featureRoles.set(tech.id, tech.featureRole);
       if (tech.direction === "out") storage.set(tech.id, tech.storage === true);
     }
   }
-  return { featureRoles, storage };
+  return { featureRoles, storage, packOf };
 }
+
+/** The packs the project composes (`.bounded/composed-packs.json`, written by
+ *  `bounded init` and `bounded compose`), or undefined when it records none. */
+export function composedPacks(root: string): string[] | undefined {
+  const path = join(root, ".bounded", "composed-packs.json");
+  if (!existsSync(path)) return undefined;
+  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+  return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === "string") : undefined;
+}
+
+/**
+ * The files TN-26-012 §6 puts at the top of each in technology's folder
+ * (`adapters/in/<tech>/`), beside its `<area>/` folders; an unknown
+ * technology has only its barrel. A test holds this table to the in-adapter
+ * emitters' output.
+ */
+export const IN_TECH_ROOT_FILES: Readonly<Record<string, readonly string[]>> = {
+  trpc: ["index.ts", "router.ts", "trpc.ts"],
+  mcp: ["index.ts", "server.ts"],
+  lambda: ["index.ts"],
+};
+
+/** Root files outside `contexts/` and `apps/` that a project may hold: the
+ *  generated and config files of TN-26-012 §1, and its readme. `docs/` holds
+ *  prose and the generated rulebook; `scripts/` is shipped by the harness. */
+export const ROOT_FILES: readonly string[] = [
+  ".env.example", ".gitignore", ".npmrc", "README.md", "architecture.test.ts", "bunfig.toml", "docker-compose.yml",
+  "package.json", "tsconfig.base.json", "tsconfig.json",
+];
+const ROOT_DIRS: readonly string[] = ["docs/", "scripts/"];
 
 /**
  * The files each app kind's template seeds (the app packs' emitters), beyond
  * its `package.json`. A Lambda app also has one `src/<feature>.ts` entry per
  * feature with a Lambda in adapter. `marker` is how the kind is recognised
- * when no TN declares it: the file only that kind has.
+ * when no TN declares it: the file only that kind has. A test holds this
+ * table to the app emitters' output, so it cannot drift from them.
  */
 export const APP_TEMPLATES: Readonly<Record<string, { files: readonly string[]; marker: string }>> = {
   web: {
@@ -564,6 +608,19 @@ export function checkConventions(root: string, known: KnownTechnologies = packTe
   const read = (path: string): string => readFileSync(join(root, path), "utf8");
 
   for (const file of ["package.json", "tsconfig.json", "tsconfig.base.json"]) need("layout", file, "the monorepo's root config");
+  for (const path of all) {
+    if (path.startsWith("contexts/") || path.startsWith("apps/") || ROOT_FILES.includes(path) ||
+      ROOT_DIRS.some((dir) => path.startsWith(dir))) continue;
+    add("layout", path, "code lives in contexts/ and apps/; the root holds only its config and generated files");
+  }
+
+  // Storage: the composed storage technologies, or, with no composition
+  // recorded, the known storage technologies whose folder the context has.
+  const composed = composedPacks(root);
+  const storageTechs = (contextOutTechs: readonly string[]): string[] => [...known.storage]
+    .filter(([id, storage]) => storage &&
+      (composed !== undefined ? composed.includes(known.packOf.get(id) ?? "") : contextOutTechs.includes(id)))
+    .map(([id]) => id);
 
   // Names: every folder and file stem under a context or an app's source root
   // is kebab-case (generated migration names excepted).
@@ -706,11 +763,15 @@ export function checkConventions(root: string, known: KnownTechnologies = packTe
     // In adapters: generated per feature, one role per technology, laws beside.
     const inTechs = [...new Set(inFiles.map((f) => f.tech))].sort(byCodePoint);
     for (const tech of inTechs) {
-      need("layout", at(`src/adapters/in/${tech}/index.ts`), "every in technology folder has its barrel");
+      const rootFiles = IN_TECH_ROOT_FILES[tech] ?? ["index.ts"];
+      for (const file of rootFiles) need("layout", at(`src/adapters/in/${tech}/${file}`), `a generated root file of in/${tech}/`);
       const role = known.featureRoles.get(tech);
       const roles = new Set<string>();
       for (const { rel, parts } of inFiles.filter((f) => f.tech === tech)) {
-        if (parts.length === 1) { if (!parts[0]!.endsWith(".ts") || parts[0]!.includes(".test")) add("layout", at(rel), "an in technology's top level holds its generated .ts files"); continue; }
+        if (parts.length === 1) {
+          if (!rootFiles.includes(parts[0]!)) add("layout", at(rel), `the top of in/${tech}/ holds only ${rootFiles.join(", ")}`);
+          continue;
+        }
         if (parts.length !== 2) { add("layout", at(rel), "an in adapter lives at in/<technology>/<area>/<feature>.<role>.ts"); continue; }
         const [area, name] = parts as [string, string];
         const { stem, suffix } = roleSuffix(name);
@@ -723,27 +784,33 @@ export function checkConventions(root: string, known: KnownTechnologies = packTe
         if (!main) { add("layout", at(rel), "under in/ only generated adapters and their generated laws"); continue; }
         roles.add(main[1]!);
         if (role !== undefined && main[1] !== role) add("naming", at(rel), `${tech}'s feature role is '${role}', not '${main[1]}'`);
-        if (feature.exposedVia != null && !feature.exposedVia.includes(tech)) add("feature files", at(rel), `the feature's @exposedVia does not name ${tech}`);
+        if (!(feature.exposedVia ?? []).includes(tech)) add("feature files", at(rel), `the feature's contract has no @exposedVia ${tech}`);
         if (tech === "lambda") lambdaFeatures.add(stem);
         need("test levels", at(rel.replace(/\.ts$/, ".laws.test.ts")), "the in adapter's generated laws");
       }
       if (role === undefined && roles.size > 1) add("naming", at(`src/adapters/in/${tech}`), `one feature role per in technology, not ${[...roles].sort(byCodePoint).join(", ")}`);
     }
 
-    // Out adapters: stores per storage technology in use, other roles per tag.
+    // Out adapters. When the design keeps data (a feature has a store port),
+    // every composed storage technology implements every store port, beside
+    // its shared database; other roles follow their tags.
     const outTechs = [...new Set(outFiles.map((f) => f.tech))].sort(byCodePoint);
     const storeFeatures = [...features.values()].filter((f) => f.store);
-    for (const tech of outTechs) {
+    const storages = new Set([
+      ...(storeFeatures.length > 0 ? storageTechs(outTechs) : []),
+      ...outTechs.filter((tech) => outFiles.some((f) => f.tech === tech && f.parts.join("/") === `${tech}-database.ts`)),
+    ]);
+    for (const tech of [...new Set([...outTechs, ...storages])].sort(byCodePoint)) {
       const techFiles = outFiles.filter((f) => f.tech === tech);
       const database = `${tech}-database.ts`;
-      const hasStores = techFiles.some((f) => f.parts.length === 2 && f.parts[1]!.endsWith(".store.ts"));
-      const inUse = techFiles.some((f) => f.parts.length === 2 && f.parts[0] !== "schema" && f.parts[0] !== "migrations");
+      const inUse = storages.has(tech) ||
+        techFiles.some((f) => f.parts.length === 2 && f.parts[0] !== "schema" && f.parts[0] !== "migrations");
       if (inUse) need("layout", at(`src/adapters/out/${tech}/index.ts`), "every out technology with adapters has its barrel");
-      if (hasStores || techFiles.some((f) => f.parts.join("/") === database)) {
+      if (storages.has(tech)) {
         need("layout", at(`src/adapters/out/${tech}/${database}`), "a storage technology's shared database");
         for (const feature of storeFeatures) {
           const store = `src/adapters/out/${tech}/${feature.area}/${feature.feature}.store.ts`;
-          need("feature files", at(store), `${feature.inPort}Store, once per storage technology in use`);
+          need("feature files", at(store), `${feature.inPort}Store, once per storage technology (composed, or present when no composition is recorded)`);
           need("test levels", at(store.replace(/\.ts$/, ".test.ts")), "the store test, running the conformance suite");
         }
       }
