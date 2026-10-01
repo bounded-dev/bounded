@@ -23,7 +23,6 @@ import {
   SanitizeError,
   type SanitizedResult,
   sanitizeBunRun,
-  sanitizeLegacyJsonRun,
 } from "./sanitize-test-output.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
@@ -45,6 +44,8 @@ export type CommandRunner = (
   args: string[],
   cwd: string,
   signal?: AbortSignal,
+  /** The child's whole environment; default {@link testEnvironment}(). */
+  env?: NodeJS.ProcessEnv,
 ) => Promise<CommandOutput>;
 
 export interface RunTestsOptions {
@@ -54,6 +55,9 @@ export interface RunTestsOptions {
    *  replaced command, the JUnit report may also arrive on stdout. */
   readonly command?: string;
   readonly args?: string[];
+  /** Adjust the test process's environment (the phase test policies:
+   *  variables set for a red skip, and removed so a leftover cannot skip). */
+  readonly env?: { readonly set?: Readonly<Record<string, string>>; readonly unset?: readonly string[] };
 }
 
 /** Per-status tally over the sanitized results. */
@@ -138,19 +142,29 @@ export function testEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.P
   return { ...env, CI: "true", NO_COLOR: "1", FORCE_COLOR: "0" };
 }
 
+/** `base` with every `unset` name removed and every `set` entry applied. */
+export function adjustedEnvironment(
+  base: NodeJS.ProcessEnv,
+  change: { readonly set?: Readonly<Record<string, string>>; readonly unset?: readonly string[] },
+): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...base };
+  for (const name of change.unset ?? []) delete out[name];
+  return { ...out, ...(change.set ?? {}) };
+}
+
 /** Default runner: spawn in {@link testEnvironment}, capture stdout/stderr,
  *  resolve on close.
  *
  *  Exported so a caller that needs the real spawn PLUS something runTests does
  *  not itself expose can compose it — mutation-score wraps it with an
  *  AbortSignal to bound each mutant's suite run. Rejects if the signal aborts. */
-export const spawnRunner: CommandRunner = (command, args, cwd, signal) =>
+export const spawnRunner: CommandRunner = (command, args, cwd, signal, env) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
       signal,
       shell: process.platform === "win32",
-      env: testEnvironment(),
+      env: env ?? testEnvironment(),
     });
     let stdout = "";
     let stderr = "";
@@ -285,19 +299,14 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
       pathRoots: machineRoots(cwd),
       testPaths: files.map((f) => f.path),
     };
-    const { stdout, stderr, code } = await run(command, args, cwd);
+    const env = options.env === undefined ? undefined : adjustedEnvironment(testEnvironment(), options.env);
+    const { stdout, stderr, code } = await run(command, args, cwd, undefined, env);
     const xml = reportOf(report, stdout);
 
     let results: SanitizedResult[];
     try {
       if (xml !== undefined) results = sanitizeBunRun(xml, stderr, context);
-      else if (options.command !== undefined && stdout.includes("testResults")) {
-        // TRANSITIONAL: a replaced command's canned JSON report (see the end
-        // of sanitize-test-output.ts). The default invocation never gets here.
-        const start = stdout.indexOf("{");
-        const end = stdout.lastIndexOf("}");
-        results = sanitizeLegacyJsonRun(start === -1 || end < start ? stdout : stdout.slice(start, end + 1), context);
-      } else throw new SanitizeError("no report");
+      else throw new SanitizeError("no report");
     } catch (e) {
       if (e instanceof SanitizeError) {
         // No report (no test files, a process.exit, a crash): fixed text only.

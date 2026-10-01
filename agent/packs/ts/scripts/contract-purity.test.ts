@@ -298,14 +298,10 @@ describe("contributed purity overrides", () => {
     expect(problems.map((p) => p.ruleId)).toEqual(["bounded-ts/contract-imports-contracts-only"]);
   });
 
-  test("the gate passes the composed packs' support modules to the import rule", async () => {
-    const source = 'import type { Ack } from "./service-runtime.js";\nexport declare function submit(): Ack;\n';
-    // the installed set includes ts-trpc's shipped runtime (whose own
-    // rules may still object; only the import rule is asked here)
+  test("no shipped support module is exempt: the retired service runtime is refused like any module", async () => {
+    const source = 'import type { Ack } from "./service-runtime.ts";\nexport interface Api { submit(): Ack }\n';
     const problems = await lintContractSource(source, "src/api/api.contract.ts");
-    expect(problems.filter((p) => p.ruleId === "bounded-ts/contract-imports-contracts-only")).toEqual([]);
-    const elsewhere = await lintContractSource(source.replace("service-runtime", "other-runtime"), "src/api/api.contract.ts");
-    expect(elsewhere.map((p) => p.ruleId)).toContain("bounded-ts/contract-imports-contracts-only");
+    expect(problems.map((p) => p.ruleId)).toContain("bounded-ts/contract-imports-contracts-only");
   });
 });
 

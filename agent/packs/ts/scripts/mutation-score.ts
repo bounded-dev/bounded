@@ -44,8 +44,9 @@
 //   3. if-negation       `if (c)` → `if (!(c))`
 //        The guard fires exactly when it should not. The bluntest possible
 //        version of "the guard is wrong".
-//   4. guard fall-through  `return undefined;` → `;` inside a parse-shaped
-//        function's early-return guard
+//   4. guard fall-through  `return undefined;` or a failed Result
+//        (`return { ok: false, … };`) → `;` inside a parse-shaped function's
+//        early-return guard
 //        The mechanical form of TN-26-002's "idempotent-replay guard removed":
 //        the check still runs, its rejection just stops happening, and control
 //        falls into the happy path. Restricted (see below) so it always
@@ -68,17 +69,18 @@
 //
 // --- what is mutated ------------------------------------------------------------
 //
-// `src/**/*.ts` in the target project, minus:
+// Every `.ts` file under the composed source roots (ADR 2026-056), minus:
 //   - `*.contract.ts`         — declaration-only by lint; nothing to mutate,
 //                               and the checksum gate owns them anyway.
-//   - `**/index.ts`           — delivery's generated barrel is `export *`
-//                               lines; a hand-written index.ts is a re-export
-//                               hub for the same reason. No logic either way.
-//   - skeleton-only leftovers — a file still carrying the scaffolder's
-//                               "GENERATED … do not edit" header AND still
-//                               calling `notImplemented(` is red-phase
-//                               scaffolding that survived to measurement time.
-//                               Mutating it measures the generator.
+//   - test-side files         — the suite is the thing being measured
+//                               (`testFileSuffixes`, ADR 2026-057).
+//   - generated files         — `generatedFileGlobs` (ADR 2026-058): barrels,
+//                               commands, in-adapters, migrations. Mutating
+//                               them measures the generator, not the builder.
+//   - `**/index.ts`           — re-export hubs; no logic.
+//   - skeleton leftovers      — a file still constructing NotImplementedError
+//                               is red-phase scaffolding that survived to
+//                               measurement time.
 //
 // --- selection (deterministic, so runs are comparable) --------------------------
 //
@@ -105,7 +107,10 @@
 // the wrong kind of wrong.
 //
 // The suite runner is injectable (`options.runSuite`), which is how the tests
-// exercise the whole loop without spawning vitest 40 times.
+// exercise the whole loop without spawning bun 40 times. The real one is the
+// run_tests runner (bun test, JUnit, ADR 2026-062) under the composed phase
+// test policies at `green` (ADR 2026-064): store tests are never skipped, and
+// with no container runtime to run them the measurement refuses.
 
 import {
   existsSync,
@@ -116,6 +121,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
+import { generatedFileGlobs, hasTestFileSuffix, pathGlobMatcher, sourceRoots, testFileSuffixes } from "../../../src/pack-contrib.ts";
+import { expandSourceRoots } from "../../../src/path-gate.ts";
+import { phaseRun } from "./phase-policy.ts";
 import { fileURLToPath } from "node:url";
 import { Node, Project, SyntaxKind } from "ts-morph";
 import type { SourceFile } from "ts-morph";
@@ -130,8 +138,8 @@ export const DEFAULT_MAX_MUTANTS = 40;
 /** Default per-mutant suite timeout. */
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
-/** The scaffolder's header, verbatim enough to recognise its output. */
-const SKELETON_MARKER = "by packs/ts/scripts/scaffold-contract.ts — do not edit.";
+/** A red-phase skeleton still throws the not-implemented error. */
+const SKELETON_THROW = /\bnew\s+NotImplementedError\s*\(/;
 
 export class MutationScoreError extends Error {
   constructor(message: string) {
@@ -266,11 +274,20 @@ export function mutantSites(source: string, fileRel: string): MutantSite[] {
   return sites.sort((a, b) => a.start - b.start || a.operator.localeCompare(b.operator));
 }
 
+/** Is this the rejection a parse returns: `undefined`, or a failed Result
+ *  (an object literal with `ok: false`, ADR 2026-059)? */
+function isRejection(expression: Node): boolean {
+  if (expression.getText() === "undefined") return true;
+  if (!Node.isObjectLiteralExpression(expression)) return false;
+  const ok = expression.getProperty("ok");
+  return ok !== undefined && Node.isPropertyAssignment(ok) && ok.getInitializer()?.getText() === "false";
+}
+
 function guardFallThroughSites(sf: SourceFile, fileRel: string): MutantSite[] {
   const sites: MutantSite[] = [];
   for (const ret of sf.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
     const expression = ret.getExpression();
-    if (expression === undefined || expression.getText() !== "undefined") continue;
+    if (expression === undefined || !isRejection(expression)) continue;
 
     const fn = ret.getFirstAncestor(isFunctionLike);
     if (fn === undefined) continue;
@@ -294,7 +311,7 @@ function guardFallThroughSites(sf: SourceFile, fileRel: string): MutantSite[] {
       end: ret.getEnd(),
       replacement: ";",
       operator: "guard-fall-through",
-      label: "drop `return undefined` guard",
+      label: expression.getText() === "undefined" ? "drop `return undefined` guard" : "drop `return { ok: false }` guard",
     });
   }
   return sites;
@@ -306,12 +323,21 @@ function toPosix(p: string): string {
   return p.split(sep).join("/");
 }
 
+/** What decides a file is not the builder's logic. */
+export interface MutableLayout {
+  /** Composed test-side suffixes (ADR 2026-057). */
+  readonly testSuffixes: readonly string[];
+  /** Is a project path generated (ADR 2026-058)? */
+  readonly isGenerated: (path: string) => boolean;
+}
+
 /** Should this file be mutated? See the header for why each exclusion exists. */
-export function isMutableSourceFile(relPath: string, source: string): boolean {
+export function isMutableSourceFile(relPath: string, source: string, layout: MutableLayout): boolean {
   if (!relPath.endsWith(".ts") || relPath.endsWith(".d.ts")) return false;
   if (relPath.endsWith(".contract.ts")) return false;
+  if (hasTestFileSuffix(relPath, layout.testSuffixes) || layout.isGenerated(relPath)) return false;
   if (basename(relPath) === "index.ts") return false;
-  if (source.includes(SKELETON_MARKER) && source.includes("notImplemented(")) return false;
+  if (SKELETON_THROW.test(source)) return false;
   return true;
 }
 
@@ -376,14 +402,20 @@ export interface SuiteOutcome {
   readonly timedOut?: boolean;
 }
 
-/** Runs the target's suite once. Injectable so tests never spawn vitest. */
+/** Runs the target's suite once. Injectable so tests never spawn bun. */
 export type SuiteRunner = (cwd: string, timeoutMs: number) => Promise<SuiteOutcome>;
 
-/** The real runner: the pack's own vitest seam, bounded by an AbortSignal. */
-export const vitestSuiteRunner: SuiteRunner = async (cwd, timeoutMs) => {
+/** The real runner: run_tests' bun runner, bounded by an AbortSignal, with
+ *  the environment the phase test policies give a green run. */
+export const bunSuiteRunner: SuiteRunner = async (cwd, timeoutMs) => {
   const signal = AbortSignal.timeout(timeoutMs);
+  const policy = phaseRun(cwd, "green");
+  if (policy.refusals.length > 0) return { ok: false, note: policy.refusals.join("; ") };
   try {
-    const result = await runTests(cwd, { run: (command, args, dir) => spawnRunner(command, args, dir, signal) });
+    const result = await runTests(cwd, {
+      env: policy.env,
+      run: (command, args, dir, _signal, env) => spawnRunner(command, args, dir, signal, env),
+    });
     if (result.blocked !== undefined) return { ok: false, note: "suite blocked" };
     return { ok: result.ok, note: result.ok ? "green" : `${result.failed} failed` };
   } catch (e) {
@@ -407,7 +439,7 @@ export interface MutationScoreOptions {
   readonly maxMutants?: number;
   /** Per-mutant suite timeout in ms. Default {@link DEFAULT_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
-  /** Suite runner. Default {@link vitestSuiteRunner}. */
+  /** Suite runner. Default {@link bunSuiteRunner}. */
   readonly runSuite?: SuiteRunner;
 }
 
@@ -449,7 +481,7 @@ export async function runMutationScore(
 ): Promise<MutationScoreResult> {
   const maxMutants = options.maxMutants ?? DEFAULT_MAX_MUTANTS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const runSuite = options.runSuite ?? vitestSuiteRunner;
+  const runSuite = options.runSuite ?? bunSuiteRunner;
   const lines: string[] = [];
 
   const log = (verdict: GuardVerdict, summary: string, detail: Record<string, unknown> = {}): void =>
@@ -471,25 +503,32 @@ export async function runMutationScore(
   // --- preconditions ---
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return misuse(`'${cwd}' is not a directory`);
   if (!existsSync(join(cwd, "package.json"))) return misuse(`no package.json in '${cwd}' — not a project root`);
-  const srcAbs = join(cwd, "src");
-  if (!existsSync(srcAbs)) return misuse(`no src/ in '${cwd}' — nothing to mutate`);
   // Every mutant runs the suite, which loads the project's config as code: it
   // must be what the composed packs generate (ADR 2026-054). Checked before
-  // any source is mutated or any suite spawned.
+  // anything else is read, any source mutated or any suite spawned.
   const configBlock = configDriftBlock(GUARD, cwd);
   if (configBlock !== undefined) {
     return { code: 1, lines: [...lines, ...configBlock.lines], sites: 0, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
   }
+  let layout: MutableLayout;
+  let roots: string[];
+  try {
+    roots = expandSourceRoots(cwd, sourceRoots(cwd));
+    layout = { testSuffixes: testFileSuffixes(cwd), isGenerated: pathGlobMatcher(generatedFileGlobs(cwd)) };
+  } catch (error) {
+    return misuse(error instanceof Error ? error.message : String(error));
+  }
+  if (roots.length === 0) return misuse(`no source root in '${cwd}' — nothing to mutate`);
 
   // --- collect sites ---
   const originals = new Map<string, Buffer>();
   const allSites: MutantSite[] = [];
   const mutatedFiles: string[] = [];
-  for (const rel of tsFilesUnder(cwd, srcAbs)) {
+  for (const rel of roots.flatMap((root) => tsFilesUnder(cwd, join(cwd, root)))) {
     const abs = join(cwd, rel);
     const bytes = readFileSync(abs);
     const source = bytes.toString("utf8");
-    if (!isMutableSourceFile(rel, source)) continue;
+    if (!isMutableSourceFile(rel, source, layout)) continue;
     const found = mutantSites(source, rel);
     if (found.length === 0) continue;
     originals.set(rel, bytes);
@@ -501,7 +540,7 @@ export async function runMutationScore(
   if (mutants.length === 0) {
     const summary =
       allSites.length === 0
-        ? "no mutable parse/guard sites in src/ — nothing to measure"
+        ? "no mutable parse/guard sites under the source roots — nothing to measure"
         : `--max-mutants ${maxMutants} selected no mutants`;
     lines.push(`mutation-score: ${summary}`);
     log("pass", summary, { sites: allSites.length, mutants: 0, maxMutants });

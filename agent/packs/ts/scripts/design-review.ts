@@ -93,7 +93,32 @@ export function readReviewed(cwd: string): { ok: true; reviewed: Reviewed } | { 
     };
   }
 
-  const contracts = computeManifest(cwd).files;
+  // Composition determines which project rules and delivery obligations are
+  // active. Review freshness is based on design surface, so use one identity
+  // key per selected pack: adding or removing a pack stales the review, while
+  // edits to ordinary reviewed prose remain fresh. Read first: the contracts
+  // themselves are found through the composition's source roots.
+  const composition = join(cwd, ".bounded/composed-packs.json");
+  const packKeys: string[] = [];
+  if (existsSync(composition)) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(composition, "utf8")) as unknown;
+    } catch {
+      return { ok: false, reason: "invalid-composition", error: "project composition is malformed and cannot be reviewed" };
+    }
+    if (!Array.isArray(raw) || raw.some((pack) => typeof pack !== "string")) {
+      return { ok: false, reason: "invalid-composition", error: "project composition is malformed and cannot be reviewed" };
+    }
+    for (const pack of [...raw].sort()) packKeys.push(pack);
+  }
+
+  let contracts: Readonly<Record<string, string>>;
+  try {
+    contracts = computeManifest(cwd).files;
+  } catch (error) {
+    return { ok: false, reason: "invalid-composition", error: `the design's contracts cannot be found: ${error instanceof Error ? error.message : String(error)}` };
+  }
   if (Object.keys(contracts).length === 0) {
     return {
       ok: false,
@@ -120,23 +145,7 @@ export function readReviewed(cwd: string): { ok: true; reviewed: Reviewed } | { 
   }
   const baseline = join(cwd, ".bounded/change-baseline.json");
   if (existsSync(baseline)) reviewed[".bounded/change-baseline.json"] = hashContract(readFileSync(baseline, "utf8"));
-  // Composition determines which project rules and delivery obligations are
-  // active. Review freshness is based on design surface, so use one identity
-  // key per selected pack: adding or removing a pack stales the review, while
-  // edits to ordinary reviewed prose remain fresh.
-  const composition = join(cwd, ".bounded/composed-packs.json");
-  if (existsSync(composition)) {
-    let raw: unknown;
-    try {
-      raw = JSON.parse(readFileSync(composition, "utf8")) as unknown;
-    } catch {
-      return { ok: false, reason: "invalid-composition", error: "project composition is malformed and cannot be reviewed" };
-    }
-    if (!Array.isArray(raw) || raw.some((pack) => typeof pack !== "string")) {
-      return { ok: false, reason: "invalid-composition", error: "project composition is malformed and cannot be reviewed" };
-    }
-    for (const pack of [...raw].sort()) reviewed[`composition:${pack}`] = hashContract(pack);
-  }
+  for (const pack of packKeys) reviewed[`composition:${pack}`] = hashContract(pack);
   return { ok: true, reviewed };
 }
 

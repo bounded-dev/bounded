@@ -1,0 +1,36 @@
+import { describe, expect, test } from "bun:test";
+import type { Note } from "{{scope}}/notebook/domain";
+import { CreateNoteCommand } from "./create-note.command.ts";
+import type { CreateNoteStore } from "./create-note.contract.ts";
+import { CreateNoteHandler } from "./create-note.handler.ts";
+
+class FakeCreateNoteStore implements CreateNoteStore {
+  readonly saved: Note[] = [];
+
+  async save(note: Note): Promise<void> {
+    this.saved.push(note);
+  }
+}
+
+function command(text: string): CreateNoteCommand {
+  const parsed = CreateNoteCommand.parse({ text });
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
+
+describe("CreateNoteHandler", () => {
+  test("creates the note and saves it", async () => {
+    const store = new FakeCreateNoteStore();
+    const note = await new CreateNoteHandler(store).execute(command("Buy milk"));
+    expect(note.text.value).toBe("Buy milk");
+    expect(store.saved).toHaveLength(1);
+    expect(store.saved[0]?.equals(note)).toBe(true);
+  });
+
+  test("gives every note a new identity", async () => {
+    const handler = new CreateNoteHandler(new FakeCreateNoteStore());
+    const first = await handler.execute(command("Same"));
+    const second = await handler.execute(command("Same"));
+    expect(first.equals(second)).toBe(false);
+  });
+});

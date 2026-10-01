@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import { writeProjectPacks } from "../../src/project-composition.ts";
 import { lintSrcRuleId } from "../ts/pack.ts";
 import { composedPacks } from "../installed.ts";
-import { contractSupportFiles, deliverChecks, lintSrcRules, skeletonEmitters } from "../ts/pack.ts";
+import { deliverChecks, lintSrcRules, skeletonEmitters } from "../ts/pack.ts";
 import { contributedContractRuleIds } from "../ts/scripts/contract-purity.ts";
 import { runTrpcObligation } from "./trpc-obligation.ts";
 
@@ -48,16 +48,14 @@ describe("tRPC behaviour follows ts-trpc composition", () => {
     expect(contributedContractRuleIds(project(WITH))).toEqual(["bounded-ts-trpc/no-erased-router"]);
   });
 
-  test("the emitter, the obligation and the legacy runtime", () => {
+  test("the emitter and the obligation", () => {
     const bare = composedPacks(project(WITHOUT));
     // ts-hexagonal's own emitters are the baseline; ts-trpc adds exactly its one.
     const baseline = new Set(bare.read(skeletonEmitters).map((e) => e.name));
     expect(bare.read(deliverChecks)).toEqual([]);
-    expect(bare.read(contractSupportFiles)).toEqual([]);
     const composed = composedPacks(project(WITH));
     expect(composed.read(skeletonEmitters).map((e) => e.name).filter((n) => !baseline.has(n))).toEqual(["trpc-in-adapter"]);
     expect(composed.read(deliverChecks).map((c) => c.name)).toEqual(["trpc-obligation"]);
-    expect(composed.read(contractSupportFiles).map((f) => f.label)).toEqual(["API-service runtime"]);
   });
 
   test("composing ts-trpc without ts-hexagonal is refused", () => {

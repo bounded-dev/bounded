@@ -235,14 +235,6 @@ describe("runTests (suite could not run)", () => {
     expect(r.blocked).toBe(`${NO_REPORT} (exit code 3)`);
     expect(formatRunTests(r)).not.toMatch(/hidden|fixture|compute/);
   });
-
-  test("the retired JSON report is read only from a replaced command (transitional seam)", async () => {
-    const json = JSON.stringify({ testResults: [{ assertionResults: [{ fullName: "legacy one", status: "failed", failureMessages: ["Error: Not implemented: X.y\n    at /abs/x.ts:1:2"] }] }] });
-    const replaced = await runTests(project(), { command: "canned", run: silentRunner(json, "", 1) });
-    expect(replaced.results).toEqual([{ name: "legacy one", status: "failed", message: "Error: Not implemented: X.y" }]);
-    const defaulted = await runTests(project(), { run: silentRunner(json, "", 1) });
-    expect(defaulted.blocked).toBeDefined();
-  });
 });
 
 describe("summarizeResults", () => {
@@ -405,8 +397,8 @@ describe.skipIf(!HAS_BUN)("real bun", () => {
     const dir = repro("h3");
     const r = await runTests(dir);
     expect(r.results).toEqual([
-      { name: "logs", status: "passed" },
-      { name: "target", status: "failed", message: "error: expect(received).toBe(expected)\nExpected: 2\nReceived: 1" },
+      { name: "logs", status: "passed", file: "f.test.ts" },
+      { name: "target", status: "failed", message: "error: expect(received).toBe(expected)\nExpected: 2\nReceived: 1", file: "f.test.ts" },
     ]);
   });
 

@@ -8,23 +8,19 @@
 //   * the builder's lint: one door to the server framework, no erased router
 //     types, and clients typed by the router type the adapter re-exports;
 //   * the architect's lint: no erased router type in a contract;
-//   * the delivery obligation: at least one context exposes a feature;
-//   * the legacy service runtime, shipped only when a contract still imports
-//     `./service-runtime.js` (to be retired with that socket's consumers).
+//   * the delivery obligation: at least one context exposes a feature.
 //
 // Its data half (the `trpc` adapter technology, its pins and the generated
 // globs) is contrib.json beside this file.
 import { contribute, definePack } from "../../src/socket-registry.ts";
 import {
   contractPurityOverrides,
-  contractSupportFiles,
   deliverChecks,
   lintSrcRules,
   skeletonEmitters,
   TS_PACK,
 } from "../ts/pack.ts";
 import { TS_HEXAGONAL_PACK } from "../ts-hexagonal/pack.ts";
-import { serviceRuntimeSupport } from "./service-runtime-support.ts";
 import { runTrpcObligation } from "./trpc-obligation.ts";
 import { trpcAdapterEmitter } from "./scripts/trpc-emitter.ts";
 import { rawFrameworkEntry } from "./eslint/rules/raw-framework-entry.ts";
@@ -45,7 +41,6 @@ export const tsTrpcPack = definePack({
       description: "ts-trpc requires at least one context to expose a feature through its generated tRPC adapter",
       run: runTrpcObligation,
     }]),
-    contribute(contractSupportFiles, [serviceRuntimeSupport]),
     contribute(lintSrcRules, [
       { plugin: TS_TRPC_PLUGIN, name: "raw-framework-entry", rule: rawFrameworkEntry, namedIn: "builder" },
       { plugin: TS_TRPC_PLUGIN, name: "no-erased-router", rule: noErasedRouter, namedIn: "builder" },

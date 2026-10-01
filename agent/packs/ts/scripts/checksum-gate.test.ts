@@ -11,6 +11,9 @@ import {
   serializeManifest,
 } from "./checksum-gate.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
+
+const S = "contexts/shop/src";
 
 // --- pure core ----------------------------------------------------------------
 
@@ -44,9 +47,12 @@ describe("diffManifests", () => {
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-function project(files: Record<string, string>): string {
+/** A hexagonal project (ADR 2026-056): contracts live under a context's
+ *  source root, `contexts/<context>/src`; `S` below is that root. */
+function project(files: Record<string, string>, packs: readonly string[] | null = ["ts", "ts-hexagonal"]): string {
   const dir = mkdtempSync(join(tmpdir(), "checksum-"));
   tmpDirs.push(dir);
+  if (packs !== null) writeProjectPacks(dir, packs);
   for (const [rel, content] of Object.entries(files)) {
     const p = join(dir, rel);
     mkdirSync(join(p, ".."), { recursive: true });
@@ -56,11 +62,15 @@ function project(files: Record<string, string>): string {
 }
 
 describe("findContractFiles", () => {
-  test("finds *.contract.ts, sorted, ignoring node_modules/.git/.bounded/scratch", () => {
+  test("finds *.contract.ts under the source roots only, sorted, ignoring node_modules/.git/.bounded/scratch", () => {
     const dir = project({
-      "src/orders/orders.contract.ts": "export interface O {}",
-      "src/pay/pay.contract.ts": "export interface P {}",
-      "src/orders/orders.ts": "// impl, not a contract",
+      [`${S}/orders/orders.contract.ts`]: "export interface O {}",
+      [`${S}/pay/pay.contract.ts`]: "export interface P {}",
+      [`${S}/orders/orders.ts`]: "// impl, not a contract",
+      // Outside every source root: not a contract (ADR 2026-056).
+      "src/stray.contract.ts": "export interface Stray {}",
+      "contexts/shop/other/x.contract.ts": "export interface Outside {}",
+      [`${S}/node_modules/pkg/y.contract.ts`]: "export interface Ignored {}",
       "node_modules/pkg/x.contract.ts": "export interface Ignored {}",
       ".bounded/y.contract.ts": "export interface Ignored {}",
       ".agent-state/snapshot.contract.ts": "export interface Ignored {}",
@@ -69,16 +79,26 @@ describe("findContractFiles", () => {
       "scratch/probe.contract.ts": "export interface Probe {}",
     });
     const found = findContractFiles(dir).map((p) => p.slice(dir.length + 1).split("\\").join("/"));
-    expect(found).toEqual(["src/orders/orders.contract.ts", "src/pay/pay.contract.ts"]);
+    expect(found).toEqual([`${S}/orders/orders.contract.ts`, `${S}/pay/pay.contract.ts`]);
   });
 
   test("a scratch/*.contract.ts is absent from the frozen manifest", () => {
     const dir = project({
-      "src/a.contract.ts": "export interface A { x: number }\n",
+      [`${S}/a.contract.ts`]: "export interface A { x: number }\n",
       "scratch/probe.contract.ts": "export interface Probe {}\n",
     });
     const manifest = computeManifest(dir);
-    expect(Object.keys(manifest.files)).toEqual(["src/a.contract.ts"]);
+    expect(Object.keys(manifest.files)).toEqual([`${S}/a.contract.ts`]);
+  });
+
+  test("an unreadable composition throws: a gate must not guess which files are the design", () => {
+    const dir = project({ [`${S}/a.contract.ts`]: "export interface A {}\n" }, null);
+    expect(() => findContractFiles(dir)).toThrow(/composition/);
+  });
+
+  test("a composition with no source roots has no contracts", () => {
+    const dir = project({ [`${S}/a.contract.ts`]: "export interface A {}\n" }, ["ts"]);
+    expect(findContractFiles(dir)).toEqual([]);
   });
 });
 
@@ -92,7 +112,7 @@ function runGate(dir: string, args: string[] = []) {
 
 describe("checksum-gate CLI (fixture repos)", () => {
   test("--write records the manifest, then verify passes → exit 0", () => {
-    const dir = project({ "src/a.contract.ts": "export interface A { x: number }\n" });
+    const dir = project({ [`${S}/a.contract.ts`]: "export interface A { x: number }\n" });
     const w = runGate(dir, ["--write"]);
     expect(w.status).toBe(0);
     expect(w.stdout).toMatch(/wrote \.bounded\/contract-checksums\.json \(1 contract file\)/);
@@ -105,36 +125,36 @@ describe("checksum-gate CLI (fixture repos)", () => {
   });
 
   test("a changed contract mid-loop is drift → exit 1, logs a block", () => {
-    const dir = project({ "src/a.contract.ts": "export interface A { x: number }\n" });
+    const dir = project({ [`${S}/a.contract.ts`]: "export interface A { x: number }\n" });
     runGate(dir, ["--write"]);
-    writeFileSync(join(dir, "src/a.contract.ts"), "export interface A { x: string }\n");
+    writeFileSync(join(dir, S, "a.contract.ts"), "export interface A { x: string }\n");
     const v = runGate(dir);
     expect(v.status).toBe(1);
-    expect(v.stdout).toMatch(/drift changed src\/a\.contract\.ts/);
+    expect(v.stdout).toMatch(/drift changed contexts\/shop\/src\/a\.contract\.ts/);
     expect(v.stdout).toMatch(/FAIL — 1 contract file moved/);
     expect(readGuardLog(dir).at(-1)).toMatchObject({ guard: "checksum-gate", verdict: "block" });
   });
 
   test("an added contract is drift → exit 1", () => {
-    const dir = project({ "src/a.contract.ts": "export interface A {}\n" });
+    const dir = project({ [`${S}/a.contract.ts`]: "export interface A {}\n" });
     runGate(dir, ["--write"]);
-    writeFileSync(join(dir, "src/b.contract.ts"), "export interface B {}\n");
+    writeFileSync(join(dir, S, "b.contract.ts"), "export interface B {}\n");
     const v = runGate(dir);
     expect(v.status).toBe(1);
-    expect(v.stdout).toMatch(/drift added src\/b\.contract\.ts/);
+    expect(v.stdout).toMatch(/drift added contexts\/shop\/src\/b\.contract\.ts/);
   });
 
   test("a removed contract is drift → exit 1", () => {
-    const dir = project({ "src/a.contract.ts": "export interface A {}\n", "src/b.contract.ts": "export interface B {}\n" });
+    const dir = project({ [`${S}/a.contract.ts`]: "export interface A {}\n", [`${S}/b.contract.ts`]: "export interface B {}\n" });
     runGate(dir, ["--write"]);
-    rmSync(join(dir, "src/b.contract.ts"));
+    rmSync(join(dir, S, "b.contract.ts"));
     const v = runGate(dir);
     expect(v.status).toBe(1);
-    expect(v.stdout).toMatch(/drift removed src\/b\.contract\.ts/);
+    expect(v.stdout).toMatch(/drift removed contexts\/shop\/src\/b\.contract\.ts/);
   });
 
   test("verify with no manifest → exit 2 (misuse)", () => {
-    const dir = project({ "src/a.contract.ts": "export interface A {}\n" });
+    const dir = project({ [`${S}/a.contract.ts`]: "export interface A {}\n" });
     const v = runGate(dir);
     expect(v.status).toBe(2);
     expect(v.stderr).toMatch(/no manifest at \.bounded\/contract-checksums\.json/);
@@ -142,19 +162,19 @@ describe("checksum-gate CLI (fixture repos)", () => {
   });
 
   test("no contract files → exit 2 (a gate that matches nothing is broken)", () => {
-    const dir = project({ "src/impl.ts": "export const x = 1;\n" });
+    const dir = project({ [`${S}/impl.ts`]: "export const x = 1;\n" });
     const v = runGate(dir, ["--write"]);
     expect(v.status).toBe(2);
-    expect(v.stderr).toMatch(/no \*\.contract\.ts files found/);
+    expect(v.stderr).toMatch(/no contract files found under the source roots/);
   });
 
   test("manifest is deterministic (sorted keys, trailing newline)", () => {
-    const dir = project({ "src/b.contract.ts": "export interface B {}\n", "src/a.contract.ts": "export interface A {}\n" });
+    const dir = project({ [`${S}/b.contract.ts`]: "export interface B {}\n", [`${S}/a.contract.ts`]: "export interface A {}\n" });
     runGate(dir, ["--write"]);
     const manifest = readFileSync(join(dir, ".bounded/contract-checksums.json"), "utf8");
     expect(manifest.endsWith("\n")).toBe(true);
     const keys = Object.keys((JSON.parse(manifest) as { files: Record<string, string> }).files);
-    expect(keys).toEqual(["src/a.contract.ts", "src/b.contract.ts"]);
+    expect(keys).toEqual([`${S}/a.contract.ts`, `${S}/b.contract.ts`]);
     // serializeManifest matches what the CLI wrote.
     expect(serializeManifest(computeManifest(dir))).toBe(manifest);
   });

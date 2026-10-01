@@ -1,0 +1,11 @@
+import type { CreateNoteStore } from "{{scope}}/notebook/application";
+import type { Note } from "{{scope}}/notebook/domain";
+import type { InMemoryDatabase } from "../in-memory-database.ts";
+
+export class InMemoryCreateNoteStore implements CreateNoteStore {
+  constructor(private readonly db: InMemoryDatabase) {}
+
+  async save(note: Note): Promise<void> {
+    this.db.notes.push(note);
+  }
+}

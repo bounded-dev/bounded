@@ -33,3 +33,11 @@ pack names another's technology outside a declared edge (TN-26-005).
 
 The stub packs exist from WI-1 so every later item codes against a
 registered name.
+
+The levels reach the gates through a ts-owned socket, `testObligations`
+(`agent/packs/ts/pack.ts`). The ts pack checks the domain level itself
+(laws and a unit file per concept, every factory member and instance
+method reached, a `<Name> — boundaries` block per value object asserted on
+its `Result`); ts-hexagonal contributes the feature, store, out-adapter,
+in-adapter-laws and app-smoke levels. Red checks every red-phase level;
+green checks the levels only a built project can run (the app smoke test).

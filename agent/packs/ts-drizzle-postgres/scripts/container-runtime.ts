@@ -15,7 +15,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DRIZZLE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
+import type { PhaseTestDecision, PhaseTestPolicy } from "../../ts/pack.ts";
+import { DRIZZLE, DRIZZLE_PREFIX, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
 import { CONTEXTS_DIR } from "./check-db.ts";
 
 export type ContainerRuntimeProbe =
@@ -177,3 +178,35 @@ export function storeTestEnv(base: NodeJS.ProcessEnv, decision: StoreTestDecisio
   if (decision.action === "skip") Object.assign(out, decision.env);
   return out;
 }
+
+/** The first segment of a sanitized test name (`Describe > … > test`) that a
+ *  skipped store block carries: the name passed to the generated
+ *  `describeDrizzleStore`, which is the store class, `Drizzle<Port>`. */
+const STORE_BLOCK = new RegExp(`^${DRIZZLE_PREFIX}[A-Z][A-Za-z0-9]*Store$`);
+
+/** Is this skipped result one of the store blocks a red skip covers? */
+export function isSkippedStoreTest(resultName: string): boolean {
+  return STORE_BLOCK.test(resultName.split(" > ")[0]!.trim());
+}
+
+/** ADR 2026-064 in the ts pack's `phaseTestPolicies` shape. The runtime is
+ *  probed only when the tree has store tests. */
+export function storeTestPhaseDecision(
+  phase: "red" | "green",
+  storeTests: readonly string[],
+  probe: () => ContainerRuntimeProbe,
+): PhaseTestDecision {
+  const decision = storeTestDecision(phase, storeTests, storeTests.length === 0 ? { available: true, endpoint: "(not probed)" } : probe());
+  if (decision.action === "skip") {
+    return { action: "skip", reason: decision.reason, env: decision.env, unsetEnv: STORE_TEST_ENV, skippedTest: isSkippedStoreTest };
+  }
+  return decision;
+}
+
+export const storeTestPolicy: PhaseTestPolicy = {
+  name: "store-tests-need-a-container-runtime",
+  description:
+    "Drizzle store tests run against real Postgres: without a container runtime the red gate skips them with the " +
+    "reason logged, and the green gate refuses (ADR 2026-064).",
+  decide: ({ project, phase }) => storeTestPhaseDecision(phase, drizzleStoreTests(project), () => probeContainerRuntime()),
+};

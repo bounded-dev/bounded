@@ -1,0 +1,28 @@
+import { z } from "zod";
+import type { Result } from "../shared/result.ts";
+import type * as Contract from "./note-text.contract.ts";
+
+const schema = z.string().trim().min(1, "Note text is required");
+
+class NoteTextImpl implements Contract.NoteText {
+  declare readonly __brand: "NoteText";
+  private constructor(readonly value: string) {}
+
+  static parse(raw: unknown): Result<Contract.NoteText> {
+    const result = schema.safeParse(raw);
+    return result.success
+      ? { ok: true, value: new NoteTextImpl(result.data) }
+      : { ok: false, error: result.error.issues[0]?.message ?? "Invalid note text" };
+  }
+
+  equals(other: Contract.NoteText): boolean {
+    return this.value === other.value;
+  }
+
+  toJSON(): string {
+    return this.value;
+  }
+}
+
+export type NoteText = Contract.NoteText;
+export const NoteText: Contract.NoteTextFactory = NoteTextImpl;

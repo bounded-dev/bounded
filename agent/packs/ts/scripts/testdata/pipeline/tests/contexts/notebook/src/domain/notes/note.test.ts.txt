@@ -1,0 +1,23 @@
+import { describe, expect, test } from "bun:test";
+import { Note } from "./note.ts";
+import { NoteId } from "./note-id.ts";
+import { NoteText } from "./note-text.ts";
+
+function text(raw: string): NoteText {
+  const parsed = NoteText.parse(raw);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
+
+describe("Note", () => {
+  test("is equal to a note with the same identity, whatever its text", () => {
+    const id = NoteId.generate();
+    expect(new Note(id, text("First")).equals(new Note(id, text("Second")))).toBe(true);
+    expect(new Note(NoteId.generate(), text("Same")).equals(new Note(NoteId.generate(), text("Same")))).toBe(false);
+  });
+
+  test("serialises its identity and text", () => {
+    const note = new Note(NoteId.generate(), text("Buy milk"));
+    expect(note.toJSON()).toEqual({ id: note.id.value, text: "Buy milk" });
+  });
+});

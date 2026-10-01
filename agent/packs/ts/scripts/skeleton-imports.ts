@@ -1,4 +1,4 @@
-// Shared skeleton-import predicate (r16): a src/** non-contract file that still
+// Shared skeleton-import predicate (r16): a non-contract file under a source root that still
 // imports from the red-phase shared errors module — the NotImplementedError a
 // scaffolded skeleton throws — means an unimplemented export survived to this
 // stage of the run.
@@ -25,12 +25,8 @@ import { basename, join, posix, relative, sep } from "node:path";
 import { Node, Project } from "ts-morph";
 import { expandSourceRoots } from "./surface-check.ts";
 
-/** The red-phase shared errors module, project-relative. Scaffolded skeletons
- *  import NotImplementedError (and the `notImplemented` helper) from here. */
-export const ERRORS_REL = "src/shared/errors.ts";
-
-/** A src file that still imports from the red-phase errors module, and the
- *  names it imports (`NotImplementedError`, `notImplemented`, …). */
+/** A source file that still imports from a red-phase errors module, and the
+ *  names it imports (`NotImplementedError`, …). */
 export interface SkeletonImporter {
   /** Project-relative posix path. */
   readonly file: string;
@@ -65,11 +61,10 @@ export function tsFilesUnder(root: string, dir: string): string[] {
   return out.sort();
 }
 
-/** Does this module specifier, written in `fromRel`, resolve to the shared
- *  errors module? (Relative specifiers only — that is how it is ever imported.)
- *  `errorsModules` are the project-relative errors modules in play; the
- *  default is the flat layout's one. */
-export function refersToErrors(fromRel: string, specifier: string, errorsModules: readonly string[] = [ERRORS_REL]): boolean {
+/** Does this module specifier, written in `fromRel`, resolve to one of the
+ *  project-relative `errorsModules`? (Relative specifiers only — that is how
+ *  one is ever imported.) */
+export function refersToErrors(fromRel: string, specifier: string, errorsModules: readonly string[]): boolean {
   if (!specifier.startsWith(".")) return false;
   const resolved = posix.normalize(posix.join(posix.dirname(fromRel), specifier));
   const noExt = resolved.replace(/\.(js|ts)$/, "");
@@ -78,18 +73,17 @@ export function refersToErrors(fromRel: string, specifier: string, errorsModules
 
 /**
  * The red-phase errors modules of a monorepo's source roots (ADR 2026-056):
- * each root's `shared/errors.ts` (the flat layout) and its
- * `domain/shared/errors.ts` (TN-26-012, where domain skeletons import
+ * each root's `domain/shared/errors.ts` (TN-26-012 §5, where skeletons import
  * NotImplementedError from). Project-relative; whether they exist is not
  * asked — an import of a deleted one is still a skeleton import.
  */
 export function errorsModulesFor(cwd: string, sourceRoots: readonly string[]): string[] {
-  return expandSourceRoots(cwd, sourceRoots).flatMap((dir) => [`${dir}/shared/errors.ts`, `${dir}/domain/shared/errors.ts`]);
+  return expandSourceRoots(cwd, sourceRoots).map((dir) => `${dir}/domain/shared/errors.ts`);
 }
 
-/** Names a file imports from the shared errors module ([] if none). AST, not
+/** Names a file imports from one of the errors modules ([] if none). AST, not
  *  grep: a mention in a comment or string must not count. */
-export function errorsImportsOf(source: string, fileRel: string, errorsModules: readonly string[] = [ERRORS_REL]): string[] {
+export function errorsImportsOf(source: string, fileRel: string, errorsModules: readonly string[]): string[] {
   const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
   const sf = project.createSourceFile(basename(fileRel), source, { overwrite: true });
   const names: string[] = [];
@@ -109,26 +103,7 @@ export function errorsImportsOf(source: string, fileRel: string, errorsModules: 
 }
 
 /**
- * Every src/** non-contract file that still imports from the red-phase shared
- * errors module — one entry per offending file, with the names it imports.
- *
- * Contracts are excluded because they are declaration-only (contract-purity
- * enforces it) and cannot import a value in the first place; the errors module
- * itself is excluded because it is the definition, not a consumer. Empty means
- * clean: no unimplemented skeleton reached this stage.
- */
-export function findSkeletonImportsInSrc(cwd: string): SkeletonImporter[] {
-  const out: SkeletonImporter[] = [];
-  for (const rel of tsFilesUnder(cwd, join(cwd, "src"))) {
-    if (rel === ERRORS_REL || rel.endsWith(".contract.ts")) continue;
-    const names = errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel);
-    if (names.length > 0) out.push({ file: rel, names });
-  }
-  return out;
-}
-
-/**
- * The same scan over a monorepo's source roots (ADR 2026-056): every
+ * The scan over a monorepo's source roots (ADR 2026-056): every
  * non-contract file under them that still imports a red-phase errors module
  * (`errorsModulesFor`) — an unimplemented skeleton that reached this stage.
  * The errors modules themselves are excluded; they are the definition.

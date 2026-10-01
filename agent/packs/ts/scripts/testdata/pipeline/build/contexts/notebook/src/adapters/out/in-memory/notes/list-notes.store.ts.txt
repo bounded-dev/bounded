@@ -1,0 +1,11 @@
+import type { ListNotesStore } from "{{scope}}/notebook/application";
+import type { Note } from "{{scope}}/notebook/domain";
+import type { InMemoryDatabase } from "../in-memory-database.ts";
+
+export class InMemoryListNotesStore implements ListNotesStore {
+  constructor(private readonly db: InMemoryDatabase) {}
+
+  async findAll(): Promise<Note[]> {
+    return [...this.db.notes];
+  }
+}

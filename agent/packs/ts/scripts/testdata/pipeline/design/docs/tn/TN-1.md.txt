@@ -1,0 +1,23 @@
+---
+issue: 1
+status: active
+contracts:
+  - contexts/notebook/src/application/notes/create-note/create-note.contract.ts
+  - contexts/notebook/src/application/notes/list-notes/list-notes.contract.ts
+  - contexts/notebook/src/domain/notes/note-id.contract.ts
+  - contexts/notebook/src/domain/notes/note-text.contract.ts
+  - contexts/notebook/src/domain/notes/note.contract.ts
+workspaces:
+  apps/web: web
+---
+
+# TN-1: Notes
+
+## Intake
+
+A person writes short notes and sees every note they wrote.
+
+## Design
+
+One context, `notebook`, with one area, `notes`. Creating a note takes its text;
+listing returns every note in the order written. A web app hosts both.

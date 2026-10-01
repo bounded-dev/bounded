@@ -24,3 +24,11 @@ without it, where no store has been built yet.
 
 A project with stores can only be delivered on a machine with a container
 runtime.
+
+The rule reaches the gates through a ts-owned socket, `phaseTestPolicies`
+(`agent/packs/ts/pack.ts`): the ts pack cannot import the pack that knows
+what a store test is. ts-drizzle-postgres contributes it. Red sets the skip
+in the test process's environment, never its own, and sets aside only the
+skipped results the policy claims (the `Drizzle<Port>Store` blocks); green
+removes the variables, refuses when a runtime is needed and absent, and
+refuses any skipped or todo result.

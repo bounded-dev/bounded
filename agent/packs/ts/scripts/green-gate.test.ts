@@ -1,46 +1,25 @@
-import { writeProjectPacks } from "../../../src/project-composition.ts";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { classifyGreen, redBindingFor, redPassStandsForCurrentContracts } from "./green-gate.ts";
-import { testsTreeHash } from "./red-gate.ts";
+import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
+import { generatedFileGlobs, pathLayoutFor } from "../../../src/pack-contrib.ts";
+import { classifyGreen, redBindingFor, redPassStandsForCurrentContracts, routeAfterRepeat, runGreenGate } from "./green-gate.ts";
+import { cannedGateEnv, type CannedCase, withEnv } from "./junit-fixture.test-support.ts";
+import { CONTEXT_SRC, type Fixture, pipelineProject, placeStage } from "./pipeline-fixture.test-support.ts";
+import { emitProject, projectFactsOf } from "./project-emitters.ts";
+import { testFilesHash } from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
+import { runScaffold } from "./scaffold-project.ts";
 import type { TypecheckResult } from "./typecheck.ts";
-import { readGuardLog } from "../../../src/guard-log.ts";
-import { pathLayoutFor } from "../../../src/pack-contrib.ts";
 
 // The layout a hexagonal ts project composes (pack contrib data): who owns
 // each file a diagnostic names.
 const TS_ZONE = pathLayoutFor(["ts", "ts-hexagonal"]);
 
-/** The gate's own entry. The green gate also runs the src escape-hatch lint,
- *  which logs its own line, so "the last entry" is no longer the gate's. */
-function greenEntry(dir: string) {
-  return readGuardLog(dir).find((e) => e.guard === "green-gate");
-}
-
-function vitestJson(cases: { name: string; status: string; message?: string }[]): string {
-  return JSON.stringify({
-    testResults: [
-      {
-        status: cases.some((c) => c.status === "failed") ? "failed" : "passed",
-        assertionResults: cases.map((c) => ({
-          fullName: c.name,
-          title: c.name,
-          ancestorTitles: [],
-          status: c.status,
-          failureMessages: c.message ? [c.message] : [],
-        })),
-      },
-    ],
-  });
-}
-
-function run(partial: Partial<RunTestsResult>): RunTestsResult {
-  return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], ...partial };
-}
+const RL = "contexts/library/src/domain/reading-list";
+const TEST_TYPE_ERR = `${RL}/reading-list.test.ts(12,5): error TS2532: Object is possibly 'undefined'.`;
+const SRC_TYPE_ERR = `${RL}/reading-list.ts(4,3): error TS2345: Argument of type 'string'…`;
+const CONTRACT_TYPE_ERR = `${RL}/reading-list.contract.ts(9,1): error TS2304: Cannot find name 'Isbn'.`;
 
 /** A clean typecheck — the precondition every pre-#7 green implicitly assumed. */
 const TYPE_CLEAN: TypecheckResult = { ok: true, errorCount: 0, diagnostics: [] };
@@ -49,12 +28,15 @@ function tsc(...diagnostics: string[]): TypecheckResult {
   return { ok: false, errorCount: diagnostics.length, diagnostics };
 }
 
-const RL = "contexts/library/src/domain/reading-list";
-const TEST_TYPE_ERR = `${RL}/reading-list.test.ts(12,5): error TS2532: Object is possibly 'undefined'.`;
-const SRC_TYPE_ERR = `${RL}/reading-list.ts(4,3): error TS2345: Argument of type 'string'…`;
-const CONTRACT_TYPE_ERR = `${RL}/reading-list.contract.ts(9,1): error TS2304: Cannot find name 'Isbn'.`;
-
 // --- pure core: classifyGreen -------------------------------------------------
+
+function run(partial: Partial<RunTestsResult>): RunTestsResult {
+  return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], ...partial };
+}
+
+
+
+
 
 describe("classifyGreen", () => {
   test("all tests pass → exit 0", () => {
@@ -239,126 +221,6 @@ describe("classifyGreen: a surviving skeleton import (r16)", () => {
   });
 });
 
-// --- CLI (fixture-repo) -------------------------------------------------------
-
-const SCRIPT = join(import.meta.dirname, "green-gate.ts");
-const tmpDirs: string[] = [];
-afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
-
-function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
-  tmpDirs.push(dir);
-  writeFileSync(join(dir, "run.json"), runJson);
-  writeFileSync(join(dir, "tsc.txt"), tscOutput);
-  // Green refuses without a red pass since the last freeze (Run 10). Seed the
-  // normal history: frozen, then a valid red.
-  mkdirSync(join(dir, ".bounded"), { recursive: true });
-  seedRedPass(dir);
-  return dir;
-}
-
-/** The normal history green expects: contracts frozen, then a red pass — and
- *  that red carries the hash of the tests tree it ran against, because green is
- *  bound to BOTH (the contracts it was frozen for and the tests it proved). */
-function seedRedPass(dir: string, testsHash: string = testsTreeHash(dir)): void {
-  writeFileSync(
-    join(dir, ".bounded", "guard-log.jsonl"),
-    [
-      JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" }),
-      JSON.stringify({
-        ts: "2026-09-04T00:01:00.000Z",
-        guard: "red-gate",
-        verdict: "pass",
-        summary: "RED OK (5 NotImplemented failures, 0 passed)",
-        detail: { shadow: ".bounded/shadow-red", testsTreeHash: testsHash },
-      }),
-    ].join("\n") + "\n",
-  );
-}
-
-function runGate(dir: string, typeErrors = false) {
-  return spawnSync(process.execPath, [SCRIPT], {
-    cwd: dir,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      BOUNDED_GATE_TEST_CMD: "cat",
-      BOUNDED_GATE_TEST_ARGS: JSON.stringify(["run.json"]),
-      // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
-      BOUNDED_GATE_TSC_CMD: "sh",
-      BOUNDED_GATE_TSC_ARGS: JSON.stringify(["-c", `cat tsc.txt; exit ${typeErrors ? 2 : 0}`]),
-    },
-  });
-}
-
-describe("green-gate CLI (fixture repos)", () => {
-  test("green target → exit 0 and a logged pass", () => {
-    const dir = fixtureRepo(
-      "green-ok-",
-      vitestJson([{ name: "create order", status: "passed" }, { name: "cancel order", status: "passed" }]),
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/green-gate: OK — 2 passed, 2 total/);
-    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
-  });
-
-  test("failing target → exit 1, names the failure, logs a block", () => {
-    const dir = fixtureRepo(
-      "green-fail-",
-      vitestJson([
-        { name: "create order", status: "passed" },
-        { name: "cancel order", status: "failed", message: "AssertionError: expected 'open' to be 'cancelled'" },
-      ]),
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/1 failing test of 2/);
-    expect(r.stdout).toContain("failed: cancel order");
-    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "block" });
-  });
-
-  test("passing suite + test-file type errors → exit 1, routed, logged as a block (#7)", () => {
-    const dir = fixtureRepo(
-      "green-falsegreen-",
-      vitestJson([{ name: "adds a book", status: "passed" }, { name: "lists books", status: "passed" }]),
-      `${TEST_TYPE_ERR}\nFound 1 error in ${RL}/reading-list.test.ts:12\n`,
-    );
-    const r = runGate(dir, true);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/green-gate: FAIL — 1 type error/);
-    expect(r.stdout).toContain("green-gate: route → test-writer");
-    expect(greenEntry(dir)).toMatchObject({
-      guard: "green-gate",
-      verdict: "block",
-      detail: { route: "test-writer", typeErrors: 1 },
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The escape hatch: a test that keeps failing may itself be the defect
-// ---------------------------------------------------------------------------
-
-// Dogfood Run 6 deadlocked here. The last failing test read `invoices[1]` where
-// it needed `invoices[2]` — it had copied the index from a sibling test with no
-// renewal step, so the array was one shorter. The implementation was correct.
-//
-// Every component behaved exactly as specified, and the loop still could not
-// escape: the green gate routed by its rule (a failing test means the code is
-// wrong), the architect obeyed the route as the skill instructs, and the
-// builder cannot fix a test it is blind to. It respawned the builder and hit
-// the identical failure.
-//
-// The rule is right in the common case and unrecoverable in this one, and
-// nothing could tell the two apart. So the FIRST block routes to the builder as
-// before, and a REPEAT of the same failing set routes to the test-writer. Same
-// reasoning as the run_tests non-convergence nudge: repetition is the evidence,
-// and no model judgement is involved.
-
-import { routeAfterRepeat } from "./green-gate.ts";
-
 describe("repeated identical failures reroute to the test-writer", () => {
   const A = ["changePlan proration after renewal"];
   const B = ["cancel is idempotent"];
@@ -402,222 +264,7 @@ describe("repeated identical failures reroute to the test-writer", () => {
 // the escape-hatch lint looks, and where a concept file has a role.
 const SRC_ROOT = join("contexts", "billing", "src", "domain", "invoices");
 
-describe("green-gate CLI: source escape hatches", () => {
-  const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
-
-  test("a non-null assertion in a source root blocks the green and routes to the builder", () => {
-    const dir = fixtureRepo("green-hatch-", allPassing);
-    mkdirSync(join(dir, SRC_ROOT), { recursive: true });
-    writeFileSync(
-      join(dir, SRC_ROOT, "invoice.ts"),
-      [
-        "interface Invoice { id: string }",
-        "function find(xs: Invoice[], id: string): Invoice | undefined { return xs.find(i => i.id === id); }",
-        "export function renew(xs: Invoice[], id: string): Invoice { return find(xs, id)!; }",
-      ].join("\n") + "\n",
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/the type checker was switched off to get there/);
-    expect(r.stdout).toContain("no-non-null-assertion");
-    expect(r.stdout).toContain("green-gate: route → builder");
-    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "block", detail: { escapeHatches: 1 } });
-  });
-
-  test("a clean source root still passes", () => {
-    const dir = fixtureRepo("green-clean-", allPassing);
-    mkdirSync(join(dir, SRC_ROOT), { recursive: true });
-    writeFileSync(join(dir, SRC_ROOT, "invoice.ts"), "export const rate = { pct: 5 } as const;\n");
-    const r = runGate(dir);
-    expect(r.status).toBe(0);
-    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
-  });
-});
-
-// The contract must bind at green, not just at scaffold. Run 8 shipped
-// Money.signed and nine undeclared re-exports through a green gate that only
-// asked about tests and types.
-
-describe("green-gate CLI: surface violations", () => {
-  const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
-
-  test("an undeclared public member blocks the green and routes to the builder", () => {
-    const dir = fixtureRepo("green-surface-", allPassing);
-    mkdirSync(join(dir, "src", "shared"), { recursive: true });
-    writeFileSync(
-      join(dir, "src", "shared", "money.contract.ts"),
-      [
-        "export declare class Money {",
-        '  private readonly __brand: "Money";',
-        "  private constructor();",
-        "  readonly minorUnits: number;",
-        "  static parse(raw: unknown): Money | undefined;",
-        "}",
-      ].join("\n") + "\n",
-    );
-    writeFileSync(
-      join(dir, "src", "shared", "money.ts"),
-      [
-        'export type * from "./money.contract.js";',
-        "// zod-backed-parse asks for schema delegation; the gate seams fake tsc,",
-        "// so a structural stand-in with the same safeParse shape keeps the",
-        "// fixture dependency-free.",
-        "const schema = {",
-        "  safeParse: (raw: unknown) =>",
-        '    typeof raw === "number"',
-        "      ? { success: true as const, data: raw }",
-        "      : { success: false as const, data: 0 },",
-        "};",
-        "export class Money {",
-        '  declare private readonly __brand: "Money";',
-        "  private constructor(readonly minorUnits: number) {}",
-        "  static parse(raw: unknown): Money | undefined {",
-        "    const r = schema.safeParse(raw);",
-        "    return r.success ? new Money(r.data) : undefined;",
-        "  }",
-        "  // Undeclared public surface — the Run 8 case.",
-        "  static signed(n: number): number { return n; }",
-        "}",
-      ].join("\n") + "\n",
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/public surface does not match the contract/);
-    expect(r.stdout).toContain("Money.signed");
-    expect(r.stdout).toContain("green-gate: route → builder");
-    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "block", detail: { surfaceViolations: 1 } });
-  });
-
-  test("a conforming surface still passes", () => {
-    const dir = fixtureRepo("green-surface-ok-", allPassing);
-    mkdirSync(join(dir, "src", "shared"), { recursive: true });
-    writeFileSync(
-      join(dir, "src", "shared", "money.contract.ts"),
-      [
-        "export declare class Money {",
-        '  private readonly __brand: "Money";',
-        "  private constructor();",
-        "  readonly minorUnits: number;",
-        "  static parse(raw: unknown): Money | undefined;",
-        "}",
-      ].join("\n") + "\n",
-    );
-    writeFileSync(
-      join(dir, "src", "shared", "money.ts"),
-      [
-        'export type * from "./money.contract.js";',
-        "// zod-backed-parse asks for schema delegation; the gate seams fake tsc,",
-        "// so a structural stand-in with the same safeParse shape keeps the",
-        "// fixture dependency-free.",
-        "const schema = {",
-        "  safeParse: (raw: unknown) =>",
-        '    typeof raw === "number"',
-        "      ? { success: true as const, data: raw }",
-        "      : { success: false as const, data: 0 },",
-        "};",
-        "export class Money {",
-        '  declare private readonly __brand: "Money";',
-        "  private constructor(readonly minorUnits: number) {}",
-        "  static parse(raw: unknown): Money | undefined {",
-        "    const r = schema.safeParse(raw);",
-        "    return r.success ? new Money(r.data) : undefined;",
-        "  }",
-        "}",
-      ].join("\n") + "\n",
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(0);
-    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
-  });
-});
-
-// r16: billing.ts stayed a throwing skeleton, green passed 179/179 TWICE (no
-// test imported its exports, so nothing ran the throw), and only deliver caught
-// it — minutes later, at the end. The scan is deliver's own, moved upstream so
-// a green that is green only because an unimplemented throw never ran is caught
-// the moment the suite passes, named, and bounced to the builder.
-
-describe("green-gate CLI: a surviving red-phase skeleton (r16)", () => {
-  const allPassing = vitestJson([
-    { name: "charges a card", status: "passed" },
-    { name: "refunds a card", status: "passed" },
-  ]);
-  const ERRORS_TS = [
-    "export class NotImplementedError extends Error {",
-    "  constructor(what: string) {",
-    "    super(`not implemented: ${what}`);",
-    '    this.name = "NotImplementedError";',
-    "  }",
-    "}",
-  ].join("\n") + "\n";
-
-  test("a fully passing suite still blocks when a src skeleton import survives, naming the file", () => {
-    const dir = fixtureRepo("green-skeleton-", allPassing);
-    mkdirSync(join(dir, "src", "shared"), { recursive: true });
-    mkdirSync(join(dir, "src", "billing"), { recursive: true });
-    writeFileSync(join(dir, "src", "shared", "errors.ts"), ERRORS_TS);
-    writeFileSync(
-      join(dir, "src", "billing", "billing.ts"),
-      [
-        'import { NotImplementedError } from "../shared/errors.js";',
-        "export function chargeCard(id: string): never {",
-        '  throw new NotImplementedError("chargeCard");',
-        "}",
-      ].join("\n") + "\n",
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/unimplemented skeleton reached green/);
-    expect(r.stdout).toContain("skeleton: src/billing/billing.ts imports NotImplementedError");
-    expect(r.stdout).toContain("green-gate: route → builder");
-    expect(greenEntry(dir)).toMatchObject({
-      guard: "green-gate",
-      verdict: "block",
-      detail: { route: "builder", skeletonImports: ["src/billing/billing.ts"] },
-    });
-  });
-
-  test("an implemented src/ (no errors-module import) still passes", () => {
-    const dir = fixtureRepo("green-skeleton-ok-", allPassing);
-    mkdirSync(join(dir, "src", "billing"), { recursive: true });
-    writeFileSync(
-      join(dir, "src", "billing", "billing.ts"),
-      "export function chargeCard(id: string): string { return id; }\n",
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(0);
-    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
-  });
-});
-
-// Run 10 (kimi): contract re-frozen mid-loop, red never re-established, green
-// ran anyway and passed 148/148 — with the sign-off admitting the red could
-// not pass. The ordering was prose; now it refuses.
-
-describe("green requires a red for the CURRENT contracts", () => {
-  test("no red at all → green refuses before running anything", () => {
-    const dir = fixtureRepo("green-nored-", vitestJson([{ name: "ok", status: "passed" }]));
-    writeFileSync(join(dir, ".bounded", "guard-log.jsonl"), "");
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/no red-gate pass since the contracts were last frozen/);
-    expect(r.stdout).toContain("green-gate: route → architect");
-  });
-
-  test("a red pass BEFORE the latest freeze is stale — refused", () => {
-    const dir = fixtureRepo("green-stalered-", vitestJson([{ name: "ok", status: "passed" }]));
-    writeFileSync(
-      join(dir, ".bounded", "guard-log.jsonl"),
-      [
-        JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),
-        JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (2 contract files)" }),
-      ].join("\n") + "\n",
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/no red-gate pass since the contracts were last frozen/);
-  });
-
+describe("the red that covers a green", () => {
   test("redPassStandsForCurrentContracts: pure ordering check", () => {
     const freeze = { guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" };
     const red = { guard: "red-gate", verdict: "pass", summary: "RED OK" };
@@ -642,14 +289,13 @@ describe("green requires a red for the CURRENT contracts", () => {
 // to fail, and a green over it is the Run 10 false green in new clothes. So the
 // red records the hash of the tests tree it ran against, and green refuses
 // unless the tree still hashes the same.
-
 describe("redBindingFor (pure)", () => {
   const freeze = { guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" };
   const red = (hash: string) => ({
     guard: "red-gate",
     verdict: "pass",
     summary: "RED OK",
-    detail: { testsTreeHash: hash },
+    detail: { testFilesHash: hash },
   });
 
   test("a red for the current contracts AND the current tests binds", () => {
@@ -676,71 +322,156 @@ describe("redBindingFor (pure)", () => {
   });
 });
 
-describe("green-gate CLI: the tests must be the ones the red proved", () => {
-  const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
+// --- the gate on the monorepo (canned suite, real lint, surface and skeleton scans) ---
 
-  function withTests(prefix: string, source: string): string {
-    const dir = fixtureRepo(prefix, allPassing);
-    mkdirSync(join(dir, "tests"), { recursive: true });
-    writeFileSync(join(dir, "tests", "billing.test.ts"), source);
-    seedRedPass(dir); // red passed against the tests as written above
-    return dir;
-  }
+const fixtures: Fixture[] = [];
+afterAll(() => { for (const f of fixtures) f.cleanup(); });
 
-  test("hashes match → green passes on the live tree as before", () => {
-    const dir = withTests("green-hashok-", "// the tests the red ran against\n");
-    const r = runGate(dir);
-    expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/green-gate: OK — 1 passed, 1 total/);
+/** The notebook pipeline, built: design scaffolded, tests and implementation in. */
+function built(): Fixture {
+  const f = pipelineProject(["design"]);
+  fixtures.push(f);
+  expect(runScaffold(f.dir).code).toBe(0);
+  placeStage(f.dir, "tests", f.scope);
+  placeStage(f.dir, "build", f.scope);
+  return f;
+}
+
+/** A standing red for the tree as it is: a freeze, then a red pass bound to its test files. */
+function standingRed(dir: string, detail: Record<string, unknown> = { testFilesHash: testFilesHash(dir) }): void {
+  logGuardEvent(dir, { guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (5 contract files)" });
+  logGuardEvent(dir, { guard: "red-gate", verdict: "pass", summary: "RED OK", detail });
+}
+
+const ALL_PASS: readonly CannedCase[] = [
+  { name: "Note > equals", status: "passed" },
+  { name: "CreateNoteHandler > creates the note and saves it", status: "passed" },
+];
+
+function green(f: Fixture, cases: readonly CannedCase[] = ALL_PASS, typecheck: { output?: string; code?: number } = {}) {
+  return withEnv(cannedGateEnv(f.dir, cases, typecheck), () => runGreenGate(f.dir));
+}
+
+const greenEvent = (dir: string) => readGuardLog(dir).filter((e) => e.guard === "green-gate").at(-1);
+
+describe("runGreenGate on the monorepo", () => {
+  test("a built project with a standing red is green, and says it was type-clean", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const r = await green(f);
+    expect(r.lines).toEqual(["green-gate: OK — 2 passed, 2 total, typecheck clean"]);
+    expect(r).toMatchObject({ code: 0, verdict: "pass" });
+    expect(r.lines[0]).toBe("green-gate: OK — 2 passed, 2 total, typecheck clean");
+    expect(greenEvent(f.dir)).toMatchObject({ verdict: "pass" });
   });
 
-  test("a test edited after the red → refused, routed to the test-writer", () => {
-    const dir = withTests("green-hashdrift-", "// the tests the red ran against\n");
-    writeFileSync(join(dir, "tests", "billing.test.ts"), "// edited after the red went green\n");
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toContain("green-gate: FAIL — tests/ has changed since the red-gate pass that covers it");
-    expect(r.stdout).toContain("  Re-run red_gate — it builds its own shadow project, so it neither needs nor");
-    expect(r.stdout).toContain("green-gate: route → test-writer");
-    expect(greenEntry(dir)).toMatchObject({
-      guard: "green-gate",
-      verdict: "block",
-      summary: "tests changed since the red",
-      detail: { reason: "tests-changed", route: "test-writer" },
-    });
+  test("a failing test is named, routed to the builder and logged", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const r = await green(f, [...ALL_PASS, { name: "ListNotesHandler > lists", status: "failed", message: "error: expected 2 to be 3" }]);
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain("  failed: ListNotesHandler > lists");
+    expect(r.lines).toContain("green-gate: route → builder");
+    expect(greenEvent(f.dir)).toMatchObject({ verdict: "block", detail: { reason: "failures", names: ["ListNotesHandler > lists"] } });
   });
 
-  test("a NEW test file added after the red is an edit too", () => {
-    const dir = withTests("green-hashadd-", "// the tests the red ran against\n");
-    writeFileSync(join(dir, "tests", "extra.test.ts"), "// written after the red\n");
-    expect(runGate(dir).status).toBe(1);
+  test("a skipped or todo test is not a pass (ADR 2026-064: nothing is skipped at green)", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const r = await green(f, [...ALL_PASS, { name: "NoteText laws > parse accepts", status: "skipped" }, { name: "later", status: "todo" }]);
+    expect(r).toMatchObject({ code: 1, detail: { reason: "skipped", names: ["NoteText laws > parse accepts", "later"] } });
+    expect(r.lines).toContain("  not run: NoteText laws > parse accepts (skipped)");
+    expect(r.lines).toContain("green-gate: route → test-writer");
   });
 
-  test("the refusal happens before the suite runs — nothing is measured against unproven tests", () => {
-    const dir = withTests("green-hashearly-", "// the tests the red ran against\n");
-    writeFileSync(join(dir, "tests", "billing.test.ts"), "// edited\n");
-    rmSync(join(dir, "run.json")); // the suite could not run even if it wanted to
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    // Not "suite did not run": the gate never got that far.
-    expect(r.stdout).toContain("green-gate: FAIL — tests/ has changed since the red-gate pass that covers it");
-    expect(r.stdout).not.toMatch(/suite did not run/);
+  test("a type error in a test file routes to the test-writer (#7)", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const r = await green(f, ALL_PASS, { output: `${CONTEXT_SRC}/domain/notes/note.test.ts(3,1): error TS2532: Object is possibly 'undefined'.\n`, code: 2 });
+    expect(r.lines[0]).toMatch(/1 type error; the suite passes/);
+    expect(r.lines).toContain("green-gate: route → test-writer");
   });
 
-  test("a red from before the binding existed records no hash and is refused", () => {
-    const dir = withTests("green-unbound-", "// the tests the red ran against\n");
-    writeFileSync(
-      join(dir, ".bounded", "guard-log.jsonl"),
-      [
-        JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" }),
-        JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),
-      ].join("\n") + "\n",
-    );
-    const r = runGate(dir);
-    expect(r.status).toBe(1);
-    expect(r.stdout).toContain(
-      "green-gate: FAIL — the standing red-gate pass recorded no tests hash, so no red covers these tests",
-    );
-    expect(r.stdout).toContain("green-gate: route → test-writer");
+  test("an escape hatch in the builder's source blocks and routes to the builder", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const handler = join(f.dir, CONTEXT_SRC, "application/notes/list-notes/list-notes.handler.ts");
+    writeFileSync(handler, readFileSync(handler, "utf8").replace("return this.store.findAll();", "return this.store.findAll() as Promise<Note[]>;"));
+    const r = await green(f);
+    expect(r).toMatchObject({ code: 1, detail: { reason: "escape-hatches" } });
+    expect(r.lines).toContain("green-gate: route → builder");
+  });
+
+  test("surface a contract does not declare blocks and routes to the builder", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const handler = join(f.dir, CONTEXT_SRC, "application/notes/list-notes/list-notes.handler.ts");
+    writeFileSync(handler, readFileSync(handler, "utf8").replace("  async execute()", "  count(): number {\n    return 0;\n  }\n\n  async execute()"));
+    const r = await green(f);
+    // The layout lint's handler-shape rule says so too; the surface check is the delivered backstop.
+    expect(r).toMatchObject({ code: 1, detail: { surfaceViolations: 1, route: "builder" } });
+    expect(r.lines.join("\n")).toContain("ListNotesHandler.count: public member not declared");
+  });
+
+  test("a skeleton still throwing reaches green only if nothing runs it — and is then named (r16)", async () => {
+    const f = built();
+    const impl = join(f.dir, CONTEXT_SRC, "domain/notes/note-id.ts");
+    const skeleton = emitProject(projectFactsOf(f.dir, "red"), generatedFileGlobs(f.dir))
+      .find((file) => file.path === `${CONTEXT_SRC}/domain/notes/note-id.ts`);
+    writeFileSync(impl, skeleton?.content ?? "");
+    standingRed(f.dir);
+    const r = await green(f);
+    expect(r).toMatchObject({ code: 1, detail: { skeletonImports: [`${CONTEXT_SRC}/domain/notes/note-id.ts`], route: "builder" } });
+    expect(r.lines).toContain(`  skeleton: ${CONTEXT_SRC}/domain/notes/note-id.ts imports NotImplementedError`);
+  });
+
+  test("the app smoke test is owed at green", async () => {
+    const f = built();
+    rmSync(join(f.dir, "apps/web/src/server/composition-root.test.ts"));
+    standingRed(f.dir);
+    const r = await green(f);
+    expect(r).toMatchObject({ code: 1, detail: { reason: "obligations", route: "test-writer" } });
+    expect(r.lines.join("\n")).toContain("apps/web has no smoke test");
+  });
+});
+
+describe("green is bound to a red over these contracts and these tests", () => {
+  test("no red at all, or a red older than the last freeze, is refused before anything runs", async () => {
+    const f = built();
+    const none = await green(f);
+    expect(none.lines).toContain("green-gate: FAIL — no red-gate pass since the contracts were last frozen");
+    expect(none.lines).toContain("green-gate: route → architect");
+    logGuardEvent(f.dir, { guard: "red-gate", verdict: "pass", summary: "RED OK", detail: { testFilesHash: testFilesHash(f.dir) } });
+    logGuardEvent(f.dir, { guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (5 contract files)" });
+    expect((await green(f)).detail).toMatchObject({ reason: "no-red" });
+  });
+
+  test("editing any test-side file after the red voids it; so does adding one", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const test = join(f.dir, CONTEXT_SRC, "domain/notes/note.test.ts");
+    writeFileSync(test, `${readFileSync(test, "utf8")}// edited after the red\n`);
+    // A failing canned run proves the refusal comes first: nothing was measured.
+    const edited = await green(f, [{ name: "x", status: "failed", message: "error: boom" }]);
+    expect(edited).toMatchObject({ code: 1, detail: { reason: "tests-changed", route: "test-writer" } });
+    expect(edited.lines[0]).toBe("green-gate: FAIL — a test-side file has changed since the red-gate pass that covers it");
+
+    const g = built();
+    standingRed(g.dir);
+    writeFileSync(join(g.dir, CONTEXT_SRC, "application/notes/list-notes/extra.test.ts"), "// new\n");
+    expect((await green(g)).detail).toMatchObject({ reason: "tests-changed" });
+  });
+
+  test("a red that recorded only the retired tests-tree hash binds nothing", async () => {
+    const f = built();
+    standingRed(f.dir, { testsTreeHash: "abc" });
+    expect((await green(f)).detail).toMatchObject({ reason: "unbound-red" });
+  });
+
+  test("an unreadable composition is an error, not a verdict", async () => {
+    const f = built();
+    standingRed(f.dir);
+    rmSync(join(f.dir, ".bounded/composed-packs.json"));
+    expect(await green(f)).toMatchObject({ code: 2, verdict: "error" });
   });
 });

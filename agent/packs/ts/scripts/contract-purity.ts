@@ -21,13 +21,13 @@ import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
 import plugin from "../eslint/index.ts";
 import { composedPacks, installedPacks } from "../../installed.ts";
-import { contractPurityOverrides, contractSupportFiles, type ContractPurityOverride } from "../pack.ts";
-import { supportModuleNames } from "./scaffold-contract.ts";
+import { contractPurityOverrides, type ContractPurityOverride } from "../pack.ts";
 import { formatProblems, toProblems, type Problem } from "./lint-report.ts";
 export { formatProblems, type Problem };
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
+import { contractGlobs } from "../../../src/pack-contrib.ts";
 
 /** Every rule id the contract gate enforces — exported for guard-doc-drift. */
 export const CONTRACT_RULE_IDS: readonly string[] = [
@@ -130,10 +130,7 @@ export function createContractLinter(cwd?: string): ESLint {
           // (ADR 2026-059, lead decision Q3). It replaces the retired
           // no-cross-contract-type-import, whose rule was the opposite under
           // the declare-class model.
-          "bounded-ts/contract-imports-contracts-only": [
-            "error",
-            { supportModules: supportModuleNames(registry.read(contractSupportFiles)) },
-          ],
+          "bounded-ts/contract-imports-contracts-only": "error",
           // zod is the engine inside a value object, never a public identity:
           // nothing from zod may appear in a contract (ADR 2026-031).
           "bounded-ts/no-schema-on-surface": "error",
@@ -180,13 +177,25 @@ export interface PurityRun {
  */
 export async function runContractPurity(
   cwd: string,
-  patterns: readonly string[] = ["src/**/*.contract.ts"],
+  patterns: readonly string[] = defaultContractPatterns(cwd),
 ): Promise<PurityRun> {
   return await gate(cwd, [...patterns]);
 }
 
+/** The composed contract globs (one per source root and contract suffix, ADR
+ *  2026-056), or the flat `src/**` default where the composition declares
+ *  none or cannot be read (the gate then matches nothing and says so). */
+export function defaultContractPatterns(cwd: string): string[] {
+  try {
+    const globs = contractGlobs(cwd);
+    return globs.length > 0 ? globs : ["src/**/*.contract.ts"];
+  } catch {
+    return ["src/**/*.contract.ts"];
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
-  const result = await gate(process.cwd(), argv.length > 0 ? argv : ["src/**/*.contract.ts"]);
+  const result = await gate(process.cwd(), argv.length > 0 ? argv : defaultContractPatterns(process.cwd()));
   for (const line of result.lines) {
     if (result.code === 2) console.error(line);
     else console.log(line);

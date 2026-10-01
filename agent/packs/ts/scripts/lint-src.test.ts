@@ -15,7 +15,9 @@ import {
   lintTests,
   SRC_RULE_IDS,
 } from "./lint-src.ts";
-import { scaffoldContract } from "./scaffold-contract.ts";
+import { implementationSkeleton } from "./domain-emitter.ts";
+import { parseDomainConcept } from "./domain-concept.ts";
+import { EXAMPLE_CONCEPTS } from "./testdata/example-domain.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 
 const SRC = "src/orders/orders.ts";
@@ -273,15 +275,14 @@ export function Badge(): ReactElement {
 
 // --- the generated red-phase skeletons must survive the gate ------------------
 
-describe("scaffolder skeletons lint clean", () => {
-  const dataDir = join(import.meta.dirname, "testdata");
-  for (const name of ["functions", "queue", "types", "values"]) {
-    test(`${name}.contract.ts → skeleton has no escape hatches`, async () => {
-      const contractPath = join(dataDir, `${name}.contract.ts`);
-      const skeleton = scaffoldContract(readFileSync(contractPath, "utf8"), `src/${name}.contract.ts`);
-      const problems = await lintSrcText(skeleton, `src/${name}.ts`);
-      // Loud on purpose: a skeleton that trips this gate is a SCAFFOLDER bug.
-      expect(problems.map((p) => `${p.ruleId}: ${p.message}`)).toEqual([]);
+describe("domain skeletons lint clean", () => {
+  for (const concept of EXAMPLE_CONCEPTS) {
+    test(`${concept.contractPath} → skeleton has no escape hatches`, async () => {
+      const skeleton = implementationSkeleton(parseDomainConcept(concept.contractPath, concept.contract));
+      const problems = await lintSrcText(skeleton, concept.contractPath.replace(/\.contract\.ts$/, ".ts"));
+      // Loud on purpose: an escape hatch in a skeleton is an EMITTER bug. (The
+      // zod rule asks for the body the builder writes, so it is not asked here.)
+      expect(problems.filter((p) => p.ruleId !== "bounded-ts/zod-backed-parse").map((p) => `${p.ruleId}: ${p.message}`)).toEqual([]);
     });
   }
 });

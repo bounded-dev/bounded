@@ -481,7 +481,7 @@ const TAG_LINE = /^\s*\*\s*@(exposedVia|implementedBy)((?:\s+[a-z][a-z0-9]*(?:-[
 const STORE_PORT = /^\s*export\s+interface\s+[A-Z][A-Za-z0-9]*Store\b/m;
 
 /** Every design contract file under `dir` (project-relative), sorted. */
-function contractFiles(project: string, dir: string, suffixes: readonly string[]): string[] {
+export function contractFiles(project: string, dir: string, suffixes: readonly string[]): string[] {
   if (!isDirectory(join(project, dir))) return [];
   const out: string[] = [];
   for (const entry of readdirSync(join(project, dir), { withFileTypes: true })) {

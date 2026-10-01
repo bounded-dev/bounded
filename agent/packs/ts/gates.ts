@@ -446,7 +446,7 @@ export const gates: readonly GateCommand[] = [
       "Generate (or re-sync) the throwing skeleton beside every src/**/*.contract.ts. Non-destructive: writes only over absence or another skeleton, and removes only generated files whose contract is gone. A step of design_gate — run it alone only to regenerate skeletons by hand.",
     flags: [],
     async run(cwd) {
-      const { runScaffold } = await import("./scripts/scaffold-contract.ts");
+      const { runScaffold } = await import("./scripts/scaffold-project.ts");
       return toGateResult("scaffold", runScaffold(cwd));
     },
   },

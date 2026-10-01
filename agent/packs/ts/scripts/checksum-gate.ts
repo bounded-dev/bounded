@@ -23,6 +23,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFi
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
+import { contractFileSuffixes, hasContractSuffix, sourceRoots } from "../../../src/pack-contrib.ts";
+import { expandSourceRoots } from "../../../src/path-gate.ts";
 import { activeTicketDesign, resolveTicketDesign } from "../../../src/ticket-design.ts";
 
 const GUARD = "checksum-gate";
@@ -34,13 +36,9 @@ export function manifestRelative(root: string): string {
   const ticket = state.kind === "ready" ? state.design.ticket : state.kind === "legacy" ? undefined : state.ticket;
   return ticket ? `.bounded/tickets/${ticket}/contract-checksums.json` : LEGACY_MANIFEST;
 }
-const CONTRACT_SUFFIX = ".contract.ts";
-// `scratch` is the architect's sanctioned throwaway zone (src/path-policy.ts):
-// a top-level directory nothing but the architect may write, and nothing may
-// scaffold, freeze, or ship. This is the one place the project-wide walk skips
-// it — so `findContractFiles`, the checksum/freeze manifest, the scaffolder's
-// contract discovery and its orphan sync all ignore a scratch/*.contract.ts by
-// construction, and a stray probe cannot be scaffolded, frozen, or ship.
+// Directories no project walk enters. `scratch` is the architect's sanctioned
+// throwaway zone (src/path-policy.ts): nothing in it may be scaffolded, frozen
+// or shipped.
 const IGNORE_DIRS = new Set(["node_modules", ".git", ".bounded", ".agent-state", "scratch"]);
 
 export interface Manifest {
@@ -90,9 +88,28 @@ export function findFilesUnder(root: string, match: (name: string) => boolean): 
   return out.sort((a, b) => (relPosix(root, a) < relPosix(root, b) ? -1 : 1));
 }
 
-/** All *.contract.ts files under root, sorted by project-relative posix path. */
+/**
+ * Every contract file of the project, sorted by project-relative posix path:
+ * the files under the composed source roots (ADR 2026-056) whose names carry
+ * a composed contract suffix (ADR 2026-052). Nothing outside a source root is
+ * a contract, so a stray `*.contract.ts` anywhere else (a scratch probe, a
+ * copy in a dependency) is never frozen, scaffolded or shipped. An unreadable
+ * composition throws: a gate must not guess which files are the design.
+ */
 export function findContractFiles(root: string): string[] {
-  return findFilesUnder(root, (name) => name.endsWith(CONTRACT_SUFFIX));
+  const suffixes = contractFileSuffixes(root);
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!IGNORE_DIRS.has(entry.name) && !entry.name.startsWith(".")) walk(join(dir, entry.name));
+      } else if (entry.isFile() && hasContractSuffix(entry.name, suffixes)) {
+        out.push(join(dir, entry.name));
+      }
+    }
+  };
+  for (const dir of expandSourceRoots(root, sourceRoots(root))) walk(join(root, dir));
+  return out.sort((a, b) => (relPosix(root, a) < relPosix(root, b) ? -1 : 1));
 }
 
 /** sha256 over newline-normalized content — CRLF/LF churn is not drift. */
@@ -160,9 +177,9 @@ function runGate(cwd: string, write: boolean): GateOutcome {
     return {
       code: 2,
       verdict: "error",
-      summary: "no *.contract.ts files found",
+      summary: "no contract files found under the source roots",
       stdout: [],
-      stderr: ["checksum-gate: no *.contract.ts files found — a gate that matches nothing is a broken gate"],
+      stderr: ["checksum-gate: no contract files found under the source roots — a gate that matches nothing is a broken gate"],
       detail: { reason: "no-contracts" },
     };
   }

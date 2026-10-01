@@ -1,0 +1,15 @@
+import type { NoteId } from "./note-id.contract.ts";
+import type { NoteText } from "./note-text.contract.ts";
+
+/** A note someone wrote: equal to another note by identity. */
+export interface Note {
+  readonly __brand: "Note";
+  readonly id: NoteId;
+  readonly text: NoteText;
+  equals(other: Note): boolean;
+  toJSON(): { readonly id: string; readonly text: string };
+}
+
+export interface NoteFactory {
+  new (id: NoteId, text: NoteText): Note;
+}

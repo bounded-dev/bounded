@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { acceptsExamplesOf, parseDomainConcept } from "./domain-concept.ts";
 import type { DomainConceptModel } from "./feature-model.ts";
-import { isGeneratedArtifact } from "./scaffold-contract.ts";
 import {
   compareSpecifiers,
   conceptLawsSource,
@@ -88,10 +87,9 @@ const DOCUMENTED = (): Map<string, ConceptSampleSource> =>
   domain([withAccepts("note-text", ['"Call the printer"', '"Book the venue"']), withAccepts("project-name", ['"Website relaunch"', '"Office move"'])]);
 
 describe("value objects", () => {
-  test("carry the generated marker the scaffolder's sync recognises", () => {
+  test("carry the generated marker on their first line", () => {
     const laws = lawsFor("NoteText", DOCUMENTED());
     expect(laws.split("\n")[0]).toBe("// GENERATED from note-text.contract.ts by packs/ts/scripts/value-object-laws.ts — do not edit.");
-    expect(isGeneratedArtifact(laws)).toBe(true);
   });
 
   // value-object-documented guarantees two different examples, so a missing

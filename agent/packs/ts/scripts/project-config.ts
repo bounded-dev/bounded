@@ -247,11 +247,20 @@ export function configDriftReason(cwd: string, harnessRoot = harnessRootOf()): s
  * BLOCK naming each file, routed to the orchestrator, because no role may
  * write project config.
  */
-export function configDriftBlock(gate: string, cwd: string, harnessRoot = harnessRootOf()): GateResult | undefined {
+export function configDriftBlock(
+  gate: string,
+  cwd: string,
+  harnessRoot = harnessRootOf(),
+  options: { readonly tolerateDesignDrift?: boolean } = {},
+): GateResult | undefined {
   if (!configIsGenerated(cwd)) return undefined;
   let drift: ConfigDrift[];
   try {
     drift = configDrift(cwd, harnessRoot);
+    if (options.tolerateDesignDrift === true) {
+      const roots = workspaceRootsOf(generatedConfig(cwd, harnessRoot));
+      drift = drift.filter((d) => !isDesignDerivedDrift(d, roots));
+    }
   } catch (error) {
     drift = [{ path: ".bounded/composed-packs.json", problem: `the generated config cannot be computed: ${error instanceof Error ? error.message : String(error)}` }];
   }
@@ -390,4 +399,97 @@ export function syncConfigCommand(
   }
   logGuardEvent(root, { guard: "sync-config", verdict: "pass", summary: "project dependencies reinstalled from the lockfile", detail: { steps: steps.length } });
   return { code: 0, lines, changed: sync.changed };
+}
+
+// --- the design's own config (ADR 2026-061) -----------------------------------------
+
+/** The directories workspaces sit in (`contexts`, `apps`): the root
+ *  manifest's `workspaces` globs, each `<root>/*`. */
+function workspaceRootsOf(generated: GeneratedConfig): Set<string> {
+  const globs = generated.pkg["workspaces"];
+  const roots = new Set<string>();
+  if (Array.isArray(globs)) {
+    for (const glob of globs) if (typeof glob === "string" && /^[a-z0-9-]+\/\*$/.test(glob)) roots.add(glob.slice(0, -2));
+  }
+  return roots;
+}
+
+/**
+ * Drift the design itself causes, which the design gate repairs rather than
+ * refuses: a workspace manifest the design adds, changes or drops
+ * (`<root>/<name>/package.json`, for a workspace root the composition
+ * declares) and the lockfile that follows from the manifests. Contracts and
+ * TNs decide these files (ADR 2026-061), and only the architect writes
+ * those; no role can write a manifest. Every other drift is someone's edit,
+ * and blocks.
+ */
+export function isDesignDerivedDrift(drift: ConfigDrift, workspaceRoots: ReadonlySet<string>): boolean {
+  if (drift.path === LOCKFILE || drift.path === LOCK_FINGERPRINT) return true;
+  const segments = drift.path.split("/");
+  return segments.length === 3 && segments[2] === MANIFEST && workspaceRoots.has(segments[0]!);
+}
+
+/** A setup runner that captures output, for a gate: a failed command throws
+ *  with the tail of what it printed. */
+export const captureSetup: SetupRun = (command, args, cwd) => {
+  try {
+    execFileSync(command, [...args], { cwd, stdio: "pipe", encoding: "utf8", timeout: 600_000, env: { ...process.env, NO_COLOR: "1" } });
+  } catch (error) {
+    const out = error as { stdout?: unknown; stderr?: unknown; message?: string };
+    const text = `${String(out.stdout ?? "")}\n${String(out.stderr ?? "")}`.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    throw new Error(text.slice(-4).join(" | ") || out.message || "the command failed");
+  }
+};
+
+export interface DesignConfigSync {
+  readonly code: 0 | 1;
+  readonly lines: readonly string[];
+  /** Workspace directories whose manifest was written (added or changed). */
+  readonly workspaces: readonly string[];
+}
+
+/**
+ * Bring the project's config in line with a design that adds, changes or
+ * drops a workspace (ADR 2026-061): the manifests and lockfile are rewritten
+ * (sync-config's own function), then the composed setup commands install
+ * from the new lockfile, so the next step's type check sees every workspace
+ * linked. Runs only when every drifted file is design-derived; any other
+ * drift is left for the gate's own refusal. Producing a lockfile for a new
+ * dependency needs the package registry or bun's cache, and installing it
+ * needs the package; when either is unreachable this refuses and says so,
+ * having written nothing but the verified config.
+ */
+export function syncDesignConfig(
+  cwd: string,
+  harnessRoot = harnessRootOf(),
+  run: SetupRun = captureSetup,
+  options: SyncOptions = {},
+): DesignConfigSync {
+  if (!configIsGenerated(cwd)) return { code: 0, lines: [], workspaces: [] };
+  let drift: ConfigDrift[];
+  let roots: Set<string>;
+  try {
+    drift = configDrift(cwd, harnessRoot);
+    roots = workspaceRootsOf(generatedConfig(cwd, harnessRoot));
+  } catch (error) {
+    return { code: 1, lines: [`the design's workspaces cannot be derived: ${error instanceof Error ? error.message : String(error)}`], workspaces: [] };
+  }
+  const derived = drift.filter((d) => isDesignDerivedDrift(d, roots));
+  if (derived.length === 0 || derived.length !== drift.length) return { code: 0, lines: [], workspaces: [] };
+  const workspaces = derived.filter((d) => d.path.endsWith(`/${MANIFEST}`)).map((d) => d.path.slice(0, -MANIFEST.length - 1));
+  const what = workspaces.length > 0 ? `workspace${workspaces.length === 1 ? "" : "s"} ${workspaces.join(", ")}` : "the lockfile";
+  const result = syncConfigCommand(cwd, harnessRoot, run, options);
+  if (result.code !== 0) {
+    const reason = result.lines.filter((l) => /BLOCK/.test(l)).map((l) => l.replace(/^sync-config: BLOCK — /, "")).join("; ");
+    return {
+      code: 1,
+      lines: [
+        `the design changes ${what}, and its config could not be brought in line: ${reason}`,
+        "  A new workspace's lockfile and install need the package registry (or bun's cache) reachable:",
+        "  connect, then run the design gate again. Nothing the design owns was lost.",
+      ],
+      workspaces,
+    };
+  }
+  return { code: 0, lines: result.lines.map((l) => l.replace(/^sync-config: /, "")), workspaces };
 }

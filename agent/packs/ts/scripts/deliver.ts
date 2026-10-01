@@ -1,72 +1,50 @@
 // Delivery pass (TN-26-001): finished run → repo you would hand a colleague.
 //
-//   node deliver.ts [targetDir]
+//   bounded gates deliver [targetDir]
 //
-// The developer stage leaves the target correct but harness-shaped: red-phase
-// scaffolding (shared/errors.ts), __conformance blobs, no package entry point,
-// and nothing that keeps contract/implementation alignment honest once the
-// harness is gone. This pass is mechanical — it decides nothing about the
-// design; it only removes what the loop needed and ships what a colleague
-// needs. Steps, in order, each logging one guard event and printing one line:
+// The developer stage leaves the target correct but harness-shaped: the
+// red-phase errors modules, the red gate's shadow project, and nothing that
+// keeps contract/implementation alignment honest once the harness is gone.
+// This pass is mechanical — it decides nothing about the design; it only
+// removes what the loop needed and checks what a colleague needs. Steps, in
+// order, each logging one guard event and printing one line:
 //
-//   1. scaffolding    delete src/shared/errors.ts iff nothing in src/ imports
-//                     it (ts-morph, not grep). A surviving import of
-//                     NotImplementedError is a BLOCK: an unimplemented export
-//                     reached delivery. Imports from tests/ only ⇒ keep it.
+//   1. scaffolding    delete every red-phase generated module (the emitters'
+//                     output at phase `red` that they no longer produce at
+//                     `deliver`: each context's `domain/shared/errors.ts`,
+//                     TN-26-012 §5) iff nothing imports it (ts-morph, not
+//                     grep). A surviving import is a BLOCK: from source, an
+//                     unimplemented skeleton reached delivery (route →
+//                     builder); from a test, the suite depends on red-phase
+//                     scaffolding (route → test-writer).
 //   2. shadow         remove .bounded/shadow-red/, the throwaway project red_gate
-//                     rebuilds to prove red in. It is a second copy of the
-//                     contracts, the skeletons and the whole tests tree — a
-//                     reader who found it would reasonably wonder which copy
-//                     is the real one.
-//   3. conformance    strip the trailing `const __conformance: typeof
-//                     __Contract = {…}; void __conformance;` blob and the
-//                     `import type * as __Contract` line from each
-//                     implementation (the shipped surface check replaces
-//                     them). `export type * from "./x.contract.js"` stays —
-//                     it is load-bearing for interface/type-alias exports.
-//   4. barrel         generate src/index.ts, one `export *` per
-//                     contract-implementation pair. A pre-existing index.ts
-//                     the run produced is a BLOCK — merging is a design act.
-//   5. surface check  ship scripts/surface-check.ts into the target, add
-//                     `check:surface` to package.json, fold it into `check`,
-//                     pin ts-morph (the pack's own version) AND install it.
-//                     A pin nobody installed is a repo whose check dies with
-//                     ERR_MODULE_NOT_FOUND, so a failed install is a BLOCK.
-//                     In a project whose config the packs generate
-//                     (ADR 2026-054), steps 5, 5b and 5c change nothing: the
-//                     manifest must already carry it all, and anything
-//                     missing is a BLOCK. The drift check runs again last.
-//   6. gitignore      ensure `.bounded/` is ignored.
-//   7. README         add a "## Contracts" section for a reader who has
+//                     rebuilds to prove red in.
+//   3. generated      every generated file the emitters produce at `deliver`
+//                     is on disk byte for byte (ADR 2026-058), and no skeleton
+//                     file still throws NotImplementedError. Out of date →
+//                     BLOCK, route → orchestrator (re-run the design gate);
+//                     a throwing skeleton → BLOCK, route → builder.
+//   4. surface check  the shipped scripts/surface-check.ts is present and
+//                     wired into `check`; in a project whose config the packs
+//                     generate (ADR 2026-054) the manifest must already carry
+//                     it, and anything missing is a BLOCK. In a project whose
+//                     config they do not generate, deliver ships and pins it,
+//                     with bun (ADR 2026-062).
+//   5. gitignore      ensure `.bounded/` is ignored.
+//   6. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
-//   8. timing         READ-ONLY: print where the run's minutes went, from the
-//                     project's own guard log (issue #13). Measure before
-//                     optimizing further — and the run that just finished is
-//                     the only one whose numbers nobody has to remember.
-//   9. check          READ-ONLY, and last of deliver's own steps: run the
-//                     project's OWN canonical `npm run check` and BLOCK if it
-//                     is red. Every other step is deliver's opinion of a
-//                     finished repo; this one asks the repo whether it
-//                     satisfies its own definition of done. r15 handed over two
-//                     repos whose check was red on arrival, because nothing in
-//                     the pipeline had ever run it (green_gate runs its own tsc
-//                     and vitest — not the command a colleague types).
-//  10. pack checks    READ-ONLY, and LAST: every check contributed to this
-//                     pack's `deliverChecks` socket (ADR 2026-033), in
-//                     composition order. A pack that ships a reference set into
-//                     a tree has claims about the delivered repo that no lint
-//                     rule can check, because they are about files the PROJECT
-//                     owns — ts-web's theme gate is the first. A block stops
-//                     delivery like any other step; a check that throws is a
-//                     block naming the check, because a check that crashed
-//                     verified nothing.
+//   7. timing         READ-ONLY: where the run's minutes went, from the guard log.
+//   8. check          READ-ONLY: the project's OWN `bun run check`, BLOCK if
+//                     red. Every other step is deliver's opinion of a finished
+//                     repo; this one asks the repo whether it satisfies its own
+//                     definition of done.
+//   9. pack checks    READ-ONLY, and LAST: every `deliverChecks` contribution
+//                     (ADR 2026-033), in composition order.
 //
-// Idempotent: every step checks before acting; a second run applies 0 steps
-// (steps 8, 9 and 10 only read, so they never count as applied).
+// Idempotent: every step checks before acting; a second run applies 0 steps.
 // Exit 0 delivered · 1 block · 2 misuse (bad target / missing checker
 // source). The checker source is injectable for tests via options or
-// BOUNDED_DELIVER_SURFACE_CHECK (the real file is packs/ts/scripts/surface-check.ts);
-// so is the npm runner steps 5 and 9 spawn (DeliverOptions.run).
+// BOUNDED_DELIVER_SURFACE_CHECK; so is the command runner (DeliverOptions.run).
 
 import { spawnSync } from "node:child_process";
 import {
@@ -80,27 +58,22 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, posix, relative, sep } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Node, Project } from "ts-morph";
 import { logGuardEvent, readGuardLog, type GuardVerdict } from "../../../src/guard-log.ts";
+import { generatedFileGlobs, hasTestFileSuffix, sourceRoots, testFileSuffixes } from "../../../src/pack-contrib.ts";
 import {
   formatPhaseDurations,
   phaseDurations,
   type PhaseDurations,
 } from "../../../src/phase-durations.ts";
 import { composedPacks } from "../../installed.ts";
-import { contractSupportFiles, deliverChecks, type DeliverCheckResult } from "../pack.ts";
-import { findContractFiles } from "./checksum-gate.ts";
+import { deliverChecks, type DeliverCheckResult } from "../pack.ts";
 import { configDriftBlock, configIsGenerated, SYNC_COMMAND } from "./project-config.ts";
+import { emitProject, projectFactsOf, type ProjectFile } from "./project-emitters.ts";
 import { SHADOW_RELATIVE } from "./red-gate.ts";
-import { skeletonSiblingPaths } from "./scaffold-contract.ts";
-import {
-  ERRORS_REL,
-  errorsImportsOf,
-  findSkeletonImportsInSrc,
-  tsFilesUnder,
-} from "./skeleton-imports.ts";
+import { errorsImportsOf, tsFilesUnder } from "./skeleton-imports.ts";
+import { expandSourceRoots } from "./surface-check.ts";
 
 const GUARD = "deliver";
 // ADR 2026-062: TypeScript projects run on Bun. The shipped checker runs with
@@ -112,16 +85,16 @@ export const SURFACE_SCRIPT = "bun scripts/surface-check.ts";
 const BUN = "bun";
 /** Generous: `bun run check` is a full typecheck plus the project's own suite. */
 const COMMAND_TIMEOUT_MS = 15 * 60_000;
-const BARREL_MARKER = "// Public API of this package";
 
 const README_SECTION = `## Contracts
 
-Every \`src/**/*.contract.ts\` file declares the public surface of the module
-beside it — the types, functions, and classes callers may depend on. The
-sibling file of the same name implements it. In code review, the contract
-file is the one to read first: it is the API.
+Every \`*.contract.ts\` file under a workspace's \`src/\` declares a public
+surface: a domain concept's interface and factory, or a feature's input,
+command, in port and out ports. The file beside it implements it: the
+concept's \`<concept>.ts\`, the feature's \`<feature>.handler.ts\`. In code
+review, the contract is the file to read first: it is the API.
 
-\`npm run check\` fails if an implementation's exported surface drifts from
+\`bun run check\` fails if an implementation's exported surface drifts from
 its contract. Changing a contract is therefore a deliberate design act:
 edit the contract first, then bring the implementation along with it.
 `;
@@ -169,49 +142,6 @@ export interface DeliverResult {
 
 // --- pure cores -----------------------------------------------------------------
 
-function toPosix(p: string): string {
-  return p.split(sep).join("/");
-}
-
-/**
- * Strip the compile-time conformance apparatus from an implementation file:
- * the `import type * as __Contract` line and the trailing
- * `const __conformance … ; void __conformance;` blob with its comment.
- * Returns the cleaned source, or null when there is nothing to strip.
- * Text surgery at AST positions: predictable, and it cannot touch anything
- * the AST did not point at.
- */
-export function stripConformance(source: string, fileName: string): string | null {
-  const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
-  const sf = project.createSourceFile(basename(fileName), source, { overwrite: true });
-  const ranges: [number, number][] = [];
-
-  for (const stmt of sf.getStatements()) {
-    if (Node.isImportDeclaration(stmt)) {
-      const bindings = stmt.getImportClause()?.getNamedBindings();
-      if (bindings && Node.isNamespaceImport(bindings) && bindings.getName() === "__Contract") {
-        ranges.push([stmt.getStart(), stmt.getEnd()]);
-      }
-    } else if (Node.isVariableStatement(stmt)) {
-      if (stmt.getDeclarations().some((d) => d.getName() === "__conformance")) {
-        const comments = stmt.getLeadingCommentRanges();
-        ranges.push([comments.length > 0 ? comments[0]!.getPos() : stmt.getStart(), stmt.getEnd()]);
-      }
-    } else if (Node.isExpressionStatement(stmt) && /^void\s+__conformance\s*;?$/.test(stmt.getText())) {
-      ranges.push([stmt.getStart(), stmt.getEnd()]);
-    }
-  }
-  if (ranges.length === 0) return null;
-
-  let text = source;
-  for (const [start, endRaw] of ranges.sort((a, b) => b[0] - a[0])) {
-    let end = endRaw;
-    if (text.startsWith("\r\n", end)) end += 2;
-    else if (text.startsWith("\n", end)) end += 1;
-    text = text.slice(0, start) + text.slice(end);
-  }
-  return text.replace(/\n+$/, "\n");
-}
 
 const ANSI = /\u001b\[[0-9;]*m/g;
 
@@ -246,20 +176,26 @@ export function outputTail(out: CommandOutcome, max = 12): string[] {
     .map((l) => l.slice(0, 200));
 }
 
-/** The barrel: one `export *` per implementation module (src-relative paths).
- *
- *  A `.tsx` module is spelled `.js` in the specifier exactly as a `.ts` one is
- *  — NodeNext specifiers name the EMITTED file, and TypeScript emits `badge.js`
- *  whichever of the two extensions the source carried. `badge.tsx` in a barrel
- *  would be a specifier no runtime can resolve. */
-export function barrelFor(implRelToSrc: readonly string[]): string {
-  const lines = [...implRelToSrc]
-    .sort()
-    .map((p) => `export * from "./${p.replace(/\.tsx?$/, ".js")}";`);
-  return `${BARREL_MARKER} — one line per module. Generated at delivery.\n${lines.join("\n")}\n`;
+// --- runner -----------------------------------------------------------------------
+
+/** Every TypeScript file under the composed source roots, project-relative. */
+function sourceFiles(cwd: string, roots: readonly string[]): string[] {
+  return expandSourceRoots(cwd, roots).flatMap((dir) => tsFilesUnder(cwd, join(cwd, dir))).sort();
 }
 
-// --- runner -----------------------------------------------------------------------
+/** Remove the directories `rel` leaves empty, up to (not including) the root. */
+function removeEmptyParents(cwd: string, rel: string): void {
+  let dir = dirname(rel);
+  while (dir !== "." && dir !== "") {
+    const abs = join(cwd, dir);
+    if (!existsSync(abs) || readdirSync(abs).length > 0) return;
+    rmdirSync(abs);
+    dir = dirname(dir);
+  }
+}
+
+/** A skeleton file that still throws: it constructs the red-phase error. */
+const THROWS_NOT_IMPLEMENTED = /\bnew\s+NotImplementedError\s*\(/;
 
 export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverResult {
   const lines: string[] = [];
@@ -273,9 +209,10 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     lines.push(`deliver: ${step} — ${line}`);
     log("pass", step, line, detail);
   };
-  const block = (step: string, line: string, detail: Record<string, unknown> = {}): DeliverResult => {
+  const block = (step: string, line: string, detail: Record<string, unknown> = {}, route?: string): DeliverResult => {
     lines.push(`deliver: BLOCK — ${line}`);
-    log("block", step, line, detail);
+    if (route !== undefined) lines.push(`deliver: route → ${route}`);
+    log("block", step, line, route !== undefined ? { ...detail, route } : detail);
     return { code: 1, lines };
   };
 
@@ -286,7 +223,15 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   };
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return misuse(`'${cwd}' is not a directory`);
   if (!existsSync(join(cwd, "package.json"))) return misuse(`no package.json in '${cwd}' — not a project root`);
-  if (!existsSync(join(cwd, "src"))) return misuse(`no src/ in '${cwd}' — nothing to deliver`);
+  let roots: readonly string[];
+  let suffixes: readonly string[];
+  try {
+    roots = sourceRoots(cwd);
+    suffixes = testFileSuffixes(cwd);
+  } catch (error) {
+    return misuse(error instanceof Error ? error.message : String(error));
+  }
+  if (roots.length === 0) return misuse("no composed pack declares source roots — nothing to deliver");
   const checkerSource =
     options.surfaceCheckSource ??
     process.env["BOUNDED_DELIVER_SURFACE_CHECK"] ??
@@ -297,80 +242,77 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
 
   // Delivery runs the project's own check over its config and must hand over
   // the config the composed packs generate (ADR 2026-054). Checked before
-  // anything mutates; in a generated project the manifest steps below then
-  // find everything already wired.
+  // anything mutates.
   const configBlock = configDriftBlock(GUARD, cwd);
   if (configBlock !== undefined) return { code: 1, lines: [...lines, ...configBlock.lines] };
-  // In a generated project the manifest, lockfile and installed tree are the
-  // packs' and the user's (ADR 2026-054): deliver changes none of them. A
-  // step that would is refused instead — an unpinned dependency or unfolded
-  // script is a pack defect, a missing install is the user's setup to run —
-  // so delivery can never leave drift behind it.
   const configGenerated = configIsGenerated(cwd);
   const refuseConfigChange = (step: string, what: string, detail: Record<string, unknown> = {}): DeliverResult => {
-    const result = block(
-      step,
-      `${what} — this project's config is generated from its composed packs, so deliver may not change ` +
-        "the package manifest, the lockfile or the installed dependencies (ADR 2026-054)",
-      { ...detail, route: "orchestrator" },
-    );
+    lines.push(`deliver: BLOCK — ${what} — this project's config is generated from its composed packs, so deliver may not change ` +
+      "the package manifest, the lockfile or the installed dependencies (ADR 2026-054)");
     lines.push(`  a missing pin or script is a defect in the pack; missing installed dependencies are restored by the user with \`${SYNC_COMMAND}\``);
     lines.push("deliver: route → orchestrator");
-    return { ...result, lines };
+    log("block", step, what, { ...detail, route: "orchestrator" });
+    return { code: 1, lines };
   };
 
   let registry;
+  let atRed: ProjectFile[];
+  let atDelivery: ProjectFile[];
   try {
     registry = composedPacks(cwd);
+    const globs = generatedFileGlobs(cwd);
+    atRed = emitProject(projectFactsOf(cwd, "red"), globs);
+    atDelivery = emitProject(projectFactsOf(cwd, "deliver"), globs);
   } catch (error) {
-    return block("composition", error instanceof Error ? error.message : String(error));
+    return block("composition", `the design cannot be emitted: ${error instanceof Error ? error.message : String(error)}`, {}, "orchestrator");
   }
 
-  // --- 1. dead red-phase scaffolding ---
-  const errorsAbs = join(cwd, ERRORS_REL);
-  if (!existsSync(errorsAbs)) {
-    pass("scaffolding", false, `${ERRORS_REL} already gone`);
-  } else {
-    // The src scan is the SHARED predicate green-gate now runs too — deliver is
-    // the backstop, not the only line of defence (see skeleton-imports.ts). The
-    // tests scan is deliver's own: a tests-only importer keeps errors.ts, it
-    // does not block, so it is not part of the "unimplemented export" predicate.
-    const srcImporters = findSkeletonImportsInSrc(cwd);
-    const testImporters: string[] = [];
-    for (const rel of tsFilesUnder(cwd, join(cwd, "tests"))) {
-      if (errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel).length > 0) testImporters.push(rel);
+  // --- 1. red-phase scaffolding ---
+  //
+  // What the emitters produce at `red` and no longer at `deliver` is
+  // red-phase only: the errors module skeletons import NotImplementedError
+  // from (TN-26-012 §5).
+  {
+    const delivered = new Set(atDelivery.map((f) => f.path));
+    const redOnly = atRed.filter((f) => f.mode === "generated" && !delivered.has(f.path)).map((f) => f.path);
+    const present = redOnly.filter((rel) => existsSync(join(cwd, rel)));
+    const importers: { file: string; names: readonly string[]; test: boolean }[] = [];
+    for (const rel of sourceFiles(cwd, roots)) {
+      if (present.includes(rel)) continue;
+      const names = errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel, present);
+      if (names.length > 0) importers.push({ file: rel, names, test: hasTestFileSuffix(rel, suffixes) });
     }
-    if (srcImporters.length > 0) {
-      const [first] = srcImporters;
+    const source = importers.filter((i) => !i.test);
+    const tests = importers.filter((i) => i.test);
+    if (source.length > 0) {
       return block(
         "scaffolding",
-        `${first!.file} still imports ${first!.names.join(", ")} from the shared errors module — ` +
-          `an unimplemented export survived to delivery`,
-        { importers: srcImporters },
+        `${source.map((i) => i.file).join(", ")} still import${source.length === 1 ? "s" : ""} ${source[0]!.names.join(", ")} from the red-phase errors module — an unimplemented skeleton survived to delivery`,
+        { importers: source },
+        "builder",
       );
     }
-    if (testImporters.length > 0) {
-      pass("scaffolding", false, `kept ${ERRORS_REL} (${testImporters.join(", ")} still imports it)`, {
-        keptFor: testImporters,
-      });
-    } else {
-      rmSync(errorsAbs);
-      const sharedDir = dirname(errorsAbs);
-      if (readdirSync(sharedDir).length === 0) rmdirSync(sharedDir);
-      pass("scaffolding", true, `removed ${ERRORS_REL} (nothing imports it)`);
+    if (tests.length > 0) {
+      return block(
+        "scaffolding",
+        `${tests.map((i) => i.file).join(", ")} import${tests.length === 1 ? "s" : ""} the red-phase errors module, which delivery removes — a test may not depend on red-phase scaffolding`,
+        { importers: tests },
+        "test-writer",
+      );
     }
+    for (const rel of present) {
+      rmSync(join(cwd, rel));
+      removeEmptyParents(cwd, rel);
+    }
+    pass(
+      "scaffolding",
+      present.length > 0,
+      present.length > 0 ? `removed ${present.join(", ")} (nothing imports ${present.length === 1 ? "it" : "them"})` : "no red-phase module left",
+      { removed: present },
+    );
   }
 
   // --- 2. the red-phase shadow project ---
-  //
-  // red_gate proves red in a project it builds itself at `.bounded/shadow-red/` —
-  // contracts, regenerated skeletons and a copy of the tests tree — so the
-  // proof never depends on the live `src/`, and the builder may work in
-  // parallel without touching it. Once the run is over that copy is confusing
-  // rather than useful: a duplicate of the tests beside the real one.
-  //
-  // Removal, not preservation: the shadow is reproducible from the repo at any
-  // time by running red_gate again.
   {
     const shadowAbs = join(cwd, SHADOW_RELATIVE);
     if (existsSync(shadowAbs)) {
@@ -381,64 +323,38 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
   }
 
-  // --- pairs: contract → existing sibling implementation ---
-  //
-  // Both extensions (TN-26-006 A1): a component contract is implemented by a
-  // `.tsx` sibling, and delivery must pair it exactly as it pairs a `.ts` one —
-  // its __conformance blob still has to be stripped and it still belongs in the
-  // barrel. Discovery is by EXISTENCE rather than by re-deciding the extension
-  // from the contract, because by delivery the file on disk is the builder's
-  // answer and the only one that matters; at most one sibling can be there, the
-  // scaffolder having pruned the other.
-  const srcAbs = join(cwd, "src");
-  const pairs: string[] = []; // impl paths relative to src/, posix
-  for (const contract of findContractFiles(srcAbs)) {
-    for (const impl of skeletonSiblingPaths(contract)) {
-      if (existsSync(impl)) pairs.push(toPosix(relative(srcAbs, impl)));
-    }
-  }
-
-  // --- 3. __conformance blobs ---
-  const stripped: string[] = [];
-  for (const implRel of pairs) {
-    const abs = join(srcAbs, implRel);
-    const cleaned = stripConformance(readFileSync(abs, "utf8"), implRel);
-    if (cleaned !== null) {
-      writeFileSync(abs, cleaned);
-      stripped.push("src/" + implRel);
-    }
-  }
-  pass(
-    "conformance",
-    stripped.length > 0,
-    stripped.length > 0 ? `stripped __conformance from ${stripped.join(", ")}` : "nothing to strip",
-    { stripped },
-  );
-
-  // --- 4. barrel ---
-  const indexAbs = join(srcAbs, "index.ts");
-  if (pairs.length === 0) {
-    pass("barrel", false, "no contract implementations — no barrel to write");
-  } else {
-    const desired = barrelFor(pairs);
-    const existing = existsSync(indexAbs) ? readFileSync(indexAbs, "utf8") : undefined;
-    if (existing === desired) {
-      pass("barrel", false, "src/index.ts already current");
-    } else if (existing !== undefined && !existing.startsWith(BARREL_MARKER)) {
+  // --- 3. generated files in sync, no skeleton left throwing ---
+  {
+    const stale = atDelivery
+      .filter((f) => f.mode === "generated")
+      .filter((f) => !existsSync(join(cwd, f.path)) || readFileSync(join(cwd, f.path), "utf8") !== f.content)
+      .map((f) => f.path);
+    if (stale.length > 0) {
       return block(
-        "barrel",
-        "src/index.ts already exists and was not generated by deliver — " +
-          "merging its exports into the barrel is a design act; resolve it by hand",
+        "generated",
+        `${stale.length} generated file${stale.length === 1 ? " is" : "s are"} not what the design produces (${stale.join(", ")}); ` +
+          "no role writes them — run the design gate, whose scaffold step rewrites them, and prove red and green again",
+        { stale },
+        "orchestrator",
       );
-    } else {
-      writeFileSync(indexAbs, desired);
-      pass("barrel", true, `wrote src/index.ts (${pairs.length} module${pairs.length === 1 ? "" : "s"})`, {
-        modules: pairs,
-      });
     }
+    const throwing = atDelivery
+      .filter((f) => f.mode === "skeleton" && existsSync(join(cwd, f.path)))
+      .filter((f) => THROWS_NOT_IMPLEMENTED.test(readFileSync(join(cwd, f.path), "utf8")))
+      .map((f) => f.path);
+    if (throwing.length > 0) {
+      return block(
+        "generated",
+        `${throwing.join(", ")} still throw${throwing.length === 1 ? "s" : ""} NotImplementedError — a skeleton the builder never finished`,
+        { throwing },
+        "builder",
+      );
+    }
+    const generated = atDelivery.filter((f) => f.mode === "generated").length;
+    pass("generated", false, `${generated} generated file${generated === 1 ? "" : "s"} in sync; no skeleton left unimplemented`);
   }
 
-  // --- 5. ship the surface check ---
+  // --- 4. the surface check ---
   {
     const checker = readFileSync(checkerSource, "utf8");
     const shippedAbs = join(cwd, "scripts", "surface-check.ts");
@@ -477,132 +393,31 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
     if (did.some((what) => what !== "shipped scripts/surface-check.ts")) writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
 
-    // The pin must be MATERIALIZED, not merely written. r15 shipped two repos
-    // whose `npm run check` died on ERR_MODULE_NOT_FOUND: deliver added the
-    // devDependency and nothing ever installed it. Deliver ships no dependency
-    // it cannot resolve afterwards — a failed install is a BLOCK, not a repo
-    // handed over with a broken check.
-    //
-    // REJECTED ALTERNATIVE: vendor a ts-morph-free checker into the target
-    // (TypeScript's own compiler API, or text extraction) so delivery adds no
-    // dependency at all — which would also settle the AGENTS.md "do not add
-    // dependencies" tension outright. Rejected because it forks the checker in
-    // two: the harness would gate runs with the ts-morph version while targets
-    // shipped an untested twin, and the two would drift apart at the first
-    // rule change. ONE checker, copied verbatim (see surface-check.ts's
-    // DUAL-USE header), is the property worth paying an install for.
-    // CHOSEN: install the pinned version, then verify it resolves.
+    // A pin nobody installed is a repo whose check dies with
+    // ERR_MODULE_NOT_FOUND (r15): install it, then verify it resolves.
     const tsMorphAbs = join(cwd, "node_modules", "ts-morph", "package.json");
     if (!existsSync(tsMorphAbs) && configGenerated) {
       return refuseConfigChange("surface-check", `ts-morph@${pin} is pinned but not installed`, { pin });
     }
     if (!existsSync(tsMorphAbs)) {
-      const args = ["add", "--dev", "--exact", "--ignore-scripts", `ts-morph@${pin}`];
-      const out = run(BUN, args, cwd);
-      const fail = (why: string): DeliverResult => {
+      const out = run(BUN, ["add", "--dev", "--exact", "--ignore-scripts", `ts-morph@${pin}`], cwd);
+      if (out.code !== 0 || !existsSync(tsMorphAbs)) {
         const tail = outputTail(out);
         const result = block(
           "surface-check",
-          `could not install ts-morph@${pin} into the target — ${why}; the shipped ` +
-            `check:surface script would die with ERR_MODULE_NOT_FOUND, so this repo is not delivered ` +
-            `(re-run deliver where the package registry is reachable)`,
+          `could not install ts-morph@${pin} into the target — the shipped check:surface script would die with ` +
+            "ERR_MODULE_NOT_FOUND, so this repo is not delivered (re-run deliver where the package registry is reachable)",
           { pin, exitCode: out.code, tail },
         );
         lines.push(...tail.map((t) => `  install: ${t}`));
         return { ...result, lines };
-      };
-      if (out.code !== 0) return fail(`\`bun add\` ${out.code === null ? "never completed" : `exited ${out.code}`}`);
-      if (!existsSync(tsMorphAbs)) return fail("bun reported success but node_modules/ts-morph is still missing");
+      }
       did.push(`installed ts-morph@${pin}`);
     }
     pass("surface-check", did.length > 0, did.length > 0 ? did.join(", ") : "already shipped and wired", { did });
   }
 
-  // --- 5b. blessed stack pins (ADR 2026-029, TN-26-004) ---
-  //
-  // The stack is harness policy, and a policy nobody installed is a repo
-  // whose check dies with ERR_MODULE_NOT_FOUND — the ts-morph lesson (r15),
-  // applied to the blessed stacks. What the tree USES decides what is
-  // pinned: zod when any src module imports it (every zod-backed value
-  // object does), and whatever a composed pack's shipped support file imports
-  // when the tree carries that file (ADR 2026-046) — the pack names its own
-  // packages; this step names none. Regular dependencies, not dev — all are
-  // imported by shipped src/**.
-  // The pin is the pack's own version, and a failed install is a BLOCK.
-  {
-    const srcFiles = tsFilesUnder(cwd, srcAbs);
-    const importsZod = srcFiles.some((rel) =>
-      /from\s+["']zod(\/[^"']*)?["']/.test(readFileSync(join(cwd, rel), "utf8")),
-    );
-    const firstLines = srcFiles.map((rel) => readFileSync(join(cwd, rel), "utf8").split("\n", 1)[0] ?? "");
-    const supportDeps = registry
-      .read(contractSupportFiles)
-      .filter((file) => firstLines.some((line) => line.startsWith(`// GENERATED from ${file.canonical} `)))
-      .flatMap((file) => file.dependencies ?? []);
-    const wanted: readonly string[] = [...new Set([...(importsZod ? ["zod"] : []), ...supportDeps])];
-    const did: string[] = [];
-    for (const name of wanted) {
-      const pkgAbs = join(cwd, "package.json");
-      const pkg = JSON.parse(readFileSync(pkgAbs, "utf8")) as {
-        dependencies?: Record<string, string>;
-      };
-      const pin = pkg.dependencies?.[name] ?? packPin(name);
-      if (pkg.dependencies?.[name] === undefined && configGenerated) {
-        return refuseConfigChange("stack-pins", `the tree imports ${name}, which no composed pack pins`, { name });
-      }
-      if (pkg.dependencies?.[name] === undefined) {
-        const deps: Record<string, string> = { ...pkg.dependencies, [name]: pin };
-        pkg.dependencies = Object.fromEntries(Object.keys(deps).sort().map((k) => [k, deps[k]!]));
-        writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
-        did.push(`pinned ${name}@${pin}`);
-      }
-      const installedAbs = join(cwd, "node_modules", ...name.split("/"), "package.json");
-      if (!existsSync(installedAbs) && configGenerated) {
-        return refuseConfigChange("stack-pins", `${name}@${pin} is pinned but not installed`, { name, pin });
-      }
-      if (!existsSync(installedAbs)) {
-        const out = run(
-          BUN,
-          ["add", "--exact", "--ignore-scripts", `${name}@${pin}`],
-          cwd,
-        );
-        if (out.code !== 0 || !existsSync(installedAbs)) {
-          const tail = outputTail(out);
-          const result = block(
-            "stack-pins",
-            `could not install ${name}@${pin} into the target — the tree imports it, so shipping ` +
-              `without it is a repo whose check dies with ERR_MODULE_NOT_FOUND; re-run deliver where ` +
-              `the package registry is reachable`,
-            { name, pin, exitCode: out.code, tail },
-          );
-          lines.push(...tail.map((t) => `  install: ${t}`));
-          return { ...result, lines };
-        }
-        did.push(`installed ${name}@${pin}`);
-      }
-    }
-    pass(
-      "stack-pins",
-      did.length > 0,
-      did.length > 0 ? did.join(", ") : wanted.length > 0 ? "already pinned and installed" : "no blessed stacks in use",
-      { wanted, did },
-    );
-  }
-
-  // --- 5c. pack-contributed check scripts folded into `check` (ADR 2026-033) ---
-  //
-  // A composed pack's acceptance can also belong in the project's OWN
-  // definition of done. Deliver folds `check:surface` into `check` at step 5;
-  // a pack contributes the same shape through the deliverChecks socket's
-  // optional `checkScript`, and deliver folds it here the same way — reading a
-  // `{ name, command }` and learning no framework name (TN-26-005), exactly as
-  // step 5 folds surface-check without knowing what ts-morph is.
-  //
-  // Dogfood Run 29 is why: a composed web app whose `npm run check` passed
-  // while its build failed, because check's scope never reached the web
-  // bootstrap. Keyed on the tree by the pack — a service gets no build folded
-  // in — and placed before step 9 so the project's own check (which step 9
-  // runs) actually exercises what was folded.
+  // --- 4b. pack-contributed check scripts folded into `check` (ADR 2026-033) ---
   {
     const scripts = registry
       .read(deliverChecks)
@@ -631,22 +446,16 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       }
       if (did.length > 0) writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
     }
-    pass(
-      "check-scripts",
-      did.length > 0,
-      did.length > 0 ? did.join(", ") : "no composed pack folds a check script into this tree",
-      { did },
-    );
+    pass("check-scripts", did.length > 0, did.length > 0 ? did.join(", ") : "no composed pack folds a check script into this tree", { did });
   }
 
-  // --- 6. .gitignore ---
+  // --- 5. .gitignore ---
   {
     const ignoreAbs = join(cwd, ".gitignore");
     const current = existsSync(ignoreAbs) ? readFileSync(ignoreAbs, "utf8") : "";
-    // A project-local installation commits selected files beneath .bounded/.
-    // Its `.bounded/*` rule ignores runtime state while later negations keep
-    // the installed harness and composition visible to Git. Appending a broad
-    // `.bounded/` rule would hide those files before the first commit.
+    // A project-local installation commits selected files beneath .bounded/:
+    // its `.bounded/*` rule ignores runtime state while later negations keep
+    // the installed harness visible. A broad `.bounded/` rule would hide them.
     const ignored = current.split("\n").some((l) =>
       l.trim() === ".bounded/" || l.trim() === ".bounded" || l.trim() === ".bounded/*");
     if (ignored) {
@@ -657,7 +466,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
   }
 
-  // --- 7. README ---
+  // --- 6. README ---
   {
     const readmeAbs = join(cwd, "README.md");
     const current = existsSync(readmeAbs) ? readFileSync(readmeAbs, "utf8") : undefined;
@@ -672,21 +481,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
   }
 
-  // --- 8. phase timing (issue #13) ---
-  //
-  // Every gate already timestamps itself into .bounded/guard-log.jsonl, so the
-  // shape of the run — which phase cost the minutes, where it bounced and to
-  // whom — is recorded and was simply never read back. Delivery is the one
-  // moment the whole run is over and someone is reading the output, so this
-  // is where the read-back belongs.
-  //
-  // Idempotency: trivial, unlike every step above. This one READS and writes
-  // nothing, so it is never an applied step and a second delivery re-reports
-  // the same run (plus the events the first delivery itself logged).
-  //
-  // It must never block delivery. An absent, empty or corrupt log is a missing
-  // measurement, not a defect in the repo being handed over: the step degrades
-  // to one line saying timing was unavailable and why, and delivery proceeds.
+  // --- 7. phase timing (issue #13): read-only, never blocks ---
   {
     let timing: PhaseDurations | undefined;
     let blockLines: string[];
@@ -697,32 +492,11 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       blockLines = [`unavailable — ${e instanceof Error ? e.message : String(e)}`];
     }
     const [headline, ...rest] = blockLines;
-    pass(
-      "timing",
-      false,
-      headline ?? "unavailable — nothing to report",
-      timing !== undefined ? { timing } : {},
-    );
+    pass("timing", false, headline ?? "unavailable — nothing to report", timing !== undefined ? { timing } : {});
     lines.push(...rest);
   }
 
-  // --- 9. the project's own check (issue: r15 shipped two red repos) ---
-  //
-  // Every step above is deliver's opinion of a finished repo. This one asks the
-  // REPO: `npm run check` is the project's own declared definition of done
-  // (AGENTS.md, ADR 2026-007), and until now nothing in the pipeline ever ran
-  // it — green_gate runs its own tsc and vitest, which is not the same command
-  // a colleague types, and is blind to whatever delivery itself just wired in.
-  //
-  // ORDERING. Last, for two reasons. It must judge the tree that actually
-  // ships, so it runs after every mutating step (the barrel, the stripped
-  // conformance blobs, the freshly wired check:surface and its install). And
-  // it runs after the read-only timing step so that a RED check still leaves
-  // the run's timing report on screen: the block is the headline, but the
-  // minutes are the thing nobody can reconstruct later.
-  //
-  // Read-only, so it is never an applied step — a second delivery re-runs it
-  // and still reports 0 steps applied.
+  // --- 8. the project's own check (r15 shipped two red repos) ---
   {
     const out = run(BUN, ["run", "check"], cwd);
     if (out.code !== 0) {
@@ -731,35 +505,20 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
         "check",
         `the project's own \`bun run check\` is RED ` +
           `(${out.code === null ? "it never completed" : `bun exited ${out.code}`}) — the repo does not ` +
-          `satisfy its own definition of done, so it is not ready to hand over; fix it and re-run deliver`,
+          "satisfy its own definition of done, so it is not ready to hand over; fix it and re-run deliver",
         { exitCode: out.code, tail },
       );
       lines.push(...tail.map((t) => `  check: ${t}`));
       return { ...result, lines };
     }
     const summaryLine = checkSummaryLine(out);
-    pass(
-      "check",
-      false,
-      summaryLine === undefined ? "bun run check passed" : `bun run check passed — ${summaryLine}`,
-      { exitCode: 0, summary: summaryLine },
-    );
+    pass("check", false, summaryLine === undefined ? "bun run check passed" : `bun run check passed — ${summaryLine}`, {
+      exitCode: 0,
+      summary: summaryLine,
+    });
   }
 
-  // --- 10. pack-contributed checks (ADR 2026-033) ---
-  //
-  // The socket exists because the alternative is worse in both directions:
-  // hard-wiring "theme" — and eventually "colour", "route", "component" — into
-  // this file for a pack it must not know about, or leaving the claim
-  // unchecked. Read here, exactly as `lint-src` reads its rules: a harness
-  // composed without the contributing pack runs zero of them and delivers as it
-  // always did.
-  //
-  // LAST, because a check must judge the tree that actually ships — after the
-  // barrel, the stripped blobs, the wiring this pass added, and after the repo
-  // has satisfied its own definition of done. The consequence is accepted: a
-  // red `npm run check` returns above, so these verdicts appear once the repo
-  // is green.
+  // --- 9. pack-contributed checks (ADR 2026-033) ---
   {
     const checks = registry.read(deliverChecks);
     for (const check of checks) {
@@ -767,19 +526,11 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       try {
         outcome = check.run(cwd, registry.packs);
       } catch (e) {
-        // A check that crashed verified nothing, and "nothing verified" is not
-        // a pass. The pack's name is in the step, so the fix has an owner.
-        outcome = {
-          verdict: "block",
-          summary: `the check threw — ${e instanceof Error ? e.message : String(e)}`,
-        };
+        outcome = { verdict: "block", summary: `the check threw — ${e instanceof Error ? e.message : String(e)}` };
       }
       const detail = outcome.detail ?? [];
       if (outcome.verdict === "block") {
-        const result = block(check.name, `${check.name}: ${outcome.summary}`, {
-          check: check.name,
-          problems: detail,
-        });
+        const result = block(check.name, `${check.name}: ${outcome.summary}`, { check: check.name, problems: detail });
         lines.push(...detail.map((d) => `  ${check.name}: ${d}`));
         return { ...result, lines };
       }

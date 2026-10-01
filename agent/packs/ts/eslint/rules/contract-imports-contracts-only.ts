@@ -33,11 +33,9 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 //                  not builder-written — but never a workspace's layer path
 //                  (`@<scope>/<pkg>/application`, `…/domain/notes`), which is.
 //
-// Relative non-contract modules are refused everywhere, with one exception
-// that is a socket, not a name: a support module a composed pack ships
-// verbatim (`contractSupportFiles`, ADR 2026-046) is generated machinery, so
-// importing it does not make the design depend on builder code. The gate
-// passes those module names as the rule's `supportModules` option.
+// Relative non-contract modules are refused everywhere. (The shipped
+// contract-support modules of ADR 2026-046 were retired with the declare-class
+// model; no pack ships one.)
 //
 // Form: the whole declaration is `import type { … } from "…"`. An inline
 // `import { type X }` leaves an empty runtime import behind under
@@ -77,11 +75,6 @@ function layerOf(filename: string): Layer {
   return "other";
 }
 
-/** The module name of a relative specifier: `./x/service-runtime.js` → `service-runtime`. */
-function moduleName(specifier: string): string {
-  return (specifier.split("/").pop() ?? "").replace(/\.(?:[cm]?[jt]s)$/, "");
-}
-
 export interface ContractImportProblem {
   readonly messageId: "notAContract" | "barrelInDomain" | "packageInLayer" | "jsSpecifier";
   readonly data: Readonly<Record<string, string>>;
@@ -93,19 +86,14 @@ export interface ContractImportProblem {
  * Why a contract at `filename` may not import `specifier`, or undefined when
  * it may. The one definition of the allowed specifiers: the lint reports it,
  * and the scaffolder's backstop asks the same question, so the two can never
- * disagree. `supportModules` are the composed packs' shipped support module
- * names (ADR 2026-046).
+ * disagree.
  */
 export function contractImportProblem(
   specifier: string,
   filename: string,
-  supportModules: readonly string[] = [],
 ): ContractImportProblem | undefined {
   const layer = layerOf(filename);
   if (specifier.startsWith(".")) {
-    // Support modules serve flat-layout contracts; the hexagonal layers hold
-    // their own parsers' strictness (contracts and Result only).
-    if (layer === "other" && supportModules.includes(moduleName(specifier))) return undefined;
     if (JS_TWIN.test(specifier)) {
       const fixed = specifier.replace(/\.js$/, ".ts");
       return { messageId: "jsSpecifier", data: { source: specifier, fixed }, text: `'${specifier}' uses a '.js' specifier — write '${fixed}'` };
@@ -139,19 +127,11 @@ export function contractImportProblem(
   return undefined;
 }
 
-type Options = [{ readonly supportModules?: readonly string[] }];
-
-export const contractImportsContractsOnly = createRule<Options, MessageId>({
+export const contractImportsContractsOnly = createRule<[], MessageId>({
   name: "contract-imports-contracts-only",
   meta: {
     type: "problem",
-    schema: [
-      {
-        type: "object",
-        properties: { supportModules: { type: "array", items: { type: "string" } } },
-        additionalProperties: false,
-      },
-    ],
+    schema: [],
     messages: {
       packageInLayer: `${RULE} '{{source}}' is a package, and a {{layer}} contract imports only other contracts and the shared Result (an application contract also its context's domain barrel). A package type on a hexagonal contract is a dependency the emitters cannot see — wrap the concept in a value object instead.`,
       notAContract: `${RULE} '{{source}}' is not a contract. Import the type from the concept's contract instead, e.g. 'import type { ProjectId } from "../projects/project-id.contract.ts";' — a design that depends on an implementation file cannot be checked before the builder writes it.`,
@@ -165,9 +145,8 @@ export const contractImportsContractsOnly = createRule<Options, MessageId>({
       jsSpecifier: `${RULE} '{{source}}' uses a '.js' specifier — the monorepo imports TypeScript files by their real name (allowImportingTsExtensions): write '{{fixed}}'.`,
     },
   },
-  defaultOptions: [{ supportModules: [] }],
-  create(context, [options]) {
-    const supportModules = options.supportModules ?? [];
+  defaultOptions: [],
+  create(context) {
     return {
       ImportDeclaration(node: TSESTree.ImportDeclaration): void {
         const source = node.source.value;
@@ -175,7 +154,7 @@ export const contractImportsContractsOnly = createRule<Options, MessageId>({
           context.report({ node, messageId: node.importKind === "type" ? "shape" : "sideEffect", data: { source } });
           return;
         }
-        const problem = contractImportProblem(source, context.filename, supportModules);
+        const problem = contractImportProblem(source, context.filename);
         if (problem !== undefined) {
           context.report({ node, messageId: problem.messageId, data: problem.data });
           return;

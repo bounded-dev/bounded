@@ -11,13 +11,17 @@
 //                      and their laws, handler, in-memory and @implementedBy
 //                      out-adapter skeletons, out barrels, workspace seeds
 //                      (scripts/emitters.ts)
+//   testObligations    per-level test files and reach: features, stores, out
+//                      adapters, in-adapter laws, app smoke tests
+//                      (scripts/obligations.ts)
 //   lintSrcRules       the builder's layout rules (eslint/index.ts), each
 //                      named in the builder's brief (guard-doc-drift, ADR
 //                      2026-018)
 import { contribute, definePack } from "../../src/socket-registry.ts";
-import { lintSrcRules, skeletonEmitters, TS_PACK } from "../ts/pack.ts";
+import { lintSrcRules, skeletonEmitters, testObligations, TS_PACK } from "../ts/pack.ts";
 import { TS_HEXAGONAL_LINT_RULES } from "./eslint/index.ts";
 import { TS_HEXAGONAL_EMITTERS } from "./scripts/emitters.ts";
+import { hexagonalObligations } from "./scripts/obligations.ts";
 
 export const TS_HEXAGONAL_PACK = "ts-hexagonal";
 
@@ -30,5 +34,6 @@ export const tsHexagonalPack = definePack({
   contributes: [
     contribute(skeletonEmitters, TS_HEXAGONAL_EMITTERS),
     contribute(lintSrcRules, TS_HEXAGONAL_LINT_RULES),
+    contribute(testObligations, hexagonalObligations),
   ],
 });

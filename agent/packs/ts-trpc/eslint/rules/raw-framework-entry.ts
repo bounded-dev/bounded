@@ -11,9 +11,7 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // So a runtime import from `@trpc/server` is refused everywhere except:
 //   * a transport adapter subpath, `@trpc/server/adapters/<name>`, which
 //     serves a router and builds none;
-//   * the generated in-adapter folder itself (write-denied to every role);
-//   * the legacy shipped runtime, `service-runtime.ts`, which carries its own
-//     generated marker.
+//   * the generated in-adapter folder itself (write-denied to every role).
 // Type-only imports are legal anywhere: a type cannot build a procedure.
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
@@ -26,7 +24,7 @@ const isTransportAdapter = (source: string): boolean => /^@trpc\/server\/adapter
 
 function isExempt(filename: string): boolean {
   const path = filename.split("\\").join("/");
-  return path.endsWith("service-runtime.ts") || /(^|\/)src\/adapters\/in\/trpc\//.test(path);
+  return /(^|\/)src\/adapters\/in\/trpc\//.test(path);
 }
 
 export const rawFrameworkEntry = createRule<[], "rawEntry">({

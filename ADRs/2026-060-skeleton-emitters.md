@@ -38,3 +38,8 @@ at red, because their shapes are known before the builder starts.
 The builder authors only domain `Impl` bodies, handler bodies, store and
 out-adapter bodies, mappers and composition roots. The in-adapter test
 level is generated laws (TN-26-012).
+
+The contract-support-file socket (`contractSupportFiles`, ADR 2026-046) is
+retired with the `declare class` scaffolder and ts-trpc's shipped service
+runtime: no contract on this model imports a support module, so the socket
+had no consumer and no contributor left.

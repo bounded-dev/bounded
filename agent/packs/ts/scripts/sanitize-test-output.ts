@@ -59,6 +59,10 @@ export interface SanitizedResult {
   readonly name: string;
   readonly status: string;
   readonly message?: string;
+  /** The project-relative test file the result came from, when the report
+   *  names one. The gates read it (a generated law is judged apart from a
+   *  hand-written test); the builder's run_tests view never prints it. */
+  readonly file?: string;
 }
 
 // --- shared line filters ------------------------------------------------------
@@ -203,6 +207,15 @@ export interface JUnitCase {
   readonly status: "passed" | "failed" | "skipped" | "todo";
   /** The failure element's `type` attribute, when one is present. */
   readonly failureType?: string;
+  /** The project-relative test file, when the report names a relative one. */
+  readonly file?: string;
+}
+
+/** A report's file attribute, kept only when it is a plain relative path. */
+function relativeFile(value: string | undefined): string | undefined {
+  if (value === undefined || value === "" || value.startsWith("/") || /^[A-Za-z]:/.test(value) || value.includes("\\")) return undefined;
+  const segments = value.split("/");
+  return segments.some((s) => s === "" || s === "." || s === "..") ? undefined : value;
 }
 
 const ENTITY: Readonly<Record<string, string>> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
@@ -258,11 +271,17 @@ export function parseJUnitReport(xml: string): JUnitCase[] {
   }
   const cases: JUnitCase[] = [];
   const suites: string[] = [];
-  let open: { name: string; status: JUnitCase["status"]; failureType?: string } | undefined;
+  const files: (string | undefined)[] = [];
+  let open: { name: string; status: JUnitCase["status"]; failureType?: string; file?: string } | undefined;
   for (const tag of all) {
     if (tag.name === "testsuite") {
-      if (tag.kind === "open") suites.push(tag.attributes.get("name") ?? "");
-      else if (tag.kind === "close") suites.pop();
+      if (tag.kind === "open") {
+        suites.push(tag.attributes.get("name") ?? "");
+        files.push(tag.attributes.get("file") ?? files.at(-1));
+      } else if (tag.kind === "close") {
+        suites.pop();
+        files.pop();
+      }
       continue;
     }
     if (tag.name === "testcase") {
@@ -273,7 +292,8 @@ export function parseJUnitReport(xml: string): JUnitCase[] {
       }
       // suites[0] is the file (a path): never part of the name.
       const name = [...suites.slice(1), tag.attributes.get("name") ?? ""].filter((s) => s !== "").join(" > ");
-      const entry = { name, status: "passed" as JUnitCase["status"] };
+      const file = relativeFile(tag.attributes.get("file") ?? files.at(-1));
+      const entry = { name, status: "passed" as JUnitCase["status"], ...(file !== undefined ? { file } : {}) };
       if (tag.kind === "self") cases.push(entry);
       else open = entry;
       continue;
@@ -426,69 +446,18 @@ export function sanitizeBunRun(
   const report = readStderrReport(stderr, context, expected);
   const used = new Map<string, number>();
   const results: SanitizedResult[] = cases.map((c) => {
-    if (c.status !== "failed") return { name: c.name, status: c.status };
-    if (c.failureType === "TimeoutError") return { name: c.name, status: "failed", message: TIMEOUT_MESSAGE };
+    const file = c.file !== undefined ? { file: c.file } : {};
+    if (c.status !== "failed") return { name: c.name, status: c.status, ...file };
+    if (c.failureType === "TimeoutError") return { name: c.name, status: "failed", message: TIMEOUT_MESSAGE, ...file };
     const index = used.get(c.name) ?? 0;
     used.set(c.name, index + 1);
     const message = report.failures.get(c.name)?.[index];
-    return message === undefined || message === "" ? { name: c.name, status: "failed" } : { name: c.name, status: "failed", message };
+    return message === undefined || message === "" ? { name: c.name, status: "failed", ...file } : { name: c.name, status: "failed", message, ...file };
   });
   const unhandled = Math.max(report.unhandled.length, report.errorCount);
   for (let i = 0; i < unhandled; i++) {
     const message = report.unhandled[i];
     results.push({ name: UNHANDLED_NAME, status: "failed", message: message === undefined || message === "" ? UNREADABLE_UNHANDLED : message });
-  }
-  return results;
-}
-
-// --- TRANSITIONAL: the retired JSON report ---------------------------------------
-//
-// ADR 2026-062 retired the JSON reporter with the rest of the Vitest path.
-// The phase gates' own tests still feed canned JSON reports through their
-// test-command seam; until they are converted to JUnit fixtures, run-tests
-// parses such a report when, and only when, a caller replaced the command.
-// No default path reaches this.
-
-interface LegacyAssertion {
-  fullName?: unknown;
-  title?: unknown;
-  ancestorTitles?: unknown;
-  status?: unknown;
-  failureMessages?: unknown;
-}
-
-const asString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
-
-/** Sanitize a canned JSON report (`testResults[].assertionResults[]`). */
-export function sanitizeLegacyJsonRun(rawJson: string, context?: SanitizeContext | ReadonlySet<string>): SanitizedResult[] {
-  const forbidden = asContext(context);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawJson);
-  } catch {
-    throw new SanitizeError("sanitize: input is not valid JSON");
-  }
-  const testResults = (parsed as { testResults?: unknown } | null)?.testResults;
-  if (!Array.isArray(testResults)) throw new SanitizeError("sanitize: JSON has no `testResults` array");
-  const results: SanitizedResult[] = [];
-  for (const file of testResults as { assertionResults?: unknown; status?: unknown; message?: unknown }[]) {
-    const assertions = Array.isArray(file.assertionResults) ? (file.assertionResults as LegacyAssertion[]) : [];
-    if (assertions.length === 0) {
-      if (asString(file.status) === "failed") {
-        const message = sanitizeMessage(asString(file.message), forbidden);
-        results.push(message === "" ? { name: UNHANDLED_NAME, status: "failed" } : { name: UNHANDLED_NAME, status: "failed", message });
-      }
-      continue;
-    }
-    for (const a of assertions) {
-      const ancestors = Array.isArray(a.ancestorTitles) ? a.ancestorTitles.filter((t): t is string => typeof t === "string") : [];
-      const name = asString(a.fullName) || [...ancestors, asString(a.title)].filter((s) => s !== "").join(" ");
-      const status = asString(a.status, "unknown");
-      const messages = status === "failed" && Array.isArray(a.failureMessages)
-        ? a.failureMessages.filter((m): m is string => typeof m === "string").map((m) => sanitizeMessage(m, forbidden)).filter((m) => m !== "")
-        : [];
-      results.push(messages.length === 0 ? { name, status } : { name, status, message: messages.join("\n\n") });
-    }
   }
   return results;
 }

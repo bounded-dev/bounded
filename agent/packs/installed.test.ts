@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { composePacks } from "../src/socket-registry.ts";
 import { installedPacks, INSTALLED_PACKS } from "./installed.ts";
-import { artifactGenerators, contractPurityOverrides, contractSupportFiles, deliverChecks, lintSrcRules, skeletonEmitters, TS_PACK } from "./ts/pack.ts";
+import { artifactGenerators, contractPurityOverrides, deliverChecks, lintSrcRules, phaseTestPolicies, skeletonEmitters, testObligations, TS_PACK } from "./ts/pack.ts";
 import { TS_DRIZZLE_POSTGRES_PACK } from "./ts-drizzle-postgres/pack.ts";
 import { TS_WEB_PACK } from "./ts-web/pack.ts";
 
@@ -38,14 +38,16 @@ describe("the harness's own composition", () => {
       // ADR 2026-055: born with its consumer, the generate_artifacts gate.
       "artifactGenerators",
       "contractPurityOverrides",
-      // ADR 2026-046: born with its consumers, the scaffolder and red gate.
-      "contractSupportFiles",
       // ADR 2026-033: born with its consumer, deliver's last step.
       "deliverChecks",
       "lintSrcRules",
+      // ADR 2026-064: born with its consumers, the red and green gates.
+      "phaseTestPolicies",
       // ADR 2026-060: born with its consumers, the design gate's scaffold
       // step, the red gate's shadow and delivery's leftover check.
       "skeletonEmitters",
+      // ADR 2026-063: born with its consumers, the red and green gates.
+      "testObligations",
     ]);
     expect(sockets.every((s) => s.owner === TS_PACK)).toBe(true);
   });
@@ -99,9 +101,10 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
     expect(registry.read(lintSrcRules)).toEqual([]);
     expect(registry.read(contractPurityOverrides)).toEqual([]);
     expect(registry.read(deliverChecks)).toEqual([]);
-    expect(registry.read(contractSupportFiles)).toEqual([]);
     expect(registry.read(artifactGenerators)).toEqual([]);
     expect(registry.read(skeletonEmitters)).toEqual([]);
+    expect(registry.read(phaseTestPolicies)).toEqual([]);
+    expect(registry.read(testObligations)).toEqual([]);
   });
 
   test("ts-hexagonal contributes emitters, and the adapter packs require it", () => {

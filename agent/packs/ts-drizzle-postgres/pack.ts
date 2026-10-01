@@ -7,12 +7,13 @@
 //                        drizzle-stores (store and area-schema skeletons)
 //   artifactGenerators   database-migration: each context's next migration
 //
-// The container-runtime rule of ADR 2026-064 is exported for the red and
-// green gates from scripts/container-runtime.ts (`probeContainerRuntime`,
-// `drizzleStoreTests`, `storeTestDecision`).
+//   phaseTestPolicies    store-tests-need-a-container-runtime: ADR 2026-064's
+//                        rule (scripts/container-runtime.ts), which the red
+//                        and green gates apply to the test process
 import { contribute, definePack } from "../../src/socket-registry.ts";
-import { artifactGenerators, skeletonEmitters, TS_PACK } from "../ts/pack.ts";
+import { artifactGenerators, phaseTestPolicies, skeletonEmitters, TS_PACK } from "../ts/pack.ts";
 import { TS_HEXAGONAL_PACK } from "../ts-hexagonal/pack.ts";
+import { storeTestPolicy } from "./scripts/container-runtime.ts";
 import { emitDrizzlePersistence, emitDrizzleStores } from "./scripts/emit.ts";
 import { generateMigrations } from "./scripts/generate-migrations.ts";
 
@@ -34,6 +35,7 @@ export const tsDrizzlePostgresPack = definePack({
         emit: (facts) => emitDrizzleStores(facts),
       },
     ]),
+    contribute(phaseTestPolicies, [storeTestPolicy]),
     contribute(artifactGenerators, [{
       name: "database-migration",
       run: (cwd) => generateMigrations(cwd),

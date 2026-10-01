@@ -116,27 +116,38 @@ const SCRIPT = join(import.meta.dirname, "design-gate.ts");
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-/** A contract that passes purity, scaffolds and typechecks. Its value object
- *  (Currency) lives in its own contract file, imported from that contract —
- *  a contract imports only other contracts (contract-imports-contracts-only,
- *  ADR 2026-059). */
-const CLEAN_CONTRACT = `import type { Currency } from "../shared/currency.contract.ts";
+/** A contract that passes purity, scaffolds and typechecks: a domain value
+ *  object in the ADR 2026-059 form (interface + factory, `@accepts` examples
+ *  for its generated laws). */
+const CLEAN_CONTRACT = `import type { Result } from "../shared/result.ts";
 
-export interface Money {
-  readonly currency: Currency;
+/**
+ * An ISO-4217 currency code: three uppercase letters.
+ * @accepts "USD"
+ * @accepts "EUR"
+ */
+export interface Currency {
+  readonly __brand: "Currency";
+  readonly value: string;
+  equals(other: Currency): boolean;
+  toJSON(): string;
 }
 
-export declare function format(money: Money): Currency;
-`;
-
-/** Passes purity (no naked primitives) but declares nothing that exists at
- *  runtime, so the scaffolder blocks. */
-const TYPES_ONLY_CONTRACT = `export type Kind = "deposit" | "withdrawal";
-
-export interface Ledger {
-  post(kind: Kind): Kind;
+export interface CurrencyFactory {
+  parse(raw: unknown): Result<Currency>;
 }
 `;
+
+/** Passes purity but an emitter refuses it: a feature in an area that is
+ *  not a plural business noun (TN-26-012 §2), so the scaffold step blocks. */
+const BAD_AREA_CONTRACT = `/**
+ * Move money
+ */
+export interface MoveMoney {
+  execute(): Promise<void>;
+}
+`;
+const BAD_AREA_PATH = join("application", "money", "move-money", "move-money.contract.ts");
 
 /** A second clean contract, for the file a review never saw: the ADR
  *  2026-059 interface + factory pair (the retired `declare class` form now
@@ -160,12 +171,11 @@ export interface TickerFactory {
 }
 `;
 
-/** A naked \`string\` on the public surface: the purity gate's own failure. */
-const IMPURE_CONTRACT = `export interface Book {
-  isbn: string;
+/** The retired \`declare class\` form: the purity gate's own failure. */
+const IMPURE_CONTRACT = `export declare class Currency {
+  private constructor();
+  static parse(raw: unknown): Currency | undefined;
 }
-
-export declare function shelve(book: Book): Book;
 `;
 
 /** The half the contract cannot hold — and half of what the reviewer reads. */
@@ -178,12 +188,22 @@ roles must agree on that TypeScript cannot say.
 /** A source root of the composed hexagonal layout: where contracts live. */
 const ROOT = join("contexts", "money", "src");
 
-function fixtureRepo(prefix: string, contract: string, tscOutput = ""): string {
+/** The clean contract's path under the source root. */
+const CONTRACT_PATH = join("domain", "currencies", "currency.contract.ts");
+/** Where the second contract goes: a file the review never saw. */
+const TICKER_PATH = join("domain", "tickers", "ticker.contract.ts");
+const TICKER_REL = "contexts/money/src/domain/tickers/ticker.contract.ts";
+
+function place(dir: string, rel: string, content: string): void {
+  mkdirSync(join(dir, ROOT, rel, ".."), { recursive: true });
+  writeFileSync(join(dir, ROOT, rel), content);
+}
+
+function fixtureRepo(prefix: string, contract: string, tscOutput = "", path = CONTRACT_PATH): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   tmpDirs.push(dir);
-  mkdirSync(join(dir, ROOT, "money"), { recursive: true });
-  writeFileSync(join(dir, ROOT, "money", "money.contract.ts"), contract);
+  place(dir, path, contract);
   writeFileSync(join(dir, "spec.md"), SPEC);
   writeFileSync(join(dir, "package.json"), '{"name":"fixture"}\n');
   // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
@@ -213,10 +233,10 @@ function runGate(dir: string, typeErrors = false) {
 }
 
 const MANIFEST = join(".bounded", "contract-checksums.json");
-const SKELETON = join(ROOT, "money", "money.ts");
+const SKELETON = join(ROOT, "domain", "currencies", "currency.ts");
 
-const CONTRACT_TYPE_ERR = "contexts/money/src/money/money.contract.ts(3,1): error TS2304: Cannot find name 'Iso'.";
-const SKELETON_TYPE_ERR = "contexts/money/src/money/money.ts(9,3): error TS2322: Type 'string' is not assignable.";
+const CONTRACT_TYPE_ERR = "contexts/money/src/domain/currencies/currency.contract.ts(3,1): error TS2304: Cannot find name 'Iso'.";
+const SKELETON_TYPE_ERR = "contexts/money/src/domain/currencies/currency.ts(9,3): error TS2322: Type 'string' is not assignable.";
 
 describe("design-gate CLI: the whole design phase in one call", () => {
   test("a ticket TN must be active before its reviewed design freezes", () => {
@@ -225,7 +245,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
     writeFileSync(join(dir, "docs/tn/README.md"), "# Technical Notes\n");
     const note = join(dir, "docs/tn/TN-24.md");
     const front = (status: string) =>
-      `---\nissue: 24\nstatus: ${status}\ncontracts:\n  - contexts/money/src/money/money.contract.ts\n---\n\n${SPEC}`;
+      `---\nissue: 24\nstatus: ${status}\ncontracts:\n  - contexts/money/src/domain/currencies/currency.contract.ts\n---\n\n${SPEC}`;
     writeFileSync(note, front("draft"));
     const prior = process.env.BOUNDED_TICKET;
     process.env.BOUNDED_TICKET = "24";
@@ -259,7 +279,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
     );
     // Each step's own output survives into the aggregate.
     expect(r.stdout).toMatch(/contract-purity: OK \(1 file\)/);
-    expect(r.stdout).toMatch(/scaffold: wrote .*money\.ts/);
+    expect(r.stdout).toMatch(/scaffold: wrote .*currency\.ts \(skeleton, domain-concepts\)/);
     expect(r.stdout).toMatch(/typecheck: OK — no type errors/);
     expect(r.stdout).toMatch(/design-review: challenged \(0 findings, 0 blockers\) — advisory; you decide\./);
     expect(r.stdout).toMatch(/checksum-gate: wrote \.bounded\/contract-checksums\.json/);
@@ -296,7 +316,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
     }
     expect(
       checkSpawnPrecondition("test-writer", {
-        contracts: ["contexts/money/src/money/money.contract.ts"],
+        contracts: ["contexts/money/src/domain/currencies/currency.contract.ts"],
         specText:
           "# Money\n\n## Intake\n\nNothing stripped.\n\n## Rules\n\n" +
           "Ordering, arithmetic, tie-breaks and identity. ".repeat(12),
@@ -328,7 +348,7 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
     const dir = fixtureRepo("design-impure-", IMPURE_CONTRACT);
     const r = runGate(dir);
     expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/no-naked-primitives/);
+    expect(r.stdout).toMatch(/bounded-ts\/value-object-shape/);
     expect(r.stdout).toMatch(/contract-purity: BLOCK \(\d+\.\d+s\)/);
     expect(r.stdout).toContain(
       "design-gate: FAIL — contract-purity blocked; scaffold, typecheck, design-review, freeze did not run",
@@ -340,10 +360,10 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
   });
 
   test("scaffold blocks → the typecheck never runs and nothing is frozen", () => {
-    const dir = fixtureRepo("design-typesonly-", TYPES_ONLY_CONTRACT);
+    const dir = fixtureRepo("design-badarea-", BAD_AREA_CONTRACT, "", BAD_AREA_PATH);
     const r = runGate(dir);
     expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/declares only types/);
+    expect(r.stdout).toMatch(/scaffold: BLOCK — emitter '[a-z-]+': .*move-money\.contract\.ts: area 'money' must be a kebab-case plural business noun/);
     expect(r.stdout).toMatch(/scaffold: BLOCK \(\d+\.\d+s\)/);
     expect(r.stdout).toContain(
       "design-gate: FAIL — scaffold blocked; typecheck, design-review, freeze did not run",
@@ -407,16 +427,16 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
 // generated skeleton wearing the builder's path) still does, and a FIRST
 // freeze keeps the full block.
 describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", () => {
-  const TESTS_TYPE_ERR = "contexts/money/src/money/money.test.ts(3,3): error TS2339: Property 'reformat' does not exist.";
-  const HAND_IMPL_ERR = "contexts/money/src/money/helper.ts(1,1): error TS2322: Type 'string' is not assignable.";
+  const TESTS_TYPE_ERR = "contexts/money/src/domain/currencies/currency.test.ts(3,3): error TS2339: Property 'reformat' does not exist.";
+  const HAND_IMPL_ERR = "contexts/money/src/domain/currencies/currency-format.ts(1,1): error TS2322: Type 'string' is not assignable.";
 
   /** Freeze once clean, then hand the gate a dirty tsc for the second pass. */
   function frozenFixture(prefix: string): string {
     const dir = fixtureRepo(prefix, CLEAN_CONTRACT);
     review(dir);
     expect(runGate(dir).status).toBe(0);
-    // A hand-written implementation file (no generated marker): builder-owned.
-    writeFileSync(join(dir, ROOT, "money", "helper.ts"), "export const rounding = 1;\n");
+    // A hand-written implementation file (no emitter writes it): builder-owned.
+    writeFileSync(join(dir, ROOT, "domain", "currencies", "currency-format.ts"), "export const rounding = 1;\n");
     return dir;
   }
 
@@ -450,12 +470,12 @@ describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", (
 
   test("a diagnostic in a generated skeleton is the contract's, and still blocks", () => {
     const dir = frozenFixture("design-refreeze-skeleton-");
-    // contexts/money/src/money/money.ts was scaffolded during the first pass, marker intact.
+    // currency.ts was scaffolded during the first pass and nobody has touched it.
     writeFileSync(join(dir, "tsc.txt"), `${SKELETON_TYPE_ERR}\nFound 1 error.\n`);
     const r = runGate(dir, true);
     expect(r.status).toBe(1);
     expect(r.stdout).toContain(
-      "note: contexts/money/src/money/money.ts is a generated skeleton — those diagnostics are the contract's own, not builder drift",
+      "note: contexts/money/src/domain/currencies/currency.ts is a generated skeleton — those diagnostics are the contract's own, not builder drift",
     );
     expect(r.stdout).toContain("design-gate: route → architect");
   });
@@ -741,8 +761,8 @@ describe("design-gate CLI: the freeze requires a fresh review", () => {
     const dir = fixtureRepo("design-contract-edit-", CLEAN_CONTRACT);
     review(dir);
     writeFileSync(
-      join(dir, ROOT, "money", "money.contract.ts"),
-      `${CLEAN_CONTRACT}\nexport declare function reformat(money: Money): Currency;\n`,
+      join(dir, ROOT, CONTRACT_PATH),
+      CLEAN_CONTRACT.replace("three uppercase letters", "three uppercase letters, as ISO lists them"),
     );
     const r = runGate(dir);
     expect(r.status).toBe(0);
@@ -753,11 +773,11 @@ describe("design-gate CLI: the freeze requires a fresh review", () => {
   test("a contract ADDED after the review voids it — a review covers a file set", () => {
     const dir = fixtureRepo("design-contract-added-", CLEAN_CONTRACT);
     review(dir);
-    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    place(dir, TICKER_PATH, TICKER_CONTRACT);
     const r = runGate(dir);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain("the reviewer never saw contexts/money/src/money/ticker.contract.ts");
-    expect(r.stdout).toContain("  added since the review: contexts/money/src/money/ticker.contract.ts");
+    expect(r.stdout).toContain(`the reviewer never saw ${TICKER_REL}`);
+    expect(r.stdout).toContain(`  added since the review: ${TICKER_REL}`);
     expect(r.stdout).toContain("design-gate: FAIL — design-review missing (or stale); freeze did not run");
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
   });
@@ -766,12 +786,12 @@ describe("design-gate CLI: the freeze requires a fresh review", () => {
     const dir = fixtureRepo("design-contract-removed-", CLEAN_CONTRACT);
     // Two contracts reviewed together, then one is deleted: the shape the fresh
     // mind read is gone, so the design must be challenged again.
-    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    place(dir, TICKER_PATH, TICKER_CONTRACT);
     review(dir);
-    rmSync(join(dir, ROOT, "money", "ticker.contract.ts"));
+    rmSync(join(dir, ROOT, TICKER_PATH));
     const r = runGate(dir);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain("  removed since the review: contexts/money/src/money/ticker.contract.ts");
+    expect(r.stdout).toContain(`  removed since the review: ${TICKER_REL}`);
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
   });
 
@@ -867,12 +887,12 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     const before = guardCounts(dir);
 
     // A NEW contract file — surface the review never saw — is what stales it now.
-    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    place(dir, TICKER_PATH, TICKER_CONTRACT);
     const r = runGate(dir);
     expect(r.status).toBe(1);
     expect(r.stdout).toContain(EARLY);
-    expect(r.stdout).toContain("the reviewer never saw contexts/money/src/money/ticker.contract.ts");
-    expect(r.stdout).toContain("  added since the review: contexts/money/src/money/ticker.contract.ts");
+    expect(r.stdout).toContain(`the reviewer never saw ${TICKER_REL}`);
+    expect(r.stdout).toContain(`  added since the review: ${TICKER_REL}`);
     expect(r.stdout).toContain(
       "design-gate: FAIL — design-review missing (or stale); contract-purity, scaffold, typecheck, freeze did not run",
     );
@@ -895,7 +915,7 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     const dir = fixtureRepo("design-refreeze-log-", CLEAN_CONTRACT);
     review(dir);
     expect(runGate(dir).status).toBe(0);
-    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    place(dir, TICKER_PATH, TICKER_CONTRACT);
     expect(runGate(dir).status).toBe(1);
 
     const composite = readGuardLog(dir).filter((e) => e.guard === "design-gate");
@@ -923,7 +943,7 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     review(dir);
     expect(runGate(dir).status).toBe(0);
     const frozen = readFileSync(join(dir, MANIFEST), "utf8");
-    writeFileSync(join(dir, ROOT, "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    place(dir, TICKER_PATH, TICKER_CONTRACT);
     expect(runGate(dir).status).toBe(1);
     expect(readFileSync(join(dir, MANIFEST), "utf8")).toBe(frozen);
   });
@@ -936,8 +956,8 @@ describe("design-gate CLI: a re-freeze checks the review first", () => {
     review(dir);
     expect(runGate(dir).status).toBe(0);
     writeFileSync(
-      join(dir, ROOT, "money", "money.contract.ts"),
-      `${CLEAN_CONTRACT}\nexport declare function reformat(money: Money): Currency;\n`,
+      join(dir, ROOT, CONTRACT_PATH),
+      CLEAN_CONTRACT.replace("three uppercase letters", "three uppercase letters, as ISO lists them"),
     );
     const r = runGate(dir);
     expect(r.status).toBe(0);

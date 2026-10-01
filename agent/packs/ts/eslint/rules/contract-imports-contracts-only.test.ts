@@ -42,8 +42,6 @@ ruleTester.run("contract-imports-contracts-only", contractImportsContractsOnly, 
     { code: 'import type { Note } from "@acme/billing/domain";', filename: "file.ts" },
     // outside the hexagonal layers a package is a pinned dependency, not builder code
     { code: 'import type { ReactElement } from "react";', filename: "src/ui/badge.contract.ts" },
-    // a composed pack's shipped support module is generated machinery
-    { code: 'import type { Ack } from "./service-runtime.js";', filename: "src/api/api.contract.ts", options: [{ supportModules: ["service-runtime"] }] },
   ],
   invalid: [
     // an implementation file: the retired rule's recommended form
@@ -78,11 +76,9 @@ ruleTester.run("contract-imports-contracts-only", contractImportsContractsOnly, 
     { code: 'import type { Api } from "./api.js";', filename: "src/api/api.contract.ts", errors: [{ messageId: "jsSpecifier" }] },
     { code: 'import type { CreateNote } from "@example/project-management/application";', filename: "src/api/api.contract.ts", errors: [{ messageId: "notAContract" }] },
     { code: 'import type { Note } from "@example/project-management/domain/notes/note.ts";', filename: "src/api/api.contract.ts", errors: [{ messageId: "notAContract" }] },
-    // a support module is allowed only when the gate names it
+    // no relative non-contract module, with either specifier form
     { code: 'import type { Ack } from "./service-runtime.js";', filename: "src/api/api.contract.ts", errors: [{ messageId: "jsSpecifier" }] },
-    { code: 'import type { Ack } from "./service-runtime.js";', filename: DOMAIN, options: [{ supportModules: ["other-runtime"] }], errors: [{ messageId: "jsSpecifier" }] },
-    // ...and never inside the hexagonal layers, whose parsers accept contracts only
-    { code: 'import type { Ack } from "./service-runtime.ts";', filename: DOMAIN, options: [{ supportModules: ["service-runtime"] }], errors: [{ messageId: "notAContract" }] },
+    { code: 'import type { Ack } from "./service-runtime.ts";', filename: DOMAIN, errors: [{ messageId: "notAContract" }] },
     // import("…") type expressions reach any file without an import declaration
     {
       code: 'import type { Result } from "../shared/result.ts";\nexport interface NoteText {\n  readonly __brand: "NoteText";\n  owner(): import("../projects/project-id.ts").ProjectId;\n}\n',

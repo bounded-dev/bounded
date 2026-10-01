@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 import {
   isMutableSourceFile,
@@ -47,26 +47,33 @@ export * from "./money.js";
 export * from "./tier.js";
 `;
 
-const SKELETON_TS = `// GENERATED from later.contract.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.
-// Red-phase skeleton (TN-26-001): every value export throws NotImplementedError.
-import { notImplemented } from "./shared/errors.js";
+const SKELETON_TS = `import { NotImplementedError } from "./domain/shared/errors.ts";
 
 export function later(n: number): boolean {
-  if (n > 0) return notImplemented("later");
-  return notImplemented("later");
+  if (n > 0) throw new NotImplementedError("later");
+  throw new NotImplementedError("later");
 }
 `;
+
+/** A test of the money logic, and a generated file: neither is the builder's. */
+const TEST_TS = `export function check(n: number): boolean { return n > 0 && n < 10; }\n`;
+const GENERATED_TS = `export function isValid(n: number): boolean { return n > 0 || n < -10; }\n`;
+
+/** The composition the fixtures declare: the hexagonal layout's roots,
+ *  test suffixes and generated globs. */
+const COMPOSITION = JSON.stringify(["ts", "ts-hexagonal"]);
+const LAYOUT = { testSuffixes: [".test.ts", ".test-support.ts"], isGenerated: (p: string) => p.endsWith(".command.ts") };
 
 const PACKAGE_JSON = `{
   "name": "fixture",
   "private": true,
   "type": "module",
-  "scripts": { "test": "vitest run" }
+  "scripts": { "test": "bun test" }
 }
 `;
 
 /** The files a mutant may touch, so a test can prove they came back intact. */
-const MUTABLE = ["src/money.ts", "src/tier.ts"] as const;
+const MUTABLE = ["contexts/pm/src/money.ts", "contexts/pm/src/tier.ts"] as const;
 
 /** Total sites across the fixture: money 8 + tier 4 (everything else excluded). */
 const FIXTURE_SITES = 12;
@@ -76,11 +83,14 @@ function proj(extra: Record<string, string> = {}): string {
   tmpDirs.push(dir);
   const files: Record<string, string> = {
     "package.json": PACKAGE_JSON,
-    "src/money.ts": MONEY_TS,
-    "src/tier.ts": TIER_TS,
-    "src/money.contract.ts": CONTRACT_TS,
-    "src/index.ts": INDEX_TS,
-    "src/later.ts": SKELETON_TS,
+    "contexts/pm/src/money.ts": MONEY_TS,
+    "contexts/pm/src/tier.ts": TIER_TS,
+    "contexts/pm/src/money.contract.ts": CONTRACT_TS,
+    "contexts/pm/src/index.ts": INDEX_TS,
+    "contexts/pm/src/later.ts": SKELETON_TS,
+    "contexts/pm/src/money.test.ts": TEST_TS,
+    "contexts/pm/src/application/x/do-x/do-x.command.ts": GENERATED_TS,
+    ".bounded/composed-packs.json": COMPOSITION,
     ...extra,
   };
   for (const [rel, content] of Object.entries(files)) {
@@ -92,7 +102,7 @@ function proj(extra: Record<string, string> = {}): string {
 
 /** Which of the mutable files currently differ from what was written. */
 function dirtyFiles(dir: string): string[] {
-  const pristine: Record<string, string> = { "src/money.ts": MONEY_TS, "src/tier.ts": TIER_TS };
+  const pristine: Record<string, string> = { "contexts/pm/src/money.ts": MONEY_TS, "contexts/pm/src/tier.ts": TIER_TS };
   return MUTABLE.filter((rel) => readFileSync(join(dir, rel), "utf8") !== pristine[rel]);
 }
 
@@ -144,7 +154,7 @@ const apply = (source: string, site: MutantSite): string =>
 
 describe("mutantSites", () => {
   test("finds exactly the documented operator set, in source order", () => {
-    expect(mutantSites(MONEY_TS, "src/money.ts").map((s) => `${s.line} [${s.operator}] ${s.label}`)).toEqual([
+    expect(mutantSites(MONEY_TS, "contexts/pm/src/money.ts").map((s) => `${s.line} [${s.operator}] ${s.label}`)).toEqual([
       "2 [if-negation] if (c) → if (!(c))",
       "2 [comparison] !== → ===",
       "3 [guard-fall-through] drop `return undefined` guard",
@@ -164,7 +174,7 @@ describe("mutantSites", () => {
   return [x, y, z];
 }
 `;
-    expect(mutantSites(source, "src/f.ts").filter((s) => s.operator === "comparison").map((s) => s.label)).toEqual([
+    expect(mutantSites(source, "contexts/pm/src/f.ts").filter((s) => s.operator === "comparison").map((s) => s.label)).toEqual([
       "<= → <",
       ">= → >",
       "=== → !==",
@@ -173,19 +183,19 @@ describe("mutantSites", () => {
 
   test("swaps && as well as ||, and leaves ?? alone", () => {
     const source = `export const f = (a: boolean, b: boolean, c: string | null) => (a && b) || (c ?? "x") !== "";\n`;
-    expect(mutantSites(source, "src/f.ts").filter((s) => s.operator === "logical").map((s) => s.label)).toEqual([
+    expect(mutantSites(source, "contexts/pm/src/f.ts").filter((s) => s.operator === "logical").map((s) => s.label)).toEqual([
       "&& → ||",
       "|| → &&",
     ]);
   });
 
   test("the if-negation mutant wraps the whole condition", () => {
-    const site = mutantSites(MONEY_TS, "src/money.ts")[0]!;
+    const site = mutantSites(MONEY_TS, "contexts/pm/src/money.ts")[0]!;
     expect(apply(MONEY_TS, site)).toContain(`if (!(typeof raw !== "number")) {`);
   });
 
   test("the guard fall-through mutant leaves syntactically valid fall-through", () => {
-    const site = mutantSites(MONEY_TS, "src/money.ts").find((s) => s.operator === "guard-fall-through")!;
+    const site = mutantSites(MONEY_TS, "contexts/pm/src/money.ts").find((s) => s.operator === "guard-fall-through")!;
     expect(apply(MONEY_TS, site)).toContain(`if (typeof raw !== "number") {\n    ;\n  }`);
   });
 
@@ -196,7 +206,7 @@ describe("mutantSites", () => {
   }
 }
 `;
-    expect(mutantSites(source, "src/x.ts").filter((s) => s.operator === "guard-fall-through")).toEqual([]);
+    expect(mutantSites(source, "contexts/pm/src/x.ts").filter((s) => s.operator === "guard-fall-through")).toEqual([]);
   });
 
   test("no guard site outside a parse-shaped function", () => {
@@ -205,7 +215,19 @@ describe("mutantSites", () => {
   return raw;
 }
 `;
-    expect(mutantSites(source, "src/x.ts").filter((s) => s.operator === "guard-fall-through")).toEqual([]);
+    expect(mutantSites(source, "contexts/pm/src/x.ts").filter((s) => s.operator === "guard-fall-through")).toEqual([]);
+  });
+
+  test("a failed Result is a rejection guard too (ADR 2026-059)", () => {
+    const source = `export function parseName(raw: unknown): Result<string> {
+  if (typeof raw !== "string") return { ok: false, error: "not a string" };
+  return { ok: true, value: raw };
+}
+`;
+    const guards = mutantSites(source, "contexts/pm/src/name.ts").filter((s) => s.operator === "guard-fall-through");
+    expect(guards.map((s) => s.label)).toEqual(["drop `return { ok: false }` guard"]);
+    // The last statement's success return is not a site: dropping it changes nothing observable.
+    expect(apply(source, guards[0]!)).toContain('if (typeof raw !== "string") ;');
   });
 
   test("a static parse method counts as parse-shaped", () => {
@@ -216,7 +238,7 @@ describe("mutantSites", () => {
   }
 }
 `;
-    expect(mutantSites(source, "src/money.ts").filter((s) => s.operator === "guard-fall-through")).toHaveLength(1);
+    expect(mutantSites(source, "contexts/pm/src/money.ts").filter((s) => s.operator === "guard-fall-through")).toHaveLength(1);
   });
 });
 
@@ -224,31 +246,37 @@ describe("mutantSites", () => {
 
 describe("isMutableSourceFile", () => {
   test("excludes contracts, barrels, declaration files and skeleton leftovers", () => {
-    expect(isMutableSourceFile("src/money.contract.ts", CONTRACT_TS)).toBe(false);
-    expect(isMutableSourceFile("src/index.ts", INDEX_TS)).toBe(false);
-    expect(isMutableSourceFile("src/nested/index.ts", INDEX_TS)).toBe(false);
-    expect(isMutableSourceFile("src/types.d.ts", "export {};\n")).toBe(false);
-    expect(isMutableSourceFile("src/later.ts", SKELETON_TS)).toBe(false);
+    expect(isMutableSourceFile("contexts/pm/src/money.contract.ts", CONTRACT_TS, LAYOUT)).toBe(false);
+    expect(isMutableSourceFile("contexts/pm/src/index.ts", INDEX_TS, LAYOUT)).toBe(false);
+    expect(isMutableSourceFile("contexts/pm/src/nested/index.ts", INDEX_TS, LAYOUT)).toBe(false);
+    expect(isMutableSourceFile("contexts/pm/src/types.d.ts", "export {};\n", LAYOUT)).toBe(false);
+    expect(isMutableSourceFile("contexts/pm/src/later.ts", SKELETON_TS, LAYOUT)).toBe(false);
   });
 
-  test("includes an implemented file that merely kept the generated header", () => {
-    const implemented = SKELETON_TS.split("\n").slice(0, 2).join("\n") + "\n" + MONEY_TS;
-    expect(isMutableSourceFile("src/money.ts", implemented)).toBe(true);
-    expect(isMutableSourceFile("src/money.ts", MONEY_TS)).toBe(true);
+  test("excludes test-side files and generated files: neither is the builder's logic", () => {
+    expect(isMutableSourceFile("contexts/pm/src/money.test.ts", TEST_TS, LAYOUT)).toBe(false);
+    expect(isMutableSourceFile("contexts/pm/src/money.store.test-support.ts", TEST_TS, LAYOUT)).toBe(false);
+    expect(isMutableSourceFile("contexts/pm/src/application/x/do-x/do-x.command.ts", GENERATED_TS, LAYOUT)).toBe(false);
+  });
+
+  test("includes an implemented file that merely imports the errors module's neighbourhood", () => {
+    const implemented = 'import type { Result } from "./domain/shared/result.ts";\n' + MONEY_TS;
+    expect(isMutableSourceFile("contexts/pm/src/money.ts", implemented, LAYOUT)).toBe(true);
+    expect(isMutableSourceFile("contexts/pm/src/money.ts", MONEY_TS, LAYOUT)).toBe(true);
   });
 });
 
 // --- selection ------------------------------------------------------------------
 
 describe("selectMutants", () => {
-  const all = [...mutantSites(MONEY_TS, "src/money.ts"), ...mutantSites(TIER_TS, "src/tier.ts")];
+  const all = [...mutantSites(MONEY_TS, "contexts/pm/src/money.ts"), ...mutantSites(TIER_TS, "contexts/pm/src/tier.ts")];
 
   test("deals round-robin across files so one file cannot eat the budget", () => {
     expect(labels(selectMutants(all, 4))).toEqual([
-      "src/money.ts:2 if (c) → if (!(c))",
-      "src/tier.ts:2 if (c) → if (!(c))",
-      "src/money.ts:2 !== → ===",
-      "src/tier.ts:2 >= → >",
+      "contexts/pm/src/money.ts:2 if (c) → if (!(c))",
+      "contexts/pm/src/tier.ts:2 if (c) → if (!(c))",
+      "contexts/pm/src/money.ts:2 !== → ===",
+      "contexts/pm/src/tier.ts:2 >= → >",
     ]);
   });
 
@@ -261,8 +289,8 @@ describe("selectMutants", () => {
     expect(selectMutants(all, 99)).toHaveLength(all.length);
     expect(selectMutants(all, 0)).toEqual([]);
     expect(labels(selectMutants(all, 10)).slice(8)).toEqual([
-      "src/money.ts:5 < → <=",
-      "src/money.ts:5 || → &&",
+      "contexts/pm/src/money.ts:5 < → <=",
+      "contexts/pm/src/money.ts:5 || → &&",
     ]);
   });
 });
@@ -284,14 +312,14 @@ describe("runMutationScore", () => {
     expect(result.survived).toBe(1);
     expect(result.score).toBe(75);
     expect(result.lines).toEqual([
-      "KILLED   src/money.ts:2 if (c) → if (!(c))",
-      "SURVIVED src/tier.ts:2 if (c) → if (!(c))",
-      "KILLED   src/money.ts:2 !== → ===",
-      "KILLED   src/tier.ts:2 >= → >",
+      "KILLED   contexts/pm/src/money.ts:2 if (c) → if (!(c))",
+      "SURVIVED contexts/pm/src/tier.ts:2 if (c) → if (!(c))",
+      "KILLED   contexts/pm/src/money.ts:2 !== → ===",
+      "KILLED   contexts/pm/src/tier.ts:2 >= → >",
       "",
       "mutation-score: 4 mutants of 12 sites · 3 killed · 1 survived · score 75%",
       "mutation-score: survivors — each one is a finding: shipped parse/guard logic changed, suite still green.",
-      "mutation-score:   src/tier.ts:2 if (c) → if (!(c))",
+      "mutation-score:   contexts/pm/src/tier.ts:2 if (c) → if (!(c))",
       "mutation-score: measurement only — no threshold is enforced (TN-26-002).",
     ]);
   });
@@ -330,7 +358,7 @@ describe("runMutationScore", () => {
     expect(result.timedOut).toBe(1);
     expect(result.killed).toBe(2);
     expect(result.survived).toBe(0);
-    expect(result.lines[0]).toBe("TIMEOUT  src/money.ts:2 if (c) → if (!(c)) (counted as killed)");
+    expect(result.lines[0]).toBe("TIMEOUT  contexts/pm/src/money.ts:2 if (c) → if (!(c)) (counted as killed)");
     expect(result.lines).toContain("mutation-score: 2 mutants of 12 sites · 2 killed (1 by timeout) · 0 survived · score 100%");
   });
 
@@ -355,19 +383,19 @@ describe("runMutationScore", () => {
       killed: 3,
       survived: 1,
       score: 75,
-      files: ["src/money.ts", "src/tier.ts"],
-      survivors: [{ file: "src/tier.ts", line: 2, operator: "if-negation" }],
+      files: ["contexts/pm/src/money.ts", "contexts/pm/src/tier.ts"],
+      survivors: [{ file: "contexts/pm/src/tier.ts", line: 2, operator: "if-negation" }],
     });
   });
 
   test("a project with no mutable parse/guard logic is a clean 0, not an error", async () => {
-    const dir = proj({ "src/money.ts": "export const NAME = \"x\";\n", "src/tier.ts": "export const N = 1;\n" });
+    const dir = proj({ "contexts/pm/src/money.ts": "export const NAME = \"x\";\n", "contexts/pm/src/tier.ts": "export const N = 1;\n" });
     const result = await runMutationScore(dir, { runSuite: indexedRunner() });
 
     expect(result.code).toBe(0);
     expect(result.sites).toBe(0);
     expect(result.score).toBeUndefined();
-    expect(result.lines).toEqual(["mutation-score: no mutable parse/guard sites in src/ — nothing to measure"]);
+    expect(result.lines).toEqual(["mutation-score: no mutable parse/guard sites under the source roots — nothing to measure"]);
   });
 
   test("refuses to score against a suite that is not already green", async () => {
@@ -396,9 +424,19 @@ describe("runMutationScore", () => {
     const noSrc = mkdtempSync(join(tmpdir(), "pi-mutation-nosrc-"));
     tmpDirs.push(noSrc);
     writeFileSync(join(noSrc, "package.json"), PACKAGE_JSON);
+    mkdirSync(join(noSrc, ".bounded"));
+    writeFileSync(join(noSrc, ".bounded/composed-packs.json"), COMPOSITION);
     const srcless = await runMutationScore(noSrc, { runSuite: indexedRunner() });
     expect(srcless.code).toBe(2);
     expect(srcless.lines.at(-1)).toContain("nothing to mutate");
+
+    // An unreadable composition is misuse too: the gate must not guess where source lives.
+    const uncomposed = mkdtempSync(join(tmpdir(), "pi-mutation-uncomposed-"));
+    tmpDirs.push(uncomposed);
+    writeFileSync(join(uncomposed, "package.json"), PACKAGE_JSON);
+    const unread = await runMutationScore(uncomposed, { runSuite: indexedRunner() });
+    expect(unread.code).toBe(2);
+    expect(unread.lines.at(-1)).toContain("composition");
   });
 });
 
@@ -424,53 +462,59 @@ describe("parseCliArgs", () => {
   });
 });
 
-// --- the one test that spawns real vitest ---------------------------------------
+// --- the one test that spawns real bun ----------------------------------------
 //
 // Everything above injects a suite runner, because 40 mutants means 40 suite
-// runs. This one proves the OTHER half is real: that `vitestSuiteRunner` —
+// runs. This one proves the OTHER half is real: that `bunSuiteRunner` —
 // run-tests' `runTests` composed with its `spawnRunner` under an AbortSignal —
-// actually drives vitest in a target project and reports green/red. Three
-// mutants, four suite runs, a couple of seconds. The fixture borrows the
-// pack's own node_modules by symlink so nothing is installed.
+// drives `bun test` in a monorepo and reports green/red. Three mutants, four
+// suite runs. `bun:test` is built in, so nothing is installed.
 
-const PACK_NODE_MODULES = fileURLToPath(new URL("../../../node_modules", import.meta.url));
+const HAS_BUN = spawnSync("bun", ["--version"]).status === 0;
+if (!HAS_BUN) console.warn("mutation-score.test.ts: skipping the real-bun run — `bun` is not on PATH");
 
-const E2E_SRC = `export function parseAmount(raw: unknown): number | undefined {
+const E2E_SRC = `import type { Result } from "../shared/result.ts";
+
+export function parseAmount(raw: unknown): Result<number> {
   if (typeof raw !== "number") {
-    return undefined;
+    return { ok: false, error: "not a number" };
   }
-  if (raw < 0) return undefined;
-  return Math.round(raw);
+  if (raw < 0) return { ok: false, error: "negative" };
+  return { ok: true, value: Math.round(raw) };
 }
 `;
 
-const E2E_TEST = `import { expect, test } from "vitest";
-import { parseAmount } from "../src/money.ts";
+const E2E_TEST = `import { expect, test } from "bun:test";
+import { parseAmount } from "./money.ts";
 
-test("accepts a number", () => expect(parseAmount(5)).toBe(5));
-test("rejects a string", () => expect(parseAmount("x")).toBeUndefined());
-test("rejects negatives", () => expect(parseAmount(-1)).toBeUndefined());
+test("accepts a number", () => expect(parseAmount(5)).toEqual({ ok: true, value: 5 }));
+test("rejects a string", () => expect(parseAmount("x").ok).toBe(false));
+test("rejects negatives", () => expect(parseAmount(-1).ok).toBe(false));
 `;
 
-describe("runMutationScore, end to end", () => {
-  test("drives real vitest through the run-tests seam", async () => {
+describe.skipIf(!HAS_BUN)("runMutationScore, end to end", () => {
+  test("drives real bun test through the run-tests seam, over the source roots only", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-mutation-e2e-"));
     tmpDirs.push(dir);
     for (const [rel, content] of Object.entries({
       "package.json": PACKAGE_JSON,
-      "src/money.ts": E2E_SRC,
-      "tests/money.test.ts": E2E_TEST,
+      ".bounded/composed-packs.json": COMPOSITION,
+      "contexts/pm/src/domain/shared/result.ts": "export type Result<T> = { ok: true; value: T } | { ok: false; error: string };\n",
+      "contexts/pm/src/domain/money/money.ts": E2E_SRC,
+      "contexts/pm/src/domain/money/money.test.ts": E2E_TEST,
+      // Outside every source root: never mutated.
+      "scripts/tool.ts": "export const t = (n: number) => n > 1;\n",
     })) {
       mkdirSync(dirname(join(dir, rel)), { recursive: true });
       writeFileSync(join(dir, rel), content);
     }
-    symlinkSync(PACK_NODE_MODULES, join(dir, "node_modules"), "dir");
 
     const result = await runMutationScore(dir, { maxMutants: 3 });
 
-    expect(result.code).toBe(0);
+    expect(result.code, result.lines.join("\n")).toBe(0);
+    expect(result.outcomes.map((o) => o.site.file)).toEqual(Array(3).fill("contexts/pm/src/domain/money/money.ts"));
     expect(result.outcomes.map((o) => o.verdict)).toEqual(["killed", "killed", "killed"]);
     expect(result.score).toBe(100);
-    expect(readFileSync(join(dir, "src/money.ts"), "utf8")).toBe(E2E_SRC);
-  }, 60_000);
+    expect(readFileSync(join(dir, "contexts/pm/src/domain/money/money.ts"), "utf8")).toBe(E2E_SRC);
+  }, 120_000);
 });

@@ -156,7 +156,8 @@ export async function adoptProject(root: string): Promise<ChangeBaseline> {
   if (lint.code !== 0) throw new Error(`lint-src failed: ${lint.lines.join("; ")}`);
   const checked = await typecheck(root);
   if (!checked.ok) throw new Error(`typecheck failed: ${checked.diagnostics.join("; ")}`);
-  const surface = checkProjectSurfaces(root);
+  const { sourceRoots } = await import("../../../src/pack-contrib.ts");
+  const surface = checkProjectSurfaces(root, sourceRoots(root));
   if (surface.code !== 0) throw new Error(`surface-check failed: ${surface.lines.join("; ")}`);
   const snapshot = snapshotDesign(root);
   writeSnapshot(root, snapshot, true);

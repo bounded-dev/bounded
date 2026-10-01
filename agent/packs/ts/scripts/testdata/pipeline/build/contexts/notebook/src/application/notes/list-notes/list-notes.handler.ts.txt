@@ -1,0 +1,10 @@
+import type { Note } from "{{scope}}/notebook/domain";
+import type { ListNotes, ListNotesStore } from "./list-notes.contract.ts";
+
+export class ListNotesHandler implements ListNotes {
+  constructor(private readonly store: ListNotesStore) {}
+
+  async execute(): Promise<Note[]> {
+    return this.store.findAll();
+  }
+}

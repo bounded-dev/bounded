@@ -16,41 +16,94 @@ function temp(): string {
 }
 function trackedProject(): string {
   const dir = temp();
-  mkdirSync(join(dir, "src/domain"), { recursive: true });
+  mkdirSync(join(dir, "contexts/lending/src/domain/items"), { recursive: true });
   writeFileSync(join(dir, ".gitignore"), ".bounded/\nnode_modules/\n");
   writeFileSync(join(dir, "spec.md"), "# Design\n\nA loan has one borrower.\n");
-  writeFileSync(join(dir, "src/domain/item.contract.ts"), "export declare function returnItem(): void;\n");
+  writeFileSync(join(dir, "contexts/lending/src/domain/items/item.contract.ts"), "export declare function returnItem(): void;\n");
   writeFileSync(join(dir, "CONTEXT.md"), "# Terms\n\nBorrower means the person holding an item.\n");
   mkdirSync(join(dir, "ADRs"));
   writeFileSync(join(dir, "ADRs/2026-001-loans.md"), "# Loan decision\n\nReturns are explicit.\n");
-  writeProjectPacks(dir, ["ts"]);
+  // Contracts are the files under the composed source roots (ADR 2026-056).
+  writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   execFileSync("git", ["-C", dir, "init", "-q"]);
   execFileSync("git", ["-C", dir, "add", "-A"]);
   execFileSync("git", ["-C", dir, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.invalid", "commit", "-qm", "baseline"]);
   return dir;
 }
-/** A clean, implemented project in the flat layout adoption checks today:
- *  one contract, its implementation, and the config the gates read. (It used
- *  to copy packs/ts/reference, which now holds the hexagonal worked example,
- *  ADR 2026-059.) */
+/** A clean, implemented hexagonal project (TN-26-012) adoption checks: one
+ *  domain concept, its implementation, and the config the gates read. */
+const RESULT = "export type Result<T, E = string> = { ok: true; value: T } | { ok: false; error: E };\n";
+const TICKS_CONTRACT = `import type { Result } from "../shared/result.ts";
+
+/**
+ * A number of clock ticks: a whole number, zero or more.
+ * @accepts 0
+ * @accepts 3
+ */
+export interface TickCount {
+  readonly __brand: "TickCount";
+  readonly value: number;
+  equals(other: TickCount): boolean;
+  toJSON(): number;
+}
+
+export interface TickCountFactory {
+  parse(raw: unknown): Result<TickCount>;
+}
+`;
+const TICKS_IMPL = `import { z } from "zod";
+import type { Result } from "../shared/result.ts";
+import type * as Contract from "./tick-count.contract.ts";
+
+const schema = z.number().int().min(0, "Tick count is a whole number, zero or more");
+
+class TickCountImpl implements Contract.TickCount {
+  declare readonly __brand: "TickCount";
+  private constructor(readonly value: number) {}
+
+  static parse(raw: unknown): Result<Contract.TickCount> {
+    const result = schema.safeParse(raw);
+    return result.success
+      ? { ok: true, value: new TickCountImpl(result.data) }
+      : { ok: false, error: result.error.issues[0]?.message ?? "Invalid tick count" };
+  }
+
+  equals(other: Contract.TickCount): boolean {
+    return this.value === other.value;
+  }
+
+  toJSON(): number {
+    return this.value;
+  }
+}
+
+export type TickCount = Contract.TickCount;
+export const TickCount: Contract.TickCountFactory = TickCountImpl;
+`;
 function referenceProject(): string {
   const dir = temp();
-  mkdirSync(join(dir, "src/clock"), { recursive: true });
-  writeFileSync(join(dir, "spec.md"), "# Clock\n\nA tick advances nothing and returns nothing.\n");
-  writeFileSync(join(dir, "src/clock/clock.contract.ts"), "export declare function tick(): void;\n");
-  writeFileSync(join(dir, "src/clock/clock.ts"), "export function tick(): void {}\n");
-  writeFileSync(join(dir, "package.json"), '{ "name": "adopt-fixture", "private": true, "type": "module" }\n');
+  const domain = join(dir, "contexts/clock/src/domain");
+  mkdirSync(join(domain, "ticks"), { recursive: true });
+  mkdirSync(join(domain, "shared"), { recursive: true });
+  writeFileSync(join(dir, "spec.md"), "# Clock\n\nA tick count is a whole number, zero or more.\n");
+  writeFileSync(join(domain, "shared/result.ts"), RESULT);
+  writeFileSync(join(domain, "ticks/tick-count.contract.ts"), TICKS_CONTRACT);
+  writeFileSync(join(domain, "ticks/tick-count.ts"), TICKS_IMPL);
+  writeFileSync(join(dir, "package.json"), '{ "name": "adopt-fixture", "private": true, "type": "module", "workspaces": ["contexts/*"] }\n');
   writeFileSync(
     join(dir, "tsconfig.json"),
     JSON.stringify({
-      compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true },
-      include: ["src/**/*.ts"],
+      compilerOptions: {
+        target: "ESNext", module: "Preserve", moduleResolution: "bundler", allowImportingTsExtensions: true,
+        verbatimModuleSyntax: true, strict: true, noEmit: true, skipLibCheck: true, types: [],
+      },
+      include: ["contexts/*/src"],
     }),
   );
   const modules = join(import.meta.dirname, "..", "..", "..", "node_modules");
   // Git canonicalizes macOS temporary paths (/var -> /private/var).
   symlinkSync(modules, join(dir, "node_modules"), "dir");
-  writeProjectPacks(dir, ["ts"]);
+  writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   writeFileSync(join(dir, ".gitignore"), ".bounded/\nnode_modules/\n");
   execFileSync("git", ["-C", dir, "init", "-q"]);
   execFileSync("git", ["-C", dir, "add", "-A"]);
@@ -63,16 +116,16 @@ describe("change baseline and reviewer diff", () => {
     const dir = trackedProject();
     const baseline = captureChangeBaseline(dir);
     expect(Object.keys(baseline.files).sort()).toEqual([
-      "ADRs/2026-001-loans.md", "CONTEXT.md", "spec.md", "src/domain/item.contract.ts",
+      "ADRs/2026-001-loans.md", "CONTEXT.md", "contexts/lending/src/domain/items/item.contract.ts", "spec.md",
     ]);
     writeFileSync(join(dir, "spec.md"), "# Design\n\nA loan has a named borrower and due date.\n");
-    writeFileSync(join(dir, "src/domain/item.contract.ts"), "export declare function returnItem(id: string): void;\n");
-    writeFileSync(join(dir, "src/domain/receipt.contract.ts"), "export declare function receipt(): string;\n");
+    writeFileSync(join(dir, "contexts/lending/src/domain/items/item.contract.ts"), "export declare function returnItem(id: string): void;\n");
+    writeFileSync(join(dir, "contexts/lending/src/domain/items/receipt.contract.ts"), "export declare function receipt(): string;\n");
     writeFileSync(join(dir, "CONTEXT.md"), "# Terms\n\nBorrower means the person responsible for return.\n");
     writeFileSync(join(dir, "ADRs/2026-001-loans.md"), "# Loan decision\n\nReturns include a due date.\n");
     const diff = designDiff(dir);
     expect(diff.paths).toEqual(expect.arrayContaining([
-      "ADRs/2026-001-loans.md", "CONTEXT.md", "spec.md", "src/domain/item.contract.ts", "src/domain/receipt.contract.ts",
+      "ADRs/2026-001-loans.md", "CONTEXT.md", "spec.md", "contexts/lending/src/domain/items/item.contract.ts", "contexts/lending/src/domain/items/receipt.contract.ts",
     ]));
     expect(diff.lines.join("\n")).toContain("+A loan has a named borrower and due date.");
     expect(diff.lines.join("\n")).toContain("+export declare function receipt(): string;");
@@ -81,19 +134,19 @@ describe("change baseline and reviewer diff", () => {
   test("identical content moved to a new contract path is reported as a rename", () => {
     const dir = trackedProject();
     captureChangeBaseline(dir);
-    const oldPath = join(dir, "src/domain/item.contract.ts");
+    const oldPath = join(dir, "contexts/lending/src/domain/items/item.contract.ts");
     const contents = readFileSync(oldPath, "utf8");
     rmSync(oldPath);
-    writeFileSync(join(dir, "src/domain/returned-item.contract.ts"), contents);
+    writeFileSync(join(dir, "contexts/lending/src/domain/items/returned-item.contract.ts"), contents);
     const diff = designDiff(dir);
-    expect(diff.lines).toContain("change-diff: renamed src/domain/item.contract.ts → src/domain/returned-item.contract.ts");
+    expect(diff.lines).toContain("change-diff: renamed contexts/lending/src/domain/items/item.contract.ts → contexts/lending/src/domain/items/returned-item.contract.ts");
   });
 
   test("baseline corruption and composition changes are visible and refused", () => {
     const dir = trackedProject();
     captureChangeBaseline(dir);
     writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
-    expect(designDiff(dir).lines.some((line) => line.includes("packages ts → ts, ts-hexagonal, ts-trpc, ts-web"))).toBe(true);
+    expect(designDiff(dir).lines.some((line) => line.includes("packages ts, ts-hexagonal → ts, ts-hexagonal, ts-trpc, ts-web"))).toBe(true);
     const path = join(dir, BASELINE_PATH);
     const baseline = JSON.parse(readFileSync(path, "utf8"));
     baseline.files["spec.md"].content = "tampered";

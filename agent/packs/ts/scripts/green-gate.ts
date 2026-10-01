@@ -2,8 +2,8 @@
 //
 //   node green-gate.ts [targetDir]
 //
-// Runs the target project's vitest suite (JSON reporter, via the shared
-// run_tests suite runner) AND `tsc --noEmit`, and asserts GREEN from the
+// Runs the target project's suite with `bun test` (via the shared run_tests
+// runner, ADR 2026-062) AND `bunx tsc`, and asserts GREEN from the
 // ORCHESTRATOR's own run — never the builder's say-so (TN-26-001 §"Roles and
 // flow": "green is asserted from the orchestrator's own run"). The suite must
 // run and every test must pass; any failure fails the gate, naming each
@@ -13,10 +13,16 @@
 // GREEN ALSO REQUIRES A TYPE-CLEAN PROJECT (issue #7). Dogfood Run 3 declared
 // "GREEN (22/22)" while tsc still had two errors in the test file: tests pass
 // at RUNTIME while the project does not compile, and the builder could not
-// have fixed it anyway (blind to tests/**, and the path gate refuses the
+// have fixed it anyway (blind to test files, and the path gate refuses the
 // edit). So the gate typechecks too and, on failure, prints ONE route line
 // naming the furthest-upstream role that may repair what it found — a
-// tests/**-only failure bounces to the test-writer.
+// failure only in test-side files bounces to the test-writer.
+//
+// A SKIPPED TEST IS NOT A PASS. Green refuses any skipped or todo result, and
+// the phase test policies (ADR 2026-064) refuse before the suite runs when
+// store tests exist and no container runtime answers; the variables that
+// would let a store test skip itself are removed from the test process.
+// Green also checks the green-only test obligations: an app's smoke test.
 //
 // GREEN IS BOUND TO A RED. Before running anything, the gate requires a
 // red-gate pass that is still standing: recorded after the last contract
@@ -38,7 +44,7 @@ import { runTests, type RunTestsResult } from "./run-tests.ts";
 import {
   gateOptionsFromEnv,
   gateTypecheckOptionsFromEnv,
-  testsTreeHash,
+  testFilesHash,
 } from "./red-gate.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { typecheck, type TypecheckResult } from "./typecheck.ts";
@@ -48,7 +54,11 @@ import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import { configDriftBlock } from "./project-config.ts";
 import { lintSrc } from "./lint-src.ts";
 import { checkProjectSurfaces } from "./surface-check.ts";
-import { findSkeletonImportsInSrc, type SkeletonImporter } from "./skeleton-imports.ts";
+import { findSkeletonImports, type SkeletonImporter } from "./skeleton-imports.ts";
+import { sourceRoots } from "../../../src/pack-contrib.ts";
+import { phaseRun } from "./phase-policy.ts";
+import { projectFactsOf } from "./project-emitters.ts";
+import { checkObligations, obligationLines, readObligationInput } from "./test-obligations.ts";
 
 const GUARD = "green-gate";
 
@@ -98,6 +108,20 @@ function suiteVerdict(run: RunTestsResult): SuiteVerdict | null {
       summary: "no tests ran",
       lines: ["green-gate: FAIL — no tests ran; green is a positive claim (silence is not success)"],
       detail: { reason: "no-tests" },
+      owner: "test-writer",
+    };
+  }
+  const skipped = run.results.filter((r) => r.status !== "passed" && r.status !== "failed");
+  if (run.failed === 0 && skipped.length > 0) {
+    return {
+      summary: `${skipped.length} skipped test${skipped.length === 1 ? "" : "s"}`,
+      lines: [
+        `green-gate: FAIL — ${skipped.length} test${skipped.length === 1 ? " was" : "s were"} skipped or left todo; a skipped test is not a pass`,
+        ...skipped.map((r) => `  not run: ${r.name} (${r.status})`),
+        "  Generated laws skip when a value object's contract gives no @accepts examples (the architect's);",
+        "  a hand-written skip or todo is the test-writer's.",
+      ],
+      detail: { reason: "skipped", names: skipped.map((r) => r.name) },
       owner: "test-writer",
     };
   }
@@ -154,10 +178,10 @@ export function routeAfterRepeat(
 export function classifyGreen(
   run: RunTestsResult,
   tsc: TypecheckResult,
-  /** Escape-hatch problems in src/** (see lint-src.ts). A `!`, an `as`, an
+  /** Escape-hatch problems in the builder's source (see lint-src.ts). A `!`, an `as`, an
    *  `any` or a `@ts-expect-error` is the type checker being switched off for
    *  one expression, so it is a gate failure exactly like a type error, never
-   *  an advisory note. Always the builder's: src/** is its write zone. */
+   *  an advisory note. Always the builder's: it is the builder's write zone. */
   lint: readonly string[] = [],
   /** Surface violations from surface-check.ts: public exports or members the
    *  contract does not declare, or declared surface the implementation
@@ -166,7 +190,7 @@ export function classifyGreen(
    *  a contract. Always the builder's: the remedy is "make it private" or a
    *  CONTRACT-DISPUTE, both of which start with the builder. */
   surface: readonly string[] = [],
-  /** src/** files still importing from the red-phase errors module (see
+  /** Source files still importing from the red-phase errors module (see
    *  skeleton-imports.ts). r16: billing.ts stayed a throwing skeleton and green
    *  passed 179/179 twice, because no test imported its exports so nothing ran
    *  the throw. An unimplemented export is not GREEN whatever the suite says.
@@ -190,7 +214,7 @@ export function classifyGreen(
       verdict: "pass",
       summary: `GREEN (${run.passed}/${run.total} passed, typecheck clean)`,
       lines: [
-        `green-gate: OK — ${run.passed} passed, ${run.total} total${run.skipped > 0 ? `, ${run.skipped} skipped` : ""}, typecheck clean`,
+        `green-gate: OK — ${run.passed} passed, ${run.total} total, typecheck clean`,
       ],
       detail: { passed: run.passed, total: run.total, skipped: run.skipped, typeErrors: 0 },
     };
@@ -201,7 +225,7 @@ export function classifyGreen(
   // A surviving skeleton is the r16 case: the suite is green, but green over an
   // export nothing implemented is a false green in the same family.
   const skeletonHeadline = [
-    `green-gate: FAIL — ${skeletons.length} src file${skeletons.length === 1 ? "" : "s"} still ` +
+    `green-gate: FAIL — ${skeletons.length} source file${skeletons.length === 1 ? "" : "s"} still ` +
       `import${skeletons.length === 1 ? "s" : ""} from the red-phase errors module; the suite passes ` +
       `(${run.passed}/${run.total}) but an unimplemented skeleton reached green — no test executes its ` +
       `NotImplementedError throw`,
@@ -214,7 +238,7 @@ export function classifyGreen(
         ]
       : lint.length > 0
         ? [
-            `green-gate: FAIL — ${lint.length} escape hatch${lint.length === 1 ? "" : "es"} in src/; the suite passes (${run.passed}/${run.total}) but the type checker was switched off to get there`,
+            `green-gate: FAIL — ${lint.length} escape hatch${lint.length === 1 ? "" : "es"} in the builder's source; the suite passes (${run.passed}/${run.total}) but the type checker was switched off to get there`,
           ]
         : surface.length > 0
           ? [
@@ -343,7 +367,7 @@ export type RedBinding =
   | { readonly ok: true }
   /** No red-gate pass since the contracts were last frozen (Run 10). */
   | { readonly ok: false; readonly reason: "no-red" }
-  /** A red stands, but tests/** has been edited since it was measured. */
+  /** A red stands, but a test-side file has been edited since it was measured. */
   | { readonly ok: false; readonly reason: "tests-changed" }
   /** A red stands but recorded no tests hash, so nothing can be bound to it. */
   | { readonly ok: false; readonly reason: "unbound-red" };
@@ -363,14 +387,14 @@ export type RedBinding =
  *    nothing has ever proven CAN fail. Comparing `testsTreeHash` closes it:
  *    the red records the hash of the tree it ran against, and green refuses
  *    unless the tree still hashes the same. The fix is one command — re-run
- *    red_gate, which does not disturb src/ — so the message says so.
+ *    red_gate, which does not disturb the builder's code — so the message says so.
  *
  * Pure: the caller supplies the events and the current hash.
  */
 export function redBindingFor(events: readonly BindingEvent[], testsHash: string): RedBinding {
   const red = lastStandingRedPass(events);
   if (red === undefined) return { ok: false, reason: "no-red" };
-  const recorded = (red.detail as { testsTreeHash?: unknown } | undefined)?.testsTreeHash;
+  const recorded = (red.detail as { testFilesHash?: unknown } | undefined)?.testFilesHash;
   if (typeof recorded !== "string" || recorded === "") return { ok: false, reason: "unbound-red" };
   return recorded === testsHash ? { ok: true } : { ok: false, reason: "tests-changed" };
 }
@@ -395,22 +419,27 @@ function refusal(reason: "no-red" | "tests-changed" | "unbound-red"): GateResult
   }
   const headline =
     reason === "tests-changed"
-      ? "green-gate: FAIL — tests/ has changed since the red-gate pass that covers it"
-      : "green-gate: FAIL — the standing red-gate pass recorded no tests hash, so no red covers these tests";
+      ? "green-gate: FAIL — a test-side file has changed since the red-gate pass that covers it"
+      : "green-gate: FAIL — the standing red-gate pass recorded no test-files hash, so no red covers these tests";
   return {
     code: 1,
     verdict: "block",
-    summary: reason === "tests-changed" ? "tests changed since the red" : "standing red records no tests hash",
+    summary: reason === "tests-changed" ? "tests changed since the red" : "standing red records no test-files hash",
     lines: [
       headline,
       "  The red proved THOSE tests can fail; a test edited afterwards is unproven, and",
       "  a green over an unproven test is the same false green in new clothes.",
       "  Re-run red_gate — it builds its own shadow project, so it neither needs nor",
-      "  touches src/, and the builder can keep working while it runs.",
+      "  touches the builder's code, and the builder can keep working while it runs.",
       "green-gate: route → test-writer",
     ],
     detail: { reason, route: "test-writer" },
   };
+}
+
+function blockAndLog(cwd: string, result: GateResult): GateResult {
+  logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
+  return result;
 }
 
 export async function runGreenGate(cwd: string): Promise<GateResult> {
@@ -418,29 +447,55 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
   // composed packs generate (ADR 2026-054).
   const configBlock = configDriftBlock(GUARD, cwd);
   if (configBlock !== undefined) return configBlock;
-  const binding = redBindingFor(readGuardLog(cwd), testsTreeHash(cwd));
-  if (!binding.ok) {
-    const result = refusal(binding.reason);
-    logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
-    return result;
+  let hash: string;
+  try {
+    hash = testFilesHash(cwd);
+  } catch (error) {
+    return blockAndLog(cwd, {
+      code: 2, verdict: "error", summary: "the test-side files cannot be read",
+      lines: [`green-gate: ERROR — the test-side files cannot be read (${error instanceof Error ? error.message : String(error)})`],
+      detail: { reason: "unreadable-layout" },
+    });
+  }
+  const binding = redBindingFor(readGuardLog(cwd), hash);
+  if (!binding.ok) return blockAndLog(cwd, refusal(binding.reason));
+
+  // Store tests need a container runtime at green (ADR 2026-064): refuse
+  // rather than run a suite whose store tests cannot start.
+  const policy = phaseRun(cwd, "green");
+  if (policy.refusals.length > 0) {
+    return blockAndLog(cwd, {
+      code: 1,
+      verdict: "block",
+      summary: "a test level cannot run on this machine",
+      lines: [
+        ...policy.refusals.map((reason) => `green-gate: FAIL — ${reason}`),
+        "green-gate: route → orchestrator",
+      ],
+      detail: { reason: "test-policy", refusals: policy.refusals, route: "orchestrator" },
+    });
   }
 
+  let roots: readonly string[];
+  try {
+    roots = sourceRoots(cwd);
+  } catch {
+    roots = [];
+  }
   const [run, tsc, lint] = await Promise.all([
-    runTests(cwd, gateOptionsFromEnv()),
+    runTests(cwd, { ...gateOptionsFromEnv(), env: policy.env }),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
     lintSrc(cwd),
   ]);
   // Surface check is synchronous ts-morph work; a code-2 (no contracts, or a
   // missing implementation file) is not a finding here — the suite and
   // typecheck verdicts already own those failure modes.
-  const surfaces = checkProjectSurfaces(cwd);
-  // A surviving red-phase skeleton (r16): the shared predicate deliver used as a
-  // last-ditch backstop, moved upstream so a green that is green only because
-  // no test executes an unimplemented throw is caught the moment it passes,
-  // named, and bounced to the builder — not minutes later at delivery.
-  const skeletons = findSkeletonImportsInSrc(cwd);
-  // A lint ERROR (no files matched) is not a finding: an empty src/ is the
-  // builder's problem to have, and the suite verdict already says so.
+  const surfaces = checkProjectSurfaces(cwd, roots);
+  // A surviving red-phase skeleton (r16): green only because no test executes
+  // an unimplemented throw is not green.
+  const skeletons = findSkeletonImports(cwd, roots);
+  // A lint ERROR (no files matched) is not a finding: an empty source root is
+  // the builder's problem to have, and the suite verdict already says so.
   const base = classifyGreen(
     run,
     tsc,
@@ -449,18 +504,41 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
     skeletons,
     projectOwnerOf(cwd),
   );
+  const obliged = base.code === 0 ? withGreenObligations(cwd, base) : base;
 
   // Reroute a repeat. classifyGreen stays pure — the history lives in the guard
   // log, which is where every other convergence check already reads from.
-  const names = (base.detail as { names?: unknown }).names;
+  const names = (obliged.detail as { names?: unknown }).names;
   const failing = Array.isArray(names) ? names.filter((n): n is string => typeof n === "string") : [];
   const result =
-    base.verdict === "block" && failing.length > 0
-      ? rerouteIfRepeated(base, failing, priorGreenFailures(cwd))
-      : base;
+    obliged.verdict === "block" && failing.length > 0 && (obliged.detail as { reason?: unknown }).reason === "failures"
+      ? rerouteIfRepeated(obliged, failing, priorGreenFailures(cwd))
+      : obliged;
 
   logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
   return result;
+}
+
+/** The green-only test obligations (an app's smoke test, ADR 2026-063). */
+function withGreenObligations(cwd: string, base: GateResult): GateResult {
+  let gaps;
+  try {
+    gaps = checkObligations(readObligationInput(cwd, projectFactsOf(cwd, "deliver"), "green"));
+  } catch (error) {
+    gaps = [{ level: "obligations", message: `the obligations could not be read: ${error instanceof Error ? error.message : String(error)}` }];
+  }
+  if (gaps.length === 0) return base;
+  return {
+    code: 1,
+    verdict: "block",
+    summary: `${gaps.length} green test obligation${gaps.length === 1 ? "" : "s"} unmet (route: test-writer)`,
+    lines: [
+      `green-gate: FAIL — the suite passes but ${gaps.length} test obligation${gaps.length === 1 ? " is" : "s are"} unmet`,
+      ...obligationLines(gaps),
+      "green-gate: route → test-writer",
+    ],
+    detail: { reason: "obligations", gaps: gaps.map((g) => ({ level: g.level, path: g.path, message: g.message })), route: "test-writer" },
+  };
 }
 
 /** Rewrite the route line when the same tests have failed twice running. */

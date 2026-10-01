@@ -39,6 +39,8 @@ afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true }
 function repo(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "pi-design-review-"));
   tmpDirs.push(dir);
+  // Contracts are found under the composed source roots (ADR 2026-056).
+  writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   for (const [rel, content] of Object.entries(files)) {
     const path = join(dir, rel);
     mkdirSync(join(path, ".."), { recursive: true });
@@ -50,8 +52,8 @@ function repo(files: Record<string, string>): string {
 function designed(): string {
   return repo({
     "spec.md": SPEC,
-    "src/orders/orders.contract.ts": CONTRACT,
-    "src/money.contract.ts": CONTRACT,
+    "contexts/shop/src/orders/orders.contract.ts": CONTRACT,
+    "contexts/shop/src/money.contract.ts": CONTRACT,
   });
 }
 
@@ -66,8 +68,10 @@ describe("readReviewed", () => {
     if (!r.ok) return;
     expect(Object.keys(r.reviewed)).toEqual([
       "spec.md",
-      "src/money.contract.ts",
-      "src/orders/orders.contract.ts",
+      "contexts/shop/src/money.contract.ts",
+      "contexts/shop/src/orders/orders.contract.ts",
+      "composition:ts",
+      "composition:ts-hexagonal",
     ]);
   });
 
@@ -76,12 +80,11 @@ describe("readReviewed", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.reviewed["spec.md"]).toBe(hashContract(SPEC));
-    expect(r.reviewed["src/money.contract.ts"]).toBe(hashContract(CONTRACT));
+    expect(r.reviewed["contexts/shop/src/money.contract.ts"]).toBe(hashContract(CONTRACT));
   });
 
   test("changing selected packs after a review makes that review stale", () => {
     const dir = designed();
-    writeProjectPacks(dir, ["ts"]);
     expect(runRecordDesignReview(dir, [])).toMatchObject({ code: 0 });
     const events = readGuardLog(dir);
     writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
@@ -90,7 +93,7 @@ describe("readReviewed", () => {
     if (!current.ok) return;
     expect(classifyReviewFreshness(events, current.reviewed)).toMatchObject({
       state: "stale",
-      added: ["composition:ts-hexagonal", "composition:ts-trpc", "composition:ts-web"],
+      added: ["composition:ts-trpc", "composition:ts-web"],
     });
   });
 
@@ -102,7 +105,7 @@ describe("readReviewed", () => {
   });
 
   test("a design with no spec cannot be reviewed", () => {
-    const r = readReviewed(repo({ "src/x.contract.ts": CONTRACT }));
+    const r = readReviewed(repo({ "contexts/shop/src/x.contract.ts": CONTRACT }));
     expect(r).toMatchObject({ ok: false, reason: "no-spec" });
   });
 
@@ -113,7 +116,7 @@ describe("readReviewed", () => {
 });
 
 describe("classifyDesignReview", () => {
-  const reviewed = { "spec.md": "a".repeat(64), "src/x.contract.ts": "b".repeat(64) };
+  const reviewed = { "spec.md": "a".repeat(64), "contexts/shop/src/x.contract.ts": "b".repeat(64) };
 
   test("an empty list is a valid review — 'I found nothing' is a claim", () => {
     const r = classifyDesignReview([], reviewed);
@@ -128,7 +131,7 @@ describe("classifyDesignReview", () => {
         {
           severity: "blocker",
           summary: "OrderId has no parse path — the test-writer cannot construct one",
-          evidence: "src/x.contract.ts:12",
+          evidence: "contexts/shop/src/x.contract.ts:12",
         },
         { severity: "note", summary: "two names for one concept" },
       ],
@@ -136,7 +139,7 @@ describe("classifyDesignReview", () => {
     );
     expect(r.summary).toBe("2 findings (1 blocker) over 2 files");
     const text = r.lines.join("\n");
-    expect(text).toMatch(/blocker: OrderId has no parse path .* — src\/x\.contract\.ts:12/);
+    expect(text).toMatch(/blocker: OrderId has no parse path .* — contexts\/shop\/src\/x\.contract\.ts:12/);
     expect(text).toMatch(/note: two names for one concept/);
   });
 
@@ -147,13 +150,13 @@ describe("classifyDesignReview", () => {
   // severity, summary, and evidence, one finding per line.
   test("the result carries every finding verbatim, not just the count", () => {
     const findings = [
-      { severity: "blocker" as const, summary: "OrderId has no parse path", evidence: "src/x.contract.ts:12" },
+      { severity: "blocker" as const, summary: "OrderId has no parse path", evidence: "contexts/shop/src/x.contract.ts:12" },
       { severity: "concern" as const, summary: "prorate() tie-break unstated" },
       { severity: "note" as const, summary: "two names for one concept", evidence: "spec.md" },
     ];
     const lines = classifyDesignReview(findings, reviewed).lines;
     expect(lines.slice(1, 4)).toEqual([
-      "  blocker: OrderId has no parse path — src/x.contract.ts:12",
+      "  blocker: OrderId has no parse path — contexts/shop/src/x.contract.ts:12",
       "  concern: prorate() tie-break unstated",
       "  note: two names for one concept — spec.md",
     ]);
@@ -203,7 +206,7 @@ describe("classifyDesignReview", () => {
   test("the files reviewed are shown, as provenance, with the file-set rule", () => {
     const text = classifyDesignReview([], reviewed).lines.join("\n");
     expect(text).toContain("spec.md");
-    expect(text).toContain("src/x.contract.ts");
+    expect(text).toContain("contexts/shop/src/x.contract.ts");
     expect(text).toContain("aaaaaaaaaaaa");
     expect(text).toMatch(/ADDING or REMOVING a contract file/);
   });
@@ -240,21 +243,23 @@ describe("runRecordDesignReview (guard log)", () => {
     runRecordDesignReview(dir, []);
     const reviewed = lastEvent(dir)!.detail!["reviewed"] as Record<string, string>;
     expect(Object.keys(reviewed).sort()).toEqual([
+      "composition:ts",
+      "composition:ts-hexagonal",
+      "contexts/shop/src/money.contract.ts",
+      "contexts/shop/src/orders/orders.contract.ts",
       "spec.md",
-      "src/money.contract.ts",
-      "src/orders/orders.contract.ts",
     ]);
     expect(reviewed["spec.md"]).toBe(hashContract(SPEC));
-    expect(reviewed["src/orders/orders.contract.ts"]).toBe(hashContract(CONTRACT));
+    expect(reviewed["contexts/shop/src/orders/orders.contract.ts"]).toBe(hashContract(CONTRACT));
   });
 
   test("a revised contract no longer matches the review that covered it", () => {
     const dir = designed();
     runRecordDesignReview(dir, []);
     const before = (lastEvent(dir)!.detail!["reviewed"] as Record<string, string>)[
-      "src/money.contract.ts"
+      "contexts/shop/src/money.contract.ts"
     ];
-    writeFileSync(join(dir, "src/money.contract.ts"), CONTRACT + "export type Cents = number;\n");
+    writeFileSync(join(dir, "contexts/shop/src/money.contract.ts"), CONTRACT + "export type Cents = number;\n");
     expect(hashContract(CONTRACT + "export type Cents = number;\n")).not.toBe(before);
   });
 
@@ -273,7 +278,7 @@ describe("runRecordDesignReview (guard log)", () => {
   });
 
   test("no spec.md is misuse, logged as an error", () => {
-    const dir = repo({ "src/x.contract.ts": CONTRACT });
+    const dir = repo({ "contexts/shop/src/x.contract.ts": CONTRACT });
     const r = runRecordDesignReview(dir, []);
     expect(r.code).toBe(2);
     expect(r.lines[0]).toMatch(/no spec\.md/);
@@ -311,9 +316,9 @@ describe("runRecordDesignReview (guard log)", () => {
 
 describe("recordedFindings: the guard log carries the claims back out", () => {
   test("a recorded review round-trips its findings, evidence included", () => {
-    const dir = repo({ "spec.md": SPEC, "src/x.contract.ts": CONTRACT });
+    const dir = repo({ "spec.md": SPEC, "contexts/shop/src/x.contract.ts": CONTRACT });
     const findings = [
-      { severity: "blocker", summary: "OrderId has no parse path", evidence: "src/x.contract.ts:12" },
+      { severity: "blocker", summary: "OrderId has no parse path", evidence: "contexts/shop/src/x.contract.ts:12" },
       { severity: "note", summary: "two names for one concept" },
     ];
     runRecordDesignReview(dir, findings);

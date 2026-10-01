@@ -1,0 +1,13 @@
+import { CreateNoteHandler, ListNotesHandler } from "{{scope}}/notebook/application";
+import { InMemoryCreateNoteStore, InMemoryDatabase, InMemoryListNotesStore } from "{{scope}}/notebook/adapters/in-memory";
+import { createNotebookRouter, type NotebookRouter } from "{{scope}}/notebook/adapters/trpc";
+
+// The one place that decides which adapter backs which port.
+export function composeApp(): NotebookRouter {
+  const db = new InMemoryDatabase();
+
+  return createNotebookRouter({
+    createNote: new CreateNoteHandler(new InMemoryCreateNoteStore(db)),
+    listNotes: new ListNotesHandler(new InMemoryListNotesStore(db)),
+  });
+}

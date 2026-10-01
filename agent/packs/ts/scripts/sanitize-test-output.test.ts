@@ -9,7 +9,6 @@ import {
   SanitizeError,
   type SanitizedResult,
   sanitizeBunRun,
-  sanitizeLegacyJsonRun,
   sanitizeMessage,
   TIMEOUT_MESSAGE,
   UNHANDLED_NAME,
@@ -177,20 +176,33 @@ describe("sanitizeBunRun (real failing run)", () => {
   });
 });
 
+describe("each result carries its test file, for the gates (never printed to the builder)", () => {
+  test("a relative file attribute is kept; an absolute or climbing one is dropped", () => {
+    const xml = (file: string) => `<testsuites><testsuite name="${file}" file="${file}"><testcase name="t" file="${file}" /></testsuite></testsuites>`;
+    expect(parseJUnitReport(xml("contexts/a/src/x.test.ts"))[0]?.file).toBe("contexts/a/src/x.test.ts");
+    expect(parseJUnitReport(xml("/home/dev/x.test.ts"))[0]?.file).toBeUndefined();
+    expect(parseJUnitReport(xml("../x.test.ts"))[0]?.file).toBeUndefined();
+    expect(parseJUnitReport(xml("C:/x.test.ts"))[0]?.file).toBeUndefined();
+    const nested = '<testsuites><testsuite name="a.test.ts" file="a.test.ts"><testsuite name="D"><testcase name="t" /></testsuite></testsuite></testsuites>';
+    expect(parseJUnitReport(nested)[0]).toEqual({ name: "D > t", status: "passed", file: "a.test.ts" });
+  });
+});
+
 describe("sanitizeBunRun (real passing and unhandled runs)", () => {
   test("a passing run: every status, no message", () => {
+    const file = "contexts/pm/src/domain/project-name.test.ts";
     expect(run(PASSING)).toEqual([
-      { name: "ProjectName > accepts a name", status: "passed" },
-      { name: "ProjectName > parse > trims whitespace", status: "passed" },
-      { name: "ProjectName > parse > rejects emoji", status: "skipped" },
-      { name: "ProjectName > parse > normalises unicode", status: "todo" },
+      { name: "ProjectName > accepts a name", status: "passed", file },
+      { name: "ProjectName > parse > trims whitespace", status: "passed", file },
+      { name: "ProjectName > parse > rejects emoji", status: "skipped", file },
+      { name: "ProjectName > parse > normalises unicode", status: "todo", file },
     ]);
   });
 
   test("each error outside a test becomes one failed result, its frame and paths removed", () => {
     const results = run(UNHANDLED);
     expect(results).toEqual([
-      { name: "a healthy test", status: "passed" },
+      { name: "a healthy test", status: "passed", file: "contexts/pm/src/domain/fine.test.ts" },
       { name: UNHANDLED_NAME, status: "failed", message: "error: Cannot find module './does-not-exist.ts' from '[path]'" },
       { name: UNHANDLED_NAME, status: "failed", message: "error: module failed while loading top-level-secret" },
     ]);
@@ -318,29 +330,5 @@ describe("sanitizeMessage and forbiddenLines (units)", () => {
 
   test("short lines are never forbidden (they carry no source worth hiding)", () => {
     expect([...forbiddenLines(["});\n  x = 1;\n  expect(total).toBe(7);"])]).toEqual(["expect(total).toBe(7);"]);
-  });
-});
-
-describe("TRANSITIONAL: the retired JSON report", () => {
-  test("names, statuses and sanitized messages", () => {
-    const json = JSON.stringify({
-      testResults: [
-        { assertionResults: [
-          { ancestorTitles: ["a"], title: "b", status: "passed" },
-          { fullName: "c", status: "failed", failureMessages: ["Error: Not implemented: X.y\n    at /abs/x.ts:1:2\n  3| secret()"] },
-        ] },
-        { assertionResults: [], status: "failed", message: "Error: cannot load /abs/file.ts" },
-      ],
-    });
-    expect(sanitizeLegacyJsonRun(json, { pathRoots: ["/abs"] })).toEqual([
-      { name: "a b", status: "passed" },
-      { name: "c", status: "failed", message: "Error: Not implemented: X.y" },
-      { name: UNHANDLED_NAME, status: "failed", message: "Error: cannot load [path]" },
-    ]);
-  });
-
-  test("invalid input is refused", () => {
-    expect(() => sanitizeLegacyJsonRun("not json {")).toThrow(SanitizeError);
-    expect(() => sanitizeLegacyJsonRun('{"foo":1}')).toThrow(SanitizeError);
   });
 });

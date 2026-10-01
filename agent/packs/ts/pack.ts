@@ -7,19 +7,21 @@
 // today) fill them. The core learns that a pack declared a socket and another
 // pack filled it, and nothing more.
 //
-// SIX CODE SOCKETS — two for the gates that lint, one for the delivery pass,
-// two for the scaffolder and red gate, one for the artifact-generation gate:
+// CODE SOCKETS — two for the gates that lint, one for the delivery pass, one
+// for the artifact-generation gate, and three for the design, red and green
+// gates (the contract-support-file socket of ADR 2026-046 is retired):
 //
 //   lintSrcRules             extra rules for the src gate (implementation code)
 //   contractPurityOverrides  extra flat-config blocks for the contract gate
 //   deliverChecks            read-only checks run at the end of delivery
 //                            (ADR 2026-033)
-//   contractSupportFiles     canonical files a contract import asks for
-//                            (ADR 2026-046)
 //   artifactGenerators       deterministic generators the architect's
 //                            generate_artifacts gate runs (ADR 2026-055)
 //   skeletonEmitters         files derived from the design contracts, as
 //                            skeletons or generated files (ADR 2026-060)
+//   phaseTestPolicies        per-phase rules for tests that need the machine
+//                            (a container runtime; ADR 2026-064)
+//   testObligations          per-level test files and reach (ADR 2026-063)
 //
 // Two DATA sockets are owned here too, read from contrib.json by the readers
 // at the end of this file: `adapterTechnologies` and `workspaceTemplates`
@@ -308,49 +310,6 @@ export const artifactGenerators = tsSockets.define<ArtifactGenerator>({
       ? undefined : `${contributor} supplied an invalid artifact generator`,
 });
 
-// --- contractSupportFiles (ADR 2026-046) -------------------------------------
-//
-// A contract can name a support module that is machinery, not business code:
-// a service contract imports "./service-runtime.js", and the answer is one
-// canonical file copied verbatim to that path. The ts scaffolder (live tree)
-// and the red gate (shadow project) are the consumers; the pack that owns the
-// capability owns the file and the rule for where it lands. A project that has
-// not composed that pack gets no support file at all — the contract's import
-// then fails to resolve, which is the honest outcome.
-
-/** One contract-triggered support file a pack ships through the scaffolder. */
-export interface ContractSupportFile {
-  /** What the file is, printed in the scaffold line, e.g. `API-service runtime`. */
-  readonly label: string;
-  /** Harness-relative path of the canonical copy, written into the generated
-   *  marker, e.g. `packs/ts-service/api/service-runtime.ts`. */
-  readonly canonical: string;
-  /** Absolute paths this contract asks for; empty when it asks for none. */
-  readonly targets: (contractSource: string, contractPath: string) => readonly string[];
-  /** The canonical file's text, without any marker. */
-  readonly source: () => string;
-  /** Packages the shipped file imports. Delivery pins and installs them as
-   *  regular dependencies when the tree carries this file. */
-  readonly dependencies?: readonly string[];
-}
-
-export const contractSupportFiles = tsSockets.define<ContractSupportFile>({
-  id: "contractSupportFiles",
-  description:
-    "Canonical support files a pack that depends on ts ships verbatim when a contract imports " +
-    "them. The scaffolder writes them into the live tree and the red gate into its shadow project.",
-  validate: (file, contributor) => {
-    if (file.label.trim() === "") return `${contributor} contributed a contract support file with no label`;
-    if (!file.canonical.startsWith(`packs/${contributor}/`)) {
-      return `${contributor}'s '${file.label}' names canonical '${file.canonical}' — a pack ships only its own files`;
-    }
-    if (typeof file.targets !== "function" || typeof file.source !== "function") {
-      return `${contributor}'s '${file.label}' needs targets() and source() functions`;
-    }
-    return undefined;
-  },
-});
-
 // --- skeletonEmitters (ADR 2026-060) ------------------------------------------
 //
 // Everything mechanical is generated from the frozen design (TN-26-012). An
@@ -471,6 +430,124 @@ export function emittedFileProblem(file: EmittedFile, emitter: string): string |
   if (file.entry !== undefined && file.entry !== true) return `emitter '${emitter}' produced '${file.path}' with entry '${String(file.entry)}'`;
   return undefined;
 }
+
+// --- phaseTestPolicies (ADR 2026-064) -----------------------------------------
+//
+// Some test levels need something from the machine that the others do not:
+// store tests need a container runtime. The rule for WHEN such tests may be
+// skipped is the owning pack's (ts-drizzle-postgres knows what a store test
+// is); the red and green gates are the consumers and apply every composed
+// policy to the test process they spawn. The ts pack cannot import a pack
+// that depends on it, so the rule reaches the gates through this socket.
+
+/** Which gate is asking. */
+export type TestPhase = "red" | "green";
+
+export interface PhaseTestContext {
+  /** The project the gate judges (the live tree; red's shadow mirrors it). */
+  readonly project: string;
+  readonly phase: TestPhase;
+}
+
+export type PhaseTestDecision =
+  /** Run; remove `unsetEnv` from the test process's environment. */
+  | { readonly action: "run"; readonly unsetEnv: readonly string[] }
+  /** Red only: run with `env` set, and accept a skipped result exactly when
+   *  `skippedTest(name)` holds for it. The gate prints `reason`. */
+  | {
+      readonly action: "skip";
+      readonly reason: string;
+      readonly env: Readonly<Record<string, string>>;
+      readonly unsetEnv: readonly string[];
+      readonly skippedTest: (resultName: string) => boolean;
+    }
+  /** Green only: do not run; block with `reason`. */
+  | { readonly action: "refuse"; readonly reason: string; readonly unsetEnv: readonly string[] };
+
+export interface PhaseTestPolicy {
+  /** Lowercase, dash-separated. */
+  readonly name: string;
+  readonly description: string;
+  /** Deterministic for a given machine and tree; may probe the machine. */
+  readonly decide: (context: PhaseTestContext) => PhaseTestDecision;
+}
+
+export const phaseTestPolicies = tsSockets.define<PhaseTestPolicy>({
+  id: "phaseTestPolicies",
+  description:
+    "Per-phase rules, contributed by packs that depend on ts, for test levels that need something from the " +
+    "machine (a container runtime for store tests): the red gate may skip such tests with a logged reason, and " +
+    "the green gate refuses rather than skip them.",
+  validate: (policy, contributor) => {
+    if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(policy.name)) return `${contributor} contributed a phase test policy named '${policy.name}'`;
+    if (policy.description.trim() === "") return `${contributor}'s '${policy.name}' policy has no description`;
+    if (typeof policy.decide !== "function") return `${contributor}'s '${policy.name}' policy has no decide()`;
+    return undefined;
+  },
+});
+
+// --- testObligations (ADR 2026-063) --------------------------------------------
+//
+// What a suite owes, per test level, beyond going red for the right reason:
+// the files each level needs and the members its tests must reach. The level
+// structure is the layout pack's (ts-hexagonal knows what a handler, a store
+// or an app is), so it reaches the ts gates through this socket. The ts pack's
+// own domain obligations are prepended by the gates, as the domain emitter is.
+
+/** A file under a source root, as an obligation reads it. */
+export interface ObligationSource {
+  /** Project-relative, `/`-separated. */
+  readonly path: string;
+  readonly source: string;
+}
+
+export interface ObligationInput {
+  readonly facts: ProjectFacts;
+  readonly phase: TestPhase;
+  /** Every file under the composed source roots, project-relative, sorted. */
+  readonly files: readonly string[];
+  /** Test-side files a role wrote (generated ones excluded). */
+  readonly tests: readonly ObligationSource[];
+  /** Generated test-side files (laws). */
+  readonly generatedTests: readonly ObligationSource[];
+  /** `<Class>.<member>` names a red run's NotImplementedError failures named. */
+  readonly reached: ReadonlySet<string>;
+}
+
+/** One unmet obligation, in words the test-writer can act on. */
+export interface ObligationGap {
+  /** The test level, e.g. `domain`, `feature`, `store`, `app`. */
+  readonly level: string;
+  /** The file to write or change, when there is one. */
+  readonly path?: string;
+  readonly message: string;
+}
+
+export interface TestObligation {
+  /** Lowercase, dash-separated. */
+  readonly name: string;
+  readonly description: string;
+  /** The gates that check it: `red` (the default) for levels the test-writer
+   *  owes before the builder starts, `green` for levels only a built project
+   *  can run, such as an app's smoke test. */
+  readonly phases?: readonly TestPhase[];
+  /** Pure over its input. Throws only on a design it cannot read. */
+  readonly check: (input: ObligationInput) => readonly ObligationGap[];
+}
+
+export const testObligations = tsSockets.define<TestObligation>({
+  id: "testObligations",
+  description:
+    "Per-level test obligations, contributed by packs that depend on ts: the test files each level of the design " +
+    "needs and the members its tests must reach. The red gate checks them over the test-writer's suite; the green " +
+    "gate checks the green-only levels.",
+  validate: (obligation, contributor) => {
+    if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(obligation.name)) return `${contributor} contributed a test obligation named '${obligation.name}'`;
+    if (obligation.description.trim() === "") return `${contributor}'s '${obligation.name}' obligation has no description`;
+    if (typeof obligation.check !== "function") return `${contributor}'s '${obligation.name}' obligation has no check()`;
+    return undefined;
+  },
+});
 
 // --- data sockets: adapterTechnologies, workspaceTemplates (ADR 2026-061) -----
 
@@ -716,5 +793,5 @@ export function workspaceTemplates(packs: readonly string[], packsDir = defaultP
 export const tsPack = definePack({
   name: TS_PACK,
   dependsOnPacks: [],
-  defines: [lintSrcRules, contractPurityOverrides, deliverChecks, contractSupportFiles, artifactGenerators, skeletonEmitters],
+  defines: [lintSrcRules, contractPurityOverrides, deliverChecks, artifactGenerators, skeletonEmitters, phaseTestPolicies, testObligations],
 });

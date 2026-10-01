@@ -34,8 +34,6 @@ export declare function explain(e: TRPCError): string;`,
 export const t = initTRPC.create();`,
       filename: "contexts/project-management/src/adapters/in/trpc/trpc.ts",
     },
-    // The legacy shipped runtime is exempt by name.
-    { code: `import { initTRPC } from "@trpc/server";`, filename: "src/api/service-runtime.ts" },
     // The client is a transport with no procedures to build.
     { code: `import { createTRPCClient, httpBatchLink } from "@trpc/client";`, filename: "apps/web/src/client/main.tsx" },
   ],

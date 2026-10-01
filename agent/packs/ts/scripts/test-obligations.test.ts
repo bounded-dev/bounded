@@ -1,589 +1,244 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+import type { ObligationInput, ObligationSource } from "../pack.ts";
+import { BOUNDARY_DASH, boundaryDescribeName, checkBoundaries, MIN_REJECTIONS, type BoundaryTarget } from "./boundaries.ts";
+import { callSites } from "./call-sites.ts";
+import { CONTEXT_SRC, type Fixture, pipelineProject, placeStage } from "./pipeline-fixture.test-support.ts";
+import { projectFactsOf } from "./project-emitters.ts";
+import { runScaffold } from "./scaffold-project.ts";
 import {
-  BOUNDARY_DASH,
-  MIN_REJECTIONS,
-  boundaryDescribeName,
-  boundaryRemedyLines,
-  calledNames,
-  checkBoundaryBlocks,
-  declaredExports,
-  readContracts,
-  readHandWrittenTests,
+  checkObligations,
+  domainObligation,
+  obligationLines,
+  projectObligations,
+  readObligationInput,
   reachedName,
   reachedNames,
-  unreachedExports,
-  unreachedRemedyLines,
-  valueObjectClasses,
 } from "./test-obligations.ts";
-import type { SourceText, ValueObjectClass } from "./test-obligations.ts";
 
-// --- fixtures ------------------------------------------------------------------
+const fixtures: Fixture[] = [];
+afterAll(() => { for (const f of fixtures) f.cleanup(); });
 
-/** The canonical value-object shape from the ts-contract-authoring skill. */
-const CURRENCY_CONTRACT = `
-/** ISO-4217 alphabetic code: exactly three uppercase letters. */
-export declare class Currency {
-  private readonly __brand: "Currency";
-  private constructor();
-  readonly code: string;
-  static parse(raw: unknown): Currency | undefined;
-  equals(other: Currency): boolean;
+/** The notebook pipeline, scaffolded, with the test-writer's files in. */
+function scaffolded(withTests = true): Fixture {
+  const f = pipelineProject(["design"]);
+  fixtures.push(f);
+  expect(runScaffold(f.dir).code).toBe(0);
+  if (withTests) placeStage(f.dir, "tests", f.scope);
+  return f;
 }
 
-export type Isbn = string & { readonly __brand: "Isbn" };
-
-export declare function parseIsbn(raw: string): Isbn | undefined;
-`;
-
-function contract(source: string, file = "src/money/money.contract.ts"): SourceText[] {
-  return [{ file, source }];
+function input(f: Fixture, phase: "red" | "green" = "red", reached: string[] = []): ObligationInput {
+  return readObligationInput(f.dir, projectFactsOf(f.dir, "red"), phase, reached);
 }
 
-function tests(source: string, file = "tests/money.test.ts"): SourceText[] {
-  return [{ file, source }];
-}
+const messages = (i: ObligationInput): string[] => checkObligations(i).map((g) => g.message);
 
-const CURRENCY = (): ValueObjectClass[] => valueObjectClasses(contract(CURRENCY_CONTRACT));
-
-/** A well-formed boundaries block: one acceptance, two distinct string rejections. */
-const GOOD_BLOCK = `
-import { describe, expect, test } from "vitest";
-import { Currency } from "../src/money/money.ts";
-
-describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-  test("accepts an ISO code", () => {
-    expect(Currency.parse("USD")).toBeDefined();
-  });
-  test("rejects lowercase", () => {
-    expect(Currency.parse("usd")).toBeUndefined();
-  });
-  test("rejects the wrong length", () => {
-    expect(Currency.parse("USDD")).toBeUndefined();
-  });
-});
-`;
-
-// --- checker 1: export reachability ---------------------------------------------
-
-describe("reachedName", () => {
-  test("reads the export name out of a real NotImplementedError message", () => {
-    // What the shared errors module actually produces: the class name, then
-    // the message, which is itself prefixed with "NotImplemented: ".
-    expect(reachedName("NotImplementedError: NotImplemented: create")).toBe("create");
+describe("reached names", () => {
+  test("a red failure names the member it reached, in every form a runner prints", () => {
+    expect(reachedName("NotImplementedError: Not implemented: Note.equals")).toBe("Note.equals");
+    expect(reachedName("Not implemented: CreateNoteHandler.execute")).toBe("CreateNoteHandler.execute");
+    expect(reachedName("error: something else\nNotImplementedError: Not implemented: NoteText.parse\n")).toBe("NoteText.parse");
   });
 
-  test("reads a Class.member label", () => {
-    expect(reachedName("NotImplementedError: NotImplemented: Currency.parse")).toBe("Currency.parse");
-  });
-
-  test("reads the bare NotImplemented form", () => {
-    expect(reachedName("NotImplemented: parseIsbn")).toBe("parseIsbn");
-  });
-
-  test("survives the sanitizer's surviving trailer lines", () => {
-    const message = "NotImplementedError: NotImplemented: parseIsbn\n\nExpected: not [Function]\nReceived: [path]";
-    expect(reachedName(message)).toBe("parseIsbn");
-  });
-
-  test("finds the error line when it is not the first line", () => {
-    expect(reachedName("Error thrown while running test\nNotImplementedError: NotImplemented: renew")).toBe("renew");
-  });
-
-  test("returns undefined for a failure that reached nothing nameable", () => {
-    expect(reachedName("AssertionError: expected 1 to be 2")).toBeUndefined();
+  test("prose that mentions the words is not a reach, and neither is a mangled name", () => {
+    expect(reachedName("expected the note to be implemented: Note.equals")).toBeUndefined();
+    expect(reachedName("NotImplementedError: Not implemented: ")).toBeUndefined();
     expect(reachedName(undefined)).toBeUndefined();
-    expect(reachedName("NotImplementedError")).toBeUndefined();
-    expect(reachedName("NotImplementedError: NotImplemented:")).toBeUndefined();
-    expect(reachedName("NotImplementedError: NotImplemented: some prose, not a name")).toBeUndefined();
+    expect(reachedNames(["Not implemented: B.x", "Not implemented: A.y", "Not implemented: B.x", undefined])).toEqual(["A.y", "B.x"]);
   });
 });
 
-describe("reachedNames", () => {
-  test("dedupes and sorts, skipping unnameable failures", () => {
-    expect(
-      reachedNames([
-        "NotImplementedError: NotImplemented: parseIsbn",
-        "NotImplementedError: NotImplemented: Currency.parse",
-        "NotImplementedError: NotImplemented: parseIsbn",
-        "AssertionError: nope",
-        undefined,
-      ]),
-    ).toEqual(["Currency.parse", "parseIsbn"]);
+describe("call sites", () => {
+  test("qualified calls, method calls on anything, constructions and imports", () => {
+    const sites = callSites([{ path: "a.test.ts", source: 'import { x } from "./y.ts";\nconst n = new Note(id, t);\nNoteText.parse("a");\nstore.save(n);\n' }]);
+    expect([...sites.qualified]).toEqual(["NoteText.parse", "store.save"]);
+    expect([...sites.methods].sort()).toEqual(["parse", "save"]);
+    expect([...sites.constructed]).toEqual(["Note"]);
+    expect([...sites.imports]).toEqual(["./y.ts"]);
   });
 });
 
-describe("declaredExports", () => {
-  test("lists a contract's value exports with the file that declared them", () => {
-    expect(declaredExports(contract(CURRENCY_CONTRACT))).toEqual([
-      { name: "Currency", contractFile: "src/money/money.contract.ts" },
-      { name: "parseIsbn", contractFile: "src/money/money.contract.ts" },
-    ]);
+describe("the obligations on the notebook pipeline", () => {
+  test("the complete suite owes nothing at red", () => {
+    expect(messages(input(scaffolded()))).toEqual([]);
+  });
+
+  test("the domain, boundaries and layout obligations all run, in that order", () => {
+    const names = projectObligations(["ts", "ts-hexagonal"]).map((o) => o.name);
+    expect(names.slice(0, 2)).toEqual(["domain-concepts", "value-object-boundaries"]);
+    expect(names).toContain("hexagonal-features");
+    expect(names).toContain("hexagonal-app-smoke");
+    expect(projectObligations(["ts"]).map((o) => o.name)).toEqual(["domain-concepts", "value-object-boundaries"]);
+  });
+
+  test("a concept without its unit test file, or without laws, is named with the file to write", () => {
+    const f = scaffolded();
+    rmSync(join(f.dir, CONTEXT_SRC, "domain/notes/note.test.ts"));
+    rmSync(join(f.dir, CONTEXT_SRC, "domain/notes/note-text.laws.test.ts"));
+    const gaps = checkObligations(input(f));
+    expect(gaps).toContainEqual(expect.objectContaining({ level: "domain", path: `${CONTEXT_SRC}/domain/notes/note.test.ts` }));
+    expect(gaps).toContainEqual(expect.objectContaining({ level: "domain", path: `${CONTEXT_SRC}/domain/notes/note-text.laws.test.ts` }));
+    expect(obligationLines(gaps).every((l) => l.startsWith("  "))).toBe(true);
+  });
+
+  test("a factory member no test calls is a gap; a red failure that named it discharges it", () => {
+    const i = input(scaffolded());
+    const constructs = (x: ObligationSource): boolean => x.source.includes("new Note(");
+    const other = { ...i, tests: i.tests.filter((x) => !constructs(x)), generatedTests: i.generatedTests.filter((x) => !constructs(x)) };
+    expect(domainObligation.check(other).map((g) => g.message)).toContain("no test constructs Note: call new Note(…)");
+    expect(domainObligation.check({ ...other, reached: new Set(["Note.constructor"]) }).map((g) => g.message))
+      .not.toContain("no test constructs Note: call new Note(…)");
+  });
+
+  test("an instance method is reached only from the concept's own unit test or laws", () => {
+    const f = scaffolded();
+    const i = input(f);
+    const noEquals = (t: ObligationSource): ObligationSource => ({ ...t, source: t.source.replaceAll(".equals(", ".same(") });
+    const tests = i.tests.map((t) => (t.path.endsWith("/note-text.test.ts") ? noEquals(t) : t));
+    const generatedTests = i.generatedTests.map((t) => (t.path.endsWith("/note-text.laws.test.ts") ? noEquals(t) : t));
+    expect(domainObligation.check({ ...i, tests, generatedTests }).map((g) => g.message)).toContain("no test of NoteText calls its equals(…)");
+  });
+
+  test("a feature without its handler test, or whose test never constructs the handler or calls execute", () => {
+    const f = scaffolded();
+    const featureTest = `${CONTEXT_SRC}/application/notes/list-notes/list-notes.test.ts`;
+    writeFileSync(join(f.dir, featureTest), 'import { test } from "bun:test";\ntest("x", () => {});\n');
+    expect(messages(input(f))).toEqual(expect.arrayContaining([
+      `${featureTest} never constructs ListNotesHandler`,
+      `${featureTest} never calls ListNotesHandler.execute(…)`,
+    ]));
+    rmSync(join(f.dir, featureTest));
+    expect(messages(input(f))).toContain(`list-notes has no handler test; write ${featureTest} with fakes of its out ports`);
+  });
+
+  test("a store port needs a conformance suite calling every method, and a store test per storage technology that runs it", () => {
+    const f = scaffolded();
+    const suite = `${CONTEXT_SRC}/application/notes/list-notes/list-notes.store.test-support.ts`;
+    const storeTest = `${CONTEXT_SRC}/adapters/out/in-memory/notes/list-notes.store.test.ts`;
+    writeFileSync(join(f.dir, storeTest), 'import { test } from "bun:test";\ntest("x", () => {});\n');
+    writeFileSync(join(f.dir, suite), "export function listNotesStoreConformance(): void {}\n");
+    expect(messages(input(f))).toEqual(expect.arrayContaining([
+      "the ListNotesStore conformance suite never calls findAll(…)",
+      `${storeTest} does not run the shared conformance suite (list-notes.store.test-support.ts)`,
+    ]));
+    rmSync(join(f.dir, suite));
+    rmSync(join(f.dir, storeTest));
+    expect(messages(input(f))).toEqual(expect.arrayContaining([
+      `ListNotesStore has no conformance suite; write ${suite}, exporting a suite every storage technology runs`,
+      `InMemoryListNotesStore has no store test; write ${storeTest} running the ListNotesStore conformance suite`,
+    ]));
+  });
+
+  test("the generated command and in-adapter laws must be present", () => {
+    const f = scaffolded();
+    rmSync(join(f.dir, CONTEXT_SRC, "application/notes/create-note/create-note.command.laws.test.ts"));
+    rmSync(join(f.dir, CONTEXT_SRC, "adapters/in/trpc/notes/list-notes.procedure.laws.test.ts"));
+    expect(messages(input(f))).toEqual(expect.arrayContaining([
+      "create-note has no generated command laws; run the design gate",
+      "list-notes has no generated trpc laws; run the design gate",
+    ]));
+  });
+
+  test("the app smoke test is owed at green, not at red", () => {
+    const f = scaffolded();
+    const smoke = "apps/web/src/server/composition-root.test.ts";
+    rmSync(join(f.dir, smoke));
+    expect(messages(input(f, "red"))).toEqual([]);
+    expect(messages(input(f, "green"))).toEqual([`apps/web has no smoke test; write ${smoke} against its compose function`]);
+  });
+
+  test("an obligation that cannot read the design is a gap naming it, never a pass", () => {
+    const f = scaffolded();
+    writeFileSync(join(f.dir, CONTEXT_SRC, "application/notes/list-notes/list-notes.contract.ts"), "export interface Nope {}\n");
+    expect(checkObligations(readObligationInput(f.dir, projectFactsOf(f.dir, "red"), "red")).some((g) => g.level === "hexagonal-features")).toBe(true);
   });
 });
 
-describe("calledNames", () => {
-  test("counts components rendered with self-closing and paired JSX tags", () => {
-    const called = calledNames([
-      {
-        file: "tests/ui/cards.test.tsx",
-        source: `import { ContactCard, WorkspacePage } from "../../src/ui/index.js";
-          test("cards", () => {
-            render(<ContactCard contact={contact} />);
-            render(<WorkspacePage><ContactCard contact={contact} /></WorkspacePage>);
-          });`,
-      },
-    ]);
-    expect(called.has("ContactCard")).toBe(true);
-    expect(called.has("WorkspacePage")).toBe(true);
-  });
+// --- boundaries (ADR 2026-059 form: parse returns Result) ----------------------------
 
-  test("does not count an imported but unused component or an intrinsic JSX tag", () => {
-    const called = calledNames([
-      {
-        file: "tests/ui/cards.test.tsx",
-        source: `import { UnusedCard } from "../../src/ui/index.js";
-          test("markup", () => { render(<section><span>hello</span></section>); });`,
-      },
-    ]);
-    expect(called.has("UnusedCard")).toBe(false);
-    expect(called.has("section")).toBe(false);
-    expect(called.has("span")).toBe(false);
-  });
-});
+const TARGET: BoundaryTarget = { name: "Currency", base: "string", contractFile: "contexts/shop/src/domain/money/currency.contract.ts" };
+const t = (source: string): ObligationSource[] => [{ path: "contexts/shop/src/domain/money/currency.test.ts", source }];
+const block = (body: string, title = boundaryDescribeName("Currency")): string =>
+  `import { describe, expect, test } from "bun:test";\ndescribe(${JSON.stringify(title)}, () => {\n${body}\n});\n`;
+const GOOD = `
+  test("accepts", () => { expect(Currency.parse("USD").ok).toBe(true); });
+  test("rejects lowercase", () => { expect(Currency.parse("usd").ok).toBe(false); });
+  test("rejects two letters", () => { expect(Currency.parse("US")).toEqual({ ok: false, error: "Invalid currency" }); });`;
 
-describe("unreachedExports", () => {
-  const declared = declaredExports(contract(CURRENCY_CONTRACT));
-
-  test("a member throw reaches its owning export", () => {
-    expect(unreachedExports(declared, ["Currency.parse"])).toEqual([
-      { name: "parseIsbn", contractFile: "src/money/money.contract.ts" },
-    ]);
-  });
-
-  test("nothing unreached when every export was called", () => {
-    expect(unreachedExports(declared, ["Currency", "parseIsbn"])).toEqual([]);
-  });
-
-  test("everything unreached when the suite called nothing", () => {
-    expect(unreachedExports(declared, []).map((u) => u.name)).toEqual(["Currency", "parseIsbn"]);
-  });
-
-  test("a reached name that no contract declares is ignored, not reported", () => {
-    expect(unreachedExports(declared, ["parseIsbn", "Currency.parse", "SomethingElse"])).toEqual([]);
-  });
-
-  test("Run 7 in miniature: the parsers were never called", () => {
-    const decl = declaredExports(
-      contract(`
-        export declare function planRun(): void;
-        export declare function parseTitle(raw: string): string | undefined;
-        export declare function parseAuthor(raw: string): string | undefined;
-      `),
-    );
-    expect(unreachedExports(decl, ["planRun"]).map((u) => u.name)).toEqual(["parseAuthor", "parseTitle"]);
-  });
-});
-
-describe("unreachedRemedyLines", () => {
-  test("names the export and the call to write", () => {
-    const lines = unreachedRemedyLines([{ name: "parseIsbn", contractFile: "src/book/book.contract.ts" }]);
-    expect(lines.join("\n")).toContain("parseIsbn");
-    expect(lines.join("\n")).toContain("src/book/book.contract.ts");
-  });
-});
-
-// --- checker 2: value-object boundaries -----------------------------------------
-
-describe("valueObjectClasses", () => {
-  test("finds exported declare classes with a parse door and infers the base type", () => {
-    expect(CURRENCY()).toEqual([
-      {
-        name: "Currency",
-        contractFile: "src/money/money.contract.ts",
-        base: "string",
-        hasStaticParse: true,
-      },
-    ]);
-  });
-
-  test("infers a number base from the sole public property", () => {
-    const [vo] = valueObjectClasses(
-      contract(`
-        export declare class PagesRead {
-          private readonly __brand: "PagesRead";
-          readonly value: number;
-          static parse(raw: unknown): PagesRead | undefined;
-        }
-      `),
-    );
-    expect(vo?.base).toBe("number");
-  });
-
-  test("prefers an explicit parse<Name> signature over the property", () => {
-    const [vo] = valueObjectClasses(
-      contract(`
-        export declare class Isbn {
-          private readonly __brand: "Isbn";
-          readonly digits: number;
-          static parse(raw: unknown): Isbn | undefined;
-        }
-        export declare function parseIsbn(raw: string): Isbn | undefined;
-      `),
-    );
-    expect(vo?.base).toBe("string");
-  });
-
-  test("stays 'unknown' for a composite value object rather than guessing", () => {
-    const [vo] = valueObjectClasses(
-      contract(`
-        export declare class Money {
-          private readonly __brand: "Money";
-          readonly amount: number;
-          readonly currency: string;
-          static parse(raw: unknown): Money | undefined;
-        }
-      `),
-    );
-    expect(vo?.base).toBe("unknown");
-  });
-
-  test("a class with no static parse has no boundary to test", () => {
-    const [vo] = valueObjectClasses(
-      contract(`
-        export declare class Clock {
-          now(): number;
-        }
-      `),
-    );
-    expect(vo?.hasStaticParse).toBe(false);
-  });
-});
-
-describe("checkBoundaryBlocks", () => {
-  test("a well-formed block discharges the obligation", () => {
-    expect(checkBoundaryBlocks(CURRENCY(), tests(GOOD_BLOCK))).toEqual([]);
-  });
-
-  test("a class with no parse door is skipped, not blocked", () => {
-    const classes = valueObjectClasses(contract(`export declare class Clock { now(): number; }`));
-    expect(checkBoundaryBlocks(classes, tests(""))).toEqual([]);
-  });
-
-  test("no block at all is a missing-block violation naming the exact describe", () => {
-    const violations = checkBoundaryBlocks(CURRENCY(), tests(`describe("Currency", () => {});`));
-    expect(violations).toHaveLength(1);
-    expect(violations[0]?.kind).toBe("missing-block");
-    expect(violations[0]?.expected).toBe(`Currency ${BOUNDARY_DASH} boundaries`);
-  });
-
-  test("a hyphen where the em dash belongs is a near miss, not a silent miss", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(GOOD_BLOCK.replace(`Currency ${BOUNDARY_DASH} boundaries`, "Currency - boundaries")),
-    );
-    expect(violations).toHaveLength(1);
-    expect(violations[0]?.kind).toBe("misnamed-block");
-    expect(violations[0]?.found).toEqual(["Currency - boundaries"]);
-  });
-
-  test("an en dash, odd spacing and odd case are all near misses too", () => {
-    for (const title of ["Currency – boundaries", "Currency  —  Boundaries", "currency—boundaries"]) {
-      const violations = checkBoundaryBlocks(
-        CURRENCY(),
-        tests(GOOD_BLOCK.replace(`Currency ${BOUNDARY_DASH} boundaries`, title)),
-      );
-      expect(violations[0]?.kind).toBe("misnamed-block");
-    }
-  });
-
-  test("a skipped block does not discharge anything", () => {
-    const violations = checkBoundaryBlocks(CURRENCY(), tests(GOOD_BLOCK.replace("describe(", "describe.skip(")));
-    expect(violations[0]?.kind).toBe("skipped-block");
-  });
-
-  test("one rejection is not two", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("rejects", () => { expect(Currency.parse("usd")).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations).toHaveLength(1);
-    expect(violations[0]?.kind).toBe("too-few-rejections");
-    expect(violations[0]?.rejections).toEqual([`"usd"`]);
-  });
-
-  test("the same rejection twice is one rejection", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("rejects lowercase", () => { expect(Currency.parse("usd")).toBeUndefined(); });
-          test("rejects lowercase again", () => { expect(Currency.parse('usd')).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations[0]?.kind).toBe("too-few-rejections");
-    expect(violations[0]?.rejections).toHaveLength(1);
-  });
-
-  test("wrong-type rejections do not count — the generated laws already own those", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("rejects null", () => { expect(Currency.parse(null)).toBeUndefined(); });
-          test("rejects a number", () => { expect(Currency.parse(42)).toBeUndefined(); });
-          test("rejects an array", () => { expect(Currency.parse([])).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations).toHaveLength(1);
-    expect(violations[0]?.kind).toBe("too-few-rejections");
-    expect(violations[0]?.rejections).toEqual([]);
-    expect(violations[0]?.wrongTypeRejections).toEqual(["null", "42", "[]"]);
-  });
-
-  test("a number-based value object counts numeric literals and not strings", () => {
-    const classes = valueObjectClasses(
-      contract(`
-        export declare class PagesRead {
-          private readonly __brand: "PagesRead";
-          readonly value: number;
-          static parse(raw: unknown): PagesRead | undefined;
-        }
-      `),
-    );
-    const violations = checkBoundaryBlocks(
-      classes,
-      tests(`
-        describe("PagesRead ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(PagesRead.parse(12)).toBeDefined(); });
-          test("rejects negatives", () => { expect(PagesRead.parse(-1)).toBeUndefined(); });
-          test("rejects fractions", () => { expect(PagesRead.parse(1.5)).toBeUndefined(); });
-          test("rejects a string", () => { expect(PagesRead.parse("12")).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations).toEqual([]);
-  });
-
-  test("no accepted literal is its own violation", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("rejects lowercase", () => { expect(Currency.parse("usd")).toBeUndefined(); });
-          test("rejects length", () => { expect(Currency.parse("USDD")).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations).toHaveLength(1);
-    expect(violations[0]?.kind).toBe("no-accepted-parse");
-  });
-
-  test("both halves missing produces both violations", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`describe("Currency ${BOUNDARY_DASH} boundaries", () => { test("todo", () => {}); });`),
-    );
-    expect(violations.map((v) => v.kind)).toEqual(["no-accepted-parse", "too-few-rejections"]);
-  });
-
-  test("not.toBeUndefined and toBeInstanceOf count as acceptance", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).not.toBeUndefined(); });
-          test("accepts too", () => { expect(Currency.parse("GBP")).toBeInstanceOf(Currency); });
-          test("rejects", () => { expect(Currency.parse("usd")).toBeUndefined(); });
-          test("rejects", () => { expect(Currency.parse("USDD")).toBe(undefined); });
-        });
-      `),
-    );
-    expect(violations).toEqual([]);
-  });
-
-  test("a parse result held in a local still counts", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => {
-            const usd = Currency.parse("USD");
-            expect(usd).toBeDefined();
-          });
-          test("rejects", () => {
-            const lower = Currency.parse("usd");
-            const long = Currency.parse("USDD");
-            expect(lower).toBeUndefined();
-            expect(long).toBeUndefined();
-          });
-        });
-      `),
-    );
-    expect(violations).toEqual([]);
-  });
-
-  test("same-named locals in two tests are two rejections, not one", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("rejects lowercase", () => {
-            const bad = Currency.parse("usd");
-            expect(bad).toBeUndefined();
-          });
-          test("rejects length", () => {
-            const bad = Currency.parse("USDD");
-            expect(bad).toBeUndefined();
-          });
-        });
-      `),
-    );
-    expect(violations).toEqual([]);
-  });
-
-  test("a literal bound to a const is still a literal", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          const LOWER = "usd";
-          const LONG = "USDD";
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("rejects", () => { expect(Currency.parse(LOWER)).toBeUndefined(); });
-          test("rejects", () => { expect(Currency.parse(LONG)).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations).toEqual([]);
-  });
-
-  test("an unresolvable argument is not a literal and does not count", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test.each(["usd", "USDD"])("rejects %s", (raw) => {
-            expect(Currency.parse(raw)).toBeUndefined();
-          });
-        });
-      `),
-    );
-    expect(violations[0]?.kind).toBe("too-few-rejections");
-    expect(violations[0]?.wrongTypeRejections).toEqual(["raw"]);
-  });
-
-  test("blocks split across files are aggregated, not double-counted", () => {
-    const violations = checkBoundaryBlocks(CURRENCY(), [
-      {
-        file: "tests/accept.test.ts",
-        source: `describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("a", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("b", () => { expect(Currency.parse("usd")).toBeUndefined(); });
-        });`,
-      },
-      {
-        file: "tests/reject.test.ts",
-        source: `describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("c", () => { expect(Currency.parse("USDD")).toBeUndefined(); });
-        });`,
-      },
-    ]);
-    expect(violations).toEqual([]);
-  });
-
-  test("an assertion about another class does not satisfy this class's block", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("rejects", () => { expect(Isbn.parse("usd")).toBeUndefined(); });
-          test("rejects", () => { expect(Isbn.parse("USDD")).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations[0]?.kind).toBe("too-few-rejections");
-  });
-
-  test("rejections outside the boundaries block do not count", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(`
-        describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-          test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-          test("rejects", () => { expect(Currency.parse("usd")).toBeUndefined(); });
-        });
-        describe("Currency elsewhere", () => {
-          test("rejects", () => { expect(Currency.parse("USDD")).toBeUndefined(); });
-        });
-      `),
-    );
-    expect(violations[0]?.kind).toBe("too-few-rejections");
-  });
-
-  test("the violation records where the block was found", () => {
-    const violations = checkBoundaryBlocks(
-      CURRENCY(),
-      tests(
-        `describe("Currency ${BOUNDARY_DASH} boundaries", () => {
-           test("accepts", () => { expect(Currency.parse("USD")).toBeDefined(); });
-         });`,
-        "tests/currency.test.ts",
-      ),
-    );
-    expect(violations[0]?.testFiles).toEqual(["tests/currency.test.ts"]);
-  });
-});
-
-describe("boundaryDescribeName / boundaryRemedyLines", () => {
-  test("the required name uses an em dash, U+2014", () => {
-    expect(BOUNDARY_DASH).toBe("—");
-    expect(boundaryDescribeName("Currency")).toBe("Currency — boundaries");
+describe("value-object boundaries", () => {
+  test("an accepted literal and two distinct rejected literals of the base type discharge it", () => {
+    expect(checkBoundaries([TARGET], t(block(GOOD)))).toEqual([]);
+    expect(boundaryDescribeName("Currency")).toBe(`Currency ${BOUNDARY_DASH} boundaries`);
     expect(MIN_REJECTIONS).toBe(2);
   });
 
-  test("the remedy names the sin and the exact lines to write", () => {
-    const [violation] = checkBoundaryBlocks(CURRENCY(), tests(`test("nothing", () => {});`));
-    const text = boundaryRemedyLines(violation!).join("\n");
-    expect(text).toContain(`describe("Currency — boundaries"`);
-    expect(text).toContain("Currency.parse(");
-    expect(text).toContain("floor, not a target");
-  });
-});
-
-// --- IO wrappers -----------------------------------------------------------------
-
-describe("readContracts / readHandWrittenTests", () => {
-  const root = mkdtempSync(join(tmpdir(), "obligations-"));
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
-
-  mkdirSync(join(root, "src", "money"), { recursive: true });
-  mkdirSync(join(root, "tests", "generated"), { recursive: true });
-  mkdirSync(join(root, "node_modules", "junk"), { recursive: true });
-  writeFileSync(join(root, "src", "money", "money.contract.ts"), CURRENCY_CONTRACT);
-  writeFileSync(join(root, "tests", "money.test.ts"), GOOD_BLOCK);
-  writeFileSync(join(root, "tests", "generated", "money.laws.test.ts"), GOOD_BLOCK);
-  writeFileSync(join(root, "node_modules", "junk", "other.test.ts"), GOOD_BLOCK);
-
-  test("contracts are found with project-relative posix paths", () => {
-    expect(readContracts(root).map((c) => c.file)).toEqual(["src/money/money.contract.ts"]);
+  test("the Result forms: .ok toBe, toEqual, toStrictEqual, toMatchObject, `as const`, and a bound const", () => {
+    const body = `
+  test("a", () => { expect(Currency.parse("EUR")).toMatchObject({ ok: true }); });
+  test("b", () => { const r = Currency.parse("eur"); expect(r.ok).toBe(false); });
+  test("c", () => { const r = Currency.parse("E1R"); expect(r).toStrictEqual({ ok: false as const, error: "x" }); });`;
+    expect(checkBoundaries([TARGET], t(block(body)))).toEqual([]);
   });
 
-  test("tests/generated is ignored: machine-written laws cannot discharge a human obligation", () => {
-    expect(readHandWrittenTests(root).map((t) => t.file)).toEqual(["tests/money.test.ts"]);
+  test("the retired undefined forms no longer count", () => {
+    const body = `
+  test("a", () => { expect(Currency.parse("USD")).toBeDefined(); });
+  test("b", () => { expect(Currency.parse("usd")).toBeUndefined(); });
+  test("c", () => { expect(Currency.parse("US")).toBeUndefined(); });`;
+    const kinds = checkBoundaries([TARGET], t(block(body))).map((v) => v.kind);
+    expect(kinds).toEqual(["no-accepted-parse", "too-few-rejections"]);
+  });
+
+  test("loose assertions prove nothing: toBeTruthy, a negated matcher, a non-literal input", () => {
+    const body = `
+  test("a", () => { expect(Currency.parse("USD").ok).toBeTruthy(); });
+  test("b", () => { expect(Currency.parse("usd").ok).not.toBe(true); });
+  test("c", () => { expect(Currency.parse(input()).ok).toBe(false); });`;
+    expect(checkBoundaries([TARGET], t(block(body))).map((v) => v.kind)).toEqual(["no-accepted-parse", "too-few-rejections"]);
+  });
+
+  test("one rejection is not two, and a repeated literal is one rejection", () => {
+    const body = `
+  test("a", () => { expect(Currency.parse("USD").ok).toBe(true); });
+  test("b", () => { expect(Currency.parse("usd").ok).toBe(false); });
+  test("c", () => { expect(Currency.parse("usd")).toEqual({ ok: false, error: "x" }); });`;
+    const [v] = checkBoundaries([TARGET], t(block(body)));
+    expect(v).toMatchObject({ kind: "too-few-rejections", rejections: ['"usd"'] });
+  });
+
+  test("wrong-type rejections belong to the laws and do not count", () => {
+    const body = `
+  test("a", () => { expect(Currency.parse("USD").ok).toBe(true); });
+  test("b", () => { expect(Currency.parse(42).ok).toBe(false); });
+  test("c", () => { expect(Currency.parse("usd").ok).toBe(false); });`;
+    const [v] = checkBoundaries([TARGET], t(block(body)));
+    expect(v).toMatchObject({ kind: "too-few-rejections", wrongTypeRejections: ["42"] });
+  });
+
+  test("a hyphen instead of the em dash is a misnamed block; a skipped block or test does not count", () => {
+    expect(checkBoundaries([TARGET], t(block(GOOD, "Currency - boundaries"))).map((v) => v.kind)).toEqual(["misnamed-block"]);
+    expect(checkBoundaries([TARGET], t(block(GOOD).replace("describe(", "describe.skip("))).map((v) => v.kind)).toEqual(["skipped-block"]);
+    const skippedTest = GOOD.replace('test("rejects two letters"', 'test.skip("rejects two letters"');
+    expect(checkBoundaries([TARGET], t(block(skippedTest))).map((v) => v.kind)).toEqual(["too-few-rejections"]);
+    expect(checkBoundaries([TARGET], t("")).map((v) => v.kind)).toEqual(["missing-block"]);
+  });
+
+  test("numbers are compared as numbers: -1 and 1.5 are two rejections of a number", () => {
+    const n: BoundaryTarget = { ...TARGET, name: "Quantity", base: "number" };
+    const body = `
+  test("a", () => { expect(Quantity.parse(1).ok).toBe(true); });
+  test("b", () => { expect(Quantity.parse(-1).ok).toBe(false); });
+  test("c", () => { expect(Quantity.parse(1.5).ok).toBe(false); });`;
+    expect(checkBoundaries([n], t(block(body, boundaryDescribeName("Quantity"))))).toEqual([]);
+  });
+
+  test("on the pipeline, NoteId and NoteText are held to it and Note, an entity, is not", () => {
+    const f = scaffolded();
+    const noteText = `${CONTEXT_SRC}/domain/notes/note-text.test.ts`;
+    writeFileSync(join(f.dir, noteText), 'import { test } from "bun:test";\nimport { NoteText } from "./note-text.ts";\ntest("x", () => { NoteText.parse("a").ok; });\n');
+    const gaps = checkObligations(input(f)).filter((g) => g.level === "boundaries");
+    expect(gaps).toEqual([{ level: "boundaries", path: noteText, message: expect.stringContaining('NoteText has no "NoteText — boundaries" block') }]);
   });
 });

@@ -49,14 +49,13 @@
 // directory, which is what both the tool and the CLI do.
 
 import { fileURLToPath } from "node:url";
-import { readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
 import { runContractPurity } from "./contract-purity.ts";
-import { isGeneratedArtifact, runScaffold } from "./scaffold-contract.ts";
+import { runScaffold, untouchedSkeletons } from "./scaffold-project.ts";
 import { hasManifest, runChecksumGate } from "./checksum-gate.ts";
 import { findingLines, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
 import type { Finding } from "./sign-off.ts";
-import { gateTypecheckOptionsFromEnv, isSkeletonForwardTypeImportDiagnostic } from "./red-gate.ts";
+import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
 import { diagnosticPath, isDiagnosticStart, projectOwnerOf, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog, type GuardVerdict, type LoggedGuardEvent } from "../../../src/guard-log.ts";
@@ -195,19 +194,6 @@ async function runProjectTypecheck(
 ): Promise<{ code: number; lines: readonly string[]; drift?: TypecheckDrift }> {
   const result = await typecheck(cwd, gateTypecheckOptionsFromEnv());
   if (result.ok) return { code: 0, lines: [formatTypecheck(result)] };
-  // The service skill's router type is a type-only import of a value only the
-  // builder writes, so no first design could freeze without this (dogfood).
-  if (result.diagnostics.length > 0 && result.diagnostics.every((line) => isSkeletonForwardTypeImportDiagnostic(cwd, line))) {
-    const n = result.diagnostics.length;
-    return {
-      code: 0,
-      lines: [
-        `typecheck: OK — ${n} forward type import${n === 1 ? "" : "s"} of a value the builder adds to a generated skeleton`,
-        ...result.diagnostics.map((l) => `  ${l}`),
-        "  the red gate's shadow and the green gate's clean typecheck still require the builder to export it",
-      ],
-    };
-  }
 
   const routing = routeTypecheck(result.diagnostics, projectOwnerOf(cwd));
   if (routing.errorCount === 0) {
@@ -225,17 +211,11 @@ async function runProjectTypecheck(
   const plural = routing.errorCount === 1 ? "" : "s";
 
   if (reFreeze) {
+    const untouched = untouchedSkeletons(cwd);
     const generated = (routing.byOwner.builder ?? [])
       .filter(isDiagnosticStart)
       .map((l) => diagnosticPath(l))
-      .filter((p): p is string => p !== undefined)
-      .filter((p) => {
-        try {
-          return isGeneratedArtifact(readFileSync(join(cwd, p), "utf8"));
-        } catch {
-          return false; // a diagnostic naming a file that is not on disk is not a skeleton's
-        }
-      });
+      .filter((p): p is string => p !== undefined && untouched.has(p));
     const designOwned = routing.owners.some((o) => o === "architect" || o === "orchestrator");
     if (!designOwned && generated.length === 0) {
       return {
@@ -553,7 +533,10 @@ export async function runDesignGate(
 
   // Project config the composed packs did not generate is refused before any
   // step runs: the typecheck step loads it (ADR 2026-054).
-  const configBlock = configDriftBlock(GUARD, cwd);
+  // Drift the design itself causes (a workspace it adds, changes or drops,
+  // and the lockfile that follows) is not refused here: the scaffold step
+  // brings the config in line with the design (ADR 2026-061).
+  const configBlock = configDriftBlock(GUARD, cwd, undefined, { tolerateDesignDrift: true });
   if (configBlock !== undefined) return { ...configBlock, steps: [] };
 
   const reFreeze = hasManifest(cwd);

@@ -42,7 +42,6 @@ function parseJson(text: string): unknown {
   return JSON.parse(text);
 }
 
-const CONTRACT = "export declare function create(): void;\n";
 
 describe("usage (exit 64) and help (exit 0)", () => {
   const dir = project({});
@@ -112,12 +111,38 @@ describe("usage (exit 64) and help (exit 0)", () => {
   });
 });
 
+// A monorepo concept pair (ADR 2026-059): the root manifest's workspaces name
+// the source roots the delivered checker walks.
+const CONCEPT_CONTRACT = `import type { Result } from "../shared/result.ts";
+
+export interface Tag {
+  readonly __brand: "Tag";
+  readonly value: string;
+}
+
+export interface TagFactory {
+  parse(raw: unknown): Result<Tag>;
+}
+`;
+const CONCEPT_IMPL = `import type * as Contract from "./tag.contract.ts";
+
+class TagImpl {}
+
+export type Tag = Contract.Tag;
+export const Tag: Contract.TagFactory = TagImpl;
+`;
+
+function conceptPair(impl: string): Record<string, string> {
+  return {
+    "package.json": JSON.stringify({ name: "fixture", private: true, workspaces: ["contexts/*"] }),
+    "contexts/notes/src/domain/tags/tag.contract.ts": CONCEPT_CONTRACT,
+    "contexts/notes/src/domain/tags/tag.ts": impl,
+  };
+}
+
 describe("surface-check (spawns nothing)", () => {
   test("PASS: lines then the verdict line on stdout, exit 0, and a guard event", () => {
-    const dir = project({
-      "src/money/money.contract.ts": CONTRACT,
-      "src/money/money.ts": "export function create(): void {}\n",
-    });
+    const dir = project(conceptPair(CONCEPT_IMPL));
     const r = run(["surface-check"], dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("surface-check: OK (1 contract pair)\nsurface-check: PASS\n");
@@ -126,10 +151,7 @@ describe("surface-check (spawns nothing)", () => {
   });
 
   test("BLOCK: everything on stderr, exit 1", () => {
-    const dir = project({
-      "src/money/money.contract.ts": CONTRACT,
-      "src/money/money.ts": "export function create(extra: number): void {}\n",
-    });
+    const dir = project(conceptPair(`${CONCEPT_IMPL}export const leaked = 1;\n`));
     const r = run(["surface-check"], dir);
     expect(r.status).toBe(1);
     expect(r.stdout).toBe("");
@@ -161,10 +183,7 @@ describe("surface-check (spawns nothing)", () => {
   });
 
   test("[cwd] is resolved relative to where the CLI runs", () => {
-    const dir = project({
-      "proj/src/a/a.contract.ts": CONTRACT,
-      "proj/src/a/a.ts": "export function create(): void {}\n",
-    });
+    const dir = project(Object.fromEntries(Object.entries(conceptPair(CONCEPT_IMPL)).map(([path, text]) => [`proj/${path}`, text])));
     const r = run(["surface-check", "proj"], dir);
     expect(r.status).toBe(0);
     expect(gateEvents(join(dir, "proj"))).toHaveLength(1);

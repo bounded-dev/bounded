@@ -1,0 +1,11 @@
+import { Note, NoteId } from "{{scope}}/notebook/domain";
+import type { CreateNote, CreateNoteCommand, CreateNoteStore } from "./create-note.contract.ts";
+
+// Half-written: builds the note but never saves it yet.
+export class CreateNoteHandler implements CreateNote {
+  constructor(private readonly store: CreateNoteStore) {}
+
+  async execute(command: CreateNoteCommand): Promise<Note> {
+    return new Note(NoteId.generate(), command.text);
+  }
+}
