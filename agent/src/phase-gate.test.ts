@@ -1,9 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import {
-  checkSpawnPrecondition,
-  checkSubagentCall,
+  checkSpawnPrecondition as checkPrecondition,
+  checkSubagentCall as checkCall,
   checkTierResolvable,
-  detectMultiSpawn,
+  detectMultiSpawn as detect,
   specIntakeSection,
   techNounsOutsideIntake,
   type PhaseEvidence,
@@ -12,6 +13,17 @@ import { parseDevStageModels } from "./dev-stage-models.ts";
 import type { KnownModel } from "./model-tier.ts";
 import { PIPELINE_ROLES } from "./path-gate.ts";
 import type { LoggedGuardEvent } from "./guard-log.ts";
+import type { CommissionHost } from "./phase-gate.ts";
+import { PI_COMMISSIONS } from "../hosts/pi/extensions/lib/commissions.ts";
+
+// Most of these cases were written against pi's subagent vocabulary, and pi's
+// behaviour is unchanged, so they run through pi's commission host. The
+// host-neutral rule itself is pinned with a fake host further down.
+const checkSubagentCall = (input: Readonly<Record<string, unknown>>, evidence: PhaseEvidence) =>
+  checkCall(input, evidence, PI_COMMISSIONS);
+const detectMultiSpawn = (input: Readonly<Record<string, unknown>>) => detect(input, PI_COMMISSIONS.multiSpawnFields);
+const checkSpawnPrecondition = (target: string, evidence: PhaseEvidence, host: CommissionHost = PI_COMMISSIONS) =>
+  checkPrecondition(target, evidence, host);
 
 // WHY THIS EXISTS
 //
@@ -272,7 +284,7 @@ const listedChildren = (): LoggedGuardEvent =>
     guard: "phase-gate",
     verdict: "pass",
     summary: "children.list",
-    detail: { kind: "children-listed" },
+    detail: { kind: "continuation-checked" },
   }) as LoggedGuardEvent;
 
 describe("cold respawn", () => {
@@ -314,6 +326,53 @@ describe("cold respawn", () => {
   test("spawning a DIFFERENT role is unaffected by another role's history", () => {
     const events = [...READY.events, spawned("test-writer")];
     expect(checkSpawnPrecondition("builder", { ...READY, events }).allow).toBe(true);
+  });
+
+  test("a pi children.list is recorded as a continuation check", () => {
+    expect(checkSubagentCall({ action: "children.list" }, EMPTY)).toEqual({ kind: "continuation-checked" });
+  });
+
+  test("the refusal is the rule plus the current host's mechanism, and no other host's", () => {
+    const host: CommissionHost = {
+      classify: () => ({ kind: "launch" }),
+      multiSpawnFields: [],
+      checkSummary: "looked",
+      continueHow: (role) => `HOST-SPECIFIC: continue the ${role}.`,
+    };
+    const d = checkSpawnPrecondition("test-writer", { ...READY, events: [...READY.events, spawned("test-writer")] }, host);
+    if (d.allow) throw new Error("expected a refusal");
+    expect(d.reason).toContain("A bounce goes back to the worker that already ran");
+    expect(d.reason).toContain("HOST-SPECIFIC: continue the test-writer.");
+    expect(d.reason).not.toMatch(/children\.list|resume|SendMessage/);
+  });
+
+  // ADR 2026-034: the core names no host's commission tool or its fields. The
+  // host adapters (CommissionHost) read them: pi's `children.list`, resume,
+  // `workflowScript`/`chain`/`parallel`; Claude Code's SendMessage.
+  test("the core names no host's commission tool or its fields (#33)", () => {
+    for (const file of ["phase-gate.ts", "path-gate.ts", "model-tier.ts"]) {
+      const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+      expect(source, file).not.toMatch(
+        /children\.list|SendMessage|action: "resume"|action='resume'|isResumeCall|RESUME_ACTION|resumeRunId|workflowScript|MULTI_SPAWN_FIELDS|"chain"|"parallel"/,
+      );
+    }
+  });
+  test("a host with no multi-spawn fields sees no multi-spawn form", () => {
+    expect(detect({ workflowScript: 'agent:"builder"' }, [])).toBeUndefined();
+  });
+
+  test("without a host the refusal still stands and names no host's tool", () => {
+    const d = checkPrecondition("test-writer", { ...READY, events: [...READY.events, spawned("test-writer")] });
+    if (d.allow) throw new Error("expected a refusal");
+    expect(d.reason).not.toMatch(/children\.list|resume|SendMessage/);
+  });
+
+  test("a targeted continuation check licenses only its own role", () => {
+    const checked = (target: string): LoggedGuardEvent =>
+      ({ ...listedChildren(), detail: { kind: "continuation-checked", target } }) as LoggedGuardEvent;
+    const events = [...READY.events, spawned("test-writer"), spawned("builder"), checked("builder")];
+    expect(checkSpawnPrecondition("builder", { ...READY, events }).allow).toBe(true);
+    expect(checkSpawnPrecondition("test-writer", { ...READY, events }).allow).toBe(false);
   });
 
   test("the refusal names the token cost, so it reads as a reason not a rule", () => {
@@ -472,6 +531,17 @@ describe("delegate: no unbound writer inside the pipeline", () => {
     expect(v.reason).toContain("test-writer");
   });
 
+  // One architect drives a ticket and only the lead commissions it: a second
+  // architect beside the first would launch its own workers (the re-review's
+  // race: two builders at once).
+  test("no bound seat may commission an architect, whatever the phase", () => {
+    for (const evidence of [EMPTY, READY]) {
+      const v = checkSubagentCall({ agent: "architect", task: "design ticket 2" }, evidence);
+      expect(v).toMatchObject({ kind: "block", target: "architect" });
+      if (v.kind === "block") expect(v.reason).toContain("may not commission another architect");
+    }
+  });
+
   test("the read-only helpers stay commissionable", () => {
     for (const agent of ["scout", "product-expert"]) {
       expect(checkSubagentCall({ agent }, EMPTY)).toEqual({ kind: "allow", target: agent });
@@ -489,7 +559,7 @@ describe("delegate: no unbound writer inside the pipeline", () => {
 describe("checkSubagentCall: the non-launch actions", () => {
   test("children.list is recorded, not judged", () => {
     expect(checkSubagentCall({ action: "children.list" }, EMPTY)).toEqual({
-      kind: "children-listed",
+      kind: "continuation-checked",
     });
   });
 
@@ -573,7 +643,7 @@ describe("resumes are recorded, not ignored", () => {
     expect(v.kind).toBe("block");
     if (v.kind !== "block") throw new Error("expected a block");
     expect(v.reason).toContain("delegate holds no role binding");
-    expect(v.reason).toMatch(/resuming one continues an unbound/);
+    expect(v.reason).toMatch(/continuing one continues an unbound/);
   });
 
   test("a resume attaching a chain of pipeline roles is refused like any multi-spawn", () => {
@@ -584,7 +654,7 @@ describe("resumes are recorded, not ignored", () => {
     expect(v.kind).toBe("block");
     if (v.kind !== "block") throw new Error("expected a block");
     expect(v.reason).toContain("builder");
-    expect(v.reason).toMatch(/resume the child on its own/);
+    expect(v.reason).toMatch(/continue the worker on its own/);
   });
 
   test("a resume attaching a fan-out of non-pipeline agents is left alone", () => {

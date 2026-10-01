@@ -29,6 +29,38 @@ export interface GateCall {
   readonly input: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * The tools Claude Code gives a subagent whatever the build and however the
+ * session was launched. A generated definition may name only these
+ * (render-agents.test.ts): a `tools:` entry the host does not provide is a
+ * capability the brief promises and the role does not have.
+ *
+ * Glob and Grep are deliberately absent. Claude Code's native builds bundle
+ * their own `find` and `grep` and remove the Glob and Grep tools from the
+ * session, telling the model "Glob is not available in this session — find
+ * files with `find` via the Bash tool instead". A session gets them back only
+ * when it is launched naming them in `--tools` or `--allowedTools`; a
+ * subagent's `tools:` line does not opt in. The 2026-10-01 dogfood architect
+ * listed Glob and was refused it twice. SendMessage continues a finished
+ * subagent (continuation.ts), verified with background tasks and agent teams
+ * disabled, as the project installer sets them.
+ */
+export const CLAUDE_PROVIDED_TOOLS: ReadonlySet<string> = new Set([
+  "Read",
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+  "Agent",
+  "SendMessage",
+  "WebFetch",
+  "WebSearch",
+  "Skill",
+]);
+
+/** Tools some Claude Code sessions have and others do not (see above). */
+export const CLAUDE_CONDITIONAL_TOOLS: ReadonlySet<string> = new Set(["Glob", "Grep"]);
+
 /** The subset of a PreToolUse payload the mapping reads. */
 export interface ClaudeToolCall {
   readonly tool_name: string;
@@ -192,8 +224,14 @@ export const CLAUDE_LOOKUP_TOOLS: ReadonlySet<string> = new Set(["WebSearch", "W
  * resume, isolation, run_in_background, cwd, team_name, mode, ...) could
  * hide, detach, move or rename the seat, so an allowlist refuses it by default.
  */
-const PLAIN_AGENT_FIELDS: ReadonlySet<string> = new Set(["subagent_type", "prompt", "description", "model"]);
+export const PLAIN_AGENT_FIELDS: ReadonlySet<string> = new Set(["subagent_type", "prompt", "description", "model"]);
 
+
+/** The first Agent-call field outside PLAIN_AGENT_FIELDS, if any: every seat
+ *  that commissions (the lead and the architect) is held to the same list. */
+export function unplainAgentField(input: Readonly<Record<string, unknown>>): string | undefined {
+  return Object.keys(input).find((key) => input[key] !== undefined && !PLAIN_AGENT_FIELDS.has(key));
+}
 
 /** One Claude Code call as the actions a read-only seat is judged on. */
 export function claudeSeatActions(call: ClaudeToolCall, cwd: string): readonly SeatAction[] {
@@ -216,7 +254,7 @@ export function claudeSeatActions(call: ClaudeToolCall, cwd: string): readonly S
     case "Agent":
     case "Task": {
       const role = input["subagent_type"];
-      const field = Object.keys(input).find((key) => input[key] !== undefined && !PLAIN_AGENT_FIELDS.has(key));
+      const field = unplainAgentField(input);
       if (field !== undefined) {
         return [{ kind: "refused", reason: `a commission must start a fresh, unnamed foreground subagent ('${field}' is not allowed)` }];
       }

@@ -107,6 +107,10 @@ function main(): void {
       detail: { host: "claude-code", kind: "full-hook-failed" },
     });
   }
+  // A commissioning role's hook also runs after its calls, only to record
+  // what happened; there is nothing to refuse after a call.
+  const event = payload?.["hook_event_name"];
+  if (typeof event === "string" && event !== "PreToolUse") return;
   bootstrapDecision();
 }
 

@@ -84,34 +84,51 @@ export function mergeAmbientHook(settings: Json, command: string): Merge {
   const hooksRaw = settings["hooks"];
   if (hooksRaw !== undefined && !isRecord(hooksRaw)) return { ok: false, reason: "'hooks' is not an object" };
   const hooks: Json = hooksRaw ?? {};
-  const preRaw = hooks["PreToolUse"];
-  if (preRaw !== undefined && !Array.isArray(preRaw)) {
-    return { ok: false, reason: "'hooks.PreToolUse' is not a list" };
+  const merged: Record<string, unknown> = { ...hooks };
+  let added = false;
+  for (const [event, matcher] of AMBIENT_HOOK_EVENTS) {
+    const raw = hooks[event];
+    if (raw !== undefined && !Array.isArray(raw)) return { ok: false, reason: `'hooks.${event}' is not a list` };
+    const list: readonly unknown[] = raw ?? [];
+    if (list.some(isOurHook)) continue;
+    merged[event] = [...list, { matcher, hooks: [{ type: "command", command }] }];
+    added = true;
   }
-  const pre: readonly unknown[] = preRaw ?? [];
-  const present = pre.some((entry) => {
-    if (!isRecord(entry)) return false;
-    const inner = entry["hooks"];
-    return (
-      Array.isArray(inner) &&
-      inner.some((h) => {
-        if (!isRecord(h)) return false;
-        const command = h["command"];
-        return typeof command === "string" && HOOK_SCRIPT_NAMES.some((name) => command.includes(name));
-      })
-    );
-  });
-  if (present && foreground === "1" && teams === "0") return { ok: true, value: settings, changed: false };
-  const entry = { matcher: "", hooks: [{ type: "command", command }] };
+  if (!added && foreground === "1" && teams === "0") return { ok: true, value: settings, changed: false };
   return {
     ok: true,
     changed: true,
     value: {
       ...settings,
       env: { ...env, [FOREGROUND_AGENTS_ENV]: "1", [AGENT_TEAMS_ENV]: "0" },
-      hooks: { ...hooks, PreToolUse: present ? pre : [...pre, entry] },
+      hooks: merged,
     },
   };
+}
+
+/**
+ * The events the project-wide hook runs on. Before every call it decides;
+ * after an Agent call it only records — that is how the lead's architect is
+ * known to have ended (or not), so a second architect is never started while
+ * one runs (lead-hook.ts).
+ */
+export const AMBIENT_HOOK_EVENTS: readonly (readonly [string, string])[] = [
+  ["PreToolUse", ""],
+  ["PostToolUse", "Agent|Task"],
+  ["PostToolUseFailure", "Agent|Task"],
+];
+
+function isOurHook(entry: unknown): boolean {
+  if (!isRecord(entry)) return false;
+  const inner = entry["hooks"];
+  return (
+    Array.isArray(inner) &&
+    inner.some((h) => {
+      if (!isRecord(h)) return false;
+      const command = h["command"];
+      return typeof command === "string" && HOOK_SCRIPT_NAMES.some((name) => command.includes(name));
+    })
+  );
 }
 
 function usage(): number {

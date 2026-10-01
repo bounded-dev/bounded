@@ -42,7 +42,7 @@ export function asProjectRead(tool: string, input: Fields): ProjectRead | undefi
     // A pathless listing or search walks the session directory, which the
     // full policy refuses as unscoped; so does this entry.
     case "read": return { path: input["path"], pathRequired: true, search: false, globs: [] };
-    case "ls": return { path: input["path"], pathRequired: true, search: true, globs: [] };
+    case "ls": return { path: input["path"], pathRequired: true, search: false, globs: [] };
     case "grep": return { path: input["path"], pathRequired: true, search: true, globs: [input["glob"]] };
     case "find": return { path: input["path"], pathRequired: true, search: true, globs: [input["pattern"] ?? null] };
     default: return undefined;

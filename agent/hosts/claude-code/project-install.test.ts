@@ -64,7 +64,7 @@ test("Claude Code discovery uses only project-relative paths and copied skills",
   expect(instructions.endsWith(readFileSync(join(target, "AGENTS.md"), "utf8"))).toBe(true);
   const scout = readFileSync(join(target, ".claude", "agents", "scout.md"), "utf8");
   expect(scout).toContain("name: scout\n");
-  expect(scout).toContain("tools: Read, Grep, Glob");
+  expect(scout).toContain("tools: Read, Bash\n");
   expect(scout).toContain('hooks:\n  PreToolUse:\n    - matcher: ""\n      hooks:\n        - type: command\n');
   expect(scout).toContain("--project-local --role scout");
   expect(scout).not.toContain(target);

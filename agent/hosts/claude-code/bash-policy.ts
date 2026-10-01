@@ -13,7 +13,9 @@
 // A shell string is a program, and `bounded gates typecheck; cat <a test file>`
 // starts with an allowed word. No role holds a content-bearing shell tool
 // (cat, grep, head, sed …): a test file's content reaches the builder through
-// nothing, and an implementation's reaches the test-writer through nothing. So the command is first read the way a POSIX
+// nothing, and an implementation's reaches the test-writer through nothing.
+// `ls` and `find` are here only as names-only listings (listing.ts), judged as
+// pi's own `ls` and `find`. So the command is first read the way a POSIX
 // shell would, quote by quote, and refused the moment it uses anything that
 // would make it more than one plain argv: separators, pipes, redirects,
 // substitutions, globs, brace and tilde expansion, backslash escapes, an env
@@ -45,11 +47,14 @@ import {
   type Role,
 } from "../../src/path-policy.ts";
 import { isSleepSeconds, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
+import { gateInputs, listingCall } from "./listing.ts";
+import { searchCall, searchGateInput } from "./search.ts";
+import { searchPatternContained } from "../../src/setup-state.ts";
 
 /** Which sanctioned carrier an allowed command is. The hook needs to know:
  *  a `bounded gates` call is handed the bound role through `updatedInput`, the
  *  other carriers are let through untouched. */
-export type Carrier = "bounded gates" | "git" | "sleep" | "rm";
+export type Carrier = "bounded gates" | "git" | "sleep" | "rm" | "ls" | "find" | "grep";
 
 /** A Decision that, when it allows, also says which carrier it allowed. */
 export type BashDecision =
@@ -96,6 +101,9 @@ export function carriers(role: Role): string {
   if (tools.includes("git")) out.push("git …");
   if (tools.includes("sleep")) out.push(`sleep <${SLEEP_MIN_SECONDS}-${SLEEP_MAX_SECONDS}>`);
   if (tools.includes("remove")) out.push("rm <path>");
+  if (tools.includes("ls")) out.push("ls [<dir>]");
+  if (tools.includes("find")) out.push("find <dir> -name '<glob>'");
+  if (tools.includes("grep")) out.push("grep -rn [--include='<glob>'] -e '<pattern>' <path>");
   return out.join(", ");
 }
 
@@ -296,6 +304,11 @@ export function decideBash(role: Role, command: string, ctx: Ctx): BashDecision 
     // write zone, and decide() already says so in the reviewer's own words.
     case "rm":
       return decideRm(role, argv, shown, ctx);
+    case "ls":
+    case "find":
+      return decideListing(role, argv, shown, ctx);
+    case "grep":
+      return decideSearch(role, argv, shown, ctx);
     default:
       return block(
         `path-gate: ${role} may not run '${head}': ${forbiddenWhy(role, "bash")} — in Claude Code, Bash carries only ${carriers(role)}`,
@@ -373,6 +386,65 @@ function decideRm(role: Role, argv: readonly string[], shown: string, ctx: Ctx):
   }
   const zone: Decision = decide(role, "remove", { path }, ctx);
   return zone.allow ? allow("rm") : zone;
+}
+
+/** `ls` / `find` — names only (listing.ts), judged as pi's own `ls` / `find`
+ *  calls by the same decide(), so a blind role may list the other side's
+ *  names and never its contents (ADR 2026-057). */
+function decideListing(role: Role, argv: readonly string[], shown: string, ctx: Ctx): BashDecision {
+  const listing = listingCall(argv);
+  if (!listing.ok) return block(`path-gate: ${role} may not run '${shown}': ${listing.reason}`);
+  const { tool } = listing.call;
+  // A pattern that reaches outside the searched directory or names .git is
+  // refused for every role, not only the blind ones, as it is for the lead.
+  if (!listing.call.patterns.every(searchPatternContained)) {
+    return block(`path-gate: ${role} may not run '${shown}': a find pattern must be relative, stay inside the searched directory and away from .git`);
+  }
+  if (!ROLE_TOOLS[role].includes(tool)) {
+    return block(`path-gate: ${role} may not run '${tool}': ${forbiddenWhy(role, tool)}`);
+  }
+  for (const input of gateInputs(listing.call)) {
+    const zone: Decision = decide(role, tool, input, ctx);
+    if (!zone.allow) return zone;
+  }
+  const linked = linkedPath(role, shown, listing.call.path, ctx);
+  if (linked !== undefined) return linked;
+  return allow(tool);
+}
+
+/** `grep` — the read-only grammar in search.ts, judged as pi's own `grep`
+ *  (path plus file glob) by the same decide(): a file as a read, a directory
+ *  only over a complete, link-free tree and, for a blind role, with a glob
+ *  that provably keeps it off the other side (ADR 2026-057). */
+function decideSearch(role: Role, argv: readonly string[], shown: string, ctx: Ctx): BashDecision {
+  const search = searchCall(argv);
+  if (!search.ok) return block(`path-gate: ${role} may not run '${shown}': ${search.reason}`);
+  if (!ROLE_TOOLS[role].includes("grep")) {
+    return block(`path-gate: ${role} may not run 'grep': ${forbiddenWhy(role, "grep")}`);
+  }
+  const zone: Decision = decide(role, "grep", searchGateInput(search.call), ctx);
+  if (!zone.allow) return zone;
+  const linked = linkedPath(role, shown, search.call.path, ctx);
+  if (linked !== undefined) return linked;
+  return allow("grep");
+}
+
+/**
+ * The shell follows links; the gate judged the path as written. So a shell
+ * listing or search runs only on a path whose real location IS the path as
+ * written — no link on the way, no case folding — or a link could carry it
+ * into `.git` or out of the project. Without the host's path facts nothing
+ * can be shown, so the command is refused (fail closed).
+ */
+function linkedPath(role: Role, shown: string, path: string, ctx: Ctx): BashDecision | undefined {
+  const asWritten = ctx.pathFacts?.asWritten;
+  if (asWritten === undefined) {
+    return block(`path-gate: ${role} may not run '${shown}': the gate cannot see where '${path}' really leads`);
+  }
+  if (!asWritten.call(ctx.pathFacts, path)) {
+    return block(`path-gate: ${role} may not run '${shown}': '${path}' is a link, or reached through one, or spelled differently from its real name — use the real path`);
+  }
+  return undefined;
 }
 
 /** The command as a refusal quotes it: one line, bounded. */

@@ -8,13 +8,16 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logGuardEvent } from "../../src/guard-log.ts";
+import { logGuardEvent, readGuardLog } from "../../src/guard-log.ts";
 import { decideLead, decideScout, parseLeadPrepareArgs, parseReplanCommand, type SeatAction } from "../../src/lead-policy.ts";
-import { LEAD_GUARD, LEAD_SEAT, SCOUT_SEAT } from "../../src/lead-state.ts";
+import { ARCHITECT_ENDED, ARCHITECT_LAUNCHED, LEAD_GUARD, LEAD_SEAT, runningArchitects, SCOUT_SEAT } from "../../src/lead-state.ts";
 import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
-import { asRole } from "../../src/path-gate.ts";
+import { asRole, projectPathFacts } from "../../src/path-gate.ts";
 import { shellWords } from "./bash-policy.ts";
+import { gateInputs, isListing, listingCall } from "./listing.ts";
+import { isSearch, searchCall, searchGateInput } from "./search.ts";
+import { searchPatternContained } from "../../src/setup-state.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { claudeSeatActions, claudeTaskModel } from "./tool-map.ts";
 
@@ -53,6 +56,40 @@ export function leadCommand(command: unknown): LeadCommand {
   return { action: { kind: "refused", reason: "Bash is limited to gate discovery, run preparation and, before the first ticket, re-planning initialization in this session" } };
 }
 
+/**
+ * A Bash `ls` / `find` as the read actions a read-only seat is judged on, or
+ * undefined when the command is not a listing at all. Claude Code gives no
+ * session a Glob tool it can rely on (listing.ts), so this is how the lead and
+ * the scout see what exists rather than guess.
+ */
+export function listingActions(command: unknown, cwd: string): readonly SeatAction[] | undefined {
+  const words = typeof command === "string" ? shellWords(command) : undefined;
+  if (words === undefined || !words.ok) return undefined;
+  if (isSearch(words.argv)) {
+    const search = searchCall(words.argv);
+    if (!search.ok) return [{ kind: "refused", reason: search.reason }];
+    if (!searchPatternContained(search.call.glob)) {
+      return [{ kind: "refused", reason: "an --include glob must stay away from .git" }];
+    }
+    if (!projectPathFacts(cwd).asWritten?.(search.call.path)) {
+      return [{ kind: "refused", reason: `'${search.call.path}' is a link, or reached through one, or spelled differently from its real name — use the real path` }];
+    }
+    return [{ kind: "read", tool: "grep", input: searchGateInput(search.call) }];
+  }
+  if (!isListing(words.argv)) return undefined;
+  const listing = listingCall(words.argv);
+  if (!listing.ok) return [{ kind: "refused", reason: listing.reason }];
+  const { call } = listing;
+  if (!call.patterns.every(searchPatternContained)) {
+    return [{ kind: "refused", reason: "find patterns must stay inside the searched directory and away from .git" }];
+  }
+  // The shell follows links; the read policy judges the path as written.
+  if (!projectPathFacts(cwd).asWritten?.(call.path)) {
+    return [{ kind: "refused", reason: `'${call.path}' is a link, or reached through one, or spelled differently from its real name — use the real path` }];
+  }
+  return gateInputs(call).map((input) => ({ kind: "read" as const, tool: call.tool, input }));
+}
+
 function runOnProjectCopy(payload: HookPayload, harnessRoot: string, cli: readonly string[]): string {
   return allowWith({ ...payload.toolInput,
     command: [join(harnessRoot, "scripts", "bounded"), ...cli].map(shellQuote).join(" ") });
@@ -68,6 +105,14 @@ export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: str
     });
     return deny(reason);
   };
+  const listing = payload.toolName === "Bash" ? listingActions(payload.toolInput["command"], cwd) : undefined;
+  if (listing !== undefined) {
+    for (const action of listing) {
+      const decision = decideLead(action, cwd);
+      if (!decision.allow) return refuse(decision.reason);
+    }
+    return "";
+  }
   if (payload.toolName === "Bash") {
     const command = leadCommand(payload.toolInput["command"]);
     const decision = decideLead(command.action, cwd);
@@ -80,7 +125,45 @@ export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: str
     if (!decision.allow) return refuse(decision.reason);
   }
   const architect = actions.find((action) => action.kind === "commission" && action.role === "architect");
-  return architect === undefined ? "" : architectTier(payload, cwd);
+  if (architect === undefined) return "";
+  // One architect at a time (lead-state.ts): a second would commission its
+  // own workers while the first's still run.
+  const running = runningArchitects(readGuardLog(cwd));
+  if (running.length > 0) {
+    return refuse("an architect is already running — wait for it to finish; one architect runs at a time");
+  }
+  if (payload.toolUseId === undefined) {
+    return refuse("this host gave the architect commission no call id, so its end could never be recorded");
+  }
+  const decision = architectTier(payload, cwd);
+  if (!decision.includes('"deny"')) {
+    logGuardEvent(cwd, {
+      guard: LEAD_GUARD, verdict: "pass", summary: "architect commissioned",
+      detail: { host: "claude-code", kind: ARCHITECT_LAUNCHED, launch: payload.toolUseId },
+    });
+  }
+  return decision;
+}
+
+/**
+ * After the lead's Agent call: record that an architect it launched has ended
+ * — completed, failed or interrupted. A background launch is still running,
+ * and so records nothing. What the result reports as the architect's agent id
+ * is kept, so a successor architect can show the one before it ended
+ * (continuation.ts).
+ */
+export function recordLeadArchitectOutcome(payload: HookPayload, rec: Readonly<Record<string, unknown>>, cwd: string): void {
+  if (payload.toolName !== "Agent" && payload.toolName !== "Task") return;
+  if (payload.toolInput["subagent_type"] !== "architect" || payload.toolUseId === undefined) return;
+  const response = rec["tool_response"];
+  const r = typeof response === "object" && response !== null ? (response as Readonly<Record<string, unknown>>) : {};
+  if (payload.event === "PostToolUse" && r["status"] === "async_launched") return;
+  const agent = typeof r["agentId"] === "string" ? r["agentId"] : undefined;
+  logGuardEvent(cwd, {
+    guard: LEAD_GUARD, verdict: "pass",
+    summary: payload.event === "PostToolUseFailure" ? "architect ended without completing" : "architect finished",
+    detail: { host: "claude-code", kind: ARCHITECT_ENDED, launch: payload.toolUseId, ...(agent !== undefined ? { agent } : {}) },
+  });
 }
 
 /** The architect seat runs on its configured tier, chosen here as on pi. */
@@ -109,7 +192,7 @@ function architectTier(payload: HookPayload, cwd: string): string {
  *  elsewhere: project reads only, as the lead may read them. */
 export function evaluateScout(payload: HookPayload, cwd: string): string {
   const actions = payload.toolName === "Bash"
-    ? [{ kind: "other" as const, tool: "Bash" }]
+    ? listingActions(payload.toolInput["command"], cwd) ?? [{ kind: "other" as const, tool: "Bash" }]
     : claudeSeatActions({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd);
   for (const action of actions) {
     const decision = decideScout(action, cwd);

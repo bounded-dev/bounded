@@ -1,4 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
@@ -155,9 +157,46 @@ describe("lead commissions", () => {
     expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("prepare the ticket's run boundary");
     writeFileSync(join(dir, ".bounded/active-ticket"), "1\n");
     writeFileSync(join(dir, LOG), logLines(prepared("1")));
-    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver", model: "haiku" });
+    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver", model: "haiku" }, LEAD, { tool_use_id: "t1" });
     expect(r).toEqual({ decision: "rewrite", input: { subagent_type: "architect", prompt: "deliver", model: "opus" } });
     expect(readGuardLog(dir).find((e) => e.guard === "model-tier")).toMatchObject({ verdict: "pass", detail: { role: "team-lead" } });
+  });
+
+  test("one architect at a time: a second waits until the first's end is recorded", () => {
+    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
+    const launch = (id: string) => hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: id });
+    const after = (event: string, id: string, extra: Readonly<Record<string, unknown>> = {}) =>
+      runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: event, tool_name: "Agent", tool_use_id: id,
+        tool_input: { subagent_type: "architect", prompt: "deliver" }, ...extra }), dir);
+    expect(launch("t1").decision).toBe("allow");
+    expect(launch("t2").reason).toContain("an architect is already running");
+    // A background launch is still running.
+    after("PostToolUse", "t1", { tool_response: { status: "async_launched", agentId: "a0000000000000aaa" } });
+    expect(launch("t2").decision).toBe("deny");
+    after("PostToolUse", "t1", { tool_response: { status: "completed", agentId: "a0000000000000aaa", agentType: "architect" } });
+    expect(launch("t2").decision).toBe("allow");
+    // An interrupted or failed architect has ended too.
+    after("PostToolUseFailure", "t2", { error: "interrupted", is_interrupt: true });
+    expect(launch("t3").decision).toBe("allow");
+    // A child's Agent calls never end the lead's architect.
+    runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "t3",
+      agent_id: "a0000000000000aaa", agent_type: "architect", tool_input: { subagent_type: "architect" }, tool_response: { status: "completed" } }), dir);
+    expect(launch("t4").decision).toBe("deny");
+  });
+
+  test("an architect commission with no call id is refused: its end could never be recorded", () => {
+    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("no call id");
+  });
+
+  test("only the user releases a stuck architect: the lead may not run the release", () => {
+    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "bounded lead release" }).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "bash .bounded/harness/scripts/bounded lead release" }).decision).toBe("deny");
+    const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../../src/lead-cli.ts", import.meta.url)), "release"], { cwd: dir, encoding: "utf8", env: { ...process.env, BOUNDED_GUARD_LOG: "" } });
+    expect(cli.stdout).toContain("released");
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t2" }).decision).toBe("allow");
   });
 
   test("a tier this host cannot run refuses the architect; no tier leaves the call untouched", () => {
@@ -165,9 +204,9 @@ describe("lead commissions", () => {
       ".bounded/dev-stage-models.json": '{"designModel": "fireworks/kimi-k3:medium"}\n',
       ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")),
     });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("names no model this host can run");
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).reason).toContain("names no model this host can run");
     const plain = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(plain, "Agent", { subagent_type: "architect", prompt: "deliver" }).decision).toBe("allow");
+    expect(hook(plain, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
   });
 });
 
@@ -210,10 +249,54 @@ describe("--role scout", () => {
     const dir = project({ "src/a.ts": "" });
     expect(hook(dir, "Grep", { pattern: "x", path: join(dir, "src") }, SCOUT).decision).toBe("allow");
     expect(hook(dir, "Read", { file_path: join(dir, ".git/HEAD") }, SCOUT).decision).toBe("deny");
-    expect(hook(dir, "Bash", { command: "ls" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "cat src/a.ts" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "ls src && cat src/a.ts" }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "Edit", { file_path: join(dir, "src/a.ts") }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "Agent", { subagent_type: "scout", prompt: "x" }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "WebFetch", { url: "https://example.invalid" }, SCOUT).decision).toBe("deny");
+  });
+
+  // #35: the scout lists names through Bash, because this host gives it no
+  // Glob it can rely on; a listing outside the project or into .git is not.
+  test("lists names through Bash inside the project, and nothing more", () => {
+    const dir = project({ "src/a.ts": "" });
+    expect(hook(dir, "Bash", { command: "ls" }, SCOUT).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "ls src" }, SCOUT).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "find src -name '*.ts'" }, SCOUT).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "ls .git" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "ls /etc" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "find src -name '*.ts' -exec cat {} +" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "find src -path '../*'" }, SCOUT).decision).toBe("deny");
+  });
+
+  test("a link cannot carry a listing into .git or out of the project", () => {
+    const dir = project({ "src/a.ts": "" });
+    symlinkSync(join(dir, ".git"), join(dir, "src/g"));
+    symlinkSync("/etc", join(dir, "src/out"));
+    for (const command of ["ls src/g", "find src/g -name '*'", "ls src/out", "find src/out/ -type f"]) {
+      expect(hook(dir, "Bash", { command }, SCOUT).decision, command).toBe("deny");
+      expect(hook(dir, "Bash", { command }, LEAD).decision, command).toBe("deny");
+    }
+  });
+
+  test("the scout and the lead search contents through Bash, inside the project only", () => {
+    const dir = project({ "src/a.ts": "needle\n" });
+    symlinkSync("/etc", join(dir, "src/out"));
+    for (const seat of [SCOUT, LEAD]) {
+      expect(hook(dir, "Bash", { command: "grep -rn -e 'needle' src" }, seat).decision).toBe("allow");
+      expect(hook(dir, "Bash", { command: "grep -n 'needle' src/a.ts" }, seat).decision).toBe("allow");
+      expect(hook(dir, "Bash", { command: "grep -rn -e 'x' src/out" }, seat).decision).toBe("deny");
+      expect(hook(dir, "Bash", { command: "grep -rn -e 'x' .git" }, seat).decision).toBe("deny");
+      expect(hook(dir, "Bash", { command: "grep -rn -f src/a.ts src" }, seat).decision).toBe("deny");
+      expect(hook(dir, "Bash", { command: "grep -rn --filter=sh -e x src" }, seat).decision).toBe("deny");
+    }
+  });
+
+  test("the lead lists names through Bash the same way", () => {
+    const dir = project({ "src/a.ts": "" });
+    expect(hook(dir, "Bash", { command: "ls" }, LEAD).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "find src -name '*.ts'" }, LEAD).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "ls -R src" }, LEAD).decision).toBe("deny");
   });
 
   test("a bound scout hook never stands down for its own child payload", () => {

@@ -68,6 +68,7 @@ import {
 import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../../../src/host.ts";
 import type { Role } from "../../../src/path-policy.ts";
 import { knownModels } from "./model-tier.ts";
+import { PI_COMMISSIONS } from "./lib/commissions.ts";
 import {
   decideLead,
   decideScout,
@@ -360,6 +361,8 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
       input,
       cwd: ctx.cwd,
       harnessRoot: HARNESS_ROOT,
+      // How pi's `subagent` tool lists and continues finished children.
+      commissions: PI_COMMISSIONS,
       // Only a `subagent` call consults it, and the gate treats an empty
       // snapshot as "cannot tell", so reading it on every call is safe as well
       // as simpler than deciding here which calls will want it.

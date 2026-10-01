@@ -110,7 +110,9 @@ function matrix(role: Role, rows: Row[]) {
         expect(d(role, "read", path).allow).toBe(read);
       });
       test(`${role} ls/find ${path} → ${list ? "allow" : "block"}`, () => {
-        expect(d(role, "ls", path).allow, `ls ${path}`).toBe(list);
+        // A one-level ls of the project root shows `.git` only as a name, so
+        // it is allowed where a recursive find of the root is not (#35).
+        expect(d(role, "ls", path).allow, `ls ${path}`).toBe(list || path === ".");
         expect(d(role, "find", path, { pattern: "*" }).allow, `find ${path}`).toBe(list);
       });
       test(`${role} grep (no glob) ${path} → ${grep ? "allow" : "block"}`, () => {
@@ -568,8 +570,11 @@ describe("refusals name the legal alternative", () => {
     expect(reasonOf(d("builder", "read", ".git/config"))).toBe(
       "path-gate: builder may not read '.git/config': '.git' is denied for all roles",
     );
-    expect(reasonOf(d("builder", "ls", "."))).toBe(
+    expect(reasonOf(d("builder", "find", ".", { pattern: "*" }))).toBe(
       "path-gate: builder may not search '.': '.git' is denied for all roles",
+    );
+    expect(reasonOf(d("builder", "ls", ".git"))).toBe(
+      "path-gate: builder may not search '.git': '.git' is denied for all roles",
     );
     expect(reasonOf(d("builder", "bash", "ignored"))).toBe(
       "path-gate: builder may not use 'bash': no role holds a shell — use read/grep/find/ls, run_tests, or typecheck",

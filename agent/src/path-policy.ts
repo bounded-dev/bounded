@@ -91,6 +91,15 @@ export interface PathFacts {
    * their case.
    */
   tree(dir: string): PathTree | undefined;
+  /**
+   * Is the path's real location the path as written: no link anywhere on it,
+   * and no case or Unicode folding? A path that does not exist is as written
+   * (it reaches nothing); one that cannot be resolved is not. A names-only
+   * listing or a shell content search runs on the path as the shell sees it,
+   * so it is allowed only where this holds — a link could carry it into
+   * `.git` or out of the project past every lexical check.
+   */
+  asWritten?(path: string): boolean;
 }
 
 /** What lies below a directory (see PathFacts.tree). */
@@ -1146,8 +1155,12 @@ export function decide(
     return block(`path-gate: ${role} may not ${v} '${t}': it has a non-ASCII character, which the filesystem may fold onto another file's name — use the file's plain ASCII path`);
   }
 
+  // A recursive search refuses any tree that holds `.git`; a one-level `ls`
+  // shows `.git` only as a name, so it is refused only for `.git` itself or a
+  // path inside it. Listing the project root is how a role learns what exists
+  // without guessing.
   const gitBlocked = (): Decision | null => {
-    const gitHit = SEARCH_TOOLS.has(tool)
+    const gitHit = SEARCH_TOOLS.has(tool) && tool !== "ls"
       ? ALWAYS_DENY.some((g) => overlaps(t, globBase(g)))
       : matchesAny(ALWAYS_DENY, t);
     return gitHit

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -194,6 +195,36 @@ describe("path-gate-hook — Bash, by role", () => {
     expect(r.reason).toContain(`path-gate: ${role} may not run 'npm': no role holds a shell`);
     const block = gateEvents(dir).find((e) => e.guard === "path-gate" && e.verdict === "block");
     expect(block).toMatchObject({ summary: r.reason, detail: { role, tool: "bash", command: "npm test" } });
+  });
+
+  test.each(["architect", "builder"])("%s: `ls` / `find` list real paths, never through a link (#35)", (role) => {
+    const dir = makeTempProject({ "contexts/m/src/a.ts": "" });
+    symlinkSync(join(dir, ".git"), join(dir, "contexts/m/g"));
+    expect(runHere(dir, payload(dir, "Bash", { command: "ls contexts/m/src" }), ["--role", role]).decision).toBe("allow");
+    expect(runHere(dir, payload(dir, "Bash", { command: "ls" }), ["--role", role]).decision).toBe("allow");
+    for (const command of ["ls contexts/m/g", "find contexts/m/g -name '*'", "ls contexts/m/g/"]) {
+      const r = runHere(dir, payload(dir, "Bash", { command }), ["--role", role]);
+      expect(r.decision, command).toBe("deny");
+    }
+  });
+
+  test("grep through Bash on a real tree: each blind role stays off the other side (#35)", () => {
+    const dir = makeTempProject({
+      "contexts/m/src/a.ts": "export const needle = 1;\n",
+      "contexts/m/src/a.test.ts": "needle\n",
+      "contexts/m/src/b.handler.ts": "needle\n",
+    });
+    const as = (role: string, command: string) => runHere(dir, payload(dir, "Bash", { command }), ["--role", role]).decision;
+    expect(as("builder", "grep -rn --include='*.handler.ts' -e 'needle' contexts/m/src")).toBe("allow");
+    expect(as("builder", "grep -rn -e 'needle' contexts/m/src")).toBe("deny");
+    expect(as("builder", "grep -n 'needle' contexts/m/src/a.test.ts")).toBe("deny");
+    expect(as("builder", "grep -n 'needle' contexts/m/src/a.ts")).toBe("allow");
+    expect(as("test-writer", "grep -n 'needle' contexts/m/src/a.ts")).toBe("deny");
+    expect(as("test-writer", "grep -rn --include='*.test.ts' -e 'needle' contexts/m/src")).toBe("allow");
+    symlinkSync(join(dir, "contexts/m/src/a.test.ts"), join(dir, "contexts/m/src/c.handler.ts"));
+    // A link in the tree, or as the path, now refuses the directory search.
+    expect(as("builder", "grep -rn --include='*.handler.ts' -e 'needle' contexts/m/src")).toBe("deny");
+    expect(as("builder", "grep -n 'needle' contexts/m/src/c.handler.ts")).toBe("deny");
   });
 
   test("`bounded gates red-gate`: architect allow, builder deny", () => {
@@ -495,7 +526,7 @@ describe("path-gate-hook — what an errored hook still lets through", () => {
     ["Grep", { pattern: "url", path: "." }],
     ["Glob", { pattern: ".GIT/**", path: "src" }],
     ["Glob", { pattern: "[.]git/*", path: "src" }],
-    ["LS", { path: "." }],
+    ["LS", { path: ".git" }], // a one-level listing of the root is allowed (#35); .git is not
     ["Write", { file_path: "src/a.ts", content: "x" }],
     ["Read", "not an object"],
   ])("%s %j outside the project, into .git, or unreadable is refused", (tool, input) => {

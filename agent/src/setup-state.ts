@@ -219,7 +219,9 @@ export async function runProjectSetup(
 export interface ProjectRead {
   readonly path: unknown;
   readonly pathRequired: boolean;
-  /** A listing or search (it walks a directory tree) rather than a single read. */
+  /** A recursive search (it walks a directory tree), which may not start at the
+   *  project root where .git lives. A one-level listing is not one: it shows
+   *  `.git` only as a name. */
   readonly search: boolean;
   readonly globs: readonly unknown[];
 }

@@ -12,12 +12,27 @@ import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-
 
 // The layout comes from composed pack data (ADRs 2026-052, 2026-056…058), as
 // the hook passes it.
+// The path facts a fake filesystem gives: `contexts/link` is a link (into .git,
+// say), and everything else is as written.
+const LINKED = new Set(["contexts/link", "contexts/link/x"]);
+// Every directory holds both sides; `contexts/pm/links` holds a link and
+// `contexts/pm/odd` a non-ASCII name, as a directory search must notice.
+const FACTS = {
+  kind: (p: string) => (/\.[a-z]+$/.test(p) ? ("file" as const) : ("directory" as const)),
+  tree: (dir: string) => ({
+    fileNames: ["a.ts", "a.test.ts", "b.handler.ts", "m.contract.ts"],
+    links: dir.startsWith("contexts/pm/links") ? ["contexts/pm/links/l.ts"] : [],
+    oddNames: dir.startsWith("contexts/pm/odd") ? ["contexts/pm/odd/ſ.ts"] : [],
+  }),
+  asWritten: (p: string) => !LINKED.has(p.replace(/\/+$/, "")),
+};
 const CTX = {
   cwd: "/proj",
   sourceRoots: ["contexts/*/src"],
   contractGlobs: ["contexts/*/src/**/*.contract.ts"],
   testSuffixes: [".test.ts"],
   generatedGlobs: ["**/*.laws.test.ts"],
+  pathFacts: FACTS,
 };
 type Verdict = "allow" | "deny";
 type Row = readonly [command: string, expected: Readonly<Record<Role, Verdict>>];
@@ -121,7 +136,28 @@ const TABLE: readonly Row[] = [
   ["npm test", all("deny")],
   ["npx vitest run", all("deny")],
   ["cat tests/a.test.ts", all("deny")],
-  ["ls src", all("deny")],
+  // Names-only listing (#35): every role, judged as pi's ls/find.
+  ["ls", all("allow")],
+  ["ls .", all("allow")],
+  ["ls -1aF contexts/pm/src", all("allow")],
+  ["find contexts/pm/src -name '*.test.ts'", all("allow")],
+  ["find contexts/pm/src -type f -name '*.ts' -maxdepth 3", all("allow")],
+  ["find contexts -ipath '*/src/*' -print", all("allow")],
+  ["ls .git", all("deny")],
+  ["ls -R contexts", all("deny")],
+  ["ls -l contexts", all("deny")],
+  ["ls contexts apps", all("deny")],
+  ["find . -name '*.ts'", all("deny")], // recursive over the tree that holds .git
+  ["find contexts -name *.ts", all("deny")], // an unquoted glob is the shell's, not find's
+  ["find contexts -exec cat {} ;", all("deny")],
+  ["find contexts -name '*.ts' -delete", all("deny")],
+  ["find -L contexts -name '*.ts'", all("deny")],
+  ["find contexts -name '*.ts' -o -name '*.tsx'", all("deny")],
+  ["find contexts -path '../**'", all("deny")],
+  ["find contexts -path '/etc/*'", all("deny")],
+  ["find /etc -name passwd", all("deny")],
+  ["ls ../outside", all("deny")],
+  ["ls contexts && cat contexts/pm/src/a.test.ts", all("deny")],
   ["node -e 1", all("deny")],
   ["", all("deny")],
   ["   ", all("deny")],
@@ -165,7 +201,7 @@ describe("refusal reasons — specific, and the pi wording where pi has one", ()
     expect(d).toMatchObject({ allow: false });
     if (!d.allow) {
       expect(d.reason).toBe(
-        "path-gate: builder may not run 'npm': no role holds a shell — use read/grep/find/ls, run_tests, or typecheck — in Claude Code, Bash carries only bounded gates <gate>, rm <path>",
+        "path-gate: builder may not run 'npm': no role holds a shell — use read/grep/find/ls, run_tests, or typecheck — in Claude Code, Bash carries only bounded gates <gate>, rm <path>, ls [<dir>], find <dir> -name '<glob>', grep -rn [--include='<glob>'] -e '<pattern>' <path>",
       );
     }
   });
@@ -260,9 +296,104 @@ describe("cliGates — derived from ROLE_TOOLS, never a second list", () => {
     expect(gateCommand("record_design_review")).toBe("record-design-review");
   });
   test("carriers names exactly what each role may put through Bash", () => {
-    expect(carriers("architect")).toBe("bounded gates <gate>, git …, sleep <1-120>, rm <path>");
-    expect(carriers("builder")).toBe("bounded gates <gate>, rm <path>");
-    expect(carriers("reviewer")).toBe("bounded gates <gate>");
+    const listing = "ls [<dir>], find <dir> -name '<glob>', grep -rn [--include='<glob>'] -e '<pattern>' <path>";
+    expect(carriers("architect")).toBe(`bounded gates <gate>, git …, sleep <1-120>, rm <path>, ${listing}`);
+    expect(carriers("builder")).toBe(`bounded gates <gate>, rm <path>, ${listing}`);
+    expect(carriers("reviewer")).toBe(`bounded gates <gate>, ${listing}`);
+  });
+});
+
+// #35, adversarially: content search through Bash is judged exactly as pi's
+// grep (ADR 2026-057). A blind role reads nothing of the other side: not one
+// file, not a directory without a glob that provably excludes it, not a tree
+// with a link or an odd name, not through a link.
+describe("grep through Bash keeps each blind role off the other side", () => {
+  const S = "contexts/pm/src";
+  const v = (role: Role, command: string): Verdict => (decideBash(role, command, CTX).allow ? "allow" : "deny");
+  test.each([
+    // [command, builder, test-writer, architect, reviewer]
+    [`grep -rn -e 'x' ${S}`, "deny", "deny", "allow", "allow"],
+    [`grep -rn --include='*.handler.ts' -e 'x' ${S}`, "allow", "deny", "allow", "allow"],
+    [`grep -rn --include='*.test.ts' -e 'x' ${S}`, "deny", "allow", "allow", "allow"],
+    [`grep -rn --include='*.ts' -e 'x' ${S}`, "deny", "deny", "allow", "allow"],
+    [`grep -rn --include='*test.ts' -e 'x' ${S}`, "deny", "deny", "allow", "allow"],
+    [`grep -n 'x' ${S}/a.test.ts`, "deny", "allow", "allow", "allow"],
+    [`grep -n 'x' ${S}/A.TEST.TS`, "deny", "deny", "allow", "allow"],
+    [`grep -n 'x' ${S}/a.ts`, "allow", "deny", "allow", "allow"],
+    [`grep -n 'x' ${S}/m.contract.ts`, "allow", "allow", "allow", "allow"],
+    [`grep -rn --include='*.handler.ts' -e 'x' contexts/pm/links`, "deny", "deny", "allow", "allow"],
+    [`grep -rn --include='*.handler.ts' -e 'x' contexts/pm/odd`, "deny", "deny", "allow", "allow"],
+    ["grep -rn -e 'x' contexts/link", "deny", "deny", "deny", "deny"],
+    ["grep -rn -e 'x' .", "deny", "deny", "deny", "deny"],
+    ["grep -rn -e 'x' .git", "deny", "deny", "deny", "deny"],
+    ["grep -rn -e 'x' ../outside", "deny", "deny", "deny", "deny"],
+    [`grep -rn -f ${S}/a.test.ts ${S}/a.ts`, "deny", "deny", "deny", "deny"],
+    [`grep -rn -e 'x' ${S}/a.ts ${S}/a.test.ts`, "deny", "deny", "deny", "deny"],
+    [`grep -R --include='*.handler.ts' -e 'x' ${S}`, "deny", "deny", "deny", "deny"],
+    [`grep -rn -e 'x' ${S} | head`, "deny", "deny", "deny", "deny"],
+    [`grep -rn -e 'x' ${S}/a.ts > out.txt`, "deny", "deny", "deny", "deny"],
+  ] as const)("%s → builder %s, test-writer %s, architect %s, reviewer %s", (command, b, t, a, r) => {
+    expect(v("builder", command)).toBe(b);
+    expect(v("test-writer", command)).toBe(t);
+    expect(v("architect", command)).toBe(a);
+    expect(v("reviewer", command)).toBe(r);
+  });
+  test("an allowed search is carried as grep", () => {
+    expect(decideBash("builder", `grep -n 'x' ${S}/a.ts`, CTX)).toEqual({ allow: true, carrier: "grep" });
+  });
+});
+
+// #35, adversarially: a listing shows names, never contents. Names of the other
+// side are fine (ADR 2026-057); everything that could print, run, follow or
+// escape is refused before the gate is even asked.
+describe("listing through Bash stays names-only and blind-safe", () => {
+  test("a blind role may list and find the other side's NAMES", () => {
+    expect(decideBash("builder", "find contexts/pm/src -name '*.test.ts'", CTX)).toEqual({ allow: true, carrier: "find" });
+    expect(decideBash("test-writer", "find contexts/pm/src -name '*.handler.ts'", CTX)).toEqual({ allow: true, carrier: "find" });
+    expect(decideBash("builder", "ls contexts/pm/src", CTX)).toEqual({ allow: true, carrier: "ls" });
+  });
+  test.each([
+    "ls contexts/pm/src/a.test.ts contexts/pm/src/b.test.ts", // two paths: more than one listing
+    "find contexts/pm/src -name '*.test.ts' -exec cat {} +",
+    "find contexts/pm/src -name '*.test.ts' -fprint out",
+    "find contexts/pm/src -name '*.test.ts' -ls",
+    "find contexts/pm/src -newer contexts/pm/src/a.test.ts",
+    "find contexts/pm/src -regex '.*test.*'",
+    "find -H contexts/pm/src",
+    "find contexts/pm/src ! -name x",
+    "ls --color=always contexts",
+    "ls -s contexts",
+    "ls -L contexts",
+    "ls contexts | head",
+    "find contexts/pm/src -name '*.test.ts' > list.txt",
+    "find $(pwd) -name x",
+    "find ~ -name x",
+    "find .git -name config",
+    "find contexts/../.git -name config",
+  ])("refused: %s", (command) => {
+    for (const role of ["builder", "test-writer"] as const) {
+      const d = decideBash(role, command, CTX);
+      expect(d.allow, `${role}: ${command}`).toBe(false);
+    }
+  });
+  test.each(["ls contexts/link", "ls contexts/link/", "find contexts/link -name '*'", "find contexts/link/ -type f", "ls contexts/link/x"])(
+    "a link argument, or a path through one, is refused for every role: %s",
+    (command) => {
+      for (const role of PIPELINE_ROLES) {
+        const d = decideBash(role, command, CTX);
+        expect(d.allow, `${role}: ${command}`).toBe(false);
+        if (!d.allow) expect(d.reason).toContain("is a link, or reached through one");
+      }
+    },
+  );
+  test("without the host's path facts no listing runs (fail closed)", () => {
+    const { pathFacts: _drop, ...bare } = CTX;
+    expect(decideBash("architect", "ls contexts", bare).allow).toBe(false);
+  });
+  test("a refused listing says what listing is allowed", () => {
+    const d = decideBash("builder", "ls -R contexts", CTX);
+    if (d.allow) throw new Error("expected a refusal");
+    expect(d.reason).toContain("ls [-1aAFp] [<dir>]");
   });
 });
 

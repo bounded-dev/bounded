@@ -33,7 +33,9 @@ capabilities and still needs a live run before its behavior can be claimed.
 | `bootstrap-hook.ts` | Dependency-free project entry. Until setup completion and both dependency trees are present it admits exact setup at the project root and confines local reads to that project; afterward it invokes the full hook. |
 | `path-gate-hook.ts` | The `PreToolUse` hook. Reads the call as JSON on stdin; prints a deny decision, a rewritten local command, or nothing. `--role <role>` binds a subagent. A project-local main session defaults to the read-only lead; the global installer retains the legacy `.bounded/dev-stage-role` fallback. |
 | `tool-map.ts` | Claude Code tool call → pi tool call(s): `Read {file_path}` → `read {path}`, `Agent {subagent_type}` → `subagent {agent}`, and so on. |
-| `bash-policy.ts` | What a role may put through Bash: `bounded gates <gate>` for the gates in its `ROLE_TOOLS`, plus `git`, `sleep`, `rm <path>` where the role holds the pi tool. Everything else refused. |
+| `bash-policy.ts` | What a role may put through Bash: `bounded gates <gate>` for the gates in its `ROLE_TOOLS`, plus `git`, `sleep`, `rm <path>`, `ls` and `find` where the role holds the pi tool. Everything else refused. |
+| `listing.ts` | The names-only `ls` / `find` grammar every role, the lead and the scout list files with. |
+| `continuation.ts` | How a finished worker is continued here: `SendMessage` to a recorded worker, and the records that license a relaunch. |
 | `render-agents.ts` | Generates `.claude/agents/<role>.md` from `agents/<role>.md`: `tools:` from `ROLE_TOOLS`, `hooks:` binding the role, the pi brief verbatim under a host preamble. |
 | `project-install.ts` | Adds the read-only scout, team-lead skill, and main-session lead instructions to an initialized project. |
 | `install.ts` | Writes the four developer-stage agents, links the `developer-stage` skill into `.claude/skills/`, and merges the ambient hook into `.claude/settings.json`. |
@@ -63,10 +65,47 @@ capabilities and still needs a live run before its behavior can be claimed.
   `spawn-refused` block. Without this, `Agent {subagent_type:
   "general-purpose"}` would be a full-toolset, hook-free proxy for the
   architect, which is exactly what pi's `delegate` refusal prevents.
+- **A bounce continues the worker that already ran** (`continuation.ts`). The
+  core refuses a second cold launch of a role; on this host the way to
+  continue a finished subagent is `SendMessage` to the agent id its Agent
+  result reported. With background tasks disabled the send resumes the
+  subagent in the foreground and returns its reply; the resumed subagent runs
+  under its own definition again, so its own hook and `tools:` still bind it
+  (verified live on Claude Code 2.1.286). The architect's definition also runs
+  the hook after `Agent` and `SendMessage` (`PostToolUse`,
+  `PostToolUseFailure`): that records each worker's agent id in the guard log,
+  and `SendMessage` is allowed only to a role's current recorded worker —
+  never `main`, another session, or a replaced worker. A fresh launch of a
+  role is licensed only by positive evidence: a failed continuation of its
+  current worker, a launch that failed or reported a terminal non-completed
+  status, an after-call hook that errored on the launch, or a launch with no
+  recorded outcome made by an earlier architect whose end the lead's own
+  after-call hook recorded (a different agent id alone is never evidence). No
+  architect may commission another, and the lead runs one architect at a time:
+  the project hook also runs after the lead's Agent calls, recording each
+  architect's end; a session that died with an architect still recorded as
+  running is released by the user with `bounded lead release`, which the lead
+  itself may not run. A
+  launch still running — including a background one, recorded from its
+  `async_launched` id — licenses nothing. The architect's Agent calls are held
+  to the lead's field allowlist, so `run_in_background`, `isolation` and
+  `name` are refused.
 - **Tool strip**, as `tools:` in the generated agent definitions: a worker
-  never sees `Agent`; the reviewer never sees `Write` or `Edit`. Pinned to
-  `ROLE_TOOLS` by `render-agents.test.ts`, the way `agent-config-drift.test.ts`
-  pins pi's frontmatter.
+  never sees `Agent` or `SendMessage`; the reviewer never sees `Write` or
+  `Edit`. Pinned to `ROLE_TOOLS` by `render-agents.test.ts`, the way
+  `agent-config-drift.test.ts` pins pi's frontmatter. Every tool a definition
+  names must be one Claude Code provides to every subagent
+  (`CLAUDE_PROVIDED_TOOLS` in `tool-map.ts`). Glob and Grep are not: native
+  builds drop them in favour of `find` and `grep` through Bash unless the
+  session is launched naming them, and a subagent's `tools:` line does not
+  bring them back. So file names are listed with `ls` and `find` through Bash
+  (`listing.ts`): a small names-only grammar, judged as pi's own `ls` and
+  `find` by `decide()`. Content search is `grep` through Bash (`search.ts`):
+  one pattern, one path, an optional `--include` glob, judged as pi's own
+  `grep` — a blind role's directory search needs a glob that provably keeps
+  it off the other side (ADR 2026-057). The grammar refuses every option the
+  bundled grep would hand to the system grep, so an allowed search always runs
+  on Claude Code's bundled ugrep.
 - **Bash narrowed to the carriers.** The command is read the way a POSIX
   shell reads it and refused if it is more than one plain argv: `;`, `&`,
   `|`, `(`, redirects, `$`, backticks, backslashes, globs, braces, tilde,
@@ -249,7 +288,7 @@ It refuses arbitrary Bash and file edits even when an old
 a prepared ticket before an architect commission.
 
 The generated scout definition binds its own hook with `--role scout`, which
-holds it to project reads (Read, Grep, Glob) and nothing else. Any other
+holds it to project reads (Read, and `ls` / `find` through Bash) and nothing else. Any other
 subagent the project hook cannot prove is bound by its own generated
 definition — a built-in agent, a forked skill, a user's own definition — is
 held to that same read-only scout policy.

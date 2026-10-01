@@ -27,6 +27,8 @@ import { fileURLToPath } from "node:url";
 import { HOST_ENV } from "../../src/host.ts";
 import { ARTIFACT_GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
 import { carriers, cliGates, gateCommand } from "./bash-policy.ts";
+import { SEND_MESSAGE_TOOL } from "./continuation.ts";
+import { SEARCH_USAGE } from "./search.ts";
 
 /** The pi tools with a bash carrier of their own (bash-policy.ts), beside
  *  the gates. */
@@ -39,16 +41,23 @@ const BASH_CARRIER_TOOLS = ["remove", "git", "sleep"] as const;
  * reached through Bash here and narrowed by the bash policy. The Bash rows
  * are derived from ARTIFACT_GATE_TOOLS, so a new gate maps without a hand
  * edit here.
+ *
+ * Every Claude Code tool named here must be one the host provides to every
+ * subagent (CLAUDE_PROVIDED_TOOLS, pinned by render-agents.test.ts). So
+ * `find`, `ls` and `grep` are reached through Bash (listing.ts, search.ts), not
+ * Glob or Grep: those are absent from Claude Code's native builds
+ * unless the session is launched naming them. `subagent` is two tools here:
+ * Agent launches a worker, SendMessage continues one (continuation.ts).
  */
-export const PI_TO_CLAUDE_TOOLS: Readonly<Record<string, string>> = {
-  read: "Read",
-  grep: "Grep",
-  find: "Glob",
-  ls: "Glob",
-  write: "Write",
-  edit: "Edit",
-  subagent: "Agent",
-  ...Object.fromEntries([...BASH_CARRIER_TOOLS, ...ARTIFACT_GATE_TOOLS].map((tool) => [tool, "Bash"])),
+export const PI_TO_CLAUDE_TOOLS: Readonly<Record<string, readonly string[]>> = {
+  read: ["Read"],
+  grep: ["Bash"],
+  find: ["Bash"],
+  ls: ["Bash"],
+  write: ["Write"],
+  edit: ["Edit"],
+  subagent: ["Agent", SEND_MESSAGE_TOOL],
+  ...Object.fromEntries([...BASH_CARRIER_TOOLS, ...ARTIFACT_GATE_TOOLS].map((tool) => [tool, ["Bash"]])),
 };
 
 /** The harness root this host lives under: <root>/hosts/claude-code/. Derived
@@ -74,7 +83,7 @@ export function claudeTools(role: Role): readonly string[] {
   for (const tool of ROLE_TOOLS[role]) {
     const mapped = PI_TO_CLAUDE_TOOLS[tool];
     if (mapped === undefined) throw new Error(`no Claude Code tool for pi tool '${tool}' (${role})`);
-    if (!out.includes(mapped)) out.push(mapped);
+    for (const one of mapped) if (!out.includes(one)) out.push(one);
   }
   return out;
 }
@@ -124,18 +133,25 @@ export const yamlString = (value: string): string => JSON.stringify(value);
 
 /** The frontmatter lines that bind this host's PreToolUse hook to one
  *  definition: it fires for every tool call inside that subagent only. */
-export function hookFrontmatter(command: string): readonly string[] {
-  return [
-    "hooks:",
-    "  PreToolUse:",
-    '    - matcher: ""',
+export function hookFrontmatter(command: string, opts: { readonly commissions?: boolean } = {}): readonly string[] {
+  const entry = (event: string, matcher: string): readonly string[] => [
+    `  ${event}:`,
+    `    - matcher: ${yamlString(matcher)}`,
     "      hooks:",
     "        - type: command",
     `          command: ${yamlString(command)}`,
   ];
+  // A role that commissions workers also runs the hook after each Agent and
+  // SendMessage call: that records each started worker's agent id, the only
+  // address a continuation may use, and each continuation that failed
+  // (continuation.ts).
+  const after = opts.commissions === true ? [...entry("PostToolUse", COMMISSION_MATCHER), ...entry("PostToolUseFailure", COMMISSION_MATCHER)] : [];
+  return ["hooks:", ...entry("PreToolUse", ""), ...after];
 }
 
-const FILE_TOOLS_READ = ["read", "grep", "find", "ls"] as const;
+/** The tools whose outcome a commissioning role's hook records. */
+export const COMMISSION_MATCHER = `Agent|Task|${SEND_MESSAGE_TOOL}`;
+
 const FILE_TOOLS_WRITE = ["write", "edit"] as const;
 
 /**
@@ -148,20 +164,30 @@ export function renderPreamble(role: Role): string {
   const has = (t: string): boolean => tools.includes(t);
   const lines: string[] = [];
 
-  const reads = FILE_TOOLS_READ.filter(has);
-  if (reads.length > 0) {
-    const claude = [...new Set(reads.map((t) => PI_TO_CLAUDE_TOOLS[t]))];
-    lines.push(`- ${reads.map(code).join(", ")} → the ${claude.join(", ")} tool${claude.length > 1 ? "s" : ""}.`);
+  if (has("read")) lines.push("- `read` → the Read tool, one file by path.");
+  if (has("ls")) {
+    lines.push("- `ls` → `ls [<dir>]` through Bash: the names in one directory, the project root included. Flags `-1aAFp` only.");
+  }
+  if (has("find")) {
+    lines.push(
+      "- `find` → `find <dir> -name '<glob>'` through Bash, the glob in single quotes: file names below one directory. Also `-iname`, `-path`, `-ipath`, `-type f|d|l`, `-maxdepth N`, `-mindepth N`; nothing else. List first, then read by the exact path — never guess a path.",
+    );
+  }
+  if (has("grep")) {
+    lines.push(
+      `- \`grep\` → \`${SEARCH_USAGE}\` through Bash: one pattern in single quotes (or after \`-e\`), one path last, options first; flags \`-rnHhiFEwlcovsx\` only. ${blindSearchNote(role)}`,
+    );
   }
   const writes = FILE_TOOLS_WRITE.filter(has);
   if (writes.length > 0) {
-    const claude = [...new Set(writes.map((t) => PI_TO_CLAUDE_TOOLS[t]))];
+    const claude = [...new Set(writes.flatMap((t) => PI_TO_CLAUDE_TOOLS[t] ?? []))];
     lines.push(`- ${writes.map(code).join(", ")} → the ${claude.join(", ")} tool${claude.length > 1 ? "s" : ""}.`);
   }
   if (has("remove")) lines.push("- `remove` → `rm <path>` through Bash: one literal path, no flags, no patterns.");
   if (has("subagent")) {
     lines.push(
       "- `subagent` → the Agent tool, with `subagent_type` set to the role (`reviewer`, `test-writer`, `builder`) and the commission in `prompt`. One role per call; the phase gate refuses a commission whose preconditions are unmet. The project disables background tasks, so this call waits for its result; do not launch background sleeps or poll task files.",
+      `- Continuing a worker that already ran (a bounce) → the ${SEND_MESSAGE_TOOL} tool, \`to\` set to the agent id that worker's Agent result reported, \`message\` set to the bounce. It resumes with its context and its own role binding, and its reply comes back as the result. A second cold Agent launch of a role that already ran is refused; ${SEND_MESSAGE_TOOL} reaches only workers this pipeline started.`,
     );
   }
   if (has("git")) lines.push("- `git` → read-only `git …` through Bash, one plain command per call; mutating Git commands are refused.");
@@ -179,11 +205,22 @@ export function renderPreamble(role: Role): string {
     "",
     `Every gate is a command — \`bounded gates <gate> [dir] [--json]\`, run through Bash as one plain command: no \`&&\`, \`;\`, pipes, redirects or \`$(…)\`. Do not add an env prefix or pass \`--role\`: the hook prefixes \`${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=<role>\` itself, so the gate runs as the role this definition bound and records this host. \`bounded gates --list\` names them all.`,
     "",
-    `Bash is refused for anything else — no package-manager commands, no \`cat\`, \`ls\`, \`find\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.bounded/guard-log.jsonl\`.`,
+    `Bash is refused for anything else — no package-manager commands, no \`cat\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.bounded/guard-log.jsonl\`.`,
   ].join("\n");
 }
 
 const code = (s: string): string => `\`${s}\``;
+
+/** What a role's content search over a directory must carry (ADR 2026-057). */
+function blindSearchNote(role: Role): string {
+  if (role === "builder") {
+    return "A search of a directory under a source root needs an `--include` glob that provably keeps it off test files, such as `--include='*.handler.ts'`; search one implementation file by path otherwise.";
+  }
+  if (role === "test-writer") {
+    return "A search of a directory under a source root needs an `--include` glob that provably keeps it off implementation files, such as `--include='*.test.ts'`; search one test or contract file by path otherwise.";
+  }
+  return "Search a directory, not the project root.";
+}
 
 /** One rendered `.claude/agents/<role>.md`. */
 export function renderAgent(role: Role, opts: RenderOptions): string {
@@ -195,7 +232,7 @@ export function renderAgent(role: Role, opts: RenderOptions): string {
     `name: ${role}`,
     `description: ${yamlString(pi.description)}`,
     `tools: ${claudeTools(role).join(", ")}`,
-    ...hookFrontmatter(command),
+    ...hookFrontmatter(command, { commissions: ROLE_TOOLS[role].includes("subagent") }),
     "---",
   ];
   return [...frontmatter, "", renderPreamble(role), "", "---", "", pi.body, ""].join("\n");
