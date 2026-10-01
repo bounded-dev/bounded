@@ -27,7 +27,10 @@
 //     `workspaceScripts`. Nothing on disk but the contracts decides it. Any other workspace depends on every context as
 //     `workspace:*`: the design, not the builder's imports, decides the
 //     edges, so a composition root the builder writes can never change the
-//     config under a running gate.
+//     config under a running gate. It also takes, for its template's
+//     `runtime`, the `appPins` of every technology a context's design uses
+//     (the driver its composition root constructs; Bun's isolated install
+//     hides a package the workspace does not declare).
 //   · `tsconfig.json`: the example's, extending the shipped
 //     `tsconfig.base.json`, including every source root and each root-level
 //     generated TypeScript file (`architecture.test.ts`).
@@ -530,6 +533,16 @@ export function designedTechnologies(project: string, workspace: ProjectWorkspac
   return used;
 }
 
+/** The composed technologies with `appPins` that any context's design uses,
+ *  in id order: every app depends on every context, so it composes them. */
+function appTechnologies(project: string, layout: Layout, contexts: readonly ProjectWorkspace[]): AdapterTechnology[] {
+  const withAppPins = layout.technologies.filter((t) => t.appPins !== undefined);
+  if (withAppPins.length === 0) return [];
+  const used = new Set<string>();
+  for (const context of contexts) for (const id of designedTechnologies(project, context, layout)) used.add(id);
+  return withAppPins.filter((t) => used.has(t.id));
+}
+
 /** Posix join of project-relative path parts. */
 const rel = (...parts: string[]): string => parts.filter((p) => p !== "").join("/");
 
@@ -537,7 +550,7 @@ const rel = (...parts: string[]): string => parts.filter((p) => p !== "").join("
  * One workspace's manifest: the template (placeholders filled, no `name`),
  * named and marked private; for a context, `exports` and the pins of each
  * adapter technology present; for any other kind, a `workspace:*`
- * dependency on every context.
+ * dependency on every context and the `appPins` for its runtime.
  */
 export function workspaceManifest(
   project: string,
@@ -569,6 +582,7 @@ export function workspaceManifest(
   let scripts: Record<string, string> | undefined;
   const inside = workspace.sourceRoot.slice(workspace.dir.length + 1);
   if (workspace.kind === CONTEXT_KIND) {
+    if (template.runtime !== undefined) throw new Error(`${where}: a context is not an app, so its template may not declare a runtime`);
     exportsField = {
       "./domain": `./${rel(inside, "domain", "index.ts")}`,
       "./application": `./${rel(inside, "application", "index.ts")}`,
@@ -591,6 +605,15 @@ export function workspaceManifest(
     }
   } else {
     for (const context of contexts) addPins(deps.dependencies, { [context.packageName]: WORKSPACE_VERSION }, workspace.dir);
+    for (const tech of appTechnologies(project, layout, contexts)) {
+      const named = `${workspace.dir} (adapter technology '${tech.id}')`;
+      if (template.runtime === undefined) {
+        throw new Error(`${named}: the technology pins what an app needs per runtime, but workspace template '${template.kind}' declares no runtime`);
+      }
+      const pins = tech.appPins![template.runtime];
+      if (pins === undefined) throw new Error(`${named}: the technology has no appPins for runtime '${template.runtime}'`);
+      for (const section of DEPENDENCY_SECTIONS) addPins(deps[section], pins[section], named);
+    }
   }
   for (const name of Object.keys(deps.dependencies)) {
     if (name in deps.devDependencies) throw new Error(`${workspace.dir}: '${name}' is both a dependency and a devDependency`);

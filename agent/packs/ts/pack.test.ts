@@ -104,6 +104,11 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     ["a multi-line command", [{ ...MEMORY, workspaceScripts: { "db:up": "a\nb" } }], /one-line command/],
     ["a padded command", [{ ...MEMORY, workspaceScripts: { "db:up": " a" } }], /one-line command/],
     ["a non-string command", [{ ...MEMORY, workspaceScripts: { "db:up": 1 } }], /one-line command/],
+    ["appPins that are not an object", [{ ...MEMORY, appPins: ["bun"] }], /appPins must be a non-empty object/],
+    ["empty appPins", [{ ...MEMORY, appPins: {} }], /appPins must be a non-empty object/],
+    ["an appPins runtime that is not kebab-case", [{ ...MEMORY, appPins: { Bun: {} } }], /runtime 'Bun' must be kebab-case/],
+    ["a range app pin", [{ ...MEMORY, appPins: { node: { dependencies: { pg: "^8" } } } }], /appPins\.node pins\.dependencies entry 'pg'/],
+    ["an app pin section typo", [{ ...MEMORY, appPins: { node: { deps: {} } } }], /only dependencies and devDependencies/],
     ["one script from two technologies", [
       { ...MEMORY, workspaceScripts: { "db:up": "a" } }, { ...CONSOLE, workspaceScripts: { "db:up": "a" } },
     ], /workspace script 'db:up' is already contributed by 'in-memory'/],
@@ -118,6 +123,18 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     expect(Object.keys(read!.workspaceScripts!)).toEqual(["db:generate", "db:migrate"]);
     const [plain] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [MEMORY] } }));
     expect(plain).not.toHaveProperty("workspaceScripts");
+  });
+
+  test("appPins are read per runtime, sorted, each a full pin set; absent when not declared", () => {
+    const withAppPins = { ...MEMORY, appPins: { node: { dependencies: { pg: "8.23.1" } }, bun: {} } };
+    const [read] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [withAppPins] } }));
+    expect(read!.appPins).toEqual({
+      bun: { dependencies: {}, devDependencies: {} },
+      node: { dependencies: { pg: "8.23.1" }, devDependencies: {} },
+    });
+    expect(Object.keys(read!.appPins!)).toEqual(["bun", "node"]);
+    const [plain] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [MEMORY] } }));
+    expect(plain).not.toHaveProperty("appPins");
   });
 
   test("one id contributed by two packs is refused", () => {
@@ -175,8 +192,16 @@ describe("workspaceTemplates (ADR 2026-061)", () => {
     ["a missing source", { files: { "src/x.ts": { source: "templates/web/nope.ts", mode: "skeleton" } } }, /does not ship/],
     ["an unknown file field", { files: { "src/x.ts": { source: "templates/web/main.ts", mode: "skeleton", why: "" } } }, /unknown field/],
     ["files that are not an object", { files: ["src/x.ts"] }, /must be an object/],
+    ["a runtime that is not kebab-case", { runtime: "Node" }, /runtime must be kebab-case/],
+    ["a runtime that is not a string", { runtime: 1 }, /runtime must be kebab-case/],
   ])("refuses %s", (_label, overrides, message) => {
     expect(() => workspaceTemplates(["web"], web(overrides))).toThrow(message);
+  });
+
+  test("a declared runtime is read; none is absent", () => {
+    const [read] = workspaceTemplates(["web"], web({ runtime: "bun" }));
+    expect(read!.runtime).toBe("bun");
+    expect(workspaceTemplates(["web"], web({}))[0]).not.toHaveProperty("runtime");
   });
 
   test("a kind must be kebab-case and contributed once", () => {

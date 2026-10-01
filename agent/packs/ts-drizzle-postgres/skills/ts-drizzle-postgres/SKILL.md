@@ -35,8 +35,10 @@ The root `docker-compose.yml`, `.env.example`, `scripts/check-db.ts` and
 - A store implements exactly its feature's store port. Its constructor stays
   `(private readonly db: DrizzleDatabase)`: the composition root passes one
   shared database, and it picks the driver (`drizzle-orm/bun-sql` for Bun
-  apps, `drizzle-orm/node-postgres` for Lambdas). A store never imports a
-  driver, and nothing outside `adapters/out/drizzle/` imports Drizzle.
+  apps, `drizzle-orm/node-postgres` with `pg` for Lambdas and the desktop
+  app's main process). Each app's manifest already pins its driver. A store
+  never imports a driver, and nothing outside `adapters/out/drizzle/` imports
+  Drizzle.
 - Query with Drizzle's query builder over the table objects in `schema/`
   (`db.select().from(notes)`, `db.insert(notes).values(...)`). The database
   carries no relational schema, so `db.query.*` is not available.

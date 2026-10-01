@@ -9,6 +9,7 @@
     "desktop": {
       "root": "apps",
       "manifest": "templates/desktop/package.json",
+      "runtime": "node",
       "description": "An Electron app: src/main/main.ts opens the window and calls the context's router in-process through composeApp().createCaller({}); src/renderer/ is the React page it loads."
     }
   },

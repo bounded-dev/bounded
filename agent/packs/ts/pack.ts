@@ -632,8 +632,13 @@ export interface AdapterTechnology {
    *  `export type` accordingly; a type re-exported as a value is "export not
    *  found" at runtime. Absent for every other technology. */
   readonly database?: "value" | "type";
-  /** Pins a context workspace takes when its tree has this technology's folder. */
+  /** Pins a context workspace takes when its design uses this technology. */
   readonly pins: Pins;
+  /** Pins every app workspace takes, keyed by the app template's `runtime`,
+   *  when any context's design uses this technology: what a composition root
+   *  needs to construct the technology for that runtime (a database driver).
+   *  Present only when the contrib entry declares it (ADR 2026-061). */
+  readonly appPins?: Readonly<Record<string, Pins>>;
   /** Scripts a context workspace's manifest takes when its tree has this
    *  technology's folder (`db:generate` → `drizzle-kit generate`), keys
    *  sorted. Present only when the contrib entry declares it. A script name
@@ -684,6 +689,18 @@ function checkedPins(value: unknown, where: string): Pins {
   return { dependencies: out.dependencies!, devDependencies: out.devDependencies! };
 }
 
+function checkedAppPins(value: unknown, where: string): Record<string, Pins> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0) {
+    throw new Error(`${where} appPins must be a non-empty object of app runtime → pins`);
+  }
+  const out: Record<string, Pins> = {};
+  for (const runtime of Object.keys(value).sort()) {
+    if (!KEBAB.test(runtime)) throw new Error(`${where} appPins runtime '${runtime}' must be kebab-case`);
+    out[runtime] = checkedPins((value as Record<string, unknown>)[runtime], `${where} appPins.${runtime}`);
+  }
+  return out;
+}
+
 function strictObject(value: unknown, keys: readonly string[], where: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${where} must be an object`);
   const unknownKey = Object.keys(value).find((key) => !keys.includes(key));
@@ -694,7 +711,7 @@ function strictObject(value: unknown, keys: readonly string[], where: string): R
 /**
  * The composed packs' `adapterTechnologies`, sorted by id. Each contrib.json
  * entry is `{ id, direction, description, featureRole?, storage?, database?,
- * pins?, workspaceScripts? }`: an in adapter declares `featureRole` and no
+ * pins?, appPins?, workspaceScripts? }`: an in adapter declares `featureRole` and no
  * `storage`; an out adapter declares `storage` and no `featureRole`; a
  * storage technology declares `database: "value" | "type"`. Unknown
  * fields, a duplicate id across the composition, a pin that is not exact, and
@@ -709,7 +726,7 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
     if (!Array.isArray(value)) throw new Error(`Selected pack '${pack}' adapterTechnologies must be an array`);
     for (const raw of value) {
       const where = `Selected pack '${pack}' adapterTechnologies entry`;
-      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "database", "pins", "workspaceScripts"], where);
+      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "database", "pins", "appPins", "workspaceScripts"], where);
       const { id, direction, description, featureRole, storage } = entry;
       if (typeof id !== "string" || !KEBAB.test(id)) throw new Error(`${where} needs a kebab-case id`);
       const named = `${where} '${id}'`;
@@ -744,6 +761,7 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
         storage: direction === "out" && storage === true,
         ...(direction === "out" && storage === true ? { database: entry.database as "value" | "type" } : {}),
         pins: checkedPins(entry.pins, named),
+        ...(entry.appPins === undefined ? {} : { appPins: checkedAppPins(entry.appPins, named) }),
         ...(scripts === undefined ? {} : { workspaceScripts: scripts }),
       });
     }
@@ -769,6 +787,10 @@ export interface WorkspaceTemplate {
   readonly root: string;
   /** Pack-relative JSON manifest template (no `name`: the generator sets it). */
   readonly manifest: string;
+  /** Kebab-case: what the app's composition root runs on (`bun`, `node`).
+   *  It selects the `appPins` the app takes. Every app template declares
+   *  one; the context template does not. */
+  readonly runtime?: string;
   /** Sorted by path. */
   readonly files: readonly WorkspaceTemplateFile[];
   readonly description: string;
@@ -776,7 +798,8 @@ export interface WorkspaceTemplate {
 
 /**
  * The composed packs' `workspaceTemplates`, sorted by kind. Each contrib.json
- * value is an object keyed by kind: `{ root, manifest, description, files? }`,
+ * value is an object keyed by kind: `{ root, manifest, description, runtime?,
+ * files? }`,
  * where `files` maps a workspace-relative path to `{ source, mode }`. Every
  * pack-relative source must exist; a kind contributed twice, an unknown
  * field, `..`, an absolute path, or a template file named `package.json` (the
@@ -800,7 +823,10 @@ export function workspaceTemplates(packs: readonly string[], packsDir = defaultP
       const where = `Selected pack '${pack}' workspace template '${kind}'`;
       if (!KEBAB.test(kind)) throw new Error(`${where} needs a kebab-case kind`);
       if (kinds.has(kind)) throw new Error(`${where} is contributed twice across the composition`);
-      const entry = strictObject(raw, ["root", "manifest", "description", "files"], where);
+      const entry = strictObject(raw, ["root", "manifest", "description", "runtime", "files"], where);
+      if (entry.runtime !== undefined && (typeof entry.runtime !== "string" || !KEBAB.test(entry.runtime))) {
+        throw new Error(`${where} runtime must be kebab-case`);
+      }
       if (typeof entry.root !== "string" || !KEBAB.test(entry.root)) throw new Error(`${where} needs a one-segment kebab-case root`);
       if (typeof entry.description !== "string" || entry.description.trim() === "") throw new Error(`${where} needs a description`);
       const manifest = packFile(entry.manifest, `${where} manifest`);
@@ -820,6 +846,7 @@ export function workspaceTemplates(packs: readonly string[], packsDir = defaultP
       kinds.add(kind);
       out.push({
         pack, kind, root: entry.root, manifest, description: entry.description,
+        ...(entry.runtime === undefined ? {} : { runtime: entry.runtime as string }),
         files: files.sort((a, b) => a.path.localeCompare(b.path)),
       });
     }
