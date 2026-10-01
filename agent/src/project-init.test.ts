@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { decide } from "./path-policy.ts";
 import {
   applyInit, declaresNoInitializer, defaultSelection, describeInit, exampleContracts, exampleWorkspaces, localPackPaths,
-  planInit, projectNameOf, withoutTemplateText,
+  importedPackageNames, planInit, projectNameOf, withoutTemplateText,
 } from "./project-init.ts";
 
 /** The whole stack, in the order packs/default-stack.json records it. */
@@ -88,6 +88,23 @@ describe("project-local initialization", () => {
     expect(kept).not.toContain("bun:test");
     expect(kept).not.toContain('"pg"');
     expect(kept.split("\n")).toHaveLength(source.split("\n").length);
+  });
+
+  test("the import scan names packages, never relative paths or the runtimes' builtins", () => {
+    const source = [
+      'import { describe, test } from "bun:test";',
+      'import { Database } from "bun:sqlite";',
+      'import { $ } from "bun";',
+      'import { readFileSync } from "node:fs";',
+      'import { a } from "./a.ts";',
+      'import type { Pool } from "pg";',
+      'import { initTRPC } from "@trpc/server/adapters/standalone";',
+      'export { b } from "picomatch";',
+      "const generated = `",
+      'import { z } from "zod";',
+      "`;",
+    ].join("\n");
+    expect(importedPackageNames(source)).toEqual(["@trpc/server", "pg", "picomatch"]);
   });
 
   test("the project name comes from the directory name", () => {
@@ -193,6 +210,20 @@ describe("project-local initialization", () => {
     expect(existsSync(join(target, "bun.lock"))).toBe(true);
     expect(existsSync(join(target, ".bounded/harness/packs/ts-trpc"))).toBe(true);
   });
+
+  test("initializes a persistence-only project, named after its directory, not bounded-project", async () => {
+    const target = join(empty(), "notes-store");
+    mkdirSync(target);
+    const plan = await planInit(target, "claude-code", ["ts-drizzle-postgres"]);
+    expect(plan.packs).toEqual(["ts", "ts-hexagonal", "ts-drizzle-postgres"]);
+    expect(plan.createdFiles["docker-compose.yml"]).toBeDefined();
+    await applyInit(target, "claude-code", ["ts-drizzle-postgres"], plan.digest);
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { name: string; scripts: Record<string, string> };
+    expect(pkg.name).toBe("notes-store");
+    expect(pkg.scripts["check:db"]).toBeDefined();
+    expect(readFileSync(join(target, "docker-compose.yml"), "utf8")).toContain("notes-store");
+    expect(readFileSync(join(target, "docker-compose.yml"), "utf8")).not.toContain("bounded-project");
+  }, 120_000);
 
   test("plans a service-only project", async () => {
     const plan = await planInit(empty(), "claude-code", ["ts-trpc"]);

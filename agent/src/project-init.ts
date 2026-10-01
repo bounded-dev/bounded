@@ -230,7 +230,6 @@ export function declaresNoInitializer(pack: string): boolean {
 
 function scaffolderFor(packs: readonly string[]): readonly { pack: string; script: string }[] {
   const scripts = packScripts(packs, "projectInitScripts");
-  if (scripts.length === 0) throw new Error("This selection cannot yet scaffold a complete new project; choose a capability with a project initializer");
   const covered = new Set<string>(scripts.map(({ pack }) => pack));
   const byName = availablePacks();
   const visit = (name: string): void => {
@@ -241,8 +240,18 @@ function scaffolderFor(packs: readonly string[]): readonly { pack: string; scrip
     }
   };
   for (const { pack } of scripts) visit(pack);
-  for (const pack of packs) if (declaresNoInitializer(pack)) covered.add(pack);
+  // A pack that declares it has nothing to scaffold (its files are shipped
+  // config, or come from the design later) covers itself and what it builds
+  // on, so a persistence-only or contexts-only selection is complete.
+  for (const pack of packs) {
+    if (!declaresNoInitializer(pack)) continue;
+    covered.add(pack);
+    visit(pack);
+  }
   const unsupported = packs.filter((pack) => !covered.has(pack));
+  if (scripts.length === 0 && (unsupported.length > 0 || packs.length === 0)) {
+    throw new Error("This selection cannot yet scaffold a complete new project; choose a capability with a project initializer");
+  }
   if (unsupported.length) throw new Error(`No new-project initializer covers: ${unsupported.join(", ")}`);
   return scripts;
 }
@@ -380,6 +389,23 @@ export function withoutTemplateText(source: string): string {
   return out.join("");
 }
 
+/** The packages a harness source file imports: bare specifiers reduced to
+ *  their package name. Relative and absolute paths, and the runtimes' own
+ *  builtins (`node:fs`, `bun`, `bun:test`, `bun:sqlite`), are no package the
+ *  harness depends on. Template-literal text (generated files) is ignored. */
+export function importedPackageNames(source: string): string[] {
+  const names = new Set<string>();
+  const imports = withoutTemplateText(source).matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[^;\n]*?\s+from\s+)?["']([^"']+)["']/gm);
+  for (const match of imports) {
+    const specifier = match[1]!;
+    if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("node:")) continue;
+    if (specifier === "bun" || specifier.startsWith("bun:")) continue;
+    if (!/^(@[a-z0-9-]+\/[a-z0-9._-]+|[a-z0-9._-]+)/i.test(specifier)) continue;
+    names.add(specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]!);
+  }
+  return [...names].sort();
+}
+
 function harnessPackageFor(harnessRoot: string): RuntimePackage {
   const sourcePkg = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as RuntimePackage;
   const sourceLock = JSON.parse(readFileSync(sourceLockPath(agentRoot), "utf8")) as { packages: Record<string, { version?: string }> };
@@ -387,14 +413,7 @@ function harnessPackageFor(harnessRoot: string): RuntimePackage {
   // A pack's reference/ files are content copied into projects, never harness
   // code: their imports are the project's dependencies, not the runtime's.
   for (const path of walk(harnessRoot).filter((path) => path.endsWith(".ts") && !/^packs\/[^/]+\/reference\//.test(path))) {
-    const source = withoutTemplateText(readFileSync(join(harnessRoot, path), "utf8"));
-    const imports = source.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[^;\n]*?\s+from\s+)?["']([^"']+)["']/gm);
-    for (const match of imports) {
-      const specifier = match[1];
-      if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("node:")) continue;
-      if (!/^(@[a-z0-9-]+\/[a-z0-9._-]+|[a-z0-9._-]+)/i.test(specifier)) continue;
-      names.add(specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]);
-    }
+    for (const name of importedPackageNames(readFileSync(join(harnessRoot, path), "utf8"))) names.add(name);
   }
   const dependencies: Record<string, string> = {};
   for (const name of [...names].sort()) {
