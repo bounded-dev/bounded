@@ -323,6 +323,11 @@ describe("the role docs describe the monorepo the gates enforce", () => {
     expect(developerStage).toContain("`typecheck` is `bunx tsc -p tsconfig.json`");
   });
 
+  test("both workers are told apps reach Postgres through DATABASE_URL in the composition root", () => {
+    expect(builder).toContain("`process.env.DATABASE_URL`");
+    expect(testWriter).toMatch(/`DATABASE_URL`[\s\S]*\*\*through the composition root\*\*/);
+  });
+
   test("the commands named are Bun's", () => {
     expect(architect).toContain("bun run check");
     expect(developerStage).toContain("bun run check");

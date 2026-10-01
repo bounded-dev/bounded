@@ -18,6 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { probeContainerRuntime, STORE_TEST_ENV, storeTestDecision, storeTestEnv, type ContainerRuntimeProbe } from "./scripts/container-runtime.ts";
+import { APP_DATABASE_ENV, dockerCli, startAppDatabase } from "./scripts/app-database.ts";
 import { emitDrizzlePersistence, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./scripts/emit.ts";
 import { generateMigrations } from "./scripts/generate-migrations.ts";
 import { APPLICATION_CONTRACTS, contextWorkspace, DOMAIN_CONTRACTS, EXAMPLE_SCHEMA, exampleFacts, RESULT_SOURCE, SOURCE_ROOT } from "./testdata/example-project.ts";
@@ -247,4 +248,27 @@ describe("the generated store-test support under bun test", () => {
     expect(run.output).toMatch(/\b0 fail\b/);
     expect(run.status, run.output).toBe(0);
   }, 300_000);
+});
+
+// --- the green run's throwaway application database (the app smoke tests) -----------
+
+const dockerCliMissing = spawnSync("docker", ["--version"]).status === 0 ? undefined : "the docker CLI is not on PATH";
+const appDatabaseSkip = bun ?? (!runtime.available ? runtime.reason : dockerCliMissing);
+if (appDatabaseSkip !== undefined) console.warn(`store-integration: skipping the throwaway application database: ${appDatabaseSkip}`);
+
+describe.skipIf(appDatabaseSkip !== undefined)("the green run's throwaway application database", () => {
+  test("starts, applies every context's migrations, answers through its URL, and is gone after release", { timeout: 240_000 }, () => {
+    const endpoint = runtime.available ? runtime.endpoint : "";
+    const service = startAppDatabase(dir, endpoint);
+    const name = /\((bounded-green-db-[0-9a-f]+)\)/.exec(service.description)?.[1] ?? "";
+    try {
+      expect(service.env[APP_DATABASE_ENV]).toMatch(/^postgres:\/\/postgres:postgres@127\.0\.0\.1:\d+\/app$/);
+      const tables = dockerCli(["exec", name, "psql", "-U", "postgres", "-d", "app", "-tAc",
+        "select count(*) from information_schema.tables where table_schema = 'project_management'"], endpoint);
+      expect(Number(tables.stdout.trim())).toBeGreaterThan(0);
+    } finally {
+      service.release();
+    }
+    expect(dockerCli(["ps", "--all", "--quiet", "--filter", `name=${name}`], endpoint).stdout.trim()).toBe("");
+  });
 });

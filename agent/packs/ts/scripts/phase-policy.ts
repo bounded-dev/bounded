@@ -7,11 +7,15 @@
 //   green   any refusal refuses the run; otherwise every policy's `unsetEnv`
 //           is removed, so a variable leaked into the gate's environment
 //           cannot skip anything
+//   both    a policy may ask for a service the run needs (`prepare`): the
+//           gate starts each in policy order just before the run, sets its
+//           environment over everything else, and releases every one after
+//           the run, whatever happened (withPreparedServices)
 
 import { readProjectPacks } from "../../../src/project-composition.ts";
 import { composePacks } from "../../../src/socket-registry.ts";
 import { INSTALLED_PACKS } from "../../installed.ts";
-import { type PhaseTestDecision, phaseTestPolicies, type TestPhase } from "../pack.ts";
+import { type PhaseTestDecision, phaseTestPolicies, type PreparedTestService, type TestPhase } from "../pack.ts";
 
 export interface PhaseRun {
   /** Why the gate must not run the suite at all (green only). */
@@ -21,6 +25,8 @@ export interface PhaseRun {
   readonly env: { readonly set: Readonly<Record<string, string>>; readonly unset: readonly string[] };
   /** Is this skipped result one a policy skipped on purpose? */
   readonly skippedOnPurpose: (resultName: string) => boolean;
+  /** Services to start for the run, in policy order. */
+  readonly prepares: readonly { readonly name: string; readonly prepare: () => PreparedTestService }[];
 }
 
 /** Combine decisions. Pure. A skip at green, or a refusal at red, is a policy
@@ -31,7 +37,9 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
   const set: Record<string, string> = {};
   const unset = new Set<string>();
   const claims: ((name: string) => boolean)[] = [];
+  const prepares: { name: string; prepare: () => PreparedTestService }[] = [];
   for (const { name, decision } of decisions) {
+    if (decision.action === "run" && decision.prepare !== undefined) prepares.push({ name, prepare: decision.prepare });
     for (const variable of decision.unsetEnv) unset.add(variable);
     if (decision.action === "refuse" || (decision.action === "skip" && phase === "green")) {
       refusals.push(decision.action === "refuse" ? decision.reason : `${name} asked to skip tests at green: ${decision.reason}`);
@@ -47,7 +55,52 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
     skips,
     env: { set, unset: [...unset].sort() },
     skippedOnPurpose: (resultName) => claims.some((claim) => claim(resultName)),
+    prepares,
   };
+}
+
+/** The outcome of a run inside prepared services. */
+export type PreparedRun<T> =
+  | { readonly ok: true; readonly value: T; readonly lines: readonly string[] }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Start every service the policies asked for, run `body` with the run's
+ * environment (each service's variables set over the policies' own), and
+ * release every started service afterwards — after a failed start, a throw
+ * or a normal return alike, in reverse order. A service that cannot start
+ * means the run did not happen: `ok: false` with the reason, never a run
+ * against whatever the environment already pointed at.
+ */
+export async function withPreparedServices<T>(
+  run: Pick<PhaseRun, "env" | "prepares">,
+  body: (env: PhaseRun["env"]) => Promise<T>,
+): Promise<PreparedRun<T>> {
+  const started: PreparedTestService[] = [];
+  try {
+    const set: Record<string, string> = { ...run.env.set };
+    for (const { name, prepare } of run.prepares) {
+      let service: PreparedTestService;
+      try {
+        service = prepare();
+      } catch (error) {
+        return { ok: false, reason: `the '${name}' test policy could not start what the run needs: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      started.push(service);
+      Object.assign(set, service.env);
+    }
+    const unset = run.env.unset.filter((variable) => !(variable in set));
+    const value = await body({ set, unset });
+    return { ok: true, value, lines: started.map((service) => service.description) };
+  } finally {
+    for (const service of started.reverse()) {
+      try {
+        service.release();
+      } catch {
+        // release never throws by contract; a broken one must not mask the run
+      }
+    }
+  }
 }
 
 /** The decision for the project at `cwd`. A policy that throws refuses, naming

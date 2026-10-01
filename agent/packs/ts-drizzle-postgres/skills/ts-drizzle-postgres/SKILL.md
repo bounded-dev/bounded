@@ -99,6 +99,14 @@ the store tests and logs why; every other level still runs. Green refuses
 while store tests exist and no container runtime answers: it never passes by
 skipping them.
 
+The apps' composition roots connect to `process.env.DATABASE_URL`. At green,
+with a runtime, the gate starts one throwaway Postgres (the pinned image),
+applies every context's migrations to it, sets its URL as `DATABASE_URL` for
+the whole run (over any inherited value, so a developer database is never
+touched), and removes it afterwards, on failure too. The app smoke tests reach
+it through the composition root. Without a runtime, a project that persists
+through Drizzle is refused at green with "Start Docker".
+
 ## Project commands
 
 - `bun run db:up` starts the local Postgres; `bun run db:migrate` applies

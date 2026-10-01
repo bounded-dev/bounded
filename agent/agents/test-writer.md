@@ -111,8 +111,14 @@ name and by call site; a missing one blocks the red and names itself.
 - **App smoke tests run at green only.** The composition root is the
   builder's, so at red it is a skeleton; the red gate does not run these.
   One smoke test per app, next to its composition root: build the app with
-  its composition function and make one call through what it returns. The
-  function names are fixed by the app's kind:
+  its composition function and make one call through what it returns.
+  When the project keeps its data in Postgres, the composition root reads
+  `process.env.DATABASE_URL`, and the green gate starts a throwaway, migrated
+  Postgres and sets `DATABASE_URL` for the run (over any inherited value), so
+  the smoke test reaches the database **through the composition root**: never
+  set, read or construct a database URL in the test, and never assume an
+  empty database beyond what the test itself created. The function names are
+  fixed by the app's kind:
 
   | App kind | Composition root | Function |
   |---|---|---|

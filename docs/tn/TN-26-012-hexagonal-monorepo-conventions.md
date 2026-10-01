@@ -517,7 +517,13 @@ conformance suite calling every method and one store test per composed
 storage technology importing it; every other out port has a test per
 `@implementedBy` technology; generated command and in-adapter laws exist.
 Every app has `composition-root.test.ts` beside each composition root
-(green only).
+(green only). With ts-drizzle-postgres composed, composition roots connect to
+`process.env.DATABASE_URL`; at green its phase test policy starts one
+throwaway Postgres from the pinned image, applies every context's migrations,
+sets `DATABASE_URL` for the run over any inherited value, and removes the
+container after the run, failed or not (the policy's `prepare`, a
+`PreparedTestService` the gate releases). Without a container runtime a
+project persisting through Drizzle is refused at green.
 
 ## 9. TN `workspaces:` front matter
 

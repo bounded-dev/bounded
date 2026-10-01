@@ -32,3 +32,14 @@ in the test process's environment, never its own, and sets aside only the
 skipped results the policy claims (the `Drizzle<Port>Store` blocks); green
 removes the variables, refuses when a runtime is needed and absent, and
 refuses any skipped or todo result.
+
+**Amendment — the green run's application database.** Apps persist through
+Drizzle, and their composition roots connect to `process.env.DATABASE_URL`,
+so the app smoke tests need a migrated Postgres too. A policy decision to run
+may carry `prepare`, which returns a `PreparedTestService` (environment plus
+`release`). At green, on a tree that persists through Drizzle, the policy
+starts one throwaway container from the pinned image through the docker CLI
+on the probed endpoint, applies every context's migrations, and the gate sets
+its URL as `DATABASE_URL` over any inherited value and releases the container
+after the run, on failure too (`withPreparedServices`). Without a runtime
+such a tree is refused at green even before it has a store test.

@@ -449,9 +449,28 @@ export interface PhaseTestContext {
   readonly phase: TestPhase;
 }
 
+/** Something the machine provides for one gate's test run (a throwaway
+ *  database), already started: what the test process must see, and how to
+ *  take it down. The gate releases it after the run, on failure too. */
+export interface PreparedTestService {
+  /** One line for the gate's output, e.g. what was started and where. */
+  readonly description: string;
+  /** Set in the test process's environment, overriding any inherited value. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Idempotent; never throws. */
+  readonly release: () => void;
+}
+
 export type PhaseTestDecision =
-  /** Run; remove `unsetEnv` from the test process's environment. */
-  | { readonly action: "run"; readonly unsetEnv: readonly string[] }
+  /** Run; remove `unsetEnv` from the test process's environment. With
+   *  `prepare`, the gate starts the service just before the run (a throw
+   *  blocks the gate with its message), sets its `env`, and releases it
+   *  afterwards. */
+  | {
+      readonly action: "run";
+      readonly unsetEnv: readonly string[];
+      readonly prepare?: () => PreparedTestService;
+    }
   /** Red only: run with `env` set, and accept a skipped result exactly when
    *  `skippedTest(name)` holds for it. The gate prints `reason`. */
   | {

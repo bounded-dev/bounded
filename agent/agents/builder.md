@@ -110,7 +110,11 @@ packs' pins. If you need a package that is not there, that is a
   `<Tech><Port>` in `adapters/out/<tech>/<area>/<feature>.<role>.ts`.
 - **Composition root** `apps/<app>/src/**/composition-root.ts`: the only place
   that constructs handlers, stores and in-adapter factories. It creates one
-  database object and passes it to every store. Its skeleton fixes the
+  database object and passes it to every store. With Postgres composed it
+  connects to `process.env.DATABASE_URL` (the project's `persistence.md`):
+  never a hard-coded URL, never a fallback to another database. At green the
+  gate sets `DATABASE_URL` to a throwaway, migrated Postgres for the app smoke
+  tests; in development it comes from the root `.env`. Its skeleton fixes the
   function names, which the app's smoke test calls: a `web` or `desktop` app
   exports `composeApp()` returning the context's tRPC router, an `mcp` app
   `composeApp()` returning the context's MCP server, and a `lambdas` app one

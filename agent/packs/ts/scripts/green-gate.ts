@@ -56,7 +56,7 @@ import { lintSrc } from "./lint-src.ts";
 import { checkProjectSurfaces } from "./surface-check.ts";
 import { findSkeletonImports, type SkeletonImporter } from "./skeleton-imports.ts";
 import { sourceRoots } from "../../../src/pack-contrib.ts";
-import { phaseRun } from "./phase-policy.ts";
+import { phaseRun, withPreparedServices } from "./phase-policy.ts";
 import { projectFactsOf } from "./project-emitters.ts";
 import { checkObligations, obligationLines, readObligationInput } from "./test-obligations.ts";
 
@@ -482,11 +482,23 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
   } catch {
     roots = [];
   }
-  const [run, tsc, lint] = await Promise.all([
-    runTests(cwd, { ...gateOptionsFromEnv(), env: policy.env }),
+  // A policy may start what the run needs (ts-drizzle-postgres: a throwaway
+  // Postgres for the app smoke tests' DATABASE_URL); it is released after.
+  const prepared = await withPreparedServices(policy, (env) => Promise.all([
+    runTests(cwd, { ...gateOptionsFromEnv(), env }),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
     lintSrc(cwd),
-  ]);
+  ]));
+  if (!prepared.ok) {
+    return blockAndLog(cwd, {
+      code: 1,
+      verdict: "block",
+      summary: "a service the test run needs could not start",
+      lines: [`green-gate: FAIL — ${prepared.reason}`, "green-gate: route → orchestrator"],
+      detail: { reason: "test-policy", refusals: [prepared.reason], route: "orchestrator" },
+    });
+  }
+  const [run, tsc, lint] = prepared.value;
   // Surface check is synchronous ts-morph work; a code-2 (no contracts, or a
   // missing implementation file) is not a finding here — the suite and
   // typecheck verdicts already own those failure modes.
@@ -517,8 +529,9 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
       ? rerouteIfRepeated(obliged, failing, priorGreenFailures(cwd))
       : obliged;
 
-  logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
-  return result;
+  const reported = prepared.lines.length === 0 ? result : { ...result, lines: [...prepared.lines.map((line) => `green-gate: ${line}`), ...result.lines] };
+  logGuardEvent(cwd, { guard: GUARD, verdict: reported.verdict, summary: reported.summary, detail: reported.detail });
+  return reported;
 }
 
 /** The green-only test obligations (an app's smoke test, ADR 2026-063). */

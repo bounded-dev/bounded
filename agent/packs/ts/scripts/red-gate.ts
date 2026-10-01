@@ -85,7 +85,7 @@ import { readProjectPacks } from "../../../src/project-composition.ts";
 import type { ProjectFacts } from "../pack.ts";
 import { computeManifest } from "./checksum-gate.ts";
 import { lintTests } from "./lint-src.ts";
-import { phaseRun, type PhaseRun } from "./phase-policy.ts";
+import { phaseRun, type PhaseRun, withPreparedServices } from "./phase-policy.ts";
 import { configDriftBlock, harnessRootOf } from "./project-config.ts";
 import { emitProject, projectFactsOf, type ProjectFile } from "./project-emitters.ts";
 import { MANIFEST } from "./project-package.ts";
@@ -662,13 +662,15 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   const policy = phaseRun(cwd, "red");
   if (policy.refusals.length > 0) return gateError(cwd, policy.refusals.join("; "), "test-policy");
 
-  const [raw, tsc, testLint] = await Promise.all([
-    runTests(dir, { ...gateOptionsFromEnv(), env: policy.env }),
+  const prepared = await withPreparedServices(policy, (env) => Promise.all([
+    runTests(dir, { ...gateOptionsFromEnv(), env }),
     typecheck(dir, gateTypecheckOptionsFromEnv()),
     // Escape hatches in test sources: a suite that silences the type
     // checker can assert its way past anything.
     lintTests(cwd),
-  ]);
+  ]));
+  if (!prepared.ok) return gateError(cwd, prepared.reason, "test-policy");
+  const [raw, tsc, testLint] = prepared.value;
   const { run, skipped } = withoutPolicySkips(raw, policy);
   let base = classifyRed(run, tsc, projectOwnerOf(cwd), pathGlobMatcher(generatedFileGlobs(cwd)));
   if (base.code === 0 && testLint.code === 1) {

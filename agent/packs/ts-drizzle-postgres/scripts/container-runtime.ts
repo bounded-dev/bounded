@@ -15,9 +15,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { PhaseTestDecision, PhaseTestPolicy } from "../../ts/pack.ts";
+import type { PhaseTestDecision, PhaseTestPolicy, PreparedTestService } from "../../ts/pack.ts";
+import { startAppDatabase } from "./app-database.ts";
 import { DRIZZLE, DRIZZLE_PREFIX, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
-import { CONTEXTS_DIR } from "./check-db.ts";
+import { CONTEXTS_DIR, drizzleContexts } from "./check-db.ts";
 
 export type ContainerRuntimeProbe =
   | { readonly available: true; readonly endpoint: string }
@@ -189,24 +190,54 @@ export function isSkippedStoreTest(resultName: string): boolean {
   return STORE_BLOCK.test(resultName.split(" > ")[0]!.trim());
 }
 
-/** ADR 2026-064 in the ts pack's `phaseTestPolicies` shape. The runtime is
- *  probed only when the tree has store tests. */
+/** The reason green refuses a tree that persists through Drizzle but has no
+ *  store test yet: its app smoke tests still need a database. */
+export function appDatabaseRefusal(probe: Extract<ContainerRuntimeProbe, { available: false }>): string {
+  return `green needs a container runtime: the apps keep their data in Postgres, and their smoke tests run against a ` +
+    `throwaway migrated database the gate starts, and ${probe.reason}. Start Docker (or another Docker-API runtime) ` +
+    "and run green again (ADR 2026-064).";
+}
+
+/**
+ * ADR 2026-064 in the ts pack's `phaseTestPolicies` shape. The runtime is
+ * probed only when the tree has store tests, or at green when it persists
+ * through Drizzle at all. At green with a runtime, a Drizzle tree also gets
+ * its throwaway application database (`startDatabase`, called by the gate
+ * just before the run): the app smoke tests read DATABASE_URL through their
+ * composition roots.
+ */
 export function storeTestPhaseDecision(
   phase: "red" | "green",
   storeTests: readonly string[],
   probe: () => ContainerRuntimeProbe,
+  persists = false,
+  startDatabase?: (endpoint: string) => PreparedTestService,
 ): PhaseTestDecision {
-  const decision = storeTestDecision(phase, storeTests, storeTests.length === 0 ? { available: true, endpoint: "(not probed)" } : probe());
+  const needsRuntime = storeTests.length > 0 || (phase === "green" && persists);
+  const probed = needsRuntime ? probe() : { available: true as const, endpoint: "(not probed)" };
+  const decision = storeTestDecision(phase, storeTests, probed);
   if (decision.action === "skip") {
     return { action: "skip", reason: decision.reason, env: decision.env, unsetEnv: STORE_TEST_ENV, skippedTest: isSkippedStoreTest };
   }
-  return decision;
+  if (decision.action === "refuse") return decision;
+  if (phase !== "green" || !persists) return decision;
+  if (!probed.available) return { action: "refuse", reason: appDatabaseRefusal(probed), unsetEnv: STORE_TEST_ENV };
+  if (startDatabase === undefined) return decision;
+  const endpoint = probed.endpoint;
+  return { ...decision, prepare: () => startDatabase(endpoint) };
 }
 
 export const storeTestPolicy: PhaseTestPolicy = {
   name: "store-tests-need-a-container-runtime",
   description:
     "Drizzle store tests run against real Postgres: without a container runtime the red gate skips them with the " +
-    "reason logged, and the green gate refuses (ADR 2026-064).",
-  decide: ({ project, phase }) => storeTestPhaseDecision(phase, drizzleStoreTests(project), () => probeContainerRuntime()),
+    "reason logged, and the green gate refuses (ADR 2026-064). At green a Drizzle tree also gets one throwaway, " +
+    "migrated Postgres as DATABASE_URL for the run (the app smoke tests), removed afterwards.",
+  decide: ({ project, phase }) => storeTestPhaseDecision(
+    phase,
+    drizzleStoreTests(project),
+    () => probeContainerRuntime(),
+    phase === "green" && drizzleContexts(project).length > 0,
+    (endpoint) => startAppDatabase(project, endpoint),
+  ),
 };
