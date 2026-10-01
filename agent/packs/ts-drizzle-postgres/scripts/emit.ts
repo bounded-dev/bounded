@@ -27,7 +27,7 @@ export const DRIZZLE_PREFIX = adapterClassPrefix(DRIZZLE);
 export const CONTEXT_KIND = "context";
 /** The Postgres image the local database and the store tests run. Pinned
  *  exactly, and the same in docker-compose.yml (pack.test.ts checks it). */
-export const POSTGRES_IMAGE = "postgres:17.6";
+export const POSTGRES_IMAGE = "postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929";
 /** Set by the red gate, to the reason, when no container runtime is available
  *  (ADR 2026-064). The generated test support skips every store test only
  *  when STORE_TESTS_PHASE_ENV is also RED_PHASE_TOKEN, and fails otherwise. */

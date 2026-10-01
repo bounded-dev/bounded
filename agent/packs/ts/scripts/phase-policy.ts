@@ -26,7 +26,7 @@ export interface PhaseRun {
   /** Is this skipped result one a policy skipped on purpose? */
   readonly skippedOnPurpose: (resultName: string) => boolean;
   /** Services to start for the run, in policy order. */
-  readonly prepares: readonly { readonly name: string; readonly prepare: () => PreparedTestService }[];
+  readonly prepares: readonly { readonly name: string; readonly prepare: () => Promise<PreparedTestService> }[];
 }
 
 /** Combine decisions. Pure. A skip at green, or a refusal at red, is a policy
@@ -37,7 +37,7 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
   const set: Record<string, string> = {};
   const unset = new Set<string>();
   const claims: ((name: string) => boolean)[] = [];
-  const prepares: { name: string; prepare: () => PreparedTestService }[] = [];
+  const prepares: { name: string; prepare: () => Promise<PreparedTestService> }[] = [];
   for (const { name, decision } of decisions) {
     if (decision.action === "run" && decision.prepare !== undefined) prepares.push({ name, prepare: decision.prepare });
     for (const variable of decision.unsetEnv) unset.add(variable);
@@ -77,29 +77,47 @@ export async function withPreparedServices<T>(
   body: (env: PhaseRun["env"]) => Promise<T>,
 ): Promise<PreparedRun<T>> {
   const started: PreparedTestService[] = [];
-  try {
-    const set: Record<string, string> = { ...run.env.set };
-    for (const { name, prepare } of run.prepares) {
-      let service: PreparedTestService;
-      try {
-        service = prepare();
-      } catch (error) {
-        return { ok: false, reason: `the '${name}' test policy could not start what the run needs: ${error instanceof Error ? error.message : String(error)}` };
-      }
-      started.push(service);
-      Object.assign(set, service.env);
-    }
-    const unset = run.env.unset.filter((variable) => !(variable in set));
-    const value = await body({ set, unset });
-    return { ok: true, value, lines: started.map((service) => service.description) };
-  } finally {
-    for (const service of started.reverse()) {
+  const releaseAll = (): void => {
+    for (const service of started.splice(0).reverse()) {
       try {
         service.release();
       } catch {
         // release never throws by contract; a broken one must not mask the run
       }
     }
+  };
+  // An interrupted gate (Ctrl-C, a host killing it) still takes down what it
+  // started, then dies of the same signal.
+  const onSignal = (signal: NodeJS.Signals): void => {
+    releaseAll();
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+    process.kill(process.pid, signal);
+  };
+  if (run.prepares.length > 0) {
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+  }
+  try {
+    const set: Record<string, string> = { ...run.env.set };
+    for (const { name, prepare } of run.prepares) {
+      let service: PreparedTestService;
+      try {
+        service = await prepare();
+      } catch (error) {
+        return { ok: false, reason: `the '${name}' test policy could not start what the run needs: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      started.push(service);
+      Object.assign(set, service.env);
+    }
+    const lines = started.map((service) => service.description);
+    const unset = run.env.unset.filter((variable) => !(variable in set));
+    const value = await body({ set, unset });
+    return { ok: true, value, lines };
+  } finally {
+    releaseAll();
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
   }
 }
 

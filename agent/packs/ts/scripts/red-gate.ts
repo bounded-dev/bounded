@@ -89,7 +89,7 @@ import { phaseRun, type PhaseRun, withPreparedServices } from "./phase-policy.ts
 import { configDriftBlock, harnessRootOf } from "./project-config.ts";
 import { emitProject, projectFactsOf, type ProjectFile } from "./project-emitters.ts";
 import { MANIFEST } from "./project-package.ts";
-import { runTests, summarizeResults, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
+import { GATE_SUITE_TIMEOUT_MS, runTests, summarizeResults, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
 import { UNHANDLED_NAME } from "./sanitize-test-output.ts";
 import { checkObligations, obligationLines, readObligationInput, reachedNames } from "./test-obligations.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
@@ -663,7 +663,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   if (policy.refusals.length > 0) return gateError(cwd, policy.refusals.join("; "), "test-policy");
 
   const prepared = await withPreparedServices(policy, (env) => Promise.all([
-    runTests(dir, { ...gateOptionsFromEnv(), env }),
+    runTests(dir, { ...gateOptionsFromEnv(), env, timeoutMs: GATE_SUITE_TIMEOUT_MS }),
     typecheck(dir, gateTypecheckOptionsFromEnv()),
     // Escape hatches in test sources: a suite that silences the type
     // checker can assert its way past anything.

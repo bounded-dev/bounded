@@ -40,7 +40,7 @@
 
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
-import { runTests, type RunTestsResult } from "./run-tests.ts";
+import { GATE_SUITE_TIMEOUT_MS, runTests, type RunTestsResult } from "./run-tests.ts";
 import {
   gateOptionsFromEnv,
   gateTypecheckOptionsFromEnv,
@@ -485,7 +485,7 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
   // A policy may start what the run needs (ts-drizzle-postgres: a throwaway
   // Postgres for the app smoke tests' DATABASE_URL); it is released after.
   const prepared = await withPreparedServices(policy, (env) => Promise.all([
-    runTests(cwd, { ...gateOptionsFromEnv(), env }),
+    runTests(cwd, { ...gateOptionsFromEnv(), env, timeoutMs: GATE_SUITE_TIMEOUT_MS }),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
     lintSrc(cwd),
   ]));

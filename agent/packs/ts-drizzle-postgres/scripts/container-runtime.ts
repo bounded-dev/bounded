@@ -211,7 +211,7 @@ export function storeTestPhaseDecision(
   storeTests: readonly string[],
   probe: () => ContainerRuntimeProbe,
   persists = false,
-  startDatabase?: (endpoint: string) => PreparedTestService,
+  startDatabase?: (endpoint: string) => Promise<PreparedTestService>,
 ): PhaseTestDecision {
   const needsRuntime = storeTests.length > 0 || (phase === "green" && persists);
   const probed = needsRuntime ? probe() : { available: true as const, endpoint: "(not probed)" };

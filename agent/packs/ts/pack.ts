@@ -457,7 +457,7 @@ export interface PreparedTestService {
   readonly description: string;
   /** Set in the test process's environment, overriding any inherited value. */
   readonly env: Readonly<Record<string, string>>;
-  /** Idempotent; never throws. */
+  /** Idempotent, synchronous (it also runs from a signal handler); never throws. */
   readonly release: () => void;
 }
 
@@ -469,7 +469,7 @@ export type PhaseTestDecision =
   | {
       readonly action: "run";
       readonly unsetEnv: readonly string[];
-      readonly prepare?: () => PreparedTestService;
+      readonly prepare?: () => Promise<PreparedTestService>;
     }
   /** Red only: run with `env` set, and accept a skipped result exactly when
    *  `skippedTest(name)` holds for it. The gate prints `reason`. */

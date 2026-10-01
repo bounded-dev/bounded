@@ -257,18 +257,18 @@ const appDatabaseSkip = bun ?? (!runtime.available ? runtime.reason : dockerCliM
 if (appDatabaseSkip !== undefined) console.warn(`store-integration: skipping the throwaway application database: ${appDatabaseSkip}`);
 
 describe.skipIf(appDatabaseSkip !== undefined)("the green run's throwaway application database", () => {
-  test("starts, applies every context's migrations, answers through its URL, and is gone after release", { timeout: 240_000 }, () => {
+  test("starts, applies every context's migrations, answers through its URL, and is gone after release", { timeout: 900_000 }, async () => {
     const endpoint = runtime.available ? runtime.endpoint : "";
-    const service = startAppDatabase(dir, endpoint);
+    const service = await startAppDatabase(dir, endpoint);
     const name = /\((bounded-green-db-[0-9a-f]+)\)/.exec(service.description)?.[1] ?? "";
     try {
       expect(service.env[APP_DATABASE_ENV]).toMatch(/^postgres:\/\/postgres:postgres@127\.0\.0\.1:\d+\/app$/);
-      const tables = dockerCli(["exec", name, "psql", "-U", "postgres", "-d", "app", "-tAc",
+      const tables = await dockerCli(["exec", name, "psql", "-U", "postgres", "-d", "app", "-tAc",
         "select count(*) from information_schema.tables where table_schema = 'project_management'"], endpoint);
       expect(Number(tables.stdout.trim())).toBeGreaterThan(0);
     } finally {
       service.release();
     }
-    expect(dockerCli(["ps", "--all", "--quiet", "--filter", `name=${name}`], endpoint).stdout.trim()).toBe("");
+    expect((await dockerCli(["ps", "--all", "--quiet", "--filter", `name=${name}`], endpoint)).stdout.trim()).toBe("");
   });
 });

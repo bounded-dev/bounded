@@ -420,7 +420,7 @@ describe("runMutationScore", () => {
       policy: {
         refusals: [],
         env: { set: {}, unset: ["DATABASE_URL"] },
-        prepares: [{ name: "db", prepare: () => {
+        prepares: [{ name: "db", prepare: async () => {
           events.push("start");
           return { description: "started a throwaway database", env: { DATABASE_URL: "postgres://throwaway" }, release: () => void events.push("release") };
         } }],
@@ -455,7 +455,7 @@ describe("runMutationScore", () => {
     const dir = proj();
     let ran = false;
     const result = await runMutationScore(dir, {
-      policy: { refusals: [], env: { set: {}, unset: [] }, prepares: [{ name: "db", prepare: () => { throw new Error("no image"); } }] },
+      policy: { refusals: [], env: { set: {}, unset: [] }, prepares: [{ name: "db", prepare: async () => { throw new Error("no image"); } }] },
       runSuite: async () => { ran = true; return { ok: true, note: "green" }; },
     });
     expect(result.code).toBe(1);

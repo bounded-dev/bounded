@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import {
   type CommandRunner,
+  GATE_SUITE_TIMEOUT_MS,
   failureNames,
   formatRunTests,
   hasUnhandledError,
@@ -302,6 +303,29 @@ describe("failureNames", () => {
       ],
     } as RunTestsResult;
     expect(failureNames(r)).toEqual(["b", "c"]);
+  });
+});
+
+describe("the hard suite timeout", () => {
+  test("a hung suite is stopped at the limit and the run is blocked, not left running", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "run-tests-hang-"));
+    writeFileSync(join(dir, "package.json"), '{"name":"probe","private":true,"type":"module"}\n');
+    let aborted = false;
+    const hang: CommandRunner = (_c, _a, _d, signal) => new Promise((_, reject) => {
+      signal?.addEventListener("abort", () => { aborted = true; reject(new Error("aborted")); });
+    });
+    const result = await runTests(dir, { run: hang, command: "bun", args: [], timeoutMs: 30 });
+    rmSync(dir, { recursive: true, force: true });
+    expect(aborted).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.blocked).toMatch(/did not finish within 30ms and was stopped: a test hangs/);
+  });
+
+  test("the gates give every suite run the hard limit", () => {
+    for (const gate of ["green-gate.ts", "red-gate.ts"]) {
+      expect(readFileSync(join(import.meta.dirname, gate), "utf8"), gate).toContain("env, timeoutMs: GATE_SUITE_TIMEOUT_MS })");
+    }
+    expect(GATE_SUITE_TIMEOUT_MS).toBeGreaterThanOrEqual(10 * 60_000);
   });
 });
 

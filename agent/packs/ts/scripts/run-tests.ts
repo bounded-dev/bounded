@@ -58,7 +58,14 @@ export interface RunTestsOptions {
   /** Adjust the test process's environment (the phase test policies:
    *  variables set for a red skip, and removed so a leftover cannot skip). */
   readonly env?: { readonly set?: Readonly<Record<string, string>>; readonly unset?: readonly string[] };
+  /** A hard limit on the whole suite run: past it the child is killed and
+   *  the run is BLOCKED, so a hung test cannot hold a gate (and what the
+   *  gate started for it) forever. */
+  readonly timeoutMs?: number;
 }
+
+/** The gates' hard limit on one suite run. Generous: it is a hang guard. */
+export const GATE_SUITE_TIMEOUT_MS = 30 * 60_000;
 
 /** Per-status tally over the sanitized results. */
 export interface RunSummary {
@@ -336,7 +343,17 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
       testPaths: files.map((f) => f.path),
     };
     const env = options.env === undefined ? undefined : adjustedEnvironment(testEnvironment(), options.env);
-    const { stdout, stderr, code } = await run(command, args, cwd, undefined, env);
+    const signal = options.timeoutMs === undefined ? undefined : AbortSignal.timeout(options.timeoutMs);
+    let captured: CommandOutput;
+    try {
+      captured = await run(command, args, cwd, signal, env);
+    } catch (error) {
+      if (signal?.aborted !== true) throw error;
+      const minutes = Math.round(options.timeoutMs! / 60_000);
+      return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [],
+        blocked: `the suite did not finish within ${minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : `${options.timeoutMs}ms`} and was stopped: a test hangs` };
+    }
+    const { stdout, stderr, code } = captured;
     const xml = reportOf(report, stdout);
 
     let results: SanitizedResult[];
