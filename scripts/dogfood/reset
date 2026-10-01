@@ -461,8 +461,10 @@ MODEL_SUMMARY="  Model tiers (harnessed arm):
 if [ -n "$INIT_HOST" ]; then
   ARM1_NOTE="arm 1 — initialized by bounded init for $INIT_HOST, whole stack.
               Launch $INIT_HOST there: the session is the team lead. After
-              the run, compare its structure with the worked example:
-              BOUNDED_EXAMPLE_PROJECT=<example> node $REPO/scripts/dogfood/structure-compare.ts $HARNESSED"
+              the run, judge its structure against the conventions:
+              node $REPO/scripts/dogfood/structure-compare.ts --conventions $HARNESSED
+              (for the worked example's own product, also compare with it:
+              BOUNDED_EXAMPLE_PROJECT=<example> node $REPO/scripts/dogfood/structure-compare.ts $HARNESSED)"
   READY="Arms ready."
 else
   ARM1_NOTE="arm 1 — gated as the architect automatically (bash, run_tests and

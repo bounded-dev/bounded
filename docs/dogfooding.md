@@ -151,6 +151,59 @@ lockfiles and build output are ignored. It exits 1 on any unexpected delta. `scr
 `.run/STRUCTURE.txt` (and `.run/structure.json`) when
 `BOUNDED_EXAMPLE_PROJECT` is set.
 
+### A different product, judged against the conventions alone
+
+A run of `pm-notes-prompt.md` builds the worked example's own product, so its
+architect can copy the example's contracts and score a perfect structure by
+copying (issue #39). `clinic-appointments-prompt.md` has the same shape (one
+context with two areas, commands and queries with ordered validation and
+exact refusals, a scheduled export, the browser, desktop, AI-assistant and
+scheduled-job surfaces, durable data) in a domain the example does not cover:
+
+```bash
+scripts/dogfood/reset --init claude-code --harnessed docs/dogfood/clinic-appointments-prompt.md
+```
+
+There is no worked example of that product to compare with, so the run is
+judged against the conventions (TN-26-012) instead:
+
+```bash
+node scripts/dogfood/structure-compare.ts <arm>                # no example named
+node scripts/dogfood/structure-compare.ts --conventions <arm>  # even with BOUNDED_EXAMPLE_PROJECT set
+```
+
+The report lists what the project's own files and contracts call for and
+the tree lacks, file by file, under five headings:
+
+- **layout**: the root config, each context's generated barrels and
+  `result.ts`, and nothing outside the places the layout defines.
+- **naming**: kebab-case names, plural areas, features of two or more
+  words, files named for their feature, each layer's role suffixes, the in
+  port and `<InPort>Store` names a contract exports, and the feature role of
+  each in technology (read from the packs' `contrib.json`).
+- **feature files**: each concept's contract and implementation; each
+  feature's handler, its command when the contract has an `Input`, a store
+  per storage technology in use when it has a store port, and an adapter per
+  `@exposedVia` and `@implementedBy` technology; no adapter for a feature or
+  port that does not exist.
+- **test levels**: every level TN-26-012 §8 requires, file by file: unit
+  tests and laws per concept, a handler test per feature, command laws, the
+  store conformance suite and a store test per store, a test per other out
+  adapter, generated laws per in adapter, a smoke test beside every
+  composition root, and the architecture test.
+- **apps**: each app's template files by its kind (from the TNs'
+  `workspaces:` maps, else recognised by its files), and one Lambda entry per
+  Lambda in adapter.
+
+A run that follows the conventions reports 0 findings, and the command exits
+1 on any finding. The worked example as a delivered run would stand (its
+in-repository copies plus the laws and smoke tests generated at green) passes;
+a mutated copy is flagged (`agent/test/structure-compare.test.ts`). The
+example's local checkout on its own does not pass, because it has almost no
+tests. `scripts/dogfood/archive` always writes this report to
+`.run/CONVENTIONS.txt` (and `.run/conventions.json`), next to the example
+comparison when `BOUNDED_EXAMPLE_PROJECT` is set.
+
 ## Themes so far
 
 - **The skill survives weak readers.** Both Sonnet and Haiku found and
