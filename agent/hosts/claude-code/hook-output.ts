@@ -11,6 +11,8 @@ export interface HookPayload {
   /** The calling subagent's identity, when the payload carries one. */
   readonly agentType?: string;
   readonly agentId?: string;
+  /** The seat instance making the call (agent id, else session), as recorded on a spawn. */
+  readonly caller?: string;
 }
 
 /** Refuse the call and tell the model why. */

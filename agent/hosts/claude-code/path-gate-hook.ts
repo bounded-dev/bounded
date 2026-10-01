@@ -81,7 +81,8 @@ import {
   SEND_MESSAGE_TOOL,
   sendSucceeded,
   sendTarget,
-  startedWorker,
+  launchOutcome,
+  unresolvedLaunchCaller,
   WORKER_STARTED,
   workerRole,
 } from "./continuation.ts";
@@ -89,7 +90,7 @@ import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
 import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
-import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
+import { BASH_TOOL, claudeTaskModel, mapToolCall, unplainAgentField } from "./tool-map.ts";
 import { resolveSessionRole } from "../../src/session-role.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
@@ -165,7 +166,9 @@ function narrowPayload(rec: Readonly<Record<string, unknown>>, toolName: string)
   const cwd = nonEmpty(rec["cwd"]);
   const agentType = nonEmpty(rec["agent_type"]);
   const agentId = nonEmpty(rec["agent_id"]);
+  const caller = callerOf(rec);
   return {
+    ...(caller !== undefined ? { caller } : {}),
     ...(event !== undefined ? { event } : {}),
     toolName,
     toolInput,
@@ -239,7 +242,16 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     // (continuation.ts). Nothing after a call is ever refused here.
     if (payload.event === "PostToolUse" || payload.event === "PostToolUseFailure") {
       const role = asRole(flags.role);
-      if (role !== undefined) recordCommissionOutcome(role, payload, rec, payload.cwd ?? fallbackCwd);
+      if (role !== undefined) {
+        const at = payload.cwd ?? fallbackCwd;
+        try {
+          recordCommissionOutcome(role, payload, rec, at);
+        } catch (err) {
+          // The outcome of this launch can now never be known, so it is
+          // recorded as not continuable rather than left to deadlock the role.
+          licenseUnknownOutcome(role, payload, at, err);
+        }
+      }
       return { stdout: "", stderr: "" };
     }
     if (payload.event !== undefined && payload.event !== "PreToolUse") return { stdout: "", stderr: "" };
@@ -323,24 +335,25 @@ function recordCommissionOutcome(
   const response = rec["tool_response"];
   if (AGENT_TOOLS.has(payload.toolName)) {
     const asked = payload.toolInput["subagent_type"];
-    const started = payload.event === "PostToolUse" ? startedWorker(payload.toolInput, response) : undefined;
-    if (started !== undefined) {
+    if (typeof asked !== "string" || asRole(asked) === undefined) return;
+    // A failed launch is over and left nothing; otherwise the result says.
+    const outcome = payload.event === "PostToolUseFailure"
+      ? { kind: "ended" as const, role: asked }
+      : launchOutcome(payload.toolInput, response);
+    if (outcome === undefined) return; // proves nothing: record nothing, license nothing
+    if (outcome.kind === "worker") {
       logGuardEvent(cwd, {
         guard: "phase-gate",
         verdict: "pass",
-        summary: `${started.role} is worker ${started.worker}`,
-        detail: { kind: WORKER_STARTED, role, target: started.role, worker: started.worker },
+        summary: `${outcome.role} is worker ${outcome.worker}`,
+        detail: { kind: WORKER_STARTED, role, target: outcome.role, worker: outcome.worker },
       });
       return;
     }
-    // The launch ended with no worker this hook can address — it failed, or
-    // its result named none — so nothing of it can be continued. That is the
-    // positive evidence that licenses a fresh launch of the role.
-    if (typeof asked !== "string" || asRole(asked) === undefined) return;
     logGuardEvent(cwd, {
       guard: "phase-gate",
       verdict: "pass",
-      summary: `the ${asked} launch left no worker to continue — a fresh ${asked} may be launched`,
+      summary: `the ${asked} launch ended with no worker to continue — a fresh ${asked} may be launched`,
       detail: { kind: CONTINUATION_CHECKED, role, target: asked },
     });
     return;
@@ -360,6 +373,34 @@ function recordCommissionOutcome(
     summary: `${CLAUDE_COMMISSIONS.checkSummary}: ${workerOf} ${target.to} — a fresh ${workerOf} may be launched`,
     detail: { kind: CONTINUATION_CHECKED, role, target: workerOf, worker: target.to },
   });
+}
+
+/** After-call recording failed: an Agent launch of a pipeline role whose
+ *  outcome is now unknowable licenses a relaunch, and the error is logged. */
+export function licenseUnknownOutcome(role: Role, payload: Payload, cwd: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  logGuardEvent(cwd, {
+    guard: "path-gate",
+    verdict: "error",
+    summary: `${DENY_PREFIX}: recording the outcome of ${payload.toolName} failed: ${message}`,
+    detail: { host: "claude-code", kind: "hook-error", tool: payload.toolName },
+  });
+  const asked = payload.toolInput["subagent_type"];
+  if (!AGENT_TOOLS.has(payload.toolName) || typeof asked !== "string" || asRole(asked) === undefined) return;
+  logGuardEvent(cwd, {
+    guard: "phase-gate",
+    verdict: "pass",
+    summary: `the outcome of the ${asked} launch could not be recorded — a fresh ${asked} may be launched`,
+    detail: { kind: CONTINUATION_CHECKED, role, target: asked },
+  });
+}
+
+/** The seat instance making a call: a subagent's agent id, else the session. */
+function callerOf(rec: Readonly<Record<string, unknown>>): string | undefined {
+  const agent = nonEmpty(rec["agent_id"]);
+  if (agent !== undefined) return `agent:${agent}`;
+  const session = nonEmpty(rec["session_id"]);
+  return session === undefined ? undefined : `session:${session}`;
 }
 
 /**
@@ -469,6 +510,37 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
         });
         return deny(unbound.reason);
       }
+      // A commission starts a fresh, unnamed foreground worker and nothing
+      // else: a name, a background run, another worktree or directory would
+      // hide, detach or move the seat (the lead's allowlist, tool-map.ts).
+      const extra = unplainAgentField(payload.toolInput);
+      if (extra !== undefined) {
+        const reason = `phase-gate: a commission must start a fresh, unnamed foreground subagent ('${extra}' is not allowed)`;
+        logGuardEvent(cwd, {
+          guard: "phase-gate",
+          verdict: "block",
+          summary: reason,
+          detail: { kind: "spawn-refused", role, field: extra },
+        });
+        return deny(reason);
+      }
+      // A launch with no recorded outcome, made by an earlier architect that
+      // has since been replaced, can never be continued: its run ended before
+      // the after-call hook could say what it left. A different caller's
+      // relaunch is licensed (continuation.ts); the same caller's is not,
+      // because to it that launch is still running.
+      const target = call.input["agent"];
+      if (typeof target === "string") {
+        const launchedBy = unresolvedLaunchCaller(target, readGuardLog(cwd));
+        if (launchedBy !== undefined && launchedBy !== payload.caller) {
+          logGuardEvent(cwd, {
+            guard: "phase-gate",
+            verdict: "pass",
+            summary: `the last ${target} was launched by an earlier caller and left no recorded outcome — a fresh ${target} may be launched`,
+            detail: { kind: CONTINUATION_CHECKED, role, target },
+          });
+        }
+      }
       // The tier is policy (ADR 2026-022): the same core that plans pi's
       // injection plans it here. This host only translates the pi pattern
       // into the Agent tool's model vocabulary and rewrites the call — the
@@ -507,6 +579,7 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
       harnessRoot,
       host: "claude-code",
       commissions: CLAUDE_COMMISSIONS,
+      ...(payload.caller !== undefined ? { caller: payload.caller } : {}),
     });
     if (blocked !== undefined) return deny(blocked.reason);
   }

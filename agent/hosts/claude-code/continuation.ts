@@ -20,11 +20,21 @@
 // log, which no role may write.
 //
 // What licenses a cold relaunch here is positive evidence that the worker
-// cannot be continued: a SendMessage to the role's current worker that errored
-// or reported no success, or an Agent launch that ended without a worker the
-// hook could record (it failed, or its result named no pipeline worker). A
-// launch still running has no record yet and licenses nothing, so two
-// parallel launches of one role are still refused.
+// cannot be continued:
+//   · a SendMessage to the role's current worker that errored or reported no
+//     success;
+//   · an Agent launch that failed (PostToolUseFailure) or reported a terminal
+//     status other than completed;
+//   · the after-call hook itself erroring on that launch, so its outcome can
+//     never be known;
+//   · a launch with no recorded outcome made by a DIFFERENT caller — an
+//     earlier architect, since replaced (its run was interrupted, so the
+//     after-call hook never ran). Within one architect a launch with no
+//     outcome is still running, which is why two parallel launches of one role
+//     are refused; an architect cannot change its own agent id, so this way
+//     out cannot be taken by the architect that made the launch.
+// A background launch (`async_launched`) is a running worker of the role
+// requested, addressed by the id it reports.
 //
 // Pure, apart from the shape of the guard events it reads and writes: the hook
 // (path-gate-hook.ts) does the logging.
@@ -136,20 +146,58 @@ export function continuableWorker(role: string, events: readonly LoggedGuardEven
 }
 
 
-/** The worker an Agent result reports, when it is a pipeline role started as
- *  the call asked. Read from the PostToolUse `tool_response`. */
-export function startedWorker(
+/** Agent-result statuses that say the launch is over and left nothing to
+ *  continue. Only these, or a PostToolUseFailure, license a relaunch. */
+const ENDED_STATUSES: ReadonlySet<string> = new Set([
+  "failed", "error", "errored", "killed", "stopped", "cancelled", "canceled", "aborted",
+]);
+/** The status of a launch that went to the background and is still running. */
+const RUNNING_STATUS = "async_launched";
+
+export type LaunchOutcome =
+  /** A worker of the requested role exists — finished, or still running. */
+  | { readonly kind: "worker"; readonly role: string; readonly worker: string }
+  /** The launch is over and left no worker to continue. */
+  | { readonly kind: "ended"; readonly role: string };
+
+/**
+ * What an Agent launch of a pipeline role left behind, read from its
+ * PostToolUse `tool_response`, or undefined when the result proves nothing
+ * either way (then nothing is recorded, and nothing is licensed).
+ */
+export function launchOutcome(
   toolInput: Readonly<Record<string, unknown>>,
   response: unknown,
-): { readonly role: string; readonly worker: string } | undefined {
+): LaunchOutcome | undefined {
+  const asked = toolInput["subagent_type"];
+  if (typeof asked !== "string" || asRole(asked) === undefined) return undefined;
   if (typeof response !== "object" || response === null) return undefined;
   const r = response as Readonly<Record<string, unknown>>;
   const worker = r["agentId"];
   const type = r["agentType"];
-  if (typeof worker !== "string" || !WORKER_ID.test(worker)) return undefined;
-  if (typeof type !== "string" || asRole(type) === undefined) return undefined;
-  if (toolInput["subagent_type"] !== type) return undefined;
-  return { role: type, worker };
+  const status = r["status"];
+  if (typeof worker === "string" && WORKER_ID.test(worker)) {
+    if (type === asked) return { kind: "worker", role: asked, worker };
+    // A background launch reports its id before it has a type: a running worker.
+    if (type === undefined && status === RUNNING_STATUS) return { kind: "worker", role: asked, worker };
+  }
+  if (typeof status === "string" && ENDED_STATUSES.has(status)) return { kind: "ended", role: asked };
+  return undefined;
+}
+
+/**
+ * The caller that made `role`'s last launch, when that launch has no recorded
+ * outcome — no worker and no licence after it. Undefined otherwise.
+ */
+export function unresolvedLaunchCaller(role: string, events: readonly LoggedGuardEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const d = detailOf(events[i]!);
+    if (d["target"] !== role) continue;
+    if (d["kind"] === WORKER_STARTED || d["kind"] === CONTINUATION_CHECKED) return undefined;
+    // A launch recorded with no caller cannot be told apart: no way out by caller.
+    if (d["kind"] === "spawn") return typeof d["caller"] === "string" ? d["caller"] : undefined;
+  }
+  return undefined;
 }
 
 /** Did a SendMessage's PostToolUse response report a delivered continuation? */

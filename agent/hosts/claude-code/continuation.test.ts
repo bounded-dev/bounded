@@ -8,10 +8,11 @@ import {
   continuableWorker,
 
   sendTarget,
-  startedWorker,
+  launchOutcome,
+  unresolvedLaunchCaller,
   workerRole,
 } from "./continuation.ts";
-import { runHook } from "./path-gate-hook.ts";
+import { licenseUnknownOutcome, runHook } from "./path-gate-hook.ts";
 
 // #33: on Claude Code a bounce goes to the worker that already ran, continued
 // with SendMessage, bound and gated. The mechanism was verified live on Claude
@@ -158,6 +159,52 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     expect(launch(dir, "builder").decision).toBe("deny"); // no Post event yet
   });
 
+  test("a background launch is a running worker of the role asked: a second launch is refused, continuing it is allowed", () => {
+    const dir = readyProject();
+    launch(dir, "builder");
+    hook(dir, "PostToolUse", "Agent", { subagent_type: "builder", prompt: "do it" }, { tool_response: { status: "async_launched", agentId: W1 } });
+    expect(phase(dir).at(-1)).toMatchObject({ detail: { kind: "worker-started", target: "builder", worker: W1 } });
+    expect(launch(dir, "builder").decision).toBe("deny");
+    expect(send(dir, { to: W1, message: "bounce" }).decision).toBe("allow");
+  });
+
+  test("when recording a launch's outcome itself fails, the launch is licensed and the error logged", () => {
+    const dir = readyProject();
+    launch(dir, "builder");
+    licenseUnknownOutcome("architect", { event: "PostToolUse", toolName: "Agent", toolInput: { subagent_type: "builder" } }, dir, new Error("boom"));
+    expect(readGuardLog(dir).some((e) => e.verdict === "error" && e.summary.includes("boom"))).toBe(true);
+    expect(launch(dir, "builder").decision).toBe("allow");
+  });
+
+  test("a result that proves nothing licenses nothing", () => {
+    const dir = readyProject();
+    launch(dir, "builder");
+    hook(dir, "PostToolUse", "Agent", { subagent_type: "builder", prompt: "do it" }, { tool_response: { status: "something new" } });
+    expect(launch(dir, "builder").decision).toBe("deny");
+  });
+
+  test("a launch left without an outcome by an earlier architect may be relaunched by its successor, never by itself", () => {
+    const dir = readyProject();
+    const first = { agent_id: "a0000000000000aaa", agent_type: "architect" };
+    const next = { agent_id: "a0000000000000bbb", agent_type: "architect" };
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first).decision).toBe("allow");
+    // The run was interrupted: no after-call hook ever ran for that launch.
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first).decision).toBe("deny");
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("allow");
+    // And the successor's own launch is again unresolved to itself.
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("deny");
+  });
+
+  test.each(["run_in_background", "isolation", "name", "cwd", "team_name", "mode"])(
+    "an architect's Agent call carrying '%s' is refused",
+    (field) => {
+      const dir = readyProject();
+      const r = hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x", [field]: field === "run_in_background" ? true : "v" });
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain(`'${field}' is not allowed`);
+    },
+  );
+
   test("a launch that failed, or named no worker, licenses a fresh launch of that role", () => {
     const dir = readyProject();
     launch(dir, "test-writer");
@@ -214,12 +261,30 @@ describe("continuation.ts — the pure half", () => {
     expect(sendTarget({ to: W1 }).ok).toBe(false);
   });
 
-  test("startedWorker trusts only a pipeline role started as asked", () => {
-    expect(startedWorker({ subagent_type: "builder" }, { agentId: "a00000000000000a1", agentType: "builder" })).toEqual({ role: "builder", worker: "a00000000000000a1" });
-    expect(startedWorker({ subagent_type: "builder" }, { agentId: "a00000000000000a1", agentType: "reviewer" })).toBeUndefined();
-    expect(startedWorker({ subagent_type: "scout" }, { agentId: "a00000000000000a1", agentType: "scout" })).toBeUndefined();
-    expect(startedWorker({ subagent_type: "builder" }, { agentId: "a 00000001", agentType: "builder" })).toBeUndefined();
-    expect(startedWorker({ subagent_type: "builder" }, "a00000000000000a1")).toBeUndefined();
+  test("launchOutcome trusts only a pipeline role started as asked, and licenses only a terminal failure", () => {
+    const A = "a00000000000000a1";
+    const asked = { subagent_type: "builder" };
+    expect(launchOutcome(asked, { agentId: A, agentType: "builder", status: "completed" })).toEqual({ kind: "worker", role: "builder", worker: A });
+    // A background launch reports an id but no type yet: a running worker, never a licence.
+    expect(launchOutcome(asked, { agentId: A, status: "async_launched" })).toEqual({ kind: "worker", role: "builder", worker: A });
+    expect(launchOutcome(asked, { agentId: A, status: "failed" })).toEqual({ kind: "ended", role: "builder" });
+    expect(launchOutcome(asked, { status: "killed" })).toEqual({ kind: "ended", role: "builder" });
+    // Anything that proves nothing either way records nothing.
+    expect(launchOutcome(asked, { agentId: A })).toBeUndefined();
+    expect(launchOutcome(asked, { agentId: A, status: "completed" })).toBeUndefined();
+    expect(launchOutcome(asked, { agentId: A, agentType: "reviewer" })).toBeUndefined();
+    expect(launchOutcome(asked, { status: "something new" })).toBeUndefined();
+    expect(launchOutcome({ subagent_type: "scout" }, { agentId: A, agentType: "scout" })).toBeUndefined();
+    expect(launchOutcome(asked, { agentId: "a 00000001", agentType: "builder" })).toBeUndefined();
+    expect(launchOutcome(asked, A)).toBeUndefined();
+  });
+
+  test("unresolvedLaunchCaller: the caller of a launch with no outcome, if it recorded one", () => {
+    const spawn = (caller?: string) => ev({ kind: "spawn", target: "builder", ...(caller ? { caller } : {}) });
+    expect(unresolvedLaunchCaller("builder", [spawn("agent:x")])).toBe("agent:x");
+    expect(unresolvedLaunchCaller("builder", [spawn()])).toBeUndefined();
+    expect(unresolvedLaunchCaller("builder", [spawn("agent:x"), ev({ kind: "worker-started", target: "builder", worker: "a1" })])).toBeUndefined();
+    expect(unresolvedLaunchCaller("builder", [spawn("agent:x"), ev({ kind: "continuation-checked", target: "builder" })])).toBeUndefined();
   });
 
   test("the continuable worker is the one after the role's last launch, until a continuation fails", () => {

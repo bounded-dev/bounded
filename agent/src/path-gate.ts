@@ -299,6 +299,9 @@ export interface GateInput {
   /** How the host's commission tool is read and a finished worker continued
    *  (src/phase-gate.ts). Required for a `subagent` call; absent ⇒ refused. */
   readonly commissions?: CommissionHost;
+  /** Which seat instance is calling, as the host identifies it. Recorded on a
+   *  spawn so an adapter can tell a later caller from the one that launched. */
+  readonly caller?: string;
   /**
    * Snapshot of the session's available models, for the spawn-time tier check.
    * Absent or empty means "cannot tell": a seat is never refused for want of a
@@ -401,7 +404,7 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
           guard: "phase-gate",
           verdict: "pass",
           summary: `commissioned ${verdict.target}`,
-          detail: { kind: "spawn", target: verdict.target },
+          detail: { kind: "spawn", target: verdict.target, ...(ev.caller !== undefined ? { caller: ev.caller } : {}) },
         });
         break;
       case "resumed":

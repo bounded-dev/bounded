@@ -75,9 +75,15 @@ capabilities and still needs a live run before its behavior can be claimed.
   the hook after `Agent` and `SendMessage` (`PostToolUse`,
   `PostToolUseFailure`): that records each worker's agent id in the guard log,
   and `SendMessage` is allowed only to a role's current recorded worker —
-  never `main`, another session, or a replaced worker. A failed continuation
-  of that worker, or a launch that ended with no worker to continue, licenses
-  a fresh launch of that role; a launch still running licenses nothing.
+  never `main`, another session, or a replaced worker. A fresh launch of a
+  role is licensed only by positive evidence: a failed continuation of its
+  current worker, a launch that failed or reported a terminal non-completed
+  status, an after-call hook that errored on the launch, or a launch with no
+  recorded outcome made by an earlier architect (a different agent id). A
+  launch still running — including a background one, recorded from its
+  `async_launched` id — licenses nothing. The architect's Agent calls are held
+  to the lead's field allowlist, so `run_in_background`, `isolation` and
+  `name` are refused.
 - **Tool strip**, as `tools:` in the generated agent definitions: a worker
   never sees `Agent` or `SendMessage`; the reviewer never sees `Write` or
   `Edit`. Pinned to `ROLE_TOOLS` by `render-agents.test.ts`, the way
