@@ -64,13 +64,26 @@ and blind workers, runs the gates, and returns its evidence and any decisions
 the user must make. Route follow-up product decisions between the architect
 and the user without taking over the architect's files.
 
-Project config (the package manifest and lockfile, compiler and test-runner
-config) is generated from the selected capabilities, and no seat may edit it.
-If a gate reports that it has drifted, tell the user which files differ.
-Only the user restores them, with `bounded sync-config`, which also
-reinstalls the dependencies from the lockfile when anything changed. A
-dependency the product needs must come from a capability's pins, never from a
-hand edit.
+Project config (the root and per-workspace `package.json` files, `bun.lock`,
+the `tsconfig` files, `docker-compose.yml`) is generated from the selected
+capabilities and the design, and no seat may edit it. If a gate reports that
+it has drifted, tell the user which files differ. Only the user restores
+them, with `bounded sync-config`, which also reinstalls the dependencies from
+the lockfile when anything changed. A dependency the product needs must come
+from a capability's pins, never from a hand edit.
+
+Two things about the project's shape reach the user, so say them early:
+
+- **Apps come from the design.** The project is a monorepo of bounded
+  contexts (`contexts/`) and apps (`apps/`). Which apps exist — a web app, an
+  MCP server, a Lambda, a desktop app — is decided by the architect in the
+  ticket's Technical Note, from the requirement. Give the architect the
+  requirement for how people reach the product, not a list of apps.
+- **Stores need Docker at the end.** Tests of database stores run against
+  real Postgres through Docker. Design and the first half of testing work
+  without it, but the green gate refuses while store tests exist and no
+  container runtime answers. If the product keeps data and Docker is not
+  running, tell the user before the run reaches green.
 
 ## Shape the work
 

@@ -5,6 +5,8 @@
 #   scripts/dogfood/reset --harnessed         # ONLY the harnessed arm
 #   scripts/dogfood/reset --bare              # ONLY the bare arm
 #   scripts/dogfood/reset <prompt-file>       # any other prompt
+#   scripts/dogfood/reset --init claude-code --harnessed docs/dogfood/pm-notes-prompt.md
+#                                             # arm 1 from bounded init, whole stack
 #
 #   scripts/dogfood/reset --design-model <pattern>   # the judgment seats' model
 #   scripts/dogfood/reset --worker-model <pattern>   # the production seats' model
@@ -83,6 +85,12 @@ SMOKE_MODELS=false
 # scripts — is read from the pack's own contrib.json. No pack name or
 # technology appears below; the pack list is the caller's input.
 COMPOSE_PACKS=()
+# --init <host>: the harnessed arm is not the flat scaffold below but an empty
+# directory initialized by `bounded init --host <host>` with its default
+# selection, the whole stack: the project-local harness, the generated root
+# config, and the team lead as the entry. That is how a real project starts,
+# and the only way to get the hexagonal monorepo the stack's gates expect.
+INIT_HOST=""
 ARGS=()
 # An index walk rather than `for a in "$@"`: the model flags take a value, and
 # a value-taking flag needs to consume the argument after it.
@@ -101,6 +109,9 @@ while [ $# -gt 0 ]; do
     --compose)
       shift; [ $# -gt 0 ] || { echo "dogfood-reset: --compose needs a pack name (a directory under agent/packs/)" >&2; exit 2; }
       COMPOSE_PACKS+=("$1") ;;
+    --init)
+      shift; [ $# -gt 0 ] || { echo "dogfood-reset: --init needs a host (pi or claude-code)" >&2; exit 2; }
+      INIT_HOST="$1" ;;
     *)           ARGS+=("$1") ;;
   esac
   shift
@@ -173,8 +184,10 @@ follow it.'
 autosave() {
   local dir="$1" arm="$2"
   [ -d "$dir" ] || return 0
-  # Output = anything the agents wrote beyond the scaffolded baseline.
-  if [ -f "$dir/spec.md" ] || [ -n "$(find "$dir/src" "$dir/tests" -name '*.ts' 2>/dev/null | head -1)" ]; then
+  # Output = anything the agents wrote beyond the scaffolded baseline: a spec
+  # or ticket note, or code in the flat layout or the monorepo's workspaces.
+  if [ -f "$dir/spec.md" ] || [ -n "$(find "$dir/docs/tn" -name 'TN-*.md' 2>/dev/null | head -1)" ] \
+    || [ -n "$(find "$dir/src" "$dir/tests" "$dir/contexts" "$dir/apps" -name '*.ts' -not -path '*/node_modules/*' 2>/dev/null | head -1)" ]; then
     local name="auto/${arm}-$(date -u +%Y%m%dT%H%M%SZ)"
     echo "dogfood-reset: $arm arm has output — archiving to '$name' before wiping"
     "$REPO/scripts/dogfood/archive" "$name" --arm "$arm" \
@@ -379,7 +392,34 @@ compose_pack() {
   done <<< "$scripts"
 }
 
-if [ "$WHICH" != "bare" ]; then
+# The initialized arm: plan with bounded init, apply exactly the reviewed
+# digest, commit the baseline. Nothing else is written into it — no role
+# binding, no operational block — because the initialized project's own
+# AGENTS.md (and CLAUDE.md) make the host session the team lead.
+init_arm() {
+  local dir="$1" host="$2" plan digest
+  autosave "$dir" harnessed || return 1
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  ( cd "$dir" && git init -q )
+  plan="$(node "$AGENT/src/project-init-cli.ts" --cwd "$dir" --host "$host")" \
+    || { echo "dogfood-reset: FATAL — bounded init could not plan the arm" >&2; exit 1; }
+  digest="$(printf '%s' "$plan" | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+  node "$AGENT/src/project-init-cli.ts" --cwd "$dir" --host "$host" --apply "$digest" >/dev/null \
+    || { echo "dogfood-reset: FATAL — bounded init could not apply its own plan" >&2; exit 1; }
+  ( cd "$dir" && git add -A && git commit -q -m "Baseline: bounded init --host $host (default selection)" )
+  echo "dogfood-reset: initialized the harnessed arm with bounded init --host $host"
+}
+
+if [ "$WHICH" != "bare" ] && [ -n "$INIT_HOST" ]; then
+  [ ${#COMPOSE_PACKS[@]} -eq 0 ] || { echo "dogfood-reset: --init composes the whole stack; drop --compose" >&2; exit 2; }
+  init_arm "$HARNESSED" "$INIT_HOST"
+  # Runtime state under .bounded/ is ignored by the initialized project, so
+  # the tiers are written but not committed.
+  if [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; then
+    write_models_json "$HARNESSED/.bounded/dev-stage-models.json" "$DESIGN_MODEL" "$WORKER_MODEL"
+  fi
+elif [ "$WHICH" != "bare" ]; then
   scaffold "$HARNESSED" "$HARNESSED_LINE"
   # Record every selection, including the base-only case, before pack init.
   bash "$AGENT/scripts/bounded" compose --cwd "$HARNESSED" ts "${COMPOSE_PACKS[@]}"
@@ -407,7 +447,9 @@ fi
 # Verify the canonical rendered prompt exists and is non-empty, since pasting
 # from a missing file hands an arm nothing at all.
 [ -s "$RENDERED_PROMPT" ] || { echo "dogfood-reset: FATAL — $RENDERED_PROMPT missing or empty" >&2; exit 1; }
-if [ -d "$BARE" ] && [ -d "$HARNESSED" ]; then
+# An initialized arm carries bounded init's own instructions, not the shared
+# operational block, so there is nothing to compare it against.
+if [ -z "$INIT_HOST" ] && [ -d "$BARE" ] && [ -d "$HARNESSED" ]; then
   if ! diff -q <(sed '/^## How work is done here$/q' "$BARE/AGENTS.md") \
                <(sed '/^## How work is done here$/q' "$HARNESSED/AGENTS.md") >/dev/null; then
     echo "dogfood-reset: FATAL — operational blocks differ between arms" >&2; exit 1
@@ -421,14 +463,25 @@ MODEL_SUMMARY="  Model tiers (harnessed arm):
       designModel (architect, reviewer)   ${DESIGN_MODEL:-<session default>}
       workerModel (test-writer, builder)  ${WORKER_MODEL:-<session default>}"
 
+if [ -n "$INIT_HOST" ]; then
+  ARM1_NOTE="arm 1 — initialized by bounded init for $INIT_HOST, whole stack.
+              Launch $INIT_HOST there: the session is the team lead. After
+              the run, compare its structure with the worked example:
+              BOUNDED_EXAMPLE_PROJECT=<example> node $REPO/scripts/dogfood/structure-compare.ts $HARNESSED"
+  READY="Arms ready."
+else
+  ARM1_NOTE="arm 1 — gated as the architect automatically (bash, run_tests and
+              record_design_review are absent from the toolset, not just
+              refused). Launch the host you intend for this arm."
+  READY="Both arms ready. Operational blocks verified identical."
+fi
+
 cat <<EOF
 
-Both arms ready. Operational blocks verified identical.
+$READY
 
   cd $HARNESSED
-      arm 1 — gated as the architect automatically (bash, run_tests and
-              record_design_review are absent from the toolset, not just
-              refused). Launch the host you intend for this arm.
+      $ARM1_NOTE
   cd $BARE
       arm 2 — the second arm. By default the ordinary-tools control; for a
               two-harnessed comparison it is set up as a gated arm too.

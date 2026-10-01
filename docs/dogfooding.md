@@ -117,6 +117,40 @@ and then *verifies* both arms got byte-identical prompts and blocks, failing
 loudly if not. That check is the experiment: exactly one line may differ
 between arms, the one naming what the environment offers.
 
+### A run from `bounded init`, measured against a worked example
+
+The flat arm above (`src/`, `tests/`, npm, Vitest) predates the hexagonal
+monorepo (ADRs 2026-056 to 2026-064). A run of the current stack starts the
+way a real project does:
+
+```bash
+scripts/dogfood/reset --init claude-code --harnessed docs/dogfood/pm-notes-prompt.md
+```
+
+`--init <host>` builds arm 1 with `bounded init --host <host>` and its default
+selection, the whole stack, then commits that baseline. Open the host in the
+arm (its session is the team lead) and paste the rendered prompt.
+
+`pm-notes-prompt.md` is the product of a worked example, a projects-and-notes
+monorepo, stated as requirements only. After the run, compare the arm's
+structure with that example, kept as a local checkout outside this repository:
+
+```bash
+BOUNDED_EXAMPLE_PROJECT=<path-to-example> node scripts/dogfood/structure-compare.ts <arm>
+```
+
+The report lists file shapes whose counts differ, files one tree has and the
+other lacks (context name and migration names normalised), contracts whose
+exported names differ, and the test levels the project's own files require
+(TN-26-012 §8) that its tests do not reach. Differences the example owns (no
+Drizzle stores or mappers yet, the web app's sample-data `seed.ts`, the
+red-phase errors module on an undelivered run) are listed with their reasons
+in the script's `EXPECTED_DELTAS` and reported without being counted, so a
+faithful run reports 0 unexpected deltas. Harness artifacts, dependencies,
+lockfiles and build output are ignored. It exits 1 on any unexpected delta. `scripts/dogfood/archive` writes the same report to
+`.run/STRUCTURE.txt` (and `.run/structure.json`) when
+`BOUNDED_EXAMPLE_PROJECT` is set.
+
 ## Themes so far
 
 - **The skill survives weak readers.** Both Sonnet and Haiku found and

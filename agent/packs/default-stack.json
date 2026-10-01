@@ -1,0 +1,13 @@
+{
+  "//": "The selection `bounded init` makes when none is named: the hexagonal Bun monorepo of the worked example (TN-26-012) with every adapter and app it has. Data on the pack side, like contrib.json, so the core reads it without naming a technology. Each name must be an installed pack and the list must be closed under dependsOnPacks (project-init.test.ts).",
+  "packs": [
+    "ts",
+    "ts-hexagonal",
+    "ts-trpc",
+    "ts-mcp",
+    "ts-lambda",
+    "ts-web",
+    "ts-desktop",
+    "ts-drizzle-postgres"
+  ]
+}

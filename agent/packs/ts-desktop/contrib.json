@@ -14,5 +14,9 @@
   },
   "projectInitScripts": [
     "scripts/seed-apps.ts"
-  ]
+  ],
+  "//tnExampleWorkspaces": "The app this pack's template makes, as bounded init shows it in the example workspaces map of docs/tn/README.md.",
+  "tnExampleWorkspaces": {
+    "apps/desktop": "desktop"
+  }
 }

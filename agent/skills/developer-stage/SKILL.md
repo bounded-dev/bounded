@@ -45,10 +45,38 @@ There is nothing there to plan around.
 Loop granularity is **per component**, not per feature.
 
 Before the first gate, the driver records the project's selected instruction
-packages with `bounded compose --cwd <project> ts [other-pack ...]`. Gates read
-`.bounded/composed-packs.json`; installed packages that are not selected
-contribute no rules. Select `ts-web` for a frontend and `ts-service` for a
-network service, explicitly selecting both when the ticket needs both.
+packages with `bounded compose --cwd <project> ts ts-hexagonal [other-pack ...]`.
+Gates read `.bounded/composed-packs.json`; installed packages that are not
+selected contribute no rules. The full stack is `ts`, `ts-hexagonal`, the in
+adapters `ts-trpc`, `ts-mcp` and `ts-lambda`, the apps `ts-web` and
+`ts-desktop`, and the storage `ts-drizzle-postgres`.
+
+## The project's shape
+
+The project is a Bun monorepo laid out as its `docs/architecture/` says: one
+package per bounded context under `contexts/<context>/`, one per app under
+`apps/<app>/`. Code lives only under the **source roots** `contexts/*/src` and
+`apps/*/src`, and tests sit next to what they test. Every file under a root is
+one of four kinds, and the path gate enforces who writes which:
+
+| Kind | Names | Written by |
+|---|---|---|
+| Contract | `*.contract.ts` | you |
+| Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` | the test-writer |
+| Generated | barrels, `domain/shared/result.ts`, `<feature>.command.ts`, all of `adapters/in/`, out-adapter barrels, Drizzle config, schema namespace and migrations, `*.laws.test.ts` | generators only; nobody edits them |
+| Everything else | skeletons (`<concept>.ts`, `<feature>.handler.ts`, stores, out adapters, composition roots) and mappers | the builder |
+
+Blindness is by file name, not by folder. The builder may list and find test
+file names but never read one or search its content; the test-writer mirrors
+that for implementation files. Contracts and generated files are readable by
+every role. A content search over a directory needs a glob that provably
+misses the other side: the builder names files by their ending (`*.handler.ts`,
+`*.store.ts`), because `*.ts` also matches tests and `!*.test.ts` alone leaves
+`*.test.tsx` and `*.test-support.ts` searchable; a glob with a comma or a
+space is refused on every host. Each refusal names a glob that would pass.
+
+The `ts-hexagonal` skill has one section per role, and its pack's
+`reference/` tree is the worked example with a test at every level.
 
 ## Project knowledge
 
@@ -65,13 +93,13 @@ gated independently — a gate is a check on one worker's output, not a turnstil
 the other has to queue behind — so the critical path is max(TEST, BUILD) rather
 than the sum.
 
-What makes that safe is where the red gate runs. It no longer inspects the live
+What makes that safe is where the red gate runs. It does not inspect the live
 tree: every call rebuilds a **shadow project** at `.bounded/shadow-red` — contracts,
-tests and config copied in, the skeletons *regenerated* there from the frozen
-contracts, `node_modules` symlinked — and proves the red in there
-(`redGateProjectPlan` in `red-gate.ts` copies no implementation file, on
-purpose — one copied `src/` file would turn `NotImplementedError` failures into
-ordinary assertion failures and the red would lie). So a half-written `src/`
+test files, generated files and config copied in, the skeletons *regenerated*
+there from the frozen contracts, dependencies linked — and proves the red in
+there. It copies no implementation file, on purpose: one copied
+implementation would turn `NotImplementedError` failures into ordinary
+assertion failures and the red would lie. So a half-written implementation
 cannot spoil a red, a valid red is establishable at any moment whatever the
 builder has done, and there is nothing for the test-writer to wait behind. The
 builder is blind to the tests anyway; it was never reading them while it
@@ -81,8 +109,10 @@ diagnosed by reading the project it actually ran against — and `deliver`
 removes it at the end of the run.
 
 1. **DESIGN** — you decide the approach and write the ticket's design note plus the
-   component's contract files (`src/**/*.contract.ts` — as many as the design
-   needs; the loop is per component, the file count is yours). There is no
+   component's contract files (`*.contract.ts` under `contexts/<context>/src/` —
+   domain concepts and features, as many as the design needs; the loop is per
+   component, the file count is yours), and declares the apps the ticket
+   needs in the TN's `workspaces:` front matter. There is no
    separate plan document: a plan, a spec and a contract describing the same
    domain at three altitudes was duplication that drifted, so think it
    through and write it once. Use `scout` if you want read-only
@@ -110,16 +140,18 @@ removes it at the end of the run.
      minutes at exactly this point). Stop and ask ONLY if the user explicitly
      requested a design review, or a genuine product decision — not a design
      choice — is yours to guess at.
-   - **A ticket whose ASK is exposing a component to callers is an
-     api-service ticket.** Load the pack's `ts-api-service` skill before
-     designing one: the service structure, payload shapes, serialization and
-     error taxonomy are a fixed reference set (TN-26-004), not per-run design
-     — and its rules enforce themselves whether or not you read them, so
-     reading them first is the cheap path. The trigger is the ticket's ask,
-     not its scenery: a domain ticket that merely MENTIONS a frontend or a
-     caller does not get an API component built on spec (r23's baseline
-     added one nobody asked for). Build the domain; the exposure arrives as
-     its own ticket.
+   - **Exposure is a tag, not a component.** A feature reaches callers
+     through `@exposedVia trpc mcp lambda` on its in port; the in adapters are
+     generated from that tag, and an app hosts them once the TN's
+     `workspaces:` map declares it. Load the `ts-api-service` skill (tRPC) and
+     the `ts-web-app` skill (the web app) before designing exposure. The
+     trigger is the ticket's ask, not its scenery: a domain ticket that merely
+     MENTIONS a frontend or a caller does not get an app built on spec (r23's
+     baseline added one nobody asked for).
+   - **Name the out ports in the order the handler takes them.** Out ports are
+     per feature and their declaration order is the handler's constructor
+     order; both workers build from it without meeting. Tag every out port
+     that is not the store with `@implementedBy <tech>`.
    - **Have it challenged before you freeze it.** Once the contract settles and
      `contract_purity` is clean, commission the **`reviewer`** subagent ONCE on
      the spec and every contract file. It is read-only — no pen anywhere in the
@@ -152,21 +184,22 @@ removes it at the end of the run.
 2. **COMMISSION BOTH** — once the contract is frozen, spawn the
    **test-writer** and the **builder**, each with the spec + contract *in the
    prompt*. Neither needs anything the other produces:
-   - the test-writer writes `tests/**`, blind to `src/`, faking side effects
-     against the contract's ports;
-   - the builder implements `src/**` (except contracts), blind to test source,
-     debugging through the sanitized `run_tests` tool.
+   - the test-writer writes the colocated test files (`*.test.ts`,
+     `*.test-support.ts`) at every level, blind to implementation files,
+     faking side effects against each feature's out ports;
+   - the builder fills the skeletons, writes mappers and wires each app's
+     composition root, blind to test source, debugging through the sanitized
+     `run_tests` tool.
 
-   **Point each worker at `packs/ts/reference/README.md` (TN-26-008).** It is a gate-verified
-   worked example inside the harness pack tree, readable like any skill file, so
-   naming it in the commission widens no zone. The **test-writer's** brief names
-   the reference *tests* (`packs/ts/reference/tests/readings.test.ts` and
-   `packs/ts/reference/tests/celsius.test.ts` — the `<Name> — boundaries`
-   blocks and the idempotency/invariant shapes); the **builder's** brief names the
-   reference *implementation* (`packs/ts/reference/src/readings/celsius.ts` and
-   `packs/ts/reference/src/readings/readings.ts` — the nominal
-   value-object class, the zod-backed `parse`, the contract re-export). Copy the
-   shape, not the domain.
+   **Point each worker at the worked example (TN-26-008).**
+   `packs/ts-hexagonal/reference/` in the harness is one complete context with
+   a test at every level, and `packs/ts-hexagonal/skills/ts-hexagonal/SKILL.md`
+   has a section per role; both are readable like any skill file, so naming
+   them widens no zone. The **test-writer's** brief names the reference tests
+   (`<concept>.test.ts`, `<feature>.test.ts`, the store conformance suites and
+   their store tests); the **builder's** names the reference implementation
+   (a value object's zod-backed `parse` and its two-export tail, a handler, an
+   in-memory store). Copy the shape, not the domain.
 
    Commission them in the same turn — two spawn calls, back to back — and
    there is **no ordering between them**: if you commission the builder only
@@ -194,21 +227,27 @@ removes it at the end of the run.
      tests are rejected, as is a project that does not compile.
      Because it runs against the shadow project, a builder mid-flight cannot
      affect this verdict — and you can re-establish a red at any point in the
-     loop without disturbing `src/` or the builder working in it.
+     loop without disturbing the implementation or the builder working on it.
+     Store tests that need a container runtime are skipped at red, with the
+     reason logged, when none is running; app smoke tests wait for green.
    - **Builder done → `green_gate`**, from *your own* invocation. Every test
      passes **and the project typechecks**, or the gate fails and names each
-     failing test and each type error.
+     failing test and each type error. Green also runs the store tests against
+     real Postgres, so it **refuses** when store tests exist and no container
+     runtime (Docker) answers — it never passes by skipping them (ADR
+     2026-064). Tell the user when that is what stands between the run and
+     green.
    - **The one ordering that survives: green requires a red that covers these
      tests.** Two halves, both mechanical. *Contracts:* a red pass since the
      most recent freeze — a green over a suite no red gate ever validated is a
      green over tests that may assert nothing, which is the failure this whole
      pipeline exists to prevent. *Tests:* that red must have run against the
-     tests as they are **now** — the red records a hash of the `tests/` tree
-     and green refuses unless the tree still hashes the same. **Editing a test
-     after the red voids the red**; the gate routes that one to the
-     test-writer, and the remedy is a single call — `red_gate` again, which
-     builds its own shadow project and so neither needs nor touches `src/`
-     while the builder keeps working. Concurrency removes the *waiting*, never
+     tests as they are **now** — the red records a hash of every test file
+     under the source roots and green refuses unless they still hash the same.
+     **Editing a test after the red voids the red**; the gate routes that one
+     to the test-writer, and the remedy is a single call — `red_gate` again,
+     which builds its own shadow project and so neither needs nor touches an
+     implementation file while the builder keeps working. Concurrency removes the *waiting*, never
      the *evidence*.
 
 4. **VERDICTS** — the builder returns `GREEN | BLOCKED | DISPUTE`. You confirm
@@ -226,39 +265,32 @@ removes it at the end of the run.
      and dismissed. Leaving one unmentioned is the same silence a green with an
      empty sign-off would be.
 
-5. **DELIVER** — after sign-off, run `deliver`. Nine steps, in order, each
-   printing one line: strip the red-phase scaffolding (the unused shared errors
-   module, the `__conformance` blobs); remove `.bounded/shadow-red`; write the
-   `src/index.ts` barrel; ship `scripts/surface-check.ts` with a `check:surface`
-   npm script, folded into `check`, **pinned to ts-morph and installed**;
-   ignore `.bounded/` runtime state while preserving any committed local harness;
-   add a README section explaining the contract convention;
-   print the timing block; and finally **run the target's own
-   `npm run check`**. Idempotent — a second run applies 0 steps, since the last
-   two only read. The output of this stage is a repo you would hand a
-   colleague, not a lab bench.
+5. **DELIVER** — after sign-off, run `deliver`. Its steps, in order, each
+   print one line: strip the red-phase scaffolding (each context's
+   `domain/shared/errors.ts`, once nothing imports it); remove
+   `.bounded/shadow-red`; confirm every generated file still matches what the
+   contracts generate; confirm the generated config already carries the
+   shipped surface check (`check:surface`, pinned to ts-morph); ignore
+   `.bounded/` runtime state while preserving any committed local harness;
+   add a README section explaining the contract convention; print the timing
+   block; and finally **run the project's own `bun run check`**. Idempotent —
+   a second run applies 0 steps. The output of this stage is a repo you would
+   hand a colleague, not a lab bench.
 
-   It can block for four reasons, and two of them are new. An unimplemented
-   export surviving to delivery, and a pre-existing `src/index.ts` it will not
-   merge, are the old two. The new two are both r15's: **the ts-morph install
-   failing**, and **the project's own `npm run check` coming back red**. r15
-   handed over two repos whose check died on `ERR_MODULE_NOT_FOUND` the first
-   time a colleague typed it, because deliver had added a devDependency and
-   nothing ever installed it — and nothing in the pipeline had ever run the
-   command a colleague actually types. `green_gate` runs its own tsc and its
-   own vitest; that is not the same statement. If the final check blocks, the
-   run is not delivered: fix what it names and run `deliver` again.
+   It blocks when an unimplemented member (`NotImplementedError`) survives to
+   delivery, when a generated file or the config has drifted, and when **the
+   project's own `bun run check` comes back red**. r15 handed over two repos
+   whose check died the first time a colleague typed it, because nothing in
+   the pipeline had ever run the command a colleague actually types.
+   `green_gate` runs its own `tsc` and its own `bun test`; that is not the same
+   statement. If the final check blocks, the run is not delivered: fix what it
+   names and run `deliver` again.
 
-   **The ts-morph dependency is deliberate and sanctioned — do not fight it.**
-   Delivery adds one devDependency to the TARGET project, on purpose, in full
-   knowledge of any "no new dependencies" rule the target carries. The shipped
-   `surface-check.ts` is the harness's own checker copied verbatim, and one
-   checker copied byte-for-byte is worth more than an untested twin written to
-   avoid an import: a hand-rolled parser in the target is a second
-   implementation of the surface rules that nothing keeps in step with the
-   gates. So the pin exists, the install is part of the step, and a failed
-   install is a block rather than a repo that ships broken. This is the one
-   dependency the pipeline adds to what it delivers; there is no second.
+   **The ts-morph pin is deliberate — do not fight it.** The shipped
+   `scripts/surface-check.ts` is the harness's own checker copied verbatim,
+   and it needs ts-morph. One checker copied byte-for-byte is worth more than
+   an untested twin written to avoid an import. It is the one dependency the
+   pipeline adds to what it delivers.
 
    **Reading the timing block.** It ends with two counters and they mean
    opposite things. `friction:` counts **refusals only** — calls a guard
@@ -305,9 +337,10 @@ five phases with three things worth knowing:
   contract, config, or generated skeleton blocks. Green is unchanged: the
   project must fully compile before you may call it green.
 - **Workers revise, blindness holds.** Commission both as usual. The
-  test-writer updates and extends `tests/**` from the revised spec — still
-  never seeing `src/`; the builder brings `src/**` along — still never seeing
-  test source. The shadow red covers the whole revised suite (old tests fail
+  test-writer updates and extends the test files from the revised spec — still
+  never seeing an implementation file; the builder brings the implementation
+  along — still never seeing test source. Generated files are regenerated
+  from the revised contracts, never edited. The shadow red covers the whole revised suite (old tests fail
   `NotImplementedError` against the regenerated skeletons too), and `deliver`
   is idempotent — it ships the delta and re-runs the repo's own check.
 
@@ -438,8 +471,8 @@ project config — in full, and every other diagnostic collapsed to a count plus
 the owning role: no path, no line number, no symbol name. `typecheck` used to
 return raw project-wide output to everyone, which made it a hole in the wall
 `run_tests` and the path gate build, and r15 shows it leaking both ways with
-shipped consequences — a builder adding a re-export it inferred from a
-`tests/**` diagnostic, a test-writer reading the builder's half-finished
+shipped consequences — a builder adding a re-export it inferred from a test
+file's diagnostic, a test-writer reading the builder's half-finished
 implementation out of its own type errors. Two things follow for you. **Route
 with the target's view in mind:** a bounce saying "fix the typecheck" is
 unactionable when the errors are in a zone the target cannot see, so name the
@@ -471,10 +504,12 @@ you follow.
 
 In particular:
 
-- Type errors in `tests/**` → **test-writer**. The builder is blind to test
+- Type errors in a test file (`*.test.ts`, `*.test-support.ts`) → **test-writer**. The builder is blind to test
   source and the path gate would refuse its edit, so bouncing there deadlocks.
   Any repair to a test voids the standing red, so re-run `red_gate` before you
   reach for `green_gate` — one call, and it does not disturb the builder.
+- Type errors in a generated file → **architect**: it was generated from a
+  contract, so the contract is what changes.
 - Type errors in a contract → **architect**, which is *you*: revise the
   contract with a logged rationale, re-run `design_gate`, and re-run the red
   gate. A contract revision invalidates the red — but not the review, unless it
@@ -518,9 +553,11 @@ forever.
   green means the suite passes *and* the project typechecks.
 - Skeletons are machine-generated; nobody hand-writes them.
 - Blindness is structural (tool allowlists + the path gate), not trust: no role
-  has `bash`, the test-writer cannot read `src/`, the builder cannot read
-  `tests/` and holds no `git` (`git show HEAD:tests/x.ts` would defeat it in
-  one call), and you write only spec + contract however stuck the loop gets.
+  has `bash`, the test-writer cannot read an implementation file, the builder
+  cannot read a test file and holds no `git` (`git show HEAD:<path>.test.ts`
+  would defeat it in one call), and you write only spec + contract however
+  stuck the loop gets.
+- Nobody edits a generated file; a wrong one is fixed in its contract.
 
 ## Known gaps — real, unfixed, and worth planning around
 

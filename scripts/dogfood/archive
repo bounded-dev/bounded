@@ -62,6 +62,18 @@ mkdir -p .run/transcripts
   echo "harness:    $(git -C "$HARNESS" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 } > .run/PROVENANCE.txt
 
+# The post-run structure report: how far the run's tree is from the worked
+# example, file role by file role. The example is a local checkout named by
+# BOUNDED_EXAMPLE_PROJECT and never committed here; without it the report is
+# skipped and says so. A delta is a finding, not a failure of the archive.
+if [ -n "${BOUNDED_EXAMPLE_PROJECT:-}" ]; then
+  node "$REPO/scripts/dogfood/structure-compare.ts" "$ARM_DIR" > .run/STRUCTURE.txt 2>&1 || true
+  node "$REPO/scripts/dogfood/structure-compare.ts" --json "$ARM_DIR" > .run/structure.json 2>/dev/null || true
+  echo "dogfood-archive: $(head -1 .run/STRUCTURE.txt)"
+else
+  echo "dogfood-archive: no structure report — set BOUNDED_EXAMPLE_PROJECT to the worked example's directory"
+fi
+
 # Transcripts: pi (harnessed), pi with a vanilla config dir (gates-off runs),
 # and Claude Code all escape the arm path differently, so match on the arm's
 # directory name rather than guessing a scheme. Newest session per root, plus

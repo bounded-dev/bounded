@@ -1,5 +1,62 @@
 # Handover — the Bounded Harness developer stage
 
+2026-10-01 addendum (the hexagonal monorepo rework, ADRs 2026-056 to 2026-064,
+TN-26-012 — read this one first): a TypeScript project is now built in the
+shape of a worked example: a Bun monorepo of bounded contexts
+(`contexts/<context>/src/{domain,application,adapters}`) and apps
+(`apps/<app>/src`), with colocated `*.test.ts` files.
+
+**What changed.**
+- **Layout is pack content.** The core no longer knows `src/` or `tests/`:
+  source roots, test-file suffixes and generated-file globs are pack data.
+  Blindness is by file name: the builder may list test names but never read
+  one, and a content search needs a glob that provably misses the other side
+  (for the TypeScript suffixes, an inclusion glob such as `*.handler.ts`;
+  `!*.test.ts` alone is refused).
+- **The contract owns the name.** Domain contracts are `interface <Name>` plus
+  `<Name>Factory` with `parse` returning `Result`; the implementation hides a
+  `<Name>Impl` behind a fixed two-export tail. Feature contracts hold the
+  input, command, in port and per-feature out ports.
+- **Everything mechanical is generated** from contracts and two JSDoc tags
+  (`@exposedVia` on the in port, `@implementedBy` on non-store out ports):
+  barrels, command files, every in adapter (tRPC, MCP, Lambda), Drizzle
+  config, and law suites. Handlers, stores, out adapters and composition roots
+  are skeletons the builder fills. Apps are declared in the ticket TN's
+  `workspaces:` map.
+- **Bun is the project toolchain** (`bun install`, `bun test`,
+  `bunx tsc -p tsconfig.json`); npm, Vitest, Vite and SQLite are retired for
+  projects. The harness itself stays on Node and npm.
+- **Store tests need Docker at green** (ADR 2026-064); red skips them with a
+  logged reason.
+- **`bounded init`** with no `--pack` composes every installed capability
+  (`ts`, `ts-hexagonal`, `ts-trpc`, `ts-mcp`, `ts-lambda`, `ts-web`,
+  `ts-desktop`, `ts-drizzle-postgres`) and names the package scope after the
+  project directory (`@<project-dir>`). Its root files match the worked
+  example's, apart from the harness's own.
+- **The role briefs and skills** were rewritten for all of the above; the doc
+  drift test pins each rule to the brief that must teach it and refuses the
+  retired layout and toolchain in every role document.
+
+**The next dogfood run.** `docs/dogfood/pm-notes-prompt.md` is the worked
+example's product (projects and notes) in product language.
+`scripts/dogfood/reset --init <host> --harnessed docs/dogfood/pm-notes-prompt.md`
+builds the arm with `bounded init`; afterwards
+`BOUNDED_EXAMPLE_PROJECT=<example> node scripts/dogfood/structure-compare.ts <arm>`
+reports every structural delta against the example (the archive script writes
+the same report into `.run/STRUCTURE.txt`).
+
+**Known gaps going in.** The worked example itself is incomplete: no Drizzle
+stores, in-memory composition roots, no tests beyond the architecture test,
+and no `@accepts` examples on its value objects, so a faithful run will show
+deltas the example, not the run, owns. Its web app seeds sample projects in a
+`seed.ts` the prompt does not ask for. The gate scripts (red, green, deliver,
+obligations) are being moved onto the monorepo in parallel; the briefs teach
+the `Result`-based boundaries block, and the obligations gate's own message is
+authoritative until that lands. The generated `AGENTS.md` does not yet carry
+the example's Bun guidance.
+
+---
+
 2026-09-18 addendum (#16, ADR 2026-034 — read after the 09-11 one): enforcement
 is now host-portable. Every artifact gate is one CLI, `bounded gates <gate>`
 (`agent/src/gates-cli.ts` over the registry `agent/packs/ts/gates.ts`), and the

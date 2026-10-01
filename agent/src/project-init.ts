@@ -10,7 +10,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mergedContribution, projectCommandNames, projectConfigSources, projectIgnoreRules } from "./pack-contrib.ts";
+import {
+  contributionsByPack, mergedContribution, projectCommandNames, projectConfigSources,
+  projectIgnoreRules, sourceRootOf, sourceRootsFor,
+} from "./pack-contrib.ts";
 import { COMPOSITION_FILE, writeProjectPacks } from "./project-composition.ts";
 import { lockFor, sourceLockPath, type RuntimePackage } from "./runtime-lock.ts";
 import { HOST_PACKAGE_DIRS, SETUP_COMMAND } from "./setup-state.ts";
@@ -144,11 +147,85 @@ function packScriptEntry(pack: string, script: string): string {
   return existsSync(bundled) ? bundled : join(agentRoot, "packs", pack, script);
 }
 
-/** The TN README's example `contracts:` entry, named by the composed packs'
- *  contract suffix (ADR 2026-052); an empty list when none contributes one. */
+/** The TN README's example `contracts:` entry: the paths the composed packs
+ *  name for it (`tnExampleContracts`, in their own layout, placeholders in
+ *  angle brackets). Each must lie under a composed source root (ADR 2026-056)
+ *  and end with a composed contract suffix (ADR 2026-052), or init refuses.
+ *  The core invents none: with no path named, the list is empty. */
 export function exampleContracts(packs: readonly string[]): string[] {
-  const suffix = mergedContribution("contractFileSuffixes", packs, join(agentRoot, "packs"))[0];
-  return suffix === undefined ? ["contracts: []"] : ["contracts:", `  - src/example/example${suffix}`];
+  const packsDir = join(agentRoot, "packs");
+  const suffixes = mergedContribution("contractFileSuffixes", packs, packsDir);
+  const roots = sourceRootsFor(packs, packsDir);
+  const named = contributionsByPack("tnExampleContracts", packs, packsDir).flatMap(({ pack, value }) => {
+    if (!Array.isArray(value) || value.some((path) => typeof path !== "string")) {
+      throw new Error(`Selected pack '${pack}' field 'tnExampleContracts' must be an array of paths`);
+    }
+    return value as string[];
+  });
+  for (const path of named) {
+    if (sourceRootOf(path, roots) === undefined || !suffixes.some((s) => path.endsWith(s))) {
+      throw new Error(`tnExampleContracts entry '${path}' is not a contract file under a composed source root`);
+    }
+  }
+  return named.length === 0 ? ["contracts: []"] : ["contracts:", ...[...new Set(named)].map((path) => `  - ${path}`)];
+}
+
+/** The TN README's example `workspaces:` block: the apps the composed packs
+ *  can make (`tnExampleWorkspaces`), in the block form ticket design accepts
+ *  (TN-26-012 section 9), sorted by directory. None when no pack makes one. */
+export function exampleWorkspaces(packs: readonly string[]): string[] {
+  const entries = new Map<string, string>();
+  for (const { pack, value } of contributionsByPack("tnExampleWorkspaces", packs, join(agentRoot, "packs"))) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`Selected pack '${pack}' field 'tnExampleWorkspaces' must be an object`);
+    }
+    for (const [dir, kind] of Object.entries(value as Record<string, unknown>)) {
+      if (!/^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*$/.test(dir) || typeof kind !== "string" ||
+          !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(kind) || entries.has(dir)) {
+        throw new Error(`Selected pack '${pack}' has an invalid tnExampleWorkspaces entry '${dir}'`);
+      }
+      entries.set(dir, kind);
+    }
+  }
+  if (entries.size === 0) return [];
+  const sorted = [...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return ["workspaces:", ...sorted.map(([dir, kind]) => `  ${dir}: ${kind}`)];
+}
+
+/** Where the default selection is recorded: pack-side data, so the core names
+ *  no technology. */
+export const DEFAULT_STACK_FILE = "default-stack.json";
+
+/** The selection `bounded init` makes when none is named: the explicit list in
+ *  `packs/default-stack.json`, in its own order. Every name must be an
+ *  available pack; a name that is not is refused rather than skipped. */
+export function defaultSelection(): readonly string[] {
+  const raw = JSON.parse(readFileSync(join(agentRoot, "packs", DEFAULT_STACK_FILE), "utf8")) as { packs?: unknown };
+  const packs = raw.packs;
+  if (!Array.isArray(packs) || packs.length === 0 || packs.some((p) => typeof p !== "string")) {
+    throw new Error(`packs/${DEFAULT_STACK_FILE} must list at least one pack name`);
+  }
+  const known = availablePacks();
+  const unknown = (packs as string[]).filter((p) => !known.has(p));
+  if (unknown.length) throw new Error(`packs/${DEFAULT_STACK_FILE} names packs that are not installed: ${unknown.join(", ")}`);
+  return packs as string[];
+}
+
+/** The project's name, from its directory's name: lowercase letters, digits
+ *  and dashes. Undefined when nothing usable is left, so the manifest writer
+ *  falls back to its own default. */
+export function projectNameOf(target: string): string | undefined {
+  const candidate = basename(resolve(target)).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  return /^[a-z0-9][a-z0-9-]*$/.test(candidate) ? candidate : undefined;
+}
+
+/** A pack that says so explicitly, with an empty `projectInitScripts` list,
+ *  has nothing to scaffold at init: its files are shipped config or come from
+ *  the design later. Omitting the field is not that declaration. */
+export function declaresNoInitializer(pack: string): boolean {
+  const raw = JSON.parse(readFileSync(join(agentRoot, "packs", pack, "contrib.json"), "utf8")) as Record<string, unknown>;
+  const scripts = raw["projectInitScripts"];
+  return Array.isArray(scripts) && scripts.length === 0;
 }
 
 function scaffolderFor(packs: readonly string[]): readonly { pack: string; script: string }[] {
@@ -164,6 +241,7 @@ function scaffolderFor(packs: readonly string[]): readonly { pack: string; scrip
     }
   };
   for (const { pack } of scripts) visit(pack);
+  for (const pack of packs) if (declaresNoInitializer(pack)) covered.add(pack);
   const unsupported = packs.filter((pack) => !covered.has(pack));
   if (unsupported.length) throw new Error(`No new-project initializer covers: ${unsupported.join(", ")}`);
   return scripts;
@@ -189,6 +267,13 @@ function writeSelectedRegistry(harnessRoot: string, packs: readonly string[]): v
   writeFileSync(join(harnessRoot, "packs", "installed.ts"), body);
 }
 
+/** Harness pack paths as a role in the project sees them. The briefs and
+ *  skills name a pack file harness-relative (`packs/ts-hexagonal/reference/`);
+ *  in an initialized project the harness is `.bounded/harness/`. */
+export function localPackPaths(text: string): string {
+  return text.replace(/`packs\//g, "`.bounded/harness/packs/");
+}
+
 function localizeInstructions(harnessRoot: string, host: InitHost): void {
   // Skills are read by the host in the project root. A fresh clone does not
   // have a global `bounded` executable, so shell examples must use its copy.
@@ -201,6 +286,7 @@ function localizeInstructions(harnessRoot: string, host: InitHost): void {
         .replace(/using `bounded compose[^`]+` \(also select\n[^\n]+\)/g, "during initialization")
         .replace(/`bounded compose[^`]+`/g, "the committed capability selection from initialization")
         .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|sync-config|handoff|ticket|lead)\b/g, "bash .bounded/harness/scripts/bounded $1");
+      rendered = localPackPaths(rendered);
       if (host === "pi" || path === "team-lead/SKILL.md") {
         rendered = rendered.replace(/\bbounded gates\b/g, "bash .bounded/harness/scripts/bounded gates");
       }
@@ -214,6 +300,7 @@ function localizeRoleSources(harnessRoot: string, host: InitHost): void {
     const absolute = join(harnessRoot, "agents", path);
     const original = readFileSync(absolute, "utf8");
     let rendered = original.replace(/\bbounded change-run\b/g, "bash .bounded/harness/scripts/bounded change-run");
+    rendered = localPackPaths(rendered);
     if (host === "pi") rendered = rendered.replace(/~\/\.pi\/agent\/hosts\/pi\/extensions\/path-gate\//g,
       "./.bounded/harness/hosts/pi/extensions/path-gate/");
     else rendered = rendered.replace(/^subagentOnlyExtensions: ~\/\.pi\/agent\/[^\n]+\n/gm, "");
@@ -227,6 +314,7 @@ function localizeGeneratedRoles(stage: string, host: InitHost): void {
     const absolute = join(directory, path);
     const original = readFileSync(absolute, "utf8");
     let rendered = original.replace(/\bbounded change-run\b/g, "bash .bounded/harness/scripts/bounded change-run");
+    rendered = localPackPaths(rendered);
     if (host === "pi") rendered = rendered.replace(/\bbounded gates\b/g, "bash .bounded/harness/scripts/bounded gates");
     if (rendered !== original) writeFileSync(absolute, rendered);
   }
@@ -240,6 +328,58 @@ function copyProjectConfigs(stage: string, packs: readonly string[]): void {
   }
 }
 
+/** The source with every template literal's text blanked (line breaks kept).
+ *  Emitters hold whole generated files in template literals, and the import
+ *  lines inside them are the generated project's dependencies, not the
+ *  harness's. Strings and comments are skipped so a backtick in them does not
+ *  open a template. */
+export function withoutTemplateText(source: string): string {
+  const out: string[] = [];
+  const braces: number[] = []; // per open `${`, the brace depth when it opened
+  let depth = 0;
+  let i = 0;
+  const blank = (ch: string): string => (ch === "\n" ? "\n" : " ");
+  const template = (): void => {
+    // At the character after an opening backtick or a closing `}` of `${…}`.
+    while (i < source.length) {
+      const ch = source[i]!;
+      if (ch === "\\") { out.push(" ", blank(source[i + 1] ?? "")); i += 2; continue; }
+      if (ch === "`") { out.push("`"); i++; return; }
+      if (ch === "$" && source[i + 1] === "{") { out.push("${"); i += 2; braces.push(depth); depth++; return; }
+      out.push(blank(ch)); i++;
+    }
+  };
+  while (i < source.length) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+    if (ch === "/" && next === "/") {
+      const end = source.indexOf("\n", i);
+      const stop = end === -1 ? source.length : end;
+      out.push(source.slice(i, stop)); i = stop; continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      out.push(source.slice(i, stop)); i = stop; continue;
+    }
+    if (ch === '"' || ch === "'") {
+      let j = i + 1;
+      while (j < source.length && source[j] !== ch && source[j] !== "\n") j += source[j] === "\\" ? 2 : 1;
+      out.push(source.slice(i, j + 1)); i = j + 1; continue;
+    }
+    if (ch === "`") { out.push("`"); i++; template(); continue; }
+    if (ch === "{") { depth++; out.push(ch); i++; continue; }
+    if (ch === "}") {
+      depth--;
+      out.push(ch); i++;
+      if (braces.length > 0 && braces[braces.length - 1] === depth) { braces.pop(); template(); }
+      continue;
+    }
+    out.push(ch); i++;
+  }
+  return out.join("");
+}
+
 function harnessPackageFor(harnessRoot: string): RuntimePackage {
   const sourcePkg = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as RuntimePackage;
   const sourceLock = JSON.parse(readFileSync(sourceLockPath(agentRoot), "utf8")) as { packages: Record<string, { version?: string }> };
@@ -247,7 +387,7 @@ function harnessPackageFor(harnessRoot: string): RuntimePackage {
   // A pack's reference/ files are content copied into projects, never harness
   // code: their imports are the project's dependencies, not the runtime's.
   for (const path of walk(harnessRoot).filter((path) => path.endsWith(".ts") && !/^packs\/[^/]+\/reference\//.test(path))) {
-    const source = readFileSync(join(harnessRoot, path), "utf8");
+    const source = withoutTemplateText(readFileSync(join(harnessRoot, path), "utf8"));
     const imports = source.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[^;\n]*?\s+from\s+)?["']([^"']+)["']/gm);
     for (const match of imports) {
       const specifier = match[1];
@@ -267,11 +407,11 @@ function harnessPackageFor(harnessRoot: string): RuntimePackage {
   }
   return {
     name: "bounded-project-harness", version: sourcePkg.version, private: true, type: "module",
-    scripts: { check: "node src/gates-cli.ts --list" }, dependencies, devDependencies: {},
+    scripts: { check: "node ./src/gates-cli.ts --list" }, dependencies, devDependencies: {},
   };
 }
 
-async function assemble(stage: string, host: InitHost, packs: readonly string[]): Promise<void> {
+async function assemble(stage: string, host: InitHost, packs: readonly string[], name: string | undefined): Promise<void> {
   const harnessRoot = join(stage, ".bounded", "harness");
   mkdirSync(harnessRoot, { recursive: true });
   const omit = (path: string): boolean => /(^|\/)(?:node_modules|testdata)(\/|$)/.test(path) || /(?:^|\.)test\.ts$/.test(path) ||
@@ -313,7 +453,14 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   mkdirSync(join(harnessRoot, "packs"), { recursive: true });
   copyFileSync(join(agentRoot, "packs", "command.ts"), join(harnessRoot, "packs", "command.ts"));
   copyTree(join(agentRoot, "hosts", host), join(harnessRoot, "hosts", host), (path) => omit(path) || path === "README.md");
-  for (const pack of packs) copyTree(join(agentRoot, "packs", pack), join(harnessRoot, "packs", pack), omit);
+  // A pack's reference/ tree is a worked example the role briefs point at,
+  // tests included: its test files are content to copy the shape of, not
+  // harness tests, so they ship. They sit under .bounded/, which is in no
+  // source root and which `bun test` skips as a hidden directory, so they
+  // never count as the project's tests.
+  const omitFromPack = (path: string): boolean =>
+    path.startsWith("reference/") ? /(^|\/)(?:node_modules|testdata)(\/|$)/.test(path) : omit(path);
+  for (const pack of packs) copyTree(join(agentRoot, "packs", pack), join(harnessRoot, "packs", pack), omitFromPack);
   localizeInstructions(harnessRoot, host);
   writeSelectedRegistry(harnessRoot, packs);
   const harnessPkg = harnessPackageFor(harnessRoot);
@@ -338,6 +485,9 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "Name it `TN-<ticket-number>.md` and keep that name as the thinking matures.",
     "Use front matter with `issue`, `status` (`draft`, `active`, or `superseded`),",
     "and `contracts`, a list of project-relative contract files this ticket owns.",
+    ...(exampleWorkspaces(packs).length > 0
+      ? ["A ticket that needs an app declares it in a `workspaces:` block, one `<directory>: <kind>` per line."]
+      : []),
     "A dependent ticket needs a reviewed, frozen TN before its design is published.",
     "The team lead selects the ticket for this worktree before the architect starts; existing direct launchers may set `BOUNDED_TICKET` explicitly.",
     "Change `status: draft` to `status: active` when the reviewed design is agreed;",
@@ -346,7 +496,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "successor note; other tickets may have no TN.", "",
     "Example front matter for issue 24:", "",
     "```yaml", "---", "issue: 24", "status: draft",
-    ...exampleContracts(packs), "---", "```", "",
+    ...exampleContracts(packs), ...exampleWorkspaces(packs), "---", "```", "",
   ].join("\n"));
   writeFileSync(join(stage, "AGENTS.md"), [
     "# Project agent instructions", "",
@@ -372,7 +522,9 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   // The project's own build manifests (its package file and lockfile, say)
   // are pack content: the core only runs each pack's contributed writer.
   for (const { pack, script } of packScripts(packs, "projectManifestScripts")) {
-    execFileSync("node", [packScriptEntry(pack, script), stage, agentRoot], { stdio: "pipe" });
+    // The project's name (its directory's) is the third argument: the staging
+    // directory's own name is random, and the name becomes the package scope.
+    execFileSync("node", [packScriptEntry(pack, script), stage, agentRoot, ...(name === undefined ? [] : [name])], { stdio: "pipe" });
   }
   writeFileSync(join(stage, "README.md"), [
     "# New Bounded project", "",
@@ -452,8 +604,9 @@ export function describeInit(): object {
       ],
     },
     hosts: ["pi", "claude-code"],
+    defaultSelection: defaultSelection(),
     implementationOptions: [...availablePacks()].map(([name, pack]) => ({ name, requires: pack.dependsOnPacks, hasProjectInitializer: scaffolderAvailable(name) })),
-    next: "Ask the opening product question first. After inferring the complete selection, run bounded init --host <current-host> --pack <capability> [--pack <capability>...] to validate and review a plan.",
+    next: "Ask the opening product question first. After inferring the complete selection, run bounded init --host <current-host> --pack <capability> [--pack <capability>...] to validate and review a plan. Omitting --pack selects defaultSelection, every installed capability.",
   };
 }
 
@@ -469,7 +622,7 @@ export async function planInit(target: string, host: string, requested: readonly
   assertEmpty(target);
   const packs = closure(requested);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-plan-"));
-  try { await assemble(stage, host, packs); return planFromStage(stage, host, packs); }
+  try { await assemble(stage, host, packs, projectNameOf(target)); return planFromStage(stage, host, packs); }
   finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
@@ -485,7 +638,7 @@ export async function applyInit(target: string, host: string, requested: readonl
   const packs = closure(requested);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-apply-"));
   try {
-    await assemble(stage, host, packs);
+    await assemble(stage, host, packs, projectNameOf(target));
     const plan = planFromStage(stage, host, packs);
     if (plan.digest !== reviewedDigest) throw new Error("Plan changed since review; run bounded init with the same options again");
     writeFileSync(join(stage, MANIFEST), JSON.stringify(plan, null, 2) + "\n");

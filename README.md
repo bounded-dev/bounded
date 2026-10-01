@@ -72,18 +72,22 @@ In that project the agent session is the team lead: it opens each work item
 with `bounded lead prepare [--new] [ticket-number]` (the `lead_prepare` tool
 on pi) and commissions the architect who designs and delivers it.
 
-The project's configuration (package manifest and lockfile, compiler and
-test-runner config) is generated from the selected capabilities, and no agent
-may edit it. The gates refuse when it differs from what the capabilities
-generate. Restore it yourself with
+The project's configuration (every package manifest, the lockfile, compiler
+config) is generated from the selected capabilities and the design, and no
+agent may edit it. The gates refuse when it differs from what the
+capabilities generate. Restore it yourself with
 `bash .bounded/harness/scripts/bounded sync-config`.
 
 The initializer refuses an existing project before writing files. Today it
-can initialize a TypeScript web application, a backend service, SQLite
-persistence with versioned migrations, or a combination of these. It
-sets up the structure and toolchain; the agent designs and builds the actual
-product afterward. Updating an already initialized project to a newer harness
-is future work.
+initializes a TypeScript project built with Bun: a monorepo of bounded
+contexts, each split into domain, application and adapter layers, and apps
+that host them. The capabilities cover a tRPC API, MCP tools for AI
+assistants, AWS Lambda jobs, a web app, an Electron desktop app, and
+Postgres persistence through Drizzle; with no selection named, init composes
+all of them. It sets up the structure and toolchain; the agent designs and
+builds the actual product afterward, and most of the mechanical code is
+generated from the contracts the architect writes. Store tests need Docker.
+Updating an already initialized project to a newer harness is future work.
 
 ## Explore the project
 
