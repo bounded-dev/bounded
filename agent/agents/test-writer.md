@@ -72,7 +72,7 @@ name and by call site; a missing one blocks the red and names itself.
 | feature | `<feature>.test.ts` that does `new <InPort>Handler(…)` and calls `.execute(` |
 | store port (`<InPort>Store`) | `<feature>.store.test-support.ts` whose suite calls **every** port method, plus one `adapters/out/<tech>/<area>/<feature>.store.test.ts` per storage technology (`in-memory`, `drizzle`) that imports that suite |
 | other out port | `adapters/out/<tech>/<area>/<feature>.<role>.test.ts` per technology in its `@implementedBy` tag, calling every port method |
-| app | `composition-root.test.ts` beside its composition root; checked at green only |
+| app | `composition-root.test.ts` beside its composition root, importing its `compose…()` function from `./composition-root.ts` and calling it; checked at green only |
 
 - **Construct handlers and stores exactly as their skeletons do.** A handler
   takes the feature's out ports in the order the contract declares them:

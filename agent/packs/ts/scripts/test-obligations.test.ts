@@ -158,6 +158,22 @@ describe("the obligations on the notebook pipeline", () => {
     expect(messages(input(f, "green"))).toEqual([`apps/web has no smoke test; write ${smoke} against its compose function`]);
   });
 
+  test("a smoke test must import its app's compose function from the composition root and call it", () => {
+    const f = scaffolded();
+    const smoke = "apps/web/src/server/composition-root.test.ts";
+    const write = (source: string): void => writeFileSync(join(f.dir, smoke), source);
+    write('import { test } from "bun:test";\ntest("exists", () => {});\n');
+    expect(messages(input(f, "green"))).toEqual([`${smoke} does not import its app's compose function from ./composition-root.ts`]);
+    write('import { test } from "bun:test";\nimport { composeApp } from "./composition-root.ts";\ntest("imports only", () => { void composeApp; });\n');
+    expect(messages(input(f, "green"))).toEqual([`${smoke} never calls the compose function it imports from ./composition-root.ts`]);
+    write('import { test } from "bun:test";\nimport type { composeApp } from "./composition-root.ts";\ntest("type only", () => {});\n');
+    expect(messages(input(f, "green"))).toEqual([`${smoke} does not import its app's compose function from ./composition-root.ts`]);
+    write('import { test } from "bun:test";\nimport * as root from "./composition-root.ts";\ntest("calls", () => { root.composeApp(); });\n');
+    expect(messages(input(f, "green"))).toEqual([]);
+    write('import { test } from "bun:test";\nimport { composeApp as build } from "./composition-root";\ntest("calls", () => { build().createCaller({}); });\n');
+    expect(messages(input(f, "green"))).toEqual([]);
+  });
+
   test("an obligation that cannot read the design is a gap naming it, never a pass", () => {
     const f = scaffolded();
     writeFileSync(join(f.dir, CONTEXT_SRC, "application/notes/list-notes/list-notes.contract.ts"), "export interface Nope {}\n");

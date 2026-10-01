@@ -16,13 +16,15 @@
 //               technology with a feature role
 //
 // And per app workspace, at green only (Q2): a composition-root.test.ts next
-// to every composition-root.ts, the app's smoke test. It runs against code
+// to every composition-root.ts, the app's smoke test, which imports a
+// compose… function from ./composition-root.ts and calls it. It runs against code
 // only the builder writes, so red cannot ask for it.
 
 import type { ObligationGap, ObligationInput, TestObligation } from "../../ts/pack.ts";
 import type { FeatureContractModel } from "../../ts/scripts/feature-model.ts";
 import { adapterClassPrefix } from "../../ts/scripts/naming.ts";
 import { callSites, sourcesAt } from "../../ts/scripts/call-sites.ts";
+import ts from "typescript";
 import { contextModels } from "./context-model.ts";
 
 const COMPOSITION_ROOT = "composition-root.ts";
@@ -98,6 +100,47 @@ function featureGaps(input: ObligationInput, root: string, feature: FeatureContr
   return gaps;
 }
 
+/** Does a smoke test import a `compose…` function from its composition root
+ *  and call it? Undefined when it does; the gap's wording when not. Pure: an
+ *  AST walk of the test's own source, like the feature obligations' call
+ *  sites. Imports are named (`import { composeApp } from "./composition-root.ts"`)
+ *  or a namespace (`import * as root from …` then `root.composeApp()`). */
+export function smokeTestProblem(path: string, source: string): string | undefined {
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const fromRoot = (spec: string): boolean => /^\.\/composition-root(?:\.[cm]?[jt]s)?$/.test(spec);
+  const named = new Set<string>();
+  const namespaces = new Set<string>();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!fromRoot(statement.moduleSpecifier.text) || statement.importClause === undefined || statement.importClause.isTypeOnly) continue;
+    const bindings = statement.importClause.namedBindings;
+    if (bindings === undefined) continue;
+    if (ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
+    else {
+      for (const element of bindings.elements) {
+        const imported = (element.propertyName ?? element.name).text;
+        if (!element.isTypeOnly && /^compose[A-Z0-9]/.test(imported)) named.add(element.name.text);
+      }
+    }
+  }
+  if (named.size === 0 && namespaces.size === 0) {
+    return `${path} does not import its app's compose function from ./composition-root.ts`;
+  }
+  let called = false;
+  const visit = (node: ts.Node): void => {
+    if (called) return;
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee) && named.has(callee.text)) called = true;
+      else if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) &&
+        namespaces.has(callee.expression.text) && /^compose[A-Z0-9]/.test(callee.name.text)) called = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return called ? undefined : `${path} never calls the compose function it imports from ./composition-root.ts`;
+}
+
 function appGaps(input: ObligationInput): ObligationGap[] {
   const gaps: ObligationGap[] = [];
   const tests = new Set(input.tests.map((t) => t.path));
@@ -108,7 +151,13 @@ function appGaps(input: ObligationInput): ObligationGap[] {
     }
     for (const root of roots) {
       const smoke = `${root.slice(0, -COMPOSITION_ROOT.length)}${SMOKE_TEST}`;
-      if (!tests.has(smoke)) gaps.push({ level: "app", path: smoke, message: `${app.dir} has no smoke test; write ${smoke} against its compose function` });
+      if (!tests.has(smoke)) {
+        gaps.push({ level: "app", path: smoke, message: `${app.dir} has no smoke test; write ${smoke} against its compose function` });
+        continue;
+      }
+      const source = input.tests.find((t) => t.path === smoke)?.source ?? "";
+      const problem = smokeTestProblem(smoke, source);
+      if (problem !== undefined) gaps.push({ level: "app", path: smoke, message: problem });
     }
   }
   return gaps;
@@ -122,7 +171,7 @@ export const hexagonalObligations: readonly TestObligation[] = [
   },
   {
     name: "hexagonal-app-smoke",
-    description: "Per app, at green: a composition-root.test.ts smoke test next to every composition root.",
+    description: "Per app, at green: a composition-root.test.ts smoke test next to every composition root, importing its compose function and calling it.",
     phases: ["green"],
     check: appGaps,
   },
