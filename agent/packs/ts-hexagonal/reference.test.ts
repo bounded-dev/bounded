@@ -153,6 +153,19 @@ describe("the reference passes its own checks", () => {
     expect(src.code).toBe(0);
   });
 
+  test("its domain is the ts pack's gate-verified reference, contracts and tests alike", () => {
+    // packs/ts/reference runs the domain through the real red and green gates
+    // (boundaries blocks, reachability); this copy is what workers are pointed
+    // at, so it may not drift from the proven one.
+    const domain = "contexts/project-management/src/domain";
+    const tsReference = join(here, "..", "ts", "reference");
+    const ours = walk(join(REFERENCE, domain)).filter((p) => /\.(?:contract|test)\.ts$/.test(p) && !p.endsWith(".laws.test.ts"));
+    expect(ours.length).toBe(12);
+    for (const path of ours) {
+      expect(readFileSync(join(REFERENCE, domain, path), "utf8"), path).toBe(readFileSync(join(tsReference, domain, path), "utf8"));
+    }
+  });
+
   test("store tests seed and read back through sibling stores, never the database's fields", () => {
     // The test-writer copies these, and the database's fields are the
     // builder's: a store test that reached into them could not be written blind.

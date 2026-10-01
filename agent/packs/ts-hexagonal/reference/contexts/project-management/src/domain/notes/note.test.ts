@@ -5,35 +5,28 @@ import { NoteId } from "./note-id.ts";
 import { NoteText } from "./note-text.ts";
 
 function text(raw: string): NoteText {
-  const parsed = NoteText.parse(raw);
-  if (!parsed.ok) throw new Error(parsed.error);
-  return parsed.value;
+  const result = NoteText.parse(raw);
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
 }
 
 describe("Note", () => {
-  test("holds the value objects it was built from", () => {
+  test("keeps the value objects it was built from", () => {
     const id = NoteId.generate();
     const projectId = ProjectId.generate();
-    const note = new Note(id, projectId, text("Buy milk"));
-    expect(note.id.equals(id)).toBe(true);
-    expect(note.projectId.equals(projectId)).toBe(true);
-    expect(note.text.value).toBe("Buy milk");
+    const note = new Note(id, projectId, text("Call the printer"));
+    expect(note.id).toBe(id);
+    expect(note.projectId).toBe(projectId);
+    expect(note.text.value).toBe("Call the printer");
   });
 
-  test("is equal by identity, whatever its contents", () => {
+  test("toJSON is the wire shape callers receive", () => {
     const id = NoteId.generate();
     const projectId = ProjectId.generate();
-    expect(new Note(id, projectId, text("One")).equals(new Note(id, projectId, text("Two")))).toBe(true);
-    expect(new Note(NoteId.generate(), projectId, text("One")).equals(new Note(id, projectId, text("One")))).toBe(false);
-  });
-
-  test("serialises to plain data", () => {
-    const id = NoteId.generate();
-    const projectId = ProjectId.generate();
-    expect(new Note(id, projectId, text("Buy milk")).toJSON()).toEqual({
+    expect(new Note(id, projectId, text("Book the venue")).toJSON()).toEqual({
       id: id.value,
       projectId: projectId.value,
-      text: "Buy milk",
+      text: "Book the venue",
     });
   });
 });
