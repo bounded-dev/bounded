@@ -348,8 +348,8 @@ describe.skipIf(!HAS_BUN)("real bun", () => {
   };
 
   test("the review's repro: a builder file bun would collect cannot mock the code under test green", { timeout: 60_000 }, async () => {
-    const repro = "/private/tmp/claude-501/final-review/spec";
-    const source = (name: string, fallback: string): string => (existsSync(join(repro, name)) ? readFileSync(join(repro, name), "utf8") : fallback);
+    // The review's three files, verbatim.
+    const source = (_name: string, text: string): string => text;
     const dir = mkdtempSync(join(tmpdir(), "run-tests-spec-"));
     dirs.push(dir);
     write(dir, "package.json", '{"name":"probe","private":true,"type":"module"}\n');
