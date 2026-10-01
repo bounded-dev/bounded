@@ -22,10 +22,26 @@ import { lintContractSource } from "../ts/scripts/contract-purity.ts";
 import { shippedFiles } from "../ts/scripts/project-package.ts";
 import { TS_HEXAGONAL_LINT_RULES, TS_HEXAGONAL_PACK, TS_HEXAGONAL_PLUGIN, tsHexagonalPack } from "./pack.ts";
 import { TS_HEXAGONAL_EMITTERS } from "./scripts/emitters.ts";
+import { isTestSide, TEST_SUFFIXES } from "./scripts/grammar.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packsDir = join(here, "..");
 const PACKS = [TS_PACK, TS_HEXAGONAL_PACK];
+
+// Review of #36: the lint rules, the gates and the shipped architecture test
+// each had their own idea of a test file (`.spec.ts` was test-side to the
+// gates, implementation to the rest). One definition, held here.
+describe("one definition of a test-side file", () => {
+  test("the grammar, the composed suffixes and the shipped architecture test agree", () => {
+    const composed = testFileSuffixesFor(PACKS, packsDir).filter((s) => /\.tsx?$/.test(s));
+    expect([...TEST_SUFFIXES].sort()).toEqual([...composed].sort());
+    const shipped = readFileSync(join(here, "reference", "architecture-test.ts"), "utf8");
+    const list = /^const TEST_SUFFIXES = (\[.*\]);$/m.exec(shipped)?.[1];
+    expect(list, "architecture-test.ts declares TEST_SUFFIXES").toBeDefined();
+    expect((JSON.parse(list!) as string[]).sort()).toEqual([...composed].sort());
+    expect(isTestSide("contexts/x/src/domain/notes/note.spec.ts")).toBe(true);
+  });
+});
 
 describe("contrib.json through the core's validators", () => {
   test("source roots are the context and app src folders", () => {

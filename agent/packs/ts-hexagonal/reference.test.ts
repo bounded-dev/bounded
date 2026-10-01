@@ -342,7 +342,11 @@ describe.skipIf(!HAS_BUN)("under bun test", () => {
     ["an out-adapter test imports another technology", `${CONTEXT_SRC}/adapters/out/console/projects/seed.exporter.test.ts`, `import { InMemoryDatabase } from "../../in-memory/in-memory-database.ts";\nexport { InMemoryDatabase };\n`, [LAYERS], "test-imports"],
     ["a test imports another context", `${CONTEXT_SRC}/domain/notes/seed.test.ts`, `import type { InvoiceId } from "@example/billing/domain";\nexport type { InvoiceId };\n`, [CONTEXTS], "test-imports"],
     ["a test outside the layers", `${CONTEXT_SRC}/seed.test.ts`, "export const x = 1;\n", [PLACEMENT], "test-imports"],
-    ["a domain test imports its concept by relative path", `${CONTEXT_SRC}/domain/notes/seed.test.ts`, `import { NoteText } from "./note-text.ts";\nexport { NoteText };\n`, [], undefined],
+    // A `.spec.ts` is test-side to the gates, the lint and the architecture test alike.
+    ["a domain .spec.ts imports the domain barrel", `${CONTEXT_SRC}/domain/notes/seed.spec.ts`, `import { NoteText } from "@example/project-management/domain";\nexport { NoteText };\n`, [LAYERS], "test-imports"],
+    ["a domain .spec.ts reads the environment, as a test may", `${CONTEXT_SRC}/domain/notes/seed.spec.ts`, `export const e = process.env.X;\n`, [], undefined],
+    ["a domain _test.ts uses a library, as a test may", `${CONTEXT_SRC}/domain/notes/seed_test.ts`, `import { expect } from "bun:test";\nexport { expect };\n`, [], undefined],
+    ["a domain test imports its concept by relative path",`${CONTEXT_SRC}/domain/notes/seed.test.ts`, `import { NoteText } from "./note-text.ts";\nexport { NoteText };\n`, [], undefined],
     ["a handler test imports the domain barrel and its own command", `${CONTEXT_SRC}/application/notes/create-note/seed.test.ts`, `import { NoteText } from "@example/project-management/domain";\nimport { CreateNoteCommand } from "./create-note.command.ts";\nexport { CreateNoteCommand, NoteText };\n`, [], undefined],
   ];
 
