@@ -28,6 +28,7 @@ import { HOST_ENV } from "../../src/host.ts";
 import { ARTIFACT_GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
 import { carriers, cliGates, gateCommand } from "./bash-policy.ts";
 import { SEND_MESSAGE_TOOL } from "./continuation.ts";
+import { SEARCH_USAGE } from "./search.ts";
 
 /** The pi tools with a bash carrier of their own (bash-policy.ts), beside
  *  the gates. */
@@ -43,14 +44,14 @@ const BASH_CARRIER_TOOLS = ["remove", "git", "sleep"] as const;
  *
  * Every Claude Code tool named here must be one the host provides to every
  * subagent (CLAUDE_PROVIDED_TOOLS, pinned by render-agents.test.ts). So
- * `find` and `ls` are reached through Bash (listing.ts), not Glob, and `grep`
- * maps to nothing: Glob and Grep are absent from Claude Code's native builds
+ * `find`, `ls` and `grep` are reached through Bash (listing.ts, search.ts), not
+ * Glob or Grep: those are absent from Claude Code's native builds
  * unless the session is launched naming them. `subagent` is two tools here:
  * Agent launches a worker, SendMessage continues one (continuation.ts).
  */
 export const PI_TO_CLAUDE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   read: ["Read"],
-  grep: [],
+  grep: ["Bash"],
   find: ["Bash"],
   ls: ["Bash"],
   write: ["Write"],
@@ -173,7 +174,9 @@ export function renderPreamble(role: Role): string {
     );
   }
   if (has("grep")) {
-    lines.push("- `grep` → no route on this host: this session has no content-search tool, and Bash carries no content search. Find the files by name, then read them.");
+    lines.push(
+      `- \`grep\` → \`${SEARCH_USAGE}\` through Bash: one pattern in single quotes (or after \`-e\`), one path last, options first; flags \`-rnHhiFEwlcovsx\` only. ${blindSearchNote(role)}`,
+    );
   }
   const writes = FILE_TOOLS_WRITE.filter(has);
   if (writes.length > 0) {
@@ -202,11 +205,22 @@ export function renderPreamble(role: Role): string {
     "",
     `Every gate is a command — \`bounded gates <gate> [dir] [--json]\`, run through Bash as one plain command: no \`&&\`, \`;\`, pipes, redirects or \`$(…)\`. Do not add an env prefix or pass \`--role\`: the hook prefixes \`${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=<role>\` itself, so the gate runs as the role this definition bound and records this host. \`bounded gates --list\` names them all.`,
     "",
-    `Bash is refused for anything else — no package-manager commands, no \`cat\`, no \`grep\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.bounded/guard-log.jsonl\`.`,
+    `Bash is refused for anything else — no package-manager commands, no \`cat\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.bounded/guard-log.jsonl\`.`,
   ].join("\n");
 }
 
 const code = (s: string): string => `\`${s}\``;
+
+/** What a role's content search over a directory must carry (ADR 2026-057). */
+function blindSearchNote(role: Role): string {
+  if (role === "builder") {
+    return "A search of a directory under a source root needs an `--include` glob that provably keeps it off test files, such as `--include='*.handler.ts'`; search one implementation file by path otherwise.";
+  }
+  if (role === "test-writer") {
+    return "A search of a directory under a source root needs an `--include` glob that provably keeps it off implementation files, such as `--include='*.test.ts'`; search one test or contract file by path otherwise.";
+  }
+  return "Search a directory, not the project root.";
+}
 
 /** One rendered `.claude/agents/<role>.md`. */
 export function renderAgent(role: Role, opts: RenderOptions): string {

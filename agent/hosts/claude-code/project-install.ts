@@ -73,7 +73,7 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
     "",
     "## This host: Claude Code",
     "",
-    "Read files with Read. List file names through Bash with `ls [<dir>]` or `find <dir> -name '<glob>'` (also `-iname`, `-path`, `-type f|d`, `-maxdepth N`), one plain command per call; Bash carries nothing else, and there is no content search on this host. List first, then read by the exact path — never guess a path. These are your entire toolset. Return findings to the lead in your final response; the pi `contact_supervisor` tool mentioned below is unavailable on this host.",
+    "Read files with Read. List file names through Bash with `ls [<dir>]` or `find <dir> -name '<glob>'` (also `-iname`, `-path`, `-type f|d`, `-maxdepth N`), one plain command per call. Search contents with `grep -rn [-i] [-F|-E] [--include='<glob>'] -e '<pattern>' <dir-or-file>` (one pattern, one path last). Bash carries nothing else. List first, then read by the exact path — never guess a path. These are your entire toolset. Return findings to the lead in your final response; the pi `contact_supervisor` tool mentioned below is unavailable on this host.",
     "",
     "---",
     "",

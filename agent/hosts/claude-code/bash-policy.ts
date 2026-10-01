@@ -48,12 +48,13 @@ import {
 } from "../../src/path-policy.ts";
 import { isSleepSeconds, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
 import { gateInputs, listingCall } from "./listing.ts";
+import { searchCall, searchGateInput } from "./search.ts";
 import { searchPatternContained } from "../../src/setup-state.ts";
 
 /** Which sanctioned carrier an allowed command is. The hook needs to know:
  *  a `bounded gates` call is handed the bound role through `updatedInput`, the
  *  other carriers are let through untouched. */
-export type Carrier = "bounded gates" | "git" | "sleep" | "rm" | "ls" | "find";
+export type Carrier = "bounded gates" | "git" | "sleep" | "rm" | "ls" | "find" | "grep";
 
 /** A Decision that, when it allows, also says which carrier it allowed. */
 export type BashDecision =
@@ -102,6 +103,7 @@ export function carriers(role: Role): string {
   if (tools.includes("remove")) out.push("rm <path>");
   if (tools.includes("ls")) out.push("ls [<dir>]");
   if (tools.includes("find")) out.push("find <dir> -name '<glob>'");
+  if (tools.includes("grep")) out.push("grep -rn [--include='<glob>'] -e '<pattern>' <path>");
   return out.join(", ");
 }
 
@@ -305,6 +307,8 @@ export function decideBash(role: Role, command: string, ctx: Ctx): BashDecision 
     case "ls":
     case "find":
       return decideListing(role, argv, shown, ctx);
+    case "grep":
+      return decideSearch(role, argv, shown, ctx);
     default:
       return block(
         `path-gate: ${role} may not run '${head}': ${forbiddenWhy(role, "bash")} — in Claude Code, Bash carries only ${carriers(role)}`,
@@ -406,6 +410,23 @@ function decideListing(role: Role, argv: readonly string[], shown: string, ctx: 
   const linked = linkedPath(role, shown, listing.call.path, ctx);
   if (linked !== undefined) return linked;
   return allow(tool);
+}
+
+/** `grep` — the read-only grammar in search.ts, judged as pi's own `grep`
+ *  (path plus file glob) by the same decide(): a file as a read, a directory
+ *  only over a complete, link-free tree and, for a blind role, with a glob
+ *  that provably keeps it off the other side (ADR 2026-057). */
+function decideSearch(role: Role, argv: readonly string[], shown: string, ctx: Ctx): BashDecision {
+  const search = searchCall(argv);
+  if (!search.ok) return block(`path-gate: ${role} may not run '${shown}': ${search.reason}`);
+  if (!ROLE_TOOLS[role].includes("grep")) {
+    return block(`path-gate: ${role} may not run 'grep': ${forbiddenWhy(role, "grep")}`);
+  }
+  const zone: Decision = decide(role, "grep", searchGateInput(search.call), ctx);
+  if (!zone.allow) return zone;
+  const linked = linkedPath(role, shown, search.call.path, ctx);
+  if (linked !== undefined) return linked;
+  return allow("grep");
 }
 
 /**

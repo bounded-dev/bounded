@@ -208,6 +208,25 @@ describe("path-gate-hook — Bash, by role", () => {
     }
   });
 
+  test("grep through Bash on a real tree: each blind role stays off the other side (#35)", () => {
+    const dir = makeTempProject({
+      "contexts/m/src/a.ts": "export const needle = 1;\n",
+      "contexts/m/src/a.test.ts": "needle\n",
+      "contexts/m/src/b.handler.ts": "needle\n",
+    });
+    const as = (role: string, command: string) => runHere(dir, payload(dir, "Bash", { command }), ["--role", role]).decision;
+    expect(as("builder", "grep -rn --include='*.handler.ts' -e 'needle' contexts/m/src")).toBe("allow");
+    expect(as("builder", "grep -rn -e 'needle' contexts/m/src")).toBe("deny");
+    expect(as("builder", "grep -n 'needle' contexts/m/src/a.test.ts")).toBe("deny");
+    expect(as("builder", "grep -n 'needle' contexts/m/src/a.ts")).toBe("allow");
+    expect(as("test-writer", "grep -n 'needle' contexts/m/src/a.ts")).toBe("deny");
+    expect(as("test-writer", "grep -rn --include='*.test.ts' -e 'needle' contexts/m/src")).toBe("allow");
+    symlinkSync(join(dir, "contexts/m/src/a.test.ts"), join(dir, "contexts/m/src/c.handler.ts"));
+    // A link in the tree, or as the path, now refuses the directory search.
+    expect(as("builder", "grep -rn --include='*.handler.ts' -e 'needle' contexts/m/src")).toBe("deny");
+    expect(as("builder", "grep -n 'needle' contexts/m/src/c.handler.ts")).toBe("deny");
+  });
+
   test("`bounded gates red-gate`: architect allow, builder deny", () => {
     const a = makeTempProject({ ".bounded/dev-stage-role": "architect\n" });
     const ok = run(a, payload(a, "Bash", { command: "bounded gates red-gate" }));

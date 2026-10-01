@@ -240,6 +240,19 @@ describe("--role scout", () => {
     }
   });
 
+  test("the scout and the lead search contents through Bash, inside the project only", () => {
+    const dir = project({ "src/a.ts": "needle\n" });
+    symlinkSync("/etc", join(dir, "src/out"));
+    for (const seat of [SCOUT, LEAD]) {
+      expect(hook(dir, "Bash", { command: "grep -rn -e 'needle' src" }, seat).decision).toBe("allow");
+      expect(hook(dir, "Bash", { command: "grep -n 'needle' src/a.ts" }, seat).decision).toBe("allow");
+      expect(hook(dir, "Bash", { command: "grep -rn -e 'x' src/out" }, seat).decision).toBe("deny");
+      expect(hook(dir, "Bash", { command: "grep -rn -e 'x' .git" }, seat).decision).toBe("deny");
+      expect(hook(dir, "Bash", { command: "grep -rn -f src/a.ts src" }, seat).decision).toBe("deny");
+      expect(hook(dir, "Bash", { command: "grep -rn --filter=sh -e x src" }, seat).decision).toBe("deny");
+    }
+  });
+
   test("the lead lists names through Bash the same way", () => {
     const dir = project({ "src/a.ts": "" });
     expect(hook(dir, "Bash", { command: "ls" }, LEAD).decision).toBe("allow");

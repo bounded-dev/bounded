@@ -94,7 +94,12 @@ capabilities and still needs a live run before its behavior can be claimed.
   session is launched naming them, and a subagent's `tools:` line does not
   bring them back. So file names are listed with `ls` and `find` through Bash
   (`listing.ts`): a small names-only grammar, judged as pi's own `ls` and
-  `find` by `decide()`. This host offers no content search.
+  `find` by `decide()`. Content search is `grep` through Bash (`search.ts`):
+  one pattern, one path, an optional `--include` glob, judged as pi's own
+  `grep` — a blind role's directory search needs a glob that provably keeps
+  it off the other side (ADR 2026-057). The grammar refuses every option the
+  bundled grep would hand to the system grep, so an allowed search always runs
+  on Claude Code's bundled ugrep.
 - **Bash narrowed to the carriers.** The command is read the way a POSIX
   shell reads it and refused if it is more than one plain argv: `;`, `&`,
   `|`, `(`, redirects, `$`, backticks, backslashes, globs, braces, tilde,

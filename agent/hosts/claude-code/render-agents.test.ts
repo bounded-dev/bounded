@@ -16,6 +16,7 @@ import {
 } from "./render-agents.ts";
 import { CLAUDE_CONDITIONAL_TOOLS, CLAUDE_PROVIDED_TOOLS } from "./tool-map.ts";
 import { SCOUT_CLAUDE_TOOLS } from "./project-install.ts";
+import { SEARCH_USAGE } from "./search.ts";
 
 // ADR 2026-034: "Drift tests extend to the rendered Claude Code agent
 // definitions: `tools:` allowlists are pinned to ROLE_TOOLS." This is
@@ -66,7 +67,7 @@ describe("PI_TO_CLAUDE_TOOLS — the one mapping", () => {
   test("the file tools and subagent map to their Claude Code tools", () => {
     expect(PI_TO_CLAUDE_TOOLS).toMatchObject({
       read: ["Read"],
-      grep: [],
+      grep: ["Bash"],
       find: ["Bash"],
       ls: ["Bash"],
       write: ["Write"],
@@ -117,6 +118,13 @@ describe("rendered Claude Code agent definitions", () => {
         for (const tool of [...CLAUDE_PROVIDED_TOOLS, ...CLAUDE_CONDITIONAL_TOOLS]) {
           if (!toolList(fm).includes(tool)) expect(preamble, tool).not.toMatch(new RegExp(`\\b(?:the )?${tool} tool\\b`));
         }
+      });
+
+      test("the host preamble teaches content search through Bash, with the role's blindness rule", () => {
+        const preamble = source.slice(fm.length, source.indexOf("\n---\n", fm.length + 8));
+        expect(preamble).toContain(`\`${SEARCH_USAGE}\` through Bash`);
+        if (role === "builder") expect(preamble).toContain("keeps it off test files");
+        if (role === "test-writer") expect(preamble).toContain("keeps it off implementation files");
       });
 
       test("the host preamble says how to list names, so no path is ever guessed", () => {

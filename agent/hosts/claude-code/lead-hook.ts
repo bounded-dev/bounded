@@ -16,6 +16,7 @@ import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-ti
 import { asRole, projectPathFacts } from "../../src/path-gate.ts";
 import { shellWords } from "./bash-policy.ts";
 import { gateInputs, isListing, listingCall } from "./listing.ts";
+import { isSearch, searchCall, searchGateInput } from "./search.ts";
 import { searchPatternContained } from "../../src/setup-state.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { claudeSeatActions, claudeTaskModel } from "./tool-map.ts";
@@ -63,7 +64,19 @@ export function leadCommand(command: unknown): LeadCommand {
  */
 export function listingActions(command: unknown, cwd: string): readonly SeatAction[] | undefined {
   const words = typeof command === "string" ? shellWords(command) : undefined;
-  if (words === undefined || !words.ok || !isListing(words.argv)) return undefined;
+  if (words === undefined || !words.ok) return undefined;
+  if (isSearch(words.argv)) {
+    const search = searchCall(words.argv);
+    if (!search.ok) return [{ kind: "refused", reason: search.reason }];
+    if (!searchPatternContained(search.call.glob)) {
+      return [{ kind: "refused", reason: "an --include glob must stay away from .git" }];
+    }
+    if (!projectPathFacts(cwd).asWritten?.(search.call.path)) {
+      return [{ kind: "refused", reason: `'${search.call.path}' is a link, or reached through one, or spelled differently from its real name — use the real path` }];
+    }
+    return [{ kind: "read", tool: "grep", input: searchGateInput(search.call) }];
+  }
+  if (!isListing(words.argv)) return undefined;
   const listing = listingCall(words.argv);
   if (!listing.ok) return [{ kind: "refused", reason: listing.reason }];
   const { call } = listing;
