@@ -23,7 +23,7 @@ export function createProjectStoreConformance(name: string, fixture: () => Promi
       await store.save(saved);
       const projects = await savedProjects();
       expect(projects).toHaveLength(1);
-      expect(projects[0]!.toJSON()).toEqual(saved.toJSON());
+      expect(projects[0]?.toJSON()).toEqual(saved.toJSON());
     });
 
     test("keeps every project it saves", async () => {

@@ -19,7 +19,9 @@ import { fileURLToPath } from "node:url";
 import tsParser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { writeProjectPacks } from "../../src/project-composition.ts";
 import { composePacks } from "../../src/socket-registry.ts";
+import { lintSrc, lintTests } from "../ts/scripts/lint-src.ts";
 import { INSTALLED_PACKS } from "../installed.ts";
 import { adapterTechnologies, skeletonEmitters, workspaceTemplates } from "../ts/pack.ts";
 import { TS_HEXAGONAL_LINT_RULES, TS_HEXAGONAL_PLUGIN } from "./eslint/index.ts";
@@ -136,6 +138,19 @@ describe("the reference passes its own checks", () => {
     const results = await linter(dir).lintFiles(["contexts/**/*.ts"]);
     expect(results.length).toBeGreaterThan(40);
     expect(results.flatMap((r) => r.messages.map((m) => `${r.filePath}: ${m.ruleId}: ${m.message}`))).toEqual([]);
+  });
+
+  test("its tests and implementations pass the gates' own lint (red's test lint, the builder's src lint)", async () => {
+    // The workers copy these files: a non-null assertion in a reference test
+    // is a red-gate block the test-writer inherits on its first run.
+    const dir = fixture();
+    writeProjectPacks(dir, ["ts", "ts-hexagonal", "ts-trpc", "ts-mcp", "ts-lambda"]);
+    const tests = await lintTests(dir);
+    expect(tests.lines.join("\n"), "lint-tests").toMatch(/OK|no test files/);
+    expect(tests.code).toBe(0);
+    const src = await lintSrc(dir);
+    expect(src.lines.join("\n"), "lint-src").not.toMatch(/FAIL|BLOCK/);
+    expect(src.code).toBe(0);
   });
 
   test("store tests seed and read back through sibling stores, never the database's fields", () => {

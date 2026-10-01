@@ -34,7 +34,7 @@ describe("CreateNoteHandler", () => {
     expect(result.value.projectId.equals(projectId)).toBe(true);
     expect(result.value.text.value).toBe("Buy milk");
     expect(store.saved).toHaveLength(1);
-    expect(store.saved[0]!.equals(result.value)).toBe(true);
+    expect(store.saved[0]?.equals(result.value)).toBe(true);
   });
 
   test("refuses a project that does not exist and saves nothing", async () => {

@@ -46,7 +46,7 @@ export function createNoteStoreConformance(name: string, fixture: () => Promise<
       await store.save(saved);
       const notes = await savedNotes();
       expect(notes).toHaveLength(1);
-      expect(notes[0]!.toJSON()).toEqual(saved.toJSON());
+      expect(notes[0]?.toJSON()).toEqual(saved.toJSON());
     });
   });
 }

@@ -24,7 +24,7 @@ describe("CreateProjectHandler", () => {
     const project = await new CreateProjectHandler(store).execute(command("Mobile app"));
     expect(project.name.value).toBe("Mobile app");
     expect(store.saved).toHaveLength(1);
-    expect(store.saved[0]!.equals(project)).toBe(true);
+    expect(store.saved[0]?.equals(project)).toBe(true);
   });
 
   test("gives every project a new identity", async () => {

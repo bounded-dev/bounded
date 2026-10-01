@@ -31,7 +31,7 @@ describe("ExportProjectsHandler", () => {
     const exporter = new FakeProjectExporter();
     await new ExportProjectsHandler(new FakeExportProjectsStore(projects), exporter).execute();
     expect(exporter.exports).toHaveLength(1);
-    expect(exporter.exports[0]!.map((p) => p.toJSON())).toEqual(projects.map((p) => p.toJSON()));
+    expect(exporter.exports[0]?.map((p) => p.toJSON())).toEqual(projects.map((p) => p.toJSON()));
   });
 
   test("still exports when there are no projects", async () => {
