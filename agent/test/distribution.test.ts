@@ -6,7 +6,7 @@
 // does, builds the distribution into it, installs it under node_modules, and
 // initializes the default stack from there.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -37,6 +37,27 @@ const packs = readdirSync(join(AGENT, "packs"), { withFileTypes: true }).filter(
 let temp = "";
 let installed = "";
 let tarball: string[] = [];
+/** Top-level node_modules entries in the package's production dependency
+ *  closure, as npm resolves it (nested copies travel inside their parents). */
+function productionPackages(root: string): string[] {
+  let out: string;
+  try {
+    out = execFileSync("npm", ["ls", "--omit=dev", "--all", "--parseable"], { cwd: root, encoding: "utf8" });
+  } catch (error) {
+    out = (error as { stdout?: string }).stdout ?? "";
+  }
+  const prefix = join(root, "node_modules") + "/";
+  const names = new Set<string>();
+  for (const line of out.split("\n")) {
+    if (!line.startsWith(prefix)) continue;
+    const rel = line.slice(prefix.length);
+    if (rel.includes("/node_modules/")) continue;
+    const parts = rel.split("/");
+    names.add(parts[0]!.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0]!);
+  }
+  return [...names].sort();
+}
+
 let assets: string[] = [];
 
 beforeAll(() => {
@@ -52,8 +73,14 @@ beforeAll(() => {
     m.buildDistribution(${JSON.stringify(AGENT)}, ${JSON.stringify(join(installed, "dist"))});
     console.log(JSON.stringify(m.distributionAssets(${JSON.stringify(AGENT)}, ${JSON.stringify(join(installed, "dist"))})));`;
   assets = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8" })) as string[];
-  // Its dependencies resolve as an installed package's would.
-  symlinkSync(join(AGENT, "node_modules"), join(installed, "node_modules"), "dir");
+  // Its dependencies resolve as a global install's would: only the production
+  // closure, never the devDependencies a checkout happens to have installed.
+  // (A full node_modules here once hid a shipped lint rule importing a
+  // dev-only package, which crashed every global `bounded init`.)
+  for (const name of productionPackages(AGENT)) {
+    mkdirSync(dirname(join(installed, "node_modules", name)), { recursive: true });
+    symlinkSync(join(AGENT, "node_modules", name), join(installed, "node_modules", name), "dir");
+  }
   tarball = packList(installed);
 }, 120_000);
 afterAll(() => { if (temp) rmSync(temp, { recursive: true, force: true }); });
@@ -83,6 +110,29 @@ describe("the npm distribution", () => {
       expect(published).toContain(path);
       expect(published).toContain(`dist/${path}`);
     }
+  });
+
+  test("every package the shipped code imports at runtime is a runtime dependency", () => {
+    // Packages the pi host itself provides to its extensions at runtime.
+    const hostProvided = new Set(["typebox", "@earendil-works/pi-coding-agent"]);
+    const manifest = JSON.parse(readFileSync(join(AGENT, "package.json"), "utf8")) as { dependencies?: Record<string, string> };
+    const runtime = new Set(Object.keys(manifest.dependencies ?? {}));
+    const missing: string[] = [];
+    const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return ["reference", "templates", "testdata", "node_modules"].includes(entry.name) ? [] : walk(path);
+      return entry.name.endsWith(".js") && !entry.name.endsWith(".test.js") ? [path] : [];
+    });
+    for (const file of walk(join(installed, "dist"))) {
+      // Value imports only, at the start of a line: emitted code lives inside
+      // template literals and type-only imports are erased.
+      for (const [, spec] of readFileSync(file, "utf8").matchAll(/^import (?!type )[^"'\n]*?from ["']([^."'/][^"']*)["'];?$/gm)) {
+        if (spec!.includes(":")) continue; // node:, bun: and other runtime builtins
+        const name = spec!.startsWith("@") ? spec!.split("/").slice(0, 2).join("/") : spec!.split("/")[0]!;
+        if (!runtime.has(name) && !hostProvided.has(name)) missing.push(`${file.slice(installed.length + 1)} -> ${name}`);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   test("the installed CLI initializes the default stack from its compiled code", () => {
