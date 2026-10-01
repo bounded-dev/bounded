@@ -389,14 +389,34 @@ export function testSideFiles(cwd: string): string[] {
  * tests can fail, and a test edited afterwards is unproven.
  */
 export function testFilesHash(cwd: string): string {
+  return hashTestFiles(testSideFiles(cwd), () => cwd);
+}
+
+/** The same fingerprint over a given list of test-side files, each read
+ *  from the root `rootOf` names for it: red hashes the files its shadow ran
+ *  as the shadow holds them. */
+export function hashTestFiles(rels: readonly string[], rootOf: (rel: string) => string): string {
   const hash = createHash("sha256");
-  for (const rel of testSideFiles(cwd)) {
+  for (const rel of [...rels].sort()) {
     hash.update(rel, "utf8");
     hash.update("\0");
-    hash.update(readFileSync(join(cwd, rel), "utf8").replace(/\r\n/g, "\n"), "utf8");
+    hash.update(readFileSync(join(rootOf(rel), rel), "utf8").replace(/\r\n/g, "\n"), "utf8");
     hash.update("\0");
   }
   return hash.digest("hex");
+}
+
+/**
+ * Red's before-hash: over the ONE list of test-side files taken before the
+ * shadow was planned, each read from the shadow when the shadow copied it
+ * (what actually ran) and from the live tree otherwise (an app's smoke test,
+ * which red does not run but green is bound to). Compared with the live hash
+ * after the run, any file added, removed or edited from the moment the list
+ * was taken voids the red.
+ */
+export function redBeforeHash(cwd: string, shadow: string, listed: readonly string[], plan: Pick<ShadowPlan, "copy">): string {
+  const copied = new Set(plan.copy);
+  return hashTestFiles(listed, (rel) => (copied.has(rel) ? shadow : cwd));
 }
 
 // --- the shadow project ----------------------------------------------------------
@@ -642,14 +662,17 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   let facts: ProjectFacts;
   let plan: ShadowPlan;
   let dir: string;
-  // The test files the shadow copied: hashed before the copy and again after
-  // the run, so a red never records tests it did not run.
+  // One list of test-side files, taken first; hashed as the shadow copied
+  // them (redBeforeHash), and the live tree's again after the run: a red
+  // records only tests it ran, and a file added, removed or edited from the
+  // moment the list was taken voids it.
   let before: string | undefined;
   try {
+    const listed = testSideFiles(cwd);
     facts = projectFactsOf(cwd, "red");
     plan = redShadowPlan(cwd, facts, emitProject(facts, generatedFileGlobs(cwd)));
-    before = hashOrUndefined(cwd);
     dir = materializeShadow(cwd, plan);
+    before = redBeforeHash(cwd, dir, listed, plan);
   } catch (e) {
     return gateError(cwd, (e instanceof Error ? e.message : String(e)).replace(/^red-gate: /, ""), "shadow-project");
   }

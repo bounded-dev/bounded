@@ -12,6 +12,7 @@ import {
   classifyRed,
   isNotImplementedFailure,
   materializeShadow,
+  redBeforeHash,
   redShadowPlan,
   runRedGate,
   SHADOW_RELATIVE,
@@ -186,6 +187,30 @@ describe("the test-side files a green is bound to (ADR 2026-057)", () => {
     expect(testFilesHash(f.dir)).toBe(first);
     writeFileSync(join(f.dir, "apps/web/src/server/extra.test.ts"), "// new\n");
     expect(testFilesHash(f.dir)).not.toBe(first);
+  });
+
+  test("red's before-hash is one list read from what the shadow copied: a test added or edited meanwhile is never recorded", () => {
+    const f = notebook();
+    const listed = testSideFiles(f.dir);
+    const facts = projectFactsOf(f.dir, "red");
+    const plan = redShadowPlan(f.dir, facts, emitProject(facts, generatedFileGlobs(f.dir)));
+    const dir = materializeShadow(f.dir, plan);
+    // Same files, same bytes: the before-hash IS the live hash.
+    expect(redBeforeHash(f.dir, dir, listed, plan)).toBe(testFilesHash(f.dir));
+    // A test added after the list was taken: the live after-hash moves.
+    const late = join(f.dir, CONTEXT_SRC, "domain/notes/late.test.ts");
+    writeFileSync(late, "// added during the run\n");
+    expect(redBeforeHash(f.dir, dir, listed, plan)).not.toBe(testFilesHash(f.dir));
+    rmSync(late);
+    // A test edited after the copy: the before-hash keeps what ran.
+    const test = join(f.dir, CONTEXT_SRC, "domain/notes/note.test.ts");
+    const text = readFileSync(test, "utf8");
+    writeFileSync(test, `${text}// edited after the copy\n`);
+    expect(redBeforeHash(f.dir, dir, listed, plan)).not.toBe(testFilesHash(f.dir));
+    writeFileSync(test, text);
+    // An edit that landed BEFORE the copy but after the list is what ran: the
+    // before-hash reads the copy, so it matches the live tree again.
+    expect(redBeforeHash(f.dir, dir, listed, plan)).toBe(testFilesHash(f.dir));
   });
 
   test("an unreadable composition throws rather than hashing nothing", () => {
