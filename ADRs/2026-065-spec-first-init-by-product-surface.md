@@ -23,8 +23,11 @@ open. A needed surface no pack serves, or more than one serves without a
 Before the first ticket is prepared, init replaces an installation with a
 different selection in place, under the same plan, review and digest flow.
 It does so only when every file init created is unchanged and nothing has
-been added apart from setup output under the installation's own ignore rules
-and `.bounded/` state. Both are removed, and setup runs again. The team lead
+been added apart from what the installation's own ignore rules cover and
+`.bounded/` state. Ignored directories (setup output), the harness copy and
+the setup marker are removed, and setup runs again. Ignored files (a
+filled-in `.env`) and other `.bounded/` state (the guard log, model tiers)
+are put back; a failure at any point restores the old installation. The team lead
 may run this re-plan: on Claude Code as the user's own
 `bounded init --host claude-code ...` in one plain form, which the full and
 bootstrap hooks admit; on pi through the `lead_replan` tool, after setup.

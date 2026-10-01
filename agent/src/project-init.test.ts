@@ -340,6 +340,9 @@ describe("project-local initialization", () => {
     writeFileSync(join(target, ".bounded", "setup-complete"), "complete\n");
     writeFileSync(join(target, ".bounded", "guard-log.jsonl"),
       JSON.stringify({ ts: "t", guard: "team-lead", verdict: "pass", summary: "setup", detail: { kind: "setup" } }) + "\n");
+    // The user's own files: ignored, but not setup output.
+    writeFileSync(join(target, ".env"), "DATABASE_URL=secret\n");
+    writeFileSync(join(target, ".bounded", "dev-stage-models.json"), "{}\n");
 
     const full = surfaceSelection({ needed: ["browser-ui", "desktop", "assistant-tools", "scheduled-jobs", "persistence"], declined: [] });
     if (full.kind !== "selected") throw new Error(full.kind);
@@ -355,10 +358,14 @@ describe("project-local initialization", () => {
     expect(applied.digest).toBe(replan.digest);
     expect(JSON.parse(readFileSync(join(target, ".bounded/composed-packs.json"), "utf8"))).toEqual([...DEFAULT_STACK].sort());
     expect(existsSync(join(target, ".bounded/harness/packs/ts-desktop"))).toBe(true);
-    // Setup output and state went with the old installation: setup runs again.
-    for (const gone of ["node_modules", ".bounded/setup-complete", ".bounded/guard-log.jsonl", ".bounded/harness/node_modules"]) {
+    // Setup output went with the old installation: setup runs again.
+    for (const gone of ["node_modules", ".bounded/setup-complete", ".bounded/harness/node_modules"]) {
       expect(existsSync(join(target, gone)), gone).toBe(false);
     }
+    // The user's files and the lead's audit trail stay.
+    expect(readFileSync(join(target, ".env"), "utf8")).toBe("DATABASE_URL=secret\n");
+    expect(readFileSync(join(target, ".bounded/dev-stage-models.json"), "utf8")).toBe("{}\n");
+    expect(readFileSync(join(target, ".bounded/guard-log.jsonl"), "utf8")).toContain('"kind":"setup"');
     expect(readFileSync(join(target, ".git", "HEAD"), "utf8")).toBe("ref: refs/heads/main\n");
     // The result is what a fresh init of the full stack would have written.
     const fresh = join(empty(), "pm-notes");

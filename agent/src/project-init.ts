@@ -657,7 +657,17 @@ function readInstallation(target: string): InitPlan | undefined {
 
 type Existing =
   | { readonly kind: "same"; readonly plan: InitPlan }
-  | { readonly kind: "replace"; readonly previous: InitPlan; readonly setupOutput: readonly string[] };
+  | { readonly kind: "replace"; readonly previous: InitPlan; readonly contents: ReplaceableContents };
+
+/** Everything in a replaceable installation besides the files init created. */
+interface ReplaceableContents {
+  /** Setup and host output (ignored directories and links): removed, setup recreates them. */
+  readonly discard: readonly string[];
+  /** The user's own ignored files (a filled-in `.env`, say) and `.bounded/`
+   *  state other than the harness copy and the setup marker: put back after
+   *  the new installation is written. */
+  readonly keep: readonly string[];
+}
 
 /** The installation already in `target`: the same selection (its installer
  *  files must be intact; product edits are fine), or one this selection may
@@ -678,7 +688,7 @@ function existingInstallation(target: string, host: InitHost, packs: readonly st
   if (typeof replaceable === "string") {
     throw new Error(`Existing installation differs from this selection and cannot be re-planned: ${replaceable}; bounded update is required`);
   }
-  return { kind: "replace", previous, setupOutput: replaceable.setupOutput };
+  return { kind: "replace", previous, contents: replaceable };
 }
 
 /** A matcher for root-anchored ignore rules, one path segment at a time:
@@ -693,14 +703,18 @@ function ignoreMatcher(rules: readonly string[]): (path: string) => boolean {
   };
 }
 
+/** Recreated by setup or replaced with the installation, never kept. */
+const HARNESS_COPY = ".bounded/harness";
+const SETUP_MARKER = ".bounded/setup-complete";
+
 /**
- * Why the installation cannot be re-planned, or what setup produced in it.
+ * Why the installation cannot be re-planned, or what else it holds.
  * Re-planning replaces the whole installation, so it is allowed only while
  * the project is exactly what init made: no ticket prepared or run, every
- * file init created unchanged, and nothing added except what setup and the
- * host produce (the installation's own ignore rules) and `.bounded/` state.
+ * file init created unchanged, and nothing added except what the
+ * installation's own ignore rules cover and `.bounded/` state.
  */
-function replanBlocker(target: string, previous: InitPlan): string | { readonly setupOutput: readonly string[] } {
+function replanBlocker(target: string, previous: InitPlan): string | ReplaceableContents {
   if (!beforeFirstRun(target)) return "a ticket has already been prepared or run here";
   for (const [path, hash] of Object.entries(previous.createdFiles)) {
     const absolute = join(target, path);
@@ -718,21 +732,27 @@ function replanBlocker(target: string, previous: InitPlan): string | { readonly 
     return error instanceof Error ? error.message : String(error);
   }
   const extra: string[] = [];
-  const setupOutput: string[] = [];
+  const discard: string[] = [];
+  const keep: string[] = [];
+  const created = (path: string): boolean => Object.hasOwn(previous.createdFiles, path) || path === MANIFEST;
   const visit = (base: string): void => {
     for (const entry of readdirSync(join(target, base), { withFileTypes: true })) {
-      if (base === "" && (entry.name === ".git" || entry.name === ".bounded")) continue;
+      if (base === "" && entry.name === ".git") continue;
       const path = base ? `${base}/${entry.name}` : entry.name;
-      if (ignored(path)) setupOutput.push(path);
+      if (path === HARNESS_COPY || path === SETUP_MARKER) continue;
+      const state = path.startsWith(".bounded/");
+      if (!state && ignored(path)) (entry.isFile() ? keep : discard).push(path);
       else if (entry.isDirectory()) visit(path);
-      else if (!Object.hasOwn(previous.createdFiles, path)) extra.push(path);
+      else if (created(path)) continue;
+      else if (state && entry.isFile()) keep.push(path);
+      else extra.push(path);
     }
   };
   visit("");
   if (extra.length > 0) {
     return `files were added since initialization (${extra.slice(0, 5).join(", ")}${extra.length > 5 ? ", ..." : ""})`;
   }
-  return { setupOutput };
+  return { discard, keep };
 }
 
 /** Remove every empty directory below `root`, deepest first, leaving .git alone. */
@@ -745,24 +765,48 @@ function pruneEmptyDirectories(root: string, base = ""): void {
   }
 }
 
-/** Take the untouched installation out of `target`, keeping a copy of every
- *  file it created so a failed replacement can put it back. Setup output and
- *  `.bounded/` state are not kept: setup runs again for the new selection. */
-function removeInstallation(target: string, existing: Extract<Existing, { kind: "replace" }>): { restore(): void; discard(): void } {
+interface Removal {
+  /** Put the kept files back into the new installation; a collision refuses. */
+  reinstate(): void;
+  /** Put the old installation back as it was, setup output apart. */
+  restore(): void;
+  discard(): void;
+}
+
+/** Take the untouched installation out of `target`. Every file it created,
+ *  and every kept file, is copied aside first, so a failure at any later
+ *  point can put it back; setup output alone is not kept. */
+function removeInstallation(target: string, existing: Extract<Existing, { kind: "replace" }>): Removal {
   const backup = mkdtempSync(join(tmpdir(), "bounded-init-replaced-"));
-  const created = Object.keys(existing.previous.createdFiles);
-  for (const path of [...created, MANIFEST]) {
-    mkdirSync(dirname(join(backup, path)), { recursive: true });
-    copyFileSync(join(target, path), join(backup, path));
-  }
-  rmSync(join(target, ".bounded"), { recursive: true, force: true });
-  for (const path of existing.setupOutput) rmSync(join(target, path), { recursive: true, force: true });
-  for (const path of created) rmSync(join(target, path), { force: true });
-  pruneEmptyDirectories(target);
-  return {
+  const created = [...Object.keys(existing.previous.createdFiles), MANIFEST];
+  const saved = [...created, ...existing.contents.keep];
+  const removal: Removal = {
+    reinstate: () => {
+      for (const path of existing.contents.keep) {
+        if (existsSync(join(target, path))) throw new Error(`Destination collision with a kept file: ${path}`);
+        mkdirSync(dirname(join(target, path)), { recursive: true });
+        copyFileSync(join(backup, path), join(target, path));
+      }
+    },
     restore: () => copyTree(backup, target),
     discard: () => rmSync(backup, { recursive: true, force: true }),
   };
+  try {
+    for (const path of saved) {
+      mkdirSync(dirname(join(backup, path)), { recursive: true });
+      copyFileSync(join(target, path), join(backup, path));
+    }
+    rmSync(join(target, HARNESS_COPY), { recursive: true, force: true });
+    rmSync(join(target, SETUP_MARKER), { force: true });
+    for (const path of existing.contents.discard) rmSync(join(target, path), { recursive: true, force: true });
+    for (const path of saved) rmSync(join(target, path), { force: true });
+    pruneEmptyDirectories(target);
+  } catch (error) {
+    removal.restore();
+    removal.discard();
+    throw error;
+  }
+  return removal;
 }
 
 export function describeInit(): object {
@@ -821,7 +865,7 @@ export async function applyInit(target: string, host: string, requested: readonl
   }
   if (existing === undefined) assertEmpty(target);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-apply-"));
-  let replaced: { restore(): void; discard(): void } | undefined;
+  let replaced: Removal | undefined;
   try {
     await assemble(stage, host, packs, projectNameOf(target));
     const plan = planFromStage(stage, host, packs, existing?.previous.digest);
@@ -844,6 +888,7 @@ export async function applyInit(target: string, host: string, requested: readonl
         copyFileSync(join(stage, path), dest);
         created.push(dest);
       }
+      replaced?.reinstate();
     } catch (error) {
       for (const path of created.reverse()) rmSync(path, { force: true });
       for (const path of directories.reverse()) {
