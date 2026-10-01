@@ -82,6 +82,21 @@ describe("every enforced rule is named in the brief of the role it binds", () =>
   });
 });
 
+// A re-plan replaces the project's installation (ADR 2026-065). The guard
+// admits it before the first ticket; the user's go-ahead is the lead's own
+// obligation, so the lead's brief must say so for each host's spelling.
+describe("the team lead is told to get the user's go-ahead before applying a re-plan", () => {
+  const lead = readFileSync(join(import.meta.dirname, "..", "skills", "team-lead", "SKILL.md"), "utf8").replace(/\s+/g, " ");
+  test("explicit confirmation, on both hosts' apply forms", () => {
+    expect(lead).toMatch(/Apply a re-plan's digest only after the user explicitly confirms it/);
+    expect(lead).toContain("`lead_replan` with `apply`");
+    expect(lead).toContain("(`--apply`)");
+  });
+  test("the declined-but-needed conflict is explained", () => {
+    expect(lead).toContain("`declined: true`");
+  });
+});
+
 describe("the obligations and orderings are named too", () => {
   test("test-writer is told about reachability, boundaries, and collection-time throws", () => {
     expect(testWriter).toMatch(/boundaries/);

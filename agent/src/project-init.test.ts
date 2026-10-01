@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { decide } from "./path-policy.ts";
 import { setupPlan } from "./setup-state.ts";
 import {
-  applyInit, declaresNoInitializer, defaultSelection, describeInit, exampleContracts, exampleWorkspaces, localPackPaths,
+  applyInit, canonicalClosure, declaresNoInitializer, REPLAN_BACKUP, replanFaults, defaultSelection, describeInit, exampleContracts, exampleWorkspaces, localPackPaths,
   importedPackageNames, planInit, projectNameOf, runtimeBuiltinModules, surfaceSelection, withoutTemplateText,
 } from "./project-init.ts";
 
@@ -397,6 +397,99 @@ describe("project-local initialization", () => {
     // Otherwise the project can be re-planned.
     expect((await planInit(target, "claude-code", wider)).replaces).toBe(plan.digest);
   }, 120_000);
+
+  describe("re-plan safety", () => {
+    /** Every file under the project, .git apart, with its content. */
+    const snapshot = (root: string): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const path of readdirSync(root, { recursive: true, withFileTypes: true })) {
+        if (!path.isFile()) continue;
+        const rel = join(path.parentPath, path.name).slice(root.length + 1);
+        if (!rel.startsWith(".git/")) out[rel] = readFileSync(join(root, rel), "utf8");
+      }
+      return out;
+    };
+    async function installed(setupOutput = false): Promise<string> {
+      const target = empty();
+      const plan = await planInit(target, "claude-code", ["ts-trpc"]);
+      await applyInit(target, "claude-code", ["ts-trpc"], plan.digest);
+      // The host's own local settings ("don't ask again") and the user's model tiers.
+      mkdirSync(join(target, ".claude"), { recursive: true });
+      writeFileSync(join(target, ".claude", "settings.local.json"), '{"permissions":{"allow":["Bash(bounded init:*)"]}}\n');
+      writeFileSync(join(target, ".bounded", "dev-stage-models.json"), "{}\n");
+      if (setupOutput) {
+        mkdirSync(join(target, "dist"));
+        writeFileSync(join(target, "dist", "bundle.js"), "built\n");
+      }
+      return target;
+    }
+    const wider = ["ts-web", "ts-trpc"];
+    afterEach(() => { delete replanFaults.afterBackup; delete replanFaults.beforeReinstate; });
+
+    test("the host's local settings and the user's state are kept, setup output deleted; the plan lists both", async () => {
+      const target = await installed(true);
+      const plan = await planInit(target, "claude-code", wider);
+      expect(plan.replacement?.keeps).toEqual([".bounded/dev-stage-models.json", ".claude/settings.local.json"]);
+      expect(plan.replacement?.removes).toEqual(["dist"]);
+      await applyInit(target, "claude-code", wider, plan.digest);
+      expect(readFileSync(join(target, ".claude", "settings.local.json"), "utf8")).toContain("bounded init");
+      expect(readFileSync(join(target, ".bounded", "dev-stage-models.json"), "utf8")).toBe("{}\n");
+      expect(existsSync(join(target, "dist"))).toBe(false);
+      expect(existsSync(join(target, REPLAN_BACKUP))).toBe(false);
+    }, 120_000);
+
+    test("a failure during removal puts the old installation back exactly", async () => {
+      const target = await installed();
+      const before = snapshot(target);
+      const plan = await planInit(target, "claude-code", wider);
+      replanFaults.afterBackup = () => {
+        rmSync(join(target, ".bounded", "harness"), { recursive: true });
+        throw new Error("disk went away");
+      };
+      await expect(applyInit(target, "claude-code", wider, plan.digest)).rejects.toThrow(/disk went away/);
+      expect(snapshot(target)).toEqual(before);
+      expect(existsSync(join(target, REPLAN_BACKUP))).toBe(false);
+    }, 120_000);
+
+    test("a removal the filesystem refuses puts the old installation back exactly", async () => {
+      const target = await installed();
+      const before = snapshot(target);
+      const plan = await planInit(target, "claude-code", wider);
+      chmodSync(join(target, ".claude"), 0o555);
+      try {
+        await expect(applyInit(target, "claude-code", wider, plan.digest)).rejects.toThrow();
+      } finally {
+        chmodSync(join(target, ".claude"), 0o755);
+      }
+      expect(snapshot(target)).toEqual(before);
+    }, 120_000);
+
+    test("a collision while putting kept files back restores the old installation", async () => {
+      const target = await installed();
+      const before = snapshot(target);
+      const plan = await planInit(target, "claude-code", wider);
+      replanFaults.beforeReinstate = () => writeFileSync(join(target, ".bounded", "dev-stage-models.json"), "intruder\n");
+      await expect(applyInit(target, "claude-code", wider, plan.digest)).rejects.toThrow(/collides with a kept file: \.bounded\/dev-stage-models\.json/);
+      expect(snapshot(target)).toEqual(before);
+      expect(existsSync(join(target, REPLAN_BACKUP))).toBe(false);
+    }, 120_000);
+
+    test("an interrupted re-plan stops init and says where the old installation is", async () => {
+      const target = await installed();
+      mkdirSync(join(target, REPLAN_BACKUP));
+      await expect(planInit(target, "claude-code", wider)).rejects.toThrow(`left the previous installation's files in ${join(target, REPLAN_BACKUP)}`);
+      await expect(applyInit(target, "claude-code", wider, "a".repeat(64))).rejects.toThrow(/interrupted re-plan/);
+    }, 120_000);
+
+    test("the selection is a set: listing it in another order is the same installation", async () => {
+      const target = empty();
+      const plan = await planInit(target, "claude-code", ["ts-web", "ts-trpc"]);
+      await applyInit(target, "claude-code", ["ts-web", "ts-trpc"], plan.digest);
+      expect((await planInit(target, "claude-code", ["ts-trpc", "ts-web", "ts", "ts-hexagonal"])).digest).toBe(plan.digest);
+      expect(canonicalClosure(["ts-drizzle-postgres", "ts-desktop", "ts-web"])).toEqual(canonicalClosure(["ts-web", "ts-desktop", "ts-drizzle-postgres"]));
+      expect(canonicalClosure([...DEFAULT_STACK].reverse())).toEqual(DEFAULT_STACK);
+    }, 120_000);
+  });
 
   test("normal product edits survive rerun; installer-owned edits block", async () => {
     const target = empty();

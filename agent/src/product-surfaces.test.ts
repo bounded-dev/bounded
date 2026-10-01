@@ -83,6 +83,23 @@ describe("a one-line description leaves surfaces open", () => {
     expect(answered).toMatchObject({ kind: "selected", packs: ["ts", "ts-hexagonal", "ts-trpc", "ts-web", "ts-drizzle-postgres"] });
   });
 
+  test("a declined surface a chosen pack needs stays visible as a conflict", () => {
+    const selection = surfaceSelection({
+      needed: ["browser-ui"], declined: ["network-api", "desktop", "assistant-tools", "scheduled-jobs", "persistence"],
+    });
+    expect(selection.kind).toBe("selected");
+    if (selection.kind !== "selected") return;
+    expect(selection.surfaces.find((s) => s.id === "network-api"))
+      .toEqual({ id: "network-api", state: "included", servedBy: ["ts-trpc"], declined: true, pulledInBy: ["ts-web"] });
+    // Not declined, not flagged.
+    expect(surfaceSelection({ needed: ["browser-ui", "persistence"], declined: ["desktop", "assistant-tools", "scheduled-jobs"] }))
+      .toMatchObject({ kind: "selected" });
+    const plain = surfaceSelection({ needed: ["browser-ui", "persistence"], declined: ["desktop", "assistant-tools", "scheduled-jobs"] });
+    expect(plain.kind === "selected" && plain.surfaces.some((s) => s.declined === true)).toBe(false);
+    const guidance = (describeInit() as { agentConversation: { guidance: string[] } }).agentConversation.guidance.join("\n");
+    expect(guidance).toMatch(/declined: true.*pulledInBy.*Explain that conflict to the user/s);
+  });
+
   test("the CLI answers open surfaces with their questions and writes nothing", () => {
     const target = mkdtempSync(join(tmpdir(), "bounded-surfaces-cli-"));
     try {

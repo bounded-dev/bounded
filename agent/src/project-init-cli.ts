@@ -81,21 +81,34 @@ async function main(args: string[]): Promise<void> {
   // No --pack selects every installed capability: the whole stack.
   if (!packs.length) packs.push(...defaultSelection());
   const plan = digest ? await applyInit(target, host, packs, digest) : await planInit(target, host, packs);
-  console.log(JSON.stringify({ ...view(digest ? "applied" : "plan", plan, fullJson), ...(report ? { surfaces: report } : {}) }, null, 2));
+  const conflicts = (report ?? []).filter((surface) => surface.declined === true);
+  console.log(JSON.stringify({
+    ...view(digest ? "applied" : "plan", plan, fullJson),
+    ...(report ? { surfaces: report } : {}),
+    ...(conflicts.length > 0 ? {
+      surfaceConflicts: conflicts.map(({ id, pulledInBy }) =>
+        `${id} was declined, but ${(pulledInBy ?? []).join(", ")} needs it, so it is included. Explain this to the user before applying.`),
+    } : {}),
+  }, null, 2));
 }
 
 function view(action: string, plan: Awaited<ReturnType<typeof planInit>>, fullJson: boolean): object {
   if (fullJson) return { action, ...plan };
   return {
     action, host: plan.host, packs: plan.packs, version: plan.version,
-    ...(plan.replaces !== undefined ? {
-      replaces: `the untouched installation ${plan.replaces}: its files, setup output and .bounded/ state are removed, and setup runs again`,
+    ...(plan.replacement !== undefined ? {
+      replaces: `the untouched installation ${plan.replacement.digest}: its files and harness copy are replaced, and setup runs again`,
+      deletesSetupOutput: plan.replacement.removes,
+      keepsUserFiles: plan.replacement.keeps,
     } : {}),
     filesToCreate: Object.keys(plan.createdFiles).length,
     paths: Object.keys(plan.createdFiles),
     harnessFiles: Object.keys(plan.files).length,
     digest: plan.digest,
-    next: action === "plan" ? "Review these paths, then rerun with --apply <digest>. Use --json for hashes." : `Run ${SETUP_COMMAND}, then restart or trust the project in the selected agent host before relying on its gates.`,
+    next: action === "plan"
+      ? (plan.replacement !== undefined
+        ? "This re-plan replaces the current installation and deletes the setup output listed. Explain it to the user and apply with --apply <digest> only after they explicitly agree."
+        : "Review these paths, then rerun with --apply <digest>. Use --json for hashes.") : `Run ${SETUP_COMMAND}, then restart or trust the project in the selected agent host before relying on its gates.`,
   };
 }
 

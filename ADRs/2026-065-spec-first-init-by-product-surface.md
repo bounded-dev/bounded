@@ -13,24 +13,36 @@ pack declares the surfaces it serves in its `contrib.json`
 
 The agent passes its decisions as `--surface <id>` (needed) and
 `--without <id>` (declined). Init selects the one installed pack serving each
-needed surface and closes the selection over dependencies, in the default
-stack's order. A surface the selection already serves counts as decided. If
-any surface a pack offers is still undecided, init writes nothing and returns
-that surface's question, so the agent asks only about what the spec leaves
-open. A needed surface no pack serves, or more than one serves without a
-`--pack` to choose, refuses. `--pack` alone remains the technical path.
+needed surface and closes the selection over dependencies. The selection is
+a set: one canonical dependency-first order (the default stack's, then by
+name) whatever order it was given in, and an installation with the same set
+is the same installation. A surface the selection already serves counts as
+decided. If the user declined it, the result still flags it (`declined:
+true`, with the packs that pulled it in), and the guidance tells the agent to
+explain that conflict. If any surface a pack offers is still undecided, init
+writes nothing and returns that surface's question, so the agent asks only
+about what the spec leaves open. A needed surface no pack serves, or more
+than one serves without a `--pack` to choose, refuses. `--pack` alone remains
+the technical path.
 
 Before the first ticket is prepared, init replaces an installation with a
 different selection in place, under the same plan, review and digest flow.
 It does so only when every file init created is unchanged and nothing has
-been added apart from what the installation's own ignore rules cover and
-`.bounded/` state. Ignored directories (setup output), the harness copy and
-the setup marker are removed, and setup runs again. Ignored files (a
-filled-in `.env`) and other `.bounded/` state (the guard log, model tiers)
-are put back; a failure at any point restores the old installation. The team lead
-may run this re-plan: on Claude Code as the user's own
+been added apart from what the installation's own ignore rules cover, the
+host's local files, and `.bounded/` state. Each host adapter declares its
+local files (Claude Code: its local settings); the core names none. Ignored
+directories (setup output), the harness copy and the setup marker are
+deleted, and setup runs again; the plan lists the deleted setup output.
+Ignored files (a filled-in `.env`), host local files and other `.bounded/`
+state (the guard log, model tiers) are put back. The replaced installation
+is copied to `.bounded-replan-backup/` in the project first, and a failure
+at any point restores it. If the process dies mid-replace, the next init
+refuses and names that folder until the user restores or deletes it.
+
+The team lead may run this re-plan: on Claude Code as the user's own
 `bounded init --host claude-code ...` in one plain form, which the full and
-bootstrap hooks admit; on pi through the `lead_replan` tool, after setup.
+bootstrap hooks admit; on pi through the `lead_replan` tool, after setup. The
+lead applies a re-plan only after the user explicitly confirms it.
 
 ## Why
 

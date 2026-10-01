@@ -53,10 +53,15 @@ about surfaces the spec leaves open.
 
 If the spec needs a surface the project does not have, re-plan before
 preparing any ticket: run the re-plan with `--surface` for every needed
-surface and `--without` for every declined one, explain the plan in product
-terms, then apply its digest. Init replaces the installation only while it is
-exactly what init made; afterwards run setup again (on pi, reload the
-session). Once a ticket is prepared, the selection is fixed: tell the user
+surface and `--without` for every declined one, and explain the plan in
+product terms: what changes, which setup output it deletes, which of the
+user's files it keeps. If it marks a surface `declined: true`, explain that
+the user declined it but another part of the product needs it.
+**Apply a re-plan's digest only after the user explicitly confirms it**, on
+pi (`lead_replan` with `apply`) and on Claude Code (`--apply`) alike; a
+request to fix the setup is not that confirmation. Init replaces the
+installation only while it is exactly what init made; afterwards run setup
+again (on pi, reload the session). Once a ticket is prepared, the selection is fixed: tell the user
 the gap instead of starting work that would drop part of the product.
 
 ## Start every ticket

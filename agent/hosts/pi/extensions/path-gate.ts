@@ -205,7 +205,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
   if (leadTools) pi.registerTool({
     name: LEAD_REPLAN_TOOL,
     label: "Re-plan initialization",
-    description: `Before the first ticket is prepared, change this project's capability selection (the shell form is \`${LEAD_REPLAN_USAGE.replace("<host>", "pi")}\`). Pass the product surfaces the spec needs and those it declines; without apply it returns the plan or the open questions, with apply it replaces the untouched installation. Then run setup and reload the session.`,
+    description: `Before the first ticket is prepared, change this project's capability selection (the shell form is \`${LEAD_REPLAN_USAGE.replace("<host>", "pi")}\`). Pass the product surfaces the spec needs and those it declines; without apply it returns the plan or the open questions, with apply it replaces the untouched installation. Pass apply only after the user explicitly agrees to the plan. Then run setup and reload the session.`,
     parameters: Type.Object({
       surfaces: Type.Optional(Type.Array(Type.String(), { description: "Product surfaces the product needs" })),
       without: Type.Optional(Type.Array(Type.String(), { description: "Product surfaces the product does not need" })),

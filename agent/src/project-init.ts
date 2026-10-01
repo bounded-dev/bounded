@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import {
   chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
-  readdirSync, rmSync, statSync, writeFileSync,
+  readdirSync, rmdirSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -35,6 +35,8 @@ export interface InitPlan {
   /** The digest of the untouched installation this plan replaces, when it
    *  re-plans one before the first ticket (ADR 2026-065). */
   readonly replaces?: string;
+  /** What that re-plan deletes and keeps besides the installation itself. */
+  readonly replacement?: Replacement;
   readonly digest: string;
 }
 
@@ -47,11 +49,25 @@ function sha(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function assertEmpty(target: string): void {
+/** Where a re-plan keeps the replaced installation until the new one is
+ *  written (ADR 2026-065). Inside the project, so an interrupted re-plan
+ *  leaves it where the next init finds it. */
+export const REPLAN_BACKUP = ".bounded-replan-backup";
+
+/** An interrupted re-plan must be resolved before init does anything else. */
+function assertNoInterruptedReplan(target: string): void {
+  const backup = join(resolve(target), REPLAN_BACKUP);
+  if (!existsSync(backup)) return;
+  throw new Error(`An interrupted re-plan left the previous installation's files in ${backup}. ` +
+    "Remove whatever the interrupted re-plan wrote, copy that folder's contents back into the project, " +
+    "then delete the folder (or delete it to give up the previous installation) before running bounded init again");
+}
+
+function assertEmpty(target: string, allowBackup = false): void {
   if (!existsSync(target)) return;
   if (lstatSync(target).isSymbolicLink()) throw new Error("The target directory must not be a symlink");
   if (!statSync(target).isDirectory()) throw new Error(`'${target}' is not a directory`);
-  const entries = readdirSync(target).filter((entry) => entry !== ".git");
+  const entries = readdirSync(target).filter((entry) => entry !== ".git" && !(allowBackup && entry === REPLAN_BACKUP));
   if (entries.length) throw new Error(`Bounded requires an empty directory (or only .git/); found: ${entries.join(", ")}`);
   if (existsSync(join(target, ".git")) && (!statSync(join(target, ".git")).isDirectory() || lstatSync(join(target, ".git")).isSymbolicLink())) {
     throw new Error(".git exists but is not a directory");
@@ -221,19 +237,28 @@ export function defaultSelection(): readonly string[] {
   return packs as string[];
 }
 
-/** A closed selection in the default stack's order where that order respects
- *  every dependency, so the same surfaces give the same plan however the
- *  agent listed them. Packs outside the default stack follow, by name. */
-function canonicalClosure(names: readonly string[]): readonly string[] {
-  const closed = closure(names);
+/** A closed selection in one order that depends only on the set: a
+ *  dependency-first order that, among the packs ready next, takes the one the
+ *  default stack lists first, then the rest by name. The same selection gives
+ *  the same plan however it was listed. */
+export function canonicalClosure(names: readonly string[]): readonly string[] {
+  const remaining = new Set(closure(names));
   const stack = defaultSelection();
   const rank = (name: string): number => (stack.includes(name) ? stack.indexOf(name) : stack.length);
-  const ordered = [...closed].sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0));
+  const byRank = (a: string, b: string): number => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0);
   const known = availablePacks();
-  const respectsDependencies = ordered.every((name, i) =>
-    known.get(name)!.dependsOnPacks.every((dep) => ordered.indexOf(dep) < i));
-  return respectsDependencies ? ordered : closed;
+  const order: string[] = [];
+  while (remaining.size > 0) {
+    const next = [...remaining].filter((name) => known.get(name)!.dependsOnPacks.every((dep) => order.includes(dep))).sort(byRank)[0];
+    if (next === undefined) throw new Error("Capability dependency cycle");
+    order.push(next);
+    remaining.delete(next);
+  }
+  return order;
 }
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((name) => b.includes(name));
 
 /** The selection for the product surfaces the spec and the user decided
  *  (ADR 2026-065), from the installed packs' `productSurfaces` data. */
@@ -625,14 +650,30 @@ function fileHashes(stage: string): Record<string, string> {
   return files;
 }
 
-function planFromStage(stage: string, host: InitHost, packs: readonly string[], replaces?: string): InitPlan {
+/** What a re-plan does besides writing the new installation. Part of the
+ *  reviewed plan, so the user sees it and the digest covers it. */
+export interface Replacement {
+  /** The digest of the untouched installation being replaced. */
+  readonly digest: string;
+  /** Setup and host output (ignored directories and links): deleted, and
+   *  recreated when setup runs again. */
+  readonly removes: readonly string[];
+  /** The user's own files (ignored files such as a filled-in `.env`, the
+   *  host's local settings) and `.bounded/` state: put back unchanged. */
+  readonly keeps: readonly string[];
+}
+
+function planFromStage(stage: string, host: InitHost, packs: readonly string[], replacing?: Replacement): InitPlan {
   const release = sourceRelease();
   const createdFiles = fileHashes(stage);
   const files = Object.fromEntries(Object.entries(createdFiles).filter(([path]) =>
     path.startsWith(".bounded/harness/") || path === COMPOSITION_FILE ||
     path === "AGENTS.md" || path === "CLAUDE.md" || path.startsWith(".claude/") || path.startsWith(".pi/"),
   ));
-  const content = { schemaVersion: 1 as const, host, packs, ...release, createdFiles, files, ...(replaces !== undefined ? { replaces } : {}) };
+  const content = {
+    schemaVersion: 1 as const, host, packs, ...release, createdFiles, files,
+    ...(replacing !== undefined ? { replaces: replacing.digest, replacement: replacing } : {}),
+  };
   return { ...content, digest: sha(JSON.stringify(content)) };
 }
 
@@ -644,7 +685,7 @@ function readInstallation(target: string): InitPlan | undefined {
   if (!existsSync(manifest)) return undefined;
   const previous = JSON.parse(readFileSync(manifest, "utf8")) as InitPlan;
   if (previous.schemaVersion !== 1 || !previous.files || !previous.createdFiles || typeof previous.digest !== "string" ||
-      !Array.isArray(previous.packs)) {
+      !Array.isArray(previous.packs) || (previous.host !== "pi" && previous.host !== "claude-code")) {
     throw new Error("Installation manifest is invalid or changed");
   }
   const { digest: _digest, ...content } = previous;
@@ -655,27 +696,28 @@ function readInstallation(target: string): InitPlan | undefined {
   return previous;
 }
 
+/** The files a host writes into a project for its own machine-local use,
+ *  as that host's adapter declares them: the core names none. */
+async function hostLocalFiles(host: InitHost): Promise<readonly string[]> {
+  const declared = host === "pi"
+    ? (await import("../hosts/pi/local-files.ts")).HOST_LOCAL_FILES
+    : (await import("../hosts/claude-code/local-files.ts")).HOST_LOCAL_FILES;
+  if (!declared.every(safeManifestPath)) throw new Error(`Host '${host}' declares an unsafe local file`);
+  return declared;
+}
+
 type Existing =
   | { readonly kind: "same"; readonly plan: InitPlan }
-  | { readonly kind: "replace"; readonly previous: InitPlan; readonly contents: ReplaceableContents };
-
-/** Everything in a replaceable installation besides the files init created. */
-interface ReplaceableContents {
-  /** Setup and host output (ignored directories and links): removed, setup recreates them. */
-  readonly discard: readonly string[];
-  /** The user's own ignored files (a filled-in `.env`, say) and `.bounded/`
-   *  state other than the harness copy and the setup marker: put back after
-   *  the new installation is written. */
-  readonly keep: readonly string[];
-}
+  | { readonly kind: "replace"; readonly previous: InitPlan; readonly replacement: Replacement };
 
 /** The installation already in `target`: the same selection (its installer
  *  files must be intact; product edits are fine), or one this selection may
- *  replace because nothing has happened since it was made. */
-function existingInstallation(target: string, host: InitHost, packs: readonly string[]): Existing | undefined {
+ *  replace because nothing has happened since it was made. The selection is
+ *  compared as a set. */
+async function existingInstallation(target: string, host: InitHost, packs: readonly string[]): Promise<Existing | undefined> {
   const previous = readInstallation(target);
   if (previous === undefined) return undefined;
-  if (previous.host === host && JSON.stringify(previous.packs) === JSON.stringify(packs)) {
+  if (previous.host === host && sameSet(previous.packs, packs)) {
     for (const [path, hash] of Object.entries(previous.files)) {
       const absolute = join(target, path);
       if (!existsSync(absolute) || !lstatSync(absolute).isFile() || sha(readFileSync(absolute)) !== hash) {
@@ -684,11 +726,11 @@ function existingInstallation(target: string, host: InitHost, packs: readonly st
     }
     return { kind: "same", plan: previous };
   }
-  const replaceable = replanBlocker(target, previous);
+  const replaceable = replanBlocker(target, previous, await hostLocalFiles(previous.host));
   if (typeof replaceable === "string") {
     throw new Error(`Existing installation differs from this selection and cannot be re-planned: ${replaceable}; bounded update is required`);
   }
-  return { kind: "replace", previous, contents: replaceable };
+  return { kind: "replace", previous, replacement: { digest: previous.digest, ...replaceable } };
 }
 
 /** A matcher for root-anchored ignore rules, one path segment at a time:
@@ -703,7 +745,7 @@ function ignoreMatcher(rules: readonly string[]): (path: string) => boolean {
   };
 }
 
-/** Recreated by setup or replaced with the installation, never kept. */
+/** Replaced with the installation or recreated by setup, never kept. */
 const HARNESS_COPY = ".bounded/harness";
 const SETUP_MARKER = ".bounded/setup-complete";
 
@@ -712,9 +754,10 @@ const SETUP_MARKER = ".bounded/setup-complete";
  * Re-planning replaces the whole installation, so it is allowed only while
  * the project is exactly what init made: no ticket prepared or run, every
  * file init created unchanged, and nothing added except what the
- * installation's own ignore rules cover and `.bounded/` state.
+ * installation's own ignore rules cover, the host's local files, and
+ * `.bounded/` state.
  */
-function replanBlocker(target: string, previous: InitPlan): string | ReplaceableContents {
+function replanBlocker(target: string, previous: InitPlan, hostFiles: readonly string[]): string | Omit<Replacement, "digest"> {
   if (!beforeFirstRun(target)) return "a ticket has already been prepared or run here";
   for (const [path, hash] of Object.entries(previous.createdFiles)) {
     const absolute = join(target, path);
@@ -732,8 +775,8 @@ function replanBlocker(target: string, previous: InitPlan): string | Replaceable
     return error instanceof Error ? error.message : String(error);
   }
   const extra: string[] = [];
-  const discard: string[] = [];
-  const keep: string[] = [];
+  const removes: string[] = [];
+  const keeps: string[] = [];
   const created = (path: string): boolean => Object.hasOwn(previous.createdFiles, path) || path === MANIFEST;
   const visit = (base: string): void => {
     for (const entry of readdirSync(join(target, base), { withFileTypes: true })) {
@@ -741,10 +784,10 @@ function replanBlocker(target: string, previous: InitPlan): string | Replaceable
       const path = base ? `${base}/${entry.name}` : entry.name;
       if (path === HARNESS_COPY || path === SETUP_MARKER) continue;
       const state = path.startsWith(".bounded/");
-      if (!state && ignored(path)) (entry.isFile() ? keep : discard).push(path);
+      if (!state && ignored(path)) (entry.isFile() ? keeps : removes).push(path);
       else if (entry.isDirectory()) visit(path);
       else if (created(path)) continue;
-      else if (state && entry.isFile()) keep.push(path);
+      else if (entry.isFile() && (state || hostFiles.includes(path))) keeps.push(path);
       else extra.push(path);
     }
   };
@@ -752,7 +795,7 @@ function replanBlocker(target: string, previous: InitPlan): string | Replaceable
   if (extra.length > 0) {
     return `files were added since initialization (${extra.slice(0, 5).join(", ")}${extra.length > 5 ? ", ..." : ""})`;
   }
-  return { discard, keep };
+  return { removes: removes.sort(), keeps: keeps.sort() };
 }
 
 /** Remove every empty directory below `root`, deepest first, leaving .git alone. */
@@ -773,17 +816,23 @@ interface Removal {
   discard(): void;
 }
 
+/** Hooks a test uses to fail a re-plan at a chosen point. */
+export const replanFaults: { afterBackup?: () => void; beforeReinstate?: () => void } = {};
+
 /** Take the untouched installation out of `target`. Every file it created,
- *  and every kept file, is copied aside first, so a failure at any later
- *  point can put it back; setup output alone is not kept. */
+ *  and every kept file, is first copied to REPLAN_BACKUP, so a failure at any
+ *  later point puts it back and an interrupted process leaves it for the next
+ *  init to report; setup output alone is not kept. */
 function removeInstallation(target: string, existing: Extract<Existing, { kind: "replace" }>): Removal {
-  const backup = mkdtempSync(join(tmpdir(), "bounded-init-replaced-"));
+  const backup = join(target, REPLAN_BACKUP);
   const created = [...Object.keys(existing.previous.createdFiles), MANIFEST];
-  const saved = [...created, ...existing.contents.keep];
+  const kept = existing.replacement.keeps;
+  const saved = [...created, ...kept];
   const removal: Removal = {
     reinstate: () => {
-      for (const path of existing.contents.keep) {
-        if (existsSync(join(target, path))) throw new Error(`Destination collision with a kept file: ${path}`);
+      replanFaults.beforeReinstate?.();
+      for (const path of kept) {
+        if (existsSync(join(target, path))) throw new Error(`The new installation collides with a kept file: ${path}`);
         mkdirSync(dirname(join(target, path)), { recursive: true });
         copyFileSync(join(backup, path), join(target, path));
       }
@@ -791,15 +840,18 @@ function removeInstallation(target: string, existing: Extract<Existing, { kind: 
     restore: () => copyTree(backup, target),
     discard: () => rmSync(backup, { recursive: true, force: true }),
   };
+  mkdirSync(backup);
   try {
     for (const path of saved) {
       mkdirSync(dirname(join(backup, path)), { recursive: true });
       copyFileSync(join(target, path), join(backup, path));
     }
+    replanFaults.afterBackup?.();
     rmSync(join(target, HARNESS_COPY), { recursive: true, force: true });
     rmSync(join(target, SETUP_MARKER), { force: true });
-    for (const path of existing.contents.discard) rmSync(join(target, path), { recursive: true, force: true });
     for (const path of saved) rmSync(join(target, path), { force: true });
+    // Setup output goes last: it has no backup, so an earlier failure keeps it.
+    for (const path of existing.replacement.removes) rmSync(join(target, path), { recursive: true, force: true });
     pruneEmptyDirectories(target);
   } catch (error) {
     removal.restore();
@@ -820,10 +872,11 @@ export function describeInit(): object {
         "Map the spec privately to the product surfaces below. For each, decide whether the spec says the product needs it, says it does not, or leaves it open. A spec that names a way the product is used (a web app, a desktop app, AI assistants using it, a job on a timer, other programs calling it, data that must be kept) needs that surface. A spec that lists where the product is used and leaves a surface out declines it.",
         "Ask the user only about the surfaces the spec leaves open, using each one's question in plain language. Do not ask the user to choose pack names or present the capabilities as a menu.",
         "Run bounded init --host <current-host> with --surface <id> for every needed surface and --without <id> for every declined one. Init selects the capabilities from the packs' own data. If it answers with open surfaces, ask their questions and run it again with the answers.",
+        "If the plan marks a surface declined: true, the user declined it but another part of the product needs it (pulledInBy). Explain that conflict to the user in product terms before going on.",
         "Use the agent host already running this conversation; do not ask the user to select another agent.",
         "If the complete application cannot be scaffolded, explain the gap in product terms and stop. Do not silently omit a required part of the application.",
         "When a complete plan succeeds, explain what Bounded will create in plain language and review the plan before applying its digest.",
-        "Until the first ticket is prepared, the selection can be corrected from inside the project: run bounded init again with the corrected surfaces, and the plan replaces the untouched installation.",
+        "Until the first ticket is prepared, the selection can be corrected from inside the project: run bounded init again with the corrected surfaces. The plan replaces the untouched installation; it lists the setup output it deletes and the user's files it keeps. Apply it only after the user explicitly agrees.",
       ],
     },
     hosts: ["pi", "claude-code"],
@@ -843,22 +896,24 @@ function scaffolderAvailable(pack: string): boolean {
 
 export async function planInit(target: string, host: string, requested: readonly string[]): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'; choose pi or claude-code`);
-  const packs = closure(requested);
-  const existing = existingInstallation(target, host, packs);
+  assertNoInterruptedReplan(target);
+  const packs = canonicalClosure(requested);
+  const existing = await existingInstallation(target, host, packs);
   if (existing?.kind === "same") return existing.plan;
   if (existing === undefined) assertEmpty(target);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-plan-"));
   try {
     await assemble(stage, host, packs, projectNameOf(target));
-    return planFromStage(stage, host, packs, existing?.previous.digest);
+    return planFromStage(stage, host, packs, existing?.replacement);
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
 export async function applyInit(target: string, host: string, requested: readonly string[], reviewedDigest: string): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'`);
   if (!/^[a-f0-9]{64}$/.test(reviewedDigest)) throw new Error("Supply the SHA-256 digest of a reviewed plan");
-  const packs = closure(requested);
-  const existing = existingInstallation(target, host, packs);
+  assertNoInterruptedReplan(target);
+  const packs = canonicalClosure(requested);
+  const existing = await existingInstallation(target, host, packs);
   if (existing?.kind === "same") {
     if (existing.plan.digest !== reviewedDigest) throw new Error("Existing installation differs from the reviewed plan; bounded update is required");
     return existing.plan;
@@ -868,14 +923,14 @@ export async function applyInit(target: string, host: string, requested: readonl
   let replaced: Removal | undefined;
   try {
     await assemble(stage, host, packs, projectNameOf(target));
-    const plan = planFromStage(stage, host, packs, existing?.previous.digest);
+    const plan = planFromStage(stage, host, packs, existing?.replacement);
     if (plan.digest !== reviewedDigest) throw new Error("Plan changed since review; run bounded init with the same options again");
     writeFileSync(join(stage, MANIFEST), JSON.stringify(plan, null, 2) + "\n");
     if (existing !== undefined) replaced = removeInstallation(target, existing);
     const created: string[] = [];
     const directories: string[] = [];
     try {
-      assertEmpty(target);
+      assertEmpty(target, replaced !== undefined);
       mkdirSync(target, { recursive: true });
       for (const path of walk(stage).sort().filter((path) => !path.startsWith(".bounded/guard-") && !path.startsWith(".bounded/run-"))) {
         const dest = join(target, path);
@@ -892,9 +947,16 @@ export async function applyInit(target: string, host: string, requested: readonl
     } catch (error) {
       for (const path of created.reverse()) rmSync(path, { force: true });
       for (const path of directories.reverse()) {
-        if (existsSync(path) && readdirSync(path).length === 0) rmSync(path, { recursive: false });
+        // rmSync refuses any directory without `recursive`; this one is empty.
+        if (existsSync(path) && readdirSync(path).length === 0) rmdirSync(path);
       }
-      replaced?.restore();
+      if (replaced !== undefined) {
+        const removal = replaced;
+        // A restore that fails keeps the backup for the next init to report.
+        replaced = undefined;
+        removal.restore();
+        replaced = removal;
+      }
       throw error;
     }
     return plan;

@@ -57,6 +57,10 @@ export interface SurfaceReport {
   /** The packs in the selection that serve it. */
   readonly servedBy: readonly string[];
   readonly question?: string;
+  /** Declined by the user but included anyway, because a chosen pack needs it. */
+  readonly declined?: true;
+  /** The chosen packs that pull a declined surface in. */
+  readonly pulledInBy?: readonly string[];
 }
 
 export type SurfaceSelection =
@@ -117,7 +121,17 @@ export function selectForSurfaces(
       : servedBy.length > 0 ? "included"
       : decisions.declined.includes(surface.id) ? "declined"
       : "open";
-    return { id: surface.id, state, servedBy, ...(state === "open" ? { question: surface.question } : {}) };
+    // A declined surface a chosen pack needs anyway stays visible: the agent
+    // must explain the conflict to the user rather than let it pass silently.
+    const conflict = state === "included" && decisions.declined.includes(surface.id);
+    const pulledInBy = conflict
+      ? [...new Set(chosen)].filter((name) => !servedBy.includes(name) && servedBy.some((server) => close([name]).includes(server)))
+      : [];
+    return {
+      id: surface.id, state, servedBy,
+      ...(state === "open" ? { question: surface.question } : {}),
+      ...(conflict ? { declined: true as const, pulledInBy } : {}),
+    };
   });
   const open = surfaces.filter((surface) => surface.state === "open").map((surface) => PRODUCT_SURFACES.find((s) => s.id === surface.id)!);
   if (open.length > 0) return { kind: "open", surfaces, questions: open };
