@@ -89,7 +89,8 @@ describe("ticket-numbered design", () => {
     expect(decide("architect", "write", { path: "contexts/notes/src/t25.contract.ts" }, ctx).allow).toBe(false);
     expect(decide("architect", "write", { path: "contexts/notes/src/T24.contract.ts" }, ctx).allow).toBe(false);
     expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason)
-      .toContain("not owned by ticket #24");
+      .toBe("path-gate: contract 'contexts/notes/src/t25.contract.ts' is not owned by ticket #24; " +
+        "list it under `contracts:` in the front matter of docs/tn/TN-24.md, then write it");
     expect(decide("architect", "write", { path: "docs/tn/TN-25.md" }, ctx).allow).toBe(false);
     expect(decide("architect", "write", { path: "spec.md" }, ctx).allow).toBe(false);
     writeFileSync(join(root, "docs/tn/TN-24.md"),
