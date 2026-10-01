@@ -138,6 +138,16 @@ describe("the reference passes its own checks", () => {
     expect(results.flatMap((r) => r.messages.map((m) => `${r.filePath}: ${m.ruleId}: ${m.message}`))).toEqual([]);
   });
 
+  test("store tests seed and read back through sibling stores, never the database's fields", () => {
+    // The test-writer copies these, and the database's fields are the
+    // builder's: a store test that reached into them could not be written blind.
+    const storeTests = walk(REFERENCE).filter((path) => path.endsWith(".store.test.ts"));
+    expect(storeTests.length).toBeGreaterThanOrEqual(5);
+    for (const path of storeTests) {
+      expect(readFileSync(join(REFERENCE, path), "utf8"), path).not.toMatch(/\bdb\.[A-Za-z_$]/);
+    }
+  });
+
   test("it type-checks strictly, with the example's compiler options", () => {
     const dir = fixture();
     writeFileSync(join(dir, "bun-shim.d.ts"), SHIM);

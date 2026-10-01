@@ -1,17 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { Note, NoteId, NoteText, ProjectId } from "@example/project-management/domain";
+import { Note, NoteId, NoteText, Project, ProjectId, ProjectName } from "@example/project-management/domain";
 import type { ListNotesStore } from "./list-notes.contract.ts";
 
-/** A fresh store, plus seeding the notes the port only reads. */
+/** A fresh store, plus seeding what the port only reads: the notes, and the
+ *  project each one belongs to (a note always belongs to a stored project). */
 export interface ListNotesStoreFixture {
   readonly store: ListNotesStore;
+  addProject(project: Project): Promise<void>;
   addNote(note: Note): Promise<void>;
 }
 
-function note(raw: string): Note {
+function project(): Project {
+  const name = ProjectName.parse("Website redesign");
+  if (!name.ok) throw new Error(name.error);
+  return new Project(ProjectId.generate(), name.value);
+}
+
+function note(projectId: ProjectId, raw: string): Note {
   const text = NoteText.parse(raw);
   if (!text.ok) throw new Error(text.error);
-  return new Note(NoteId.generate(), ProjectId.generate(), text.value);
+  return new Note(NoteId.generate(), projectId, text.value);
 }
 
 /** The behaviour every ListNotesStore must have, whatever stores the data. */
@@ -23,8 +31,10 @@ export function listNotesStoreConformance(name: string, fixture: () => Promise<L
     });
 
     test("finds every stored note", async () => {
-      const { store, addNote } = await fixture();
-      const notes = [note("First"), note("Second")];
+      const { store, addProject, addNote } = await fixture();
+      const owner = project();
+      await addProject(owner);
+      const notes = [note(owner.id, "First"), note(owner.id, "Second")];
       for (const n of notes) await addNote(n);
       const found = (await store.findAll()).map((n) => n.toJSON());
       expect(found).toHaveLength(2);
