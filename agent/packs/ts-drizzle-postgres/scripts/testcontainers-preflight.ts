@@ -116,29 +116,35 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
 /** Tokens recognisable by their prefix alone (GitHub, GitLab, Slack, npm,
  *  Docker Hub, AWS access keys, OpenAI-style keys, JWTs). */
 const TOKEN = /\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|npm_[A-Za-z0-9]{20,}|dckr_pat_[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*)/g;
-/** A field name that says it holds a secret: `password`, `db_pass`, `PG_PWD`,
- *  `x-api-key`. `pass` counts only as a whole name segment, so `bypass` and
- *  `passed` are ordinary words. */
-const SECRET_NAME = String.raw`\b(?:[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|key|auth|authorization)[A-Za-z0-9_.-]*|(?:[A-Za-z0-9.-]*[_.-])?pass(?:[_.-][A-Za-z0-9_.-]*)?)\b`;
+/** One segment of a name that says it holds a secret. Compound words end in
+ *  the secret word (`PGPASSWORD`, `identitytoken`); the short words count only
+ *  as a whole segment, so `unauthorized`, `bypass` and `monkey` are ordinary. */
+const SECRET_SEGMENT = String.raw`(?:[A-Za-z0-9]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|authorization)|pwd|pass|key|auth)(?![A-Za-z0-9])`;
+/** A whole name token holding a secret segment: `password`, `db_pass`,
+ *  `PG_PWD`, `x-api-key`, `AWS_SECRET_ACCESS_KEY`. */
+const SECRET_NAME = String.raw`(?<![A-Za-z0-9_.])(?:[A-Za-z0-9]+[_.-])*?${SECRET_SEGMENT}(?:[_.-][A-Za-z0-9]+)*(?![A-Za-z0-9_.-])`;
 /** `name="a quoted value"`, spaces and all. */
 const SECRET_QUOTED = new RegExp(String.raw`(${SECRET_NAME}["']?\s*[:=]\s*)(["'])(?!\[redacted\])(?:\\.|(?!\2)[^\\])*\2`, "gi");
 /** `name=value` and `name: value` where the name says it holds a secret. */
 const SECRET_FIELD = new RegExp(String.raw`(${SECRET_NAME}["']?\s*[:=]\s*["']?)(?!\[redacted\])[^\s"',;}]+`, "gi");
-/** Words that follow a secret's NAME in ordinary prose ("POSTGRES_PASSWORD is
- *  not set", "--password must be given"): never taken for its value. */
-const PROSE = String.raw`(?:is|are|was|were|be|been|has|have|had|must|should|may|can|cannot|not|no|to|and|or|of|for|in|on|the|a|an|missing|required|unset|empty|set|given|provided|specified|value|variable|environment|flag|option|failed|authentication)\b`;
+/** `Authorization: <scheme> <credential>`: the scheme and the credential both go. */
+const AUTH_HEADER = /(\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?)(?!\[redacted\])(?:[A-Za-z][\w-]*\s+(?=[^\s"',;}]))?[^\s"',;}]+/gi;
+/** Words of ordinary prose or an error's own wording, in any case, that can
+ *  follow a secret's NAME ("POSTGRES_PASSWORD to a non-empty value", "TOKEN
+ *  EXPIRED", "token: invalid"): never taken for its value. */
+const ORDINARY = /^(?:is|are|was|were|be|been|has|have|had|must|should|may|can|cannot|not|no|to|and|or|of|for|in|on|the|a|an|missing|required|unset|empty|set|given|provided|specified|value|variable|environment|flag|option|header|failed|failure|authentication|expired|invalid|unauthorized|denied|incorrect|forbidden|rejected|wrong|unknown|malformed|mismatch|error|none|null|undefined)[.!:]*$/i;
 /** A secret value: quoted (spaces and all), or one bare word. */
 const VALUE = String.raw`(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s"',;}]+)`;
 /** `--password x`, `--db-token x`: a long flag whose name says secret, then
  *  its value. `--password-stdin` and `--password-file` carry no secret. */
 const SECRET_FLAG = new RegExp(
-  String.raw`((?:^|\s)--?[A-Za-z0-9-]*(?:password|passwd|pwd|pass|secret|token|api-?key|access-?key|private-?key)(?![A-Za-z0-9-]*-(?:stdin|file)\b)[A-Za-z0-9-]*\s+)(?!\[redacted\]|-|${PROSE})${VALUE}`,
+  String.raw`((?:^|\s)--?[A-Za-z0-9-]*(?:password|passwd|pwd|pass|secret|token|api-?key|access-?key|private-?key)(?![A-Za-z0-9-]*-(?:stdin|file)\b)[A-Za-z0-9-]*\s+)(?!\[redacted\]|-)${VALUE}`,
   "gi",
 );
 /** `PGPASSWORD x`, `POSTGRES_PASSWORD x`, `DB_PASS x`: an environment-style
  *  upper-case name that says secret, then its value. */
 const SECRET_ENV = new RegExp(
-  String.raw`(\b[A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)[A-Z0-9_]*\s+|\b[A-Z0-9_]+_(?:PASS|PWD)\s+)(?!\[redacted\]|-|${PROSE})${VALUE}`,
+  String.raw`(\b[A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)[A-Z0-9_]*\s+|\b[A-Z0-9_]+_(?:PASS|PWD)\s+)(?!\[redacted\]|-)${VALUE}`,
   "g",
 );
 /** `-p x` where `-p` is a registry login's password flag (`docker login -u
@@ -149,18 +155,41 @@ const LOGIN_P = new RegExp(String.raw`(\blogin\b[^;|&]{0,200}?\s-p\s+)(?!\[redac
 const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/)(?:[^\s/?#@:]*:(?:[^\s/?#]|\s(?=[^/?#]*@))*|[^\s/?#]*)@/gi;
 /** An absolute path of two or more segments, not part of a URL or a word. */
 const ABSOLUTE_PATH = /(?<![\w.~/-])\/(?!\/)[^\s"'`(),;/]+(?:\/[^\s"'`(),;]*)+/g;
-/** Paths that name no machine: container-runtime sockets at their standard
- *  places, and Docker Engine and registry API routes. */
-const WELL_KNOWN_PATH = /^(?:(?:\/private)?(?:\/var)?\/run\/(?:[\w.-]+\/)*[\w.-]+\.sock|\/(?:v\d+(?:\.\d+)?|containers|images|networks|volumes|exec|services|tasks|plugins|distribution|\.well-known)\/\S*)$/;
+/** Paths that name no machine or user: container-runtime sockets at their
+ *  standard places, Docker Engine and registry API routes, and the system's
+ *  own directories (where a remedy says a helper or the runtime lives). */
+const WELL_KNOWN_PATH = new RegExp(
+  "^(?:(?:/private)?(?:/var)?/run/(?:[\\w.-]+/)*[\\w.-]+\\.sock" +
+    "|/(?:v\\d+(?:\\.\\d+)?|containers|images|networks|volumes|exec|services|tasks|plugins|distribution|\\.well-known)/\\S*" +
+    "|/(?:usr/(?:local/)?(?:bin|sbin|lib|lib64|libexec|share|include|etc)|bin|sbin|lib|lib64|etc|var/lib/(?:docker|containerd|containers)|var/log" +
+    "|opt/homebrew/(?:bin|sbin|lib|etc|opt|Cellar)|proc|sys|dev)(?:/\\S*)?)$",
+);
+
+/** Keep a secret-looking match when its "value" is an ordinary word. */
+function redactUnlessOrdinary(onlyAfterColon: boolean, replacement: (prefix: string) => string) {
+  return (match: string, prefix: string): string => {
+    const value = match.slice(prefix.length);
+    const colon = /:\s*["']?$/.test(prefix);
+    return (!onlyAfterColon || colon) && ORDINARY.test(value) ? match : replacement(prefix);
+  };
+}
+
+/** `Authorization:` keeps an ordinary word ("Authorization: required"),
+ *  otherwise loses its scheme and credential together. */
+function redactAuthHeader(match: string, prefix: string): string {
+  const first = match.slice(prefix.length).split(/\s+/)[0] ?? "";
+  return ORDINARY.test(first) ? match : `${prefix}[redacted]`;
+}
 
 /**
  * The cause as the user may see it: no ANSI, no stack or code frames, no
  * secrets (URL credentials up to the last `@` before the host, secret-named
- * fields in any case and quoted or not, secret-named flags and environment
- * names followed by a value, a login's `-p` value, bearer and basic
- * credentials, prefixed tokens), no absolute machine paths (home, the temp
- * directory, and any absolute path of two or more segments except a runtime
- * socket or an API route), one line, bounded. Pure.
+ * fields in any case and quoted or not, an Authorization header's scheme and
+ * credential, secret-named flags and environment names followed by a value,
+ * a login's `-p` value, bearer and basic credentials, prefixed tokens), no
+ * absolute machine paths (home, the temp directory, and any absolute path of
+ * two or more segments except a runtime socket, an API route or a system
+ * directory), one line, bounded. Pure.
  */
 export function cleanCause(text: string, home = homedir(), temp = tmpdir()): string {
   const lines = text.replace(ANSI, "").split(/\r?\n/)
@@ -170,28 +199,32 @@ export function cleanCause(text: string, home = homedir(), temp = tmpdir()): str
   out = out
     .replace(URL_CREDENTIALS, "$1[redacted]@")
     .replace(TOKEN, "[redacted]")
-    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]")
+    .replace(AUTH_HEADER, redactAuthHeader)
+    .replace(/\b(Bearer|Basic)\s+(?!\[redacted\])[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]")
     .replace(SECRET_QUOTED, "$1$2[redacted]$2")
-    .replace(SECRET_FIELD, "$1[redacted]")
-    .replace(SECRET_FLAG, "$1[redacted]")
-    .replace(SECRET_ENV, "$1[redacted]")
+    .replace(SECRET_FIELD, redactUnlessOrdinary(true, (prefix) => `${prefix}[redacted]`))
+    .replace(SECRET_FLAG, redactUnlessOrdinary(false, (prefix) => `${prefix}[redacted]`))
+    .replace(SECRET_ENV, redactUnlessOrdinary(false, (prefix) => `${prefix}[redacted]`))
     .replace(LOGIN_P, "$1[redacted]");
   const roots = [temp, home].filter((root) => root !== "" && root !== "/").map(escapeRegExp);
   const paths = new RegExp(
     `(?<![\\w.-])(?:${[...roots, "(?:/private)?/var/folders", "(?:/private)?/tmp", "/Users", "/home", "/root"].join("|")})(?=/|$|[\\s"'\`(),;:])[^\\s"'\`(),;]*`,
     "g",
   );
-  out = out.replace(paths, "[path]")
+  out = out.replace(paths, (path) => `[path]${trailing(path)}`)
     .replace(ABSOLUTE_PATH, keepWellKnown)
     .replace(/\s+/g, " ").trim();
   return out.length > MAX_CAUSE ? `${out.slice(0, MAX_CAUSE - 1)}…` : out;
 }
 
+/** Sentence punctuation after a path ("no such file /x/y: ..."), kept. */
+const trailing = (path: string): string => /[.:]+$/.exec(path)?.[0] ?? "";
+
 /** A path kept when it names no machine, else `[path]`. A trailing
  *  `:line:col` or sentence punctuation is not part of what is judged. */
 function keepWellKnown(path: string): string {
   const bare = path.replace(/(?::\d+)+$|[.:]+$/, "");
-  return WELL_KNOWN_PATH.test(bare) ? path : "[path]";
+  return WELL_KNOWN_PATH.test(bare) ? path : `[path]${trailing(path)}`;
 }
 
 const shown = (endpoint: string, home: string): string => (home !== "" && home !== "/" ? endpoint.split(home).join("~") : endpoint);

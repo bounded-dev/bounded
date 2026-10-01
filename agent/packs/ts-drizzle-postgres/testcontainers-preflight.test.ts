@@ -217,7 +217,45 @@ describe("cleanCause: the review's repro", () => {
   test("absolute machine paths outside home and the temp directory (issue #37)", () => {
     expect(cleanCause("ENOENT /opt/app/node_modules/x.js while loading (/workspace/proj/src/a.ts:3:4) from /srv/data", HOME))
       .toBe("ENOENT [path] while loading ([path]) from [path]");
-    expect(cleanCause("cannot open Error:/etc/postgresql/pg_hba.conf", HOME)).toBe("cannot open Error:[path]");
+    expect(cleanCause("cannot open Error:/srv/postgresql/pg_hba.conf", HOME)).toBe("cannot open Error:[path]");
+    expect(cleanCause("lstat /mnt/c/Users/bob/proj: no such file", HOME)).toBe("lstat [path]: no such file");
+  });
+
+  test("secret names are whole tokens; an error's own word after a colon is not a value (review of #37)", () => {
+    for (const text of [
+      'Error response from daemon: Get "https://registry-1.docker.io/v2/": unauthorized: incorrect username or password',
+      "error from registry: auth: unauthorized",
+      "token: invalid",
+      "key mismatch in image manifest",
+    ]) expect(cleanCause(text, HOME)).toBe(text);
+    expect(cleanCause("auth: dXNlcjpwYXNz token=invalid --password=hunter2", HOME))
+      .toBe("auth: [redacted] token=[redacted] --password=[redacted]");
+  });
+
+  test("an Authorization header loses its scheme and its credential (review of #37)", () => {
+    expect(cleanCause("Authorization: Token abcdef123456 next", HOME)).toBe("Authorization: [redacted] next");
+    expect(cleanCause("authorization: Bearer abc.def", HOME)).toBe("authorization: [redacted]");
+    expect(cleanCause("Proxy-Authorization: Basic Ym9iOmh1bnRlcjI=", HOME)).toBe("Proxy-Authorization: [redacted]");
+    expect(cleanCause("Authorization: token=abc", HOME)).toBe("Authorization: [redacted]");
+    expect(cleanCause('{"Authorization":"Token abc"}', HOME)).toBe('{"Authorization":"[redacted]"}');
+  });
+
+  test("upper-case prose after a secret's name stays as written (review of #37)", () => {
+    for (const text of ["PASSWORD AUTHENTICATION FAILED FOR USER bob", "TOKEN EXPIRED", "API_KEY header missing", "API_KEY header was missing"]) {
+      expect(cleanCause(text, HOME)).toBe(text);
+    }
+    expect(cleanCause("PGPASSWORD HUNTER2 psql", HOME)).toBe("PGPASSWORD [redacted] psql");
+  });
+
+  test("system directories stay as written; user and project paths do not (review of #37)", () => {
+    for (const text of [
+      "credential helper docker-credential-desktop not found in /usr/local/bin",
+      "use /usr/bin/docker",
+      "mkdir /var/lib/docker/overlay2: read-only file system",
+      "open /etc/docker/daemon.json: permission denied",
+    ]) expect(cleanCause(text, HOME)).toBe(text);
+    expect(cleanCause("dial unix /Users/someone/.orbstack/run/docker.sock: no such file /opt/work/project/a.ts:1:2", HOME))
+      .toBe("dial unix [path]: no such file [path]");
   });
 
   test("ordinary error text, well-known paths and port flags stay as written (issue #37)", () => {
