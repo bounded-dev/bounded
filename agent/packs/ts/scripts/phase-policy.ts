@@ -7,6 +7,9 @@
 //   green   any refusal refuses the run; otherwise every policy's `unsetEnv`
 //           is removed, so a variable leaked into the gate's environment
 //           cannot skip anything
+//   green   a policy may recognise a failure as the machine's, not the
+//           code's (`infrastructureFailure`): the gate routes it to the
+//           orchestrator instead of a role
 //   both    a policy may ask for a service the run needs (`prepare`): the
 //           gate starts each in policy order just before the run, sets its
 //           environment over everything else, and releases every one after
@@ -15,7 +18,7 @@
 import { readProjectPacks } from "../../../src/project-composition.ts";
 import { composePacks } from "../../../src/socket-registry.ts";
 import { INSTALLED_PACKS } from "../../installed.ts";
-import { type PhaseTestDecision, phaseTestPolicies, type PreparedTestService, type TestPhase } from "../pack.ts";
+import { type PhaseTestDecision, phaseTestPolicies, type PreparedTestService, type TestFailure, type TestPhase } from "../pack.ts";
 
 export interface PhaseRun {
   /** Why the gate must not run the suite at all (green only). */
@@ -27,6 +30,9 @@ export interface PhaseRun {
   readonly skippedOnPurpose: (resultName: string) => boolean;
   /** Services to start for the run, in policy order. */
   readonly prepares: readonly { readonly name: string; readonly prepare: () => Promise<PreparedTestService> }[];
+  /** The causes a policy recognises as the machine's in these failures, one
+   *  per failure it claims, deduplicated, in order. Empty: the code's. */
+  readonly infrastructureCauses: (failures: readonly TestFailure[]) => string[];
 }
 
 /** Combine decisions. Pure. A skip at green, or a refusal at red, is a policy
@@ -38,8 +44,10 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
   const unset = new Set<string>();
   const claims: ((name: string) => boolean)[] = [];
   const prepares: { name: string; prepare: () => Promise<PreparedTestService> }[] = [];
+  const classifiers: ((failure: TestFailure) => string | undefined)[] = [];
   for (const { name, decision } of decisions) {
     if (decision.action === "run" && decision.prepare !== undefined) prepares.push({ name, prepare: decision.prepare });
+    if (decision.action === "run" && decision.infrastructureFailure !== undefined) classifiers.push(decision.infrastructureFailure);
     for (const variable of decision.unsetEnv) unset.add(variable);
     if (decision.action === "refuse" || (decision.action === "skip" && phase === "green")) {
       refusals.push(decision.action === "refuse" ? decision.reason : `${name} asked to skip tests at green: ${decision.reason}`);
@@ -56,6 +64,24 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
     env: { set, unset: [...unset].sort() },
     skippedOnPurpose: (resultName) => claims.some((claim) => claim(resultName)),
     prepares,
+    infrastructureCauses: (failures) => {
+      const causes = new Set<string>();
+      for (const failure of failures) {
+        for (const classify of classifiers) {
+          let cause: string | undefined;
+          try {
+            cause = classify(failure);
+          } catch {
+            cause = undefined; // a classifier that cannot judge claims nothing
+          }
+          if (cause !== undefined) {
+            causes.add(cause);
+            break;
+          }
+        }
+      }
+      return [...causes];
+    },
   };
 }
 

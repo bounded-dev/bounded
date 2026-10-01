@@ -461,15 +461,27 @@ export interface PreparedTestService {
   readonly release: () => void;
 }
 
+/** One failing result of a gate's run, as the gate saw it. */
+export interface TestFailure {
+  readonly name: string;
+  readonly message?: string;
+  /** Project-relative test file, when the report names one. */
+  readonly file?: string;
+}
+
 export type PhaseTestDecision =
   /** Run; remove `unsetEnv` from the test process's environment. With
    *  `prepare`, the gate starts the service just before the run (a throw
-   *  blocks the gate with its message), sets its `env`, and releases it
-   *  afterwards. */
+   *  blocks the gate with its message, routed to the orchestrator), sets
+   *  its `env`, and releases it afterwards. With `infrastructureFailure`,
+   *  green asks it about every failure: a returned cause means the machine,
+   *  not the code, failed that test, and the gate routes to the
+   *  orchestrator instead of a role. */
   | {
       readonly action: "run";
       readonly unsetEnv: readonly string[];
       readonly prepare?: () => Promise<PreparedTestService>;
+      readonly infrastructureFailure?: (failure: TestFailure) => string | undefined;
     }
   /** Red only: run with `env` set, and accept a skipped result exactly when
    *  `skippedTest(name)` holds for it. The gate prints `reason`. */

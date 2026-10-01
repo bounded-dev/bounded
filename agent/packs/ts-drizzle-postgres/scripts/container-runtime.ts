@@ -9,15 +9,17 @@
 // tries a fixed, ordered list of endpoints and asks each one the Docker API's
 // `GET /_ping`, with a bounded timeout. It never starts anything. Whatever it
 // misses fails closed: green refuses rather than running store tests that
-// could not start, and a runtime it finds but Testcontainers cannot use makes
-// the store tests fail loudly, never pass.
+// could not start, and a runtime it finds but Testcontainers cannot use is
+// caught by green's Testcontainers preflight (testcontainers-preflight.ts),
+// which refuses with the machine's cause before any test runs.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { PhaseTestDecision, PhaseTestPolicy, PreparedTestService } from "../../ts/pack.ts";
+import type { PhaseTestDecision, PhaseTestPolicy, PreparedTestService, TestFailure } from "../../ts/pack.ts";
 import { startAppDatabase } from "./app-database.ts";
-import { DRIZZLE, DRIZZLE_PREFIX, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
+import { DRIZZLE, DRIZZLE_PREFIX, POSTGRES_IMAGE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
+import { preflightTestcontainers, storeTestInfrastructureFailure } from "./testcontainers-preflight.ts";
 import { CONTEXTS_DIR, drizzleContexts } from "./check-db.ts";
 
 export type ContainerRuntimeProbe =
@@ -206,13 +208,42 @@ export function appDatabaseRefusal(probe: Extract<ContainerRuntimeProbe, { avail
     "and run green again (ADR 2026-064).";
 }
 
+/** Start `steps` in order as one service: a later failure releases what
+ *  the earlier ones started, and the release takes them all down, last first. */
+export async function startInOrder(steps: readonly (() => Promise<PreparedTestService>)[]): Promise<PreparedTestService> {
+  const started: PreparedTestService[] = [];
+  const release = (): void => {
+    for (const service of started.splice(0).reverse()) {
+      try {
+        service.release();
+      } catch {
+        // release never throws by contract
+      }
+    }
+  };
+  try {
+    for (const step of steps) started.push(await step());
+  } catch (error) {
+    release();
+    throw error;
+  }
+  return {
+    description: started.map((service) => service.description).join("; "),
+    env: Object.assign({}, ...started.map((service) => service.env)) as Record<string, string>,
+    release,
+  };
+}
+
 /**
  * ADR 2026-064 in the ts pack's `phaseTestPolicies` shape. The runtime is
  * probed only when the tree has store tests, or at green when it persists
- * through Drizzle at all. At green with a runtime, a Drizzle tree also gets
- * its throwaway application database (`startDatabase`, called by the gate
- * just before the run): the app smoke tests read DATABASE_URL through their
- * composition roots.
+ * through Drizzle at all. At green with a runtime, the gate (just before the
+ * run) first has store tests' Testcontainers start and stop one container
+ * (`preflight`), then, on a Drizzle tree, starts its throwaway application
+ * database (`startDatabase`): the app smoke tests read DATABASE_URL through
+ * their composition roots. With store tests, green also gets the
+ * classifier that tells a store test failed by the machine from one failed
+ * by the code (`infrastructureFailure`).
  */
 export function storeTestPhaseDecision(
   phase: "red" | "green",
@@ -220,6 +251,8 @@ export function storeTestPhaseDecision(
   probe: () => ContainerRuntimeProbe,
   persists = false,
   startDatabase?: (endpoint: string) => Promise<PreparedTestService>,
+  preflight?: (endpoint: string) => Promise<PreparedTestService>,
+  infrastructureFailure?: (endpoint: string) => (failure: TestFailure) => string | undefined,
 ): PhaseTestDecision {
   const needsRuntime = storeTests.length > 0 || (phase === "green" && persists);
   const probed = needsRuntime ? probe() : { available: true as const, endpoint: "(not probed)" };
@@ -228,24 +261,37 @@ export function storeTestPhaseDecision(
     return { action: "skip", reason: decision.reason, env: decision.env, unsetEnv: STORE_TEST_ENV, skippedTest: isSkippedStoreTest };
   }
   if (decision.action === "refuse") return decision;
-  if (phase !== "green" || !persists) return decision;
-  if (!probed.available) return { action: "refuse", reason: appDatabaseRefusal(probed), unsetEnv: STORE_TEST_ENV };
-  if (startDatabase === undefined) return decision;
+  if (phase !== "green") return decision;
+  if (persists && !probed.available) return { action: "refuse", reason: appDatabaseRefusal(probed), unsetEnv: STORE_TEST_ENV };
+  if (!probed.available) return decision;
   const endpoint = probed.endpoint;
-  return { ...decision, prepare: () => startDatabase(endpoint) };
+  const stores = storeTests.length > 0;
+  const steps: (() => Promise<PreparedTestService>)[] = [];
+  if (stores && preflight !== undefined) steps.push(() => preflight(endpoint));
+  if (persists && startDatabase !== undefined) steps.push(() => startDatabase(endpoint));
+  const classified = stores && infrastructureFailure !== undefined ? { infrastructureFailure: infrastructureFailure(endpoint) } : {};
+  if (steps.length === 0) return { ...decision, ...classified };
+  return { ...decision, ...classified, prepare: () => (steps.length === 1 ? steps[0]!() : startInOrder(steps)) };
 }
 
 export const storeTestPolicy: PhaseTestPolicy = {
   name: "store-tests-need-a-container-runtime",
   description:
     "Drizzle store tests run against real Postgres: without a container runtime the red gate skips them with the " +
-    "reason logged, and the green gate refuses (ADR 2026-064). At green a Drizzle tree also gets one throwaway, " +
-    "migrated Postgres as DATABASE_URL for the run (the app smoke tests), removed afterwards.",
-  decide: ({ project, phase }) => storeTestPhaseDecision(
-    phase,
-    drizzleStoreTests(project),
-    () => probeContainerRuntime(),
-    phase === "green" && drizzleContexts(project).length > 0,
-    (endpoint) => startAppDatabase(project, endpoint),
-  ),
+    "reason logged, and the green gate refuses (ADR 2026-064). At green, store tests' Testcontainers first start and " +
+    "stop one container (a preflight that refuses with the machine's cause), a Drizzle tree gets one throwaway, " +
+    "migrated Postgres as DATABASE_URL for the run (the app smoke tests), and a store test failed by the machine " +
+    "routes to the orchestrator, not a role.",
+  decide: ({ project, phase }) => {
+    const storeTests = drizzleStoreTests(project);
+    return storeTestPhaseDecision(
+      phase,
+      storeTests,
+      () => probeContainerRuntime(),
+      phase === "green" && drizzleContexts(project).length > 0,
+      (endpoint) => startAppDatabase(project, endpoint),
+      (endpoint) => preflightTestcontainers(project, storeTests[0]!, endpoint),
+      (endpoint) => storeTestInfrastructureFailure(storeTests, { image: POSTGRES_IMAGE, endpoint }),
+    );
+  },
 };

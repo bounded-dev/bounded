@@ -25,10 +25,11 @@
 // probe found (DOCKER_HOST), so the database and the probe agree on which
 // runtime they mean. Everything that touches the machine is injectable; the
 // sequencing is unit-tested without Docker.
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, type ChildProcessByStdio, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
 import type { PreparedTestService } from "../../ts/pack.ts";
 import { POSTGRES_IMAGE } from "./emit.ts";
 
@@ -73,13 +74,17 @@ export interface AppDatabaseDeps {
 const dockerEnv = (endpoint: string): NodeJS.ProcessEnv => ({ ...process.env, DOCKER_HOST: endpoint, DOCKER_CONTEXT: "" });
 
 /** One child process, awaited; killed and reported at `timeoutMs`. */
-export function runChild(command: string, args: readonly string[], options: { env?: NodeJS.ProcessEnv; cwd?: string; timeoutMs: number }): Promise<CommandResult> {
+export function runChild(
+  command: string, args: readonly string[],
+  options: { env?: NodeJS.ProcessEnv; cwd?: string; timeoutMs: number; onSpawn?: (child: ChildProcess) => void },
+): Promise<CommandResult> {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
-    let child;
+    let child: ChildProcessByStdio<null, Readable, Readable>;
     try {
       child = spawn(command, [...args], { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] });
+      options.onSpawn?.(child);
     } catch (error) {
       resolve({ status: null, stdout, stderr, error: error instanceof Error ? error : new Error(String(error)) });
       return;

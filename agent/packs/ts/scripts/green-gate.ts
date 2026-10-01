@@ -56,7 +56,7 @@ import { lintSrc } from "./lint-src.ts";
 import { checkProjectSurfaces } from "./surface-check.ts";
 import { findSkeletonImports, type SkeletonImporter } from "./skeleton-imports.ts";
 import { sourceRoots } from "../../../src/pack-contrib.ts";
-import { phaseRun, withPreparedServices } from "./phase-policy.ts";
+import { type PhaseRun, phaseRun, withPreparedServices } from "./phase-policy.ts";
 import { projectFactsOf } from "./project-emitters.ts";
 import { checkObligations, obligationLines, readObligationInput } from "./test-obligations.ts";
 
@@ -442,7 +442,12 @@ function blockAndLog(cwd: string, result: GateResult): GateResult {
   return result;
 }
 
-export async function runGreenGate(cwd: string): Promise<GateResult> {
+export interface GreenGateOptions {
+  /** The composed green policies; tests inject fakes. */
+  readonly policy?: PhaseRun;
+}
+
+export async function runGreenGate(cwd: string, options: GreenGateOptions = {}): Promise<GateResult> {
   // The suite and typecheck load the project's config: it must be what the
   // composed packs generate (ADR 2026-054).
   const configBlock = configDriftBlock(GUARD, cwd);
@@ -462,7 +467,7 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
 
   // Store tests need a container runtime at green (ADR 2026-064): refuse
   // rather than run a suite whose store tests cannot start.
-  const policy = phaseRun(cwd, "green");
+  const policy = options.policy ?? phaseRun(cwd, "green");
   if (policy.refusals.length > 0) {
     return blockAndLog(cwd, {
       code: 1,
@@ -499,6 +504,28 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
     });
   }
   const [run, tsc, lint] = prepared.value;
+  // A failure a policy recognises as the machine's (a container start that
+  // could not pull, authenticate or reach the runtime) is not the code's:
+  // no role can fix it, so it goes to the orchestrator with the cause.
+  const infrastructure = policy.infrastructureCauses([
+    ...run.results.filter((r) => r.status === "failed").map((r) => ({ name: r.name, ...(r.message !== undefined ? { message: r.message } : {}), ...(r.file !== undefined ? { file: r.file } : {}) })),
+    ...(run.unhandled !== undefined ? [{ name: "unhandled error", message: run.unhandled }] : []),
+    ...(run.blocked !== undefined ? [{ name: "suite did not run", message: run.blocked }] : []),
+  ]);
+  if (infrastructure.length > 0) {
+    return blockAndLog(cwd, {
+      code: 1,
+      verdict: "block",
+      summary: "tests failed because of the machine, not the code",
+      lines: [
+        ...prepared.lines.map((line) => `green-gate: ${line}`),
+        `green-gate: FAIL — ${infrastructure.length} test failure cause${infrastructure.length === 1 ? " is" : "s are"} the machine's, not the code's; no role can fix ${infrastructure.length === 1 ? "it" : "them"}`,
+        ...infrastructure.map((cause) => `  ${cause}`),
+        "green-gate: route → orchestrator",
+      ],
+      detail: { reason: "infrastructure", causes: infrastructure, route: "orchestrator" },
+    });
+  }
   // Surface check is synchronous ts-morph work; a code-2 (no contracts, or a
   // missing implementation file) is not a finding here — the suite and
   // typecheck verdicts already own those failure modes.

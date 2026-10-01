@@ -493,7 +493,12 @@ case. The test-writer authors:
 The in-adapter level is generated laws only. The test-writer writes nothing
 under `adapters/in/`, which is generated. Store tests follow ADR 2026-064:
 skipped with a logged reason at red without a container runtime, and a
-refusal at green.
+refusal at green. Before green (and mutation score, and deliver's check)
+runs any test, store tests' Testcontainers must start and stop one
+container from the pinned image; if it cannot, green refuses with the
+cause and a remedy, routed to the orchestrator. A store test that still
+fails for a recognised machine cause (credential helper, registry, socket,
+reaper) routes to the orchestrator too, never to the builder.
 
 What each gate runs. The red gate runs the test-side files of the
 workspaces that hold contracts (the contexts), in a shadow rebuilt from the
@@ -556,7 +561,7 @@ workspaces:
 | `skeletonEmitters` | code | ts, `agent/packs/ts/pack.ts` | `Emitter { name; description; emit(facts: ProjectFacts): readonly EmittedFile[] }`, `EmittedFile { path; content; mode }`, `emittedFileProblem(file, emitter)` |
 | `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), pins?, workspaceScripts? }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
 | `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
-| `phaseTestPolicies` | code | ts, same file | `PhaseTestPolicy { name; description; decide({ project, phase: "red" \| "green" }) → run \| skip (red: env, unsetEnv, skippedTest) \| refuse (green) }`; ts-drizzle-postgres contributes the store-test rule (ADR 2026-064) |
+| `phaseTestPolicies` | code | ts, same file | `PhaseTestPolicy { name; description; decide({ project, phase: "red" \| "green" }) → run (prepare?, infrastructureFailure?) \| skip (red: env, unsetEnv, skippedTest) \| refuse (green) }`; ts-drizzle-postgres contributes the store-test rule (ADR 2026-064) |
 | `testObligations` | code | ts, same file | `TestObligation { name; description; phases?; check(input) → ObligationGap[] }` over the facts, the source-root files and the test-side sources; ts-hexagonal contributes the feature, store, out-adapter, in-adapter-laws and app levels (ADR 2026-063) |
 | `tnExampleContracts` | data | core, `agent/src/project-init.ts` | `string[]`: contract paths (placeholders allowed) `bounded init` shows in `docs/tn/README.md`; each must lie under a composed source root and end with a composed contract suffix. ts-hexagonal names a concept and a feature |
 | `tnExampleWorkspaces` | data | core, same file | `{ <dir>: <kind> }`: the apps shown in that README's example `workspaces:` block; each app pack names its own |

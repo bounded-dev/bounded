@@ -45,3 +45,21 @@ on the probed endpoint, applies every context's migrations, and the gate sets
 its URL as `DATABASE_URL` over any inherited value and releases the container
 after the run, on failure too (`withPreparedServices`). Without a runtime
 such a tree is refused at green even before it has a store test.
+
+**Amendment — Testcontainers preflight and the machine's failures.** The
+gate's database goes through the docker CLI, the store tests through
+Testcontainers, and only the second can fail for a credential helper missing
+from PATH, an unreachable registry, a socket Testcontainers does not use, or
+a reaper (Ryuk) that cannot start; those failures used to reach the builder
+as failing store tests. So at green, with store tests and a runtime, the
+policy's `prepare` first starts and stops one container from the pinned image
+through the store tests' own Testcontainers, in a `bun` child resolving it
+from their directory, in the test process's environment (DOCKER_HOST,
+DOCKER_CONFIG, Ryuk settings untouched), the pull on its own timeout, its
+container removed on every path. Failure refuses green, mutation score and
+deliver's check with the cleaned cause and a remedy, routed to the
+orchestrator. As defence in depth, a run decision may carry
+`infrastructureFailure`, which green asks about every failure; a store test
+the pack recognises as failed by the machine routes to the orchestrator with
+its cause. The core learns no technology: the patterns are the pack's
+(`testcontainers-preflight.ts`).

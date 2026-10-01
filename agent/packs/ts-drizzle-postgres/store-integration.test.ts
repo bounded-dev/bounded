@@ -17,9 +17,14 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { probeContainerRuntime, STORE_TEST_ENV, storeTestDecision, storeTestEnv, type ContainerRuntimeProbe } from "./scripts/container-runtime.ts";
+import {
+  drizzleStoreTests, probeContainerRuntime, STORE_TEST_ENV, storeTestDecision, storeTestEnv, storeTestPhaseDecision, storeTestPolicy,
+  type ContainerRuntimeProbe,
+} from "./scripts/container-runtime.ts";
 import { APP_DATABASE_ENV, dockerCli, startAppDatabase } from "./scripts/app-database.ts";
-import { emitDrizzlePersistence, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./scripts/emit.ts";
+import { DEFAULT_PREFLIGHT_DEPS, PREFLIGHT_LABEL_KEY, PREFLIGHT_LABEL_VALUE, preflightTestcontainers } from "./scripts/testcontainers-preflight.ts";
+import { combineDecisions, withPreparedServices } from "../ts/scripts/phase-policy.ts";
+import { emitDrizzlePersistence, POSTGRES_IMAGE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./scripts/emit.ts";
 import { generateMigrations } from "./scripts/generate-migrations.ts";
 import { APPLICATION_CONTRACTS, contextWorkspace, DOMAIN_CONTRACTS, EXAMPLE_SCHEMA, exampleFacts, RESULT_SOURCE, SOURCE_ROOT } from "./testdata/example-project.ts";
 
@@ -270,5 +275,64 @@ describe.skipIf(appDatabaseSkip !== undefined)("the green run's throwaway applic
       service.release();
     }
     expect((await dockerCli(["ps", "--all", "--quiet", "--filter", `name=${name}`], endpoint)).stdout.trim()).toBe("");
+  });
+});
+
+// --- green's Testcontainers preflight, on a real runtime ------------------------
+
+const preflightSkip = bun ?? (!runtime.available ? runtime.reason : dockerCliMissing);
+if (preflightSkip !== undefined) console.warn(`store-integration: skipping the Testcontainers preflight: ${preflightSkip}`);
+
+describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight on a real runtime", () => {
+  const endpoint = runtime.available ? runtime.endpoint : "";
+  const leftovers = async (): Promise<string> =>
+    (await dockerCli(["ps", "--all", "--quiet", "--filter", `label=${PREFLIGHT_LABEL_KEY}=${PREFLIGHT_LABEL_VALUE}`], endpoint)).stdout.trim();
+  /** A Docker config naming a credential helper nobody has installed. */
+  const brokenDockerConfig = (): string => {
+    const config = mkdtempSync(join(tmpdir(), "docker-config-"));
+    temporary.push(config);
+    writeFileSync(join(config, "config.json"), JSON.stringify({ credsStore: "bounded-absent-helper" }));
+    return config;
+  };
+  // Testcontainers asks the credential helper only when it must pull, and the
+  // pinned image is on this runtime after the first case. An image reference
+  // no runtime holds forces the pull, so the helper is asked first, exactly as
+  // on a machine meeting the pinned image for the first time.
+  const UNCACHED = "postgres:0.0.0-bounded-preflight-absent";
+
+  test("starts and removes one container from the pinned image through the store tests' own Testcontainers", { timeout: 900_000 }, async () => {
+    const storeTest = drizzleStoreTests(dir)[0]!;
+    const service = await preflightTestcontainers(dir, storeTest, endpoint);
+    expect(service.description).toContain(POSTGRES_IMAGE);
+    expect(service.env).toEqual({});
+    expect(await leftovers()).toBe("");
+  });
+
+  test("a credsStore whose helper is not on PATH refuses cleanly, naming the config, the helper and the fix", { timeout: 300_000 }, async () => {
+    const deps = { ...DEFAULT_PREFLIGHT_DEPS, env: { ...process.env, DOCKER_CONFIG: brokenDockerConfig() } };
+    const refusal = await preflightTestcontainers(dir, drizzleStoreTests(dir)[0]!, endpoint, deps, { image: UNCACHED }).then(
+      () => { throw new Error("the preflight passed with a missing credential helper"); },
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    expect(refusal).toContain("could not start a postgres:0.0.0-bounded-preflight-absent container on this machine (green's preflight, before any test ran)");
+    expect(refusal).toContain("docker-credential-bounded-absent-helper");
+    expect(refusal).toContain(
+      "Remedy: $DOCKER_CONFIG/config.json names credsStore 'bounded-absent-helper' but docker-credential-bounded-absent-helper is not on PATH: remove the line or install the helper.",
+    );
+    expect(refusal).not.toContain(tmpdir());
+    expect(await leftovers()).toBe("");
+  });
+
+  test("through the policy and the gate's services: green does not run, and says why", { timeout: 300_000 }, async () => {
+    const storeTests = drizzleStoreTests(dir);
+    const deps = { ...DEFAULT_PREFLIGHT_DEPS, env: { ...process.env, DOCKER_CONFIG: brokenDockerConfig() } };
+    const decision = storeTestPhaseDecision("green", storeTests, () => runtime, false, undefined,
+      (probed) => preflightTestcontainers(dir, storeTests[0]!, probed, deps, { image: UNCACHED }));
+    let ran = false;
+    const prepared = await withPreparedServices(combineDecisions("green", [{ name: storeTestPolicy.name, decision }]), async () => { ran = true; });
+    expect(ran).toBe(false);
+    expect(prepared.ok).toBe(false);
+    if (!prepared.ok) expect(prepared.reason).toContain("docker-credential-bounded-absent-helper is not on PATH: remove the line or install the helper");
+    expect(await leftovers()).toBe("");
   });
 });
