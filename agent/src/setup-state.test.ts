@@ -110,7 +110,7 @@ describe("composed setup plan", () => {
 
   test("the real TypeScript pack contributes its setup as data", () => {
     const contrib = JSON.parse(readFileSync(join(AGENT, "packs", "ts", "contrib.json"), "utf8")) as Record<string, unknown>;
-    expect(contrib["projectSetupCommands"]).toEqual([["bun", "install", "--frozen-lockfile", "--ignore-scripts"]]);
+    expect(contrib["projectSetupCommands"]).toEqual([["bun", "install", "--frozen-lockfile", "--ignore-scripts", "--linker", "isolated"]]);
     expect(contrib["projectSetupProbes"]).toEqual(["node_modules/.bun"]);
   });
 

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "vitest";
 import { decide } from "./path-policy.ts";
+import { setupPlan } from "./setup-state.ts";
 import {
   applyInit, declaresNoInitializer, defaultSelection, describeInit, exampleContracts, exampleWorkspaces, localPackPaths,
   importedPackageNames, planInit, projectNameOf, withoutTemplateText,
@@ -223,7 +224,21 @@ describe("project-local initialization", () => {
     expect(pkg.scripts["check:db"]).toBeDefined();
     expect(readFileSync(join(target, "docker-compose.yml"), "utf8")).toContain("notes-store");
     expect(readFileSync(join(target, "docker-compose.yml"), "utf8")).not.toContain("bounded-project");
-  }, 120_000);
+
+    // The project's composed setup leaves its probe behind even before the
+    // design adds a workspace: with no workspace yet, Bun would pick the
+    // hoisted linker and never write node_modules/.bun.
+    if (spawnSync("bun", ["--version"]).status !== 0) {
+      console.warn("project-init.test.ts: skipping the setup probe — `bun` is not on PATH");
+      return;
+    }
+    const plan2 = setupPlan(target);
+    for (const step of plan2.steps.filter((s) => s.label.startsWith("project"))) {
+      const run = spawnSync(step.command, [...step.args], { cwd: step.cwd, encoding: "utf8" });
+      expect(run.status, `${step.command} ${step.args.join(" ")}: ${run.stderr}`).toBe(0);
+    }
+    for (const probe of plan2.probes.filter((p) => !p.includes("/.bounded/"))) expect(existsSync(probe), probe).toBe(true);
+  }, 240_000);
 
   test("plans a service-only project", async () => {
     const plan = await planInit(empty(), "claude-code", ["ts-trpc"]);

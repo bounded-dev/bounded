@@ -238,7 +238,7 @@ describe("syncDesignConfig and the design gate's drift tolerance", () => {
     expect(r.code, r.lines.join("\n")).toBe(0);
     expect(r.workspaces).toEqual(expect.arrayContaining(["contexts/billing", "apps/web"]));
     expect(r.lines).toEqual(expect.arrayContaining(["wrote contexts/billing/package.json", "wrote bun.lock"]));
-    expect(calls).toContain("bun install --frozen-lockfile --ignore-scripts");
+    expect(calls).toContain("bun install --frozen-lockfile --ignore-scripts --linker isolated");
     expect(configDrift(project, f.harness)).toEqual([]);
   });
 

@@ -287,8 +287,8 @@ describe("bounded sync-config reinstalls through the composed setup commands", (
     writeFileSync(join(project, "tsconfig.json"), "{}\n");
     const first = syncConfigCommand(project, agentRoot, run, fake);
     expect(first.code, first.lines.join("\n")).toBe(0);
-    expect(ran).toEqual(["bun install --frozen-lockfile --ignore-scripts"]);
-    expect(first.lines).toContain("sync-config: ran bun install --frozen-lockfile --ignore-scripts");
+    expect(ran).toEqual(["bun install --frozen-lockfile --ignore-scripts --linker isolated"]);
+    expect(first.lines).toContain("sync-config: ran bun install --frozen-lockfile --ignore-scripts --linker isolated");
     expect(syncConfigCommand(project, agentRoot, run, fake).code).toBe(0);
     expect(ran).toHaveLength(1);
     rmSync(join(project, "node_modules"), { recursive: true, force: true });
