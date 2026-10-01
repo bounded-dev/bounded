@@ -84,7 +84,7 @@ import { UNREADABLE_LAYOUT, type PathLayout } from "../../../src/path-policy.ts"
 import { readProjectPacks } from "../../../src/project-composition.ts";
 import type { ProjectFacts } from "../pack.ts";
 import { computeManifest } from "./checksum-gate.ts";
-import { lintTests } from "./lint-src.ts";
+import { lintTests, type LintSrcResult } from "./lint-src.ts";
 import { phaseRun, type PhaseRun, withPreparedServices } from "./phase-policy.ts";
 import { configDriftBlock, harnessRootOf } from "./project-config.ts";
 import { emitProject, projectFactsOf, type ProjectFile } from "./project-emitters.ts";
@@ -92,6 +92,7 @@ import { MANIFEST } from "./project-package.ts";
 import { GATE_SUITE_TIMEOUT_MS, runTests, summarizeResults, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
 import { UNHANDLED_NAME } from "./sanitize-test-output.ts";
 import { checkObligations, obligationLines, readObligationInput, reachedNames } from "./test-obligations.ts";
+import { generatedOnlyTests, subjectLabel, subjectResolver } from "./test-subjects.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, projectOwnerOf, routeTypecheck, typecheckLines, type OwnerOf } from "./typecheck-routing.ts";
 
@@ -612,6 +613,118 @@ function withObligations(cwd: string, facts: ProjectFacts, base: GateResult, run
   };
 }
 
+/** A passing test that exercises only generated code, and what it reached. */
+export interface GeneratedOnlyPass {
+  readonly name: string;
+  readonly subjects: readonly string[];
+}
+
+/**
+ * The passing tests whose every subject is generated code (issue #36), read
+ * from their test files with the same analysis as the `no-generated-subject`
+ * test lint. Best effort: a result with no file, or a file that cannot be
+ * read, is simply not one of them.
+ */
+export function generatedOnlyPasses(cwd: string, run: RunTestsResult): GeneratedOnlyPass[] {
+  const passing = run.results.filter((r) => r.status === "passed" && r.file !== undefined);
+  if (passing.length === 0) return [];
+  const resolve = subjectResolver(cwd);
+  const byFile = new Map<string, ReturnType<typeof generatedOnlyTests>>();
+  const out: GeneratedOnlyPass[] = [];
+  for (const result of passing) {
+    const file = result.file!;
+    if (!byFile.has(file)) byFile.set(file, generatedOnlyTests(cwd, file, resolve));
+    const subjects = byFile.get(file)!.get(result.name);
+    if (subjects !== undefined) out.push({ name: result.name, subjects: [...new Set(subjects.map(subjectLabel))] });
+  }
+  return out;
+}
+
+/** Insert lines just before a block's closing route line. */
+function beforeRoute(lines: readonly string[], extra: readonly string[]): string[] {
+  const last = lines.at(-1);
+  return last !== undefined && last.startsWith("red-gate: route → ")
+    ? [...lines.slice(0, -1), ...extra, last]
+    : [...lines, ...extra];
+}
+
+/**
+ * A spurious pass explained (issue #36): a test that passed against the
+ * skeletons because it exercises only generated code (a command, an in
+ * adapter) can never fail for the right reason, and the generated laws
+ * already test that code. Say so, and tell the test-writer to remove it
+ * rather than rewrite it. The route is unchanged: the tests are the
+ * test-writer's. Pure.
+ */
+export function withGeneratedOnly(result: GateResult, all: readonly GeneratedOnlyPass[]): GateResult {
+  if (result.detail.reason !== "spurious-pass") return result;
+  // Only the tests the verdict refused: a passing generated law is not one.
+  const refused = new Set(Array.isArray(result.detail.passing) ? (result.detail.passing as unknown[]) : []);
+  const generatedOnly = all.filter((g) => refused.has(g.name));
+  if (generatedOnly.length === 0) return result;
+  const n = generatedOnly.length;
+  return {
+    ...result,
+    summary: `${result.summary}; ${n} exercise${n === 1 ? "s" : ""} only generated code`,
+    lines: beforeRoute(result.lines, [
+      `red-gate: ${n} of the passing tests exercise${n === 1 ? "s" : ""} only generated code. Generated code works before anything ` +
+        "is built, and its generated laws (*.laws.test.ts) already test it, so no such test can fail for the right reason. " +
+        "Remove these tests; do not rewrite them to fail:",
+      ...generatedOnly.map((g) => `  only generated code: ${g.name} (${g.subjects.join(", ")})`),
+    ]),
+    detail: { ...result.detail, generatedOnly: generatedOnly.map((g) => g.name) },
+  };
+}
+
+const ESCAPE_HATCHES = new Set([
+  "@typescript-eslint/no-non-null-assertion",
+  "@typescript-eslint/consistent-type-assertions",
+  "@typescript-eslint/no-explicit-any",
+  "@typescript-eslint/ban-ts-comment",
+]);
+
+/**
+ * The test lint's half of the red. A valid red the test lint refuses blocks;
+ * a red already refused for the test-writer carries the lint's lines too, so
+ * one bounce fixes both (issue #36: an import the architecture test forbids
+ * and a test of generated code each surfaced only after the other). Pure.
+ */
+export function withTestLint(base: GateResult, testLint: Pick<LintSrcResult, "code" | "summary" | "lines" | "detail">): GateResult {
+  if (testLint.code !== 1) return base;
+  const problems = (testLint.detail.problems ?? []) as readonly { ruleId: string }[];
+  const lintLines = [
+    ...testLint.lines.slice(0, -1),
+    ...(problems.some((p) => ESCAPE_HATCHES.has(p.ruleId))
+      ? ["red-gate: a non-null assertion, cast, any or ts-comment in a test helper undermines every assertion built on it"]
+      : []),
+  ];
+  if (base.code === 0) {
+    const onlyEscapes = problems.length > 0 && problems.every((p) => ESCAPE_HATCHES.has(p.ruleId));
+    return {
+      code: 1,
+      verdict: "block",
+      summary: `${testLint.summary} in tests (route: test-writer)`,
+      lines: [
+        onlyEscapes
+          ? `red-gate: FAIL — the red is valid but the test sources switch the type checker off (${testLint.summary})`
+          : `red-gate: FAIL — the red is valid but the test lint refused the test sources (${testLint.summary}); each line names the fix`,
+        ...lintLines,
+        "red-gate: route → test-writer",
+      ],
+      detail: { reason: onlyEscapes ? "test-escape-hatches" : "test-lint", ...testLint.detail, route: "test-writer" },
+    };
+  }
+  if (base.detail.route !== "test-writer") return base;
+  return {
+    ...base,
+    lines: beforeRoute(base.lines, [
+      `red-gate: the test lint also refused the test sources (${testLint.summary}); each line names the fix`,
+      ...lintLines,
+    ]),
+    detail: { ...base.detail, testLint: testLint.detail.problems },
+  };
+}
+
 /**
  * The inputs this verdict is a claim ABOUT, recorded so green can bind itself
  * to them: the contract manifest (checksum-gate's own) and the test-files
@@ -695,21 +808,9 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   if (!prepared.ok) return gateError(cwd, prepared.reason, "test-policy");
   const [raw, tsc, testLint] = prepared.value;
   const { run, skipped } = withoutPolicySkips(raw, policy);
-  let base = classifyRed(run, tsc, projectOwnerOf(cwd), pathGlobMatcher(generatedFileGlobs(cwd)));
-  if (base.code === 0 && testLint.code === 1) {
-    base = {
-      code: 1,
-      verdict: "block",
-      summary: `${testLint.summary} in tests (route: test-writer)`,
-      lines: [
-        `red-gate: FAIL — the red is valid but the test sources switch the type checker off (${testLint.summary})`,
-        ...testLint.lines.slice(0, -1),
-        "red-gate: a non-null assertion, cast, any or ts-comment in a test helper undermines every assertion built on it",
-        "red-gate: route → test-writer",
-      ],
-      detail: { reason: "test-escape-hatches", ...testLint.detail, route: "test-writer" },
-    };
-  }
+  const classified = classifyRed(run, tsc, projectOwnerOf(cwd), pathGlobMatcher(generatedFileGlobs(cwd)));
+  const generatedOnly = classified.detail.reason === "spurious-pass" ? generatedOnlyPasses(cwd, run) : [];
+  const base = withTestLint(withGeneratedOnly(classified, generatedOnly), testLint);
   // Obligations are only meaningful once the red itself is valid.
   const judged = base.code === 0 ? withObligations(cwd, facts, base, run) : base;
   const skipLines = policy.skips.length > 0
