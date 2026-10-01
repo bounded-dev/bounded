@@ -11,10 +11,14 @@ agent you are already running. It does not start or bundle another agent.
 ## What happens in a Bounded project
 
 1. **Initialize with your agent.** In an empty directory, ask your pi or
-   Claude Code agent to “initialize Bounded here.” It runs `bounded init`, asks
-   what kind of application you want to build, and follows up on the product
-   needs that affect the setup. It chooses the technical capabilities and
-   shows the files it will create before applying the plan.
+   Claude Code agent to “initialize Bounded here.” It runs `bounded init` and
+   asks for your product spec or requirements first (pasted, or a file path).
+   From the spec it works out where the product is used (a browser, the
+   desktop, AI assistants, a scheduled job, other programs, kept data) and
+   asks only about what the spec leaves open. It chooses the technical
+   capabilities and shows the files it will create before applying the plan.
+   Until the first ticket starts, the team lead can re-plan that choice in
+   place.
 2. **Work through defined roles.** Bounded supplies skills for recurring work
    and subagents for jobs that benefit from separation. In the developer
    workflow, an architect owns the specification and commissions a reviewer,
@@ -58,7 +62,8 @@ npm install --global bounded
 
 Then open an empty directory (or one containing only `.git/`) in pi or Claude
 Code and ask the current agent to initialize Bounded there. The agent runs
-`bounded init` and walks you through product discovery. To set up from a
+`bounded init`, asks for your product spec, and asks only about what the spec
+leaves open. To set up from a
 terminal without an agent, run `npx bounded init --interactive`.
 
 The new project uses its own Bounded commands; for example:

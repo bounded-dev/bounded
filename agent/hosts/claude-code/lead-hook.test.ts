@@ -77,7 +77,35 @@ describe("lead Bash: only run control, rewritten onto the project's harness", ()
       expect(readGuardLog(dir).at(-1)).toMatchObject({ guard: "team-lead", verdict: "block" });
     });
 
+  test("before the first ticket the lead may re-plan with the user's own bounded init, unrewritten", () => {
+    const dir = project();
+    for (const command of [
+      "bounded init",
+      "bounded init --host claude-code --surface browser-ui --surface desktop --without network-api",
+      `bounded init --host claude-code --surface browser-ui --apply ${"a".repeat(64)}`,
+    ]) expect(hook(dir, "Bash", { command }), command).toEqual({ decision: "allow" });
+    for (const command of [
+      "bounded init --host claude-code --surface browser-ui --cwd /elsewhere",
+      "bounded init --host pi --surface browser-ui",
+      "bounded init --interactive",
+      "bounded init --host claude-code --surface browser-ui | tail",
+      "bounded init --host claude-code --apply abc",
+    ]) {
+      const r = hook(dir, "Bash", { command });
+      expect(r.decision, command).toBe("deny");
+      expect(r.reason, command).toMatch(/re-plan/);
+    }
+  });
+
+  test("once a ticket is prepared, re-planning is refused", () => {
+    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
+    const r = hook(dir, "Bash", { command: "bounded init --host claude-code --surface desktop" });
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("only before the first ticket");
+  });
+
   test("leadCommand classifies without a project", () => {
+    expect(leadCommand("bounded init --host claude-code --surface desktop").action.kind).toBe("replan");
     expect(leadCommand(42).action.kind).toBe("refused");
     expect(leadCommand("bounded setup").action.kind).toBe("refused");
     expect(leadCommand("npm run bounded:setup").action.kind).toBe("refused");

@@ -237,6 +237,13 @@ for run preparation. The lead uses `--new` for a fresh work item after
 delivery, adding the number when the issue is already tracked, and omits it
 for a follow-up to the current item. Without a number, the command allocates
 the next local ticket number.
+Before the first ticket is prepared, before or after setup, it also admits
+the user's own
+`bounded init --host <host> --surface <id>... [--without <id>...] [--pack <name>...] [--apply <digest>]`
+(with `--host claude-code`) as one plain command, unrewritten, so the lead
+can re-plan a capability selection the spec showed was wrong. Init replaces
+the installation only while it is untouched (ADR 2026-065); setup then runs
+again.
 It refuses arbitrary Bash and file edits even when an old
 `.bounded/dev-stage-role` names an architect. The shared lead policy requires
 a prepared ticket before an architect commission.

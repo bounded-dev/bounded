@@ -1,5 +1,7 @@
 {
   "//": "The ts-desktop pack (ADR 2026-063): the Electron desktop app. workspaceTemplates.desktop is the app a TN declares as `apps/<name>: desktop`: an Electron main process that hosts one context's tRPC router in-process (no network), bundled for Node with `bun build --target node --format cjs`, and a React renderer bundled from its HTML page. It depends on ts-trpc for the router it hosts, and not on ts-web: a desktop app is not a web app and must not inherit the web app's obligations. Its template pins React itself.",
+  "//productSurfaces": "What this pack lets the product be used from (ADR 2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
+  "productSurfaces": ["desktop"],
   "dependsOnPacks": [
     "ts",
     "ts-hexagonal",

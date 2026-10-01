@@ -1,5 +1,7 @@
 {
   "//": "The ts-trpc pack (ADR 2026-063, formerly ts-service): tRPC as an in adapter. adapterTechnologies declares the `trpc` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/trpc/, the package export ./adapters/trpc and the feature role `procedure`; a context whose tree has that folder takes its pins. generatedFileGlobs write-protects the whole folder: every file in it is emitted from the feature contracts (TN-26-012 §6).",
+  "//productSurfaces": "What this pack lets the product be used from (ADR 2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
+  "productSurfaces": ["network-api"],
   "dependsOnPacks": [
     "ts",
     "ts-hexagonal"

@@ -8,6 +8,7 @@ export const BOOTSTRAP_RUNTIME = [
   "hosts/claude-code/bootstrap-hook.ts",
   "hosts/claude-code/project-read.ts",
   "src/setup-state.ts",
+  "src/init-command.ts",
   "src/guard-log.ts",
   "src/is-main-module.ts",
   "src/pack-contrib.ts",

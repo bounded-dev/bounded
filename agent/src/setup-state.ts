@@ -141,6 +141,19 @@ export function setupPermitted(project: string): boolean {
   return beforeFirstRun(project) || repairNeeded(project);
 }
 
+/**
+ * The lead may re-plan the installation (run `bounded init` with another
+ * selection) only while no ticket has been prepared, designed or run (ADR
+ * 2026-065). Init itself then checks that the installation is untouched.
+ */
+export function replanPermitted(project: string): boolean {
+  return existsSync(join(project, INSTALLATION_RELATIVE)) && beforeFirstRun(project);
+}
+
+/** Why a re-plan is refused, in one sentence every host shows the same way. */
+export const REPLAN_REFUSED =
+  "team-lead: re-planning initialization is available only before the first ticket is prepared";
+
 /** Why setup is refused, in one sentence every host shows the same way. */
 export const SETUP_REFUSED =
   "team-lead: dependency setup is available only before the first run, or to repair a completed setup whose dependencies are missing";

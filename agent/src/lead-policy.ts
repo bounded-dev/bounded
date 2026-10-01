@@ -6,15 +6,21 @@
 import { LEAD_SEAT, SCOUT_SEAT, isProjectLocalHarness, preparedTicket } from "./lead-state.ts";
 import { decide } from "./path-policy.ts";
 import { join } from "node:path";
-import { resolvedProjectPath, runProjectSetup, SETUP_REFUSED, setupPermitted } from "./setup-state.ts";
+import {
+  REPLAN_REFUSED, replanPermitted, resolvedProjectPath, runProjectSetup, SETUP_REFUSED, setupPermitted,
+} from "./setup-state.ts";
 
 export { ACTIVE_TICKET_RELATIVE } from "./ticket-design.ts";
 export { isProjectLocalHarness, preparedTicket } from "./lead-state.ts";
 export { LEAD_PREPARE_USAGE, parseLeadPrepareArgs, prepareLeadRun } from "./lead-run.ts";
+export { LEAD_REPLAN_USAGE, parseReplanArgs, parseReplanCommand, replanCliArgs } from "./init-command.ts";
 
-/** Host tool names for the two run-control tools a host may register. */
+/** Host tool names for the run-control tools a host may register. */
 export const LEAD_PREPARE_TOOL = "lead_prepare";
 export const LEAD_SETUP_TOOL = "lead_setup";
+export const LEAD_REPLAN_TOOL = "lead_replan";
+/** Every lead-only tool: a seat that is not the lead never holds one. */
+export const LEAD_TOOLS: readonly string[] = [LEAD_PREPARE_TOOL, LEAD_SETUP_TOOL, LEAD_REPLAN_TOOL];
 
 /** The project reads the path policy judges, in its own vocabulary. */
 export type ProjectReadTool = "read" | "grep" | "find" | "ls";
@@ -35,6 +41,8 @@ export type SeatAction =
   | { readonly kind: "prepare" }
   /** Install the project's pinned dependencies. */
   | { readonly kind: "setup" }
+  /** Re-plan the installation's capability selection before the first ticket (ADR 2026-065). */
+  | { readonly kind: "replan" }
   /** A call whose shape the host adapter already found unacceptable. */
   | { readonly kind: "refused"; readonly reason: string }
   /** Anything else: outside every read-only seat's toolset. */
@@ -79,6 +87,8 @@ export function decideLead(action: SeatAction, cwd: string): SeatDecision {
       return ALLOW;
     case "setup":
       return setupAvailable(cwd) ? ALLOW : { allow: false, reason: SETUP_REFUSED };
+    case "replan":
+      return replanAvailable(cwd) ? ALLOW : { allow: false, reason: REPLAN_REFUSED };
     case "refused":
       return refuse(LEAD_SEAT, action.reason);
     case "other":
@@ -117,6 +127,7 @@ export function decideScout(action: SeatAction, cwd: string): SeatDecision {
 export function seatMayHold(seat: "lead" | "scout", action: SeatAction, cwd: string): boolean {
   if (seat === "scout") return action.kind === "read" || action.kind === "observe";
   if (action.kind === "setup") return setupAvailable(cwd);
+  if (action.kind === "replan") return replanAvailable(cwd);
   return action.kind !== "refused" && action.kind !== "other";
 }
 
@@ -133,4 +144,9 @@ export async function setupLeadProject(
 /** Setup may run before the first run, or to repair a completed setup whose dependencies are missing. */
 export function setupAvailable(cwd: string): boolean {
   return isProjectLocalHarness(cwd) && setupPermitted(cwd);
+}
+
+/** The installation may be re-planned only before the first ticket is prepared. */
+export function replanAvailable(cwd: string): boolean {
+  return isProjectLocalHarness(cwd) && replanPermitted(cwd);
 }

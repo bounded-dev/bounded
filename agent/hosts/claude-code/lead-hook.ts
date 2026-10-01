@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logGuardEvent } from "../../src/guard-log.ts";
-import { decideLead, decideScout, parseLeadPrepareArgs, type SeatAction } from "../../src/lead-policy.ts";
+import { decideLead, decideScout, parseLeadPrepareArgs, parseReplanCommand, type SeatAction } from "../../src/lead-policy.ts";
 import { LEAD_GUARD, LEAD_SEAT, SCOUT_SEAT } from "../../src/lead-state.ts";
 import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
@@ -32,6 +32,10 @@ const sameWords = (a: readonly string[], b: readonly string[]): boolean =>
 
 /** Parse one lead Bash command. Anything but the listed shapes is refused. */
 export function leadCommand(command: unknown): LeadCommand {
+  // Re-planning runs the user's own `bounded init`, which owns installation;
+  // the project's copy cannot add a capability it does not hold (ADR 2026-065).
+  const replan = parseReplanCommand(command, "claude-code");
+  if (replan !== undefined) return { action: replan.ok ? { kind: "replan" } : { kind: "refused", reason: replan.reason } };
   const words = typeof command === "string" ? shellWords(command) : { ok: false as const };
   if (words.ok) {
     const argv = words.argv;
@@ -46,7 +50,7 @@ export function leadCommand(command: unknown): LeadCommand {
       }
     }
   }
-  return { action: { kind: "refused", reason: "Bash is limited to gate discovery and run preparation in this session" } };
+  return { action: { kind: "refused", reason: "Bash is limited to gate discovery, run preparation and, before the first ticket, re-planning initialization in this session" } };
 }
 
 function runOnProjectCopy(payload: HookPayload, harnessRoot: string, cli: readonly string[]): string {

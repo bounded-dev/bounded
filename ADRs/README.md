@@ -96,3 +96,4 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-062](2026-062-bun-toolchain.md) | Bun is the TypeScript projects' toolchain | accepted |
 | [2026-063](2026-063-hexagonal-and-adapter-packs.md) | The hexagonal pack and the adapter packs | accepted |
 | [2026-064](2026-064-store-tests-need-docker-at-green.md) | Store tests need a container runtime only at green | accepted |
+| [2026-065](2026-065-spec-first-init-by-product-surface.md) | Initialization reads the spec and selects by product surface | accepted |

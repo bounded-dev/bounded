@@ -12,7 +12,7 @@ import { makeLeadProject } from "../../test/support/lead-project.ts";
 // Claude Code; this file pins the pi adapter's wiring.
 
 const FULL = ["read", "grep", "find", "ls", "bash", "edit", "write", "web_search", "subagent", "subagent_wait",
-  "contact_supervisor", "subagent_supervisor", "lead_prepare", "lead_setup"];
+  "contact_supervisor", "subagent_supervisor", "lead_prepare", "lead_setup", "lead_replan"];
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 interface Tool { readonly name: string; execute(...args: unknown[]): Promise<{ content: { text: string }[]; details: unknown }> }
@@ -75,17 +75,17 @@ describe("pi lead session", () => {
     const dir = project();
     const fake = fakePi();
     installPathGate(fake.pi, undefined, { projectCopy: true });
-    expect([...fake.tools.keys()].sort()).toEqual(["lead_prepare", "lead_setup"]);
+    expect([...fake.tools.keys()].sort()).toEqual(["lead_prepare", "lead_replan", "lead_setup"]);
     fake.start(dir);
     expect(fake.active()).toEqual(["read", "grep", "find", "ls", "web_search", "subagent", "subagent_wait",
-      "contact_supervisor", "subagent_supervisor", "lead_prepare", "lead_setup"]);
+      "contact_supervisor", "subagent_supervisor", "lead_prepare", "lead_setup", "lead_replan"]);
   });
 
   test("a pipeline child loads the ambient gate and its role loader without a tool conflict", () => {
     const fake = fakePi();
     installPathGate(fake.pi, undefined, { projectCopy: true });
     installPathGate(fake.pi, "architect", { projectCopy: true });
-    expect([...fake.tools.keys()].sort()).toEqual(["lead_prepare", "lead_setup"]);
+    expect([...fake.tools.keys()].sort()).toEqual(["lead_prepare", "lead_replan", "lead_setup"]);
   });
 
   test("tool calls go through the lead policy", async () => {
@@ -142,6 +142,19 @@ describe("pi lead session", () => {
     expect(await fake.call(dir, "subagent", { agent: "architect", task: "deliver" })).toBeUndefined();
   });
 
+  test("lead_replan is held only before the first ticket, and validates with the shared parser", async () => {
+    const dir = project();
+    const fake = fakePi();
+    installPathGate(fake.pi, undefined, { projectCopy: true });
+    expect(await fake.call(dir, "lead_replan", { surfaces: ["browser-ui"] })).toBeUndefined();
+    expect(await fake.run("lead_replan", { surfaces: ["Browser UI"] }, dir)).toContain("re-plan with exactly: bounded init --host pi");
+    expect(await fake.run("lead_prepare", {}, dir)).toBe("team-lead: first run prepared for ticket #1");
+    fake.start(dir);
+    expect(fake.active()).not.toContain("lead_replan");
+    expect((await fake.call(dir, "lead_replan", { surfaces: ["browser-ui"] }))?.reason).toContain("only before the first ticket");
+    expect(await fake.run("lead_replan", { surfaces: ["browser-ui"] }, dir)).toContain("only before the first ticket");
+  });
+
   test("outside a project installation the lead tools are hidden and nothing is judged", async () => {
     const dir = project();
     const fake = fakePi();
@@ -181,7 +194,9 @@ describe("pi child sessions", () => {
     installPathGate(bound.pi, "builder", { projectCopy: true });
     bound.start(dir);
     expect(bound.active()).not.toContain("lead_prepare");
+    expect(bound.active()).not.toContain("lead_replan");
     expect((await bound.call(dir, "lead_prepare", {}))?.reason).toContain("cannot redraw the run boundary");
+    expect((await bound.call(dir, "lead_replan", { surfaces: ["desktop"] }))?.reason).toContain("cannot redraw the run boundary");
     expect(await ambient.call(dir, "bash", { command: "ls" })).toBeUndefined();
   });
 });
