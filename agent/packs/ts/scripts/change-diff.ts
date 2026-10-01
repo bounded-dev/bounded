@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isMainModule } from "../../../src/is-main-module.ts";
 import { findContractFiles, hashContract } from "./checksum-gate.ts";
-import { baselineRelative, readChangeBaseline } from "./change-baseline.ts";
+import { BASELINE_PATH, baselineRelative, readChangeBaseline } from "./change-baseline.ts";
+import { preparedRunKind } from "../../../src/lead-state.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
-import { activeTicketDesign, designNotePath } from "../../../src/ticket-design.ts";
+import { activeTicketDesign, activeTicketNumber, designNotePath } from "../../../src/ticket-design.ts";
 
 export interface DesignDiff {
   readonly fingerprint: string;
@@ -42,7 +43,35 @@ function unifiedDiff(oldPath: string, oldText: string, newPath: string, newText:
   return result.stdout.trimEnd().split("\n");
 }
 
+function currentFingerprint(newPaths: readonly string[], newHashes: ReadonlyMap<string, string>): string {
+  return createHash("sha256").update(newPaths.map((path) => `${path}\0${newHashes.get(path)}`).join("\n")).digest("hex");
+}
+
+export const FIRST_RUN_LINE = "change-diff: first run: no baseline, nothing to diff";
+
+/** A ticket's baseline is absent, and the lead opened its run as a first run.
+ *  Anything else without a baseline (a change run, no prepared run, a legacy
+ *  project) is not this case and still fails on the missing file. */
+function firstRunWithoutBaseline(root: string): boolean {
+  const path = baselineRelative(root);
+  if (path === BASELINE_PATH) return false;
+  try {
+    lstatSync(join(root, path));
+    return false;
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "ENOENT") return false;
+  }
+  const ticket = activeTicketNumber(root);
+  return ticket !== undefined && preparedRunKind(root, ticket) === "first";
+}
+
 export function designDiff(root: string): DesignDiff {
+  if (firstRunWithoutBaseline(root)) {
+    const current = currentFiles(root);
+    const newPaths = Object.keys(current).sort();
+    const newHashes = new Map(newPaths.map((path) => [path, hashContract(current[path]!)]));
+    return { fingerprint: currentFingerprint(newPaths, newHashes), paths: [], lines: [FIRST_RUN_LINE] };
+  }
   const baseline = readChangeBaseline(root);
   const note = designNotePath(root);
   if (!Object.hasOwn(baseline.files, note)) throw new Error(`${baselineRelative(root)} has no ${note} snapshot`);
@@ -80,7 +109,7 @@ export function designDiff(root: string): DesignDiff {
     if (pairs.length === 0 && baseline.packs.join("\0") === readProjectPacks(root).join("\0")) {
       lines.push(`change-diff: no changes to ${note}, contracts, CONTEXT.md or ADRs`);
     }
-    const fingerprint = createHash("sha256").update(newPaths.map((path) => `${path}\0${newHashes.get(path)}`).join("\n")).digest("hex");
+    const fingerprint = currentFingerprint(newPaths, newHashes);
     return { fingerprint, paths: pairs.map(([from, to]) => from === to ? from : `${from} → ${to}`), lines };
   } finally { rmSync(temp, { recursive: true, force: true }); }
 }

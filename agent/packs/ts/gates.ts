@@ -192,12 +192,13 @@ export const gates: readonly GateCommand[] = [
       "Show a unified diff of the active ticket's design note, owned contracts, CONTEXT.md and ADRs against its adopted or last-delivered baseline. The reviewer should call this before recording a review on a change run.",
     flags: [],
     async run(cwd) {
-      const { designDiff } = await import("./scripts/change-diff.ts");
+      const { designDiff, FIRST_RUN_LINE } = await import("./scripts/change-diff.ts");
       const diff = designDiff(cwd);
+      const firstRun = diff.lines.length === 1 && diff.lines[0] === FIRST_RUN_LINE;
       return {
         code: 0,
         verdict: "pass",
-        summary: `change diff: ${diff.paths.length} changed design files`,
+        summary: firstRun ? "change diff: first run: no baseline, nothing to diff" : `change diff: ${diff.paths.length} changed design files`,
         lines: [...diff.lines],
         detail: { fingerprint: diff.fingerprint, paths: diff.paths },
       };

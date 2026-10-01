@@ -99,3 +99,21 @@ export function preparedTicket(cwd: string): string | undefined {
     ? file.ticket
     : undefined;
 }
+
+/** How the lead opened the current, undelivered run for `ticket`: "first" for
+ *  a design with no prior delivery, "change" for one with a delivered design to
+ *  diff against. A resume keeps the kind of the run it resumed. Undefined when
+ *  no lead-prepared run for that ticket is in progress. */
+export function preparedRunKind(cwd: string, ticket: string): "first" | "change" | undefined {
+  if (!isProjectLocalHarness(cwd)) return undefined;
+  const log = readRunLog(cwd);
+  if (log.kind !== "read" || log.state === "delivered") return undefined;
+  let kind: "first" | "change" | undefined;
+  for (const entry of log.entries) {
+    if (entry.guard !== LEAD_GUARD || entry.verdict !== "pass" ||
+        entry.detail?.["kind"] !== "run-prepared" || entry.detail["ticket"] !== ticket) continue;
+    const boundary = entry.detail["boundary"];
+    if (boundary === "first" || boundary === "change") kind = boundary;
+  }
+  return kind;
+}
