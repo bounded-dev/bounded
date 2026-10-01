@@ -571,6 +571,25 @@ describe("content search on the real tree", () => {
   });
 });
 
+describe("projectPathFacts.asWritten — the real location is the path as written", () => {
+  test("plain paths, the root and absent paths are as written; links and paths through them are not", () => {
+    const cwd = tmp();
+    mkdirSync(join(cwd, ".git"), { recursive: true });
+    mkdirSync(join(cwd, "src/sub"), { recursive: true });
+    writeFileSync(join(cwd, "src/a.ts"), "");
+    symlinkSync(join(cwd, ".git"), join(cwd, "src/g"));
+    symlinkSync("/etc", join(cwd, "src/out"));
+    symlinkSync(join(cwd, "nowhere"), join(cwd, "src/dangling"));
+    const facts = projectPathFacts(cwd);
+    for (const p of [".", "src", "src/", "src/sub", "src/a.ts", "src/missing", "missing/deeper"]) {
+      expect(facts.asWritten?.(p), p).toBe(true);
+    }
+    for (const p of ["src/g", "src/g/", "src/g/objects", "src/out", "src/out/hosts", "src/dangling", "../x", "/etc"]) {
+      expect(facts.asWritten?.(p), p).toBe(false);
+    }
+  });
+});
+
 describe("projectPathFacts", () => {
   test("kind follows links and never looks outside the project", () => {
     const cwd = tmp();

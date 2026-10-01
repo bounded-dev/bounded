@@ -12,12 +12,21 @@ import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-
 
 // The layout comes from composed pack data (ADRs 2026-052, 2026-056…058), as
 // the hook passes it.
+// The path facts a fake filesystem gives: `contexts/link` is a link (into .git,
+// say), and everything else is as written.
+const LINKED = new Set(["contexts/link", "contexts/link/x"]);
+const FACTS = {
+  kind: (p: string) => (/\.[a-z]+$/.test(p) ? ("file" as const) : ("directory" as const)),
+  tree: () => undefined,
+  asWritten: (p: string) => !LINKED.has(p.replace(/\/+$/, "")),
+};
 const CTX = {
   cwd: "/proj",
   sourceRoots: ["contexts/*/src"],
   contractGlobs: ["contexts/*/src/**/*.contract.ts"],
   testSuffixes: [".test.ts"],
   generatedGlobs: ["**/*.laws.test.ts"],
+  pathFacts: FACTS,
 };
 type Verdict = "allow" | "deny";
 type Row = readonly [command: string, expected: Readonly<Record<Role, Verdict>>];
@@ -320,6 +329,20 @@ describe("listing through Bash stays names-only and blind-safe", () => {
       const d = decideBash(role, command, CTX);
       expect(d.allow, `${role}: ${command}`).toBe(false);
     }
+  });
+  test.each(["ls contexts/link", "ls contexts/link/", "find contexts/link -name '*'", "find contexts/link/ -type f", "ls contexts/link/x"])(
+    "a link argument, or a path through one, is refused for every role: %s",
+    (command) => {
+      for (const role of PIPELINE_ROLES) {
+        const d = decideBash(role, command, CTX);
+        expect(d.allow, `${role}: ${command}`).toBe(false);
+        if (!d.allow) expect(d.reason).toContain("is a link, or reached through one");
+      }
+    },
+  );
+  test("without the host's path facts no listing runs (fail closed)", () => {
+    const { pathFacts: _drop, ...bare } = CTX;
+    expect(decideBash("architect", "ls contexts", bare).allow).toBe(false);
   });
   test("a refused listing says what listing is allowed", () => {
     const d = decideBash("builder", "ls -R contexts", CTX);

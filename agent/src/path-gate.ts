@@ -12,7 +12,7 @@
 // be unit-tested without spawning pi.
 
 import { logGuardEvent, RUN_START_GUARD } from "./guard-log.ts";
-import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { resolvedProjectPath } from "./setup-state.ts";
 
@@ -660,6 +660,21 @@ const TREE_ENTRY_LIMIT = 50_000;
  * or larger than TREE_ENTRY_LIMIT). A path that resolves outside the project
  * is reported absent, never inspected.
  */
+/** Is any EXISTING component between the project and `target` a link? */
+function linkOnTheWay(project: string, target: string): boolean {
+  let at = project;
+  for (const part of relative(project, target).split(sep)) {
+    if (part === "" || part === ".") continue;
+    at = join(at, part);
+    try {
+      if (lstatSync(at).isSymbolicLink()) return true;
+    } catch {
+      return false; // nothing exists from here on, so nothing can be followed
+    }
+  }
+  return false;
+}
+
 export function projectPathFacts(project: string): PathFacts {
   const inside = (rel: string): string | undefined => {
     const abs = resolve(project, rel);
@@ -667,6 +682,28 @@ export function projectPathFacts(project: string): PathFacts {
     return back === ".." || back.startsWith(`..${sep}`) || isAbsolute(back) ? undefined : abs;
   };
   return {
+    asWritten(rel) {
+      const lexical = inside(rel);
+      if (lexical === undefined) return false;
+      let root: string;
+      try {
+        root = realpathSync.native(project);
+      } catch {
+        return false;
+      }
+      try {
+        lstatSync(lexical);
+      } catch {
+        // Absent (or unreadable on the way): a listing of it reaches nothing,
+        // unless some existing component on the way is itself a link.
+        return !linkOnTheWay(project, lexical);
+      }
+      try {
+        return realpathSync.native(lexical) === join(root, relative(project, lexical));
+      } catch {
+        return false; // a dangling link or a loop
+      }
+    },
     kind(rel) {
       const abs = inside(rel);
       if (abs === undefined) return "absent";

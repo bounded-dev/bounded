@@ -91,6 +91,15 @@ export interface PathFacts {
    * their case.
    */
   tree(dir: string): PathTree | undefined;
+  /**
+   * Is the path's real location the path as written: no link anywhere on it,
+   * and no case or Unicode folding? A path that does not exist is as written
+   * (it reaches nothing); one that cannot be resolved is not. A names-only
+   * listing or a shell content search runs on the path as the shell sees it,
+   * so it is allowed only where this holds — a link could carry it into
+   * `.git` or out of the project past every lexical check.
+   */
+  asWritten?(path: string): boolean;
 }
 
 /** What lies below a directory (see PathFacts.tree). */

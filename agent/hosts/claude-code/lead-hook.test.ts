@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
@@ -228,6 +228,16 @@ describe("--role scout", () => {
     expect(hook(dir, "Bash", { command: "ls /etc" }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "Bash", { command: "find src -name '*.ts' -exec cat {} +" }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "Bash", { command: "find src -path '../*'" }, SCOUT).decision).toBe("deny");
+  });
+
+  test("a link cannot carry a listing into .git or out of the project", () => {
+    const dir = project({ "src/a.ts": "" });
+    symlinkSync(join(dir, ".git"), join(dir, "src/g"));
+    symlinkSync("/etc", join(dir, "src/out"));
+    for (const command of ["ls src/g", "find src/g -name '*'", "ls src/out", "find src/out/ -type f"]) {
+      expect(hook(dir, "Bash", { command }, SCOUT).decision, command).toBe("deny");
+      expect(hook(dir, "Bash", { command }, LEAD).decision, command).toBe("deny");
+    }
   });
 
   test("the lead lists names through Bash the same way", () => {

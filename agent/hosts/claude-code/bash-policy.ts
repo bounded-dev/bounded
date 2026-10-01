@@ -403,7 +403,27 @@ function decideListing(role: Role, argv: readonly string[], shown: string, ctx: 
     const zone: Decision = decide(role, tool, input, ctx);
     if (!zone.allow) return zone;
   }
+  const linked = linkedPath(role, shown, listing.call.path, ctx);
+  if (linked !== undefined) return linked;
   return allow(tool);
+}
+
+/**
+ * The shell follows links; the gate judged the path as written. So a shell
+ * listing or search runs only on a path whose real location IS the path as
+ * written — no link on the way, no case folding — or a link could carry it
+ * into `.git` or out of the project. Without the host's path facts nothing
+ * can be shown, so the command is refused (fail closed).
+ */
+function linkedPath(role: Role, shown: string, path: string, ctx: Ctx): BashDecision | undefined {
+  const asWritten = ctx.pathFacts?.asWritten;
+  if (asWritten === undefined) {
+    return block(`path-gate: ${role} may not run '${shown}': the gate cannot see where '${path}' really leads`);
+  }
+  if (!asWritten.call(ctx.pathFacts, path)) {
+    return block(`path-gate: ${role} may not run '${shown}': '${path}' is a link, or reached through one, or spelled differently from its real name — use the real path`);
+  }
+  return undefined;
 }
 
 /** The command as a refusal quotes it: one line, bounded. */

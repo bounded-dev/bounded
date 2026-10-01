@@ -13,7 +13,7 @@ import { decideLead, decideScout, parseLeadPrepareArgs, parseReplanCommand, type
 import { LEAD_GUARD, LEAD_SEAT, SCOUT_SEAT } from "../../src/lead-state.ts";
 import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
-import { asRole } from "../../src/path-gate.ts";
+import { asRole, projectPathFacts } from "../../src/path-gate.ts";
 import { shellWords } from "./bash-policy.ts";
 import { gateInputs, isListing, listingCall } from "./listing.ts";
 import { searchPatternContained } from "../../src/setup-state.ts";
@@ -61,7 +61,7 @@ export function leadCommand(command: unknown): LeadCommand {
  * session a Glob tool it can rely on (listing.ts), so this is how the lead and
  * the scout see what exists rather than guess.
  */
-export function listingActions(command: unknown): readonly SeatAction[] | undefined {
+export function listingActions(command: unknown, cwd: string): readonly SeatAction[] | undefined {
   const words = typeof command === "string" ? shellWords(command) : undefined;
   if (words === undefined || !words.ok || !isListing(words.argv)) return undefined;
   const listing = listingCall(words.argv);
@@ -69,6 +69,10 @@ export function listingActions(command: unknown): readonly SeatAction[] | undefi
   const { call } = listing;
   if (!call.patterns.every(searchPatternContained)) {
     return [{ kind: "refused", reason: "find patterns must stay inside the searched directory and away from .git" }];
+  }
+  // The shell follows links; the read policy judges the path as written.
+  if (!projectPathFacts(cwd).asWritten?.(call.path)) {
+    return [{ kind: "refused", reason: `'${call.path}' is a link, or reached through one, or spelled differently from its real name — use the real path` }];
   }
   return gateInputs(call).map((input) => ({ kind: "read" as const, tool: call.tool, input }));
 }
@@ -88,7 +92,7 @@ export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: str
     });
     return deny(reason);
   };
-  const listing = payload.toolName === "Bash" ? listingActions(payload.toolInput["command"]) : undefined;
+  const listing = payload.toolName === "Bash" ? listingActions(payload.toolInput["command"], cwd) : undefined;
   if (listing !== undefined) {
     for (const action of listing) {
       const decision = decideLead(action, cwd);
@@ -137,7 +141,7 @@ function architectTier(payload: HookPayload, cwd: string): string {
  *  elsewhere: project reads only, as the lead may read them. */
 export function evaluateScout(payload: HookPayload, cwd: string): string {
   const actions = payload.toolName === "Bash"
-    ? listingActions(payload.toolInput["command"]) ?? [{ kind: "other" as const, tool: "Bash" }]
+    ? listingActions(payload.toolInput["command"], cwd) ?? [{ kind: "other" as const, tool: "Bash" }]
     : claudeSeatActions({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd);
   for (const action of actions) {
     const decision = decideScout(action, cwd);

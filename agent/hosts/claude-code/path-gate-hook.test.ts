@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -194,6 +195,17 @@ describe("path-gate-hook — Bash, by role", () => {
     expect(r.reason).toContain(`path-gate: ${role} may not run 'npm': no role holds a shell`);
     const block = gateEvents(dir).find((e) => e.guard === "path-gate" && e.verdict === "block");
     expect(block).toMatchObject({ summary: r.reason, detail: { role, tool: "bash", command: "npm test" } });
+  });
+
+  test.each(["architect", "builder"])("%s: `ls` / `find` list real paths, never through a link (#35)", (role) => {
+    const dir = makeTempProject({ "contexts/m/src/a.ts": "" });
+    symlinkSync(join(dir, ".git"), join(dir, "contexts/m/g"));
+    expect(runHere(dir, payload(dir, "Bash", { command: "ls contexts/m/src" }), ["--role", role]).decision).toBe("allow");
+    expect(runHere(dir, payload(dir, "Bash", { command: "ls" }), ["--role", role]).decision).toBe("allow");
+    for (const command of ["ls contexts/m/g", "find contexts/m/g -name '*'", "ls contexts/m/g/"]) {
+      const r = runHere(dir, payload(dir, "Bash", { command }), ["--role", role]);
+      expect(r.decision, command).toBe("deny");
+    }
   });
 
   test("`bounded gates red-gate`: architect allow, builder deny", () => {
