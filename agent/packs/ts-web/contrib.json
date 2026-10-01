@@ -35,6 +35,7 @@
     "web": {
       "root": "apps",
       "manifest": "templates/web/package.json",
+      "runtime": "bun",
       "description": "A web app: src/server/main.ts serves the context's tRPC router at /trpc/* and src/client/index.html at / with Bun.serve; src/client/main.tsx is a React root with a typed tRPC client; src/server/composition-root.ts wires handlers and adapters."
     }
   },

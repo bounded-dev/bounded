@@ -184,7 +184,8 @@ export function fixtureHarness(options: FixtureOptions = {}): Fixture {
   const templates: Record<string, unknown> = {
     context: { root: "contexts", manifest: "templates/context.json", description: "A bounded context." },
   };
-  for (const kind of kinds) templates[kind] = { root: "apps", manifest: `templates/${kind}.json`, description: `The ${kind} app.` };
+  const runtimes: Readonly<Record<string, string>> = { web: "bun", mcp: "bun", lambdas: "node", desktop: "node" };
+  for (const kind of kinds) templates[kind] = { root: "apps", manifest: `templates/${kind}.json`, runtime: runtimes[kind], description: `The ${kind} app.` };
   write(packsDir, "hex/contrib.json", json({
     dependsOnPacks: [base],
     sourceRoots: ["contexts/*/src", "apps/*/src"],

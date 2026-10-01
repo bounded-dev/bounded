@@ -16,6 +16,7 @@ import {
   renderConfigFile,
   declaredWorkspaces,
   generatedManifests,
+  type Layout,
   layoutFor,
   lockfileFor,
   type Manifest,
@@ -29,6 +30,7 @@ import {
   tnWorkspaces,
   tsconfigFor,
   workspaceGlobs,
+  workspaceManifest,
   writeProjectPackage,
 } from "./project-package.ts";
 import {
@@ -231,6 +233,68 @@ describe("workspaces from the design (ADR 2026-061)", () => {
     const project = tempDir("flat-");
     writeProjectPacks(project, ["ts"]);
     expect(projectWorkspaces(project, layoutFor(["ts"], join(agentRoot, "packs")), "@x")).toEqual([]);
+  });
+});
+
+describe("appPins: what each app's runtime needs to construct a technology (ADR 2026-061)", () => {
+  const DRIVERS = {
+    bun: { dependencies: { "drizzle-orm": "0.45.3" }, devDependencies: {} },
+    node: { dependencies: { "drizzle-orm": "0.45.3", pg: "8.23.1" }, devDependencies: { "@types/pg": "8.23.1" } },
+  };
+  /** The fixture's layout with the storage technology declaring app pins. */
+  function withAppPins(f: Fixture, appPins: Record<string, typeof DRIVERS.bun> = DRIVERS): Layout {
+    const layout = layoutFor(f.packs, f.packsDir);
+    return { ...layout, technologies: layout.technologies.map((t) => (t.id === "drizzle" ? { ...t, appPins } : t)) };
+  }
+  function manifests(project: string, layout: Layout): Map<string, Manifest> {
+    const workspaces = projectWorkspaces(project, layout, "@example");
+    const contexts = workspaces.filter((w) => w.kind === "context");
+    return new Map(workspaces.map((w) => [w.dir, workspaceManifest(project, w, layout, contexts, "@example")]));
+  }
+  const deps = (manifest: Manifest | undefined, section: "dependencies" | "devDependencies") =>
+    (manifest?.[section] ?? {}) as Record<string, string>;
+
+  test("every app takes its template runtime's pins when a context's design uses the technology", () => {
+    const f = fixture();
+    const generated = manifests(example(f), withAppPins(f));
+    for (const app of ["apps/web", "apps/mcp"]) {
+      expect(deps(generated.get(app), "dependencies")["drizzle-orm"], app).toBe("0.45.3");
+      expect(deps(generated.get(app), "dependencies"), app).not.toHaveProperty("pg");
+      expect(deps(generated.get(app), "devDependencies"), app).not.toHaveProperty("@types/pg");
+    }
+    for (const app of ["apps/lambdas", "apps/desktop"]) {
+      expect(deps(generated.get(app), "dependencies"), app).toMatchObject({ "drizzle-orm": "0.45.3", pg: "8.23.1" });
+      expect(deps(generated.get(app), "devDependencies")["@types/pg"], app).toBe("8.23.1");
+    }
+    // The context's own manifest is unchanged by them.
+    const plain = manifests(example(f), layoutFor(f.packs, f.packsDir));
+    expect(generated.get("contexts/project-management")).toEqual(plain.get("contexts/project-management"));
+  });
+
+  test("a design with no store gives no app the storage technology's pins", () => {
+    const f = fixture();
+    const project = example(f);
+    const application = join(project, "contexts/project-management/src/application");
+    rmSync(application, { recursive: true });
+    mkdirSync(join(application, "notes/list-notes"), { recursive: true });
+    writeFileSync(join(application, "notes/list-notes/list-notes.contract.ts"), featureContract("ListNotes", { exposedVia: "trpc", store: false }));
+    for (const [dir, manifest] of manifests(project, withAppPins(f))) {
+      expect(deps(manifest, "dependencies"), dir).not.toHaveProperty("drizzle-orm");
+    }
+  });
+
+  test("refused: an app template without a runtime, a runtime the technology has no pins for, a context with a runtime", () => {
+    const f = fixture();
+    const project = example(f);
+    const layout = withAppPins(f);
+    const noRuntime = { ...layout, templates: layout.templates.map((t) => (t.kind === "web" ? { ...t, runtime: undefined } : t)) };
+    expect(() => manifests(project, noRuntime)).toThrow(/apps\/web \(adapter technology 'drizzle'\).*template 'web' declares no runtime/);
+    expect(() => manifests(project, withAppPins(f, { bun: DRIVERS.bun }))).toThrow(/apps\/desktop .*no appPins for runtime 'node'/);
+    const contextRuntime = { ...layout, templates: layout.templates.map((t) => (t.kind === "context" ? { ...t, runtime: "bun" } : t)) };
+    expect(() => manifests(project, contextRuntime)).toThrow(/a context is not an app/);
+    // Without app pins, an app template needs no runtime.
+    const plain = layoutFor(f.packs, f.packsDir);
+    expect(() => manifests(project, { ...plain, templates: plain.templates.map((t) => ({ ...t, runtime: undefined })) })).not.toThrow();
   });
 });
 

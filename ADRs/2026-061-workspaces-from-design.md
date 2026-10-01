@@ -20,6 +20,13 @@
   command). A context workspace's manifest takes them with the pins when its
   tree has the technology's folder. This is how each context gets the worked
   example's `db:generate` and `db:migrate` (TN-26-012 §10).
+- An app gets what its composition root needs to construct a technology:
+  each app template declares a `runtime` (`bun`, `node`), and a technology
+  may declare `appPins` per runtime. Every app takes, for its runtime, the
+  `appPins` of every technology a context's design uses, because Bun's
+  isolated install hides packages an app does not declare. An app template
+  without a runtime, or a runtime a used technology has no `appPins` for, is
+  refused. ts-drizzle-postgres pins its drivers this way.
 - The project package generator writes the root manifest and every
   workspace manifest. Each workspace manifest's `exports` has one entry per
   layer and one per adapter technology folder present. Its `workspace:*`

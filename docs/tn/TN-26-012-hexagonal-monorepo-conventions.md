@@ -560,8 +560,8 @@ workspaces:
 | `testFileSuffixes` | data | core, same file | `string[]`; `testFileSuffixes(cwd)`, `testFileSuffixesFor(packs)`, `testFileSuffixesOrUnreadable(cwd)`, `hasTestFileSuffix(path, suffixes)` |
 | `generatedFileGlobs` | data | core, same file | `string[]`; `generatedFileGlobs(cwd)`, `generatedFileGlobsFor(packs)`, `generatedFileGlobsOrUnreadable(cwd)`, `pathGlobMatcher(globs)` |
 | `skeletonEmitters` | code | ts, `agent/packs/ts/pack.ts` | `Emitter { name; description; emit(facts: ProjectFacts): readonly EmittedFile[] }`, `EmittedFile { path; content; mode }`, `emittedFileProblem(file, emitter)` |
-| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), pins?, workspaceScripts? }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
-| `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
+| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), pins?, appPins?: { <runtime>: pins }, workspaceScripts? }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
+| `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, runtime? (apps: required when a used technology has appPins; contexts: never), files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
 | `phaseTestPolicies` | code | ts, same file | `PhaseTestPolicy { name; description; decide({ project, phase: "red" \| "green" }) → run (prepare?(envChange), infrastructureFailure?) \| skip (red: env, unsetEnv, skippedTest) \| refuse (green) }`; ts-drizzle-postgres contributes the store-test rule (ADR 2026-064) |
 | `testObligations` | code | ts, same file | `TestObligation { name; description; phases?; check(input) → ObligationGap[] }` over the facts, the source-root files and the test-side sources; ts-hexagonal contributes the feature, store, out-adapter, in-adapter-laws and app levels (ADR 2026-063) |
 | `tnExampleContracts` | data | core, `agent/src/project-init.ts` | `string[]`: contract paths (placeholders allowed) `bounded init` shows in `docs/tn/README.md`; each must lie under a composed source root and end with a composed contract suffix. ts-hexagonal names a concept and a feature |
@@ -601,6 +601,14 @@ directory. An empty object, and one script name contributed by two
 technologies, are refused. ts-drizzle-postgres contributes the example's
 `db:generate` (`drizzle-kit generate`) and `db:migrate`
 (`bun --env-file=../../.env run drizzle-kit migrate`).
+
+`appPins` maps an app runtime to pins. Each app template names its
+`runtime`: `bun` for web and MCP, `node` for Lambdas and the desktop app's
+Electron main process. An app workspace's manifest takes, for its runtime,
+the `appPins` of every technology any context's design uses, beside its
+`workspace:*` dependencies. ts-drizzle-postgres gives Bun apps `drizzle-orm`
+(for `drizzle-orm/bun-sql`) and Node apps `drizzle-orm`, `pg` and `@types/pg`
+(for `drizzle-orm/node-postgres`), at the context's versions.
 
 Root config files may use `{{project}}`: the scope without its `@`
 (`example`). ts-drizzle-postgres's `docker-compose.yml` and `.env.example`
