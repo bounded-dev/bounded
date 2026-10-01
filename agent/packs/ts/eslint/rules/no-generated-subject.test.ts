@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { runScaffold } from "../../scripts/scaffold-project.ts";
@@ -94,6 +94,75 @@ test("lists", async () => {
 });
 `);
     expect(found).toHaveLength(1);
+  });
+});
+
+// Review of #36: a test-side helper is followed into its own subjects, and
+// whatever the analysis cannot see through counts as possibly authored.
+describe("through helpers, parameters and runtime loads", () => {
+  const support = (name: string, source: string): void => writeFileSync(join(f.dir, FEATURE, name), source.replaceAll("@demo", f.scope));
+
+  test("allows a test whose handler comes from a test-support fixture (repro 1)", async () => {
+    support("adv-fixture.test-support.ts", `import type { CreateNoteStore } from "./create-note.contract.ts";
+import { CreateNoteHandler } from "./create-note.handler.ts";
+const store: CreateNoteStore = { save: async () => {} };
+export function makeHandler(): CreateNoteHandler { return new CreateNoteHandler(store); }
+`);
+    expect(await problems(`${FEATURE}/create-note.test.ts`, `import { expect, test } from "bun:test";
+import { CreateNoteCommand } from "./create-note.command.ts";
+import { makeHandler } from "./adv-fixture.test-support.ts";
+test("creates", async () => {
+  const parsed = CreateNoteCommand.parse({ text: "a" });
+  if (parsed.ok) expect((await makeHandler().execute(parsed.value)).text.value).toBe("a");
+});
+`)).toEqual([]);
+  });
+
+  test("allows a conformance suite whose subject arrives as a parameter (repro 2)", async () => {
+    expect(await problems(`${FEATURE}/create-note.store.test-support.ts`, `import { expect, test } from "bun:test";
+import { CreateNoteCommand } from "./create-note.command.ts";
+import type { CreateNoteStore } from "./create-note.contract.ts";
+export function createNoteStoreConformance(make: () => Promise<{ store: CreateNoteStore }>): void {
+  test("saves", async () => {
+    const { store } = await make();
+    expect(CreateNoteCommand.parse({ text: "a" }).ok).toBe(true);
+    await store.save(undefined as never);
+  });
+}
+`)).toEqual([]);
+  });
+
+  test("allows a test reaching a global the analysis does not know, a computed import, or an export * helper", async () => {
+    support("star.test-support.ts", `export * from "./create-note.command.ts";\n`);
+    expect(await problems(`${FEATURE}/create-note.test.ts`, `import { expect, test } from "bun:test";
+import { CreateNoteCommand } from "./create-note.command.ts";
+import { createNoteSchema } from "./star.test-support.ts";
+declare const fixtureFromSetup: { ok: boolean };
+test("a", () => { expect(CreateNoteCommand.parse(1).ok).toBe(fixtureFromSetup.ok); });
+test("b", async () => { const name = "./x.ts"; await import(name); expect(CreateNoteCommand.parse(1).ok).toBe(false); });
+test("c", () => { expect(createNoteSchema.safeParse(1).success).toBe(false); });
+`)).toEqual([]);
+  });
+
+  test("refuses a command re-exported through a test-support file", async () => {
+    support("commands.test-support.ts", `export { CreateNoteCommand } from "./create-note.command.ts";\n`);
+    const found = await problems(`${FEATURE}/create-note.test.ts`, `${HEADER}
+import { CreateNoteCommand as Command } from "./commands.test-support.ts";
+test("refuses a number", () => { expect(Command.parse(1).ok).toBe(false); });
+test("creates", async () => { await new CreateNoteHandler(store).execute(CreateNoteCommand.parse({ text: "a" }) as never); });
+`);
+    expect(found.map((p) => p.line)).toEqual([8]);
+  });
+
+  test("refuses a command loaded by a literal dynamic import", async () => {
+    const found = await problems(`${FEATURE}/create-note.test.ts`, `${HEADER}
+test("refuses a number", async () => {
+  const { CreateNoteCommand: Command } = await import("./create-note.command.ts");
+  expect(Command.parse(1).ok).toBe(false);
+});
+test("creates", async () => { await new CreateNoteHandler(store).execute(CreateNoteCommand.parse({ text: "a" }) as never); });
+`);
+    expect(found.map((p) => p.line)).toEqual([7]);
   });
 });
 

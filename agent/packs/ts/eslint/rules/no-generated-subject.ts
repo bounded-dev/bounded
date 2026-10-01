@@ -12,12 +12,15 @@ import { analyseTestFile, onlyGenerated, subjectLabel, subjectResolver, type Sub
 // eight `CreateNoteCommand.parse` tests reached red that way, after both
 // workers had finished. This rule says it on the test file instead:
 //
-//   · a test file whose every imported subject is generated, once;
+//   · a test file whose every import is generated and every test reaches
+//     only generated code, once;
 //   · otherwise each `test` / `it` whose body reaches only generated code.
 //
 // What a test reaches is test-subjects.ts's analysis, the same one the red
-// gate uses to explain a spurious pass. A handler test that builds its input
-// with the generated command reaches the handler too, so it is fine.
+// gate uses to explain a spurious pass. It is one-sided: anything it cannot
+// see through (a suite's parameter, a helper it cannot follow) counts as
+// possibly authored, and is never refused. A handler test that builds its
+// input with the generated command reaches the handler too, so it is fine.
 
 /** What the rule reads about a project, afresh for every file: a lint run in
  *  a long-lived session must see the workspaces and barrels as they are now. */
@@ -55,13 +58,13 @@ export const noGeneratedSubject = ESLintUtils.RuleCreator.withoutDocs({
       "Program:exit"(program: TSESTree.Program): void {
         const analysis = analyseTestFile(program, context.sourceCode.scopeManager as unknown as TSESLint.Scope.ScopeManager);
         const subjects = (values: Parameters<typeof subjectLabel>[0][]): string => [...new Set(values.map(subjectLabel))].join(", ");
-        const wholeFile = onlyGenerated(analysis.imports, path, resolve);
-        if (wholeFile !== undefined) {
+        const tests = analysis.tests.map((test) => ({ test, generated: onlyGenerated(test.reach, path, resolve) }));
+        const wholeFile = onlyGenerated({ values: analysis.imports }, path, resolve);
+        if (wholeFile !== undefined && tests.length > 0 && tests.every((t) => t.generated !== undefined)) {
           context.report({ node: wholeFile[0]!.node, messageId: "file", data: { subjects: subjects([...wholeFile]) } });
           return;
         }
-        for (const test of analysis.tests) {
-          const generated = onlyGenerated(test.subjects, path, resolve);
+        for (const { test, generated } of tests) {
           if (generated !== undefined) context.report({ node: test.node, messageId: "test", data: { subjects: subjects([...generated]) } });
         }
       },
