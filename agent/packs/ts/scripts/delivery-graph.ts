@@ -2,13 +2,23 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Node, Project, SyntaxKind, type SourceFile } from "ts-morph";
+import { sourceRoots } from "../../../src/pack-contrib.ts";
+import { expandSourceRoots } from "../../../src/path-gate.ts";
 
+/** Every source file under the composed source roots (ADR 2026-056), or under
+ *  `src/` where the composition declares none or cannot be read. */
 export function deliveryProject(cwd: string): Project {
   const config = join(cwd, "tsconfig.json");
   const project = existsSync(config)
     ? new Project({ tsConfigFilePath: config, skipAddingFilesFromTsConfig: true })
     : new Project({ compilerOptions: { allowJs: true } });
-  project.addSourceFilesAtPaths(join(cwd, "src/**/*.{ts,tsx,js,jsx}"));
+  let roots: string[];
+  try {
+    roots = expandSourceRoots(cwd, sourceRoots(cwd));
+  } catch {
+    roots = [];
+  }
+  for (const root of roots.length > 0 ? roots : ["src"]) project.addSourceFilesAtPaths(join(cwd, root, "**/*.{ts,tsx,js,jsx}"));
   project.resolveSourceFileDependencies();
   return project;
 }

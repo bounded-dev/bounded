@@ -471,6 +471,30 @@ under `adapters/in/`, which is generated. Store tests follow ADR 2026-064:
 skipped with a logged reason at red without a container runtime, and a
 refusal at green.
 
+What each gate runs. The red gate runs the test-side files of the
+workspaces that hold contracts (the contexts), in a shadow rebuilt from the
+contracts, those tests, the generated files and the config, with every
+emitter re-run at phase `red`. A generated law may pass there, because it
+also exercises generated code; a hand-written test must fail with
+`NotImplementedError`. An app's tests and root-level test files (the
+architecture test) run at green only. Green is bound to a hash of every
+test-side file under every source root that no generated glob matches
+(`testFilesHash`), so editing or adding any of them voids it, and green
+refuses any skipped or todo result.
+
+The obligations each level owes (`testObligations`): every concept has its
+laws, a `<concept>.test.ts` and a `<Name> — boundaries` block per value
+object and identifier, asserted on the `Result` (`expect(X.parse(v).ok)
+.toBe(true|false)` or `toEqual({ ok: …, … })`), with one accepted literal
+and two distinct rejected literals of its base type; every factory member
+and instance method is called. Every feature has `<feature>.test.ts`
+constructing `<InPort>Handler` and calling `execute`; a store port has its
+conformance suite calling every method and one store test per composed
+storage technology importing it; every other out port has a test per
+`@implementedBy` technology; generated command and in-adapter laws exist.
+Every app has `composition-root.test.ts` beside each composition root
+(green only).
+
 ## 9. TN `workspaces:` front matter
 
 Apps are declared in a ticket TN's front matter, in block form only:
@@ -502,6 +526,8 @@ workspaces:
 | `skeletonEmitters` | code | ts, `agent/packs/ts/pack.ts` | `Emitter { name; description; emit(facts: ProjectFacts): readonly EmittedFile[] }`, `EmittedFile { path; content; mode }`, `emittedFileProblem(file, emitter)` |
 | `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), pins?, workspaceScripts? }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
 | `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
+| `phaseTestPolicies` | code | ts, same file | `PhaseTestPolicy { name; description; decide({ project, phase: "red" \| "green" }) → run \| skip (red: env, unsetEnv, skippedTest) \| refuse (green) }`; ts-drizzle-postgres contributes the store-test rule (ADR 2026-064) |
+| `testObligations` | code | ts, same file | `TestObligation { name; description; phases?; check(input) → ObligationGap[] }` over the facts, the source-root files and the test-side sources; ts-hexagonal contributes the feature, store, out-adapter, in-adapter-laws and app levels (ADR 2026-063) |
 
 `ProjectFacts` is `{ scope, phase: "design" | "red" | "deliver", packs,
 workspaces: WorkspaceFacts[], adapterTechnologies, workspaceTemplates }`.
