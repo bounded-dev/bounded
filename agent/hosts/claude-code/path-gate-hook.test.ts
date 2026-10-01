@@ -495,7 +495,7 @@ describe("path-gate-hook — what an errored hook still lets through", () => {
     ["Grep", { pattern: "url", path: "." }],
     ["Glob", { pattern: ".GIT/**", path: "src" }],
     ["Glob", { pattern: "[.]git/*", path: "src" }],
-    ["LS", { path: "." }],
+    ["LS", { path: ".git" }], // a one-level listing of the root is allowed (#35); .git is not
     ["Write", { file_path: "src/a.ts", content: "x" }],
     ["Read", "not an object"],
   ])("%s %j outside the project, into .git, or unreadable is refused", (tool, input) => {

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { logGuardEvent, readGuardLog } from "./guard-log.ts";
 import { asRole, evaluatePathGate, expandSourceRoots, PIPELINE_ROLES, projectPathFacts } from "./path-gate.ts";
+import { PI_COMMISSIONS } from "../hosts/pi/extensions/lib/commissions.ts";
 
 
 const C = "contexts/orders/src";
@@ -185,11 +186,24 @@ function readyProject(): string {
 const phaseEvents = (cwd: string) => readGuardLog(cwd).filter((e) => e.guard === "phase-gate");
 
 describe("commissioning a worker", () => {
+  test("a commission with no host to read it is refused, not guessed at", () => {
+    const cwd = readyProject();
+    const result = evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder" }, cwd });
+    expect(result?.block).toBe(true);
+    expect(result?.reason).toContain("this host supplied no commission policy");
+  });
+
+  test("pi's children.list is recorded as the continuation check that licenses a relaunch", () => {
+    const cwd = readyProject();
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { action: "children.list" }, cwd })).toBeUndefined();
+    expect(phaseEvents(cwd).at(-1)).toMatchObject({ verdict: "pass", summary: "children.list", detail: { kind: "continuation-checked" } });
+  });
+
   test("the builder is allowed straight after the freeze, with no red, and is recorded", () => {
     const cwd = readyProject();
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { agent: "builder", task: "implement the contract" },
       cwd,
     });
@@ -205,7 +219,7 @@ describe("commissioning a worker", () => {
     const cwd = readyProject();
     for (const agent of ["test-writer", "builder"]) {
       expect(
-        evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent }, cwd }),
+        evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent }, cwd }),
       ).toBeUndefined();
     }
     expect(phaseEvents(cwd).map((e) => e.summary)).toEqual([
@@ -219,17 +233,17 @@ describe("commissioning a worker", () => {
     rmSync(join(cwd, C), { recursive: true, force: true });
     mkdirSync(join(cwd, "lib"), { recursive: true });
     writeFileSync(join(cwd, "lib", "money.contract.ts"), "export type Money = number;\n");
-    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder" }, cwd })?.block).toBe(true);
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "builder" }, cwd })?.block).toBe(true);
     mkdirSync(join(cwd, "apps/web/src/deep/er"), { recursive: true });
     writeFileSync(join(cwd, "apps/web/src/deep/er/money.contract.ts"), "export type Money = number;\n");
-    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder" }, cwd })).toBeUndefined();
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "builder" }, cwd })).toBeUndefined();
   });
 
   test("an unmet precondition blocks and is logged as a phase-gate refusal", () => {
     const cwd = tmp(); // nothing designed at all
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { agent: "test-writer" },
       cwd,
     });
@@ -246,7 +260,7 @@ describe("multi-spawn forms", () => {
     const cwd = readyProject(); // fully designed: the refusal is about the SHAPE
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: {
         workflowScript:
           'return runs.all([{key:"tw", agent:"test-writer"}, {key:"b", agent:"builder"}])',
@@ -265,7 +279,7 @@ describe("multi-spawn forms", () => {
     const cwd = readyProject();
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { workflowScript: 'return runs.all([{key:"a", agent:"scout", task:"survey"}])' },
       cwd,
     });
@@ -285,7 +299,7 @@ describe("delegate is refused inside the pipeline only", () => {
     const cwd = readyProject();
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { agent: "delegate", task: "clean up the generated files" },
       cwd,
     });
@@ -301,7 +315,7 @@ describe("delegate is refused inside the pipeline only", () => {
     const cwd = readyProject();
     const result = evaluatePathGate({
       role: undefined,
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { agent: "delegate", task: "clean up the generated files" },
       cwd,
     });
@@ -319,7 +333,7 @@ describe("resuming a child", () => {
     const cwd = readyProject();
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { action: "resume", id: "run-42", message: "the red gate says X" },
       cwd,
     });
@@ -335,7 +349,7 @@ describe("resuming a child", () => {
     const cwd = readyProject();
     evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { action: "resume", agent: "builder", id: "run-9" },
       cwd,
     });
@@ -349,7 +363,7 @@ describe("resuming a child", () => {
     const cwd = readyProject();
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { action: "resume", agent: "delegate", id: "run-3" },
       cwd,
     });
@@ -366,7 +380,7 @@ describe("resuming a child", () => {
     for (const action of ["status", "steer", "wait", "interrupt"]) {
       evaluatePathGate({
         role: "architect",
-        toolName: "subagent",
+        toolName: "subagent", commissions: PI_COMMISSIONS,
         input: { action, id: "run-1" },
         cwd,
       });
@@ -394,7 +408,7 @@ describe("a tier the registry cannot resolve", () => {
     const cwd = tiered('{"designModel": "kimi-k3:high"}');
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { agent: "reviewer", task: "read the design" },
       cwd,
       known: REGISTRY,
@@ -412,7 +426,7 @@ describe("a tier the registry cannot resolve", () => {
     const cwd = tiered('{"designModel": "anthropic/claude-opus-4:high"}');
     const result = evaluatePathGate({
       role: "architect",
-      toolName: "subagent",
+      toolName: "subagent", commissions: PI_COMMISSIONS,
       input: { agent: "reviewer", task: "read the design" },
       cwd,
       known: REGISTRY,
@@ -427,7 +441,7 @@ describe("a tier the registry cannot resolve", () => {
     expect(
       evaluatePathGate({
         role: "architect",
-        toolName: "subagent",
+        toolName: "subagent", commissions: PI_COMMISSIONS,
         input: { agent: "reviewer" },
         cwd,
       }),
@@ -439,7 +453,7 @@ describe("a tier the registry cannot resolve", () => {
     expect(
       evaluatePathGate({
         role: "architect",
-        toolName: "subagent",
+        toolName: "subagent", commissions: PI_COMMISSIONS,
         input: { agent: "reviewer" },
         cwd,
         known: REGISTRY,

@@ -70,7 +70,21 @@ import {
   sessionRole,
 } from "../../src/path-gate.ts";
 import { CONSTRAINTS, declareHost, HOST_ENV, recordHostDeclaration } from "../../src/host.ts";
-import type { Role } from "../../src/path-policy.ts";
+import { forbiddenWhy, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
+import { CONTINUATION_CHECKED } from "../../src/phase-gate.ts";
+import {
+  AGENT_TOOLS,
+  CLAUDE_COMMISSIONS,
+  CONTINUE_WORKER_FIELD,
+  continuableWorker,
+  currentWorkers,
+  SEND_MESSAGE_TOOL,
+  sendSucceeded,
+  sendTarget,
+  startedWorker,
+  WORKER_STARTED,
+  workerRole,
+} from "./continuation.ts";
 import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
 import { decideBash, shellWords } from "./bash-policy.ts";
@@ -219,6 +233,15 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     rec = parseRecord(rawStdin);
     toolName = toolNameOf(rec);
     const payload = narrowPayload(rec, toolName);
+    // A bound role's definition also registers this hook after Agent and
+    // SendMessage calls: that is how a started worker's agent id reaches the
+    // guard log, and how a failed continuation licenses a relaunch
+    // (continuation.ts). Nothing after a call is ever refused here.
+    if (payload.event === "PostToolUse" || payload.event === "PostToolUseFailure") {
+      const role = asRole(flags.role);
+      if (role !== undefined) recordCommissionOutcome(role, payload, rec, payload.cwd ?? fallbackCwd);
+      return { stdout: "", stderr: "" };
+    }
     if (payload.event !== undefined && payload.event !== "PreToolUse") return { stdout: "", stderr: "" };
     cwd = payload.cwd ?? fallbackCwd;
     const harnessRoot = flags.harnessRoot ?? defaultHarnessRoot();
@@ -284,6 +307,107 @@ function localGateCommand(command: string, harnessRoot: string): string {
   return [join(harnessRoot, "scripts", "bounded"), ...words.argv.slice(1)].map(shellQuote).join(" ");
 }
 
+/**
+ * After an Agent or SendMessage call by a role that commissions workers:
+ * record the worker an Agent result started (its agent id is the address a
+ * later continuation must use), and record a continuation that did not go
+ * through, which licenses a fresh launch of that role (continuation.ts).
+ */
+function recordCommissionOutcome(
+  role: Role,
+  payload: Payload,
+  rec: Readonly<Record<string, unknown>>,
+  cwd: string,
+): void {
+  if (!ROLE_TOOLS[role].includes("subagent")) return;
+  const response = rec["tool_response"];
+  if (AGENT_TOOLS.has(payload.toolName)) {
+    const asked = payload.toolInput["subagent_type"];
+    const started = payload.event === "PostToolUse" ? startedWorker(payload.toolInput, response) : undefined;
+    if (started !== undefined) {
+      logGuardEvent(cwd, {
+        guard: "phase-gate",
+        verdict: "pass",
+        summary: `${started.role} is worker ${started.worker}`,
+        detail: { kind: WORKER_STARTED, role, target: started.role, worker: started.worker },
+      });
+      return;
+    }
+    // The launch ended with no worker this hook can address — it failed, or
+    // its result named none — so nothing of it can be continued. That is the
+    // positive evidence that licenses a fresh launch of the role.
+    if (typeof asked !== "string" || asRole(asked) === undefined) return;
+    logGuardEvent(cwd, {
+      guard: "phase-gate",
+      verdict: "pass",
+      summary: `the ${asked} launch left no worker to continue — a fresh ${asked} may be launched`,
+      detail: { kind: CONTINUATION_CHECKED, role, target: asked },
+    });
+    return;
+  }
+  if (payload.toolName !== SEND_MESSAGE_TOOL) return;
+  if (payload.event === "PostToolUse" && sendSucceeded(response)) return;
+  const target = sendTarget(payload.toolInput);
+  if (!target.ok) return;
+  const events = readGuardLog(cwd);
+  const workerOf = workerRole(target.to, events);
+  // Only a failed send to the role's CURRENT worker says that role cannot be
+  // continued; a stale worker failing says nothing about its successor.
+  if (workerOf === undefined || continuableWorker(workerOf, events) !== target.to) return;
+  logGuardEvent(cwd, {
+    guard: "phase-gate",
+    verdict: "pass",
+    summary: `${CLAUDE_COMMISSIONS.checkSummary}: ${workerOf} ${target.to} — a fresh ${workerOf} may be launched`,
+    detail: { kind: CONTINUATION_CHECKED, role, target: workerOf, worker: target.to },
+  });
+}
+
+/**
+ * A SendMessage by a bound role. It is how this host continues a finished
+ * worker, so it is allowed only to a role that commissions workers, only as a
+ * plain message, and only to a worker the guard log says this pipeline
+ * started — never the main conversation or another session. Then it is the
+ * core's continuation, recorded like any other commission.
+ */
+function evaluateContinuation(role: Role, payload: Payload, cwd: string, harnessRoot: string): string {
+  const refuse = (reason: string): string => {
+    logGuardEvent(cwd, {
+      guard: "phase-gate",
+      verdict: "block",
+      summary: reason,
+      detail: { kind: "spawn-refused", role, tool: SEND_MESSAGE_TOOL },
+    });
+    return deny(reason);
+  };
+  if (!ROLE_TOOLS[role].includes("subagent")) {
+    return refuse(`path-gate: ${role} may not use '${SEND_MESSAGE_TOOL}': ${forbiddenWhy(role, "subagent")}`);
+  }
+  const target = sendTarget(payload.toolInput);
+  if (!target.ok) return refuse(`phase-gate: ${SEND_MESSAGE_TOOL} here only continues a worker — ${target.reason}`);
+  const events = readGuardLog(cwd);
+  const workerOf = workerRole(target.to, events);
+  // Only each role's current worker: the one recorded after its last launch,
+  // whose continuation has not failed. Never `main`, another session, or a
+  // worker a later launch replaced.
+  if (workerOf === undefined || continuableWorker(workerOf, events) !== target.to) {
+    const current = currentWorkers(events).map((w) => `${w.role} ${w.worker}`);
+    return refuse(
+      `phase-gate: ${SEND_MESSAGE_TOOL} here only continues a role's current worker, and '${target.to}' is not one — ` +
+        (current.length > 0 ? `current workers: ${current.join(", ")}` : "no worker can be continued; commission one with the Agent tool"),
+    );
+  }
+  const blocked = evaluatePathGate({
+    role,
+    toolName: "subagent",
+    input: { [CONTINUE_WORKER_FIELD]: target.to, agent: workerOf },
+    cwd,
+    harnessRoot,
+    host: "claude-code",
+    commissions: CLAUDE_COMMISSIONS,
+  });
+  return blocked === undefined ? "" : deny(blocked.reason);
+}
+
 function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, harnessRoot: string, projectLocal: boolean): string {
   // Say which host this is and what it holds (ADR 2026-034). The strip is the
   // agent definition's `tools:` allowlist, so only a BOUND role has it; an
@@ -297,6 +421,8 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
   if (isDrivingRole(role) && !readGuardLog(cwd).some((e) => e.guard === RUN_START_GUARD)) {
     recordRunStart(cwd, role, payload.toolName);
   }
+
+  if (payload.toolName === SEND_MESSAGE_TOOL) return evaluateContinuation(role, payload, cwd, harnessRoot);
 
   const calls = mapToolCall({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd);
   let allowed = "";
@@ -373,7 +499,15 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
         allowed = allowWith({ ...payload.toolInput, model: hostModel });
       }
     }
-    const blocked = evaluatePathGate({ role, toolName: call.toolName, input: call.input, cwd, harnessRoot, host: "claude-code" });
+    const blocked = evaluatePathGate({
+      role,
+      toolName: call.toolName,
+      input: call.input,
+      cwd,
+      harnessRoot,
+      host: "claude-code",
+      commissions: CLAUDE_COMMISSIONS,
+    });
     if (blocked !== undefined) return deny(blocked.reason);
   }
   return allowed;

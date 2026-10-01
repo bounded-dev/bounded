@@ -29,6 +29,38 @@ export interface GateCall {
   readonly input: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * The tools Claude Code gives a subagent whatever the build and however the
+ * session was launched. A generated definition may name only these
+ * (render-agents.test.ts): a `tools:` entry the host does not provide is a
+ * capability the brief promises and the role does not have.
+ *
+ * Glob and Grep are deliberately absent. Claude Code's native builds bundle
+ * their own `find` and `grep` and remove the Glob and Grep tools from the
+ * session, telling the model "Glob is not available in this session — find
+ * files with `find` via the Bash tool instead". A session gets them back only
+ * when it is launched naming them in `--tools` or `--allowedTools`; a
+ * subagent's `tools:` line does not opt in. The 2026-10-01 dogfood architect
+ * listed Glob and was refused it twice. SendMessage continues a finished
+ * subagent (continuation.ts), verified with background tasks and agent teams
+ * disabled, as the project installer sets them.
+ */
+export const CLAUDE_PROVIDED_TOOLS: ReadonlySet<string> = new Set([
+  "Read",
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+  "Agent",
+  "SendMessage",
+  "WebFetch",
+  "WebSearch",
+  "Skill",
+]);
+
+/** Tools some Claude Code sessions have and others do not (see above). */
+export const CLAUDE_CONDITIONAL_TOOLS: ReadonlySet<string> = new Set(["Glob", "Grep"]);
+
 /** The subset of a PreToolUse payload the mapping reads. */
 export interface ClaudeToolCall {
   readonly tool_name: string;

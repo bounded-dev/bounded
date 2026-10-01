@@ -8,6 +8,11 @@ import { SETUP_COMMAND } from "../../src/setup-state.ts";
 import { DEV_STAGE_SKILL, mergeAmbientHook } from "./install.ts";
 import { GENERATED_MARKER, hookFrontmatter, readPiAgent, renderAgent } from "./render-agents.ts";
 
+/** The scout's Claude Code toolset: Read, and Bash for names-only listing
+ *  (listing.ts; judged by lead-hook.ts). Pinned to the tools this host
+ *  provides by render-agents.test.ts. */
+export const SCOUT_CLAUDE_TOOLS: readonly string[] = ["Read", "Bash"];
+
 function containedPath(target: string, path: string): string {
   const rel = relative(resolve(target), resolve(path));
   if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
@@ -62,13 +67,13 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
     `${GENERATED_MARKER} from agents/scout.md`,
     "name: scout",
     "description: Read-only research subagent for the team lead.",
-    "tools: Read, Grep, Glob",
+    `tools: ${SCOUT_CLAUDE_TOOLS.join(", ")}`,
     ...hookFrontmatter(`${hookCommand} --role scout`),
     "---",
     "",
     "## This host: Claude Code",
     "",
-    "Read files with Read, search with Grep, and locate files with Glob. These are your entire toolset. Return findings to the lead in your final response; the pi `contact_supervisor` tool mentioned below is unavailable on this host.",
+    "Read files with Read. List file names through Bash with `ls [<dir>]` or `find <dir> -name '<glob>'` (also `-iname`, `-path`, `-type f|d`, `-maxdepth N`), one plain command per call; Bash carries nothing else, and there is no content search on this host. List first, then read by the exact path — never guess a path. These are your entire toolset. Return findings to the lead in your final response; the pi `contact_supervisor` tool mentioned below is unavailable on this host.",
     "",
     "---",
     "",

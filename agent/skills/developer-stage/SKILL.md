@@ -416,15 +416,25 @@ it does not start another. A cold launch re-primes an entire context — Run 6
 spent about a quarter of its tokens re-teaching agents what they already knew —
 and the phase gate refuses a second cold launch of a role that has already run.
 
-```
-{ action: "children.list" }                             → run ids + resumable state
-{ action: "resume", id: "<run-id>", message: "<bounce>" } → continue that child
-```
+How a finished worker is continued depends on the host, and the gate's
+refusal names your host's way:
 
-If `children.list` reports the child is not resumable, launch again and the
-gate will allow it. What it refuses is respawning *without looking*.
+- **pi:** the `subagent` tool keeps completed children.
 
-A resume is watched like a launch and recorded like one, with one difference
+  ```
+  { action: "children.list" }                             → run ids + resumable state
+  { action: "resume", id: "<run-id>", message: "<bounce>" } → continue that child
+  ```
+
+  If `children.list` reports the child is not resumable, launch again and the
+  gate will allow it. What it refuses is respawning *without looking*.
+- **Claude Code:** `SendMessage` with `to` set to the agent id the worker's
+  Agent result reported and `message` set to the bounce. The worker resumes
+  with its context and its own role binding, and its reply is the result. If
+  SendMessage reports that it cannot be resumed, launch again and the gate
+  will allow it.
+
+A continuation is watched like a launch and recorded like one. On pi there is one difference
 worth knowing: **it cannot be re-tiered.** The tool refuses a `model` on a
 resume, so the child keeps the model it was launched on. That only matters if
 the launch itself was untiered — which is why a resume now leaves a note in the

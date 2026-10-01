@@ -15,6 +15,8 @@ import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
 import { asRole } from "../../src/path-gate.ts";
 import { shellWords } from "./bash-policy.ts";
+import { gateInputs, isListing, listingCall } from "./listing.ts";
+import { searchPatternContained } from "../../src/setup-state.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { claudeSeatActions, claudeTaskModel } from "./tool-map.ts";
 
@@ -53,6 +55,24 @@ export function leadCommand(command: unknown): LeadCommand {
   return { action: { kind: "refused", reason: "Bash is limited to gate discovery, run preparation and, before the first ticket, re-planning initialization in this session" } };
 }
 
+/**
+ * A Bash `ls` / `find` as the read actions a read-only seat is judged on, or
+ * undefined when the command is not a listing at all. Claude Code gives no
+ * session a Glob tool it can rely on (listing.ts), so this is how the lead and
+ * the scout see what exists rather than guess.
+ */
+export function listingActions(command: unknown): readonly SeatAction[] | undefined {
+  const words = typeof command === "string" ? shellWords(command) : undefined;
+  if (words === undefined || !words.ok || !isListing(words.argv)) return undefined;
+  const listing = listingCall(words.argv);
+  if (!listing.ok) return [{ kind: "refused", reason: listing.reason }];
+  const { call } = listing;
+  if (!call.patterns.every(searchPatternContained)) {
+    return [{ kind: "refused", reason: "find patterns must stay inside the searched directory and away from .git" }];
+  }
+  return gateInputs(call).map((input) => ({ kind: "read" as const, tool: call.tool, input }));
+}
+
 function runOnProjectCopy(payload: HookPayload, harnessRoot: string, cli: readonly string[]): string {
   return allowWith({ ...payload.toolInput,
     command: [join(harnessRoot, "scripts", "bounded"), ...cli].map(shellQuote).join(" ") });
@@ -68,6 +88,14 @@ export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: str
     });
     return deny(reason);
   };
+  const listing = payload.toolName === "Bash" ? listingActions(payload.toolInput["command"]) : undefined;
+  if (listing !== undefined) {
+    for (const action of listing) {
+      const decision = decideLead(action, cwd);
+      if (!decision.allow) return refuse(decision.reason);
+    }
+    return "";
+  }
   if (payload.toolName === "Bash") {
     const command = leadCommand(payload.toolInput["command"]);
     const decision = decideLead(command.action, cwd);
@@ -109,7 +137,7 @@ function architectTier(payload: HookPayload, cwd: string): string {
  *  elsewhere: project reads only, as the lead may read them. */
 export function evaluateScout(payload: HookPayload, cwd: string): string {
   const actions = payload.toolName === "Bash"
-    ? [{ kind: "other" as const, tool: "Bash" }]
+    ? listingActions(payload.toolInput["command"]) ?? [{ kind: "other" as const, tool: "Bash" }]
     : claudeSeatActions({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd);
   for (const action of actions) {
     const decision = decideScout(action, cwd);

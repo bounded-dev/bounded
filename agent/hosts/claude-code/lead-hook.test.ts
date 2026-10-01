@@ -210,10 +210,31 @@ describe("--role scout", () => {
     const dir = project({ "src/a.ts": "" });
     expect(hook(dir, "Grep", { pattern: "x", path: join(dir, "src") }, SCOUT).decision).toBe("allow");
     expect(hook(dir, "Read", { file_path: join(dir, ".git/HEAD") }, SCOUT).decision).toBe("deny");
-    expect(hook(dir, "Bash", { command: "ls" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "cat src/a.ts" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "ls src && cat src/a.ts" }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "Edit", { file_path: join(dir, "src/a.ts") }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "Agent", { subagent_type: "scout", prompt: "x" }, SCOUT).decision).toBe("deny");
     expect(hook(dir, "WebFetch", { url: "https://example.invalid" }, SCOUT).decision).toBe("deny");
+  });
+
+  // #35: the scout lists names through Bash, because this host gives it no
+  // Glob it can rely on; a listing outside the project or into .git is not.
+  test("lists names through Bash inside the project, and nothing more", () => {
+    const dir = project({ "src/a.ts": "" });
+    expect(hook(dir, "Bash", { command: "ls" }, SCOUT).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "ls src" }, SCOUT).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "find src -name '*.ts'" }, SCOUT).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "ls .git" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "ls /etc" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "find src -name '*.ts' -exec cat {} +" }, SCOUT).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "find src -path '../*'" }, SCOUT).decision).toBe("deny");
+  });
+
+  test("the lead lists names through Bash the same way", () => {
+    const dir = project({ "src/a.ts": "" });
+    expect(hook(dir, "Bash", { command: "ls" }, LEAD).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "find src -name '*.ts'" }, LEAD).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "ls -R src" }, LEAD).decision).toBe("deny");
   });
 
   test("a bound scout hook never stands down for its own child payload", () => {

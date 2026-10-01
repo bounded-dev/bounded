@@ -1146,8 +1146,12 @@ export function decide(
     return block(`path-gate: ${role} may not ${v} '${t}': it has a non-ASCII character, which the filesystem may fold onto another file's name — use the file's plain ASCII path`);
   }
 
+  // A recursive search refuses any tree that holds `.git`; a one-level `ls`
+  // shows `.git` only as a name, so it is refused only for `.git` itself or a
+  // path inside it. Listing the project root is how a role learns what exists
+  // without guessing.
   const gitBlocked = (): Decision | null => {
-    const gitHit = SEARCH_TOOLS.has(tool)
+    const gitHit = SEARCH_TOOLS.has(tool) && tool !== "ls"
       ? ALWAYS_DENY.some((g) => overlaps(t, globBase(g)))
       : matchesAny(ALWAYS_DENY, t);
     return gitHit

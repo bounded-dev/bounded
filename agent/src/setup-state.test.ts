@@ -230,7 +230,7 @@ describe("reads before setup", () => {
   ] as const)("%s %j agrees with decide('architect', ...)", (tool, path) => {
     const dir = realpathSync(installed({ "src/a.ts": "", ".git/config": "", ".git/HEAD": "" }));
     const policy = decide("architect", tool, path === undefined ? {} : { path }, { cwd: dir }).allow;
-    const early = projectReadAllowed(dir, dir, read(path, [], true, tool !== "read"));
+    const early = projectReadAllowed(dir, dir, read(path, [], true, tool !== "read" && tool !== "ls"));
     if (path === undefined || existsSync(resolve(dir, path))) expect(early).toBe(policy);
     else expect(early).toBe(false);
   });

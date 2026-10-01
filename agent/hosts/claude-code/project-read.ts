@@ -11,7 +11,7 @@ type Fields = Readonly<Record<string, unknown>>;
 export function claudeProjectRead(tool: string | undefined, input: Fields): ProjectRead | undefined {
   switch (tool) {
     case "Read": return { path: input["file_path"], pathRequired: true, search: false, globs: [] };
-    case "LS": return { path: input["path"], pathRequired: true, search: true, globs: [] };
+    case "LS": return { path: input["path"], pathRequired: true, search: false, globs: [] };
     case "Grep": return { path: input["path"], pathRequired: false, search: true, globs: [input["glob"]] };
     case "Glob": return { path: input["path"], pathRequired: false, search: true, globs: [input["pattern"] ?? null] };
     default: return undefined;

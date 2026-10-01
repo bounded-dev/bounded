@@ -92,7 +92,7 @@ describe("before setup", () => {
     ["find", { pattern: "*" }],
     ["find", { path: ".", pattern: "config" }],
     ["ls", {}],
-    ["ls", { path: "." }],
+    ["ls", { path: ".git" }], // a one-level listing of the root is allowed (#35); .git is not
     // macOS and Windows open .GIT/config as .git/config.
     ["read", { path: ".GIT/config" }],
     ["read", { path: ".Git/HEAD" }],

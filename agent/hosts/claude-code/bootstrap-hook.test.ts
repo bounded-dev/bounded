@@ -64,6 +64,12 @@ function log(root: string): Record<string, unknown>[] {
 }
 
 describe("before setup", () => {
+  test("a hook run after a call prints nothing: there is nothing to refuse", () => {
+    const root = project();
+    const outcome = call(root, { ...tool("SendMessage", { to: "a1", message: "x" }), hook_event_name: "PostToolUse" }, ["--role", "architect"]);
+    expect(outcome).toEqual({ allowed: true, stdout: "" });
+  });
+
   test.each([
     ["Write", { file_path: "src/b.ts", content: "x" }],
     ["Edit", { file_path: "src/a.ts", old_string: "a", new_string: "b" }],
@@ -122,7 +128,7 @@ describe("before setup", () => {
     ["Grep", { pattern: "url", path: "." }],
     ["Glob", { pattern: "*" }],
     ["Glob", { pattern: "config", path: "." }],
-    ["LS", { path: "." }],
+    ["LS", { path: ".git" }], // a one-level listing of the root is allowed (#35); .git is not
     // macOS and Windows open .GIT/config as .git/config.
     ["Read", { file_path: ".GIT/config" }],
     ["Read", { file_path: ".Git/HEAD" }],

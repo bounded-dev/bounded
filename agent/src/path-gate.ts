@@ -20,7 +20,7 @@ import { resolvedProjectPath } from "./setup-state.ts";
 const GATED_PATH_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls", "write", "edit", "remove"]);
 import { decide, FORBIDDEN_TOOLS, type Ctx, type PathFacts, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
-import { checkSubagentCall, type PhaseEvidence } from "./phase-gate.ts";
+import { checkSubagentCall, CONTINUATION_CHECKED, type CommissionHost, type PhaseEvidence } from "./phase-gate.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
 import {
   contractFileSuffixes,
@@ -296,6 +296,9 @@ export interface GateInput {
   /** The host whose tools will run the call, which decides how a path
    *  argument is rewritten before use (src/host-paths.ts). Default pi. */
   readonly host?: PathHost;
+  /** How the host's commission tool is read and a finished worker continued
+   *  (src/phase-gate.ts). Required for a `subagent` call; absent ⇒ refused. */
+  readonly commissions?: CommissionHost;
   /**
    * Snapshot of the session's available models, for the spawn-time tier check.
    * Absent or empty means "cannot tell": a seat is never refused for want of a
@@ -350,22 +353,30 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
       logGuardEvent(ev.cwd, { guard: "phase-gate", verdict: "block", summary: reason });
       return { block: true, reason };
     }
-    let verdict = checkSubagentCall(ev.input, evidence);
+    // How a commission call is read, and how a finished worker is continued,
+    // is the host's (ADR 2026-034). A call that reaches here with no host to
+    // read it is refused rather than guessed at.
+    if (ev.commissions === undefined) {
+      const reason = "phase-gate: this host supplied no commission policy, so the commission is refused rather than judged by guesswork";
+      logGuardEvent(ev.cwd, { guard: "phase-gate", verdict: "block", summary: reason });
+      return { block: true, reason };
+    }
+    let verdict = checkSubagentCall(ev.input, evidence, ev.commissions);
     // A broken ticket design refuses only the spawns that need the design;
     // a scout or the PM stays available to help repair it.
     if (designProblem !== undefined && verdict.kind === "block" && verdict.form === undefined) {
       verdict = { ...verdict, reason: `phase-gate: cannot commission the ${verdict.target ?? "worker"} — ${designProblem}` };
     }
     switch (verdict.kind) {
-      case "children-listed":
-        // Consulting the retained-children list is what licenses a later cold
-        // launch, so it has to be recorded — the gate's own evidence is the
-        // architect's tool calls.
+      case "continuation-checked":
+        // Consulting the host's record of finished workers is what licenses a
+        // later cold launch, so it has to be recorded — the gate's own evidence
+        // is the architect's tool calls.
         logGuardEvent(ev.cwd, {
           guard: "phase-gate",
           verdict: "pass",
-          summary: "children.list",
-          detail: { kind: "children-listed" },
+          summary: ev.commissions.checkSummary,
+          detail: { kind: CONTINUATION_CHECKED },
         });
         return undefined;
       case "block":
@@ -385,7 +396,7 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
         return { block: true, reason: verdict.reason };
       case "allow":
         // Record the ALLOWED spawn: a second cold launch of this role is refused
-        // until the architect has consulted children.list.
+        // until the host shows the worker cannot be continued.
         logGuardEvent(ev.cwd, {
           guard: "phase-gate",
           verdict: "pass",

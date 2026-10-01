@@ -43,22 +43,22 @@
 //     holds a bound role — inside the developer stage every writer is a role
 //     with a zone, and an unbound one writes wherever it likes.
 //
-// RESUMES ARE COMMISSIONS TOO (r15)
+// CONTINUATIONS ARE COMMISSIONS TOO (r15)
 //
-// A third shape was passing through untouched: `action: "resume"`. r15's kimi
-// architect made twelve of them and not one produced a phase-gate or a
-// model-tier event, so twelve seats went back to work with nothing in the log
-// to say which roles were running or on what. A resume is not a launch — the
-// child already exists, its preconditions were checked when it was launched,
-// and refusing one would strand a run — but it IS a seat being commissioned,
-// and it is recorded as one. Where the call names a role, the two refusals
-// that are about the SHAPE of a commission rather than its phase apply
-// unchanged: `delegate` holds no role binding whether it is starting or
-// continuing, and a multi-spawn form is still a set of children this gate
-// cannot see. Where it names only a run id — the ordinary case, since
-// pi-subagents resolves the agent from the persisted run record and not from
-// the input — the event carries the run id and the role `unknown`, which is
-// strictly better than silence.
+// A third shape was passing through untouched: continuing a finished worker.
+// r15's kimi architect made twelve continuations and not one produced a
+// phase-gate or a model-tier event, so twelve seats went back to work with
+// nothing in the log to say which roles were running or on what. A
+// continuation is not a launch — the worker already exists, its preconditions
+// were checked when it was launched, and refusing one would strand a run — but
+// it IS a seat being commissioned, and it is recorded as one. Where the call
+// names a role, the two refusals that are about the SHAPE of a commission
+// rather than its phase apply unchanged: `delegate` holds no role binding
+// whether it is starting or continuing, and a multi-spawn form is still a set
+// of children this gate cannot see. Where the host can name only the worker,
+// the event carries that and the role `unknown`, which is strictly better than
+// silence. Which call is a continuation is the host adapter's reading
+// (CommissionHost), so this file names no host's tool.
 //
 // AND A TIER THAT CANNOT RESOLVE IS A REFUSAL (r15)
 //
@@ -76,13 +76,7 @@ import type { LoggedGuardEvent } from "./guard-log.ts";
 import type { Role } from "./path-policy.ts";
 import type { DevStageModels } from "./dev-stage-models.ts";
 import { DEV_STAGE_MODELS_RELATIVE } from "./dev-stage-models.ts";
-import {
-  isResumeCall,
-  resumeRunId,
-  spawnAgentName,
-  unresolvableTier,
-  type KnownModel,
-} from "./model-tier.ts";
+import { unresolvableTier, type KnownModel } from "./model-tier.ts";
 
 export type Decision =
   | { readonly allow: true }
@@ -228,7 +222,11 @@ function contractKind(suffixes: readonly string[] | undefined): string {
   return suffixes?.length ? suffixes.map((suffix) => `*${suffix}`).join(" or ") : "contract file";
 }
 
-export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence): Decision {
+export function checkSpawnPrecondition(
+  target: string,
+  evidence: PhaseEvidence,
+  host?: CommissionHost,
+): Decision {
   if (!GATED_TARGETS.has(target)) return ALLOW; // scout, product-expert, …
 
   const { contracts, specText, events } = evidence;
@@ -321,38 +319,37 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
   }
   }
 
-  // A cold launch of a role that has already run re-primes an entire context.
-  // Run 6 spent ~1.6M cache-read tokens — about a quarter of the run — starting
-  // over with agents that already knew the task: 1.75M for the first builder,
-  // then 649k, 603k and 362k re-priming its successors.
+  // A bounce goes back to the worker that already ran; it is never a cold
+  // relaunch. A cold launch re-primes an entire context: Run 6 spent ~1.6M
+  // cache-read tokens — about a quarter of the run — starting over with agents
+  // that already knew the task: 1.75M for the first builder, then 649k, 603k
+  // and 362k re-priming its successors.
   //
-  // pi retains completed children, so a bounce should CONTINUE one rather than
-  // start another. The architect must consult the retained list before it may
-  // launch cold; consulting and then launching is fine, because that is the
-  // legitimate case where the child was not resumable. What is refused is
-  // respawning without looking. `children.list` is itself a subagent call, so
-  // the gate sees it — the evidence is the architect's own tool calls, and no
-  // knowledge of pi's internal state is needed.
+  // HOW a finished worker is continued belongs to the host, not to this file
+  // (ADR 2026-034). Each host adapter supplies a CommissionHost, and the
+  // refusal carries that host's own instruction, never another host's. What
+  // licenses a cold launch is host-neutral evidence: a `continuation-checked`
+  // event after the role's last launch, recorded by the adapter when the host
+  // showed the worker may not be continuable. An untargeted event licenses
+  // every role; a targeted one licenses its own role only.
   const lastSpawn = lastIndexWhere(
     events,
     (e) => e.guard === "phase-gate" && (e.detail as { kind?: string } | undefined)?.kind === "spawn"
       && (e.detail as { target?: string }).target === target,
   );
   if (lastSpawn !== -1) {
-    const consulted = lastIndexWhere(
-      events,
-      (e) =>
-        e.guard === "phase-gate" &&
-        (e.detail as { kind?: string } | undefined)?.kind === "children-listed",
-    );
-    if (consulted < lastSpawn) {
+    const checked = lastIndexWhere(events, (e) => {
+      if (e.guard !== "phase-gate") return false;
+      const detail = e.detail as { kind?: string; target?: unknown } | undefined;
+      return detail?.kind === CONTINUATION_CHECKED && (detail.target === undefined || detail.target === target);
+    });
+    if (checked < lastSpawn) {
       return deny(
         `phase-gate: a ${target} has already run — do not launch a second one cold. ` +
-          "A cold launch re-primes the whole context; Run 6 spent about a quarter of its tokens " +
-          "re-teaching agents what they already knew. Continue the existing child instead: " +
-          '`{ action: "children.list" }` to find its run id and whether it is resumable, then ' +
-          '`{ action: "resume", id: "<run-id>", message: "<the bounce>" }`. ' +
-          "If children.list reports it not resumable, launch again and it will be allowed.",
+          "A bounce goes back to the worker that already ran: a cold launch re-primes the whole context, " +
+          "and Run 6 spent about a quarter of its tokens re-teaching agents what they already knew. " +
+          (host?.continueHow(target, events) ??
+            "Continue the existing worker through this host's own way of continuing a finished worker."),
       );
     }
   }
@@ -449,17 +446,54 @@ function safeStringify(value: unknown): string {
 /** The general write-capable worker — no role, therefore no zone. */
 const UNBOUND_WRITER = "delegate";
 
+// ---------------------------------------------------------------------------
+// The host's half: how a commission call is read, and how a worker continues.
+// ---------------------------------------------------------------------------
+
+/** The detail kind of the event that licenses a cold launch of a role that
+ *  already ran (see checkSpawnPrecondition). Written by host adapters. */
+export const CONTINUATION_CHECKED = "continuation-checked";
+
+/** One commission call, as the host adapter reads it. */
+export type CommissionCall =
+  /** A launch of a fresh worker: judged on its target, phase and form. */
+  | { readonly kind: "launch" }
+  /** The architect consulted the host's record of finished workers, which
+   *  licenses a cold launch of any role (the worker may not be continuable). */
+  | { readonly kind: "check" }
+  /** An existing worker is being continued. `run` is whatever the host
+   *  identifies it by; `role` is the role, when the call or host can say. */
+  | { readonly kind: "continue"; readonly run?: string; readonly role?: string }
+  /** Inspecting or steering what already runs: never refused, never recorded. */
+  | { readonly kind: "other" };
+
+/**
+ * What a host adapter supplies so the core can judge commissions without
+ * naming any host's tool (ADR 2026-034). The rule — a bounce goes to the
+ * worker that already ran, never to a cold relaunch — is the core's; the
+ * mechanism for continuing a finished worker is the host's.
+ */
+export interface CommissionHost {
+  /** Read one commission-tool input. */
+  readonly classify: (input: Readonly<Record<string, unknown>>) => CommissionCall;
+  /** The guard-log summary for a `check` call. */
+  readonly checkSummary: string;
+  /** The sentence that tells the architect how to continue the `role` that
+   *  already ran, on this host, and what licenses a fresh launch instead. */
+  readonly continueHow: (role: string, events: readonly LoggedGuardEvent[]) => string;
+}
+
 /** What the wiring should do with one `subagent` tool call. */
 export type SpawnVerdict =
-  /** Not a launch (status/steer/resume/…): never refuse, never record. */
+  /** Not a launch (status/steer/…): never refuse, never record. */
   | { readonly kind: "ignore" }
-  /** `children.list` — record the consult that licenses a later cold launch. */
-  | { readonly kind: "children-listed" }
+  /** A consult of finished workers — record it; it licenses a later cold launch. */
+  | { readonly kind: "continuation-checked" }
   /** A plain one-child spawn, permitted. */
   | { readonly kind: "allow"; readonly target: string }
   /**
-   * A resume of an existing child: always permitted, always recorded. `target`
-   * is the role the call names, or "unknown" when it names only a run.
+   * A continuation of an existing worker: always permitted, always recorded.
+   * `target` is its role, or "unknown" when only the worker can be named.
    */
   | { readonly kind: "resumed"; readonly target: string; readonly run: string }
   /** A fan-out naming no pipeline role: allowed, but recorded. */
@@ -482,19 +516,19 @@ export type SpawnVerdict =
 export function checkSubagentCall(
   input: Readonly<Record<string, unknown>>,
   evidence: PhaseEvidence,
+  host: CommissionHost,
 ): SpawnVerdict {
-  const action = input["action"];
-  if (typeof action === "string") {
-    if (action === "children.list") return { kind: "children-listed" };
-    // A resume is a commission, so it is recorded — and the two SHAPE refusals
-    // below apply to it exactly as they do to a launch. It is never refused for
-    // a PHASE reason: the child already exists and its preconditions were
-    // checked when it was launched, so blocking here would strand a run.
-    if (isResumeCall(input)) return checkResume(input, evidence);
-    // status/wait/stop/steer on an existing child must never be refused, or a
-    // blocked architect could not even inspect what it started.
-    if (action !== "launch" && action !== "run") return { kind: "ignore" };
-  }
+  const call = host.classify(input);
+  if (call.kind === "check") return { kind: "continuation-checked" };
+  // A continuation is a commission, so it is recorded — and the two SHAPE
+  // refusals below apply to it exactly as they do to a launch. It is never
+  // refused for a PHASE reason: the worker already exists and its
+  // preconditions were checked when it was launched, so blocking here would
+  // strand a run.
+  if (call.kind === "continue") return checkContinuation(input, call);
+  // Inspecting or steering an existing worker must never be refused, or a
+  // blocked architect could not even look at what it started.
+  if (call.kind === "other") return { kind: "ignore" };
 
   // Shape first: a multi-spawn form is refused whatever the phase, because the
   // objection is that the gate cannot see the children at all.
@@ -530,7 +564,7 @@ export function checkSubagentCall(
     };
   }
 
-  const decision = checkSpawnPrecondition(target, evidence);
+  const decision = checkSpawnPrecondition(target, evidence, host);
   if (!decision.allow) return { kind: "block", reason: decision.reason, target };
 
   // Last: the seat's model. Checked after the phase preconditions because a
@@ -543,20 +577,20 @@ export function checkSubagentCall(
 }
 
 /**
- * A resume: recorded, and refused only on the two shape grounds.
+ * A continuation: recorded, and refused only on the two shape grounds.
  *
  * `delegate` is refused whether it is being started or continued — the
  * objection is that it holds no role binding, and continuing an unbound writer
  * is continuing an unbound writer. A multi-spawn form is refused for the same
- * reason it is at launch: `action: "resume"` accepts a `chain`, which attaches
- * a whole sequence of children this gate never watches run.
+ * reason it is at launch: a continuation that carries one attaches a whole
+ * sequence of workers this gate never watches run.
  */
-function checkResume(
+function checkContinuation(
   input: Readonly<Record<string, unknown>>,
-  evidence: PhaseEvidence,
+  call: { readonly run?: string; readonly role?: string },
 ): SpawnVerdict {
-  const run = resumeRunId(input) ?? "unnamed run";
-  const named = spawnAgentName(input);
+  const run = call.run ?? "unnamed run";
+  const named = call.role;
 
   const form = detectMultiSpawn(input);
   if (form !== undefined && form.roles.length > 0) {
@@ -564,9 +598,8 @@ function checkResume(
       kind: "block",
       form,
       reason:
-        `phase-gate: this resume attaches a ${form.field} that commissions pipeline roles ` +
-        `(${form.roles.join(", ")}) — resume the child on its own ` +
-        '(`{ action: "resume", id: "<run-id>", message: "…" }`) and commission anything else ' +
+        `phase-gate: this continuation attaches a ${form.field} that commissions pipeline roles ` +
+        `(${form.roles.join(", ")}) — continue the worker on its own and commission anything else ` +
         "one call at a time. The gate cannot evaluate a precondition per child inside a script " +
         "it never watches run, and the model-tier injection cannot reach a child spawned there.",
     };
@@ -577,18 +610,16 @@ function checkResume(
       kind: "block",
       target: named,
       reason:
-        "phase-gate: delegate holds no role binding, and resuming one continues an unbound " +
+        "phase-gate: delegate holds no role binding, and continuing one continues an unbound " +
         "writer rather than starting a fresh one — inside the developer stage every writer is a " +
         "bound role with a zone. Commission the role that owns the work; `scout` and " +
         "`product-expert` stay available for read-only help.",
     };
   }
 
-  // The role is the caller's claim when it makes one. pi-subagents resolves the
-  // agent from the persisted run record rather than from the input
-  // (`resolveResumeTarget` matches on id/runId/dir alone), so the ordinary
-  // resume names no role at all — and "unknown, this run id" is the honest
-  // answer, and still an answer.
+  // The role is recorded when the call or the host can say; a host that
+  // resolves the worker from its own record alone leaves the call naming none,
+  // and "unknown, this run" is the honest answer, and still an answer.
   return { kind: "resumed", target: named ?? "unknown", run };
 }
 

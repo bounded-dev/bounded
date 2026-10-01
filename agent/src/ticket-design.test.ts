@@ -14,6 +14,7 @@ import { classifyReviewFreshness } from "../packs/ts/scripts/design-gate.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { decide } from "./path-policy.ts";
 import { evaluatePathGate } from "./path-gate.ts";
+import { PI_COMMISSIONS } from "../hosts/pi/extensions/lib/commissions.ts";
 
 // No installed pack contributes source roots yet (the hexagonal layout pack
 // does, ADR 2026-063), so this suite gives the composed ts project the
@@ -183,9 +184,9 @@ describe("design resolution tolerates legitimate states and scopes refusals", ()
     expect(ticketWriteScope(root)).toEqual({ ticket: "26", contracts: [], contractSuffixes: [".contract.ts"] });
     expect(() => activeTicketDesign(root)).toThrow("ticket #26 needs docs/tn/TN-26.md before design review or freeze");
     // A scout may help before the note exists; a worker may not.
-    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "scout", task: "look" }, cwd: root }))
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "scout", task: "look" }, cwd: root }))
       .toBeUndefined();
-    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder", task: "go" }, cwd: root })
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "builder", task: "go" }, cwd: root })
       ?.reason).toMatch(/^phase-gate: cannot commission the builder/);
   });
 
@@ -220,9 +221,9 @@ describe("design resolution tolerates legitimate states and scopes refusals", ()
     const root = project();
     vi.stubEnv("BOUNDED_TICKET", "24");
     writeFileSync(join(root, "docs/tn/TN-24.md"), "---\nissue: 24\nstatus: active\ncontracts:\n  - contexts/notes/src/gone.contract.ts\n---\n");
-    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder", task: "go" }, cwd: root })
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "builder", task: "go" }, cwd: root })
       ?.reason).toBe("phase-gate: cannot commission the builder — docs/tn/TN-24.md names missing contract 'contexts/notes/src/gone.contract.ts'");
-    expect(evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "scout", task: "look" }, cwd: root }))
+    expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "scout", task: "look" }, cwd: root }))
       .toBeUndefined();
   });
 
@@ -230,7 +231,7 @@ describe("design resolution tolerates legitimate states and scopes refusals", ()
     const root = project();
     vi.stubEnv("BOUNDED_TICKET", "24");
     rmSync(join(root, ".bounded/composed-packs.json"));
-    const result = evaluatePathGate({ role: "architect", toolName: "subagent", input: { agent: "builder", task: "go" }, cwd: root });
+    const result = evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "builder", task: "go" }, cwd: root });
     expect(result?.block).toBe(true);
     expect(result?.reason).toMatch(/^phase-gate: .*bounded compose/);
   });
