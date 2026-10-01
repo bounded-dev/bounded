@@ -37,6 +37,8 @@
     "build-info.json",
     "!**/*.test.ts",
     "!**/*.test.tsx",
+    "packs/*/reference/**/*.test.ts",
+    "dist/packs/*/reference/**/*.test.ts",
     "!**/testdata/**"
   ],
   "keywords": [

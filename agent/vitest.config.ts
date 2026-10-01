@@ -17,7 +17,7 @@ export default defineConfig({
     // specifiers and belong to a different tsconfig). Every pack's reference/
     // is such a fixture: ts-hexagonal's runs under `bun test` in a temporary
     // project (packs/ts-hexagonal/reference.test.ts), never under vitest.
-    exclude: [...configDefaults.exclude, "packs/*/reference/**"],
+    exclude: [...configDefaults.exclude, "packs/*/reference/**", "dist/**"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     // The same fixtures fan out further: each worker spawns node/tsc/vitest
