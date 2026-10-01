@@ -1,0 +1,11 @@
+import { listNotesStoreConformance } from "../../../../application/notes/list-notes/list-notes.store.test-support.ts";
+import { describeDrizzleStore } from "../drizzle-test-database.test-support.ts";
+import { DrizzleCreateNoteStore } from "./create-note.store.ts";
+import { DrizzleListNotesStore } from "./list-notes.store.ts";
+
+describeDrizzleStore("DrizzleListNotesStore", (db) => {
+  listNotesStoreConformance("DrizzleListNotesStore", async () => ({
+    store: new DrizzleListNotesStore(db()),
+    addNote: (note) => new DrizzleCreateNoteStore(db()).save(note),
+  }));
+});

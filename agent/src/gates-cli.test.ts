@@ -164,7 +164,7 @@ describe("surface-check (spawns nothing)", () => {
     const dir = project({});
     const r = run(["surface-check"], dir);
     expect(r.status).toBe(2);
-    expect(r.stderr).toMatch(/no src\/\*\*\/\*\.contract\.ts found/);
+    expect(r.stderr).toMatch(/no apps\/\*\/src\/\*\*\/\*\.contract\.ts, contexts\/\*\/src\/\*\*\/\*\.contract\.ts found/);
     expect(r.stderr).toMatch(/\nsurface-check: ERROR \(misuse — the gate could not run\)\n$/);
   });
 

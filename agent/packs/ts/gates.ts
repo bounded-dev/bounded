@@ -40,7 +40,7 @@ const PATTERN_FLAG: FlagSpec = {
   repeatable: true,
   param: "patterns",
   description:
-    "Glob patterns for the contract files. Defaults to src/**/*.contract.ts — you rarely need to pass this.",
+    "Glob patterns for the contract files. Defaults to every contract under the composed source roots (contexts/*/src/**/*.contract.ts) — you rarely need to pass this.",
 };
 
 /** The findings flags of the two recording gates. The tool parameter carries
@@ -292,7 +292,7 @@ export const gates: readonly GateCommand[] = [
     tool: "deliver",
     promptSnippet: "Deliver: strip scaffolding, ship the surface check, make the repo hand-off ready.",
     description:
-      "Run the delivery pass after sign_off: strip red-phase scaffolding (unused shared errors module, __conformance blobs), write the src/index.ts barrel, ship scripts/surface-check.ts into the project with a check:surface npm script (installing the ts-morph it needs), ignore runtime state under .bounded/ while preserving a committed local harness, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `npm run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if an unimplemented export still imports NotImplementedError, if the surface checker's dependency cannot be installed, or if the project's own check is red.",
+      "Run the delivery pass after sign_off: remove the red-phase errors modules (each context's domain/shared/errors.ts) and the red gate's shadow project, check every generated file is what the design produces and no skeleton still throws NotImplementedError, check the shipped scripts/surface-check.ts is wired into the project's check, ignore runtime state under .bounded/ while preserving a committed local harness, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `bun run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if anything still imports NotImplementedError, if a generated file is out of date, or if the project's own check is red.",
     flags: [],
     async run(cwd) {
       const { runDeliver } = await import("./scripts/deliver.ts");
@@ -302,9 +302,9 @@ export const gates: readonly GateCommand[] = [
   {
     name: "mutation-score",
     tool: "mutation_score",
-    promptSnippet: "Measure the suite's mutation score: which edits to src/ does nobody notice?",
+    promptSnippet: "Measure the suite's mutation score: which edits to the source does nobody notice?",
     description:
-      "Measure how much of the delivered logic the suite actually holds down: mutate src/ one site at a time (comparison flips, &&/|| swaps, if-negation, dropped early-return guards), run the suite against each mutant, and report which were KILLED and which SURVIVED. ADVISORY — it never blocks: exit 0 means the measurement ran, whatever the score. Each surviving mutant names a file, a line and an edit the suite did not notice, which is where an untested rule lives. Run it after green_gate and before sign_off, and put what survived in your findings.",
+      "Measure how much of the delivered logic the suite actually holds down: mutate the builder's source under the source roots one site at a time (comparison flips, &&/|| swaps, if-negation, dropped early-return guards), run the suite against each mutant, and report which were KILLED and which SURVIVED. ADVISORY — it never blocks: exit 0 means the measurement ran, whatever the score. Each surviving mutant names a file, a line and an edit the suite did not notice, which is where an untested rule lives. Run it after green_gate and before sign_off, and put what survived in your findings.",
     flags: [
       {
         name: "max-mutants",
@@ -347,9 +347,9 @@ export const gates: readonly GateCommand[] = [
   {
     name: "typecheck",
     tool: "typecheck",
-    promptSnippet: "Type-check the project with tsc --noEmit (scoped to your zone).",
+    promptSnippet: "Type-check the project with bunx tsc (scoped to your zone).",
     description:
-      "Run `tsc --noEmit` on the project and return pass/fail plus type-error diagnostics. Absolute machine paths are redacted. Diagnostics are SCOPED TO YOUR ROLE: errors in your own zone and in the shared interface (contracts, spec, config) are shown in full; errors in another role's zone are reported as a count and an owner only — no paths, no messages, no symbol names.",
+      "Run `bunx tsc -p tsconfig.json` on the project and return pass/fail plus type-error diagnostics. Absolute machine paths are redacted. Diagnostics are SCOPED TO YOUR ROLE: errors in your own zone and in the shared interface (contracts, spec, config) are shown in full; errors in another role's zone are reported as a count and an owner only — no paths, no messages, no symbol names.",
     flags: [
       {
         name: "role",
@@ -385,7 +385,7 @@ export const gates: readonly GateCommand[] = [
     tool: "run_tests",
     promptSnippet: "Run the test suite and see sanitized pass/fail results (no test source).",
     description:
-      "Run the project's vitest suite and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes.",
+      "Run the project's suite with `bun test` and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes.",
     flags: [],
     promptGuidelines: [
       "Use run_tests to check whether your implementation satisfies the suite; it never reveals test source.",
@@ -423,11 +423,20 @@ export const gates: readonly GateCommand[] = [
   {
     name: "surface-check",
     description:
-      "Check every src/**/*.contract.ts against its implementation sibling: exported signatures must match the contract exactly. The same check `deliver` ships into the project as `npm run check:surface`.",
+      "Check every contract under the source roots against what implements it: a domain concept's file ends with exactly its two generated exports and exports nothing else; a feature's handler exports only `<InPort>Handler implements <InPort>`, whose only public member is execute. The same check runs in the project as `bun run check:surface`.",
     flags: [],
     async run(cwd) {
       const { checkProjectSurfaces } = await import("./scripts/surface-check.ts");
-      const r = checkProjectSurfaces(cwd);
+      const { sourceRoots } = await import("../../src/pack-contrib.ts");
+      // The composed roots; a project with no readable composition (a
+      // delivered repo) falls back to the roots its own manifest implies.
+      let roots: readonly string[] | undefined;
+      try {
+        roots = sourceRoots(cwd);
+      } catch {
+        roots = undefined;
+      }
+      const r = roots === undefined ? checkProjectSurfaces(cwd) : checkProjectSurfaces(cwd, roots);
       const result = toGateResult("surface-check", r, { violations: r.violations.length });
       logGuardEvent(cwd, {
         guard: "surface-check",
@@ -443,7 +452,7 @@ export const gates: readonly GateCommand[] = [
   {
     name: "scaffold",
     description:
-      "Generate (or re-sync) the throwing skeleton beside every src/**/*.contract.ts. Non-destructive: writes only over absence or another skeleton, and removes only generated files whose contract is gone. A step of design_gate — run it alone only to regenerate skeletons by hand.",
+      "Run every composed emitter over the design: write generated files when they differ and skeletons only where no file exists, remove generated files the design no longer produces, and bring the workspace manifests, lockfile and install in line when the design adds a workspace. A step of design_gate — run it alone only to regenerate by hand.",
     flags: [],
     async run(cwd) {
       const { runScaffold } = await import("./scripts/scaffold-project.ts");

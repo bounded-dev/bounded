@@ -1,0 +1,12 @@
+import type { CreateNoteStore } from "{{scope}}/notebook/application";
+import type { Note } from "{{scope}}/notebook/domain";
+import type { DrizzleDatabase } from "../drizzle-database.ts";
+import { notes } from "../schema/notes.ts";
+
+export class DrizzleCreateNoteStore implements CreateNoteStore {
+  constructor(private readonly db: DrizzleDatabase) {}
+
+  async save(note: Note): Promise<void> {
+    await this.db.insert(notes).values({ id: note.id.value, text: note.text.value });
+  }
+}

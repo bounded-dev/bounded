@@ -4,6 +4,7 @@ import { ProjectName } from "./project-name.ts";
 // The domain rule the generated laws cannot know: which strings are project names.
 describe("ProjectName — boundaries", () => {
   test("accepts a name and stores it trimmed", () => {
+    expect(ProjectName.parse("Website relaunch").ok).toBe(true);
     const result = ProjectName.parse("  Website relaunch ");
     expect(result.ok && result.value.toJSON()).toBe("Website relaunch");
   });

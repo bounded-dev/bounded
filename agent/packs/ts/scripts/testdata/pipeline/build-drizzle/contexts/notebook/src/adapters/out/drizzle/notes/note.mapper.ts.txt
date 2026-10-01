@@ -1,0 +1,9 @@
+import { Note, NoteId, NoteText } from "{{scope}}/notebook/domain";
+
+/** A stored row back into the domain; a row the domain refuses is corrupt data. */
+export function toNote(row: { readonly id: string; readonly text: string }): Note {
+  const id = NoteId.parse(row.id);
+  const text = NoteText.parse(row.text);
+  if (!id.ok || !text.ok) throw new Error(`corrupt note row ${row.id}`);
+  return new Note(id.value, text.value);
+}

@@ -1,0 +1,15 @@
+import { asc } from "drizzle-orm";
+import type { ListNotesStore } from "{{scope}}/notebook/application";
+import type { Note } from "{{scope}}/notebook/domain";
+import type { DrizzleDatabase } from "../drizzle-database.ts";
+import { notes } from "../schema/notes.ts";
+import { toNote } from "./note.mapper.ts";
+
+export class DrizzleListNotesStore implements ListNotesStore {
+  constructor(private readonly db: DrizzleDatabase) {}
+
+  async findAll(): Promise<Note[]> {
+    const rows = await this.db.select({ id: notes.id, text: notes.text }).from(notes).orderBy(asc(notes.position));
+    return rows.map(toNote);
+  }
+}

@@ -4,6 +4,7 @@ import { NoteText } from "./note-text.ts";
 // The domain rule the generated laws cannot know: which strings are note text.
 describe("NoteText — boundaries", () => {
   test("accepts text and stores it trimmed", () => {
+    expect(NoteText.parse("Call the printer").ok).toBe(true);
     const result = NoteText.parse("  Call the printer  ");
     expect(result.ok && result.value.value).toBe("Call the printer");
   });

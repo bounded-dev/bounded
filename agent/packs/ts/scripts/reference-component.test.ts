@@ -13,12 +13,12 @@
 //     and hand-written tests) passes, and against the emitted skeletons the
 //     same suite fails only with NotImplementedError — a valid red.
 //
-// The flat-layout red/green/mutation gate runs that used to live here return
-// when those gates move to the monorepo layout (WI-8); until then this file
-// drives the same evidence through the toolchain directly.
+//   * with `bun`, through the real gates on a monorepo copy (WI-8): the red
+//     gate gives a valid red in its shadow, the green gate passes on the
+//     reference implementation, and the mutation score kills every mutant.
 
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
@@ -30,6 +30,14 @@ import { lawsPathOf } from "./domain-concept.ts";
 import { emitDomain, NOT_IMPLEMENTED_MODULE_SOURCE } from "./domain-emitter.ts";
 import type { WorkspaceFacts } from "../pack.ts";
 import { DOCUMENTED_CONCEPTS } from "./testdata/example-domain.ts";
+import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { runGreenGate } from "./green-gate.ts";
+import { runMutationScore } from "./mutation-score.ts";
+import { harnessRootOf } from "./project-config.ts";
+import { generatedManifests, manifestPath, serializeManifest } from "./project-package.ts";
+import { runRedGate } from "./red-gate.ts";
+import { runScaffold } from "./scaffold-project.ts";
 
 const REFERENCE_DIR = join(import.meta.dirname, "..", "reference");
 const CONTEXT = "contexts/project-management";
@@ -209,3 +217,64 @@ describe.skipIf(!HAS_BUN)("the reference runs", () => {
     expect(notImplemented).toBe(failures);
   }, 60_000);
 });
+
+// --- through the real gates (WI-8) --------------------------------------------------
+
+/** The reference as a composed hexagonal monorepo: the root config the ts pack
+ *  ships, a named root manifest, the context's generated manifest, the
+ *  design's generated files, and the harness's node_modules. */
+function monorepoCopy(): string {
+  const dir = mkdtempSync(join(tmpdir(), "pi-reference-gates-"));
+  tmpDirs.push(dir);
+  cpSync(REFERENCE_DIR, dir, { recursive: true, filter: (src) => !/[\\/](?:node_modules|\.bounded)(?:[\\/]|$)/.test(src) });
+  const packs = ["ts", "ts-hexagonal"];
+  writeProjectPacks(dir, packs);
+  const root = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as Record<string, unknown>;
+  writeFileSync(join(dir, "package.json"), `${JSON.stringify({ name: "example", ...root, workspaces: ["contexts/*", "apps/*"] }, null, 2)}\n`);
+  for (const [workspace, manifest] of generatedManifests(dir, packs, join(harnessRootOf(), "packs"), "example").manifests) {
+    if (workspace !== "") writeFileSync(join(dir, manifestPath(workspace)), serializeManifest(manifest));
+  }
+  // The harness carries no @types/bun, so the copy's node_modules is the
+  // harness's, entry by entry, plus an `@types/bun` that types bun:test with
+  // the harness's own vitest. The shadow mirrors it like any install.
+  const modules = join(dir, "node_modules");
+  mkdirSync(join(modules, "@types", "bun"), { recursive: true });
+  for (const entry of readdirSync(HARNESS_MODULES)) {
+    if (entry !== "@types") symlinkSync(join(HARNESS_MODULES, entry), join(modules, entry));
+  }
+  for (const entry of readdirSync(join(HARNESS_MODULES, "@types"))) {
+    symlinkSync(join(HARNESS_MODULES, "@types", entry), join(modules, "@types", entry));
+  }
+  writeFileSync(join(modules, "@types", "bun", "package.json"), '{ "name": "@types/bun", "types": "index.d.ts" }\n');
+  writeFileSync(join(modules, "@types", "bun", "index.d.ts"), 'declare module "bun:test" {\n  export { describe, expect, test } from "vitest";\n}\n');
+  writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({
+    extends: "./tsconfig.base.json",
+    compilerOptions: { lib: ["ESNext", "DOM"] },
+    include: ["contexts/*/src"],
+  }));
+  expect(runScaffold(dir).lines.join("\n")).toMatch(/scaffold: OK/);
+  logGuardEvent(dir, { guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (6 contract files)" });
+  return dir;
+}
+
+describe.skipIf(!HAS_BUN)("the reference through the real red, green and mutation gates", () => {
+  test("red: a valid red in the shadow, every obligation discharged; green: the reference passes", async () => {
+    const dir = monorepoCopy();
+    const red = await runRedGate(dir);
+    expect(red.lines.join("\n"), JSON.stringify(red.detail)).toMatch(/red-gate: OK — \d+ NotImplemented failures, 0 passed/);
+    expect(red.code).toBe(0);
+    const green = await runGreenGate(dir);
+    expect(green.lines.join("\n")).toMatch(/green-gate: OK/);
+    expect(green.code).toBe(0);
+    expect(readGuardLog(dir).filter((e) => e.guard === "green-gate").at(-1)).toMatchObject({ verdict: "pass" });
+  }, 180_000);
+
+  test("its suite kills every mutant", async () => {
+    const dir = monorepoCopy();
+    const result = await runMutationScore(dir, { maxMutants: 12 });
+    expect(result.code, result.lines.join("\n")).toBe(0);
+    expect(result.sites).toBeGreaterThan(0);
+    expect(result.survived, result.lines.join("\n")).toBe(0);
+  }, 300_000);
+});
+

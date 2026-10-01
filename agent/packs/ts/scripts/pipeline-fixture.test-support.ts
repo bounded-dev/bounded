@@ -7,6 +7,8 @@
 //   tests    the test-writer's files at every level, the app smoke test included
 //   build    the builder's implementations and the web app's composition root
 //   half     a half-written create-note handler (for the isolation proof)
+//   tests-drizzle, build-drizzle   the Drizzle store tests, schema, stores and
+//            mapper, for a composition with ts-drizzle-postgres
 //
 // Fixture files end in `.txt` so neither the harness's compiler nor its test
 // runner collects them; `{{scope}}` becomes the project's package scope.
@@ -19,7 +21,7 @@ import { harnessRootOf } from "./project-config.ts";
 import { generatedManifests, manifestPath, serializeManifest } from "./project-package.ts";
 
 export const PIPELINE = join(import.meta.dirname, "testdata", "pipeline");
-export type PipelineStage = "design" | "tests" | "build" | "half";
+export type PipelineStage = "design" | "tests" | "build" | "half" | "tests-drizzle" | "build-drizzle";
 export const PIPELINE_PACKS = ["ts", "ts-hexagonal", "ts-trpc", "ts-web"] as const;
 export const CONTEXT_SRC = "contexts/notebook/src";
 

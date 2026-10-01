@@ -18,11 +18,19 @@
 // itself does.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import { readGuardLog } from "../../../src/guard-log.ts";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { INSTALLATION_RELATIVE } from "../../../src/setup-state.ts";
+import { probeContainerRuntime } from "../../ts-drizzle-postgres/scripts/container-runtime.ts";
+import { runDesignGate } from "./design-gate.ts";
+import { runArtifactGenerators } from "./generate-artifacts.ts";
+import { runGreenGate } from "./green-gate.ts";
+import { writeProjectPackage } from "./project-package.ts";
+import { runRedGate } from "./red-gate.ts";
 import { applyInit, planInit } from "../../../src/project-init.ts";
 import { runRecordDesignReview } from "./design-review.ts";
 import { CONTEXT_SRC, placeStage } from "./pipeline-fixture.test-support.ts";
@@ -154,3 +162,92 @@ describe.skipIf(!HAS_BUN)("the pipeline on a hexagonal Bun monorepo", () => {
     expect(mutation.out).toMatch(/mutation-score: .*killed/i);
   });
 });
+
+// --- persistence (ADR 2026-064) ----------------------------------------------------
+//
+// The same notebook with ts-drizzle-postgres composed: every store also has a
+// Drizzle implementation, tested against real Postgres through Testcontainers.
+// Red never needs a container runtime: without one it skips the store tests,
+// in the test process only, and says why. Green refuses clearly when store
+// tests exist and no runtime answers; with one, it runs them.
+//
+// The project's config is generated exactly as `bounded init` generates it
+// (project-package.ts), and the gates run in this process.
+
+async function withTicket<T>(body: () => Promise<T>): Promise<T> {
+  const prior = process.env["BOUNDED_TICKET"];
+  process.env["BOUNDED_TICKET"] = "1";
+  try {
+    return await body();
+  } finally {
+    if (prior === undefined) delete process.env["BOUNDED_TICKET"];
+    else process.env["BOUNDED_TICKET"] = prior;
+  }
+}
+
+/** A project whose config the packs generated (manifests, tsconfig, bun.lock,
+ *  root config, shipped files), installed from its lockfile. */
+function generatedProject(packs: readonly string[]): { dir: string; scope: string } {
+  const dir = join(mkdtempSync(join(tmpdir(), "bounded-e2e-pg-")), "notebook");
+  temporary.push(join(dir, ".."));
+  mkdirSync(dir, { recursive: true });
+  writeProjectPacks(dir, packs);
+  writeProjectPackage(dir, AGENT, "notebook");
+  writeFileSync(join(dir, INSTALLATION_RELATIVE), "{}\n");
+  // The project-local harness the setup commands are read from, as init copies it.
+  symlinkSync(AGENT, join(dir, ".bounded/harness"), "dir");
+  // Ticket-numbered design notes, as init sets them up.
+  mkdirSync(join(dir, "docs/tn"), { recursive: true });
+  writeFileSync(join(dir, "docs/tn/README.md"), "# Technical notes\n");
+  const install = spawnSync("bun", ["install", "--frozen-lockfile", "--ignore-scripts"], { cwd: dir, encoding: "utf8" });
+  expect(install.status, install.stderr).toBe(0);
+  return { dir, scope: "@notebook" };
+}
+
+describe.skipIf(!HAS_BUN)("the pipeline with Postgres persistence", () => {
+  test("red skips the store tests without a container runtime; green refuses without one and runs them with one", { timeout: 600_000 }, async () => {
+    const { dir, scope } = generatedProject(["ts", "ts-hexagonal", "ts-trpc", "ts-web", "ts-drizzle-postgres"]);
+    await withTicket(async () => {
+      placeStage(dir, "design", scope);
+      const review = runRecordDesignReview(dir, []);
+      expect(review.code, review.lines.join("\n")).toBe(0);
+      const design = await runDesignGate(dir);
+      expect(design.code, design.lines.join("\n")).toBe(0);
+      expect(existsSync(join(dir, "contexts/notebook/src/adapters/out/drizzle/notes/create-note.store.ts"))).toBe(true);
+      expect(JSON.parse(readFileSync(join(dir, "contexts/notebook/package.json"), "utf8"))).toMatchObject({
+        exports: { "./adapters/drizzle": "./src/adapters/out/drizzle/index.ts" },
+        dependencies: { "drizzle-orm": "0.45.3" },
+      });
+
+      placeStage(dir, "tests", scope);
+      placeStage(dir, "tests-drizzle", scope);
+      const runtime = probeContainerRuntime();
+      const red = await runRedGate(dir);
+      expect(red.code, red.lines.join("\n")).toBe(0);
+      if (!runtime.available) {
+        expect(red.lines.join("\n")).toMatch(/red-gate: skipped — 2 Drizzle store test file\(s\) skipped at red: /);
+        expect(red.lines.join("\n")).toMatch(/red-gate: \d+ skipped tests? not counted/);
+      }
+      // The skip lives in the test process only: nothing leaked into this one.
+      expect(process.env["BOUNDED_STORE_TESTS_SKIP"]).toBeUndefined();
+
+      placeStage(dir, "build", scope);
+      placeStage(dir, "build-drizzle", scope);
+      const artifacts = runArtifactGenerators(dir);
+      expect(artifacts.code, artifacts.lines.join("\n")).toBe(0);
+      const migrations = join(dir, "contexts/notebook/src/adapters/out/drizzle/migrations");
+      expect(readdirSync(migrations).some((f) => f.endsWith(".sql"))).toBe(true);
+
+      const green = await runGreenGate(dir);
+      if (runtime.available) {
+        expect(green.code, green.lines.join("\n")).toBe(0);
+      } else {
+        expect(green.code).toBe(1);
+        expect(green.lines.join("\n")).toMatch(/green needs a container runtime: 2 Drizzle store test file\(s\) run against real Postgres/);
+        expect(green.lines).toContain("green-gate: route → orchestrator");
+        expect(green.detail).toMatchObject({ reason: "test-policy" });
+      }
+    });
+  });
+});
+
