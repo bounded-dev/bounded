@@ -10,6 +10,26 @@ Prompts are used verbatim so runs stay comparable: change a prompt's text only
 by starting a new file under a new name. (Moving the old header comments here
 left every prompt's rendered text unchanged.)
 
+## `clinic-appointments-prompt.md`
+
+The second dogfood prompt for the hexagonal monorepo (issue #39): a clinic's
+appointment booking, in a domain unlike the worked example's projects and
+notes, so the architect cannot reach a perfect structure by copying the
+example's contracts. It has the same shape as `pm-notes-prompt.md`: one
+context with two areas (clinicians and appointments); commands and queries
+with ordered validation and exact refusal messages, including a
+cross-aggregate rule (one appointment per clinician per start time) and a
+cancel that removes; a nightly scheduled export; and the browser, desktop,
+AI-assistant and scheduled-job surfaces, with data that survives restarts.
+Product language only (ADR 2026-032): no framework, runtime, database or
+file layout is named.
+
+Use it on an arm initialized by `bounded init` with the whole stack
+(`scripts/dogfood/reset --init <host> --harnessed docs/dogfood/clinic-appointments-prompt.md`).
+After the run, judge the arm against the conventions alone, with no worked
+example: `node scripts/dogfood/structure-compare.ts <arm>` (see
+`docs/dogfooding.md`). Do not edit the body between runs.
+
 ## `heating-cockpit-change-1-prompt.md`
 
 The first CHANGE-REQUEST dogfood prompt (ADR 2026-028, TN-26-003, issue #14).
