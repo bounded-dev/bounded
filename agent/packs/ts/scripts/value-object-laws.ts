@@ -9,7 +9,8 @@
 //   value object  parse refuses cross-type junk with a reason; equality is by
 //                 value; toJSON round-trips through parse; parsing is
 //                 deterministic.
-//   identifier    all of that, plus generate() yields distinct, parseable ids.
+//   identifier    all of that, plus generate() yields distinct, parseable ids,
+//                 and parse accepts the contract's @accepts examples.
 //   entity        equality is by identity, not content; toJSON is each
 //                 field's own wire form, and every id in it parses back.
 //
@@ -270,7 +271,7 @@ function valueObjectLaws(model: DomainConceptModel, examples: readonly string[])
   if (sample !== undefined) {
     const a = sample.first;
     const reparse = (x: string): string => `mustParse(${name}.parse(${x}.toJSON()), ${q(`${name}.parse(toJSON())`)})`;
-    if (usesParse) {
+    if (usesParse || examples.length > 0) {
       w.line();
       w.open(`test("parse accepts the contract's @accepts examples", () => {`);
       for (const ex of examples) w.line(`expect(${name}.parse(${ex}).ok).toBe(true);`);

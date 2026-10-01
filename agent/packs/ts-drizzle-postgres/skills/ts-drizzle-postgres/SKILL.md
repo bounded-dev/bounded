@@ -62,14 +62,20 @@ Drizzle store, inside the generated helper:
 import { describeDrizzleStore } from "../drizzle-test-database.test-support.ts";
 
 describeDrizzleStore("DrizzleCreateNoteStore", (db) => {
-  createNoteStoreConformance(() => new DrizzleCreateNoteStore(db()));
+  createNoteStoreConformance("DrizzleCreateNoteStore", async () => ({
+    store: new DrizzleCreateNoteStore(db()),
+    savedNotes: () => new DrizzleListNotesStore(db()).findAll(),
+  }));
 });
 ```
 
 The helper starts one Postgres container per test run on first use, applies
 the context's migrations, and empties the context's tables before each test.
-Seed rows a test needs through `db()` and the tables in `schema/`. Call `db()`
-inside a test, never while the block is declared. Unit, handler and
+The tables in `schema/` are the builder's, so seed and read back through the
+sibling stores of the same context over the same `db()` (save a project with
+`DrizzleCreateProjectStore`, read notes back with `DrizzleListNotesStore`),
+exactly as the in-memory store test does over one `InMemoryDatabase`. Call
+`db()` inside the factory or a test, never while the block is declared. Unit, handler and
 in-adapter tests never touch the database.
 
 ## Architect: migrations

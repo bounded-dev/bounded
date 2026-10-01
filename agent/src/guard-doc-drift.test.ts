@@ -280,6 +280,49 @@ describe("the role docs describe the monorepo the gates enforce", () => {
     expect(skeletonRow).not.toContain("mapper");
   });
 
+  test("the test-writer is told what each level owes, file by file (test obligations)", () => {
+    expect(testWriter).toContain("`<concept>.test.ts`");
+    expect(testWriter).toContain("`new <InPort>Handler(…)` and calls `.execute(`");
+    expect(testWriter).toMatch(/calls \*\*every\*\* port method/);
+    expect(testWriter).toContain("imports that suite");
+    expect(testWriter).toMatch(/per technology in its `@implementedBy` tag/);
+    expect(testWriter).toMatch(/checked at green only/);
+  });
+
+  test("the test-writer is told boundaries bind identifiers too, and which assertion forms count", () => {
+    expect(testWriter).toMatch(/per value object AND per identifier/);
+    expect(testWriter).toContain(".ok).toBe(true)");
+    expect(testWriter).toContain(".ok).toBe(false)");
+    expect(testWriter).toMatch(/toStrictEqual and toMatchObject/);
+  });
+
+  test("the test-writer is told to seed through sibling stores and how a Drizzle store test is shaped", () => {
+    expect(testWriter).toMatch(/through sibling stores, never through the database/);
+    expect(testWriter).toContain('describeDrizzleStore("DrizzleCreateNoteStore", (db) => {');
+    expect(testWriter).toMatch(/calls\s+`db\(\)` inside/);
+    expect(testWriter).toMatch(/no `test\.skip`.*`test\.todo`/);
+  });
+
+  test("the architect is told the context/area name clash and that identifiers carry @accepts", () => {
+    expect(architect).toMatch(/A context never shares its name with one of its areas/);
+    expect(architect).toMatch(/every value object AND every\s+identifier/);
+  });
+
+  test("the builder is told nothing may throw at delivery, and the handler and constructor surface", () => {
+    expect(builder).toMatch(/No skeleton may still throw at\s+delivery/);
+    expect(builder).toMatch(/Handlers expose only\s+`execute`/);
+    expect(builder).toMatch(/every constructor parameter is `private readonly`/);
+  });
+
+  test("the lead is told what red and green run, the Docker refusal and the design gate's registry need", () => {
+    expect(developerStage).toMatch(/Red runs \*\*only the contexts' tests\*\*/);
+    expect(developerStage).toMatch(/`architecture\.test\.ts` run at green only/);
+    expect(developerStage).toContain('"Start Docker"');
+    expect(developerStage).toMatch(/package registry or bun's cache/);
+    expect(developerStage).toContain("`run_tests` is `bun test`");
+    expect(developerStage).toContain("`typecheck` is `bunx tsc -p tsconfig.json`");
+  });
+
   test("the commands named are Bun's", () => {
     expect(architect).toContain("bun run check");
     expect(developerStage).toContain("bun run check");

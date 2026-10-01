@@ -100,7 +100,7 @@ A value object is an immutable, self-validating value. Two value objects are equ
 - **`static parse(raw: unknown): Result<T>`.** Validation lives here. It returns the reason for failure; it never returns `undefined` and never throws for invalid input.
 - **`equals`** compares by value. **`toJSON`** returns the plain form used on the wire.
 - **A doc comment on the interface stating the validity rule, with at least two `@accepts` examples.** Each `@accepts` tag opens its own line and holds one literal of the value's type (`@accepts "Buy milk"`, `@accepts 42`), and the two must still differ once whitespace is trimmed. They are the samples the generated `<concept>.laws.test.ts` feeds to `parse`, so without two genuinely different examples the equality and round-trip laws cannot run. The contract lint refuses a value object without them.
-- **Identifiers are value objects** too, and their factory also has `generate()`. They are exempt from `@accepts`: `generate()` supplies their samples.
+- **Identifiers are value objects** too, and their factory also has `generate()`. They carry the same doc comment and two `@accepts` examples (two real UUIDs for a UUID id): the generated laws check `parse` accepts them, and they are the valid literal a test needs to pin the identifier's boundaries.
 - `zod` is allowed in the domain.
 
 ## Entities

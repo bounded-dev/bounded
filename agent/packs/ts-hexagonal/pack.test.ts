@@ -134,7 +134,7 @@ describe("the shipped rulebook", () => {
     const domain = text("domain.md");
     expect(domain).toMatch(/at least two `@accepts` examples/);
     expect(domain).toMatch(/differ once whitespace is trimmed/);
-    expect(domain).toMatch(/exempt from `@accepts`/);
+    expect(domain).toMatch(/Identifiers are value objects\*\* too[^\n]*two `@accepts` examples/);
     const contract = /```ts\n\/\/ item-title\.contract\.ts\n([\s\S]*?)```/.exec(domain)?.[1];
     expect(contract).toBeDefined();
     const problems = await lintContractSource(contract!, "contexts/pm/src/domain/items/item-title.contract.ts");

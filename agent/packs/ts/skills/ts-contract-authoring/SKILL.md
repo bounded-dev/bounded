@@ -202,10 +202,13 @@ by `bun test` and write-denied for every role:
   different id: not), `toJSON` is each field's own wire form, and every id in
   it parses back to the same identifier.
 
-A law needs a valid input. An identifier supplies its own (`generate()`); a
-value object's comes from **`@accepts` tags** on its instance interface.
-**Every value object must carry a doc comment stating its validity rule and
-two different `@accepts` examples** — `value-object-documented` refuses the
+A law needs a valid input. An identifier's equality laws use its own
+`generate()`; a value object's come from **`@accepts` tags** on its instance
+interface. **Every value object and every identifier must carry a doc comment
+stating its validity rule and two different `@accepts` examples** (an
+identifier's are the only valid wire form the blind test-writer can see, and
+its boundaries block needs one; the laws check `parse` accepts both) —
+`value-object-documented` refuses the
 contract otherwise, checks each is a literal of the value's type, and refuses
 two that are the same once whitespace is trimmed. So no law is ever skipped:
 the test-writer reads the rule, the first example runs the value laws (and the

@@ -182,18 +182,20 @@ it describes.
 ```
 exposed    = "@exposedVia"    1*( SP tech-id )      ; on the in port only
 implemented = "@implementedBy" 1*( SP tech-id )     ; on a non-store out port only
-accepts    = "@accepts" SP literal                  ; on a value object's interface
+accepts    = "@accepts" SP literal                  ; on a value object's or identifier's interface
 tech-id    = kebab-case id of a composed adapter technology
 literal    = a TypeScript literal of the value's primitive type ("Website relaunch", 42)
 ```
 
 `@accepts` (ADR 2026-059, rule `bounded-ts/value-object-documented`): every
-value object that is not an identifier carries a doc comment stating its
-validity rule and exactly two `@accepts` lines, one tag per line, whose
-literals differ after trimming. They are the valid samples the generated laws
+value object and every identifier carries a doc comment stating its validity
+rule and at least two `@accepts` lines, one tag per line, whose literals
+differ after trimming. They are the valid samples the generated laws
 (`<concept>.laws.test.ts`) parse; without them the laws of `equals` and
-`parse` would have nothing to run on. An identifier needs none, because its
-factory's `generate()` supplies samples. Example:
+`parse` would have nothing to run on. An identifier's equality laws sample
+`generate()`, but its examples are still required: they are the only valid
+wire form the blind test-writer can see, and its `<Name> — boundaries` block
+(§8) needs an accepted literal. The laws check `parse` accepts them. Example:
 
 ```ts
 /**
@@ -204,8 +206,8 @@ factory's `generate()` supplies samples. Example:
 export interface ProjectName { … }
 ```
 
-The worked example's own value objects carry no `@accepts` yet; the harness's
-reference copy adds them (see `agent/packs/ts/reference/README.md`).
+The worked example's own value objects and identifiers carry no `@accepts`
+yet; the harness's reference copy adds them (see `agent/packs/ts/reference/README.md`).
 
 - The tag line is `^\s*\*\s*@exposedVia(\s+[a-z][a-z0-9]*(-[a-z0-9]+)*)+\s*$`
   (likewise `@implementedBy`). At most one tag of each kind per interface.

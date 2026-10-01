@@ -63,7 +63,13 @@ shapes, not the domain.
 
 The design gate writes each skeleton once, with every declaration in place and
 every body throwing `NotImplementedError("<Class>.<member>")`. Keep the
-declarations exactly; replace the throws. A generated file is regenerated from
+declarations exactly; replace the throws. **No skeleton may still throw at
+delivery**: delivery removes `domain/shared/errors.ts` and refuses while any
+file still throws `NotImplementedError` or imports it, so replace every throw,
+including in methods no test happens to reach. **Handlers expose only
+`execute`**, and **every constructor parameter is `private readonly`**: a
+public parameter property is public surface the contract does not declare,
+and the surface check blocks green on it. A generated file is regenerated from
 the contracts and a gate refuses the tree when one differs, so an edit to one
 would be lost and would block. If a generated file is wrong, the contract it
 came from is wrong: raise `CONTRACT-DISPUTE`.

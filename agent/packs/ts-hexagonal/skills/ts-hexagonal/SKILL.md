@@ -65,6 +65,11 @@ You write `*.contract.ts` files and the apps a ticket needs.
   event publisher); type imports and `export interface` only. A feature
   imports them after the domain barrel as
   `import type { … } from "../../shared/<name>.contract.ts"`.
+- **Names.** A context may not share its name with one of its areas (the
+  generated tRPC router would define `create<Name>Router` twice): call the
+  context `project-management`, not `projects`.
+- **`@accepts`** on every value object and every identifier: a doc comment
+  with the validity rule and two different valid literals, one tag per line.
 - **Tags**, in the `/** */` block directly above the interface:
   `@exposedVia trpc mcp` on the in port names the in adapters to generate
   (the block's first line is the summary, required with `mcp`: it is the tool
@@ -94,8 +99,17 @@ generated laws) and never write a `*.laws.test.ts`.
   `new CreateNoteHandler(fakeStore)`, out ports in declaration order.
   Construct a store as `new InMemoryCreateNoteStore(new InMemoryDatabase())`.
 - The conformance suite's factory also supplies what the port itself cannot
-  do (seeding rows, reading back what was saved); see
+  do (seeding rows, reading back what was saved), built from the context's
+  *sibling* stores over the same database, never from the database's fields
+  (they are the builder's); see
   `reference/…/create-note.store.test-support.ts` and its in-memory store test.
+  The suite calls every port method; each store test imports it.
+- Every value object and identifier gets a `<Name> — boundaries` block (em
+  dash): one accepted literal (from the contract's `@accepts`) and two
+  distinct rejected literals of its base type, asserted as
+  `expect(X.parse(v).ok).toBe(true|false)` or `toEqual({ ok: … })`.
+- Never `test.skip` or `test.todo`; never call a skeleton at a file's top
+  level.
 - Postgres store tests need a container runtime. Without one they are skipped
   with the reason logged while you write them; they must run before delivery.
 - Use `bun:test` (`describe`, `test`, `expect`, `spyOn`). One behaviour per

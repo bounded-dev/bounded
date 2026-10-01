@@ -63,6 +63,17 @@ repeat what they cover (wrong-type input, the parse/`toJSON` round trip).
 | App smoke | `apps/<app>/src/**/composition-root.test.ts`, against the composition root's `compose…()` function |
 | In adapter | generated laws only; you write nothing under `adapters/in/` |
 
+**What the obligations gate requires, file by file.** Each row is checked by
+name and by call site; a missing one blocks the red and names itself.
+
+| For each | You owe |
+|---|---|
+| domain concept | `<concept>.test.ts` beside it |
+| feature | `<feature>.test.ts` that does `new <InPort>Handler(…)` and calls `.execute(` |
+| store port (`<InPort>Store`) | `<feature>.store.test-support.ts` whose suite calls **every** port method, plus one `adapters/out/<tech>/<area>/<feature>.store.test.ts` per storage technology (`in-memory`, `drizzle`) that imports that suite |
+| other out port | `adapters/out/<tech>/<area>/<feature>.<role>.test.ts` per technology in its `@implementedBy` tag, calling every port method |
+| app | `composition-root.test.ts` beside its composition root; checked at green only |
+
 - **Construct handlers and stores exactly as their skeletons do.** A handler
   takes the feature's out ports in the order the contract declares them:
   `new CreateNoteHandler(fakeStore)`, `new ExportProjectsHandler(store,
@@ -70,6 +81,23 @@ repeat what they cover (wrong-type input, the parse/`toJSON` round trip).
   `new InMemoryCreateNoteStore(new InMemoryDatabase())`. For Postgres stores
   the generated `drizzle-test-database.test-support.ts` gives you the
   database; read it for its usage line.
+- **Seed and read back through sibling stores, never through the database.**
+  `InMemoryDatabase`'s fields and Drizzle's tables are the builder's, so you
+  cannot see them. The conformance suite's factory returns the store under
+  test plus helpers built from the *other* features' stores over the same
+  database: `savedNotes: () => new InMemoryListNotesStore(db).findAll()`,
+  seeding a project with `new InMemoryCreateProjectStore(db).save(project)`.
+  A Drizzle store test wraps the same suite in the generated helper and calls
+  `db()` inside the factory or a test, never while the block is declared:
+
+  ```ts
+  describeDrizzleStore("DrizzleCreateNoteStore", (db) => {
+    createNoteStoreConformance("DrizzleCreateNoteStore", async () => ({
+      store: new DrizzleCreateNoteStore(db()),
+      savedNotes: () => new DrizzleListNotesStore(db()).findAll(),
+    }));
+  });
+  ```
 - **Import names from where the project exports them.** Domain values from
   the barrel `@<scope>/<context>/domain`; a command from its generated
   `<feature>.command.ts`; types from the feature's contract; the class under
@@ -201,17 +229,33 @@ test: every factory member (`parse`, `generate`, an entity's `new`), every
 instance member, every `execute`, and every method of every store port. An
 export nothing calls blocks the red and names itself.
 
-**Boundaries per value object** — a `describe("<Name> — boundaries")` block
-(em dash) with at least one accepted literal and at least TWO distinct
-rejected literals of the value object's own base type (`" "` for a name, not
-`null` — wrong-type inputs are already covered by the generated laws). Two is
-the floor: write one rejection per axis the validity rule actually has. When
-the red gate refuses a block, its message prints the exact form it accepts;
-copy that.
+**Boundaries per value object AND per identifier** — one
+`describe("<Name> — boundaries")` block (em dash, U+2014) for every value
+object and every identifier, with at least one accepted literal and at least
+TWO distinct rejected literals of its own base type (`" "` for a name,
+`"not-a-uuid"` for a UUID id — not `null`: wrong-type inputs are already
+covered by the generated laws). Take the accepted literal from the
+contract's `@accepts` tags. Two is the floor: write one rejection per axis
+the validity rule actually has. Only these assertion forms count:
+
+```ts
+expect(ProjectName.parse("Office move").ok).toBe(true);
+expect(ProjectName.parse(" ").ok).toBe(false);
+expect(ProjectName.parse(" ")).toEqual({ ok: false, error: "Project name is required" });
+// toStrictEqual and toMatchObject with { ok: … } count as well
+```
+
+`toBeTruthy`, a negated matcher or a non-literal argument does not. When the
+red gate refuses a block, its message prints the exact form it accepts; copy
+that.
 
 **Right-reason red** — never call a skeleton at the top level of a test file:
 it throws during import, before any test runs, and the whole file becomes a
 wrong-reason failure. Build fixtures inside `test()` or `beforeEach`.
+
+**Never skip** — no `test.skip`, `describe.skip` or `test.todo`.
+Green refuses any skipped or todo result: a skipped test is not a pass. The
+only skip the gates allow is the store-test one the red gate sets itself.
 
 **Finish with the scoped `typecheck` tool.** Fix diagnostics in your files;
 report foreign error counts to the architect without guessing at them. Tell

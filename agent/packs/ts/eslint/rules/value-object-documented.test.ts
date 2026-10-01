@@ -1,12 +1,13 @@
 import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { valueObjectDocumented } from "./value-object-documented.ts";
-import { DOCUMENTED_CONCEPTS, exampleConcept } from "../../scripts/testdata/example-domain.ts";
+import { DOCUMENTED_CONCEPTS, documentedConcept, exampleConcept } from "../../scripts/testdata/example-domain.ts";
 
 // ADR 2026-059: every value object carries two different `@accepts` examples
 // (the generated laws' samples, so no law is ever skipped), each a literal of
-// the value's own type; an identifier is exempt (generate() samples it); a doc
-// comment is never empty; an entity takes no @accepts.
+// the value's own type; an identifier needs them too (its only valid literal
+// the blind test-writer can see); a doc comment is never empty; an entity
+// takes no @accepts.
 
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
@@ -51,8 +52,8 @@ export interface ProjectFactory {
 
 ruleTester.run("value-object-documented", valueObjectDocumented, {
   valid: [
-    // the worked example as the gates require it: documented value objects,
-    // and identifiers and entities with no examples at all
+    // the worked example as the gates require it: documented value objects
+    // and identifiers, and entities with no examples at all
     ...DOCUMENTED_CONCEPTS.map((c) => c.contract),
     vo(TWO),
     vo('/** @accepts "Website relaunch"\n * @accepts "Office move" */'),
@@ -66,11 +67,14 @@ ruleTester.run("value-object-documented", valueObjectDocumented, {
   ],
   invalid: [
     // the worked example's plain value objects, as the example ships them
-    { code: exampleConcept("note-text").contract, errors: [{ messageId: "missingAccepts", data: { name: "NoteText", found: "no doc comment", rule: "What makes a NoteText valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
+    { code: exampleConcept("note-text").contract, errors: [{ messageId: "missingAccepts", data: { name: "NoteText", kind: "a value object", found: "no doc comment", rule: "What makes a NoteText valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
     { code: exampleConcept("project-name").contract, errors: [{ messageId: "missingAccepts" }] },
+    // the worked example's identifiers, as the example ships them
+    { code: exampleConcept("project-id").contract, errors: [{ messageId: "missingAccepts", data: { name: "ProjectId", kind: "an identifier", found: "no doc comment", rule: "What makes a ProjectId valid.", sample: '@accepts "7c9e6679-7425-40de-944b-e07fc1f90ae7"', sample2: '@accepts "16fd2706-8baf-433b-82eb-8c7fada847da"' } }] },
+    { code: documentedConcept("note-id").contract.replace(/ \* @accepts "16fd[^\n]*\n/, ""), errors: [{ messageId: "missingAccepts", data: { name: "NoteId", kind: "an identifier", found: "one @accepts tag", rule: "What makes a NoteId valid.", sample: '@accepts "7c9e6679-7425-40de-944b-e07fc1f90ae7"', sample2: '@accepts "16fd2706-8baf-433b-82eb-8c7fada847da"' } }] },
     // a `//` comment is not a doc comment
     { code: vo("// just a note"), errors: [{ messageId: "missingAccepts" }] },
-    { code: vo("/** The name of a project: not empty once trimmed. */"), errors: [{ messageId: "missingAccepts", data: { name: "ProjectName", found: "no @accepts tag", rule: "What makes a ProjectName valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
+    { code: vo("/** The name of a project: not empty once trimmed. */"), errors: [{ messageId: "missingAccepts", data: { name: "ProjectName", kind: "a value object", found: "no @accepts tag", rule: "What makes a ProjectName valid.", sample: '@accepts "Website relaunch"', sample2: '@accepts "Office move"' } }] },
     { code: vo('/** @accepts "Website relaunch" */'), errors: [{ messageId: "missingAccepts" }] },
     // mid-sentence mentions are prose, not tags
     { code: vo("/** Add an @accepts example when you know one. */"), errors: [{ messageId: "missingAccepts" }] },

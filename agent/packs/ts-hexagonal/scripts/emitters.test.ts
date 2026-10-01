@@ -281,6 +281,17 @@ export interface CountNotes {
     expect(() => emitAll(facts({ workspaces: [misplaced] }))).toThrow(/source root at src/);
   });
 
+  test("a context named like one of its areas is refused, naming the router clash", () => {
+    const notes = {
+      ...contextWorkspace(contracts().map((c) => ({
+        path: c.path.replace("contexts/project-management/", "contexts/notes/"),
+        source: c.source.replaceAll("@example/project-management/", "@example/notes/"),
+      }))),
+      dir: "contexts/notes", name: "notes", packageName: "@example/notes", sourceRoot: "contexts/notes/src",
+    };
+    expect(() => emitAll(facts({ workspaces: [notes] }))).toThrow(/the context 'notes' has an area of the same name.*createNotesRouter/);
+  });
+
   test("an in port name used by two features is refused", () => {
     const clash = APPLICATION_CONTRACTS["application/notes/list-notes/list-notes.contract.ts"]!;
     const workspace = contextWorkspace(contracts({

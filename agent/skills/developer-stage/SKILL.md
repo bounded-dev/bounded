@@ -172,7 +172,12 @@ removes it at the end of the run.
      or a contract file added or removed since, and the freeze does not run) →
      freeze (the checksum manifest, so drift under you later is detectable
      rather than silent). It stops at the first failure, names the step, and
-     routes to you; fix what it names and run it again. `contract_purity` on its
+     routes to you; fix what it names and run it again. **When the design adds
+     a workspace** (a new context from a contract path, a new app from the
+     TN's `workspaces:` map), the scaffold step regenerates `bun.lock` and
+     installs, which needs the package registry or bun's cache reachable; it
+     refuses clearly when neither is, and the remedy is the network, not an
+     edit. `contract_purity` on its
      own is the cheap check while you are still iterating on a contract.
    - **Adding or removing a contract file voids the review; editing one does
      not.** The review challenges the whole design once, so revising a file the
@@ -228,15 +233,19 @@ removes it at the end of the run.
      Because it runs against the shadow project, a builder mid-flight cannot
      affect this verdict — and you can re-establish a red at any point in the
      loop without disturbing the implementation or the builder working on it.
-     Store tests that need a container runtime are skipped at red, with the
-     reason logged, when none is running; app smoke tests wait for green.
+     Red runs **only the contexts' tests** (the workspaces that hold
+     contracts); each app's `composition-root.test.ts` smoke test and the
+     root `architecture.test.ts` run at green only, because what they test is
+     the builder's. Store tests that need a container runtime are skipped at
+     red, with the reason logged, when none is running.
    - **Builder done → `green_gate`**, from *your own* invocation. Every test
      passes **and the project typechecks**, or the gate fails and names each
      failing test and each type error. Green also runs the store tests against
      real Postgres, so it **refuses** when store tests exist and no container
      runtime (Docker) answers — it never passes by skipping them (ADR
-     2026-064). Tell the user when that is what stands between the run and
-     green.
+     2026-064). The refusal says "Start Docker"; tell the user when that is
+     what stands between the run and green, because no role can start it.
+     Green also runs every app's smoke test and the architecture test.
    - **The one ordering that survives: green requires a red that covers these
      tests.** Two halves, both mechanical. *Contracts:* a red pass since the
      most recent freeze — a green over a suite no red gate ever validated is a
@@ -395,7 +404,10 @@ tier exists to prevent.
 
 Read its **output**, not its source — the block line names the sin and the
 responsible role. Both `red_gate` and `green_gate` also run `tsc` (issue #7):
-green means the suite passes *and* the project compiles.
+green means the suite passes *and* the project compiles. The workers' own
+tools run the same commands: `run_tests` is `bun test` (its output sanitized
+for the builder) and `typecheck` is `bunx tsc -p tsconfig.json`, scoped to
+the caller.
 
 ### Bounce by resuming, never by respawning
 

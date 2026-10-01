@@ -219,6 +219,11 @@ the TN; everything else is written by a generator or a worker.
   scope is the project's directory name (`@<project-dir>`). The
   `ts-hexagonal` skill has the exact grammar; its parser refuses anything
   else and names the fix.
+- **A context never shares its name with one of its areas.** The generated
+  tRPC router defines `create<Context>Router` and `create<Area>Router`, so a
+  context `notes` with an area `notes` would define one function twice; the
+  design gate refuses it. Name the context for the whole capability
+  (`project-management`) and the areas for its nouns (`projects`, `notes`).
 - **Out ports are per feature.** Each feature declares exactly the data it
   needs, in its own words, and never shares a port with another feature, even
   an identical one. The store port is exactly `<InPort>Store`, at most one per
@@ -235,8 +240,9 @@ the TN; everything else is written by a generator or a worker.
   - `@implementedBy console` is required on every out port that is not the
     store, naming the technology that implements it. A store gets one
     implementation per composed storage technology, without a tag.
-  - `@accepts "<example>"` (two per value object, one per line) gives the
-    generated laws their valid samples.
+  - `@accepts "<example>"` (two per value object and per identifier, one
+    per line) gives the generated laws their valid samples and the
+    test-writer its accepted boundary literal.
   A near-miss tag (`@exposedvia`, a tag in a `//` comment) is refused, never
   ignored.
 - **Apps are a design decision in the TN.** Declare each app in the ticket
@@ -300,13 +306,14 @@ after it; the retired `declare class` form is refused by `declaration-only`),
 `bounded-ts/entity-shape` (an entity's factory is exactly `new (…fields):
 <Name>`, the fields in declaration order with `id` first, each a value object
 or identifier; `toJSON()` returns one readonly primitive per field), and
-`bounded-ts/value-object-documented` (every value object — not an
-identifier — carries a doc comment with its validity rule and two
-`@accepts` examples that differ after trimming, each a literal of the
-value's type, one tag per line — e.g. `/** The name of a project: not
-empty once trimmed. @accepts "Website relaunch" @accepts "Office move" */`
-with each tag on its own line; they are the generated laws' samples, so no
-law is skipped; an identifier needs none, since `generate()` supplies them),
+`bounded-ts/value-object-documented` (every value object AND every
+identifier carries a doc comment with its validity rule and two `@accepts`
+examples that differ after trimming, each a literal of the value's type, one
+tag per line — e.g. `/** The name of a project: not empty once trimmed.
+@accepts "Website relaunch" @accepts "Office move" */` with each tag on its
+own line; they are the generated laws' samples, so no law is skipped, and
+they are the only valid literal the blind test-writer can see for an
+identifier's boundaries block — give a UUID id two real UUIDs),
 and `bounded-ts/contract-imports-contracts-only` (every contract
 imports only other `*.contract.ts` files and `../shared/result.ts`, as
 `import type { … }` — never an implementation file, never an

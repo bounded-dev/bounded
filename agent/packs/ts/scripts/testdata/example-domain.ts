@@ -306,14 +306,26 @@ export function exampleConcept(stem: string): ExampleConcept {
   return found;
 }
 
-/** The reference's doc comments: each plain value object's validity rule and
- *  its two `@accepts` examples, which `value-object-documented` requires and
+/** The reference's doc comments: each value object's and identifier's
+ *  validity rule and its two `@accepts` examples, which `value-object-documented` requires and
  *  the worked example itself does not carry (ADR 2026-059). */
 const DOCS: Readonly<Record<string, string>> = {
+  NoteId: `/**
+ * A note's identity: a UUID.
+ * @accepts "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+ * @accepts "16fd2706-8baf-433b-82eb-8c7fada847da"
+ */
+`,
   NoteText: `/**
  * The text of a note: any string that is not empty once trimmed; stored trimmed.
  * @accepts "Call the printer"
  * @accepts "Book the venue"
+ */
+`,
+  ProjectId: `/**
+ * A project's identity: a UUID.
+ * @accepts "3b241101-e2bb-4255-8caf-4136c566a962"
+ * @accepts "9b2f5c1e-0d7a-4a43-9f3e-2c1d8e6b7a50"
  */
 `,
   ProjectName: `/**
@@ -325,7 +337,7 @@ const DOCS: Readonly<Record<string, string>> = {
 };
 
 /** The worked example's concepts as the gates require them: identical, plus
- *  the two value objects' doc comments. `packs/ts/reference` holds exactly
+ *  the value objects' and identifiers' doc comments. `packs/ts/reference` holds exactly
  *  these contracts (reference-component.test.ts pins it). */
 export const DOCUMENTED_CONCEPTS: readonly ExampleConcept[] = EXAMPLE_CONCEPTS.map((c) => {
   const name = Object.keys(DOCS).find((n) => c.contract.includes(`export interface ${n} {`));

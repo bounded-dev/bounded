@@ -43,6 +43,11 @@ describe("ProjectId — identifier laws (generated)", () => {
     expect(silent).toEqual([]);
   });
 
+  test("parse accepts the contract's @accepts examples", () => {
+    expect(ProjectId.parse("3b241101-e2bb-4255-8caf-4136c566a962").ok).toBe(true);
+    expect(ProjectId.parse("9b2f5c1e-0d7a-4a43-9f3e-2c1d8e6b7a50").ok).toBe(true);
+  });
+
   test("toJSON is the string wire form", () => {
     expect(typeof ProjectId.generate().toJSON()).toBe("string");
   });

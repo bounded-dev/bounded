@@ -7,6 +7,7 @@ import type { ProjectFacts, WorkspaceFacts } from "../../ts/pack.ts";
 import type { FeatureContractModel } from "../../ts/scripts/feature-model.ts";
 import { type ConceptEntry, readDomainConcept } from "./domain-index.ts";
 import { ContractShapeError, parseFeatureContract } from "./feature-contract.ts";
+import { pascalCase } from "../../ts/scripts/naming.ts";
 import { readSharedContract, type SharedContract } from "./shared-contract.ts";
 
 export interface ContextModel {
@@ -93,6 +94,16 @@ function contextModel(workspace: WorkspaceFacts, facts: ProjectFacts): ContextMo
       }
       ports.set(name, feature.contractPath);
     }
+  }
+  // A context named like one of its areas would generate two functions of one
+  // name: the tRPC router's create<Context>Router and create<Area>Router.
+  const clash = [...concepts.map((c) => ({ area: c.area, path: c.contractPath })), ...features.map((f) => ({ area: f.area, path: f.contractPath }))]
+    .find((entry) => entry.area === context);
+  if (clash !== undefined) {
+    throw new ContractShapeError(
+      clash.path,
+      `the context '${context}' has an area of the same name; rename the context (e.g. '${context}-management') or the area, because the generated create${pascalCase(context)}Router would name both`,
+    );
   }
   const sharedNames = new Set(shared.flatMap((c) => c.names));
   return { workspace, root, context, packageName: workspace.packageName, concepts, features, shared, sharedNames };
