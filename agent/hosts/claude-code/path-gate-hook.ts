@@ -82,7 +82,7 @@ import {
   sendSucceeded,
   sendTarget,
   launchOutcome,
-  unresolvedLaunchCaller,
+  earlierCallerEnded,
   WORKER_STARTED,
   workerRole,
 } from "./continuation.ts";
@@ -95,7 +95,7 @@ import { resolveSessionRole } from "../../src/session-role.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
-import { boundDefinitionInForce, evaluateLead, evaluateScout } from "./lead-hook.ts";
+import { boundDefinitionInForce, evaluateLead, evaluateScout, recordLeadArchitectOutcome } from "./lead-hook.ts";
 
 /** What one hook run says back to Claude Code. Exit is always 0. */
 export interface HookOutcome {
@@ -167,8 +167,10 @@ function narrowPayload(rec: Readonly<Record<string, unknown>>, toolName: string)
   const agentType = nonEmpty(rec["agent_type"]);
   const agentId = nonEmpty(rec["agent_id"]);
   const caller = callerOf(rec);
+  const toolUseId = nonEmpty(rec["tool_use_id"]);
   return {
     ...(caller !== undefined ? { caller } : {}),
+    ...(toolUseId !== undefined ? { toolUseId } : {}),
     ...(event !== undefined ? { event } : {}),
     toolName,
     toolInput,
@@ -242,6 +244,11 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     // (continuation.ts). Nothing after a call is ever refused here.
     if (payload.event === "PostToolUse" || payload.event === "PostToolUseFailure") {
       const role = asRole(flags.role);
+      // The lead (the main session of a project installation) records when an
+      // architect it launched has ended (lead-hook.ts).
+      if (flags.projectLocal && flags.role === undefined && payload.agentId === undefined) {
+        recordLeadArchitectOutcome(payload, rec, payload.cwd ?? fallbackCwd);
+      }
       if (role !== undefined) {
         const at = payload.cwd ?? fallbackCwd;
         try {
@@ -531,12 +538,11 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
       // because to it that launch is still running.
       const target = call.input["agent"];
       if (typeof target === "string") {
-        const launchedBy = unresolvedLaunchCaller(target, readGuardLog(cwd));
-        if (launchedBy !== undefined && launchedBy !== payload.caller) {
+        if (earlierCallerEnded(target, payload.caller, readGuardLog(cwd))) {
           logGuardEvent(cwd, {
             guard: "phase-gate",
             verdict: "pass",
-            summary: `the last ${target} was launched by an earlier caller and left no recorded outcome — a fresh ${target} may be launched`,
+            summary: `the last ${target} was launched by an architect that has since ended, and left no recorded outcome — a fresh ${target} may be launched`,
             detail: { kind: CONTINUATION_CHECKED, role, target },
           });
         }

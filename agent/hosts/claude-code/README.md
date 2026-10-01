@@ -79,7 +79,13 @@ capabilities and still needs a live run before its behavior can be claimed.
   role is licensed only by positive evidence: a failed continuation of its
   current worker, a launch that failed or reported a terminal non-completed
   status, an after-call hook that errored on the launch, or a launch with no
-  recorded outcome made by an earlier architect (a different agent id). A
+  recorded outcome made by an earlier architect whose end the lead's own
+  after-call hook recorded (a different agent id alone is never evidence). No
+  architect may commission another, and the lead runs one architect at a time:
+  the project hook also runs after the lead's Agent calls, recording each
+  architect's end; a session that died with an architect still recorded as
+  running is released by the user with `bounded lead release`, which the lead
+  itself may not run. A
   launch still running — including a background one, recorded from its
   `async_launched` id — licenses nothing. The architect's Agent calls are held
   to the lead's field allowlist, so `run_in_background`, `isolation` and

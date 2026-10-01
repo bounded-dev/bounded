@@ -27,12 +27,14 @@
 //     status other than completed;
 //   · the after-call hook itself erroring on that launch, so its outcome can
 //     never be known;
-//   · a launch with no recorded outcome made by a DIFFERENT caller — an
-//     earlier architect, since replaced (its run was interrupted, so the
-//     after-call hook never ran). Within one architect a launch with no
-//     outcome is still running, which is why two parallel launches of one role
-//     are refused; an architect cannot change its own agent id, so this way
-//     out cannot be taken by the architect that made the launch.
+//   · a launch with no recorded outcome made by an earlier architect whose
+//     END the lead's own after-call hook recorded after that launch (it
+//     finished, failed or was interrupted; lead-state.ts). A different id is
+//     never evidence by itself: two architects running at once differ too.
+//     That case cannot arise anyway: no architect may start another
+//     (phase-gate.ts), and the lead runs one architect at a time.
+//     Within one architect a launch with no outcome is still running, which
+//     is why two parallel launches of one role are refused.
 // A background launch (`async_launched`) is a running worker of the role
 // requested, addressed by the id it reports.
 //
@@ -42,6 +44,7 @@
 import type { LoggedGuardEvent } from "../../src/guard-log.ts";
 import { CONTINUATION_CHECKED, type CommissionCall, type CommissionHost } from "../../src/phase-gate.ts";
 import { asRole, PIPELINE_ROLES } from "../../src/path-gate.ts";
+import { architectEndedSince } from "../../src/lead-state.ts";
 
 /** Claude Code's tool for continuing a finished subagent. */
 export const SEND_MESSAGE_TOOL = "SendMessage";
@@ -190,14 +193,35 @@ export function launchOutcome(
  * outcome — no worker and no licence after it. Undefined otherwise.
  */
 export function unresolvedLaunchCaller(role: string, events: readonly LoggedGuardEvent[]): string | undefined {
+  return unresolvedLaunch(role, events)?.caller;
+}
+
+/** `role`'s last launch when it has no recorded outcome: its caller and its
+ *  place in the log. */
+function unresolvedLaunch(role: string, events: readonly LoggedGuardEvent[]): { readonly caller: string; readonly index: number } | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const d = detailOf(events[i]!);
     if (d["target"] !== role) continue;
     if (d["kind"] === WORKER_STARTED || d["kind"] === CONTINUATION_CHECKED) return undefined;
     // A launch recorded with no caller cannot be told apart: no way out by caller.
-    if (d["kind"] === "spawn") return typeof d["caller"] === "string" ? d["caller"] : undefined;
+    if (d["kind"] === "spawn") return typeof d["caller"] === "string" ? { caller: d["caller"], index: i } : undefined;
   }
   return undefined;
+}
+
+/**
+ * May `caller` relaunch `role` whose last launch has no recorded outcome?
+ * Only when that launch was made by an EARLIER architect whose end the lead's
+ * hook recorded after it (lead-state.ts). Different ids are not evidence: two
+ * architects running at once have different ids too. The lead runs one
+ * architect at a time and no architect starts another, so an architect's end
+ * recorded after the stuck launch is the end of the architect that made it.
+ */
+export function earlierCallerEnded(role: string, caller: string | undefined, events: readonly LoggedGuardEvent[]): boolean {
+  const stuck = unresolvedLaunch(role, events);
+  if (stuck === undefined || stuck.caller === caller) return false;
+  const agent = stuck.caller.startsWith("agent:") ? stuck.caller.slice("agent:".length) : undefined;
+  return architectEndedSince(events, stuck.index, agent);
 }
 
 /** Did a SendMessage's PostToolUse response report a delivered continuation? */

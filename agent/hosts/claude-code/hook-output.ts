@@ -13,6 +13,8 @@ export interface HookPayload {
   readonly agentId?: string;
   /** The seat instance making the call (agent id, else session), as recorded on a spawn. */
   readonly caller?: string;
+  /** The host's id for this one tool call, the same before and after it. */
+  readonly toolUseId?: string;
 }
 
 /** Refuse the call and tell the model why. */

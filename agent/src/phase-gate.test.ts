@@ -531,6 +531,17 @@ describe("delegate: no unbound writer inside the pipeline", () => {
     expect(v.reason).toContain("test-writer");
   });
 
+  // One architect drives a ticket and only the lead commissions it: a second
+  // architect beside the first would launch its own workers (the re-review's
+  // race: two builders at once).
+  test("no bound seat may commission an architect, whatever the phase", () => {
+    for (const evidence of [EMPTY, READY]) {
+      const v = checkSubagentCall({ agent: "architect", task: "design ticket 2" }, evidence);
+      expect(v).toMatchObject({ kind: "block", target: "architect" });
+      if (v.kind === "block") expect(v.reason).toContain("may not commission another architect");
+    }
+  });
+
   test("the read-only helpers stay commissionable", () => {
     for (const agent of ["scout", "product-expert"]) {
       expect(checkSubagentCall({ agent }, EMPTY)).toEqual({ kind: "allow", target: agent });

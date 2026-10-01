@@ -8,9 +8,9 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logGuardEvent } from "../../src/guard-log.ts";
+import { logGuardEvent, readGuardLog } from "../../src/guard-log.ts";
 import { decideLead, decideScout, parseLeadPrepareArgs, parseReplanCommand, type SeatAction } from "../../src/lead-policy.ts";
-import { LEAD_GUARD, LEAD_SEAT, SCOUT_SEAT } from "../../src/lead-state.ts";
+import { ARCHITECT_ENDED, ARCHITECT_LAUNCHED, LEAD_GUARD, LEAD_SEAT, runningArchitects, SCOUT_SEAT } from "../../src/lead-state.ts";
 import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
 import { asRole, projectPathFacts } from "../../src/path-gate.ts";
@@ -125,7 +125,45 @@ export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: str
     if (!decision.allow) return refuse(decision.reason);
   }
   const architect = actions.find((action) => action.kind === "commission" && action.role === "architect");
-  return architect === undefined ? "" : architectTier(payload, cwd);
+  if (architect === undefined) return "";
+  // One architect at a time (lead-state.ts): a second would commission its
+  // own workers while the first's still run.
+  const running = runningArchitects(readGuardLog(cwd));
+  if (running.length > 0) {
+    return refuse("an architect is already running — wait for it to finish; one architect runs at a time");
+  }
+  if (payload.toolUseId === undefined) {
+    return refuse("this host gave the architect commission no call id, so its end could never be recorded");
+  }
+  const decision = architectTier(payload, cwd);
+  if (!decision.includes('"deny"')) {
+    logGuardEvent(cwd, {
+      guard: LEAD_GUARD, verdict: "pass", summary: "architect commissioned",
+      detail: { host: "claude-code", kind: ARCHITECT_LAUNCHED, launch: payload.toolUseId },
+    });
+  }
+  return decision;
+}
+
+/**
+ * After the lead's Agent call: record that an architect it launched has ended
+ * — completed, failed or interrupted. A background launch is still running,
+ * and so records nothing. What the result reports as the architect's agent id
+ * is kept, so a successor architect can show the one before it ended
+ * (continuation.ts).
+ */
+export function recordLeadArchitectOutcome(payload: HookPayload, rec: Readonly<Record<string, unknown>>, cwd: string): void {
+  if (payload.toolName !== "Agent" && payload.toolName !== "Task") return;
+  if (payload.toolInput["subagent_type"] !== "architect" || payload.toolUseId === undefined) return;
+  const response = rec["tool_response"];
+  const r = typeof response === "object" && response !== null ? (response as Readonly<Record<string, unknown>>) : {};
+  if (payload.event === "PostToolUse" && r["status"] === "async_launched") return;
+  const agent = typeof r["agentId"] === "string" ? r["agentId"] : undefined;
+  logGuardEvent(cwd, {
+    guard: LEAD_GUARD, verdict: "pass",
+    summary: payload.event === "PostToolUseFailure" ? "architect ended without completing" : "architect finished",
+    detail: { host: "claude-code", kind: ARCHITECT_ENDED, launch: payload.toolUseId, ...(agent !== undefined ? { agent } : {}) },
+  });
 }
 
 /** The architect seat runs on its configured tier, chosen here as on pi. */

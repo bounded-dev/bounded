@@ -1,4 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
@@ -155,9 +157,46 @@ describe("lead commissions", () => {
     expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("prepare the ticket's run boundary");
     writeFileSync(join(dir, ".bounded/active-ticket"), "1\n");
     writeFileSync(join(dir, LOG), logLines(prepared("1")));
-    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver", model: "haiku" });
+    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver", model: "haiku" }, LEAD, { tool_use_id: "t1" });
     expect(r).toEqual({ decision: "rewrite", input: { subagent_type: "architect", prompt: "deliver", model: "opus" } });
     expect(readGuardLog(dir).find((e) => e.guard === "model-tier")).toMatchObject({ verdict: "pass", detail: { role: "team-lead" } });
+  });
+
+  test("one architect at a time: a second waits until the first's end is recorded", () => {
+    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
+    const launch = (id: string) => hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: id });
+    const after = (event: string, id: string, extra: Readonly<Record<string, unknown>> = {}) =>
+      runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: event, tool_name: "Agent", tool_use_id: id,
+        tool_input: { subagent_type: "architect", prompt: "deliver" }, ...extra }), dir);
+    expect(launch("t1").decision).toBe("allow");
+    expect(launch("t2").reason).toContain("an architect is already running");
+    // A background launch is still running.
+    after("PostToolUse", "t1", { tool_response: { status: "async_launched", agentId: "a0000000000000aaa" } });
+    expect(launch("t2").decision).toBe("deny");
+    after("PostToolUse", "t1", { tool_response: { status: "completed", agentId: "a0000000000000aaa", agentType: "architect" } });
+    expect(launch("t2").decision).toBe("allow");
+    // An interrupted or failed architect has ended too.
+    after("PostToolUseFailure", "t2", { error: "interrupted", is_interrupt: true });
+    expect(launch("t3").decision).toBe("allow");
+    // A child's Agent calls never end the lead's architect.
+    runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "t3",
+      agent_id: "a0000000000000aaa", agent_type: "architect", tool_input: { subagent_type: "architect" }, tool_response: { status: "completed" } }), dir);
+    expect(launch("t4").decision).toBe("deny");
+  });
+
+  test("an architect commission with no call id is refused: its end could never be recorded", () => {
+    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("no call id");
+  });
+
+  test("only the user releases a stuck architect: the lead may not run the release", () => {
+    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
+    expect(hook(dir, "Bash", { command: "bounded lead release" }).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "bash .bounded/harness/scripts/bounded lead release" }).decision).toBe("deny");
+    const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../../src/lead-cli.ts", import.meta.url)), "release"], { cwd: dir, encoding: "utf8", env: { ...process.env, BOUNDED_GUARD_LOG: "" } });
+    expect(cli.stdout).toContain("released");
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t2" }).decision).toBe("allow");
   });
 
   test("a tier this host cannot run refuses the architect; no tier leaves the call untouched", () => {
@@ -165,9 +204,9 @@ describe("lead commissions", () => {
       ".bounded/dev-stage-models.json": '{"designModel": "fireworks/kimi-k3:medium"}\n',
       ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")),
     });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("names no model this host can run");
+    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).reason).toContain("names no model this host can run");
     const plain = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(plain, "Agent", { subagent_type: "architect", prompt: "deliver" }).decision).toBe("allow");
+    expect(hook(plain, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
   });
 });
 

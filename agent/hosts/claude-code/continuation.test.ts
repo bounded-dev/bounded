@@ -62,6 +62,21 @@ function hook(dir: string, event: string, tool: string, input: unknown, extra: R
   }
 }
 
+/** What the lead's project-wide hook records after its architect's Agent call
+ *  completes (lead-hook.ts recordLeadArchitectOutcome). */
+function leadSawArchitectEnd(dir: string, agentId: string): void {
+  vi.stubEnv("BOUNDED_GUARD_LOG", undefined);
+  try {
+    runHook(["--project-local"], JSON.stringify({
+      session_id: "s1", cwd: dir, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: `t-${agentId}`,
+      tool_input: { subagent_type: "architect", prompt: "deliver" },
+      tool_response: { status: "completed", agentId, agentType: "architect" },
+    }), dir);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+}
+
 const launch = (dir: string, role: string): Outcome => hook(dir, "PreToolUse", "Agent", { subagent_type: role, prompt: "do it" });
 const finished = (dir: string, role: string, worker: string): Outcome =>
   hook(dir, "PostToolUse", "Agent", { subagent_type: role, prompt: "do it" },
@@ -190,9 +205,40 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first).decision).toBe("allow");
     // The run was interrupted: no after-call hook ever ran for that launch.
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first).decision).toBe("deny");
+    // A different id alone is not evidence: the first architect may still run.
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("deny");
+    // The lead's own after-call hook records that the first architect ended.
+    leadSawArchitectEnd(dir, "a0000000000000aaa");
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("allow");
     // And the successor's own launch is again unresolved to itself.
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("deny");
+  });
+
+  test("an end recorded for a DIFFERENT architect licenses nothing", () => {
+    const dir = readyProject();
+    const first = { agent_id: "a0000000000000aaa", agent_type: "architect" };
+    hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first);
+    leadSawArchitectEnd(dir, "a0000000000000ccc");
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, { agent_id: "a0000000000000bbb", agent_type: "architect" }).decision).toBe("deny");
+  });
+
+  // Regression (the re-review's race): two architects at once — the first
+  // starting a builder and a nested architect in one message — must never get
+  // two builders. The nested architect is refused, and even a second architect
+  // that somehow runs gets no licence from its different id alone.
+  test("two architects at once never get two builders", () => {
+    const dir = readyProject();
+    const a1 = { agent_id: "a1111111111", agent_type: "architect" };
+    const a2 = { agent_id: "a2222222222", agent_type: "architect" };
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, a1).decision).toBe("allow");
+    const nested = hook(dir, "PreToolUse", "Agent", { subagent_type: "architect", prompt: "x" }, a1);
+    expect(nested.decision).toBe("deny");
+    expect(nested.reason).toContain("may not commission another architect");
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, a2).decision).toBe("deny");
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, a1).decision).toBe("deny");
+    const builders = phase(dir).filter((e) => (e.detail as { kind?: string; target?: string }).kind === "spawn" &&
+      (e.detail as { target?: string }).target === "builder");
+    expect(builders).toHaveLength(1);
   });
 
   test.each(["run_in_background", "isolation", "name", "cwd", "team_name", "mode"])(

@@ -546,6 +546,20 @@ export function checkSubagentCall(
   const target = spawnTarget(input);
   if (target === undefined) return { kind: "ignore" };
 
+  // One architect drives a ticket, and only the lead commissions it. A bound
+  // seat that starts another would run a second architect beside itself, each
+  // commissioning workers, and the cold-relaunch rule above is per role, not
+  // per architect.
+  if (target === "architect") {
+    return {
+      kind: "block",
+      target,
+      reason:
+        "phase-gate: an architect may not commission another architect — one architect drives a ticket, " +
+        "and only the lead commissions it. Commission the role that owns the work: reviewer, test-writer or builder.",
+    };
+  }
+
   if (target === UNBOUND_WRITER) {
     return {
       kind: "block",
