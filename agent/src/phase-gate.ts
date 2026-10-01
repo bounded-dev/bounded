@@ -35,8 +35,8 @@
 // Two spawn SHAPES are refused outright, because both were observed live
 // carrying pipeline work past every check in this file:
 //
-//   * a multi-spawn form (`workflowScript`, or a `chain`/`parallel` item array)
-//     that names a pipeline role — the gate sees one tool call and cannot
+//   * a multi-spawn form (a script, or an item array — which input fields
+//     carry one is the host adapter's to say) that names a pipeline role — the gate sees one tool call and cannot
 //     evaluate a precondition per child inside a script it never watches run,
 //     and the per-role model tier is injected at the plain spawn too;
 //   * `delegate`, the general write-capable worker, in a session that already
@@ -373,8 +373,8 @@ export function checkSpawnPrecondition(
 // Everything above assumes one child per tool call, named in the call. Two
 // live runs showed that assumption is not free:
 //
-//   * r13/r14, twice: the architect wrapped both workers in a `workflowScript`
-//     (`runs.all([...])`). The gate saw one `subagent` call carrying a string,
+//   * r13/r14, twice: the architect wrapped both workers in one script that
+//     launched them both. The gate saw one commission call carrying a string,
 //     found no `agent`, and let it through — the builder ran with no
 //     precondition checked and no model tier injected.
 //   * twice more: the architect spawned `delegate`, the general write-capable
@@ -388,16 +388,6 @@ export function checkSpawnPrecondition(
 /** The pipeline roles, as names to be matched inside a script or item array. */
 const PIPELINE_ROLE_NAMES: readonly Role[] = ["architect", "test-writer", "builder", "reviewer"];
 
-/**
- * Subagent input fields that can carry MORE THAN ONE child in a single call.
- *
- * `workflowScript` is the live one (pi-subagents runs it as a statement body
- * over `runs.run`/`runs.all`). `chain` and `parallel` are the item-array forms
- * the same schema models; they are covered here so the rule is about the shape
- * rather than about one field name that happens to be current.
- */
-const MULTI_SPAWN_FIELDS = ["workflowScript", "chain", "parallel"] as const;
-
 /** Word-boundary mention of a pipeline role. Blunt on purpose: a script that
  *  merely talks about the builder is refused too, and rewording it costs a
  *  sentence, while a missed spawn costs an ungated worker. */
@@ -405,17 +395,19 @@ const ROLE_MENTION = new RegExp(`\\b(?:${PIPELINE_ROLE_NAMES.join("|")})\\b`, "g
 
 /** A multi-spawn form found in a subagent input. */
 export interface MultiSpawnForm {
-  /** The field that carried it: "workflowScript", "chain", "parallel". */
+  /** The input field that carried it (CommissionHost.multiSpawnFields). */
   readonly field: string;
   /** Pipeline roles named anywhere inside it, deduplicated, in role order. */
   readonly roles: readonly string[];
 }
 
-/** The multi-spawn form this input carries, if any, and the roles it names. */
+/** The multi-spawn form this input carries, if any, and the roles it names.
+ *  `fields` are the host's multi-spawn input fields. */
 export function detectMultiSpawn(
   input: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
 ): MultiSpawnForm | undefined {
-  for (const field of MULTI_SPAWN_FIELDS) {
+  for (const field of fields) {
     const value = input[field];
     if (value === undefined || value === null) continue;
     if (typeof value === "string" && value.trim() === "") continue;
@@ -476,6 +468,9 @@ export type CommissionCall =
 export interface CommissionHost {
   /** Read one commission-tool input. */
   readonly classify: (input: Readonly<Record<string, unknown>>) => CommissionCall;
+  /** Input fields that carry more than one worker in a single call (a script
+   *  or an item array); empty when the host's commission tool has none. */
+  readonly multiSpawnFields: readonly string[];
   /** The guard-log summary for a `check` call. */
   readonly checkSummary: string;
   /** The sentence that tells the architect how to continue the `role` that
@@ -525,14 +520,14 @@ export function checkSubagentCall(
   // refused for a PHASE reason: the worker already exists and its
   // preconditions were checked when it was launched, so blocking here would
   // strand a run.
-  if (call.kind === "continue") return checkContinuation(input, call);
+  if (call.kind === "continue") return checkContinuation(input, call, host);
   // Inspecting or steering an existing worker must never be refused, or a
   // blocked architect could not even look at what it started.
   if (call.kind === "other") return { kind: "ignore" };
 
   // Shape first: a multi-spawn form is refused whatever the phase, because the
   // objection is that the gate cannot see the children at all.
-  const form = detectMultiSpawn(input);
+  const form = detectMultiSpawn(input, host.multiSpawnFields);
   if (form !== undefined) {
     if (form.roles.length === 0) return { kind: "allow-multi", form };
     return {
@@ -540,8 +535,7 @@ export function checkSubagentCall(
       form,
       reason:
         `phase-gate: this ${form.field} commissions pipeline roles (${form.roles.join(", ")}) — ` +
-        "spawn them one at a time through the plain form instead: " +
-        '`{ agent: "test-writer", task: "…" }`, one call per role. The gate cannot evaluate a ' +
+        "spawn them one at a time instead, one plain launch per role. The gate cannot evaluate a " +
         "precondition per child inside a script it never watches run, and the model-tier injection " +
         "that gives each role its model cannot reach a child spawned there either — so a role " +
         "commissioned this way runs ungated and on the wrong model. A multi-spawn form that names " +
@@ -588,11 +582,12 @@ export function checkSubagentCall(
 function checkContinuation(
   input: Readonly<Record<string, unknown>>,
   call: { readonly run?: string; readonly role?: string },
+  host: CommissionHost,
 ): SpawnVerdict {
   const run = call.run ?? "unnamed run";
   const named = call.role;
 
-  const form = detectMultiSpawn(input);
+  const form = detectMultiSpawn(input, host.multiSpawnFields);
   if (form !== undefined && form.roles.length > 0) {
     return {
       kind: "block",

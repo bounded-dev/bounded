@@ -215,6 +215,7 @@ function classify(input: Readonly<Record<string, unknown>>): CommissionCall {
 
 export const CLAUDE_COMMISSIONS: CommissionHost = {
   classify,
+  multiSpawnFields: [],
   checkSummary: "SendMessage could not continue the worker",
   continueHow: (role, events) => {
     const worker = continuableWorker(role, events);

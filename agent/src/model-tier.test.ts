@@ -5,12 +5,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   MODEL_TIER_GUARD,
   SPAWN_AGENT_KEYS,
-  applyModelTier,
-  isResumeCall,
+  applyModelTier as applyTier,
   patternIsKnown,
   planModelTier,
   resetModelTierWarnings,
-  resumeRunId,
   spawnTarget,
   stripThinkingSuffix,
   unresolvableTier,
@@ -18,6 +16,11 @@ import {
 } from "./model-tier.ts";
 import { devStageModelsPath, parseDevStageModels } from "./dev-stage-models.ts";
 import { readGuardLog } from "./guard-log.ts";
+import { isResumeCall, PI_COMMISSIONS, resumeRunId } from "../hosts/pi/extensions/lib/commissions.ts";
+import type { ModelTierInput } from "./model-tier.ts";
+
+// applyModelTier reads the call through the host adapter; these cases are pi's.
+const applyModelTier = (ev: ModelTierInput) => applyTier(ev, PI_COMMISSIONS);
 
 // WHY THIS EXISTS
 //
@@ -71,20 +74,21 @@ describe("which calls are spawns", () => {
     }
   });
 
+  // Which call is a launch is the host's reading (pi's commission host here).
   test("launch and run are spawns; every other action is not", () => {
-    expect(spawnTarget({ action: "launch", agent: "builder" })).toBe("builder");
-    expect(spawnTarget({ action: "run", agent: "builder" })).toBe("builder");
+    const cwd = project(BOTH);
+    expect(applyModelTier({ toolName: "subagent", input: { action: "launch", agent: "builder" }, cwd }).kind).toBe("inject");
+    expect(applyModelTier({ toolName: "subagent", input: { action: "run", agent: "builder" }, cwd }).kind).toBe("inject");
     for (const action of ["status", "resume", "stop", "steer", "children.list", "list", "get"]) {
-      expect(spawnTarget({ action, agent: "builder" })).toBeUndefined();
+      expect(applyModelTier({ toolName: "subagent", input: { action, agent: "builder" }, cwd }).kind, action).toBe("skip");
     }
   });
 
   // A retained resume keeps the child's stored model contract, so there is
   // nothing to inject.
   test("a resume is not a spawn even when it names an agent", () => {
-    expect(planModelTier({ action: "resume", id: "r1", agent: "builder" }, MODELS).kind).toBe(
-      "skip",
-    );
+    const cwd = project(BOTH);
+    expect(applyModelTier({ toolName: "subagent", input: { action: "resume", id: "r1", agent: "builder" }, cwd }).kind).toBe("skip");
   });
 
   test("a call that names no agent is not a spawn", () => {
@@ -424,11 +428,11 @@ describe("resumes", () => {
     expect(tierEvents(cwd)[0]!.detail).toMatchObject({ role: "builder", run: "run-8" });
   });
 
-  test("the note says WHY, in pi-subagents' own words", () => {
+  test("the note says WHY", () => {
     const cwd = project(BOTH);
     applyModelTier({ toolName: "subagent", input: { action: "resume", id: "r" }, cwd });
     expect((tierEvents(cwd)[0]!.detail as { why: string }).why).toContain(
-      "does not accept a model override",
+      "accepts no model override",
     );
   });
 

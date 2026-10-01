@@ -15,10 +15,46 @@
 // tool calls.
 
 import type { CommissionCall, CommissionHost } from "../../../../src/phase-gate.ts";
-import { isResumeCall, resumeRunId, spawnAgentName } from "../../../../src/model-tier.ts";
+import { spawnAgentName } from "../../../../src/model-tier.ts";
 
 /** The `subagent` action that lists retained children. */
 export const CHILDREN_LIST_ACTION = "children.list";
+
+/**
+ * The `action` value that revives a retained child. pi-subagents has no
+ * separate "revive" action: `action: "resume"` covers both a live nested run
+ * and the revive of a paused, completed or failed one. It does not accept a
+ * model: `action='resume' reuses the persisted child model and does not
+ * accept a model override` (pi-subagents 0.52.1), so a resume is never tiered.
+ */
+export const RESUME_ACTION = "resume";
+
+/** Is this `subagent` call reviving an existing child rather than launching one? */
+export function isResumeCall(input: Readonly<Record<string, unknown>>): boolean {
+  return input["action"] === RESUME_ACTION;
+}
+
+/**
+ * The run a resume names, as the caller wrote it. `id` is the documented
+ * field and `runId` its alias; `dir` is the async run directory, accepted for
+ * the same target. Undefined when the call names none of them — which
+ * pi-subagents refuses anyway, but which is still logged as a resume of an
+ * unnamed run rather than skipped.
+ */
+export function resumeRunId(input: Readonly<Record<string, unknown>>): string | undefined {
+  for (const key of ["id", "runId", "dir"]) {
+    const v = input[key];
+    if (typeof v === "string" && v.trim() !== "") return v;
+  }
+  return undefined;
+}
+
+/**
+ * The `subagent` input fields that carry MORE THAN ONE child in a single call:
+ * `workflowScript` (run as a statement body over `runs.run`/`runs.all`), and
+ * the `chain` / `parallel` item arrays the same schema models.
+ */
+export const PI_MULTI_SPAWN_FIELDS: readonly string[] = ["workflowScript", "chain", "parallel"];
 
 function classify(input: Readonly<Record<string, unknown>>): CommissionCall {
   const action = input["action"];
@@ -39,6 +75,7 @@ function classify(input: Readonly<Record<string, unknown>>): CommissionCall {
 
 export const PI_COMMISSIONS: CommissionHost = {
   classify,
+  multiSpawnFields: PI_MULTI_SPAWN_FIELDS,
   checkSummary: CHILDREN_LIST_ACTION,
   continueHow: () =>
     "Continue the existing child instead: " +

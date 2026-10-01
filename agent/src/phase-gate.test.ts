@@ -4,7 +4,7 @@ import {
   checkSpawnPrecondition as checkPrecondition,
   checkSubagentCall as checkCall,
   checkTierResolvable,
-  detectMultiSpawn,
+  detectMultiSpawn as detect,
   specIntakeSection,
   techNounsOutsideIntake,
   type PhaseEvidence,
@@ -21,6 +21,7 @@ import { PI_COMMISSIONS } from "../hosts/pi/extensions/lib/commissions.ts";
 // host-neutral rule itself is pinned with a fake host further down.
 const checkSubagentCall = (input: Readonly<Record<string, unknown>>, evidence: PhaseEvidence) =>
   checkCall(input, evidence, PI_COMMISSIONS);
+const detectMultiSpawn = (input: Readonly<Record<string, unknown>>) => detect(input, PI_COMMISSIONS.multiSpawnFields);
 const checkSpawnPrecondition = (target: string, evidence: PhaseEvidence, host: CommissionHost = PI_COMMISSIONS) =>
   checkPrecondition(target, evidence, host);
 
@@ -334,6 +335,7 @@ describe("cold respawn", () => {
   test("the refusal is the rule plus the current host's mechanism, and no other host's", () => {
     const host: CommissionHost = {
       classify: () => ({ kind: "launch" }),
+      multiSpawnFields: [],
       checkSummary: "looked",
       continueHow: (role) => `HOST-SPECIFIC: continue the ${role}.`,
     };
@@ -344,11 +346,19 @@ describe("cold respawn", () => {
     expect(d.reason).not.toMatch(/children\.list|resume|SendMessage/);
   });
 
-  test("the core names no host's way of continuing a worker (#33)", () => {
-    for (const file of ["phase-gate.ts", "path-gate.ts"]) {
+  // ADR 2026-034: the core names no host's commission tool or its fields. The
+  // host adapters (CommissionHost) read them: pi's `children.list`, resume,
+  // `workflowScript`/`chain`/`parallel`; Claude Code's SendMessage.
+  test("the core names no host's commission tool or its fields (#33)", () => {
+    for (const file of ["phase-gate.ts", "path-gate.ts", "model-tier.ts"]) {
       const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-      expect(source, file).not.toMatch(/children\.list|SendMessage|action: "resume"|isResumeCall/);
+      expect(source, file).not.toMatch(
+        /children\.list|SendMessage|action: "resume"|action='resume'|isResumeCall|RESUME_ACTION|resumeRunId|workflowScript|MULTI_SPAWN_FIELDS|"chain"|"parallel"/,
+      );
     }
+  });
+  test("a host with no multi-spawn fields sees no multi-spawn form", () => {
+    expect(detect({ workflowScript: 'agent:"builder"' }, [])).toBeUndefined();
   });
 
   test("without a host the refusal still stands and names no host's tool", () => {

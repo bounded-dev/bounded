@@ -51,39 +51,21 @@
 // unavailable (empty), validation is skipped rather than assumed to fail: no
 // snapshot is not evidence of a bad model.
 //
-// ── A RESUME CANNOT BE TIERED, AND THAT IS pi-subagents' RULE ────────────
+// ── A CONTINUATION CANNOT BE TIERED ──────────────────────────────────────
 //
-// r15's kimi architect made twelve `subagent` resume calls. None of them
-// produced a model-tier event, and the reason is not an oversight here: a
-// resume does not accept a model at all. `resumeAsyncRun`
-// (pi-subagents 0.52.1, src/runs/foreground/subagent-executor.ts) refuses one
-// outright, before it does anything else:
-//
-//     if (input.params.model !== undefined) {
-//       return { content: [{ type: "text", text:
-//         "action='resume' reuses the persisted child model and does not
-//          accept a model override." }], isError: true, … };
-//     }
-//
-// The `model` field is on the tool's flat top-level parameter schema
-// (src/extension/schemas.ts, `SubagentParamProperties`) — one schema serves
-// launches and management actions alike — so it is SCHEMA-legal and
-// RUNTIME-refused. Injecting a tier into a resume would therefore not downtier
-// the seat, it would kill the call. The child's model comes from the persisted
-// run record instead (`AsyncResumeTarget.model` / `.thinking`, read back from
-// the async result file in src/runs/background/async-resume.ts), which is the
-// tier it was LAUNCHED on.
-//
-// So the rule is: a resumed seat keeps the tier of its launch, and there is
-// nothing to inject. That is fine when the launch was tiered and invisible
-// when it was not — which is exactly why a resume logs a NOTE here rather than
-// nothing at all. Twelve silent resumes are twelve seats no reader can account
-// for.
+// r15's kimi architect continued twelve finished workers. None of them
+// produced a model-tier event, and the reason is not an oversight here: the
+// host's continuation does not accept a model at all, and the worker keeps
+// the model it was LAUNCHED on. Injecting a tier would not downtier the seat,
+// it would kill the call. So a continued seat keeps the tier of its launch,
+// and there is nothing to inject; a continuation logs a NOTE rather than
+// nothing at all. Which call is a continuation is the host adapter's reading
+// (CommissionHost in phase-gate.ts), so this file names no host's tool.
 //
 // ── What this cannot reach ───────────────────────────────────────────────
 //
-// * A `workflowScript` spawn names its children inside a JavaScript string,
-//   so the target role is not visible in the tool input. The top-level `model`
+// * A multi-spawn form (a script or item array) names its children inside
+//   itself, so the target role is not visible in the tool input. The top-level `model`
 //   parameter IS forwarded to workflow children as their default, but with no
 //   readable role there is no tier to choose, so those spawns are left alone.
 // * A ROOT session that is itself a pipeline role — `pi` in a directory whose
@@ -92,6 +74,7 @@
 //   the session was launched with. Only spawned seats are tiered.
 
 import { logGuardEvent } from "./guard-log.ts";
+import type { CommissionHost } from "./phase-gate.ts";
 import {
   patternForTier,
   readDevStageModels,
@@ -151,42 +134,9 @@ const SKIP = (why: SkipReason, note?: string): TierPlan =>
  */
 export const SPAWN_AGENT_KEYS: readonly string[] = ["agent", "agentName", "name", "type"];
 
-/**
- * The `action` value that revives a retained child. pi-subagents has no
- * separate "revive" action: `action: "resume"` covers both a live nested run
- * and the revive of a paused, completed or failed one (the `kind: "live" |
- * "revive"` split is internal to `resolveResumeTarget`).
- *
- * Exported because the phase gate must gate the same calls this module
- * declines to tier, and two spellings of "this is a resume" would be two
- * different sets of calls.
- */
-export const RESUME_ACTION = "resume";
-
-/** Is this `subagent` call reviving an existing child rather than launching one? */
-export function isResumeCall(input: Readonly<Record<string, unknown>>): boolean {
-  return input["action"] === RESUME_ACTION;
-}
-
-/**
- * The run a resume names, as the caller wrote it.
- *
- * `id` is the documented field and `runId` its alias ("Prefer id"); `dir` is
- * the async run directory, accepted for the same target. Undefined when the
- * call names none of them — which pi-subagents will refuse anyway, but which
- * must still be logged as a resume of an unnamed run rather than skipped.
- */
-export function resumeRunId(input: Readonly<Record<string, unknown>>): string | undefined {
-  for (const key of ["id", "runId", "dir"]) {
-    const v = input[key];
-    if (typeof v === "string" && v.trim() !== "") return v;
-  }
-  return undefined;
-}
-
+/** The agent a launch names. Whether a call IS a launch is the host's reading
+ *  (CommissionHost.classify); callers pass only launches. */
 export function spawnTarget(input: Readonly<Record<string, unknown>>): string | undefined {
-  const action = input["action"];
-  if (typeof action === "string" && action !== "launch" && action !== "run") return undefined;
   return spawnAgentName(input);
 }
 
@@ -321,17 +271,18 @@ export function resetModelTierWarnings(): void {
  * Returns the plan so the caller (and the tests) can see what was decided.
  * Never throws: a failure here must cost a run its speed, never its life.
  */
-export function applyModelTier(ev: ModelTierInput): TierPlan {
+export function applyModelTier(ev: ModelTierInput, host: CommissionHost): TierPlan {
   if (ev.toolName !== "subagent") return SKIP("not-a-spawn");
   // A resume is a commissioned seat that this module can do nothing for: the
   // tool refuses a model override outright and the child reuses its persisted
   // one (see "A RESUME CANNOT BE TIERED" in the header). Say so in the log.
   // r15 made twelve of these and left no trace of any of them.
-  if (isResumeCall(ev.input)) {
-    noteUntierableResume(ev.cwd, ev.input);
-    return SKIP("untierable-resume", resumeRunId(ev.input) ?? "unnamed run");
+  const call = host.classify(ev.input);
+  if (call.kind === "continue") {
+    noteUntierableResume(ev.cwd, call.run, call.role);
+    return SKIP("untierable-resume", call.run ?? "unnamed run");
   }
-  if (spawnTarget(ev.input) === undefined) return SKIP("not-a-spawn");
+  if (call.kind !== "launch" || spawnTarget(ev.input) === undefined) return SKIP("not-a-spawn");
 
   const models = readDevStageModels(ev.cwd);
   reportWarnings(ev.cwd, models.warnings);
@@ -376,9 +327,8 @@ export function applyModelTier(ev: ModelTierInput): TierPlan {
  * Per call rather than once per project: each resume is a seat put back to
  * work, and the log is the run's story of who was working when.
  */
-function noteUntierableResume(cwd: string, input: Readonly<Record<string, unknown>>): void {
-  const run = resumeRunId(input) ?? "unnamed run";
-  const role = spawnAgentName(input);
+function noteUntierableResume(cwd: string, named: string | undefined, role: string | undefined): void {
+  const run = named ?? "unnamed run";
   logGuardEvent(cwd, {
     guard: MODEL_TIER_GUARD,
     verdict: "pass",
@@ -387,7 +337,7 @@ function noteUntierableResume(cwd: string, input: Readonly<Record<string, unknow
       kind: "untierable-resume",
       run,
       role: role ?? "unknown",
-      why: "action='resume' reuses the persisted child model and does not accept a model override",
+      why: "a continuation keeps the model the worker was launched on and accepts no model override",
     },
   });
 }

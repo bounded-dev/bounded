@@ -29,6 +29,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { applyModelTier, type KnownModel } from "../../../src/model-tier.ts";
+import { PI_COMMISSIONS } from "./lib/commissions.ts";
 
 /**
  * The session's available models, as bare `{provider, id}` pairs.
@@ -60,7 +61,7 @@ export function installModelTier(pi: ExtensionAPI): void {
       input: event.input as Record<string, unknown>,
       cwd: ctx.cwd,
       known: knownModels(ctx),
-    });
+    }, PI_COMMISSIONS);
     return undefined; // never blocks: tiering is a speed decision, not a gate
   });
 }
