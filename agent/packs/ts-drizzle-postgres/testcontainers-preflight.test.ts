@@ -196,6 +196,47 @@ describe("cleanCause: the review's repro", () => {
     );
   });
 
+  test("a value separated by a space from a secret flag or environment name (issue #37)", () => {
+    expect(cleanCause("psql --password hunter2 -h db --db-token=t1 --api-key k2", HOME))
+      .toBe("psql --password [redacted] -h db --db-token=[redacted] --api-key [redacted]");
+    expect(cleanCause("env PGPASSWORD hunter2 POSTGRES_PASSWORD 'two words' DB_PASS x1 psql", HOME))
+      .toBe("env PGPASSWORD [redacted] POSTGRES_PASSWORD [redacted] DB_PASS [redacted] psql");
+    expect(cleanCause("docker login -u bob -p hunter2 registry.example.com", HOME))
+      .toBe("docker login -u bob -p [redacted] registry.example.com");
+  });
+
+  test("pass= and pwd=, quoted values with spaces, and URL passwords with unencoded spaces (issue #37)", () => {
+    expect(cleanCause("pass=hunter2 pwd=hunter2 db_pass=x PG_PWD: y", HOME))
+      .toBe("pass=[redacted] pwd=[redacted] db_pass=[redacted] PG_PWD: [redacted]");
+    expect(cleanCause(`password="correct horse battery" secret='a b' {"token": "x y"} next`, HOME))
+      .toBe(`password="[redacted]" secret='[redacted]' {"token": "[redacted]"} next`);
+    expect(cleanCause("postgres://user:pa ss word@db:5432/x tail", HOME)).toBe("postgres://[redacted]@db:5432/x tail");
+    expect(cleanCause("postgresql://user:p@ss w0rd@localhost/db", HOME)).toBe("postgresql://[redacted]@localhost/db");
+  });
+
+  test("absolute machine paths outside home and the temp directory (issue #37)", () => {
+    expect(cleanCause("ENOENT /opt/app/node_modules/x.js while loading (/workspace/proj/src/a.ts:3:4) from /srv/data", HOME))
+      .toBe("ENOENT [path] while loading ([path]) from [path]");
+    expect(cleanCause("cannot open Error:/etc/postgresql/pg_hba.conf", HOME)).toBe("cannot open Error:[path]");
+  });
+
+  test("ordinary error text, well-known paths and port flags stay as written (issue #37)", () => {
+    for (const text of [
+      'password authentication failed for user "test"',
+      "You must specify POSTGRES_PASSWORD to a non-empty value",
+      "--password is required; use --password-stdin registry.example.com",
+      "tests passed: 3, bypass: on",
+      "docker run -p 5432:5432 postgres:16",
+      "and/or TCP/IP 5432/tcp N/A docker.io/library/postgres:16",
+      "connect ECONNREFUSED /var/run/docker.sock",
+      "connect ENOENT /run/user/1000/podman/podman.sock",
+      "unix:///var/run/docker.sock",
+      "GET /v1.43/containers/create failed",
+      'Get "https://registry-1.docker.io/v2/library/postgres/manifests/16"',
+      "/opt alone, ~/.docker/config.json",
+    ]) expect(cleanCause(text, HOME)).toBe(text);
+  });
+
   test("leaves the shape of a Docker error readable", () => {
     expect(cleanCause('Error from Docker credential provider: Error: Executable not found in $PATH: "docker-credential-desktop"', HOME))
       .toBe('Error from Docker credential provider: Error: Executable not found in $PATH: "docker-credential-desktop"');
