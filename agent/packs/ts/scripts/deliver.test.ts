@@ -182,10 +182,10 @@ function blockEvent(dir: string): { step?: string; route?: string } | undefined 
 // --- the whole pass ----------------------------------------------------------------
 
 describe("runDeliver on the monorepo", () => {
-  test("full pass on a finished run: every step reports, exit 0, summary line", () => {
+  test("full pass on a finished run: every step reports, exit 0, summary line", async () => {
     const dir = proj();
     const bun = fakeBun();
-    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: bun.run });
+    const r = await runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: bun.run });
     expect(r.code, text(r.lines)).toBe(0);
     expect(r.lines).toContain(`deliver: scaffolding — removed ${ERRORS} (nothing imports it)`);
     expect(existsSync(join(dir, ERRORS))).toBe(false);
@@ -202,30 +202,30 @@ describe("runDeliver on the monorepo", () => {
     expect(bun.calls[0]!.cwd).toBe(dir);
   });
 
-  test("idempotent: the second run applies 0 steps and changes no file", () => {
+  test("idempotent: the second run applies 0 steps and changes no file", async () => {
     const dir = proj();
     const stub = surfaceStub();
-    runDeliver(dir, { surfaceCheckSource: stub, run: fakeBun().run });
+    await runDeliver(dir, { surfaceCheckSource: stub, run: fakeBun().run });
     const snapshot = ["package.json", "README.md", ".gitignore", "scripts/surface-check.ts"].map((f) => readFileSync(join(dir, f), "utf8"));
-    const second = runDeliver(dir, { surfaceCheckSource: stub, run: fakeBun().run });
+    const second = await runDeliver(dir, { surfaceCheckSource: stub, run: fakeBun().run });
     expect(second.code).toBe(0);
     expect(second.lines.at(-1)).toBe("deliver: OK — 0 steps applied");
     expect(second.lines).toContain("deliver: scaffolding — no red-phase module left");
     expect(["package.json", "README.md", ".gitignore", "scripts/surface-check.ts"].map((f) => readFileSync(join(dir, f), "utf8"))).toEqual(snapshot);
   });
 
-  test("appends to an existing README rather than clobbering it", () => {
+  test("appends to an existing README rather than clobbering it", async () => {
     const dir = proj({ extra: { "README.md": "# Fixture\n\nOur notes app.\n" } });
-    deliver(dir);
+    await deliver(dir);
     const readme = readFileSync(join(dir, "README.md"), "utf8");
     expect(readme.startsWith("# Fixture\n\nOur notes app.\n")).toBe(true);
     expect(readme).toContain("## Contracts");
   });
 
-  test("preserves a project-local harness ignore rule and its committed exceptions", () => {
+  test("preserves a project-local harness ignore rule and its committed exceptions", async () => {
     const ignore = ".bounded/*\n!.bounded/harness/\n";
     const dir = proj({ extra: { ".gitignore": ignore } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.lines).toContain("deliver: gitignore — .bounded/ already ignored");
     expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe(ignore);
   });
@@ -234,12 +234,12 @@ describe("runDeliver on the monorepo", () => {
 // --- 1. red-phase scaffolding ---------------------------------------------------------
 
 describe("runDeliver: the red-phase errors module", () => {
-  test("BLOCK when a source file still imports it — an unimplemented skeleton, routed to the builder", () => {
+  test("BLOCK when a source file still imports it — an unimplemented skeleton, routed to the builder", async () => {
     // The builder never replaced NoteText's skeleton.
     const dir = proj();
     const skeleton = emitProject(projectFactsOf(dir, "red"), generatedFileGlobs(dir)).find((f) => f.path === NOTE_TEXT)!;
     writeFileSync(join(dir, NOTE_TEXT), skeleton.content);
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(1);
     // The throwing-skeleton check runs before anything mutates, so it names it first.
     expect(r.lines).toContain(`deliver: BLOCK — ${NOTE_TEXT} still throws NotImplementedError — a skeleton the builder never finished`);
@@ -248,19 +248,19 @@ describe("runDeliver: the red-phase errors module", () => {
     expect(blockEvent(dir)).toMatchObject({ step: "generated", route: "builder" });
   });
 
-  test("BLOCK when a test imports it — the suite may not depend on red-phase scaffolding", () => {
+  test("BLOCK when a test imports it — the suite may not depend on red-phase scaffolding", async () => {
     const test = "contexts/notebook/src/domain/notes/red.test.ts";
     const dir = proj({ extra: { [test]: 'import { NotImplementedError } from "../shared/errors.ts";\nexport const E = NotImplementedError;\n' } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(1);
     expect(text(r.lines)).toContain(`deliver: BLOCK — ${test} imports the red-phase errors module`);
     expect(r.lines).toContain("deliver: route → test-writer");
     expect(existsSync(join(dir, ERRORS))).toBe(true);
   });
 
-  test("a mention of the module in a comment or a string is not an import", () => {
+  test("a mention of the module in a comment or a string is not an import", async () => {
     const dir = proj({ extra: { "contexts/notebook/src/domain/notes/note.mapper.ts": '// see ../shared/errors.ts\nexport const where = "../shared/errors.ts";\n' } });
-    expect(deliver(dir).code).toBe(0);
+    expect((await deliver(dir)).code).toBe(0);
     expect(existsSync(join(dir, ERRORS))).toBe(false);
   });
 });
@@ -268,17 +268,17 @@ describe("runDeliver: the red-phase errors module", () => {
 // --- 2. the shadow ---------------------------------------------------------------------
 
 describe("runDeliver: the red-phase shadow", () => {
-  test("removes .bounded/shadow-red/, says so, and logs it as its own event", () => {
+  test("removes .bounded/shadow-red/, says so, and logs it as its own event", async () => {
     const dir = proj({ extra: { ".bounded/shadow-red/contexts/x.ts": "export {};\n" } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.lines).toContain("deliver: shadow — removed .bounded/shadow-red/ (red_gate rebuilds it on demand)");
     expect(existsSync(join(dir, ".bounded/shadow-red"))).toBe(false);
     expect(readGuardLog(dir).some((e) => e.guard === "deliver" && (e.detail as { step?: string }).step === "shadow")).toBe(true);
   });
 
-  test("no shadow is no step, and the rest of .bounded/ survives", () => {
+  test("no shadow is no step, and the rest of .bounded/ survives", async () => {
     const dir = proj({ extra: { ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.lines).toContain("deliver: shadow — no .bounded/shadow-red/ to remove");
     expect(existsSync(join(dir, ".bounded/composed-packs.json"))).toBe(true);
     expect(existsSync(join(dir, ".bounded/guard-log.jsonl"))).toBe(true);
@@ -288,42 +288,42 @@ describe("runDeliver: the red-phase shadow", () => {
 // --- 3. generated files ---------------------------------------------------------------
 
 describe("runDeliver: generated files and skeletons", () => {
-  test("BLOCK when a generated file differs from what the design produces, routed to the orchestrator", () => {
+  test("BLOCK when a generated file differs from what the design produces, routed to the orchestrator", async () => {
     const barrel = "contexts/notebook/src/domain/index.ts";
     const dir = proj();
     writeFileSync(join(dir, barrel), readFileSync(join(dir, barrel), "utf8") + "export const extra = 1;\n");
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(1);
     expect(text(r.lines)).toContain(`1 generated file is not what the design produces (${barrel})`);
     expect(r.lines).toContain("deliver: route → orchestrator");
     expect(blockEvent(dir)).toMatchObject({ step: "generated", route: "orchestrator" });
   });
 
-  test("a missing generated file blocks too", () => {
+  test("a missing generated file blocks too", async () => {
     const laws = "contexts/notebook/src/domain/notes/note-text.laws.test.ts";
     const dir = proj();
     rmSync(join(dir, laws));
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(1);
     expect(text(r.lines)).toContain(laws);
   });
 
-  test("BLOCK when a skeleton still throws NotImplementedError after its module is gone", () => {
+  test("BLOCK when a skeleton still throws NotImplementedError after its module is gone", async () => {
     // A first delivery removed the errors module; the builder then reverts a
     // file to its skeleton. Step 1 has nothing to find; step 3 still does.
     const dir = proj();
-    expect(deliver(dir).code).toBe(0);
+    expect((await deliver(dir)).code).toBe(0);
     const skeleton = emitProject(projectFactsOf(dir, "red"), generatedFileGlobs(dir)).find((f) => f.path === NOTE_TEXT)!;
     writeFileSync(join(dir, NOTE_TEXT), skeleton.content);
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(1);
     expect(r.lines).toContain(`deliver: BLOCK — ${NOTE_TEXT} still throws NotImplementedError — a skeleton the builder never finished`);
     expect(r.lines).toContain("deliver: route → builder");
   });
 
-  test("BLOCK when the design cannot be emitted", () => {
+  test("BLOCK when the design cannot be emitted", async () => {
     const dir = proj({ extra: { "contexts/notebook/src/domain/notes/broken.contract.ts": "export interface Broken { readonly __brand: \"Broken\"; }\nexport interface BrokenFactory {}\n" } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(1);
     expect(text(r.lines)).toMatch(/deliver: BLOCK — the design cannot be emitted: /);
     expect(existsSync(join(dir, ERRORS))).toBe(true);
@@ -333,10 +333,10 @@ describe("runDeliver: generated files and skeletons", () => {
 // --- 4. the surface check ----------------------------------------------------------------
 
 describe("runDeliver: the shipped surface check must actually resolve", () => {
-  test("installs the pinned ts-morph with bun, exactly that dependency, in the target", () => {
+  test("installs the pinned ts-morph with bun, exactly that dependency, in the target", async () => {
     const dir = proj({ tsMorph: false });
     const bun = fakeBun();
-    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: bun.run });
+    const r = await runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: bun.run });
     expect(r.code, text(r.lines)).toBe(0);
     const install = bun.calls.find((c) => c.args[0] === "add")!;
     expect(install.command).toBe("bun");
@@ -345,9 +345,9 @@ describe("runDeliver: the shipped surface check must actually resolve", () => {
     expect(text(r.lines)).toContain(`installed ts-morph@${TS_MORPH_PIN}`);
   });
 
-  test("wires check:surface and pins ts-morph where the manifest lacks them", () => {
+  test("wires check:surface and pins ts-morph where the manifest lacks them", async () => {
     const dir = proj({ extra: { "package.json": JSON.stringify({ name: "fixture", private: true, type: "module", workspaces: ["contexts/*"], scripts: { check: "bun test" } }) } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code, text(r.lines)).toBe(0);
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
     expect(pkg.scripts["check:surface"]).toBe(SURFACE_SCRIPT);
@@ -355,10 +355,10 @@ describe("runDeliver: the shipped surface check must actually resolve", () => {
     expect(pkg.devDependencies["ts-morph"]).toBe(TS_MORPH_PIN);
   });
 
-  test("BLOCK when the install fails — no repo ships with a check that cannot run", () => {
+  test("BLOCK when the install fails — no repo ships with a check that cannot run", async () => {
     const dir = proj({ tsMorph: false });
     const bun = fakeBun({ install: { code: 1, stdout: "", stderr: "error: ConnectionRefused downloading package manifest ts-morph" } });
-    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: bun.run });
+    const r = await runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: bun.run });
     expect(r.code).toBe(1);
     expect(text(r.lines)).toMatch(/^deliver: BLOCK — could not install ts-morph@/m);
     expect(text(r.lines)).toContain("ERR_MODULE_NOT_FOUND");
@@ -367,50 +367,92 @@ describe("runDeliver: the shipped surface check must actually resolve", () => {
     expect(blockEvent(dir)?.step).toBe("surface-check");
   });
 
-  test("BLOCK when bun claims success but ts-morph still does not resolve", () => {
+  test("BLOCK when bun claims success but ts-morph still does not resolve", async () => {
     const dir = proj({ tsMorph: false });
-    const r = deliver(dir, { materialize: false });
+    const r = await deliver(dir, { materialize: false });
     expect(r.code).toBe(1);
     expect(text(r.lines)).toMatch(/could not install ts-morph@/);
   });
 
-  test("misuse: a missing surface checker source is exit 2, before any mutation", () => {
+  test("misuse: a missing surface checker source is exit 2, before any mutation", async () => {
     const dir = proj();
-    const r = runDeliver(dir, { surfaceCheckSource: join(dir, "nope.ts"), run: fakeBun().run });
+    const r = await runDeliver(dir, { surfaceCheckSource: join(dir, "nope.ts"), run: fakeBun().run });
     expect(r.code).toBe(2);
     expect(existsSync(join(dir, ERRORS))).toBe(true);
+  });
+});
+
+describe("runDeliver: the project's own check runs under the green policies", () => {
+  test("its environment carries the throwaway database over an inherited DATABASE_URL, released after", async () => {
+    const dir = proj();
+    const envs: (string | undefined)[] = [];
+    const events: string[] = [];
+    const prior = process.env["DATABASE_URL"];
+    process.env["DATABASE_URL"] = "postgres://me@localhost:5432/mine";
+    try {
+      const r = await runDeliver(dir, {
+        surfaceCheckSource: surfaceStub(),
+        run: (command, args, cwd, env) => {
+          if (args[0] === "run") { envs.push(env?.["DATABASE_URL"]); events.push("check"); }
+          return fakeBun().run(command, args, cwd, env);
+        },
+        policy: { refusals: [], env: { set: {}, unset: [] }, prepares: [{ name: "db", prepare: async () => {
+          events.push("start");
+          return { description: "started a throwaway database", env: { DATABASE_URL: "postgres://throwaway" }, release: () => void events.push("release") };
+        } }] },
+      });
+      expect(r.code, text(r.lines)).toBe(0);
+      expect(r.lines).toContain("deliver: check — started a throwaway database");
+    } finally {
+      if (prior === undefined) delete process.env["DATABASE_URL"];
+      else process.env["DATABASE_URL"] = prior;
+    }
+    expect(envs).toEqual(["postgres://throwaway"]);
+    expect(events).toEqual(["start", "check", "release"]);
+  });
+
+  test("a refusal (no container runtime) blocks the check without running it", async () => {
+    const dir = proj();
+    const bun = fakeBun();
+    const r = await runDeliver(dir, {
+      surfaceCheckSource: surfaceStub(), run: bun.run,
+      policy: { refusals: ["green needs a container runtime … Start Docker"], env: { set: {}, unset: [] }, prepares: [] },
+    });
+    expect(r.code).toBe(1);
+    expect(text(r.lines)).toMatch(/cannot run here: green needs a container runtime … Start Docker/);
+    expect(bun.calls.some((c) => c.args[0] === "run")).toBe(false);
   });
 });
 
 // --- misuse and config ---------------------------------------------------------------------
 
 describe("runDeliver: preconditions", () => {
-  test("a target with no package.json is misuse", () => {
+  test("a target with no package.json is misuse", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-deliver-empty-"));
     tmpDirs.push(dir);
-    expect(deliver(dir).code).toBe(2);
+    expect((await deliver(dir)).code).toBe(2);
   });
 
-  test("a composition with no source roots is misuse", () => {
+  test("a composition with no source roots is misuse", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-deliver-flat-"));
     tmpDirs.push(dir);
     writeProjectPacks(dir, ["ts"]);
     writeFileSync(join(dir, "package.json"), PACKAGE_JSON);
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(2);
     expect(text(r.lines)).toContain("no composed pack declares source roots");
   });
 
-  test("an unreadable composition is misuse", () => {
+  test("an unreadable composition is misuse", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-deliver-nocomp-"));
     tmpDirs.push(dir);
     writeFileSync(join(dir, "package.json"), PACKAGE_JSON);
-    expect(deliver(dir).code).toBe(2);
+    expect((await deliver(dir)).code).toBe(2);
   });
 
-  test("a project whose config the packs generate is refused while it drifts, before anything mutates", () => {
+  test("a project whose config the packs generate is refused while it drifts, before anything mutates", async () => {
     const dir = proj({ extra: { ".bounded/installation.json": "{}\n" } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code).toBe(1);
     expect(text(r.lines)).toContain("deliver: BLOCK — project config differs");
     expect(existsSync(join(dir, ERRORS))).toBe(true);
@@ -420,8 +462,8 @@ describe("runDeliver: preconditions", () => {
 // --- 7. timing -------------------------------------------------------------------------
 
 describe("runDeliver: phase timing", () => {
-  test("prints the phase block from the project's own guard log", () => {
-    const r = deliver(proj({ extra: { ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG } }));
+  test("prints the phase block from the project's own guard log", async () => {
+    const r = await deliver(proj({ extra: { ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG } }));
     expect(r.code).toBe(0);
     expect(text(r.lines)).toMatch(/^deliver: timing — where the minutes went \(\d+ guard events, taken as one run\)$/m);
     expect(r.lines).toContain("  timing: design    4m00s");
@@ -430,9 +472,9 @@ describe("runDeliver: phase timing", () => {
     expect(r.lines).toContain("  friction: 0 refusals — target 0");
   });
 
-  test("the friction line totals the unrouted blocks, and the summary rides in the event detail", () => {
+  test("the friction line totals the unrouted blocks, and the summary rides in the event detail", async () => {
     const dir = proj({ extra: { ".bounded/guard-log.jsonl": FRICTION_GUARD_LOG } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.lines).toContain("  friction: 3 refusals (path-gate 2, phase-gate 1) — target 0");
     const event = readGuardLog(dir).find((e) => e.guard === "deliver" && (e.detail as { step?: string }).step === "timing");
     const timing = (event!.detail as { timing?: PhaseDurations }).timing!;
@@ -440,11 +482,11 @@ describe("runDeliver: phase timing", () => {
     expect(timing.phases.map((p) => p.phase)).toEqual(["design", "tests", "build", "wrap"]);
   });
 
-  test("an unavailable log costs one line, never the delivery", () => {
+  test("an unavailable log costs one line, never the delivery", async () => {
     const dir = proj();
     process.env["BOUNDED_GUARD_LOG"] = "off";
     try {
-      const r = deliver(dir);
+      const r = await deliver(dir);
       expect(r.code).toBe(0);
       expect(r.lines).toContain(
         "deliver: timing — unavailable — the guard log is empty or absent (BOUNDED_GUARD_LOG=off, or no gate ran here)",
@@ -458,14 +500,14 @@ describe("runDeliver: phase timing", () => {
 // --- 8. the project's own check -----------------------------------------------------------
 
 describe("runDeliver: the project's own check", () => {
-  test("runs `bun run check` in the target and prints its summary line", () => {
-    const r = deliver(proj());
+  test("runs `bun run check` in the target and prints its summary line", async () => {
+    const r = await deliver(proj());
     expect(r.lines).toContain("deliver: check — bun run check passed — surface-check: OK (5 contract pairs)");
   });
 
-  test("it runs after every mutating step and after the timing block", () => {
+  test("it runs after every mutating step and after the timing block", async () => {
     const dir = proj({ extra: { ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG } });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     const timingAt = r.lines.findIndex((l) => l.startsWith("deliver: timing —"));
     const checkAt = r.lines.findIndex((l) => l.startsWith("deliver: check —"));
     expect(timingAt).toBeGreaterThanOrEqual(0);
@@ -473,9 +515,9 @@ describe("runDeliver: the project's own check", () => {
     expect(r.lines.slice(checkAt + 1).at(-1)).toMatch(/^deliver: OK —/);
   });
 
-  test("BLOCK when the project's own check is red, with the failing tail", () => {
+  test("BLOCK when the project's own check is red, with the failing tail", async () => {
     const dir = proj({ extra: { ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG } });
-    const r = deliver(dir, {
+    const r = await deliver(dir, {
       check: { code: 1, stdout: "contexts/notebook/src/domain/notes/note.ts(4,3): error TS2322: bad\n", stderr: "error: script \"check\" exited with code 1\n" },
     });
     expect(r.code).toBe(1);
@@ -488,8 +530,8 @@ describe("runDeliver: the project's own check", () => {
     expect(blockEvent(dir)?.step).toBe("check");
   });
 
-  test("a check that never completes (timeout) blocks too", () => {
-    const r = deliver(proj(), { check: { code: null, stdout: "", stderr: "spawnSync bun ETIMEDOUT" } });
+  test("a check that never completes (timeout) blocks too", async () => {
+    const r = await deliver(proj(), { check: { code: null, stdout: "", stderr: "spawnSync bun ETIMEDOUT" } });
     expect(r.code).toBe(1);
     expect(text(r.lines)).toContain("is RED (it never completed)");
   });
@@ -516,21 +558,21 @@ describe("checkSummaryLine (pure)", () => {
 // --- 9. pack checks ----------------------------------------------------------------------
 
 describe("runDeliver: pack-contributed checks", () => {
-  test("a project that composed no pack with a check passes with nothing to check", () => {
-    const r = deliver(proj());
+  test("a project that composed no pack with a check passes with nothing to check", async () => {
+    const r = await deliver(proj());
     expect(r.lines).toContain("deliver: pack-checks — no composed pack contributes one");
     expect(r.lines).toContain("deliver: check-scripts — no composed pack folds a check script into this tree");
   });
 
-  test("a contributed check runs, is named in its own line, and is never an applied step", () => {
+  test("a contributed check runs, is named in its own line, and is never an applied step", async () => {
     const dir = proj({ packs: ["ts", "ts-hexagonal", "ts-trpc"] });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code, text(r.lines)).toBe(0);
     expect(r.lines).toContain("deliver: trpc-obligation — ts-trpc: generated tRPC adapter in notebook");
-    expect(deliver(dir).lines.at(-1)).toBe("deliver: OK — 0 steps applied");
+    expect((await deliver(dir)).lines.at(-1)).toBe("deliver: OK — 0 steps applied");
   });
 
-  test("a contributed check that blocks stops the delivery", () => {
+  test("a contributed check that blocks stops the delivery", async () => {
     // ts-trpc composed, but no in port is exposed through it.
     const dir = proj({ packs: ["ts", "ts-hexagonal", "ts-trpc"] });
     for (const feature of ["create-note", "list-notes"]) {
@@ -538,13 +580,13 @@ describe("runDeliver: pack-contributed checks", () => {
       writeFileSync(path, readFileSync(path, "utf8").split("\n").filter((l) => !/@exposedVia/.test(l)).join("\n"));
     }
     rmSync(join(dir, "contexts/notebook/src/adapters/in"), { recursive: true, force: true });
-    const r = deliver(dir);
+    const r = await deliver(dir);
     expect(r.code, text(r.lines)).toBe(1);
     expect(text(r.lines)).toContain("deliver: BLOCK — trpc-obligation: ts-trpc: no context exposes a feature through tRPC");
   });
 
-  test("a red check short-circuits them", () => {
-    const r = deliver(proj({ packs: ["ts", "ts-hexagonal", "ts-trpc"] }), { check: { code: 1, stdout: "1 fail", stderr: "" } });
+  test("a red check short-circuits them", async () => {
+    const r = await deliver(proj({ packs: ["ts", "ts-hexagonal", "ts-trpc"] }), { check: { code: 1, stdout: "1 fail", stderr: "" } });
     expect(r.code).toBe(1);
     expect(text(r.lines)).not.toContain("trpc-obligation");
   });

@@ -339,13 +339,13 @@ describe("every tool that spawns the test runner or type-checker refuses drifted
 });
 
 describe("deliver on a generated project (ADR 2026-054, ADR 2026-062)", () => {
-  test("finds the Bun wiring already generated, rewrites no config, and runs the check with bun", () => {
+  test("finds the Bun wiring already generated, rewrites no config, and runs the check with bun", async () => {
     const project = tsOnly();
     mkdirSync(join(project, "node_modules", "ts-morph"), { recursive: true });
     writeFileSync(join(project, "node_modules", "ts-morph", "package.json"), '{"name":"ts-morph"}\n');
     const before = readFileSync(join(project, "package.json"), "utf8");
     const calls: string[] = [];
-    const result = runDeliver(project, {
+    const result = await runDeliver(project, {
       run: (command, args) => {
         calls.push([command, ...args].join(" "));
         return { code: 0, stdout: "", stderr: "" };

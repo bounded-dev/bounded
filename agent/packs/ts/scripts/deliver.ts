@@ -71,6 +71,7 @@ import { composedPacks } from "../../installed.ts";
 import { deliverChecks, type DeliverCheckResult } from "../pack.ts";
 import { configDriftBlock, configIsGenerated, SYNC_COMMAND } from "./project-config.ts";
 import { emitProject, projectFactsOf, type ProjectFile } from "./project-emitters.ts";
+import { phaseRun, type PhaseRun, withPreparedServices } from "./phase-policy.ts";
 import { SHADOW_RELATIVE } from "./red-gate.ts";
 import { errorsImportsOf, tsFilesUnder } from "./skeleton-imports.ts";
 import { expandSourceRoots } from "./surface-check.ts";
@@ -109,13 +110,14 @@ export interface CommandOutcome {
 
 /** Runs a command in `cwd` and returns its captured output. Never throws for a
  *  non-zero exit: deliver decides what a non-zero means. */
-export type CommandRun = (command: string, args: readonly string[], cwd: string) => CommandOutcome;
+export type CommandRun = (command: string, args: readonly string[], cwd: string, env?: NodeJS.ProcessEnv) => CommandOutcome;
 
 /** The real runner: spawn the binary directly with an args ARRAY and no shell,
  *  so nothing in a target path is ever interpreted. */
-export const spawnRun: CommandRun = (command, args, cwd) => {
+export const spawnRun: CommandRun = (command, args, cwd, env) => {
   const r = spawnSync(command, [...args], {
     cwd,
+    env: env ?? process.env,
     encoding: "utf8",
     shell: false,
     timeout: COMMAND_TIMEOUT_MS,
@@ -133,6 +135,9 @@ export interface DeliverOptions {
    *  check (step 9). Default: {@link spawnRun}. Injectable so the wiring is
    *  unit-testable without a registry round trip or a real suite run. */
   readonly run?: CommandRun;
+  /** The phase test policies the project's own check runs under. Default:
+   *  the project's green policies, so a throwaway database backs it. */
+  readonly policy?: Pick<PhaseRun, "refusals" | "env" | "prepares">;
 }
 
 export interface DeliverResult {
@@ -197,7 +202,7 @@ function removeEmptyParents(cwd: string, rel: string): void {
 /** A skeleton file that still throws: it constructs the red-phase error. */
 const THROWS_NOT_IMPLEMENTED = /\bnew\s+NotImplementedError\s*\(/;
 
-export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverResult {
+export async function runDeliver(cwd: string, options: DeliverOptions = {}): Promise<DeliverResult> {
   const lines: string[] = [];
   const run = options.run ?? spawnRun;
   let applied = 0;
@@ -498,7 +503,27 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
 
   // --- 8. the project's own check (r15 shipped two red repos) ---
   {
-    const out = run(BUN, ["run", "check"], cwd);
+    // The check runs the whole suite, app smoke tests and store tests
+    // included: under the green policies, exactly as green ran it, so it
+    // never reaches a developer's database through an inherited or .env
+    // DATABASE_URL, and is refused where green would be.
+    const policy = options.policy ?? phaseRun(cwd, "green");
+    if (policy.refusals.length > 0) {
+      const result = block("check", `the project's own \`bun run check\` cannot run here: ${policy.refusals.join("; ")}`, { reason: "test-policy" });
+      return { ...result, lines };
+    }
+    const prepared = await withPreparedServices(policy, async (env) => {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env };
+      for (const name of env.unset) delete childEnv[name];
+      Object.assign(childEnv, env.set);
+      return run(BUN, ["run", "check"], cwd, childEnv);
+    });
+    if (!prepared.ok) {
+      const result = block("check", `the project's own \`bun run check\` cannot run here: ${prepared.reason}`, { reason: "test-policy" });
+      return { ...result, lines };
+    }
+    for (const line of prepared.lines) lines.push(`deliver: check — ${line}`);
+    const out = prepared.value;
     if (out.code !== 0) {
       const tail = outputTail(out);
       const result = block(
@@ -581,7 +606,7 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  const { code, lines } = runDeliver(process.argv[2] ?? process.cwd());
+  const { code, lines } = await runDeliver(process.argv[2] ?? process.cwd());
   for (const line of lines) (code === 0 ? console.log : console.error)(line);
   process.exit(code);
 }

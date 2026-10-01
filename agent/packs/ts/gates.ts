@@ -296,7 +296,7 @@ export const gates: readonly GateCommand[] = [
     flags: [],
     async run(cwd) {
       const { runDeliver } = await import("./scripts/deliver.ts");
-      return toGateResult("deliver", runDeliver(cwd));
+      return toGateResult("deliver", await runDeliver(cwd));
     },
   },
   {
