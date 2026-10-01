@@ -15,7 +15,7 @@
 
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import {
@@ -155,23 +155,59 @@ export function adjustedEnvironment(
 /** Default runner: spawn in {@link testEnvironment}, capture stdout/stderr,
  *  resolve on close.
  *
+ *  The child writes into files, never pipes: bun's console reporter drops what
+ *  it cannot write at once, so once a pipe's buffer (64 KiB on macOS) is full
+ *  and this process is slow to drain it — any machine under load — the
+ *  failure text of the remaining tests is lost, and the red gate saw
+ *  NotImplementedError failures with no message as wrong-reason failures.
+ *  A file never pushes back.
+ *
  *  Exported so a caller that needs the real spawn PLUS something runTests does
  *  not itself expose can compose it — mutation-score wraps it with an
  *  AbortSignal to bound each mutant's suite run. Rejects if the signal aborts. */
 export const spawnRunner: CommandRunner = (command, args, cwd, signal, env) =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      signal,
-      shell: process.platform === "win32",
-      env: env ?? testEnvironment(),
+    const dir = mkdtempSync(join(tmpdir(), "bounded-run-"));
+    const outPath = join(dir, "stdout");
+    const errPath = join(dir, "stderr");
+    const out = openSync(outPath, "w");
+    const err = openSync(errPath, "w");
+    const finish = (): { stdout: string; stderr: string } => {
+      const captured = { stdout: readFileSync(outPath, "utf8"), stderr: readFileSync(errPath, "utf8") };
+      rmSync(dir, { recursive: true, force: true });
+      return captured;
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        signal,
+        shell: process.platform === "win32",
+        env: env ?? testEnvironment(),
+        stdio: ["ignore", out, err],
+      });
+    } catch (error) {
+      closeSync(out);
+      closeSync(err);
+      rmSync(dir, { recursive: true, force: true });
+      reject(error);
+      return;
+    }
+    // The child holds its own copies of the descriptors.
+    closeSync(out);
+    closeSync(err);
+    let settled = false;
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      rmSync(dir, { recursive: true, force: true });
+      reject(error);
     });
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (d: Buffer) => (stdout += d.toString()));
-    child.stderr?.on("data", (d: Buffer) => (stderr += d.toString()));
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ stdout, stderr, code }));
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      resolve({ ...finish(), code });
+    });
   });
 
 const isSkip = (status: string) =>

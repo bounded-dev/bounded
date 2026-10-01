@@ -17,6 +17,7 @@ import {
   type RunTestsResult,
   runTests,
   runTestsGate,
+  spawnRunner,
   summarizeResults,
   testCommand,
   testSources,
@@ -317,6 +318,28 @@ describe.skipIf(!HAS_BUN)("real bun", () => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), text);
   };
+
+  test("every failure keeps its text when this process is too busy to read while bun reports", { timeout: 60_000 }, async () => {
+    // bun's console reporter drops what a full pipe will not take at once; a
+    // run on a loaded machine lost the text of every later failure, and the
+    // red gate read NotImplementedError failures as wrong-reason ones.
+    const dir = mkdtempSync(join(tmpdir(), "run-tests-busy-"));
+    dirs.push(dir);
+    write(dir, "package.json", '{"name":"probe","private":true,"type":"module"}\n');
+    const tests = Array.from({ length: 300 }, (_, i) =>
+      `test("t${i}", () => { throw new Error("Not implemented: Thing.member${i} ${"x".repeat(200)}"); });`);
+    write(dir, "contexts/pm/src/many.test.ts", `import { test } from "bun:test";\n${tests.join("\n")}\n`);
+    const runner: CommandRunner = (command, args, cwd, signal, env) => {
+      const running = spawnRunner(command, args, cwd, signal, env);
+      // Hold the event loop while bun writes its whole report.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
+      return running;
+    };
+    const result = await runTests(dir, { run: runner });
+    expect(result.failed).toBe(300);
+    const silent = result.results.filter((r) => r.status === "failed" && !/Not implemented: Thing\.member\d+/.test(r.message ?? ""));
+    expect(silent.map((r) => r.name)).toEqual([]);
+  });
 
   test("the live suite runs; the shadow under .bounded/ is not collected; the view is sanitized", { timeout: 60_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "run-tests-bun-"));
