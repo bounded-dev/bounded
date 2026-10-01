@@ -108,12 +108,38 @@ generated laws) and never write a `*.laws.test.ts`.
   dash): one accepted literal (from the contract's `@accepts`) and two
   distinct rejected literals of its base type, asserted as
   `expect(X.parse(v).ok).toBe(true|false)` or `toEqual({ ok: … })`.
+- **Never test generated code**: a `<feature>.command.ts`, anything under
+  `adapters/in/`, or what a `*.laws.test.ts` covers. Their generated laws
+  test them, and they work before anything is built, so such a test passes
+  at red and red refuses it. A handler test may build its input with the
+  command; it must not be a test of the command.
+- **Test files import as the code beside them may**, because
+  `architecture.test.ts` reads them too. A domain test imports each concept
+  from its own file by relative path, never the domain barrel:
+
+  ```ts
+  import { NoteText } from "./note-text.ts";                          // right, in domain/notes/note.test.ts
+  import { NoteText } from "@example/project-management/domain";     // wrong there: a domain file never imports its own package
+  ```
+
+  An application test takes domain values from the barrel
+  `@<scope>/<context>/domain` and everything of its feature from the
+  feature's own files (`./create-note.handler.ts`), never the `/application`
+  barrel. An out-adapter test imports its own technology's files and the
+  conformance suite by relative path, never another technology's.
 - Never `test.skip` or `test.todo`; never call a skeleton at a file's top
   level.
 - Postgres store tests need a container runtime. Without one they are skipped
   with the reason logged while you write them; they must run before delivery.
 - Use `bun:test` (`describe`, `test`, `expect`, `spyOn`). One behaviour per
   test.
+
+The lint rules that bind your files, run at red, with the fix each one names:
+
+| Rule | What it refuses |
+|---|---|
+| `test-imports` | a test import `architecture.test.ts` would fail on: a domain test importing the domain barrel or application code, an application test importing the application barrel or an adapter, an out-adapter test importing another technology, any test importing another context, a test outside the layers |
+| `no-generated-subject` (the ts pack's) | a test, or a whole test file, whose only subjects are generated modules |
 
 ## Builder
 

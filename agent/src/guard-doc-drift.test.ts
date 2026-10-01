@@ -303,6 +303,29 @@ describe("the role docs describe the monorepo the gates enforce", () => {
     expect(testWriter).toMatch(/no `test\.skip`.*`test\.todo`/);
   });
 
+  // Issue #36: red refused tests of a generated command's parse, and the
+  // architecture test failed on domain tests importing the domain barrel.
+  // Both are refused by the test lint now; the briefs must say so first.
+  test("the test-writer, and the architect who briefs it, are told never to test generated code", () => {
+    for (const [name, doc] of [["test-writer.md", testWriter], ["architect.md", architect]] as const) {
+      expect(doc, name).toMatch(/Never test generated code/);
+      for (const what of ["<feature>.command.ts", "adapters/in/", "*.laws.test.ts"]) expect(doc, `${name}: ${what}`).toContain(what);
+      expect(doc, name).toMatch(/A handler test may (?:still )?build its input with the\s+command/);
+    }
+  });
+
+  test("the test-writer, and the architect who briefs it, get the test-file import rules with a right and a wrong example", () => {
+    for (const [name, doc] of [["test-writer.md", testWriter], ["architect.md", architect]] as const) {
+      expect(doc, name).toMatch(/architecture\.test\.ts/);
+      expect(doc, name).toContain('import { NoteText } from "./note-text.ts";');
+      expect(doc, name).toContain('import { NoteText } from "@example/project-management/domain";');
+      expect(doc, name).toContain("test-imports");
+      expect(doc, name).toContain("no-generated-subject");
+    }
+    expect(testWriter).toMatch(/\/\/ right/);
+    expect(testWriter).toMatch(/\/\/ wrong/);
+  });
+
   test("the architect is told the context/area name clash and that identifiers carry @accepts", () => {
     expect(architect).toMatch(/A context never shares its name with one of its areas/);
     expect(architect).toMatch(/every value object AND every\s+identifier/);

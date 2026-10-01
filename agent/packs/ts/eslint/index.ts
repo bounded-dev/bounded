@@ -4,6 +4,7 @@ import { declarationOnly } from "./rules/declaration-only.ts";
 import { entityShape } from "./rules/entity-shape.ts";
 import { implTail } from "./rules/impl-tail.ts";
 import { noBrandedAliases } from "./rules/no-branded-aliases.ts";
+import { noGeneratedSubject } from "./rules/no-generated-subject.ts";
 import { noNakedPrimitives } from "./rules/no-naked-primitives.ts";
 import { noSchemaOnSurface } from "./rules/no-schema-on-surface.ts";
 import { noTestRunnerInSource } from "./rules/no-test-runner-in-source.ts";
@@ -36,6 +37,7 @@ export const plugin = {
     "blessed-stacks-only": blessedStacksOnly,
     "zod-backed-parse": zodBackedParse,
     "no-test-runner-in-source": noTestRunnerInSource,
+    "no-generated-subject": noGeneratedSubject,
   },
 } as const;
 
