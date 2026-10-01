@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { LEAD_PREPARE_USAGE } from "./lead-run.ts";
 import { SETUP_COMMAND } from "./setup-state.ts";
+import { LEAD_REPLAN_USAGE } from "./init-command.ts";
 
 // The lead's two run-control commands are typed by people and agents from the
 // docs; a doc that drifts from the parser teaches a command that is refused.
@@ -21,5 +22,10 @@ describe("lead commands in the docs match the code", () => {
     const text = readFileSync(doc, "utf8");
     expect(text).toContain(LEAD_PREPARE_USAGE);
     expect(text).toContain(SETUP_COMMAND);
+  });
+
+  // Re-planning before the first ticket (ADR 2026-065) is the lead's too.
+  test.each(DOCS.slice(1))("%s names the re-plan command exactly", (doc) => {
+    expect(readFileSync(doc, "utf8").replace(/\s*\n\s*/g, " ")).toContain(LEAD_REPLAN_USAGE);
   });
 });

@@ -15,8 +15,9 @@ npm install --global bounded
 ```
 
 Open an empty directory (or one containing only `.git/`) in pi or Claude Code
-and ask the agent to initialize Bounded there. The agent runs `bounded init`
-and walks you through product discovery. To set up from a terminal without an
+and ask the agent to initialize Bounded there. The agent runs `bounded init`,
+asks for your product spec or requirements (pasted, or a file path), and asks
+only about what the spec leaves open. To set up from a terminal without an
 agent:
 
 ```bash

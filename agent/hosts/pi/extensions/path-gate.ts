@@ -51,6 +51,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { execFile } from "node:child_process";
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -73,9 +74,14 @@ import {
   isProjectLocalHarness,
   LEAD_PREPARE_TOOL,
   LEAD_PREPARE_USAGE,
+  LEAD_REPLAN_TOOL,
+  LEAD_REPLAN_USAGE,
   LEAD_SETUP_TOOL,
+  LEAD_TOOLS,
   parseLeadPrepareArgs,
+  parseReplanArgs,
   prepareLeadRun,
+  replanCliArgs,
   seatMayHold,
   setupLeadProject,
 } from "../../../src/lead-policy.ts";
@@ -194,6 +200,39 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     },
   });
 
+  // Re-planning runs the user's own `bounded init`, which owns installation:
+  // the project's copy cannot add a capability it does not hold (ADR 2026-065).
+  if (leadTools) pi.registerTool({
+    name: LEAD_REPLAN_TOOL,
+    label: "Re-plan initialization",
+    description: `Before the first ticket is prepared, change this project's capability selection (the shell form is \`${LEAD_REPLAN_USAGE.replace("<host>", "pi")}\`). Pass the product surfaces the spec needs and those it declines; without apply it returns the plan or the open questions, with apply it replaces the untouched installation. Then run setup and reload the session.`,
+    parameters: Type.Object({
+      surfaces: Type.Optional(Type.Array(Type.String(), { description: "Product surfaces the product needs" })),
+      without: Type.Optional(Type.Array(Type.String(), { description: "Product surfaces the product does not need" })),
+      packs: Type.Optional(Type.Array(Type.String(), { description: "Capabilities named explicitly, only to break a tie" })),
+      apply: Type.Optional(Type.String({ description: "The reviewed plan's digest" })),
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const fail = (text: string) => ({ content: [{ type: "text" as const, text }], details: { ok: false } });
+      if (!leadSession(ctx.cwd)) return fail("team-lead: only the project-local lead may re-plan initialization");
+      const decision = decideLead({ kind: "replan" }, ctx.cwd);
+      if (!decision.allow) return fail(decision.reason);
+      const args = parseReplanArgs([
+        "--host", "pi",
+        ...(params.surfaces ?? []).flatMap((id) => ["--surface", id]),
+        ...(params.without ?? []).flatMap((id) => ["--without", id]),
+        ...(params.packs ?? []).flatMap((name) => ["--pack", name]),
+        ...(params.apply !== undefined ? ["--apply", params.apply] : []),
+      ], "pi");
+      if (!args.ok) return fail(`team-lead: ${args.reason}`);
+      const run = await new Promise<{ ok: boolean; text: string }>((done) => {
+        execFile("bounded", replanCliArgs(args, "pi"), { cwd: ctx.cwd, signal, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) =>
+          done({ ok: error === null, text: `${stdout}${stderr}`.trim() || (error?.message ?? "") }));
+      });
+      return { content: [{ type: "text" as const, text: run.text }], details: { ok: run.ok } };
+    },
+  });
+
   // Per-SESSION state, in the same shape as the fallback resolver above: one
   // installPathGate call is one session, so a closure is the scope this needs.
   const noteRunStart = makeRunStartRecorder();
@@ -213,8 +252,8 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
       // Do not advertise a project-only control in unrelated pi sessions.
       if (projectCopy) {
         const active = pi.getActiveTools();
-        if (active.includes(LEAD_PREPARE_TOOL) || active.includes(LEAD_SETUP_TOOL)) {
-          pi.setActiveTools(active.filter((name) => name !== LEAD_PREPARE_TOOL && name !== LEAD_SETUP_TOOL));
+        if (active.some((name) => LEAD_TOOLS.includes(name))) {
+          pi.setActiveTools(active.filter((name) => !LEAD_TOOLS.includes(name)));
         }
       }
       return;
@@ -244,7 +283,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     try {
       const active = pi.getActiveTools();
       const strip = planToolStrip(role, active);
-      const kept = (strip?.active ?? active).filter((name) => name !== LEAD_PREPARE_TOOL && name !== LEAD_SETUP_TOOL);
+      const kept = (strip?.active ?? active).filter((name) => !LEAD_TOOLS.includes(name));
       if (kept.length !== active.length) pi.setActiveTools([...kept]);
       if (strip) recordToolStrip(ctx.cwd, role, strip);
     } catch {
@@ -283,7 +322,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
       return { block: true, reason: decision.reason };
     }
     const role = seat.role;
-    if (event.toolName === LEAD_PREPARE_TOOL || event.toolName === LEAD_SETUP_TOOL) {
+    if (LEAD_TOOLS.includes(event.toolName)) {
       return { block: true, reason: "team-lead: the architect and workers cannot redraw the run boundary" };
     }
 

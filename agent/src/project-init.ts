@@ -16,7 +16,10 @@ import {
 } from "./pack-contrib.ts";
 import { COMPOSITION_FILE, writeProjectPacks } from "./project-composition.ts";
 import { lockFor, sourceLockPath, type RuntimePackage } from "./runtime-lock.ts";
-import { HOST_PACKAGE_DIRS, SETUP_COMMAND } from "./setup-state.ts";
+import { beforeFirstRun, HOST_PACKAGE_DIRS, SETUP_COMMAND } from "./setup-state.ts";
+import {
+  offeredSurfaces, selectForSurfaces, type SurfaceDecisions, type SurfacePack, type SurfaceSelection,
+} from "./product-surfaces.ts";
 
 export type InitHost = "pi" | "claude-code";
 export interface InitPlan {
@@ -29,6 +32,9 @@ export interface InitPlan {
   readonly createdFiles: Readonly<Record<string, string>>;
   /** Installer-owned files only. Product files can change after init. */
   readonly files: Readonly<Record<string, string>>;
+  /** The digest of the untouched installation this plan replaces, when it
+   *  re-plans one before the first ticket (ADR 2026-065). */
+  readonly replaces?: string;
   readonly digest: string;
 }
 
@@ -111,18 +117,22 @@ function closure(names: readonly string[]): readonly string[] {
   return order;
 }
 
-function availablePacks(): Map<string, { dependsOnPacks: string[] }> {
-  const known = new Map<string, { dependsOnPacks: string[] }>();
+function availablePacks(): Map<string, SurfacePack & { dependsOnPacks: string[] }> {
+  const known = new Map<string, SurfacePack & { dependsOnPacks: string[] }>();
   for (const entry of readdirSync(join(agentRoot, "packs"), { withFileTypes: true })) {
     if (!entry.isDirectory() || !/^[a-z][a-z0-9-]*$/.test(entry.name)) continue;
     const manifestPath = join(agentRoot, "packs", entry.name, "contrib.json");
     if (!existsSync(manifestPath) || !existsSync(join(agentRoot, "packs", entry.name, "pack.ts"))) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { dependsOnPacks?: unknown };
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { dependsOnPacks?: unknown; productSurfaces?: unknown };
     const deps = manifest.dependsOnPacks ?? [];
     if (!Array.isArray(deps) || deps.some((x) => typeof x !== "string" || !/^[a-z][a-z0-9-]*$/.test(x))) {
       throw new Error(`Capability '${entry.name}' has invalid dependsOnPacks`);
     }
-    known.set(entry.name, { dependsOnPacks: deps });
+    const surfaces = manifest.productSurfaces ?? [];
+    if (!Array.isArray(surfaces) || surfaces.some((x) => typeof x !== "string")) {
+      throw new Error(`Capability '${entry.name}' has invalid productSurfaces`);
+    }
+    known.set(entry.name, { dependsOnPacks: deps, productSurfaces: surfaces });
   }
   return known;
 }
@@ -209,6 +219,26 @@ export function defaultSelection(): readonly string[] {
   const unknown = (packs as string[]).filter((p) => !known.has(p));
   if (unknown.length) throw new Error(`packs/${DEFAULT_STACK_FILE} names packs that are not installed: ${unknown.join(", ")}`);
   return packs as string[];
+}
+
+/** A closed selection in the default stack's order where that order respects
+ *  every dependency, so the same surfaces give the same plan however the
+ *  agent listed them. Packs outside the default stack follow, by name. */
+function canonicalClosure(names: readonly string[]): readonly string[] {
+  const closed = closure(names);
+  const stack = defaultSelection();
+  const rank = (name: string): number => (stack.includes(name) ? stack.indexOf(name) : stack.length);
+  const ordered = [...closed].sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0));
+  const known = availablePacks();
+  const respectsDependencies = ordered.every((name, i) =>
+    known.get(name)!.dependsOnPacks.every((dep) => ordered.indexOf(dep) < i));
+  return respectsDependencies ? ordered : closed;
+}
+
+/** The selection for the product surfaces the spec and the user decided
+ *  (ADR 2026-065), from the installed packs' `productSurfaces` data. */
+export function surfaceSelection(decisions: SurfaceDecisions, explicitPacks: readonly string[] = []): SurfaceSelection {
+  return selectForSurfaces(decisions, availablePacks(), canonicalClosure, explicitPacks);
 }
 
 /** The project's name, from its directory's name: lowercase letters, digits
@@ -595,57 +625,170 @@ function fileHashes(stage: string): Record<string, string> {
   return files;
 }
 
-function planFromStage(stage: string, host: InitHost, packs: readonly string[]): InitPlan {
+function planFromStage(stage: string, host: InitHost, packs: readonly string[], replaces?: string): InitPlan {
   const release = sourceRelease();
   const createdFiles = fileHashes(stage);
   const files = Object.fromEntries(Object.entries(createdFiles).filter(([path]) =>
     path.startsWith(".bounded/harness/") || path === COMPOSITION_FILE ||
     path === "AGENTS.md" || path === "CLAUDE.md" || path.startsWith(".claude/") || path.startsWith(".pi/"),
   ));
-  const content = { schemaVersion: 1 as const, host, packs, ...release, createdFiles, files };
+  const content = { schemaVersion: 1 as const, host, packs, ...release, createdFiles, files, ...(replaces !== undefined ? { replaces } : {}) };
   return { ...content, digest: sha(JSON.stringify(content)) };
 }
 
-function existingPlan(target: string, host: InitHost, requested: readonly string[]): InitPlan | undefined {
+const safeManifestPath = (path: string): boolean => /^[a-zA-Z0-9._/-]+$/.test(path) && !path.includes("..") && !path.startsWith("/");
+
+/** The recorded installation, its digest and paths checked; none when absent. */
+function readInstallation(target: string): InitPlan | undefined {
   const manifest = join(target, MANIFEST);
   if (!existsSync(manifest)) return undefined;
   const previous = JSON.parse(readFileSync(manifest, "utf8")) as InitPlan;
-  const packs = closure(requested);
-  if (previous.schemaVersion !== 1 || previous.host !== host || JSON.stringify(previous.packs) !== JSON.stringify(packs) ||
-      !previous.files || !previous.createdFiles || typeof previous.digest !== "string") {
-    throw new Error("Existing installation differs from this selection; bounded update is required");
+  if (previous.schemaVersion !== 1 || !previous.files || !previous.createdFiles || typeof previous.digest !== "string" ||
+      !Array.isArray(previous.packs)) {
+    throw new Error("Installation manifest is invalid or changed");
   }
   const { digest: _digest, ...content } = previous;
   if (sha(JSON.stringify(content)) !== previous.digest) throw new Error("Installation manifest is invalid or changed");
-  for (const [path, hash] of Object.entries(previous.files)) {
-    if (!/^[a-zA-Z0-9._/-]+$/.test(path) || path.includes("..") || path.startsWith("/")) throw new Error("Installation manifest contains an unsafe path");
-    const absolute = join(target, path);
-    if (!existsSync(absolute) || !lstatSync(absolute).isFile() || sha(readFileSync(absolute)) !== hash) {
-      throw new Error(`Installed file changed: ${path}; bounded update is required`);
-    }
+  if (![...Object.keys(previous.files), ...Object.keys(previous.createdFiles)].every(safeManifestPath)) {
+    throw new Error("Installation manifest contains an unsafe path");
   }
   return previous;
 }
 
+type Existing =
+  | { readonly kind: "same"; readonly plan: InitPlan }
+  | { readonly kind: "replace"; readonly previous: InitPlan; readonly setupOutput: readonly string[] };
+
+/** The installation already in `target`: the same selection (its installer
+ *  files must be intact; product edits are fine), or one this selection may
+ *  replace because nothing has happened since it was made. */
+function existingInstallation(target: string, host: InitHost, packs: readonly string[]): Existing | undefined {
+  const previous = readInstallation(target);
+  if (previous === undefined) return undefined;
+  if (previous.host === host && JSON.stringify(previous.packs) === JSON.stringify(packs)) {
+    for (const [path, hash] of Object.entries(previous.files)) {
+      const absolute = join(target, path);
+      if (!existsSync(absolute) || !lstatSync(absolute).isFile() || sha(readFileSync(absolute)) !== hash) {
+        throw new Error(`Installed file changed: ${path}; bounded update is required`);
+      }
+    }
+    return { kind: "same", plan: previous };
+  }
+  const replaceable = replanBlocker(target, previous);
+  if (typeof replaceable === "string") {
+    throw new Error(`Existing installation differs from this selection and cannot be re-planned: ${replaceable}; bounded update is required`);
+  }
+  return { kind: "replace", previous, setupOutput: replaceable.setupOutput };
+}
+
+/** A matcher for root-anchored ignore rules, one path segment at a time:
+ *  the walk below stops at the first ignored directory. */
+function ignoreMatcher(rules: readonly string[]): (path: string) => boolean {
+  const escape = (text: string): string => text.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = rules.map((rule) => rule.replace(/^\/+|\/+$/g, "").split("/")
+    .map((segment) => new RegExp(`^${segment.split("*").map(escape).join("[^/]*")}$`)));
+  return (path) => {
+    const parts = path.split("/");
+    return patterns.some((pattern) => pattern.length === parts.length && pattern.every((re, i) => re.test(parts[i]!)));
+  };
+}
+
+/**
+ * Why the installation cannot be re-planned, or what setup produced in it.
+ * Re-planning replaces the whole installation, so it is allowed only while
+ * the project is exactly what init made: no ticket prepared or run, every
+ * file init created unchanged, and nothing added except what setup and the
+ * host produce (the installation's own ignore rules) and `.bounded/` state.
+ */
+function replanBlocker(target: string, previous: InitPlan): string | { readonly setupOutput: readonly string[] } {
+  if (!beforeFirstRun(target)) return "a ticket has already been prepared or run here";
+  for (const [path, hash] of Object.entries(previous.createdFiles)) {
+    const absolute = join(target, path);
+    if (!existsSync(absolute) || !lstatSync(absolute).isFile() || sha(readFileSync(absolute)) !== hash) {
+      return `${path} changed since initialization`;
+    }
+  }
+  let ignored: (path: string) => boolean;
+  try {
+    ignored = ignoreMatcher([
+      ...projectIgnoreRules(previous.packs, join(target, ".bounded", "harness", "packs")),
+      ...HOST_PACKAGE_DIRS.map((dir) => `/${dir}/`),
+    ]);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  const extra: string[] = [];
+  const setupOutput: string[] = [];
+  const visit = (base: string): void => {
+    for (const entry of readdirSync(join(target, base), { withFileTypes: true })) {
+      if (base === "" && (entry.name === ".git" || entry.name === ".bounded")) continue;
+      const path = base ? `${base}/${entry.name}` : entry.name;
+      if (ignored(path)) setupOutput.push(path);
+      else if (entry.isDirectory()) visit(path);
+      else if (!Object.hasOwn(previous.createdFiles, path)) extra.push(path);
+    }
+  };
+  visit("");
+  if (extra.length > 0) {
+    return `files were added since initialization (${extra.slice(0, 5).join(", ")}${extra.length > 5 ? ", ..." : ""})`;
+  }
+  return { setupOutput };
+}
+
+/** Remove every empty directory below `root`, deepest first, leaving .git alone. */
+function pruneEmptyDirectories(root: string, base = ""): void {
+  for (const entry of readdirSync(join(root, base), { withFileTypes: true })) {
+    if (!entry.isDirectory() || (base === "" && entry.name === ".git")) continue;
+    const path = base ? `${base}/${entry.name}` : entry.name;
+    pruneEmptyDirectories(root, path);
+    if (readdirSync(join(root, path)).length === 0) rmSync(join(root, path), { recursive: true });
+  }
+}
+
+/** Take the untouched installation out of `target`, keeping a copy of every
+ *  file it created so a failed replacement can put it back. Setup output and
+ *  `.bounded/` state are not kept: setup runs again for the new selection. */
+function removeInstallation(target: string, existing: Extract<Existing, { kind: "replace" }>): { restore(): void; discard(): void } {
+  const backup = mkdtempSync(join(tmpdir(), "bounded-init-replaced-"));
+  const created = Object.keys(existing.previous.createdFiles);
+  for (const path of [...created, MANIFEST]) {
+    mkdirSync(dirname(join(backup, path)), { recursive: true });
+    copyFileSync(join(target, path), join(backup, path));
+  }
+  rmSync(join(target, ".bounded"), { recursive: true, force: true });
+  for (const path of existing.setupOutput) rmSync(join(target, path), { recursive: true, force: true });
+  for (const path of created) rmSync(join(target, path), { force: true });
+  pruneEmptyDirectories(target);
+  return {
+    restore: () => copyTree(backup, target),
+    discard: () => rmSync(backup, { recursive: true, force: true }),
+  };
+}
+
 export function describeInit(): object {
+  const available = availablePacks();
   return {
     command: "bounded init", writes: false,
     agentConversation: {
-      openingQuestion: "What kind of application are you trying to build?",
+      openingRequest: "Please share your product spec or requirements: paste the text, or give the path to a file that holds them.",
       guidance: [
-        "Ask about the product in plain language before discussing implementation choices.",
-        "Learn its users, main workflows, and whether it needs a user interface, server, or persistent data. Ask focused follow-ups only where the answer changes the plan.",
-        "Use the implementation options below privately to infer a capability selection. Do not ask the user to choose pack names or present this list as a menu.",
+        "Start from the product spec, before any question about the kind of application. Ask for it pasted, or for the path to a file, and read that file. If the user has only a short description, that description is the spec.",
+        "Map the spec privately to the product surfaces below. For each, decide whether the spec says the product needs it, says it does not, or leaves it open. A spec that names a way the product is used (a web app, a desktop app, AI assistants using it, a job on a timer, other programs calling it, data that must be kept) needs that surface. A spec that lists where the product is used and leaves a surface out declines it.",
+        "Ask the user only about the surfaces the spec leaves open, using each one's question in plain language. Do not ask the user to choose pack names or present the capabilities as a menu.",
+        "Run bounded init --host <current-host> with --surface <id> for every needed surface and --without <id> for every declined one. Init selects the capabilities from the packs' own data. If it answers with open surfaces, ask their questions and run it again with the answers.",
         "Use the agent host already running this conversation; do not ask the user to select another agent.",
-        "Plan the complete inferred selection before proposing installation. A capability with its own initializer may still be incompatible with another selected capability.",
         "If the complete application cannot be scaffolded, explain the gap in product terms and stop. Do not silently omit a required part of the application.",
         "When a complete plan succeeds, explain what Bounded will create in plain language and review the plan before applying its digest.",
+        "Until the first ticket is prepared, the selection can be corrected from inside the project: run bounded init again with the corrected surfaces, and the plan replaces the untouched installation.",
       ],
     },
     hosts: ["pi", "claude-code"],
+    productSurfaces: offeredSurfaces(available).map((surface) => ({
+      ...surface, servedBy: [...available].filter(([, pack]) => pack.productSurfaces.includes(surface.id)).map(([name]) => name),
+    })),
     defaultSelection: defaultSelection(),
-    implementationOptions: [...availablePacks()].map(([name, pack]) => ({ name, requires: pack.dependsOnPacks, hasProjectInitializer: scaffolderAvailable(name) })),
-    next: "Ask the opening product question first. After inferring the complete selection, run bounded init --host <current-host> --pack <capability> [--pack <capability>...] to validate and review a plan. Omitting --pack selects defaultSelection, every installed capability.",
+    implementationOptions: [...available].map(([name, pack]) => ({ name, requires: pack.dependsOnPacks, hasProjectInitializer: scaffolderAvailable(name) })),
+    next: "Ask for the product spec first. Then run bounded init --host <current-host> --surface <id> [--surface <id>...] [--without <id>...] to validate and review a plan. --pack <capability> remains for people who already know the capabilities they want; omitting both selects defaultSelection, the whole stack.",
   };
 }
 
@@ -656,36 +799,40 @@ function scaffolderAvailable(pack: string): boolean {
 
 export async function planInit(target: string, host: string, requested: readonly string[]): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'; choose pi or claude-code`);
-  const prior = existingPlan(target, host, requested);
-  if (prior) return prior;
-  assertEmpty(target);
   const packs = closure(requested);
+  const existing = existingInstallation(target, host, packs);
+  if (existing?.kind === "same") return existing.plan;
+  if (existing === undefined) assertEmpty(target);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-plan-"));
-  try { await assemble(stage, host, packs, projectNameOf(target)); return planFromStage(stage, host, packs); }
-  finally { rmSync(stage, { recursive: true, force: true }); }
+  try {
+    await assemble(stage, host, packs, projectNameOf(target));
+    return planFromStage(stage, host, packs, existing?.previous.digest);
+  } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
 export async function applyInit(target: string, host: string, requested: readonly string[], reviewedDigest: string): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'`);
   if (!/^[a-f0-9]{64}$/.test(reviewedDigest)) throw new Error("Supply the SHA-256 digest of a reviewed plan");
-  const previous = existingPlan(target, host, requested);
-  if (previous) {
-    if (previous.digest !== reviewedDigest) throw new Error("Existing installation differs from the reviewed plan; bounded update is required");
-    return previous;
-  }
-  assertEmpty(target);
   const packs = closure(requested);
+  const existing = existingInstallation(target, host, packs);
+  if (existing?.kind === "same") {
+    if (existing.plan.digest !== reviewedDigest) throw new Error("Existing installation differs from the reviewed plan; bounded update is required");
+    return existing.plan;
+  }
+  if (existing === undefined) assertEmpty(target);
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-apply-"));
+  let replaced: { restore(): void; discard(): void } | undefined;
   try {
     await assemble(stage, host, packs, projectNameOf(target));
-    const plan = planFromStage(stage, host, packs);
+    const plan = planFromStage(stage, host, packs, existing?.previous.digest);
     if (plan.digest !== reviewedDigest) throw new Error("Plan changed since review; run bounded init with the same options again");
     writeFileSync(join(stage, MANIFEST), JSON.stringify(plan, null, 2) + "\n");
-    assertEmpty(target);
-    mkdirSync(target, { recursive: true });
+    if (existing !== undefined) replaced = removeInstallation(target, existing);
     const created: string[] = [];
     const directories: string[] = [];
     try {
+      assertEmpty(target);
+      mkdirSync(target, { recursive: true });
       for (const path of walk(stage).sort().filter((path) => !path.startsWith(".bounded/guard-") && !path.startsWith(".bounded/run-"))) {
         const dest = join(target, path);
         if (existsSync(dest)) throw new Error(`Destination collision: ${path}`);
@@ -702,8 +849,12 @@ export async function applyInit(target: string, host: string, requested: readonl
       for (const path of directories.reverse()) {
         if (existsSync(path) && readdirSync(path).length === 0) rmSync(path, { recursive: false });
       }
+      replaced?.restore();
       throw error;
     }
     return plan;
-  } finally { rmSync(stage, { recursive: true, force: true }); }
+  } finally {
+    replaced?.discard();
+    rmSync(stage, { recursive: true, force: true });
+  }
 }

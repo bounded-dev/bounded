@@ -80,6 +80,17 @@ describe("before setup", () => {
     expect(log(root).at(-1)).toMatchObject({ guard: "team-lead", verdict: "block", detail: { host: "claude-code", kind: "bootstrap-setup-required" } });
   });
 
+  test("the lead may re-plan initialization before setup, only before the first ticket and only in the plain form", () => {
+    const root = project();
+    const replan = "bounded init --host claude-code --surface browser-ui --surface persistence";
+    expect(call(root, tool("Bash", { command: replan })).allowed).toBe(true);
+    expect(call(root, tool("Bash", { command: `${replan} && rm -rf src` })).allowed).toBe(false);
+    expect(call(root, tool("Bash", { command: "bounded init --host claude-code --cwd /tmp --surface desktop" })).allowed).toBe(false);
+    expect(call(root, tool("Bash", { command: replan }, { agent_id: "a1", agent_type: "scout" })).allowed).toBe(false);
+    writeFileSync(join(root, ".bounded", "active-ticket"), "1\n");
+    expect(call(root, tool("Bash", { command: replan })).allowed).toBe(false);
+  });
+
   test.each([
     ["Read", { file_path: join("src", "a.ts") }],
     ["Read", { file_path: "README.md" }],

@@ -3,13 +3,16 @@
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { applyInit, defaultSelection, describeInit, planInit } from "./project-init.ts";
+import { applyInit, defaultSelection, describeInit, planInit, surfaceSelection } from "./project-init.ts";
+import type { SurfaceReport } from "./product-surfaces.ts";
 import { SETUP_COMMAND } from "./setup-state.ts";
 
 async function main(args: string[]): Promise<void> {
   let target = process.cwd();
   let host = "";
   const packs: string[] = [];
+  const surfaces: string[] = [];
+  const without: string[] = [];
   let digest = "";
   let interactive = false;
   let fullJson = false;
@@ -21,23 +24,27 @@ async function main(args: string[]): Promise<void> {
     }
     if (arg === "--interactive") { interactive = true; continue; }
     if (arg === "--json") { fullJson = true; continue; }
-    if (["--cwd", "--host", "--pack", "--apply"].includes(arg)) {
+    if (["--cwd", "--host", "--pack", "--surface", "--without", "--apply"].includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith("--")) throw new Error(`${arg} needs a value`);
       if (arg === "--cwd") target = resolve(value);
       if (arg === "--host") host = value;
       if (arg === "--pack") packs.push(value);
+      if (arg === "--surface") surfaces.push(value);
+      if (arg === "--without") without.push(value);
       if (arg === "--apply") digest = value;
       continue;
     }
     throw new Error(`Unknown option '${arg}'`);
   }
-  if (!interactive && !host && !packs.length && !digest) {
+  const bySurface = surfaces.length > 0 || without.length > 0;
+  if (!interactive && !host && !packs.length && !bySurface && !digest) {
     console.log(JSON.stringify({ ...describeInit(), target }, null, 2));
     return;
   }
   if (interactive) {
     if (digest) throw new Error("--interactive cannot be combined with --apply");
+    if (bySurface) throw new Error("--interactive is the technical selection; it takes no --surface or --without");
     const rl = createInterface({ input: stdin, output: stdout });
     try {
       console.log(JSON.stringify(describeInit(), null, 2));
@@ -53,16 +60,37 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   if (!host) throw new Error("Supply --host (and optionally --pack), or run bare bounded init for choices");
+  // The product surfaces decide the selection from the packs' own data (ADR
+  // 2026-065); any surface still open stops here with its question.
+  let report: readonly SurfaceReport[] | undefined;
+  if (bySurface) {
+    const selection = surfaceSelection({ needed: surfaces, declined: without }, packs);
+    if (selection.kind === "refused") throw new Error(selection.reason);
+    if (selection.kind === "open") {
+      console.log(JSON.stringify({
+        action: "questions", writes: false, surfaces: selection.surfaces,
+        ask: selection.questions.map(({ id, question }) => ({ surface: id, question })),
+        next: "The spec leaves these surfaces open. Ask the user each question in plain language, then rerun with --surface <id> for each one needed and --without <id> for each one not needed.",
+      }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    packs.splice(0, packs.length, ...selection.packs);
+    report = selection.surfaces;
+  }
   // No --pack selects every installed capability: the whole stack.
   if (!packs.length) packs.push(...defaultSelection());
   const plan = digest ? await applyInit(target, host, packs, digest) : await planInit(target, host, packs);
-  console.log(JSON.stringify(view(digest ? "applied" : "plan", plan, fullJson), null, 2));
+  console.log(JSON.stringify({ ...view(digest ? "applied" : "plan", plan, fullJson), ...(report ? { surfaces: report } : {}) }, null, 2));
 }
 
 function view(action: string, plan: Awaited<ReturnType<typeof planInit>>, fullJson: boolean): object {
   if (fullJson) return { action, ...plan };
   return {
     action, host: plan.host, packs: plan.packs, version: plan.version,
+    ...(plan.replaces !== undefined ? {
+      replaces: `the untouched installation ${plan.replaces}: its files, setup output and .bounded/ state are removed, and setup runs again`,
+    } : {}),
     filesToCreate: Object.keys(plan.createdFiles).length,
     paths: Object.keys(plan.createdFiles),
     harnessFiles: Object.keys(plan.files).length,

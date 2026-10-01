@@ -15,8 +15,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logGuardEvent } from "../../src/guard-log.ts";
 import {
-  dependenciesReady, insideProject, projectReadAllowed, SETUP_COMMAND, setupPermitted,
+  dependenciesReady, insideProject, projectReadAllowed, replanPermitted, SETUP_COMMAND, setupPermitted,
 } from "../../src/setup-state.ts";
+import { parseReplanCommand } from "../../src/init-command.ts";
 import { claudeProjectRead } from "./project-read.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +84,12 @@ function main(): void {
   if (lead && tool === "Bash" && input["command"] === SETUP_COMMAND &&
       projectContext(payload?.["cwd"], true) !== undefined && setupPermitted(projectRoot)) {
     return; // Claude Code's own permission decision applies to this exact command.
+  }
+  // Re-planning the installation before the first ticket (ADR 2026-065) runs
+  // the user's own `bounded init`, which needs no project dependency.
+  if (lead && tool === "Bash" && parseReplanCommand(input["command"], "claude-code")?.ok === true &&
+      projectContext(payload?.["cwd"], true) !== undefined && replanPermitted(projectRoot)) {
+    return;
   }
   if (raw !== undefined && dependenciesReady(projectRoot)) {
     const full = spawnSync(process.execPath, [join(here, "path-gate-hook.ts"), ...process.argv.slice(2)], {

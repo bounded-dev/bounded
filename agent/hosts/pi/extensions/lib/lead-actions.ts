@@ -3,7 +3,7 @@
 // tool carries several shapes in one tool; only a plain launch of one seat
 // on one task is a commission the lead may make.
 
-import { LEAD_PREPARE_TOOL, LEAD_SETUP_TOOL, type SeatAction } from "../../../../src/lead-policy.ts";
+import { LEAD_PREPARE_TOOL, LEAD_REPLAN_TOOL, LEAD_SETUP_TOOL, type SeatAction } from "../../../../src/lead-policy.ts";
 import { searchPatternContained } from "../../../../src/setup-state.ts";
 
 const PROJECT_READS = new Set(["read", "grep", "find", "ls"] as const);
@@ -82,6 +82,7 @@ export function piSeatAction(toolName: string, input: Readonly<Record<string, un
   if (OBSERVERS.has(toolName)) return { kind: "observe", tool: toolName };
   if (toolName === LEAD_PREPARE_TOOL) return { kind: "prepare" };
   if (toolName === LEAD_SETUP_TOOL) return { kind: "setup" };
+  if (toolName === LEAD_REPLAN_TOOL) return { kind: "replan" };
   if (toolName === "subagent") return subagentAction(input);
   if (toolName === SUPERVISOR_TOOL) return supervisorAction(input);
   return { kind: "other", tool: toolName };

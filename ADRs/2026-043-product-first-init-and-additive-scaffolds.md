@@ -4,8 +4,9 @@
 
 ## Decision
 
-Bare `bounded init` tells the current agent to ask what application the user
-wants before discussing implementation. The agent infers capability names
+Bare `bounded init` tells the current agent to ask for the product before
+discussing implementation: since ADR 2026-065, the product spec first, mapped
+to product surfaces. The agent infers capability names
 privately and plans the complete selection; an unsupported requirement blocks
 initialization rather than being silently dropped. The CLI invokes no model.
 The core can run one scaffold contribution from each selected capability in

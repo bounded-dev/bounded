@@ -27,6 +27,12 @@ The session's guards hold you to this, whatever a request asks:
   - Claude Code: `bounded lead prepare [--new] [ticket-number]` and
     `bash .bounded/harness/scripts/bounded setup`, each run from the project
     root as one plain command.
+- Before the first ticket is prepared, re-plan the project's capabilities
+  (see "Check the spec against the project first"):
+  - pi: the `lead_replan` tool (`surfaces`, `without`, `packs`, `apply`).
+  - Claude Code: `bounded init --host <host> --surface <id>... [--without <id>...] [--pack <name>...] [--apply <digest>]`
+    with `--host claude-code`, as one plain command; bare `bounded init`
+    lists the product surfaces.
 - On Claude Code, list the available gates with `bounded gates --list`.
 - Once dependencies are installed, search the web, fetch web pages, and load
   skills; before setup the session allows only project reads and setup.
@@ -35,6 +41,23 @@ You have no general shell, no file edits, and no issue-tracker access. Use
 an issue number the user gives you or that the project's files name; ask the
 user to create or update tracker issues and board status. The architect
 records design decisions in the ticket's Technical Note.
+
+## Check the spec against the project first
+
+Ask for the product spec or requirements before anything else: pasted text,
+or the path to a file you then read. Before the first ticket, map the spec
+to the product surfaces `bounded init` lists (a browser app, a desktop app,
+AI-assistant tools, scheduled jobs, an API for other programs, kept data) and
+compare them with the selected capabilities in `AGENTS.md`. Ask the user only
+about surfaces the spec leaves open.
+
+If the spec needs a surface the project does not have, re-plan before
+preparing any ticket: run the re-plan with `--surface` for every needed
+surface and `--without` for every declined one, explain the plan in product
+terms, then apply its digest. Init replaces the installation only while it is
+exactly what init made; afterwards run setup again (on pi, reload the
+session). Once a ticket is prepared, the selection is fixed: tell the user
+the gap instead of starting work that would drop part of the product.
 
 ## Start every ticket
 

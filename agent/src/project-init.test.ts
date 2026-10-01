@@ -7,7 +7,7 @@ import { decide } from "./path-policy.ts";
 import { setupPlan } from "./setup-state.ts";
 import {
   applyInit, declaresNoInitializer, defaultSelection, describeInit, exampleContracts, exampleWorkspaces, localPackPaths,
-  importedPackageNames, planInit, projectNameOf, runtimeBuiltinModules, withoutTemplateText,
+  importedPackageNames, planInit, projectNameOf, runtimeBuiltinModules, surfaceSelection, withoutTemplateText,
 } from "./project-init.ts";
 
 /** The whole stack, in the order packs/default-stack.json records it. */
@@ -322,6 +322,74 @@ describe("project-local initialization", () => {
     const rerun = await planInit(target, host, ["ts-web"]);
     expect(rerun.digest).toBe(plan.digest);
   });
+
+  test("before the first ticket, a wrong selection is re-planned in place from the spec's surfaces", async () => {
+    // The dogfood: "web app for project management" chose web and Postgres;
+    // the spec then needed the desktop, assistants and the scheduled export.
+    const target = join(empty(), "pm-notes");
+    mkdirSync(join(target, ".git"), { recursive: true });
+    writeFileSync(join(target, ".git", "HEAD"), "ref: refs/heads/main\n");
+    const first = surfaceSelection({ needed: ["browser-ui", "persistence"], declined: ["desktop", "assistant-tools", "scheduled-jobs"] });
+    if (first.kind !== "selected") throw new Error(first.kind);
+    const narrow = await planInit(target, "claude-code", first.packs);
+    await applyInit(target, "claude-code", first.packs, narrow.digest);
+    // What setup and the lead leave behind before any ticket.
+    mkdirSync(join(target, "node_modules", ".bun"), { recursive: true });
+    writeFileSync(join(target, "node_modules", ".bun", "x"), "");
+    mkdirSync(join(target, ".bounded", "harness", "node_modules"), { recursive: true });
+    writeFileSync(join(target, ".bounded", "setup-complete"), "complete\n");
+    writeFileSync(join(target, ".bounded", "guard-log.jsonl"),
+      JSON.stringify({ ts: "t", guard: "team-lead", verdict: "pass", summary: "setup", detail: { kind: "setup" } }) + "\n");
+
+    const full = surfaceSelection({ needed: ["browser-ui", "desktop", "assistant-tools", "scheduled-jobs", "persistence"], declined: [] });
+    if (full.kind !== "selected") throw new Error(full.kind);
+    const replan = await planInit(target, "claude-code", full.packs);
+    expect(replan.packs).toEqual(DEFAULT_STACK);
+    expect(replan.replaces).toBe(narrow.digest);
+    // Planning writes nothing.
+    expect(readFileSync(join(target, ".bounded/composed-packs.json"), "utf8")).not.toContain("ts-desktop");
+    await expect(applyInit(target, "claude-code", full.packs, narrow.digest)).rejects.toThrow(/Plan changed/);
+    expect(existsSync(join(target, ".bounded/setup-complete"))).toBe(true);
+
+    const applied = await applyInit(target, "claude-code", full.packs, replan.digest);
+    expect(applied.digest).toBe(replan.digest);
+    expect(JSON.parse(readFileSync(join(target, ".bounded/composed-packs.json"), "utf8"))).toEqual([...DEFAULT_STACK].sort());
+    expect(existsSync(join(target, ".bounded/harness/packs/ts-desktop"))).toBe(true);
+    // Setup output and state went with the old installation: setup runs again.
+    for (const gone of ["node_modules", ".bounded/setup-complete", ".bounded/guard-log.jsonl", ".bounded/harness/node_modules"]) {
+      expect(existsSync(join(target, gone)), gone).toBe(false);
+    }
+    expect(readFileSync(join(target, ".git", "HEAD"), "utf8")).toBe("ref: refs/heads/main\n");
+    // The result is what a fresh init of the full stack would have written.
+    const fresh = join(empty(), "pm-notes");
+    mkdirSync(fresh);
+    expect(Object.keys((await planInit(fresh, "claude-code", full.packs)).createdFiles)).toEqual(Object.keys(applied.createdFiles));
+    // Re-running the applied plan is a no-op.
+    expect((await planInit(target, "claude-code", full.packs)).digest).toBe(replan.digest);
+  }, 300_000);
+
+  test("re-planning refuses once work has started or the project has changed", async () => {
+    const target = empty();
+    const plan = await planInit(target, "claude-code", ["ts-trpc"]);
+    await applyInit(target, "claude-code", ["ts-trpc"], plan.digest);
+    const wider = ["ts-web", "ts-trpc"];
+
+    writeFileSync(join(target, "notes.md"), "my notes\n");
+    await expect(planInit(target, "claude-code", wider)).rejects.toThrow(/cannot be re-planned: files were added since initialization \(notes\.md\)/);
+    rmSync(join(target, "notes.md"));
+
+    const readme = readFileSync(join(target, "README.md"), "utf8");
+    writeFileSync(join(target, "README.md"), "my product\n");
+    await expect(planInit(target, "claude-code", wider)).rejects.toThrow(/README\.md changed since initialization/);
+    writeFileSync(join(target, "README.md"), readme);
+
+    writeFileSync(join(target, ".bounded", "active-ticket"), "1\n");
+    await expect(planInit(target, "claude-code", wider)).rejects.toThrow(/a ticket has already been prepared or run/);
+    rmSync(join(target, ".bounded", "active-ticket"));
+
+    // Otherwise the project can be re-planned.
+    expect((await planInit(target, "claude-code", wider)).replaces).toBe(plan.digest);
+  }, 120_000);
 
   test("normal product edits survive rerun; installer-owned edits block", async () => {
     const target = empty();
