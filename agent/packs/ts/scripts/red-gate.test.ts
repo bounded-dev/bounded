@@ -438,10 +438,33 @@ describe("tests of generated code, and the test lint, at red", () => {
     expect(r.lines).toContain("x.test.ts:1:1  bounded-ts/no-generated-subject  the fix");
   });
 
-  test("a red routed upstream is left to its owner", () => {
+  test("a red routed upstream keeps its owner, and carries the lint's lines marked for the test-writer after that owner", () => {
     const upstream = classifyRed(run({ total: 1, failed: 1, results: [{ name: "b", status: "failed", message: NI("b") }] }), tsc(CONTRACT_TYPE_ERR), TS_ZONE);
     expect(upstream.detail.route).toBe("architect");
-    expect(withTestLint(upstream, lint("bounded-ts/no-generated-subject"))).toBe(upstream);
+    const r = withTestLint(upstream, lint("bounded-ts/no-generated-subject"));
+    expect(r.detail.route).toBe("architect");
+    expect(r.lines.at(-1)).toBe("red-gate: route → architect");
+    expect(r.lines).toContain("x.test.ts:1:1  bounded-ts/no-generated-subject  the fix");
+    expect(r.lines.join("\n")).toMatch(/for the test-writer, after the architect's fix above: the test lint also refused/);
+  });
+
+  test("a fully green suite whose tests exercise only generated code is explained too", () => {
+    const green = classifyRed(run({ total: 1, passed: 1, results: [{ name: ONLY[0]!.name, status: "passed" }] }), TYPE_CLEAN);
+    expect(green.detail.reason).toBe("fully-green");
+    const r = withGeneratedOnly(green, ONLY);
+    expect(r.lines).toContain(`  only generated code: ${ONLY[0]!.name} (CreateNoteCommand from ./create-note.command.ts)`);
+    expect(r.detail).toMatchObject({ reason: "fully-green", route: "test-writer", generatedOnly: [ONLY[0]!.name] });
+  });
+
+  test("a test the generated-only explanation lists is not listed again among the lint's lines", () => {
+    const listed = withGeneratedOnly(SPURIOUS, [{ ...ONLY[0]!, at: "x.test.ts:1" }]);
+    const same = withTestLint(listed, lint("bounded-ts/no-generated-subject"));
+    expect(same).toBe(listed);
+    const other = withTestLint(listed, {
+      ...lint("bounded-ts/no-generated-subject"),
+      lines: ["x.test.ts:1:1  bounded-ts/no-generated-subject  the fix", "x.test.ts:9:1  bounded-ts/no-generated-subject  the fix", "lint-src: 2 problems"],
+    });
+    expect(other.lines.filter((l) => l.includes("no-generated-subject  "))).toEqual(["x.test.ts:9:1  bounded-ts/no-generated-subject  the fix"]);
   });
 
   test("end to end: red names the generated-only passes and the lint refusals, routed to the test-writer", async () => {
@@ -462,7 +485,8 @@ describe("CreateNoteCommand.parse", () => {
     expect(result.lines).toContain(
       "  only generated code: CreateNoteCommand.parse > refuses a number (CreateNoteCommand from ./create-note.command.ts)",
     );
-    expect(result.lines.some((l) => l.includes("bounded-ts/no-generated-subject"))).toBe(true);
+    // The test lint refused the same test; it is said once, not twice.
+    expect(result.lines.filter((l) => l.includes("refuses a number") || l.includes("bounded-ts/no-generated-subject"))).toHaveLength(1);
     expect(result.lines.at(-1)).toBe("red-gate: route → test-writer");
   });
 

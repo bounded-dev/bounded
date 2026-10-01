@@ -147,7 +147,12 @@ function classifySuite(run: RunTestsResult): GateResult {
       lines: [
         `red-gate: FAIL — suite fully passes (${run.passed}/${run.total}); red phase expects NotImplemented failures`,
       ],
-      detail: { reason: "fully-green", passed: run.passed, total: run.total },
+      detail: {
+        reason: "fully-green",
+        passed: run.passed,
+        total: run.total,
+        passing: run.results.filter((r) => r.status === "passed").map((r) => r.name),
+      },
     };
   }
   // Every failure must be a NotImplementedError.
@@ -617,6 +622,8 @@ function withObligations(cwd: string, facts: ProjectFacts, base: GateResult, run
 export interface GeneratedOnlyPass {
   readonly name: string;
   readonly subjects: readonly string[];
+  /** Where the test is, as the test lint reports it: `<file>:<line>`. */
+  readonly at?: string;
 }
 
 /**
@@ -634,8 +641,10 @@ export function generatedOnlyPasses(cwd: string, run: RunTestsResult): Generated
   for (const result of passing) {
     const file = result.file!;
     if (!byFile.has(file)) byFile.set(file, generatedOnlyTests(cwd, file, resolve));
-    const subjects = byFile.get(file)!.get(result.name);
-    if (subjects !== undefined) out.push({ name: result.name, subjects: [...new Set(subjects.map(subjectLabel))] });
+    const test = byFile.get(file)!.get(result.name);
+    if (test !== undefined) {
+      out.push({ name: result.name, subjects: [...new Set(test.subjects.map(subjectLabel))], at: `${file}:${test.line}` });
+    }
   }
   return out;
 }
@@ -648,16 +657,24 @@ function beforeRoute(lines: readonly string[], extra: readonly string[]): string
     : [...lines, ...extra];
 }
 
+/** The verdicts that refuse tests for passing against the skeletons. */
+const PASSED_AT_RED = new Set(["spurious-pass", "fully-green"]);
+
+/** Does this verdict refuse tests for passing at red? */
+export function refusesPassingTests(result: GateResult): boolean {
+  return PASSED_AT_RED.has(String(result.detail.reason));
+}
+
 /**
- * A spurious pass explained (issue #36): a test that passed against the
+ * A pass at red explained (issue #36): a test that passed against the
  * skeletons because it exercises only generated code (a command, an in
  * adapter) can never fail for the right reason, and the generated laws
- * already test that code. Say so, and tell the test-writer to remove it
- * rather than rewrite it. The route is unchanged: the tests are the
- * test-writer's. Pure.
+ * already test that code. Say so, whether some tests passed or all of them
+ * did, and tell the test-writer to remove them rather than rewrite them. The
+ * route is unchanged: the tests are the test-writer's. Pure.
  */
 export function withGeneratedOnly(result: GateResult, all: readonly GeneratedOnlyPass[]): GateResult {
-  if (result.detail.reason !== "spurious-pass") return result;
+  if (!refusesPassingTests(result)) return result;
   // Only the tests the verdict refused: a passing generated law is not one.
   const refused = new Set(Array.isArray(result.detail.passing) ? (result.detail.passing as unknown[]) : []);
   const generatedOnly = all.filter((g) => refused.has(g.name));
@@ -666,15 +683,25 @@ export function withGeneratedOnly(result: GateResult, all: readonly GeneratedOnl
   return {
     ...result,
     summary: `${result.summary}; ${n} exercise${n === 1 ? "s" : ""} only generated code`,
-    lines: beforeRoute(result.lines, [
+    // Each listed test once: under the explanation, not also as a bare pass.
+    lines: beforeRoute(result.lines.filter((l) => !generatedOnly.some((g) => l === `  passed against skeleton: ${g.name}`)), [
       `red-gate: ${n} of the passing tests exercise${n === 1 ? "s" : ""} only generated code. Generated code works before anything ` +
         "is built, and its generated laws (*.laws.test.ts) already test it, so no such test can fail for the right reason. " +
         "Remove these tests; do not rewrite them to fail:",
       ...generatedOnly.map((g) => `  only generated code: ${g.name} (${g.subjects.join(", ")})`),
     ]),
-    detail: { ...result.detail, generatedOnly: generatedOnly.map((g) => g.name) },
+    detail: {
+      ...result.detail,
+      generatedOnly: generatedOnly.map((g) => g.name),
+      ...(generatedOnly.some((g) => g.at !== undefined)
+        ? { generatedOnlyAt: generatedOnly.flatMap((g) => (g.at === undefined ? [] : [g.at])) }
+        : {}),
+    },
   };
 }
+
+/** The test lint's own rule for tests of generated code (the ts pack's). */
+const GENERATED_SUBJECT_RULE = "bounded-ts/no-generated-subject";
 
 const ESCAPE_HATCHES = new Set([
   "@typescript-eslint/no-non-null-assertion",
@@ -685,15 +712,23 @@ const ESCAPE_HATCHES = new Set([
 
 /**
  * The test lint's half of the red. A valid red the test lint refuses blocks;
- * a red already refused for the test-writer carries the lint's lines too, so
- * one bounce fixes both (issue #36: an import the architecture test forbids
- * and a test of generated code each surfaced only after the other). Pure.
+ * any other red carries the lint's lines too, so one bounce fixes both
+ * (issue #36: an import the architecture test forbids and a test of
+ * generated code each surfaced only after the other). On a red routed past
+ * the test-writer they are marked as the test-writer's, after the current
+ * owner's fix; the route is unchanged. A test the generated-only explanation
+ * already lists is not listed again. Pure.
  */
 export function withTestLint(base: GateResult, testLint: Pick<LintSrcResult, "code" | "summary" | "lines" | "detail">): GateResult {
   if (testLint.code !== 1) return base;
   const problems = (testLint.detail.problems ?? []) as readonly { ruleId: string }[];
+  const listed = Array.isArray(base.detail.generatedOnlyAt) ? (base.detail.generatedOnlyAt as string[]) : [];
+  const alreadySaid = (line: string): boolean =>
+    line.includes(`  ${GENERATED_SUBJECT_RULE}  `) && listed.some((at) => line.startsWith(`${at}:`));
+  const problemLines = testLint.lines.slice(0, -1).filter((line) => !alreadySaid(line));
+  if (problemLines.length === 0) return base;
   const lintLines = [
-    ...testLint.lines.slice(0, -1),
+    ...problemLines,
     ...(problems.some((p) => ESCAPE_HATCHES.has(p.ruleId))
       ? ["red-gate: a non-null assertion, cast, any or ts-comment in a test helper undermines every assertion built on it"]
       : []),
@@ -714,13 +749,14 @@ export function withTestLint(base: GateResult, testLint: Pick<LintSrcResult, "co
       detail: { reason: onlyEscapes ? "test-escape-hatches" : "test-lint", ...testLint.detail, route: "test-writer" },
     };
   }
-  if (base.detail.route !== "test-writer") return base;
+  const route = typeof base.detail.route === "string" ? base.detail.route : undefined;
+  const header = route === undefined || route === "test-writer"
+    ? `red-gate: the test lint also refused the test sources (${testLint.summary}); each line names the fix`
+    : `red-gate: for the test-writer, after the ${route}'s fix above: the test lint also refused the test sources ` +
+      `(${testLint.summary}); each line names the fix`;
   return {
     ...base,
-    lines: beforeRoute(base.lines, [
-      `red-gate: the test lint also refused the test sources (${testLint.summary}); each line names the fix`,
-      ...lintLines,
-    ]),
+    lines: beforeRoute(base.lines, [header, ...lintLines]),
     detail: { ...base.detail, testLint: testLint.detail.problems },
   };
 }
@@ -809,7 +845,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   const [raw, tsc, testLint] = prepared.value;
   const { run, skipped } = withoutPolicySkips(raw, policy);
   const classified = classifyRed(run, tsc, projectOwnerOf(cwd), pathGlobMatcher(generatedFileGlobs(cwd)));
-  const generatedOnly = classified.detail.reason === "spurious-pass" ? generatedOnlyPasses(cwd, run) : [];
+  const generatedOnly = refusesPassingTests(classified) ? generatedOnlyPasses(cwd, run) : [];
   const base = withTestLint(withGeneratedOnly(classified, generatedOnly), testLint);
   // Obligations are only meaningful once the red itself is valid.
   const judged = base.code === 0 ? withObligations(cwd, facts, base, run) : base;
