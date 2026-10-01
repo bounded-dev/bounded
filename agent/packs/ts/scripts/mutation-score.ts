@@ -123,7 +123,7 @@ import {
 import { basename, join, relative, sep } from "node:path";
 import { generatedFileGlobs, hasTestFileSuffix, pathGlobMatcher, sourceRoots, testFileSuffixes } from "../../../src/pack-contrib.ts";
 import { expandSourceRoots } from "../../../src/path-gate.ts";
-import { phaseRun } from "./phase-policy.ts";
+import { phaseRun, type PhaseRun, withPreparedServices } from "./phase-policy.ts";
 import { fileURLToPath } from "node:url";
 import { Node, Project, SyntaxKind } from "ts-morph";
 import type { SourceFile } from "ts-morph";
@@ -402,19 +402,19 @@ export interface SuiteOutcome {
   readonly timedOut?: boolean;
 }
 
-/** Runs the target's suite once. Injectable so tests never spawn bun. */
-export type SuiteRunner = (cwd: string, timeoutMs: number) => Promise<SuiteOutcome>;
+/** Runs the target's suite once, in the test environment `env` (the phase
+ *  test policies' variables, services included). Injectable so tests never
+ *  spawn bun. */
+export type SuiteRunner = (cwd: string, timeoutMs: number, env: PhaseRun["env"]) => Promise<SuiteOutcome>;
 
-/** The real runner: run_tests' bun runner, bounded by an AbortSignal, with
- *  the environment the phase test policies give a green run. */
-export const bunSuiteRunner: SuiteRunner = async (cwd, timeoutMs) => {
+/** The real runner: run_tests' bun runner, bounded by an AbortSignal, in the
+ *  environment the gate prepared once for the whole measurement. */
+export const bunSuiteRunner: SuiteRunner = async (cwd, timeoutMs, env) => {
   const signal = AbortSignal.timeout(timeoutMs);
-  const policy = phaseRun(cwd, "green");
-  if (policy.refusals.length > 0) return { ok: false, note: policy.refusals.join("; ") };
   try {
     const result = await runTests(cwd, {
-      env: policy.env,
-      run: (command, args, dir, _signal, env) => spawnRunner(command, args, dir, signal, env),
+      env,
+      run: (command, args, dir, _signal, childEnv) => spawnRunner(command, args, dir, signal, childEnv),
     });
     if (result.blocked !== undefined) return { ok: false, note: "suite blocked" };
     return { ok: result.ok, note: result.ok ? "green" : `${result.failed} failed` };
@@ -423,6 +423,9 @@ export const bunSuiteRunner: SuiteRunner = async (cwd, timeoutMs) => {
     throw e;
   }
 };
+
+/** A run with no policy at all: what an injected suite runner gets by default. */
+const NO_POLICY: Pick<PhaseRun, "refusals" | "env" | "prepares"> = { refusals: [], env: { set: {}, unset: [] }, prepares: [] };
 
 // --- runner ---------------------------------------------------------------------
 
@@ -441,6 +444,11 @@ export interface MutationScoreOptions {
   readonly timeoutMs?: number;
   /** Suite runner. Default {@link bunSuiteRunner}. */
   readonly runSuite?: SuiteRunner;
+  /** The phase test policies the whole measurement runs under. Default: the
+   *  project's green policies with the default runner, none with an injected
+   *  one. Services they prepare (a throwaway database) are started once,
+   *  before the baseline, and released after the last mutant. */
+  readonly policy?: Pick<PhaseRun, "refusals" | "env" | "prepares">;
 }
 
 export interface MutationScoreResult {
@@ -547,41 +555,60 @@ export async function runMutationScore(
     return { code: 0, lines, sites: allSites.length, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
   }
 
-  // --- baseline: a score against a red suite is meaningless ---
-  const baseline = await runSuite(cwd, timeoutMs);
-  if (!baseline.ok) {
-    return misuse(
-      `the suite is not green before mutation (${baseline.note}) — ` +
-        "every mutant would 'die' for a reason that has nothing to do with it",
-    );
+  // The green policies, once for the whole measurement: a refusal (no
+  // container runtime for a project that needs one) stops it, and a service
+  // they prepare backs the baseline and every mutant, never the developer's
+  // own database.
+  const policy = options.policy ?? (options.runSuite === undefined ? phaseRun(cwd, "green") : NO_POLICY);
+  if (policy.refusals.length > 0) {
+    const summary = policy.refusals.join("; ");
+    log("block", summary, { reason: "test-policy" });
+    return { code: 1, lines: [...lines, ...policy.refusals.map((r) => `mutation-score: BLOCK — ${r}`)], sites: allSites.length, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
   }
 
-  // --- the loop: one mutant at a time ---
-  const outcomes: MutantOutcome[] = [];
-  for (const site of mutants) {
-    const abs = join(cwd, site.file);
-    const original = originals.get(site.file)!;
-    const text = original.toString("utf8");
-    writeFileSync(abs, text.slice(0, site.start) + site.replacement + text.slice(site.end));
-
-    let outcome: SuiteOutcome;
-    try {
-      outcome = await runSuite(cwd, timeoutMs);
-    } finally {
-      writeFileSync(abs, original);
-      // Verify, do not trust: this is the user's repository.
-      if (!readFileSync(abs).equals(original)) {
-        throw new MutationScoreError(
-          `mutation-score: failed to restore ${site.file} after a mutant — the target may be left modified`,
-        );
-      }
+  const measured = await withPreparedServices(policy, async (env): Promise<MutantOutcome[] | string> => {
+    // --- baseline: a score against a red suite is meaningless ---
+    const baseline = await runSuite(cwd, timeoutMs, env);
+    if (!baseline.ok) {
+      return `the suite is not green before mutation (${baseline.note}) — ` +
+        "every mutant would 'die' for a reason that has nothing to do with it";
     }
 
-    const verdict: MutantVerdict = outcome.timedOut === true ? "timeout" : outcome.ok ? "survived" : "killed";
-    const record = { site, verdict, note: outcome.note };
-    outcomes.push(record);
-    lines.push(reportLine(record));
+    // --- the loop: one mutant at a time ---
+    const done: MutantOutcome[] = [];
+    for (const site of mutants) {
+      const abs = join(cwd, site.file);
+      const original = originals.get(site.file)!;
+      const text = original.toString("utf8");
+      writeFileSync(abs, text.slice(0, site.start) + site.replacement + text.slice(site.end));
+
+      let outcome: SuiteOutcome;
+      try {
+        outcome = await runSuite(cwd, timeoutMs, env);
+      } finally {
+        writeFileSync(abs, original);
+        // Verify, do not trust: this is the user's repository.
+        if (!readFileSync(abs).equals(original)) {
+          throw new MutationScoreError(
+            `mutation-score: failed to restore ${site.file} after a mutant — the target may be left modified`,
+          );
+        }
+      }
+
+      const verdict: MutantVerdict = outcome.timedOut === true ? "timeout" : outcome.ok ? "survived" : "killed";
+      const record = { site, verdict, note: outcome.note };
+      done.push(record);
+      lines.push(reportLine(record));
+    }
+    return done;
+  });
+  if (!measured.ok) {
+    log("block", measured.reason, { reason: "test-policy" });
+    return { code: 1, lines: [...lines, `mutation-score: BLOCK — ${measured.reason}`], sites: allSites.length, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
   }
+  if (typeof measured.value === "string") return misuse(measured.value);
+  for (const line of measured.lines) lines.unshift(`mutation-score: ${line}`);
+  const outcomes = measured.value;
 
   // --- report ---
   const survivors = outcomes.filter((o) => o.verdict === "survived");

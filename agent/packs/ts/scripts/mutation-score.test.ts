@@ -411,6 +411,58 @@ describe("runMutationScore", () => {
     expect(readGuardLog(dir).at(-1)?.verdict).toBe("error");
   });
 
+  test("the baseline and every mutant run inside ONE prepared service, never the inherited database", async () => {
+    const dir = proj();
+    const events: string[] = [];
+    const urls = new Set<string | undefined>();
+    const result = await runMutationScore(dir, {
+      maxMutants: 3,
+      policy: {
+        refusals: [],
+        env: { set: {}, unset: ["DATABASE_URL"] },
+        prepares: [{ name: "db", prepare: () => {
+          events.push("start");
+          return { description: "started a throwaway database", env: { DATABASE_URL: "postgres://throwaway" }, release: () => void events.push("release") };
+        } }],
+      },
+      runSuite: async (_cwd, _timeout, env) => {
+        events.push("run");
+        urls.add(env.set["DATABASE_URL"]);
+        expect(env.unset).not.toContain("DATABASE_URL");
+        return { ok: events.filter((e) => e === "run").length === 1, note: "x" };
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(events).toEqual(["start", "run", "run", "run", "run", "release"]);
+    expect([...urls]).toEqual(["postgres://throwaway"]);
+    expect(result.lines[0]).toBe("mutation-score: started a throwaway database");
+  });
+
+  test("a policy refusal (no container runtime) blocks before any suite runs or file is mutated", async () => {
+    const dir = proj();
+    let ran = false;
+    const result = await runMutationScore(dir, {
+      policy: { refusals: ["green needs a container runtime … Start Docker"], env: { set: {}, unset: [] }, prepares: [] },
+      runSuite: async () => { ran = true; return { ok: true, note: "green" }; },
+    });
+    expect(result.code).toBe(1);
+    expect(result.lines.at(-1)).toMatch(/BLOCK — .*Start Docker/);
+    expect(ran).toBe(false);
+    expect(dirtyFiles(dir)).toEqual([]);
+  });
+
+  test("a service that cannot start blocks, and the suite never runs against anything else", async () => {
+    const dir = proj();
+    let ran = false;
+    const result = await runMutationScore(dir, {
+      policy: { refusals: [], env: { set: {}, unset: [] }, prepares: [{ name: "db", prepare: () => { throw new Error("no image"); } }] },
+      runSuite: async () => { ran = true; return { ok: true, note: "green" }; },
+    });
+    expect(result.code).toBe(1);
+    expect(result.lines.at(-1)).toMatch(/could not start what the run needs: no image/);
+    expect(ran).toBe(false);
+  });
+
   test("misuse: a target that is not a project", async () => {
     const missing = join(tmpdir(), "pi-mutation-does-not-exist-" + String(Date.now()));
     expect((await runMutationScore(missing, { runSuite: indexedRunner() })).code).toBe(2);
