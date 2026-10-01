@@ -1174,7 +1174,10 @@ export function decide(
       if (unknown || suffixes.some((suffix) => lower.endsWith(suffix))) {
         if (scope.error) return block(`path-gate: ${scope.error}`);
         if (!scope.contracts.includes(t)) {
-          return block(`path-gate: contract '${t}' is not owned by ticket #${scope.ticket}`);
+          return block(
+            `path-gate: contract '${t}' is not owned by ticket #${scope.ticket}; ` +
+            `list it under \`contracts:\` in the front matter of docs/tn/TN-${scope.ticket}.md, then write it`,
+          );
         }
       }
     }

@@ -196,6 +196,85 @@ describe("cleanCause: the review's repro", () => {
     );
   });
 
+  test("a value separated by a space from a secret flag or environment name (issue #37)", () => {
+    expect(cleanCause("psql --password hunter2 -h db --db-token=t1 --api-key k2", HOME))
+      .toBe("psql --password [redacted] -h db --db-token=[redacted] --api-key [redacted]");
+    expect(cleanCause("env PGPASSWORD hunter2 POSTGRES_PASSWORD 'two words' DB_PASS x1 psql", HOME))
+      .toBe("env PGPASSWORD [redacted] POSTGRES_PASSWORD [redacted] DB_PASS [redacted] psql");
+    expect(cleanCause("docker login -u bob -p hunter2 registry.example.com", HOME))
+      .toBe("docker login -u bob -p [redacted] registry.example.com");
+  });
+
+  test("pass= and pwd=, quoted values with spaces, and URL passwords with unencoded spaces (issue #37)", () => {
+    expect(cleanCause("pass=hunter2 pwd=hunter2 db_pass=x PG_PWD: y", HOME))
+      .toBe("pass=[redacted] pwd=[redacted] db_pass=[redacted] PG_PWD: [redacted]");
+    expect(cleanCause(`password="correct horse battery" secret='a b' {"token": "x y"} next`, HOME))
+      .toBe(`password="[redacted]" secret='[redacted]' {"token": "[redacted]"} next`);
+    expect(cleanCause("postgres://user:pa ss word@db:5432/x tail", HOME)).toBe("postgres://[redacted]@db:5432/x tail");
+    expect(cleanCause("postgresql://user:p@ss w0rd@localhost/db", HOME)).toBe("postgresql://[redacted]@localhost/db");
+  });
+
+  test("absolute machine paths outside home and the temp directory (issue #37)", () => {
+    expect(cleanCause("ENOENT /opt/app/node_modules/x.js while loading (/workspace/proj/src/a.ts:3:4) from /srv/data", HOME))
+      .toBe("ENOENT [path] while loading ([path]) from [path]");
+    expect(cleanCause("cannot open Error:/srv/postgresql/pg_hba.conf", HOME)).toBe("cannot open Error:[path]");
+    expect(cleanCause("lstat /mnt/c/Users/bob/proj: no such file", HOME)).toBe("lstat [path]: no such file");
+  });
+
+  test("secret names are whole tokens; an error's own word after a colon is not a value (review of #37)", () => {
+    for (const text of [
+      'Error response from daemon: Get "https://registry-1.docker.io/v2/": unauthorized: incorrect username or password',
+      "error from registry: auth: unauthorized",
+      "token: invalid",
+      "key mismatch in image manifest",
+    ]) expect(cleanCause(text, HOME)).toBe(text);
+    expect(cleanCause("auth: dXNlcjpwYXNz token=invalid --password=hunter2", HOME))
+      .toBe("auth: [redacted] token=[redacted] --password=[redacted]");
+  });
+
+  test("an Authorization header loses its scheme and its credential (review of #37)", () => {
+    expect(cleanCause("Authorization: Token abcdef123456 next", HOME)).toBe("Authorization: [redacted] next");
+    expect(cleanCause("authorization: Bearer abc.def", HOME)).toBe("authorization: [redacted]");
+    expect(cleanCause("Proxy-Authorization: Basic Ym9iOmh1bnRlcjI=", HOME)).toBe("Proxy-Authorization: [redacted]");
+    expect(cleanCause("Authorization: token=abc", HOME)).toBe("Authorization: [redacted]");
+    expect(cleanCause('{"Authorization":"Token abc"}', HOME)).toBe('{"Authorization":"[redacted]"}');
+  });
+
+  test("upper-case prose after a secret's name stays as written (review of #37)", () => {
+    for (const text of ["PASSWORD AUTHENTICATION FAILED FOR USER bob", "TOKEN EXPIRED", "API_KEY header missing", "API_KEY header was missing"]) {
+      expect(cleanCause(text, HOME)).toBe(text);
+    }
+    expect(cleanCause("PGPASSWORD HUNTER2 psql", HOME)).toBe("PGPASSWORD [redacted] psql");
+  });
+
+  test("system directories stay as written; user and project paths do not (review of #37)", () => {
+    for (const text of [
+      "credential helper docker-credential-desktop not found in /usr/local/bin",
+      "use /usr/bin/docker",
+      "mkdir /var/lib/docker/overlay2: read-only file system",
+      "open /etc/docker/daemon.json: permission denied",
+    ]) expect(cleanCause(text, HOME)).toBe(text);
+    expect(cleanCause("dial unix /Users/someone/.orbstack/run/docker.sock: no such file /opt/work/project/a.ts:1:2", HOME))
+      .toBe("dial unix [path]: no such file [path]");
+  });
+
+  test("ordinary error text, well-known paths and port flags stay as written (issue #37)", () => {
+    for (const text of [
+      'password authentication failed for user "test"',
+      "You must specify POSTGRES_PASSWORD to a non-empty value",
+      "--password is required; use --password-stdin registry.example.com",
+      "tests passed: 3, bypass: on",
+      "docker run -p 5432:5432 postgres:16",
+      "and/or TCP/IP 5432/tcp N/A docker.io/library/postgres:16",
+      "connect ECONNREFUSED /var/run/docker.sock",
+      "connect ENOENT /run/user/1000/podman/podman.sock",
+      "unix:///var/run/docker.sock",
+      "GET /v1.43/containers/create failed",
+      'Get "https://registry-1.docker.io/v2/library/postgres/manifests/16"',
+      "/opt alone, ~/.docker/config.json",
+    ]) expect(cleanCause(text, HOME)).toBe(text);
+  });
+
   test("leaves the shape of a Docker error readable", () => {
     expect(cleanCause('Error from Docker credential provider: Error: Executable not found in $PATH: "docker-credential-desktop"', HOME))
       .toBe('Error from Docker credential provider: Error: Executable not found in $PATH: "docker-credential-desktop"');

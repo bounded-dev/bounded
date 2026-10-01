@@ -2,10 +2,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, describe, expect, test, vi } from "vitest";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
+import type { TempProject } from "../../../test/support/temp-project.ts";
+import { delivered, LOG, logLines, makeLeadProject, prepared, runStart } from "../../../test/support/lead-project.ts";
 import { adoptProject, captureChangeBaseline, readChangeBaseline, BASELINE_PATH } from "./change-baseline.ts";
-import { designDiff } from "./change-diff.ts";
+import { designDiff, FIRST_RUN_LINE } from "./change-diff.ts";
 
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -152,6 +154,49 @@ describe("change baseline and reviewer diff", () => {
     baseline.files["spec.md"].content = "tampered";
     writeFileSync(path, JSON.stringify(baseline));
     expect(() => readChangeBaseline(dir)).toThrow(/invalid snapshot|fingerprint/);
+  });
+});
+
+describe("change-diff without a baseline (issue #37)", () => {
+  const projects: TempProject[] = [];
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    while (projects.length) projects.pop()?.cleanup();
+  });
+  function ticketProject(boundary: "first" | "change" | undefined, extra: readonly Readonly<Record<string, unknown>>[] = []): string {
+    vi.stubEnv("BOUNDED_TICKET", "");
+    const events = boundary === undefined ? extra : [
+      { ...prepared("4"), detail: { kind: "run-prepared", ticket: "4", boundary } }, ...extra,
+    ];
+    const p = makeLeadProject({
+      ".bounded/active-ticket": "4\n",
+      "docs/tn/TN-4.md": "---\nissue: 4\nstatus: active\ncontracts:\n  - contexts/notes/src/t4.contract.ts\n---\n\n# Ticket 4\n",
+      "contexts/notes/src/t4.contract.ts": "export interface T4 {}\n",
+      ...(events.length > 0 ? { [LOG]: logLines(...events) } : {}),
+    });
+    projects.push(p);
+    writeProjectPacks(p.dir, ["ts", "ts-hexagonal"]);
+    return p.dir;
+  }
+
+  test("a first run reports that there is nothing to diff", () => {
+    const diff = designDiff(ticketProject("first"));
+    expect(diff.lines).toEqual([FIRST_RUN_LINE]);
+    expect(diff.paths).toEqual([]);
+  });
+
+  test("a resumed first run is still a first run", () => {
+    const resumed = { ...prepared("4"), detail: { kind: "run-prepared", ticket: "4", boundary: "resume" } };
+    expect(designDiff(ticketProject("first", [runStart, resumed])).lines).toEqual([FIRST_RUN_LINE]);
+  });
+
+  test("a change run whose baseline is missing still fails", () => {
+    expect(() => designDiff(ticketProject("change"))).toThrow(/cannot read \.bounded\/tickets\/4\/change-baseline\.json/);
+  });
+
+  test("no prepared run, or a delivered one, is not a first run", () => {
+    expect(() => designDiff(ticketProject(undefined))).toThrow(/change-baseline\.json/);
+    expect(() => designDiff(ticketProject("first", [runStart, delivered]))).toThrow(/change-baseline\.json/);
   });
 });
 
