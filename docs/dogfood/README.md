@@ -18,11 +18,16 @@ notes, so the architect cannot reach a perfect structure by copying the
 example's contracts. It has the same shape as `pm-notes-prompt.md`: one
 context with two areas (clinicians and appointments); commands and queries
 with ordered validation and exact refusal messages, including a
-cross-aggregate rule (one appointment per clinician per start time) and a
-cancel that removes; a nightly scheduled export; and the browser, desktop,
-AI-assistant and scheduled-job surfaces, with data that survives restarts.
-Product language only (ADR 2026-032): no framework, runtime, database or
-file layout is named.
+cross-aggregate rule (one appointment per clinician per start time), a
+cancel that removes, and a rule that reads the clock (no booking in the
+past); a nightly scheduled export with fixed fields; and the browser,
+desktop, AI-assistant and scheduled-job surfaces, with data that survives
+restarts. Its wording and refusal messages are the clinic's own rather than
+pm-notes' templates. What a time is (format, the clinic's single time zone,
+opening hours) and every list's order, ties included, are pinned so a run
+has no open product question. Product language only (ADR 2026-032): no
+framework, runtime, database or file layout is named. First edited in place
+after review, before any run used it.
 
 Use it on an arm initialized by `bounded init` with the whole stack
 (`scripts/dogfood/reset --init <host> --harnessed docs/dogfood/clinic-appointments-prompt.md`).
