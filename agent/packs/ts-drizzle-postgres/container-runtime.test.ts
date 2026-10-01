@@ -96,11 +96,18 @@ describe("storeTestDecision (ADR 2026-064)", () => {
   const unsetEnv = ["BOUNDED_STORE_TESTS_SKIP", "BOUNDED_STORE_TESTS_PHASE"];
   const leaked = { PATH: "/bin", BOUNDED_STORE_TESTS_SKIP: "stale reason", BOUNDED_STORE_TESTS_PHASE: "red" };
 
-  test("no store tests, or a runtime that answers: run, removing any skip variable", () => {
+  test("no store tests, or green with a runtime that answers: run, removing any skip variable", () => {
     for (const phase of ["red", "green"] as const) {
       expect(storeTestDecision(phase, [], down)).toEqual({ action: "run", unsetEnv });
-      expect(storeTestDecision(phase, tests, up)).toEqual({ action: "run", unsetEnv });
     }
+    expect(storeTestDecision("green", tests, up)).toEqual({ action: "run", unsetEnv });
+  });
+
+  test("red skips the store tests even when the runtime answers: their migrations do not exist until after red", () => {
+    const reason = "1 Drizzle store test file(s) skipped at red: they apply migrations that are generated from the builder's schema after red";
+    expect(storeTestDecision("red", tests, up)).toEqual({
+      action: "skip", reason, env: { BOUNDED_STORE_TESTS_SKIP: reason, BOUNDED_STORE_TESTS_PHASE: "red" },
+    });
   });
 
   test("red without a runtime skips the store tests with the reason and the red token", () => {
@@ -124,8 +131,6 @@ describe("storeTestDecision (ADR 2026-064)", () => {
       const env = storeTestEnv(leaked, storeTestDecision("green", tests, probe));
       expect(env).toEqual({ PATH: "/bin" });
     }
-    // Nor into red's, when the runtime answers.
-    expect(storeTestEnv(leaked, storeTestDecision("red", tests, up))).toEqual({ PATH: "/bin" });
     // Red's own skip replaces a stale reason with its own.
     expect(storeTestEnv(leaked, storeTestDecision("red", tests, down))).toEqual({
       PATH: "/bin", BOUNDED_STORE_TESTS_PHASE: "red",

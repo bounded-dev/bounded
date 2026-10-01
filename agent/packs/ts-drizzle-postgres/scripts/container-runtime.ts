@@ -153,11 +153,19 @@ export function drizzleStoreTests(root: string): string[] {
 export function storeTestDecision(
   phase: "red" | "green", storeTests: readonly string[], probe: ContainerRuntimeProbe,
 ): StoreTestDecision {
-  if (storeTests.length === 0 || probe.available) return { action: "run", unsetEnv: STORE_TEST_ENV };
+  if (storeTests.length === 0) return { action: "run", unsetEnv: STORE_TEST_ENV };
+  // Red always skips store tests, container runtime or not: they apply the
+  // context's migrations, which generate-artifacts only produces from the
+  // builder's schema after red. Running them at red would fail for that
+  // missing file, not for NotImplementedError (ADR 2026-064).
   if (phase === "red") {
-    const reason = `${storeTests.length} Drizzle store test file(s) skipped at red: ${probe.reason}`;
+    const why = probe.available
+      ? "they apply migrations that are generated from the builder's schema after red"
+      : probe.reason;
+    const reason = `${storeTests.length} Drizzle store test file(s) skipped at red: ${why}`;
     return { action: "skip", reason, env: { [STORE_TESTS_SKIP_ENV]: reason, [STORE_TESTS_PHASE_ENV]: RED_PHASE_TOKEN } };
   }
+  if (probe.available) return { action: "run", unsetEnv: STORE_TEST_ENV };
   return {
     action: "refuse",
     unsetEnv: STORE_TEST_ENV,

@@ -7,9 +7,11 @@
 Store tests run against real Postgres through Testcontainers, started lazily
 by generated test support on first use.
 
-- **Red** must never need a container runtime. When one is unavailable, the
-  red gate skips the store tests and logs why. Red evidence still covers
-  every other level.
+- **Red** never runs store tests, whether or not a container runtime
+  answers, and logs why. They apply the context's migrations, which
+  generate-artifacts only produces from the builder's schema after red, so at
+  red they could only fail for that missing file, never for
+  `NotImplementedError`. Red evidence still covers every other level.
 - **Green** refuses, with a clear message, when store tests exist and no
   container runtime is available. It never passes by skipping them.
 - Unit, handler and in-adapter tests must not need a container runtime.

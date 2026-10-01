@@ -60,9 +60,9 @@ describe("the store-test policy (ts-drizzle-postgres, ADR 2026-064)", () => {
     expect(green.action === "refuse" && green.reason).toMatch(/green needs a container runtime/);
   });
 
-  test("with a runtime both phases run", () => {
+  test("with a runtime red still skips (no migrations yet) and green runs", () => {
     const tests = ["contexts/a/src/adapters/out/drizzle/x/y.store.test.ts"];
-    expect(storeTestPhaseDecision("red", tests, present).action).toBe("run");
+    expect(storeTestPhaseDecision("red", tests, present).action).toBe("skip");
     expect(storeTestPhaseDecision("green", tests, present).action).toBe("run");
   });
 
