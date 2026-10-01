@@ -69,7 +69,8 @@ function featureGaps(input: ObligationInput, root: string, feature: FeatureContr
           continue;
         }
         const sites = callSites(sourcesAt(input.tests, [storeTest]));
-        if (![...sites.imports].some((s) => s.endsWith(`/${feature.feature}.store.test-support.ts`))) {
+        const suiteImport = (s: string): boolean => s.replace(/\.(?:tsx?|jsx?)$/, "").endsWith(`/${feature.feature}.store.test-support`);
+        if (![...sites.imports].some(suiteImport)) {
           gaps.push({ level: "store", path: storeTest, message: `${storeTest} does not run the shared conformance suite (${feature.feature}.store.test-support.ts)` });
         }
       }

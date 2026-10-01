@@ -176,6 +176,10 @@ describe("isDesignDerivedDrift", () => {
       expect(isDesignDerivedDrift({ path, problem: "missing" }, roots), path).toBe(true);
     }
   });
+  test("a dependency directory a dropped workspace leaves behind follows from the design", () => {
+    expect(isDesignDerivedDrift({ path: "contexts/old/node_modules", problem: "x" }, roots)).toBe(true);
+    expect(isDesignDerivedDrift({ path: "contexts/old/src/node_modules", problem: "x" }, roots)).toBe(false);
+  });
   test("everything else is someone's edit", () => {
     for (const path of ["package.json", "tsconfig.json", "contexts/billing/src/package.json", "libs/x/package.json", "contexts/billing/tsconfig.json"]) {
       expect(isDesignDerivedDrift({ path, problem: "differs" }, roots), path).toBe(false);

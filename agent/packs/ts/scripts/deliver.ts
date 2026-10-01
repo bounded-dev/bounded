@@ -267,6 +267,37 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     return block("composition", `the design cannot be emitted: ${error instanceof Error ? error.message : String(error)}`, {}, "orchestrator");
   }
 
+  // --- 3 (checked first, before anything mutates). generated files in sync, no skeleton left throwing ---
+  {
+    const stale = atDelivery
+      .filter((f) => f.mode === "generated")
+      .filter((f) => !existsSync(join(cwd, f.path)) || readFileSync(join(cwd, f.path), "utf8") !== f.content)
+      .map((f) => f.path);
+    if (stale.length > 0) {
+      return block(
+        "generated",
+        `${stale.length} generated file${stale.length === 1 ? " is" : "s are"} not what the design produces (${stale.join(", ")}); ` +
+          "no role writes them — run the design gate, whose scaffold step rewrites them, and prove red and green again",
+        { stale },
+        "orchestrator",
+      );
+    }
+    const throwing = atDelivery
+      .filter((f) => f.mode === "skeleton" && existsSync(join(cwd, f.path)))
+      .filter((f) => THROWS_NOT_IMPLEMENTED.test(readFileSync(join(cwd, f.path), "utf8")))
+      .map((f) => f.path);
+    if (throwing.length > 0) {
+      return block(
+        "generated",
+        `${throwing.join(", ")} still throw${throwing.length === 1 ? "s" : ""} NotImplementedError — a skeleton the builder never finished`,
+        { throwing },
+        "builder",
+      );
+    }
+    const generated = atDelivery.filter((f) => f.mode === "generated").length;
+    pass("generated", false, `${generated} generated file${generated === 1 ? "" : "s"} in sync; no skeleton left unimplemented`);
+  }
+
   // --- 1. red-phase scaffolding ---
   //
   // What the emitters produce at `red` and no longer at `deliver` is
@@ -321,37 +352,6 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     } else {
       pass("shadow", false, `no ${SHADOW_RELATIVE}/ to remove`);
     }
-  }
-
-  // --- 3. generated files in sync, no skeleton left throwing ---
-  {
-    const stale = atDelivery
-      .filter((f) => f.mode === "generated")
-      .filter((f) => !existsSync(join(cwd, f.path)) || readFileSync(join(cwd, f.path), "utf8") !== f.content)
-      .map((f) => f.path);
-    if (stale.length > 0) {
-      return block(
-        "generated",
-        `${stale.length} generated file${stale.length === 1 ? " is" : "s are"} not what the design produces (${stale.join(", ")}); ` +
-          "no role writes them — run the design gate, whose scaffold step rewrites them, and prove red and green again",
-        { stale },
-        "orchestrator",
-      );
-    }
-    const throwing = atDelivery
-      .filter((f) => f.mode === "skeleton" && existsSync(join(cwd, f.path)))
-      .filter((f) => THROWS_NOT_IMPLEMENTED.test(readFileSync(join(cwd, f.path), "utf8")))
-      .map((f) => f.path);
-    if (throwing.length > 0) {
-      return block(
-        "generated",
-        `${throwing.join(", ")} still throw${throwing.length === 1 ? "s" : ""} NotImplementedError — a skeleton the builder never finished`,
-        { throwing },
-        "builder",
-      );
-    }
-    const generated = atDelivery.filter((f) => f.mode === "generated").length;
-    pass("generated", false, `${generated} generated file${generated === 1 ? "" : "s"} in sync; no skeleton left unimplemented`);
   }
 
   // --- 4. the surface check ---

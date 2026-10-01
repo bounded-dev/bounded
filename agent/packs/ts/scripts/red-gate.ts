@@ -46,7 +46,8 @@
 // Exit 0 valid red · 1 invalid red (one greppable line each) · 2 misuse
 // (target unrunnable / bad invocation). Logs one guard event to the target's
 // .bounded/guard-log.jsonl, carrying the contract manifest and the test-files
-// hash the verdict was made against — green binds itself to both.
+// hash the verdict was made against. Green binds itself to the hash; the
+// manifest is the audit record (the freeze itself stales a red, green-gate.ts).
 //
 // The suite and tsc commands are injectable for testing via BOUNDED_GATE_TEST_CMD /
 // BOUNDED_GATE_TEST_ARGS and BOUNDED_GATE_TSC_CMD / BOUNDED_GATE_TSC_ARGS (JSON arrays).
@@ -174,7 +175,7 @@ function classifySuite(run: RunTestsResult): GateResult {
         ...offenders.map((o) => `  wrong-reason: ${o.name} — ${firstLine(o.message)}`),
         ...(collectionFailures.length > 0
           ? [
-              "red-gate: a NotImplemented thrown by '(test file)' happened during IMPORT/COLLECTION, not in a test:",
+              `red-gate: a NotImplemented thrown ${UNHANDLED_NAME} happened during IMPORT/COLLECTION, not in a test:`,
               "  something calls a skeleton export at the top level of a test file (e.g. building a",
               "  fixture with Currency.parse(...) outside test()). Move every such call inside a",
               "  test() or a beforeEach — the file must be importable while nothing is implemented.",
@@ -597,11 +598,19 @@ function withObligations(cwd: string, facts: ProjectFacts, base: GateResult, run
  * hash. Best effort: an unreadable tree records nothing, and green then
  * refuses to bind to this red.
  */
-function redInputs(cwd: string): Record<string, unknown> {
+function redInputs(cwd: string, testsHash: string | undefined): Record<string, unknown> {
   try {
-    return { contractManifest: computeManifest(cwd).files, testFilesHash: testFilesHash(cwd) };
+    return { contractManifest: computeManifest(cwd).files, ...(testsHash !== undefined ? { testFilesHash: testsHash } : {}) };
   } catch {
     return {};
+  }
+}
+
+function hashOrUndefined(cwd: string): string | undefined {
+  try {
+    return testFilesHash(cwd);
+  } catch {
+    return undefined;
   }
 }
 
@@ -633,9 +642,13 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   let facts: ProjectFacts;
   let plan: ShadowPlan;
   let dir: string;
+  // The test files the shadow copied: hashed before the copy and again after
+  // the run, so a red never records tests it did not run.
+  let before: string | undefined;
   try {
     facts = projectFactsOf(cwd, "red");
     plan = redShadowPlan(cwd, facts, emitProject(facts, generatedFileGlobs(cwd)));
+    before = hashOrUndefined(cwd);
     dir = materializeShadow(cwd, plan);
   } catch (e) {
     return gateError(cwd, (e instanceof Error ? e.message : String(e)).replace(/^red-gate: /, ""), "shadow-project");
@@ -677,6 +690,10 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   const skipLines = policy.skips.length > 0
     ? [...policy.skips.map((reason) => `red-gate: skipped — ${reason}`), ...(skipped.length > 0 ? [`red-gate: ${skipped.length} skipped test${skipped.length === 1 ? "" : "s"} not counted`] : [])]
     : [];
+  const after = hashOrUndefined(cwd);
+  if (before === undefined || before !== after) {
+    return gateError(cwd, "the test-side files changed while the red ran, so it proves nothing about them; run red_gate again once they are still", "tests-moved");
+  }
   const result: GateResult = { ...judged, lines: [...skipLines, ...judged.lines] };
   logGuardEvent(cwd, {
     guard: GUARD,
@@ -687,7 +704,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
       shadow: SHADOW_RELATIVE,
       contracts: facts.workspaces.reduce((n, w) => n + w.contracts.length, 0),
       ...(policy.skips.length > 0 ? { skips: policy.skips, skippedTests: skipped.length } : {}),
-      ...redInputs(cwd),
+      ...redInputs(cwd, before),
     },
   });
   return result;

@@ -258,8 +258,9 @@ export function configDriftBlock(
   try {
     drift = configDrift(cwd, harnessRoot);
     if (options.tolerateDesignDrift === true) {
-      const roots = workspaceRootsOf(generatedConfig(cwd, harnessRoot));
-      drift = drift.filter((d) => !isDesignDerivedDrift(d, roots));
+      const generated = generatedConfig(cwd, harnessRoot);
+      const roots = workspaceRootsOf(generated);
+      drift = drift.filter((d) => !isDesignDerivedDrift(d, roots, generated.dependencyDirs));
     }
   } catch (error) {
     drift = [{ path: ".bounded/composed-packs.json", problem: `the generated config cannot be computed: ${error instanceof Error ? error.message : String(error)}` }];
@@ -423,10 +424,13 @@ function workspaceRootsOf(generated: GeneratedConfig): Set<string> {
  * those; no role can write a manifest. Every other drift is someone's edit,
  * and blocks.
  */
-export function isDesignDerivedDrift(drift: ConfigDrift, workspaceRoots: ReadonlySet<string>): boolean {
+export function isDesignDerivedDrift(drift: ConfigDrift, workspaceRoots: ReadonlySet<string>, dependencyDirs: ReadonlySet<string> = new Set(["node_modules"])): boolean {
   if (drift.path === LOCKFILE || drift.path === LOCK_FINGERPRINT) return true;
   const segments = drift.path.split("/");
-  return segments.length === 3 && segments[2] === MANIFEST && workspaceRoots.has(segments[0]!);
+  if (segments.length !== 3 || !workspaceRoots.has(segments[0]!)) return false;
+  // A workspace's manifest, or the dependency directory a workspace the
+  // design dropped leaves behind (the sync removes it).
+  return segments[2] === MANIFEST || dependencyDirs.has(segments[2]!.toLowerCase());
 }
 
 /** A setup runner that captures output, for a gate: a failed command throws
@@ -468,13 +472,16 @@ export function syncDesignConfig(
   if (!configIsGenerated(cwd)) return { code: 0, lines: [], workspaces: [] };
   let drift: ConfigDrift[];
   let roots: Set<string>;
+  let dependencyDirs: ReadonlySet<string>;
   try {
     drift = configDrift(cwd, harnessRoot);
-    roots = workspaceRootsOf(generatedConfig(cwd, harnessRoot));
+    const generated = generatedConfig(cwd, harnessRoot);
+    roots = workspaceRootsOf(generated);
+    dependencyDirs = generated.dependencyDirs;
   } catch (error) {
     return { code: 1, lines: [`the design's workspaces cannot be derived: ${error instanceof Error ? error.message : String(error)}`], workspaces: [] };
   }
-  const derived = drift.filter((d) => isDesignDerivedDrift(d, roots));
+  const derived = drift.filter((d) => isDesignDerivedDrift(d, roots, dependencyDirs));
   if (derived.length === 0 || derived.length !== drift.length) return { code: 0, lines: [], workspaces: [] };
   const workspaces = derived.filter((d) => d.path.endsWith(`/${MANIFEST}`)).map((d) => d.path.slice(0, -MANIFEST.length - 1));
   const what = workspaces.length > 0 ? `workspace${workspaces.length === 1 ? "" : "s"} ${workspaces.join(", ")}` : "the lockfile";

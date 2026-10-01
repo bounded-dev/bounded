@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import type { ObligationInput, ObligationSource } from "../pack.ts";
@@ -129,6 +129,15 @@ describe("the obligations on the notebook pipeline", () => {
       `ListNotesStore has no conformance suite; write ${suite}, exporting a suite every storage technology runs`,
       `InMemoryListNotesStore has no store test; write ${storeTest} running the ListNotesStore conformance suite`,
     ]));
+  });
+
+  test("a store test may import the suite without an extension, or with .js", () => {
+    const f = scaffolded();
+    const storeTest = join(f.dir, CONTEXT_SRC, "adapters/out/in-memory/notes/list-notes.store.test.ts");
+    for (const ext of ['"', '.js"']) {
+      writeFileSync(storeTest, readFileSync(storeTest, "utf8").replace(/list-notes\.store\.test-support(?:\.ts|\.js)?"/, `list-notes.store.test-support${ext}`));
+      expect(messages(input(f)), ext).toEqual([]);
+    }
   });
 
   test("the generated command and in-adapter laws must be present", () => {

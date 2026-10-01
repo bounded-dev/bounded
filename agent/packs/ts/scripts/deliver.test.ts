@@ -241,12 +241,11 @@ describe("runDeliver: the red-phase errors module", () => {
     writeFileSync(join(dir, NOTE_TEXT), skeleton.content);
     const r = deliver(dir);
     expect(r.code).toBe(1);
-    expect(r.lines).toContain(
-      `deliver: BLOCK — ${NOTE_TEXT} still imports NotImplementedError from the red-phase errors module — an unimplemented skeleton survived to delivery`,
-    );
+    // The throwing-skeleton check runs before anything mutates, so it names it first.
+    expect(r.lines).toContain(`deliver: BLOCK — ${NOTE_TEXT} still throws NotImplementedError — a skeleton the builder never finished`);
     expect(r.lines).toContain("deliver: route → builder");
     expect(existsSync(join(dir, ERRORS))).toBe(true);
-    expect(blockEvent(dir)).toMatchObject({ step: "scaffolding", route: "builder" });
+    expect(blockEvent(dir)).toMatchObject({ step: "generated", route: "builder" });
   });
 
   test("BLOCK when a test imports it — the suite may not depend on red-phase scaffolding", () => {

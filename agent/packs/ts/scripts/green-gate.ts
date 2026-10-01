@@ -500,7 +500,9 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
     run,
     tsc,
     lint.code === 1 ? lint.lines.slice(0, -1) : [],
-    surfaces.code === 1 ? surfaces.lines.slice(0, -1) : [],
+    // A missing implementation or no contract found (code 2) is a finding
+    // too: a surface nobody checked is not a matching one.
+    surfaces.code === 1 ? surfaces.lines.slice(0, -1) : surfaces.code === 2 ? [...surfaces.lines] : [],
     skeletons,
     projectOwnerOf(cwd),
   );

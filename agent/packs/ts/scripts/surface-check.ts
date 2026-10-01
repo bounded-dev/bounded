@@ -118,6 +118,19 @@ function handlerViolations(inPort: string, contractFileName: string, impl: Sourc
   if (!cls.getImplements().some((i) => i.getExpression().getText() === inPort)) {
     out.push({ file: implFileName, exportName: handler, kind: "handler-shape", message: `${handler}: it must declare \`implements ${inPort}\`, so the compiler holds it to ${contractFileName}'s in port` });
   }
+  // Constructor parameter properties are members too: `constructor(readonly
+  // store: X)` is a public `store`.
+  for (const parameter of cls.getConstructors()[0]?.getParameters() ?? []) {
+    if (!parameter.isParameterProperty()) continue;
+    const scope = parameter.getScope();
+    if (scope === "private" || scope === "protected") continue;
+    out.push({
+      file: implFileName,
+      exportName: handler,
+      kind: "undeclared-member",
+      message: `${handler}.${parameter.getName()}: public member not declared by ${contractFileName} — a handler's only public member is execute; make it private (${DISPUTE})`,
+    });
+  }
   for (const member of cls.getMembers()) {
     if (Node.isConstructorDeclaration(member)) continue;
     const name = Node.isMethodDeclaration(member) || Node.isPropertyDeclaration(member) || Node.isGetAccessorDeclaration(member) || Node.isSetAccessorDeclaration(member)

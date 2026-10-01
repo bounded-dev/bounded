@@ -101,6 +101,15 @@ describe("feature contracts: the handler file (TN-26-012 §5)", () => {
     expect(handlerSurface(HANDLER)).toEqual([]);
   });
 
+  test("a public constructor parameter property is undeclared surface", () => {
+    for (const modifier of ["readonly", "public"]) {
+      const found = handlerSurface(HANDLER.replace("private readonly store", `${modifier} store`));
+      expect(found.map((v) => v.kind), modifier).toEqual(["undeclared-member"]);
+      expect(found[0]!.message).toContain("CreateNoteHandler.store: public member");
+    }
+    expect(handlerSurface(HANDLER.replace("private readonly store", "protected store"))).toEqual([]);
+  });
+
   test("the in port decides first: a branded Command with its factory does not make the file a concept", () => {
     expect(implementationOf(FEATURE_CONTRACT, FEATURE_PATH)).toBe(HANDLER_PATH);
   });

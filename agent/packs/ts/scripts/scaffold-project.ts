@@ -113,9 +113,11 @@ export function runScaffold(cwd: string, options: ScaffoldOptions = {}): { code:
 
   // The prune: generated files an earlier run wrote that the design no longer produces.
   const now = new Set(files.filter((f) => f.mode === "generated").map((f) => f.path));
+  // Anything still emitted, in either mode, is never pruned.
+  const emitted = new Set(files.map((f) => f.path));
   const pruned: string[] = [];
   for (const rel of readRecord(cwd)) {
-    if (now.has(rel) || !existsSync(join(cwd, rel))) continue;
+    if (emitted.has(rel) || !existsSync(join(cwd, rel))) continue;
     rmSync(join(cwd, rel));
     removeEmptyParents(cwd, rel);
     pruned.push(rel);
