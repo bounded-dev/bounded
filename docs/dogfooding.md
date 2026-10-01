@@ -151,6 +151,80 @@ lockfiles and build output are ignored. It exits 1 on any unexpected delta. `scr
 `.run/STRUCTURE.txt` (and `.run/structure.json`) when
 `BOUNDED_EXAMPLE_PROJECT` is set.
 
+### A different product, judged against the conventions alone
+
+A run of `pm-notes-prompt.md` builds the worked example's own product, so its
+architect can copy the example's contracts and score a perfect structure by
+copying (issue #39). `clinic-appointments-prompt.md` has the same shape (one
+context with two areas, commands and queries with ordered validation and
+exact refusals, a scheduled export, the browser, desktop, AI-assistant and
+scheduled-job surfaces, durable data) in a domain the example does not cover:
+
+```bash
+scripts/dogfood/reset --init claude-code --harnessed docs/dogfood/clinic-appointments-prompt.md
+```
+
+There is no worked example of that product to compare with, so the run is
+judged against the conventions (TN-26-012) instead:
+
+```bash
+node scripts/dogfood/structure-compare.ts <arm>                # no example named
+node scripts/dogfood/structure-compare.ts --conventions <arm>  # even with BOUNDED_EXAMPLE_PROJECT set
+```
+
+The report lists what the project's own files and contracts call for and
+the tree lacks, file by file, under five headings:
+
+- **layout**: the root has `package.json`, `tsconfig.json` and
+  `tsconfig.base.json`; outside `contexts/` and `apps/` there is nothing but
+  the root's config and generated files (`.env.example`, `.gitignore`,
+  `.npmrc`, `README.md`, `architecture.test.ts`, `bunfig.toml`,
+  `docker-compose.yml` and the three above), `docs/` and `scripts/`. Each
+  context has its manifest, `domain/index.ts`, `domain/shared/result.ts` and
+  `application/index.ts`, and nothing outside `domain/<area>/<concept>`,
+  `application/<area>/<feature>/` and `adapters/in|out/<technology>/`. The
+  top of each in technology's folder holds exactly its TN-26-012 §6 root
+  files (tRPC `index.ts`, `router.ts`, `trpc.ts`; MCP `index.ts`,
+  `server.ts`; Lambda `index.ts`; an unknown technology `index.ts`). Each out
+  technology in use has its `index.ts`, and each storage technology its
+  `<tech>-database.ts`. An app holds its manifest and `src/` only.
+- **naming**: kebab-case names (generated migration names excepted), areas
+  ending in `s`, features of two or more words, files named for their
+  feature, each layer's role suffixes, the concept, in port and
+  `<InPort>Store` names a contract exports (no other port ending in
+  `Store`), and the feature role of each in technology (from the packs'
+  `contrib.json`).
+- **feature files**: each concept's contract and implementation. Each
+  feature's handler, and its command exactly when the contract has an
+  `Input`. When a feature has a store port, a store in every storage
+  technology the project composes (from `.bounded/composed-packs.json`; with
+  no composition recorded, every known storage technology whose folder the
+  context has, and any folder with a `<tech>-database.ts`), so a run that
+  composes Drizzle and deletes its Drizzle stores is flagged. An adapter per
+  `@exposedVia` and `@implementedBy` technology; no adapter for a feature or
+  port that does not exist, and no in adapter for a technology its feature's
+  `@exposedVia` does not name, so an untagged feature's adapters are
+  flagged.
+- **test levels**: every level TN-26-012 §8 requires, file by file: unit
+  tests and laws per concept, a handler test per feature, command laws, the
+  store conformance suite and a store test per store, a test per other out
+  adapter, generated laws per in adapter, a smoke test beside every
+  composition root, and the architecture test.
+- **apps**: each app's template files by its kind (from the TNs'
+  `workspaces:` maps, else recognised by its files), and exactly one Lambda
+  entry per Lambda in adapter. The template table and the in technologies'
+  root files are held to the app and in-adapter emitters' output by a test.
+
+A run that follows the conventions reports 0 findings, and the command exits
+1 on any finding. The worked example as a delivered run would stand (its
+in-repository copies plus the laws, smoke tests and Drizzle stores a run
+adds) passes; mutated copies are flagged
+(`agent/test/structure-compare.test.ts`). The example's local checkout on its
+own does not pass: it has almost no tests, no Drizzle stores, and no
+`@exposedVia` tags. `scripts/dogfood/archive` always writes this report to
+`.run/CONVENTIONS.txt` (and `.run/conventions.json`), next to the example
+comparison when `BOUNDED_EXAMPLE_PROJECT` is set.
+
 ## Themes so far
 
 - **The skill survives weak readers.** Both Sonnet and Haiku found and

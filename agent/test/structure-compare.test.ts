@@ -2,12 +2,21 @@
 // scripts/dogfood/ (ADR 2026-042); its tests run here so `npm run check`
 // covers it. Every tree is a fixture built in a temporary directory: the
 // worked example itself is a local checkout and is never read by a test.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { exampleFacts } from "../packs/example-suite/example-facts.ts";
+import { DESKTOP_KIND, emitDesktopApps } from "../packs/ts-desktop/scripts/desktop-app-emitter.ts";
+import { emitLambdaApps, LAMBDAS_KIND } from "../packs/ts-lambda/scripts/lambda-app-emitter.ts";
+import { emitLambdaAdapters } from "../packs/ts-lambda/scripts/lambda-emitter.ts";
+import { emitMcpApps, MCP_KIND } from "../packs/ts-mcp/scripts/mcp-app-emitter.ts";
+import { emitMcpAdapters } from "../packs/ts-mcp/scripts/mcp-emitter.ts";
+import { emitTrpcAdapters } from "../packs/ts-trpc/scripts/trpc-emitter.ts";
+import { emitWebApps, WEB_KIND } from "../packs/ts-web/scripts/web-app-emitter.ts";
 import {
-  compareTrees, EXAMPLE_ENV, EXPECTED_DELTAS, exportedNames, formatReport, main, namedPath, productFiles, requiredTestLevels,
+  APP_TEMPLATES, checkConventions, compareTrees, declaredAppKinds, EXAMPLE_ENV, formatConventionsReport, IN_TECH_ROOT_FILES,
+  interfaceTags, packTechnologies, EXPECTED_DELTAS, exportedNames, formatReport, main, namedPath, productFiles, requiredTestLevels,
   shapeOf, signatureOf, testLevel,
 } from "../../scripts/dogfood/structure-compare.ts";
 
@@ -258,15 +267,293 @@ describe("comparing two trees", () => {
   });
 });
 
+// --- the conventions alone -------------------------------------------------------
+
+const PACKS = join(import.meta.dirname, "..", "packs");
+
+/** Every file under a directory inside the repository, relative to it. */
+function filesUnder(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (abs: string): void => {
+    for (const name of readdirSync(abs).sort()) {
+      const path = join(abs, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else out[relative(dir, path).split("\\").join("/")] = readFileSync(path, "utf8");
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+const prefixed = (prefix: string, files: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(files).map(([path, content]) => [`${prefix}/${path}`, content]));
+
+/**
+ * The current worked example as a delivered run of it stands, assembled from
+ * the harness's in-repository copies: the root config and the domain's
+ * generated laws (ts/reference), the tagged context with its tests and out
+ * adapters (ts-hexagonal/reference), the generated in adapters and the four
+ * apps (example-suite/reference). The copies leave out only what is generated
+ * or written at green: each in adapter's laws and each app's smoke test.
+ */
+function workedExample(): Record<string, string> {
+  const ex = join(PACKS, "example-suite", "reference", "example");
+  const files: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(filesUnder(join(PACKS, "ts", "reference")))
+      .filter(([path]) => path !== "README.md" && (!path.startsWith("contexts/") || path.endsWith(".laws.test.ts")))),
+    ...prefixed("contexts", filesUnder(join(PACKS, "ts-hexagonal", "reference", "contexts"))),
+    "architecture.test.ts": readFileSync(join(PACKS, "ts-hexagonal", "reference", "architecture-test.ts"), "utf8"),
+    ...prefixed("docs", filesUnder(join(PACKS, "ts-hexagonal", "reference", "docs"))),
+    ...prefixed("apps", filesUnder(join(ex, "apps"))),
+  };
+  for (const [path, content] of Object.entries(prefixed("contexts", filesUnder(join(ex, "contexts"))))) {
+    if (path.includes("/adapters/in/")) files[path] = content;
+  }
+  for (const path of Object.keys(files)) {
+    if (/\/adapters\/in\/[^/]+\/[^/]+\/[^/.]+\.[a-z]+\.ts$/.test(path) && !path.endsWith(".router.ts")) {
+      files[path.replace(/\.ts$/, ".laws.test.ts")] = "";
+    }
+    if (path.endsWith("/composition-root.ts")) files[path.replace(/\.ts$/, ".test.ts")] = "";
+    // The Drizzle side a delivered run has: the example declares Postgres but
+    // has no Drizzle stores yet, and the whole stack composes Drizzle.
+    const store = /^(contexts\/[^/]+\/src\/adapters\/out)\/in-memory\/(.+)\.store\.ts$/.exec(path);
+    if (store) {
+      files[`${store[1]}/drizzle/${store[2]}.store.ts`] = "";
+      files[`${store[1]}/drizzle/${store[2]}.store.test.ts`] = "";
+    }
+  }
+  const drizzle = `${PM}/src/adapters/out/drizzle`;
+  Object.assign(files, {
+    ".bounded/composed-packs.json": readFileSync(join(PACKS, "default-stack.json"), "utf8").replace(/^[\s\S]*"packs":\s*(\[[^\]]*\])[\s\S]*$/, "$1"),
+    "docker-compose.yml": "", ".env.example": "", [`${PM}/drizzle.config.ts`]: "",
+    [`${drizzle}/index.ts`]: "", [`${drizzle}/drizzle-database.ts`]: "", [`${drizzle}/drizzle-test-database.test-support.ts`]: "",
+    [`${drizzle}/schema/project-management.schema.ts`]: "", [`${drizzle}/schema/notes.ts`]: "", [`${drizzle}/schema/projects.ts`]: "",
+    [`${drizzle}/migrations/0000_mute_wong.sql`]: "", [`${drizzle}/migrations/meta/_journal.json`]: "{}",
+    [`${drizzle}/notes/note.mapper.ts`]: "",
+  });
+  return files;
+}
+
+const PM = "contexts/project-management";
+const STORE_FEATURES = ["notes/create-note", "notes/list-notes", "projects/create-project", "projects/export-projects", "projects/list-projects"];
+
+/** The findings on a tree, as `rule path`. */
+function findingsOf(files: Record<string, string>): string[] {
+  return checkConventions(tree(files)).findings.map((f) => `${f.rule} ${f.path}`);
+}
+
+describe("judging a project against the conventions alone", () => {
+  test("the current worked example follows them", () => {
+    const report = checkConventions(tree(workedExample()));
+    expect(report.findings).toEqual([]);
+    expect(formatConventionsReport(report)).toMatch(/^structure: 0 convention findings/);
+    expect(report.inventory).toEqual({
+      contexts: ["project-management"], concepts: 6, features: 5,
+      apps: [
+        { app: "apps/desktop", kind: "desktop" }, { app: "apps/lambdas", kind: "lambdas" },
+        { app: "apps/mcp", kind: "mcp" }, { app: "apps/web", kind: "web" },
+      ],
+    });
+  });
+
+  test("another product in the same shape follows them too: no example's names are needed", () => {
+    const rename = (text: string): string => text
+      .replaceAll("Project", "Clinician").replaceAll("project", "clinician")
+      .replaceAll("Note", "Appointment").replaceAll("note", "appointment");
+    const clinic = Object.fromEntries(Object.entries(workedExample()).map(([path, content]) => [rename(path), rename(content)]));
+    const report = checkConventions(tree(clinic));
+    expect(report.findings).toEqual([]);
+    expect(report.inventory.contexts).toEqual(["clinician-management"]);
+  });
+
+  test.each<[string, (files: Record<string, string>) => void, string[]]>([
+    ["a file outside the layout", (f) => { f[`${PM}/src/utils.ts`] = ""; }, [`layout ${PM}/src/utils.ts`]],
+    ["a missing root config file", (f) => { delete f["tsconfig.base.json"]; }, ["layout tsconfig.base.json"]],
+    ["a missing generated barrel", (f) => { delete f[`${PM}/src/application/index.ts`]; }, [`layout ${PM}/src/application/index.ts`]],
+    ["a name that is not kebab-case", (f) => {
+      f[`${PM}/src/domain/notes/noteBody.ts`] = "";
+    }, [`naming ${PM}/src/domain/notes/noteBody.ts`, `feature files ${PM}/src/domain/notes/noteBody.contract.ts`]],
+    ["an unknown role suffix", (f) => {
+      f[`${PM}/src/application/notes/create-note/create-note.service.ts`] = "";
+    }, [`naming ${PM}/src/application/notes/create-note/create-note.service.ts`]],
+    ["a file not named for its feature", (f) => {
+      f[`${PM}/src/application/notes/create-note/add-note.handler.ts`] = "";
+    }, [`naming ${PM}/src/application/notes/create-note/add-note.handler.ts`]],
+    ["a feature of one word", (f) => {
+      for (const path of Object.keys(f).filter((p) => p.includes("/list-notes/") || p.includes("/list-notes."))) {
+        f[path.replaceAll("list-notes", "notes")] = f[path]!.replaceAll("ListNotes", "Notes");
+        delete f[path];
+      }
+    }, [`naming ${PM}/src/application/notes/notes`]],
+    ["a singular area", (f) => {
+      f[`${PM}/src/domain/billing/invoice.contract.ts`] = "export interface Invoice {}";
+      f[`${PM}/src/domain/billing/invoice.ts`] = "";
+      f[`${PM}/src/domain/billing/invoice.test.ts`] = "";
+      f[`${PM}/src/domain/billing/invoice.laws.test.ts`] = "";
+    }, [`naming ${PM}/src/*/billing`]],
+    ["a store port under another name", (f) => {
+      const path = `${PM}/src/application/notes/create-note/create-note.contract.ts`;
+      f[path] = f[path]!.replace("CreateNoteStore", "NoteStore");
+    }, [
+      `naming ${PM}/src/application/notes/create-note/create-note.contract.ts`,
+      `feature files ${PM}/src/adapters/out/drizzle/notes/create-note.store.ts`,
+      `feature files ${PM}/src/adapters/out/in-memory/notes/create-note.store.ts`,
+      `feature files ${PM}/src/application/notes/create-note/create-note.store.test-support.ts`,
+    ]],
+    ["a missing handler", (f) => {
+      delete f[`${PM}/src/application/projects/list-projects/list-projects.handler.ts`];
+    }, [`feature files ${PM}/src/application/projects/list-projects/list-projects.handler.ts`]],
+    ["a missing generated command", (f) => {
+      delete f[`${PM}/src/application/notes/create-note/create-note.command.ts`];
+    }, [`feature files ${PM}/src/application/notes/create-note/create-note.command.ts`]],
+    ["a missing store for a storage technology in use", (f) => {
+      delete f[`${PM}/src/adapters/out/in-memory/projects/export-projects.store.ts`];
+      delete f[`${PM}/src/adapters/out/in-memory/projects/export-projects.store.test.ts`];
+    }, [
+      `feature files ${PM}/src/adapters/out/in-memory/projects/export-projects.store.ts`,
+      `test levels ${PM}/src/adapters/out/in-memory/projects/export-projects.store.test.ts`,
+    ]],
+    ["a missing in adapter its @exposedVia calls for", (f) => {
+      delete f[`${PM}/src/adapters/in/mcp/projects/list-projects.tool.ts`];
+      delete f[`${PM}/src/adapters/in/mcp/projects/list-projects.tool.laws.test.ts`];
+    }, [`feature files ${PM}/src/adapters/in/mcp/projects/list-projects.tool.ts`]],
+    ["an in adapter with the wrong feature role", (f) => {
+      f[`${PM}/src/adapters/in/trpc/notes/list-notes.query.ts`] = "";
+      f[`${PM}/src/adapters/in/trpc/notes/list-notes.query.laws.test.ts`] = "";
+    }, [`naming ${PM}/src/adapters/in/trpc/notes/list-notes.query.ts`]],
+    ["an adapter for a feature that does not exist", (f) => {
+      f[`${PM}/src/adapters/out/console/projects/archive-projects.exporter.ts`] = "";
+    }, [`feature files ${PM}/src/adapters/out/console/projects/archive-projects.exporter.ts`]],
+    ["a missing out adapter its @implementedBy calls for", (f) => {
+      delete f[`${PM}/src/adapters/out/console/projects/export-projects.exporter.ts`];
+      delete f[`${PM}/src/adapters/out/console/projects/export-projects.exporter.test.ts`];
+    }, [`feature files ${PM}/src/adapters/out/console/projects/export-projects.exporter.ts`]],
+    ["missing tests at every level", (f) => {
+      for (const path of [
+        "architecture.test.ts", `${PM}/src/domain/notes/note-text.test.ts`, `${PM}/src/domain/notes/note-text.laws.test.ts`,
+        `${PM}/src/application/notes/create-note/create-note.test.ts`,
+        `${PM}/src/application/notes/create-note/create-note.command.laws.test.ts`,
+        `${PM}/src/application/notes/create-note/create-note.store.test-support.ts`,
+        `${PM}/src/adapters/out/in-memory/notes/create-note.store.test.ts`,
+        `${PM}/src/adapters/out/console/projects/export-projects.exporter.test.ts`,
+        `${PM}/src/adapters/in/trpc/notes/create-note.procedure.laws.test.ts`,
+        "apps/web/src/server/composition-root.test.ts",
+      ]) delete f[path];
+    }, [
+      "test levels apps/web/src/server/composition-root.test.ts",
+      "test levels architecture.test.ts",
+      `test levels ${PM}/src/adapters/in/trpc/notes/create-note.procedure.laws.test.ts`,
+      `test levels ${PM}/src/adapters/out/console/projects/export-projects.exporter.test.ts`,
+      `test levels ${PM}/src/adapters/out/in-memory/notes/create-note.store.test.ts`,
+      `test levels ${PM}/src/application/notes/create-note/create-note.command.laws.test.ts`,
+      `test levels ${PM}/src/application/notes/create-note/create-note.store.test-support.ts`,
+      `test levels ${PM}/src/application/notes/create-note/create-note.test.ts`,
+      `test levels ${PM}/src/domain/notes/note-text.laws.test.ts`,
+      `test levels ${PM}/src/domain/notes/note-text.test.ts`,
+    ]],
+    ["a missing app template file", (f) => { delete f["apps/web/src/client/main.tsx"]; }, ["apps apps/web/src/client/main.tsx"]],
+    ["a missing Lambda entry", (f) => { delete f["apps/lambdas/src/export-projects.ts"]; }, ["apps apps/lambdas/src/export-projects.ts"]],
+    ["an app of no known kind", (f) => { f["apps/cli/src/run.ts"] = ""; f["apps/cli/package.json"] = "{}"; }, ["apps apps/cli"]],
+    ["code outside contexts/ and apps/", (f) => {
+      f["src/index.ts"] = ""; f["lib/clock.ts"] = "";
+    }, ["layout lib/clock.ts", "layout src/index.ts"]],
+    ["a stray file at the top of an in technology", (f) => {
+      f[`${PM}/src/adapters/in/trpc/helpers.ts`] = "";
+    }, [`layout ${PM}/src/adapters/in/trpc/helpers.ts`]],
+    ["a missing root file of an in technology", (f) => {
+      delete f[`${PM}/src/adapters/in/mcp/server.ts`];
+    }, [`layout ${PM}/src/adapters/in/mcp/server.ts`]],
+    ["the composed storage technology's stores deleted", (f) => {
+      for (const path of Object.keys(f)) if (/\/out\/drizzle\/[^/]+\/[^/]+\.store(?:\.test)?\.ts$/.test(path)) delete f[path];
+    }, [
+      ...STORE_FEATURES.map((feature) => `feature files ${PM}/src/adapters/out/drizzle/${feature}.store.ts`),
+      ...STORE_FEATURES.map((feature) => `test levels ${PM}/src/adapters/out/drizzle/${feature}.store.test.ts`),
+    ]],
+    ["the composed storage technology's database deleted", (f) => {
+      delete f[`${PM}/src/adapters/out/drizzle/drizzle-database.ts`];
+    }, [`layout ${PM}/src/adapters/out/drizzle/drizzle-database.ts`]],
+    ["an in adapter for a feature whose contract does not expose it there", (f) => {
+      const path = `${PM}/src/application/notes/list-notes/list-notes.contract.ts`;
+      f[path] = f[path]!.replace(/^ \* @exposedVia trpc\n/m, "");
+    }, [`feature files ${PM}/src/adapters/in/trpc/notes/list-notes.procedure.ts`]],
+  ])("a mutated copy is flagged: %s", (_name, mutate, expected) => {
+    const files = workedExample();
+    mutate(files);
+    expect(findingsOf(files)).toEqual(expected);
+  });
+
+  test("an app's kind comes from the TNs' workspaces maps before its files", () => {
+    const files = {
+      ...workedExample(),
+      "docs/tn/TN-1-design.md": "---\nnumber: TN-1\nworkspaces:\n  apps/web: mcp\n  apps/mcp: mcp\n---\n# design\n",
+    };
+    const root = tree(files);
+    expect([...declaredAppKinds(root)]).toEqual([["apps/web", "mcp"], ["apps/mcp", "mcp"]]);
+    expect(checkConventions(root).findings.map((f) => `${f.rule} ${f.path}`))
+      .toEqual(["apps apps/web/src/composition-root.ts", "apps apps/web/src/main.ts"]);
+  });
+
+  test("with no composition recorded, a storage technology the tree has must hold every store", () => {
+    const files = workedExample();
+    delete files[".bounded/composed-packs.json"];
+    for (const path of Object.keys(files)) if (/\/out\/drizzle\/(?!schema|migrations)[^/]+\/[^/]+\.ts$/.test(path)) delete files[path];
+    delete files[`${PM}/src/adapters/out/drizzle/drizzle-database.ts`];
+    const found = findingsOf(files);
+    expect(found).toContain(`layout ${PM}/src/adapters/out/drizzle/drizzle-database.ts`);
+    expect(found).toContain(`feature files ${PM}/src/adapters/out/drizzle/notes/create-note.store.ts`);
+    expect(found.filter((f) => f.startsWith("feature files"))).toHaveLength(5);
+  });
+
+  test("the app templates and in technologies' root files are what the emitters produce", () => {
+    const facts = exampleFacts();
+    const emitted = [...emitWebApps(facts), ...emitDesktopApps(facts), ...emitMcpApps(facts), ...emitLambdaApps(facts)];
+    for (const [kind, app] of [[WEB_KIND, "apps/web"], [DESKTOP_KIND, "apps/desktop"], [MCP_KIND, "apps/mcp"], [LAMBDAS_KIND, "apps/lambdas"]] as const) {
+      const files = emitted.filter((f) => f.path.startsWith(`${app}/`)).map((f) => f.path.slice(app.length + 1))
+        .filter((path) => kind !== LAMBDAS_KIND || !emitted.find((f) => f.path === `${app}/${path}`)?.entry).sort();
+      expect(files, kind).toEqual([...APP_TEMPLATES[kind]!.files].sort());
+    }
+    const inAdapters = [...emitTrpcAdapters(facts), ...emitMcpAdapters(facts), ...emitLambdaAdapters(facts)];
+    for (const tech of Object.keys(IN_TECH_ROOT_FILES)) {
+      const top = `${PM}/src/adapters/in/${tech}/`;
+      const files = inAdapters.map((f) => f.path).filter((p) => p.startsWith(top) && !p.slice(top.length).includes("/"))
+        .map((p) => p.slice(top.length)).sort();
+      expect(files, tech).toEqual([...IN_TECH_ROOT_FILES[tech]!].sort());
+    }
+  });
+
+  test("tags are read from the block directly above each interface", () => {
+    const source = readFileSync(join(PACKS, "ts-hexagonal", "reference", PM, "src/application/projects/export-projects/export-projects.contract.ts"), "utf8");
+    expect(Object.fromEntries(interfaceTags(source))).toEqual({
+      ExportProjects: { exposedVia: ["lambda"], implementedBy: [] },
+      ProjectExporter: { exposedVia: [], implementedBy: ["console"] },
+    });
+  });
+
+  test("the technologies' feature roles come from the packs", () => {
+    const known = packTechnologies();
+    expect(Object.fromEntries(known.featureRoles)).toMatchObject({ trpc: "procedure", mcp: "tool", lambda: "lambda" });
+    expect(Object.fromEntries(known.storage)).toMatchObject({ "in-memory": true, drizzle: true, console: false });
+  });
+
+  test("the report is deterministic", () => {
+    const files = workedExample();
+    delete files[`${PM}/src/domain/notes/note.test.ts`];
+    const root = tree(files);
+    expect(JSON.stringify(checkConventions(root))).toBe(JSON.stringify(checkConventions(root)));
+  });
+});
+
 describe("the command", () => {
-  test("takes the example from the environment or --example, never a default", () => {
+  test("takes the example from the environment or --example, and judges by the conventions without one", () => {
     const example = tree(exampleFiles());
     const project = tree(exampleFiles("notebook"));
-    expect(main([project], {}).code).toBe(2);
-    expect(main([project], {}).out).toContain(EXAMPLE_ENV);
     expect(main([project], { [EXAMPLE_ENV]: example })).toEqual({ code: 0, out: expect.stringMatching(/0 unexpected structural deltas/) });
     expect(main(["--example", example, project], {}).code).toBe(0);
     expect(main(["--example", example], {}).code).toBe(2);
+    expect(main(["--example"], {}).code).toBe(2);
+    expect(main([project], {}).out).toMatch(/convention finding/);
+    expect(main(["--conventions", project], { [EXAMPLE_ENV]: example }).out).toMatch(/convention finding/);
+    expect(main([tree(workedExample())], {})).toEqual({ code: 0, out: expect.stringMatching(/^structure: 0 convention findings/) });
   });
 
   test("exits 1 on a delta and can print JSON", () => {
@@ -275,5 +562,10 @@ describe("the command", () => {
     const { code, out } = main(["--json", "--example", example, project], {});
     expect(code).toBe(1);
     expect(JSON.parse(out)).toMatchObject({ extraFiles: ["contexts/<context>/src/utils.ts"], deltas: 2 });
+    const conventions = main(["--json", project], {});
+    expect(conventions.code).toBe(1);
+    expect(JSON.parse(conventions.out).findings).toContainEqual({
+      rule: "layout", path: "contexts/project-management/src/utils.ts", message: expect.any(String),
+    });
   });
 });
