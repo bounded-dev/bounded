@@ -132,16 +132,11 @@ fi
 PROMPT_SRC="${ARGS[0]:-$REPO/docs/dogfood/subscription-billing-prompt.md}"
 [ -f "$PROMPT_SRC" ] || { echo "dogfood-reset: no prompt at $PROMPT_SRC" >&2; exit 2; }
 
-# The canonical prompt carries an internal <!-- ... --> header explaining that
-# it must not be edited. The arms must see only the prompt, so render a clean
-# copy ONCE, next to the source, and point both arms at that.
+# Prompt files hold only the prompt (notes live in docs/dogfood/README.md), so
+# the arms see the source text as is. Copy it ONCE, next to the source, and
+# point both arms at that copy.
 RENDERED_PROMPT="$(dirname "$PROMPT_SRC")/.rendered-$(basename "$PROMPT_SRC")"
-python3 - "$PROMPT_SRC" "$RENDERED_PROMPT" <<'PY'
-import re, sys, pathlib
-src, dst = sys.argv[1], sys.argv[2]
-pathlib.Path(dst).write_text(
-    re.sub(r"^<!--.*?-->\n\n", "", pathlib.Path(src).read_text(), flags=re.S))
-PY
+cp "$PROMPT_SRC" "$RENDERED_PROMPT"
 
 # The operational block is identical in both arms by construction: it is one
 # string, written twice. An arm that quietly gained a different toolchain note

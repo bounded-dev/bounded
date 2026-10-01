@@ -54,6 +54,10 @@ rules, not just today's dozens.
 - **Repo experiments stay in repo scripts.** Dogfood reset, archive and model
   probes live under `scripts/dogfood/` and are not `bounded` CLI commands or
   part of its npm package (ADR 2026-042).
+- **Dogfood prompts are copy-ready.** A `docs/dogfood/*-prompt.md` file holds
+  only the prompt text, so the user can select all and paste it. No header
+  comment, usage note or run instructions in the file: those go in
+  `docs/dogfood/README.md` (enforced by `agent/test/dogfood-prompts.test.ts`).
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
   (write-capable worker), `product-expert` — "the PM" (read-only + web,
   product judgment). Don't add roles ad hoc (ADR 2026-003).

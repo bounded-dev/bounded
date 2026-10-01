@@ -1,24 +1,3 @@
-<!--
-The heating-cockpit ingest+rating dogfood prompt. First used at Run 17.
-
-Unlike the subscription-billing prompt, this one describes a SLICE OF A REAL
-APP — the app-side ingest and rating core of the PKE Heating Cockpit (Bounded /
-DiLT Analytics). The thesis under test: the harness gets good enough to
-one-shot this slice reliably, run after run. The prompt is therefore the
-durable artifact and the app's real starting point; the delivered code is meant
-to be kept.
-
-Used VERBATIM so arms across runs stay comparable. Do not edit without starting
-a new prompt file under a new name, or every prior run's numbers stop meaning
-anything. Copied into each arm as PROMPT.md at setup.
-
-Domain thresholds below are the district-heating reference set from the project
-handover and are NORMATIVE — they are the spec, not examples. They are
-district-heating-specific by construction: the design must hold them as a
-versioned, swappable set (a different heat source needs different numbers),
-never as constants scattered through the logic.
--->
-
 Build the **ingest and rating core** of a district-heating "cockpit" — the
 app-side component that receives a period's already-computed heating metrics
 for a building, stores them idempotently, and rates each meter with a

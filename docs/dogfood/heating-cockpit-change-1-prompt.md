@@ -1,18 +1,3 @@
-<!--
-The first CHANGE-REQUEST dogfood prompt (ADR 2026-028, TN-26-003, issue #14).
-First used at Run 21, against a tree delivered from
-heating-cockpit-ingest-prompt.md by the same arm in the same repository.
-
-It is fed to a NEW architect session after the driver opens the run boundary
-(`bounded change-run`): the tree keeps its spec, contracts, implementation, suite
-and frozen manifest; the guard log is archived. What is under test is the
-change cycle — whether the pipeline can evolve a delivered component through
-the same gates, not rebuild it.
-
-Used VERBATIM so change runs across harness versions stay comparable. Do not
-edit without starting a new prompt file under a new name.
--->
-
 The ingest and rating core delivered in this repository is live at the pilot
 buildings, and a change request has come in from the facility managers.
 

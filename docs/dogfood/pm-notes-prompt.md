@@ -1,18 +1,3 @@
-<!--
-The dogfood prompt for the hexagonal monorepo rework (ADRs 2026-056 to
-2026-064). It describes the worked example's product — projects and notes,
-reached from a browser, a desktop app, AI assistants and a scheduled export —
-in product language only. Intake strips the how (ADR 2026-032), so this text
-names no framework, runtime, database or file layout: the stack must come
-from the composed packs, and the structure from the harness's conventions.
-
-Use it on an arm initialized by `bounded init` with the whole stack
-(`scripts/dogfood/reset --init <host> --harnessed docs/dogfood/pm-notes-prompt.md`).
-After the run, compare the arm with the worked example:
-`BOUNDED_EXAMPLE_PROJECT=<example> node scripts/dogfood/structure-compare.ts <arm>`.
-Rendered without this comment; do not edit the body between runs.
--->
-
 We need a small tool for keeping track of our projects and the notes people
 write about them.
 

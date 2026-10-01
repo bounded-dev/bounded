@@ -1,23 +1,3 @@
-<!--
-The second CHANGE-REQUEST dogfood prompt, and the first STACK one (issue #14;
-first used at Run 22). Fed to a new architect session on the tree delivered by
-heating-cockpit-change-1-prompt.md, after the driver opens the run boundary.
-
-What is under test, beyond the change cycle itself:
-- COMPOSITION, one level up — a second component in the same repository that
-  consumes the first only through its delivered public surface.
-- STACK FIT — whether the contract discipline (declaration-only contracts,
-  parse-based value objects, one identity per value object) survives a real
-  framework whose types are inferred rather than declared: tRPC v11.
-
-The driver installs @trpc/server (exact-pinned) before the run; the prompt
-deliberately does NOT hand the architect a router-typing recipe — how the
-contract expresses a tRPC surface is the design problem being dogfooded.
-
-Used VERBATIM so runs stay comparable. Do not edit without starting a new
-prompt file under a new name.
--->
-
 The ingest and rating core in this repository is live, and the web team now
 needs to call it over the network. Extend this repository with a **tRPC
 service layer** exposing the core to typed clients.
