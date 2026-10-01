@@ -663,7 +663,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   if (policy.refusals.length > 0) return gateError(cwd, policy.refusals.join("; "), "test-policy");
 
   const prepared = await withPreparedServices(policy, (env) => Promise.all([
-    runTests(dir, { ...gateOptionsFromEnv(), env, timeoutMs: GATE_SUITE_TIMEOUT_MS }),
+    runTests(dir, { ...gateOptionsFromEnv(), env, timeoutMs: GATE_SUITE_TIMEOUT_MS, testSuffixes: testFileSuffixes(cwd) }),
     typecheck(dir, gateTypecheckOptionsFromEnv()),
     // Escape hatches in test sources: a suite that silences the type
     // checker can assert its way past anything.

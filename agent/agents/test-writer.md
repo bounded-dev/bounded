@@ -42,7 +42,7 @@ both are readable. Copy the shapes, not the domain.
 
 | Kind | Examples | You |
 |---|---|---|
-| Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` | you write these |
+| Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` (`*.spec.ts` is test-side too; write `*.test.ts`) | you write these |
 | Contract | `*.contract.ts` | read; the architect's |
 | Generated | `domain/index.ts`, `domain/shared/result.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle test support `drizzle-test-database.test-support.ts`, every `*.laws.test.ts` | read and import freely; no role edits them, you included |
 | Implementation | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, mappers, composition roots, … | never read; you may import them |

@@ -17,6 +17,12 @@
   "testFileSuffixes": [
     ".test.ts",
     ".test.tsx",
+    ".spec.ts",
+    ".spec.tsx",
+    "_test.ts",
+    "_test.tsx",
+    "_spec.ts",
+    "_spec.tsx",
     ".test-support.ts"
   ],
   "generatedFileGlobs": [

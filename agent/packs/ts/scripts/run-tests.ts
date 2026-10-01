@@ -62,6 +62,25 @@ export interface RunTestsOptions {
    *  the run is BLOCKED, so a hung test cannot hold a gate (and what the
    *  gate started for it) forever. */
   readonly timeoutMs?: number;
+  /** The composed test-side suffixes, when `cwd` cannot say itself (red's
+   *  shadow). Default: the project's own. */
+  readonly testSuffixes?: readonly string[];
+}
+
+/**
+ * The files bun is told to run: exactly the test-side files (composed
+ * suffixes) that bun can collect, as `./` paths, never bun's own discovery.
+ * bun also collects `*.spec.*`, `*_test_*` and `*_spec_*`; a file of that
+ * shape that is not test-side is the builder's, and a builder file that runs
+ * as a test (registering a `mock.module` that replaces the code under test
+ * for every later file) could turn the suite green on its own. Undefined
+ * when no suffix is composed (a project without the layout): bun discovers.
+ */
+export function runnableTestPaths(files: readonly { path: string }[], suffixes: readonly string[]): string[] | undefined {
+  if (suffixes.length === 0) return undefined;
+  return files
+    .filter((f) => BUN_TEST_FILE.test(f.path) && hasTestFileSuffix(f.path, suffixes))
+    .map((f) => `./${f.path}`);
 }
 
 /** The gates' hard limit on one suite run. Generous: it is a hang guard. */
@@ -232,11 +251,12 @@ export function summarizeResults(results: readonly SanitizedResult[]): RunSummar
   return { total: results.length, passed, failed, skipped };
 }
 
-// Bun's own test-file pattern (`bun test --help`: *.test.*, *.spec.*,
-// *_test_*, *_spec_*), so every file bun runs is covered even where no pack
+// Bun's own test-file names (bun 1.3.14 collects `x.test.ts`, `x.spec.ts`,
+// `x_test.ts`, `x_spec.ts`, any JS/TS extension), so every file bun runs is
+// covered even where no pack
 // contributed a suffix, plus the composed test-side suffixes: a support file
 // such as `x.store.test-support.ts` is test source too.
-const BUN_TEST_FILE = /(?:\.(?:test|spec)\.[cm]?[jt]sx?|_(?:test|spec)_[^/]*\.[cm]?[jt]sx?)$/i;
+const BUN_TEST_FILE = /[._](?:test|spec)\.[cm]?[jt]sx?$/i;
 const MAX_TEST_SOURCE_BYTES = 16 * 1024 * 1024;
 
 /** The text of every test-side file under `cwd`, in path order. */
@@ -335,8 +355,20 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
   try {
     const invocation = testCommand(report);
     const command = options.command ?? invocation.command;
-    const args = options.args ?? (options.command === undefined ? invocation.args : []);
     const files = testFiles(cwd);
+    let suffixes = options.testSuffixes;
+    if (suffixes === undefined) {
+      try {
+        suffixes = testFileSuffixes(cwd);
+      } catch {
+        suffixes = [];
+      }
+    }
+    const runnable = options.command === undefined && options.args === undefined ? runnableTestPaths(files, suffixes) : undefined;
+    if (runnable !== undefined && runnable.length === 0) {
+      return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: NO_TEST_FILES };
+    }
+    const args = options.args ?? (options.command === undefined ? [...invocation.args, ...(runnable ?? [])] : []);
     const context = {
       forbidden: forbiddenLines(files.map((f) => f.text)),
       pathRoots: machineRoots(cwd),

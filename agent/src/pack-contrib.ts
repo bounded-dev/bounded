@@ -363,13 +363,15 @@ export function sourceRootOf(path: string, roots: readonly string[]): string | u
   return undefined;
 }
 
-const DOTTED_SUFFIX = /^(?:\.[a-z0-9]+(?:-[a-z0-9]+)*){2,}$/;
+const DOTTED_SUFFIX = /^[._][a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$/;
 
 /**
  * `testFileSuffixes` (ADR 2026-057): file-name suffixes that make a file
- * test-side, e.g. `.test.ext`. Lowercase, at least two dotted parts (so a bare
- * language extension can never make every file test-side), dash allowed
- * inside a part (`.test-support.ext`). A suffix that ends with a composed
+ * test-side, e.g. `.test.ext`. Lowercase, at least two parts, the first
+ * opening with a dot or an underscore (`.test.ext`, `_test.ext`: test
+ * runners collect both) and the rest dotted, so a bare language extension can
+ * never make every file test-side; dash allowed inside a part
+ * (`.test-support.ext`). A suffix that ends with a composed
  * contract suffix, or that a contract suffix ends with, is refused: a file
  * cannot be both a contract and a test.
  */
@@ -378,7 +380,7 @@ export function testFileSuffixesFor(packs: readonly string[], packsDir?: string)
   const contracts = mergedContribution("contractFileSuffixes", packs, packsDir);
   for (const suffix of suffixes) {
     if (!DOTTED_SUFFIX.test(suffix)) {
-      throw new Error(`testFileSuffixes entry '${suffix}' must be a lowercase suffix of at least two dotted parts, such as '.test.ext'`);
+      throw new Error(`testFileSuffixes entry '${suffix}' must be a lowercase suffix of at least two parts, such as '.test.ext' or '_test.ext'`);
     }
     const clash = contracts.find((contract) => contract.endsWith(suffix) || suffix.endsWith(contract));
     if (clash !== undefined) {

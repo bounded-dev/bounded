@@ -56,7 +56,7 @@ shapes, not the domain.
 | Kind | Examples | You |
 |---|---|---|
 | Contract | `*.contract.ts` | read only; the architect's |
-| Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` | may see the NAME, never the content |
+| Test side | `*.test.ts`, `*.test.tsx`, `*.spec.ts`, `*.spec.tsx`, `*.test-support.ts` | may see the NAME, never the content |
 | Generated | `domain/index.ts`, `domain/shared/result.ts`, `domain/shared/errors.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle `drizzle-database.ts`, `schema/<context>.schema.ts` and `migrations/`, every `*.laws.test.ts` | read freely; no role edits them, you included |
 | Skeleton, then yours | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, `<feature>.<role>.ts` out adapters, `<tech>-database.ts` for in-memory, `schema/<area>.ts`, each app's `composition-root.ts` | you fill these in |
 | Yours from scratch | `<concept>.mapper.ts` in an out adapter's area folder | you create these |
@@ -235,6 +235,13 @@ and is never exported; the contract is imported as
 `import type * as Contract from "./<concept>.contract.ts"`; the file ends
 with exactly the two generated exports and exports nothing else. You write
 the class body; the tail is not yours to vary.
+
+**Implementation code never touches the test runner** —
+`bounded-ts/no-test-runner-in-source`: no `mock.module(…)`, no import of
+`bun:test`, and no file name bun would collect as a test. `*.spec.ts`,
+`*_test.ts` and `*_spec.ts` are test-side like `*.test.ts`: you cannot write
+one.
+The gates run only the test-side files, by path.
 
 **The hexagonal layout is enforced where you write** (the rulebook is
 `docs/architecture/`):

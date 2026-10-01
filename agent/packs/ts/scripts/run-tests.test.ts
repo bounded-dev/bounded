@@ -27,6 +27,8 @@ import {
 import { UNHANDLED_NAME } from "./sanitize-test-output.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { decide } from "../../../src/path-policy.ts";
+import { sourceRoots, testFileSuffixes } from "../../../src/pack-contrib.ts";
 import { makeTempProject, type TempProject } from "../../../test/support/temp-project.ts";
 
 // Real `bun test --reporter=junit` runs, captured from throwaway fixture
@@ -61,7 +63,9 @@ function silentRunner(stdout: string, stderr = "", code: number | null = 1): Com
 const projects: TempProject[] = [];
 afterAll(() => projects.forEach((p) => p.cleanup()));
 function project(files: Record<string, string> = {}): string {
-  const p = makeTempProject(files, { prefix: "run-tests-" });
+  // Bun is told to run the project's test-side files, so every fixture has one.
+  const withTest = Object.keys(files).some((f) => f.endsWith(".test.ts")) ? files : { ...files, "contexts/pm/src/probe.test.ts": "export {};\n" };
+  const p = makeTempProject(withTest, { prefix: "run-tests-" });
   projects.push(p);
   return p.dir;
 }
@@ -144,7 +148,7 @@ describe("the forbidden lines come from the project's test files", () => {
     const dir = project({
       "contexts/pm/src/a.test.ts": "A_TEST",
       "contexts/pm/src/b.spec.tsx": "B_SPEC",
-      "contexts/pm/src/c_test_d.js": "C_UNDERSCORE",
+      "contexts/pm/src/c_test.js": "C_UNDERSCORE",
       "contexts/pm/src/e.store.test-support.ts": "E_SUPPORT",
       "contexts/pm/src/__snapshots__/a.test.ts.snap": "S_SNAPSHOT",
       "contexts/pm/src/f.ts": "F_IMPLEMENTATION",
@@ -323,7 +327,7 @@ describe("the hard suite timeout", () => {
 
   test("the gates give every suite run the hard limit", () => {
     for (const gate of ["green-gate.ts", "red-gate.ts"]) {
-      expect(readFileSync(join(import.meta.dirname, gate), "utf8"), gate).toContain("env, timeoutMs: GATE_SUITE_TIMEOUT_MS })");
+      expect(readFileSync(join(import.meta.dirname, gate), "utf8"), gate).toContain("env, timeoutMs: GATE_SUITE_TIMEOUT_MS");
     }
     expect(GATE_SUITE_TIMEOUT_MS).toBeGreaterThanOrEqual(10 * 60_000);
   });
@@ -342,6 +346,36 @@ describe.skipIf(!HAS_BUN)("real bun", () => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), text);
   };
+
+  test("the review's repro: a builder file bun would collect cannot mock the code under test green", { timeout: 60_000 }, async () => {
+    const repro = "/private/tmp/claude-501/final-review/spec";
+    const source = (name: string, fallback: string): string => (existsSync(join(repro, name)) ? readFileSync(join(repro, name), "utf8") : fallback);
+    const dir = mkdtempSync(join(tmpdir(), "run-tests-spec-"));
+    dirs.push(dir);
+    write(dir, "package.json", '{"name":"probe","private":true,"type":"module"}\n');
+    writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
+    write(dir, "contexts/pm/src/impl.ts", source("impl.ts",
+      'export function add(a: number, b: number): number { throw new Error("NotImplemented"); }\n'));
+    write(dir, "contexts/pm/src/z.test.ts", source("z.test.ts",
+      'import { test, expect } from "bun:test";\nimport { add } from "./impl.ts";\ntest("adds", () => { expect(add(2, 3)).toBe(5); });\n'));
+    const mocking = source("a.spec.ts",
+      'import { mock, test } from "bun:test";\nmock.module("./impl.ts", () => ({ add: (a: number, b: number) => a + b }));\ntest("builder\'s own", () => {});\n');
+    // The same file under a name bun collects but no suffix makes test-side.
+    write(dir, "contexts/pm/src/a.spec.mts", mocking);
+    const result = await runTests(dir);
+    expect(result.results.map((r) => r.name)).toEqual(["adds"]);
+    expect(result.ok).toBe(false);
+    // The repro's own name, a.spec.ts, is test-side: the builder cannot write
+    // it, nor the other names bun collects; the test-writer can.
+    const ctx = { cwd: dir, sourceRoots: sourceRoots(dir), testSuffixes: testFileSuffixes(dir), contractGlobs: [], generatedGlobs: [] };
+    for (const name of ["a.spec.ts", "a_spec.ts", "a_test.tsx"]) {
+      expect(decide("builder", "write", { path: `contexts/pm/src/${name}` }, ctx).allow, name).toBe(false);
+      expect(decide("test-writer", "write", { path: `contexts/pm/src/${name}` }, ctx).allow, name).toBe(true);
+    }
+    // Bun's own discovery would have run it, and gone green.
+    const discovered = spawnSync("bun", ["test"], { cwd: dir, encoding: "utf8" });
+    expect(discovered.status).toBe(0);
+  });
 
   test("every failure keeps its text when this process is too busy to read while bun reports", { timeout: 60_000 }, async () => {
     // bun's console reporter drops what a full pipe will not take at once; a

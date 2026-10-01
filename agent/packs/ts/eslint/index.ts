@@ -6,6 +6,7 @@ import { implTail } from "./rules/impl-tail.ts";
 import { noBrandedAliases } from "./rules/no-branded-aliases.ts";
 import { noNakedPrimitives } from "./rules/no-naked-primitives.ts";
 import { noSchemaOnSurface } from "./rules/no-schema-on-surface.ts";
+import { noTestRunnerInSource } from "./rules/no-test-runner-in-source.ts";
 import { valueObjectDocumented } from "./rules/value-object-documented.ts";
 import { valueObjectShape } from "./rules/value-object-shape.ts";
 import { zodBackedParse } from "./rules/zod-backed-parse.ts";
@@ -34,6 +35,7 @@ export const plugin = {
     "impl-tail": implTail,
     "blessed-stacks-only": blessedStacksOnly,
     "zod-backed-parse": zodBackedParse,
+    "no-test-runner-in-source": noTestRunnerInSource,
   },
 } as const;
 

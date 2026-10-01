@@ -434,10 +434,15 @@ describe("the lint scope comes from the composed source roots", () => {
     expect(lintScope(flat, packsDir)).toEqual({
       src: ["apps/*/src/**/*.ts", "apps/*/src/**/*.tsx", "contexts/*/src/**/*.ts", "contexts/*/src/**/*.tsx"],
       tests: [
+        "apps/*/src/**/*.spec.ts", "apps/*/src/**/*.spec.tsx",
         "apps/*/src/**/*.test-support.ts", "apps/*/src/**/*.test.ts", "apps/*/src/**/*.test.tsx",
+        "apps/*/src/**/*_spec.ts", "apps/*/src/**/*_spec.tsx", "apps/*/src/**/*_test.ts", "apps/*/src/**/*_test.tsx",
+        "contexts/*/src/**/*.spec.ts", "contexts/*/src/**/*.spec.tsx",
         "contexts/*/src/**/*.test-support.ts", "contexts/*/src/**/*.test.ts", "contexts/*/src/**/*.test.tsx",
+        "contexts/*/src/**/*_spec.ts", "contexts/*/src/**/*_spec.tsx", "contexts/*/src/**/*_test.ts", "contexts/*/src/**/*_test.tsx",
       ],
-      srcIgnores: ["**/*.test-support.ts", "**/*.test.ts", "**/*.test.tsx", "**/*.laws.test.ts", "contexts/*/src/application/index.ts"],
+      srcIgnores: ["**/*.spec.ts", "**/*.spec.tsx", "**/*.test-support.ts", "**/*.test.ts", "**/*.test.tsx",
+        "**/*_spec.ts", "**/*_spec.tsx", "**/*_test.ts", "**/*_test.tsx", "**/*.laws.test.ts", "contexts/*/src/application/index.ts"],
       testIgnores: ["**/*.laws.test.ts", "contexts/*/src/application/index.ts"],
     });
   });
