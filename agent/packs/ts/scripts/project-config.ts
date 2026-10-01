@@ -491,5 +491,10 @@ export function syncDesignConfig(
       workspaces,
     };
   }
-  return { code: 0, lines: result.lines.map((l) => l.replace(/^sync-config: /, "")), workspaces };
+  // sync-config's own summary ("OK — n files restored") would read as a
+  // second verdict inside the scaffold step's output: drop it.
+  const lines = result.lines
+    .map((l) => l.replace(/^sync-config: /, ""))
+    .filter((l) => !/^OK — /.test(l));
+  return { code: 0, lines: [`config follows the design (${what})`, ...lines], workspaces };
 }
