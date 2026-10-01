@@ -96,8 +96,8 @@ describe("the root manifest (ADR 2026-051, ADR 2026-062)", () => {
       },
       devDependencies: { "@types/bun": "1.3.14", "ts-morph": "28.0.0", typescript: "5.9.3" },
     });
-    const harness = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as { devDependencies: Record<string, string> };
-    expect(pkg.devDependencies?.["ts-morph"]).toBe(harness.devDependencies["ts-morph"]);
+    const harness = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as { dependencies: Record<string, string> };
+    expect(pkg.devDependencies?.["ts-morph"]).toBe(harness.dependencies["ts-morph"]);
   });
 
   test("no composition provides a template: refused", () => {

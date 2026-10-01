@@ -24,8 +24,8 @@ const SCOPE = "@fixture";
 const ERRORS = "contexts/notebook/src/domain/shared/errors.ts";
 const NOTE_TEXT = "contexts/notebook/src/domain/notes/note-text.ts";
 const TS_MORPH_PIN = (JSON.parse(readFileSync(join(import.meta.dirname, "../../../package.json"), "utf8")) as {
-  devDependencies: Record<string, string>;
-}).devDependencies["ts-morph"]!;
+  dependencies: Record<string, string>;
+}).dependencies["ts-morph"]!;
 
 /** One part of the pipeline fixture (`design`, `tests`, `build`), project-relative
  *  path → content, scoped to `@fixture`. Apps and TNs are left out: these

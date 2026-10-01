@@ -581,8 +581,9 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
 function packPin(name: string): string {
   const pkg = JSON.parse(
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../package.json"), "utf8"),
-  ) as { devDependencies?: Record<string, string> };
-  const pin = pkg.devDependencies?.[name];
+  ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+  // Runtime dependencies first: the harness ships what its own code imports.
+  const pin = pkg.dependencies?.[name] ?? pkg.devDependencies?.[name];
   if (pin === undefined) throw new Error(`deliver: cannot find the pack's ${name} version to pin`);
   return pin;
 }
