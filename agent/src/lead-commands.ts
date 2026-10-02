@@ -22,22 +22,24 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { applyBoardOps, boardReady, type BoardOp } from "./board-sync.ts";
 import {
-  architectStatus, launchArchitectTurn, turnOutput, type ArchitectHost, type SpawnDetached,
+  architectStatus, flagLike, launchArchitectTurn, turnOutput, type ArchitectHost, type LaunchResult, type SpawnDetached,
 } from "./architect-launch.ts";
+import { clearDeliverySnapshot, readDeliverySnapshot, worktreeSnapshot } from "./delivery-snapshot.ts";
+import { acquireLock, systemProcesses, type ProcessProbe } from "./process-lock.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
 import { logGuardEvent } from "./guard-log.ts";
 import { prepareLeadRun } from "./lead-run.ts";
-import { isProjectLocalHarness, LEAD_GUARD, readRunLog } from "./lead-state.ts";
+import { isProjectLocalHarness, LEAD_GUARD, preparedTicket, readRunLog } from "./lead-state.ts";
 import { planModelTier } from "./model-tier.ts";
 import { contributionsByPack } from "./pack-contrib.ts";
 import { readProjectPacks } from "./project-composition.ts";
-import { HARNESS_RELATIVE, INSTALLATION_RELATIVE, type SetupResult } from "./setup-state.ts";
+import { dependenciesReady, HARNESS_RELATIVE, INSTALLATION_RELATIVE, type SetupResult } from "./setup-state.ts";
 import {
   checkTicketFields, ownershipConflict, parseIssueRef, parseTicketBody, renderTicketBody, type TicketFields,
 } from "./ticket-body.ts";
 import {
-  readStartedTicket, readTicketMarker, removeStartedTicket, startedTickets, ticketBranch, ticketWorktreePath,
-  writeStartedTicket, writeTicketMarker,
+  readStartedTicket, readTicketMarker, removeStartedTicket, startedTickets, ticketBranch, ticketWorktreeDirs, ticketWorktreePath,
+  writeStartedTicket, writeTicketMarker, type StartedTicket,
 } from "./ticket-worktree.ts";
 import {
   HANDOFF_PUBLISHED_LABEL, trackerRefusal, WAITING_LABEL_PREFIX, waitingLabel, type Tracker, type TrackerIssue,
@@ -120,8 +122,10 @@ export function parseLeadArgs(args: readonly string[]): ParsedLead {
   if (first === "reply") {
     const issue = rest.length === 2 ? parseIssueRef(rest[0]!) : undefined;
     const message = rest[1]?.trim() ?? "";
-    return issue === undefined || message === "" ? { ok: false, reason: usageOf("reply") }
-      : { ok: true, request: { command: "reply", issue, message } };
+    if (issue === undefined || message === "") return { ok: false, reason: usageOf("reply") };
+    // A host's command line could read it as an option (ADR 2026-066).
+    if (flagLike(message)) return { ok: false, reason: "a reply may not begin with '-'; reword it" };
+    return { ok: true, request: { command: "reply", issue, message } };
   }
   return { ok: false, reason: `usage: ${LEAD_COMMANDS.map((c) => c.usage).join("\n       ")}` };
 }
@@ -146,8 +150,21 @@ export interface LeadDeps {
   /** The project's full check, in `cwd`. */
   readonly check: (cwd: string) => { readonly ok: boolean; readonly output: string };
   readonly spawn?: SpawnDetached;
-  readonly alive?: (pid: number) => boolean;
+  /** Which processes run, by pid and start time (locks and architect turns). */
+  readonly processes?: ProcessProbe;
+  /** Whether a worktree's dependencies are installed (default: the setup probes). */
+  readonly ready?: (worktree: string) => boolean;
+  /**
+   * How an architect turn is started. The default launches the host's own
+   * session in the ticket worktree (architect-launch.ts); another way of
+   * running architects plugs in here without touching the commands.
+   */
+  readonly launch?: (worktree: string, message: string, host: ArchitectHost,
+    options: { readonly model?: string; readonly spawn?: SpawnDetached; readonly probe?: ProcessProbe }) => LaunchResult;
 }
+
+/** The lock every lead command holds in the main worktree, so no two interleave. */
+export const LEAD_LOCK_RELATIVE = ".bounded/lead/lock";
 
 /** The project's full check: each composed pack's declared command, in order. */
 export function projectCheck(cwd: string): { readonly ok: boolean; readonly output: string } {
@@ -256,10 +273,25 @@ function openingBrief(issue: TrackerIssue, worktree: string, main: string): stri
 export async function runLeadCommand(main: string, request: LeadRequest, deps: LeadDeps): Promise<LeadOutcome> {
   const place = leadPlace(main, deps);
   if (place !== undefined) return refused(place);
+  // One lead command at a time: two starts must never both pass the
+  // ownership check. A lock whose owner has gone is cleared (process-lock.ts).
+  const lock = acquireLock(join(main, LEAD_LOCK_RELATIVE), deps.processes ?? systemProcesses);
+  if (!lock.ok) return refused(`another lead command is running (pid ${lock.owner.pid}); wait for it to finish`);
+  try {
+    return await runLocked(main, request, deps);
+  } finally {
+    lock.release();
+  }
+}
+
+async function runLocked(main: string, request: LeadRequest, deps: LeadDeps): Promise<LeadOutcome> {
   let tracker: Tracker;
   try {
     tracker = deps.tracker(main);
     boardReady(main, tracker);
+    // A board update a gate could not make in a ticket worktree lands before
+    // anything else reads the board.
+    for (const worktree of ticketWorktreeDirs(main)) applyBoardOps(worktree, tracker, []);
   } catch (error) {
     return refused(trackerRefusal(error));
   }
@@ -285,6 +317,18 @@ async function dispatch(main: string, request: LeadRequest, deps: LeadDeps, trac
     case "status": return status(main, deps, tracker);
     case "reply": return reply(main, request.issue, request.message, deps, tracker);
     case "merge": return merge(main, request.issue, deps, tracker);
+  }
+}
+
+/** Whether the worktree still holds exactly what its deliver gate passed on. */
+function deliveredTreeIntact(worktree: string): boolean {
+  const delivered = readDeliverySnapshot(worktree);
+  if (delivered === undefined) return false;
+  try {
+    const now = worktreeSnapshot(worktree);
+    return now.tree === delivered.tree && now.index === delivered.index;
+  } catch {
+    return false;
   }
 }
 
@@ -331,19 +375,38 @@ function queue(main: string, issueNumber: number, tracker: Tracker): LeadOutcome
   return pending === undefined ? done(`#${issueNumber} queued${note}`) : refused(`#${issueNumber}: ${pending}`);
 }
 
+/** The launch options a command passes on. */
+function launchOptions(deps: LeadDeps, model: { readonly model?: string }) {
+  return { ...model, ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}), probe: deps.processes ?? systemProcesses };
+}
+
+/**
+ * `start` is a sequence of steps, each skipped when already done, so a start
+ * that a crash interrupted is finished by running it again. The record is
+ * written first (phase "starting"), inside the lead's lock, so a second
+ * ticket's ownership check always sees this one.
+ */
 async function start(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
   const issue = tracker.viewIssue(issueNumber);
   if (issue.state !== "open") return refused(`#${issueNumber} is closed`);
-  if (issue.status !== "Queued") return refused(`#${issueNumber} is ${issue.status ?? "not on the board"}; only a Queued ticket starts`);
+  const worktree = ticketWorktreePath(main, issueNumber);
+  const record = readStartedTicket(main, issueNumber);
+  if (record?.phase !== "starting" && record !== undefined) {
+    return refused(`#${issueNumber} already has a worktree and an architect; continue it with reply`);
+  }
+  // Resuming: the record says a start began, or the board and the worktree
+  // show one that left no record.
+  const resuming = record !== undefined || (issue.status === "In Design" && existsSync(worktree));
+  if (!resuming && issue.status !== "Queued") {
+    return refused(`#${issueNumber} is ${issue.status ?? "not on the board"}; only a Queued ticket starts`);
+  }
   const waiting = issue.labels.filter((l) => l.startsWith(WAITING_LABEL_PREFIX));
   if (waiting.length > 0) return refused(`#${issueNumber} is still ${waiting.join(", ")}: its dependency's design handoff is not published`);
   const body = parseTicketBody(issue.body);
   if (!body.ok) return refused(`#${issueNumber}: ${body.reason}`);
-  const worktree = ticketWorktreePath(main, issueNumber);
-  if (readStartedTicket(main, issueNumber) !== undefined || existsSync(worktree)) {
-    return refused(`#${issueNumber} already has a worktree and an architect; continue it with reply`);
-  }
+  if (!resuming && existsSync(worktree)) return refused(`#${issueNumber} already has a worktree at ${relative(main, worktree)}`);
   for (const other of startedTickets(main)) {
+    if (other.issue === issueNumber) continue;
     const conflict = ownershipConflict(body.owns, other.owns);
     if (conflict !== undefined) {
       return refused(`#${issueNumber} owns '${conflict[0]}', which overlaps '${conflict[1]}' owned by started ticket #${other.issue}; two parallel tickets may not own the same contract path`);
@@ -359,35 +422,56 @@ async function start(main: string, issueNumber: number, deps: LeadDeps, tracker:
   if ("error" in model) return refused(model.error);
 
   const branch = ticketBranch(issueNumber);
-  const added = git(deps, main, "worktree", "add", "-b", branch, worktree, MAIN_BRANCH);
-  if (added.status !== 0) return refused(`git could not create the ticket worktree: ${tail(added.stderr, 5)}`);
+  const started: StartedTicket = {
+    phase: "starting", issue: issueNumber, title: issue.title, branch, worktree, owns: body.owns, startedAt: record?.startedAt ?? new Date().toISOString(),
+  };
+  writeStartedTicket(main, started);
   const rollback = (why: string): LeadOutcome => {
+    if (resuming) {
+      return refused(`#${issueNumber} is not started yet — ${why}; fix that and run bounded lead start ${issueNumber} again to finish it`);
+    }
     git(deps, main, "worktree", "remove", "--force", worktree);
     git(deps, main, "branch", "-D", branch);
+    removeStartedTicket(main, issueNumber);
     return refused(`#${issueNumber} not started — ${why}; its worktree and branch were removed`);
   };
-  writeTicketMarker(worktree, { issue: issueNumber, branch, main });
-  const setup = await deps.setup(worktree);
-  if (!setup.ok) return rollback(setup.summary);
-  const prepared = prepareLeadRun(worktree, String(issueNumber));
-  if (!prepared.ok) return rollback(prepared.reason);
-  try {
-    tracker.setStatus(issueNumber, "In Design");
-  } catch (error) {
-    return rollback(trackerRefusal(error));
+
+  if (!existsSync(worktree)) {
+    const hasBranch = gitOut(deps, main, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`) !== undefined;
+    const added = hasBranch
+      ? git(deps, main, "worktree", "add", worktree, branch)
+      : git(deps, main, "worktree", "add", "-b", branch, worktree, MAIN_BRANCH);
+    if (added.status !== 0) {
+      removeStartedTicket(main, issueNumber);
+      return refused(`git could not create the ticket worktree: ${tail(added.stderr, 5)}`);
+    }
   }
-  const launched = launchArchitectTurn(worktree, openingBrief(issue, worktree, main), host, {
-    ...model, ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}), ...(deps.alive !== undefined ? { alive: deps.alive } : {}),
-  });
-  if (!launched.ok) {
-    const back = board(main, tracker, [{ op: "status", issue: issueNumber, status: "Queued" }]);
-    const out = rollback(launched.reason);
-    return back === undefined ? out : refused(`${out.text}; ${back}`);
+  writeTicketMarker(worktree, { issue: issueNumber, branch, main, owns: body.owns });
+  if (!(deps.ready ?? dependenciesReady)(worktree)) {
+    const setup = await deps.setup(worktree);
+    if (!setup.ok) return rollback(setup.summary);
   }
-  writeStartedTicket(main, {
-    issue: issueNumber, title: issue.title, branch, worktree, owns: body.owns, startedAt: new Date().toISOString(),
-  });
-  return done(`#${issueNumber} started in ${relative(main, worktree)} on ${branch}; its architect is running (turn ${launched.turn}). It is In Design. Check on it with bounded lead status.`);
+  if (preparedTicket(worktree) !== String(issueNumber)) {
+    const prepared = prepareLeadRun(worktree, String(issueNumber));
+    if (!prepared.ok) return rollback(prepared.reason);
+  }
+  if (issue.status !== "In Design") {
+    try {
+      tracker.setStatus(issueNumber, "In Design");
+    } catch (error) {
+      return rollback(trackerRefusal(error));
+    }
+  }
+  if (architectStatus(worktree, deps.processes ?? systemProcesses).kind === "none") {
+    const launched = (deps.launch ?? launchArchitectTurn)(worktree, openingBrief(issue, worktree, main), host, launchOptions(deps, model));
+    if (!launched.ok) {
+      const back = resuming ? undefined : board(main, tracker, [{ op: "status", issue: issueNumber, status: "Queued" }]);
+      const out = rollback(launched.reason);
+      return back === undefined ? out : refused(`${out.text}; ${back}`);
+    }
+  }
+  writeStartedTicket(main, { ...started, phase: "started" });
+  return done(`#${issueNumber} ${resuming ? "start finished" : "started"} in ${relative(main, worktree)} on ${branch}; its architect is running. It is In Design. Check on it with bounded lead status.`);
 }
 
 function status(main: string, deps: LeadDeps, tracker: Tracker): LeadOutcome {
@@ -396,9 +480,16 @@ function status(main: string, deps: LeadDeps, tracker: Tracker): LeadOutcome {
   const lines: string[] = [];
   for (const ticket of started) {
     const issue = tracker.viewIssue(ticket.issue);
+    if (ticket.phase === "starting") {
+      lines.push(`#${ticket.issue} ${issue.title} — its start did not finish; run bounded lead start ${ticket.issue} to finish it`);
+      continue;
+    }
     const labels = issue.labels.filter((l) => l.startsWith("blocked: ") || l.startsWith(WAITING_LABEL_PREFIX));
     lines.push(`#${ticket.issue} ${issue.title} — ${issue.status ?? "not on the board"}${labels.length > 0 ? ` (${labels.join(", ")})` : ""}`);
-    const architect = architectStatus(ticket.worktree, deps.alive);
+    if (issue.status === "Awaiting Merge" && !deliveredTreeIntact(ticket.worktree)) {
+      lines.push(`  the worktree changed after delivery; its architect must rerun deliver (bounded lead reply ${ticket.issue} <message>)`);
+    }
+    const architect = architectStatus(ticket.worktree, deps.processes ?? systemProcesses);
     switch (architect.kind) {
       case "none": lines.push("  architect: never launched"); break;
       case "running": lines.push(`  architect: running turn ${architect.turn} since ${architect.since}`); break;
@@ -419,8 +510,10 @@ function status(main: string, deps: LeadDeps, tracker: Tracker): LeadOutcome {
 async function reply(main: string, issueNumber: number, message: string, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
   const ticket = readStartedTicket(main, issueNumber);
   if (ticket === undefined) return refused(`#${issueNumber} is not started; start it first`);
+  if (ticket.phase === "starting") return refused(`#${issueNumber}'s start did not finish; run bounded lead start ${issueNumber} first`);
   const issue = tracker.viewIssue(issueNumber);
   if (issue.state !== "open") return refused(`#${issueNumber} is closed`);
+  if (flagLike(message)) return refused("a reply may not begin with '-'; reword it");
   let host: ArchitectHost;
   try {
     host = await deps.host(main);
@@ -429,21 +522,33 @@ async function reply(main: string, issueNumber: number, message: string, deps: L
   }
   const model = architectModel(main, host);
   if ("error" in model) return refused(model.error);
-  const launched = launchArchitectTurn(ticket.worktree, message, host, {
-    ...model, ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}), ...(deps.alive !== undefined ? { alive: deps.alive } : {}),
-  });
-  return launched.ok ? done(`#${issueNumber}'s architect continues (turn ${launched.turn})`) : refused(launched.reason);
+  // A reply to a delivered ticket reopens it: the architect may change the
+  // tree, so the delivery no longer stands until deliver passes again.
+  const reopen = issue.status === "Awaiting Merge";
+  if (reopen) {
+    const pending = board(main, tracker, [{ op: "status", issue: issueNumber, status: "Building" }]);
+    if (pending !== undefined) return refused(`#${issueNumber} was not reopened: ${pending}`);
+    clearDeliverySnapshot(ticket.worktree);
+  }
+  const launched = (deps.launch ?? launchArchitectTurn)(ticket.worktree, message, host, launchOptions(deps, model));
+  return launched.ok
+    ? done(`#${issueNumber}'s architect continues (turn ${launched.turn})${reopen ? "; the ticket is reopened to Building until deliver passes again" : ""}`)
+    : refused(launched.reason);
 }
 
 async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
   const ticket = readStartedTicket(main, issueNumber);
   if (ticket === undefined) return refused(`#${issueNumber} is not started`);
-  const architect = architectStatus(ticket.worktree, deps.alive);
+  if (ticket.phase === "starting") return refused(`#${issueNumber}'s start did not finish; run bounded lead start ${issueNumber} first`);
+  const architect = architectStatus(ticket.worktree, deps.processes ?? systemProcesses);
   if (architect.kind === "running") return refused(`#${issueNumber}'s architect is still running`);
   const issue = tracker.viewIssue(issueNumber);
   if (issue.status !== "Awaiting Merge") return refused(`#${issueNumber} is ${issue.status ?? "not on the board"}; only a ticket whose deliver gate passed merges`);
   const log = readRunLog(ticket.worktree);
   if (log.kind !== "read" || log.state !== "delivered") return refused(`#${issueNumber}'s worktree records no final delivery`);
+  const delivered = readDeliverySnapshot(ticket.worktree);
+  if (delivered === undefined) return refused(`#${issueNumber}'s worktree records no delivered tree; rerun deliver`);
+  if (!deliveredTreeIntact(ticket.worktree)) return refused(`#${issueNumber}: the worktree changed after delivery; rerun deliver`);
 
   if ((gitOut(deps, main, "status", "--porcelain") ?? "x") !== "") return refused(`${MAIN_BRANCH} has uncommitted changes; it must be clean to merge`);
   const fetched = git(deps, main, "fetch", REMOTE, MAIN_BRANCH);
@@ -458,6 +563,9 @@ async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker:
     if (git(deps, ticket.worktree, "add", "-A").status !== 0) return refused(`could not stage #${issueNumber}'s delivered work`);
     const committed = git(deps, ticket.worktree, "commit", "-q", "-m", `#${issueNumber}: ${issue.title}`);
     if (committed.status !== 0) return refused(`could not commit #${issueNumber}'s delivered work: ${tail(committed.stderr, 5)}`);
+  }
+  if (gitOut(deps, ticket.worktree, "rev-parse", "HEAD^{tree}") !== delivered.tree) {
+    return refused(`#${issueNumber}: the branch does not hold the delivered tree; rerun deliver`);
   }
 
   const merged = git(deps, main, "merge", "--no-ff", "--no-edit", "-m", `Merge #${issueNumber}: ${issue.title}`, ticket.branch);

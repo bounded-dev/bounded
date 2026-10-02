@@ -19,6 +19,7 @@ import type { GateMilestone } from "./gate-command.ts";
 import type { GateResult } from "./gate-result.ts";
 import { logGuardEvent } from "./guard-log.ts";
 import { readTicketMarker } from "./ticket-worktree.ts";
+import { clearDeliverySnapshot, recordDeliverySnapshot } from "./delivery-snapshot.ts";
 import {
   blockedLabel, HANDOFF_PUBLISHED_LABEL, trackerRefusal, waitingLabel, type BoardStatus, type Tracker,
 } from "./tracker.ts";
@@ -185,6 +186,16 @@ export async function runGateWithBoard(
     return refusal(gate.name, `${gate.name} did not run: ${reason}`);
   }
   const result = await run();
+  // A delivered pass is evidence about exactly this tree; merge takes no other.
+  if (gate.milestone === "delivered") {
+    try {
+      if (result.code === 0) recordDeliverySnapshot(cwd);
+      else clearDeliverySnapshot(cwd);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return refusal(gate.name, `${gate.name} ran, but what it delivered could not be recorded (${why}); the board was not updated`);
+    }
+  }
   try {
     const { ops, state } = boardOpsFor(marker.issue, gate, result, readState(cwd), {
       ...(role !== undefined ? { role } : {}),

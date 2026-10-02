@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -22,6 +23,10 @@ let dir = "";
 let tracker: FakeTracker;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "bounded-board-"));
+  // A ticket worktree is a git checkout: a delivered pass records its tree.
+  execFileSync("git", ["init", "-q", dir]);
+  writeFileSync(join(dir, ".gitignore"), ".bounded/\n");
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "init"], { cwd: dir });
   mkdirSync(join(dir, ".bounded"));
   writeFileSync(join(dir, TICKET_MARKER_RELATIVE), JSON.stringify({ issue: 7, branch: "ticket/7", main: "/m" }));
   tracker = new FakeTracker();
@@ -85,6 +90,15 @@ describe("boardOpsFor — the transitions", () => {
 });
 
 describe("runGateWithBoard", () => {
+  test("a delivered pass records the delivered tree; a later refusal of that gate drops it", async () => {
+    writeFileSync(join(dir, "a.ts"), "export const a = 1;\n");
+    await run({ name: "deliver", milestone: "delivered" }, pass("delivered")).out;
+    const snapshot = JSON.parse(readFileSync(join(dir, ".bounded/delivery-snapshot.json"), "utf8")) as { tree: string; index: string };
+    expect(snapshot.tree).toMatch(/^[0-9a-f]{40}$/);
+    await run({ name: "deliver", milestone: "delivered" }, block("builder")).out;
+    expect(existsSync(join(dir, ".bounded/delivery-snapshot.json"))).toBe(false);
+  });
+
   test("outside a ticket worktree the gate just runs, and the tracker is never opened", async () => {
     rmSync(join(dir, TICKET_MARKER_RELATIVE));
     const open = vi.fn(() => tracker);

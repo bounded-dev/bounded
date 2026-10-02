@@ -182,14 +182,32 @@ describe("a ticket worktree's own session (ADR 2026-066)", () => {
     "docs/tn/README.md": "# TNs\n", ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7")),
   });
 
-  test("launched as the architect, the project-wide hook binds it and judges it as the architect", () => {
+  test("launched as the architect, the project-wide hook binds it, judges it, and allows in words what it allows", () => {
     const dir = ticket();
     vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
     vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
-    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" }).decision).toBe("allow");
+    // The session grants nothing itself (dontAsk): an allowed call carries an explicit allow.
+    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" })).toEqual({ decision: "rewrite", input: {} });
     expect(hook(dir, "Write", { file_path: join(dir, "src/impl.ts"), content: "x" }).decision).toBe("deny");
     expect(hook(dir, "Bash", { command: "bounded lead status" }).decision).toBe("deny");
     expect(readGuardLog(dir).some((e) => e.guard === "host")).toBe(true);
+  });
+
+  test("a worker the launched architect commissions is allowed in words by its own bound hook", () => {
+    const dir = project({
+      [TICKET_MARKER_RELATIVE]: JSON.stringify({ issue: 7, branch: "ticket/7", main: "/m", owns: ["contexts/billing/"] }),
+      "docs/tn/README.md": "# TNs\n", ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7")),
+    });
+    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
+    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+    const reviewerRead = hook(dir, "Read", { file_path: join(dir, "docs/tn/README.md") }, [...LEAD, "--role", "reviewer"], { agent_id: "a-2", agent_type: "reviewer" });
+    expect(reviewerRead).toEqual({ decision: "rewrite", input: {} });
+    expect(hook(dir, "Write", { file_path: join(dir, "x.md"), content: "" }, [...LEAD, "--role", "reviewer"], { agent_id: "a-2", agent_type: "reviewer" }).decision).toBe("deny");
+  });
+
+  test("outside a launched session an allowed call is left to the host's own permissions", () => {
+    const dir = project({ "src/a.ts": "" });
+    expect(hook(dir, "Read", { file_path: join(dir, "src/a.ts") })).toEqual({ decision: "allow" });
   });
 
   test("not launched, the worktree's top-level session is only read-only", () => {

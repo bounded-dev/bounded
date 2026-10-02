@@ -99,7 +99,7 @@ import { BASH_TOOL, claudeTaskModel, mapToolCall, unplainAgentField } from "./to
 import { resolveSessionRole } from "../../src/session-role.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
-import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
+import { allow, allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { boundDefinitionInForce, evaluateLead, evaluateScout } from "./lead-hook.ts";
 import { LAUNCHED_SEAT_ENV } from "./architect-launch.ts";
 import { readTicketMarker } from "../../src/ticket-worktree.ts";
@@ -323,8 +323,12 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
           detail: { host: "claude-code", kind: "hook-error", role: flags.role },
         });
         return { stdout: "", stderr: `${DENY_PREFIX}: --role ${seat.note}\n` };
-      case "role":
-        return { stdout: evaluate(seat.role, seat.bound, payload, cwd, harnessRoot, flags.projectLocal), stderr: "" };
+      case "role": {
+        const out = evaluate(seat.role, seat.bound, payload, cwd, harnessRoot, flags.projectLocal);
+        // A launched session grants nothing itself (dontAsk): what the gate
+        // allows there, it allows in words, and a missing hook allows nothing.
+        return { stdout: out === "" && inLaunchedSession(flags, projectDir) ? allow() : out, stderr: "" };
+      }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -443,6 +447,12 @@ export function launchedSeat(flags: { readonly projectLocal: boolean }, payload:
   const seat = process.env[LAUNCHED_SEAT_ENV];
   if (seat !== "architect" || readTicketMarker(projectDir) === undefined) return undefined;
   return seat;
+}
+
+/** This call belongs to a session `bounded lead start` launched: the
+ *  architect's own calls and its workers', in a marked ticket worktree. */
+export function inLaunchedSession(flags: { readonly projectLocal: boolean }, projectDir: string): boolean {
+  return flags.projectLocal && process.env[LAUNCHED_SEAT_ENV] === "architect" && readTicketMarker(projectDir) !== undefined;
 }
 
 /** The seat instance making a call: a subagent's agent id, else the session. */

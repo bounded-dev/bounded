@@ -24,6 +24,9 @@ export interface TicketMarker {
   readonly branch: string;
   /** The main worktree this ticket merges back into. */
   readonly main: string;
+  /** The paths this ticket alone may change; the path gate confines every
+   *  role in the worktree to them (path-policy.ts). */
+  readonly owns?: readonly string[];
 }
 
 /** The ticket a worktree belongs to, when `cwd` is a ticket worktree's root. */
@@ -33,10 +36,12 @@ export function readTicketMarker(cwd: string): TicketMarker | undefined {
     if (!lstatSync(path).isFile()) return undefined;
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (raw === null || typeof raw !== "object") return undefined;
-    const { issue, branch, main } = raw as Record<string, unknown>;
+    const { issue, branch, main, owns } = raw as Record<string, unknown>;
     if (typeof issue !== "number" || !Number.isSafeInteger(issue) || issue < 1) return undefined;
     if (typeof branch !== "string" || typeof main !== "string") return undefined;
-    return { issue, branch, main };
+    // Owned paths that are not a list of strings confine to nothing at all.
+    const owned = owns === undefined ? undefined : Array.isArray(owns) && owns.every((p) => typeof p === "string") ? owns as string[] : [];
+    return { issue, branch, main, ...(owned !== undefined ? { owns: owned } : {}) };
   } catch {
     return undefined;
   }
@@ -52,6 +57,8 @@ export function writeTicketMarker(worktree: string, marker: TicketMarker): void 
 }
 
 export interface StartedTicket {
+  /** "starting" until every step of `start` is done; a rerun of `start` finishes it. */
+  readonly phase?: "starting" | "started";
   readonly issue: number;
   readonly title: string;
   readonly branch: string;
@@ -77,6 +84,15 @@ export function readStartedTicket(main: string, issue: number): StartedTicket | 
   } catch {
     return undefined;
   }
+}
+
+/** Every ticket worktree directory under `main`, recorded or not. */
+export function ticketWorktreeDirs(main: string): readonly string[] {
+  const dir = join(main, TICKET_WORKTREES_RELATIVE);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^[1-9][0-9]*$/.test(entry.name))
+    .map((entry) => join(dir, entry.name));
 }
 
 /** Every ticket started from `main` and not yet merged, by issue number. */

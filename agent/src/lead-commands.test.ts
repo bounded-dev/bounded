@@ -7,7 +7,9 @@ import { readArchitectState, type ArchitectHost } from "./architect-launch.ts";
 import {
   gitCommandLine, LEAD_COMMANDS, parseLeadArgs, runLeadCommand, type LeadDeps, type LeadRequest,
 } from "./lead-commands.ts";
-import { readStartedTicket, readTicketMarker, ticketWorktreePath } from "./ticket-worktree.ts";
+import { readStartedTicket, readTicketMarker, ticketWorktreePath, writeStartedTicket } from "./ticket-worktree.ts";
+import { recordDeliverySnapshot } from "./delivery-snapshot.ts";
+import { LEAD_LOCK_RELATIVE } from "./lead-commands.ts";
 import { FakeTracker } from "../test/support/fake-tracker.ts";
 import { delivered, logLines, prepared, runStart } from "../test/support/lead-project.ts";
 
@@ -31,7 +33,7 @@ const write = (dir: string, rel: string, content: string): void => {
 };
 
 const HOST: ArchitectHost = {
-  name: "test", model: (p) => p,
+  name: "test", model: (p) => p, preflight: () => undefined,
   command(spec) {
     hostSpecs.push({ message: spec.message, resume: spec.resume });
     return { command: process.execPath, args: ["-e", "0"], env: {} };
@@ -69,7 +71,9 @@ afterEach(() => {
 });
 
 const deps = (): LeadDeps => ({
-  tracker: () => tracker, git: gitCommandLine, host: async () => HOST, setup, check, spawn, alive: () => false,
+  tracker: () => tracker, git: gitCommandLine, host: async () => HOST, setup, check, spawn,
+  // No spawned architect process runs; this test process does, for the lead's lock.
+  processes: { startTime: (pid) => (pid === process.pid ? "t" : undefined) },
 });
 const lead = (argv: string[]): Promise<{ ok: boolean; text: string }> => {
   const parsed = parseLeadArgs(argv);
@@ -88,6 +92,7 @@ const deliver = (n: number, rel = `contexts/t${n}.ts`): void => {
   const wt = ticketWorktreePath(main, n);
   write(wt, rel, `export const t${n} = ${n};\n`);
   write(wt, ".bounded/guard-log.jsonl", logLines(prepared(String(n)), runStart, delivered));
+  recordDeliverySnapshot(wt);
   tracker.setStatus(n, "Awaiting Merge");
 };
 
@@ -139,7 +144,7 @@ describe("the board transitions", () => {
     expect(out.ok, out.text).toBe(true);
     const wt = ticketWorktreePath(main, n);
     expect(git(wt, "rev-parse", "--abbrev-ref", "HEAD")).toBe(`ticket/${n}`);
-    expect(readTicketMarker(wt)).toEqual({ issue: n, branch: `ticket/${n}`, main });
+    expect(readTicketMarker(wt)).toEqual({ issue: n, branch: `ticket/${n}`, main, owns: ["contexts/billing/invoice.contract.ts"] });
     expect(readFileSync(join(wt, ".bounded/active-ticket"), "utf8")).toBe(`${n}\n`);
     expect(setup).toHaveBeenCalledWith(wt);
     expect(spawn).toHaveBeenCalledTimes(1);
@@ -201,6 +206,8 @@ describe("the board transitions", () => {
     expect((await lead(["merge", String(n)])).text).toContain("only a ticket whose deliver gate passed merges");
     tracker.setStatus(n, "Awaiting Merge");
     expect((await lead(["merge", String(n)])).text).toContain("records no final delivery");
+    write(ticketWorktreePath(main, n), ".bounded/guard-log.jsonl", logLines(prepared(String(n)), runStart, delivered));
+    expect((await lead(["merge", String(n)])).text).toContain("records no delivered tree; rerun deliver");
     deliver(n);
     const out = await lead(["merge", String(n)]);
     expect(out.ok, out.text).toBe(true);
@@ -254,13 +261,116 @@ describe("the board transitions", () => {
     await lead(["queue", String(n)]);
     await lead(["start", String(n)]);
     deliver(n);
-    tracker.failAfter = 3; // check, view, then the Done update fails
+    tracker.failAfter = 2; // check, view, then the Done update fails
     const out = await lead(["merge", String(n)]);
     expect(out.ok).toBe(false);
     expect(out.text).toContain("merged, checked and pushed, but the board update is pending");
     tracker.failAfter = undefined;
     await lead(["status"]);
     expect(issue(n)).toMatchObject({ status: "Done", state: "closed" });
+  });
+});
+
+describe("review fixes (ADR 2026-066)", () => {
+  const started = async (title: string, owns: string[]): Promise<number> => {
+    const n = await create(title, owns);
+    await lead(["queue", String(n)]);
+    const out = await lead(["start", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    return n;
+  };
+
+  test("merge refuses a worktree that changed after delivery — a new file, an edit, or only a staged change", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    const wt = ticketWorktreePath(main, n);
+    deliver(n, "contexts/a/a.ts");
+    write(wt, "contexts/a/late.ts", "export const late = 1;\n");
+    expect((await lead(["merge", String(n)])).text).toContain("the worktree changed after delivery; rerun deliver");
+    rmSync(join(wt, "contexts/a/late.ts"));
+    write(wt, "contexts/a/a.ts", "export const changed = 1;\n");
+    expect((await lead(["merge", String(n)])).text).toContain("the worktree changed after delivery");
+    deliver(n, "contexts/a/a.ts");
+    git(wt, "add", "contexts/a/a.ts");
+    expect((await lead(["merge", String(n)])).text).toContain("the worktree changed after delivery");
+    expect(check).not.toHaveBeenCalled();
+    expect((await lead(["status"])).text).toContain("the worktree changed after delivery");
+  });
+
+  test("a reply to a delivered ticket reopens it to Building and drops the delivery, so merge waits for deliver again", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    deliver(n, "contexts/a/a.ts");
+    const out = await lead(["reply", String(n), "One more field, please."]);
+    expect(out.text).toContain("reopened to Building");
+    expect(issue(n).status).toBe("Building");
+    tracker.setStatus(n, "Awaiting Merge");
+    expect((await lead(["merge", String(n)])).text).toContain("records no delivered tree");
+  });
+
+  test("a reply that could be read as an option is refused", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    expect(parseLeadArgs(["reply", String(n), "--dangerously-skip-permissions"]).ok).toBe(false);
+    expect((await runLeadCommand(main, { command: "reply", issue: n, message: "-p x" }, deps())).text).toContain("may not begin with '-'");
+    expect(hostSpecs).toHaveLength(1);
+  });
+
+  test("one lead command at a time: a live holder refuses the next; a dead one's lock is cleared", async () => {
+    write(main, LEAD_LOCK_RELATIVE, JSON.stringify({ pid: process.pid, started: "t" }));
+    expect((await lead(["status"])).text).toContain("another lead command is running");
+    write(main, LEAD_LOCK_RELATIVE, JSON.stringify({ pid: 999_999, started: "long ago" }));
+    expect((await lead(["status"])).ok).toBe(true);
+    expect(existsSync(join(main, LEAD_LOCK_RELATIVE))).toBe(false);
+  });
+
+  test("the started record is written before setup, so a parallel start sees the ownership at once", async () => {
+    const a = await create("A", ["contexts/shared/"]);
+    await lead(["queue", String(a)]);
+    let seen: unknown;
+    setup.mockImplementationOnce(async () => { seen = readStartedTicket(main, a); return { ok: true, summary: "installed" }; });
+    await lead(["start", String(a)]);
+    expect(seen).toMatchObject({ phase: "starting", owns: ["contexts/shared/"] });
+    expect(readStartedTicket(main, a)).toMatchObject({ phase: "started" });
+  });
+
+  test("a start a crash interrupted is finished by running start again", async () => {
+    const n = await create("A", ["contexts/a/"]);
+    await lead(["queue", String(n)]);
+    // The process died after the worktree was added and the board moved, before setup finished.
+    const wt = ticketWorktreePath(main, n);
+    git(main, "worktree", "add", "-q", "-b", `ticket/${n}`, wt, "main");
+    writeStartedTicket(main, { phase: "starting", issue: n, title: "A", branch: `ticket/${n}`, worktree: wt, owns: ["contexts/a/"], startedAt: "t" });
+    tracker.setStatus(n, "In Design");
+    expect((await lead(["status"])).text).toContain(`run bounded lead start ${n} to finish it`);
+    expect((await lead(["merge", String(n)])).text).toContain("start did not finish");
+    const out = await lead(["start", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    expect(out.text).toContain("start finished");
+    expect(readTicketMarker(wt)).toMatchObject({ issue: n, owns: ["contexts/a/"] });
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(readStartedTicket(main, n)).toMatchObject({ phase: "started" });
+    // A worktree on the board with no record at all is finished the same way.
+    const m = await create("B", ["contexts/b/"]);
+    tracker.setStatus(m, "In Design");
+    git(main, "worktree", "add", "-q", "-b", `ticket/${m}`, ticketWorktreePath(main, m), "main");
+    expect((await lead(["start", String(m)])).text).toContain("start finished");
+    // A failure while finishing keeps the worktree and says how to finish.
+    const k = await create("C", ["contexts/c/"]);
+    tracker.setStatus(k, "In Design");
+    git(main, "worktree", "add", "-q", "-b", `ticket/${k}`, ticketWorktreePath(main, k), "main");
+    setup.mockResolvedValueOnce({ ok: false, summary: "offline" });
+    const failed = await lead(["start", String(k)]);
+    expect(failed.text).toContain(`run bounded lead start ${k} again to finish it`);
+    expect(existsSync(ticketWorktreePath(main, k))).toBe(true);
+  });
+
+  test("a board update a gate left pending in a ticket worktree is replayed by the next lead command", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    write(ticketWorktreePath(main, n), ".bounded/board-pending.json", JSON.stringify([{ op: "status", issue: n, status: "Awaiting Merge" }]));
+    await lead(["status"]);
+    expect(issue(n).status).toBe("Awaiting Merge");
+    expect(existsSync(join(ticketWorktreePath(main, n), ".bounded/board-pending.json"))).toBe(false);
+    write(ticketWorktreePath(main, n), ".bounded/board-pending.json", JSON.stringify([{ op: "status", issue: n, status: "Building" }]));
+    tracker.failAfter = 1;
+    expect((await lead(["merge", String(n)])).text).toContain("route → user");
   });
 });
 

@@ -9,7 +9,7 @@
 // outside the session and the ambient copy stands down (path-gate.ts). The
 // generated architect definition supplies the tool allowlist and the brief.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARCHITECT_DIR_RELATIVE, type ArchitectHost, type ArchitectTurnSpec, type HostCommand } from "../../src/architect-launch.ts";
 
@@ -25,9 +25,22 @@ export function piArchitectDefinition(worktree: string): { readonly tools: reado
   return { tools, brief: match[2]!.trim() };
 }
 
+/** Why the worktree's gate would not load for a launched pi session, if it would not. */
+export function piGateProblem(worktree: string): string | undefined {
+  if (!existsSync(join(worktree, ARCHITECT_LOADER_RELATIVE))) return `the architect's loader ${ARCHITECT_LOADER_RELATIVE} is missing`;
+  if (!existsSync(join(worktree, ".pi", "extensions", "bounded", "index.ts"))) return "the worktree's project extension .pi/extensions/bounded/index.ts is missing";
+  try {
+    piArchitectDefinition(worktree);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  return undefined;
+}
+
 export const PI_ARCHITECT_HOST: ArchitectHost = {
   name: "pi",
   model: (pattern) => pattern,
+  preflight: piGateProblem,
   command(spec: ArchitectTurnSpec): HostCommand {
     const { tools, brief } = piArchitectDefinition(spec.worktree);
     const briefFile = join(spec.worktree, ARCHITECT_DIR_RELATIVE, "brief.md");

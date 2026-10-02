@@ -30,6 +30,13 @@ export function deny(reason: string): string {
   );
 }
 
+/** Allow explicitly, the input unchanged. A launched architect session grants
+ *  no permission of its own (architect-launch.ts), so every call its gate
+ *  allows is allowed here, in words. */
+export function allow(): string {
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }) + "\n";
+}
+
 /** Allow, with the tool input rewritten. Other fields of the original input
  *  (`description`, `timeout`) are kept: `updatedInput` REPLACES the input. */
 export function allowWith(updatedInput: Readonly<Record<string, unknown>>): string {

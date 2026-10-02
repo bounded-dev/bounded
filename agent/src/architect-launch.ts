@@ -18,12 +18,13 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logGuardEvent } from "./guard-log.ts";
 import { isMainModule } from "./is-main-module.ts";
 import { ARCHITECT_ENDED, LEAD_GUARD } from "./lead-state.ts";
+import { acquireLock, ownerAlive, systemProcesses, type ProcessProbe } from "./process-lock.ts";
 
 export const ARCHITECT_DIR_RELATIVE = ".bounded/architect";
 const STATE = "state.json";
@@ -49,12 +50,18 @@ export interface HostCommand {
   readonly unset?: readonly string[];
 }
 
-/** A host adapter's half: the command line for one turn, and the host's name
- *  for a configured model pattern (undefined when it cannot run that model). */
+/**
+ * A host adapter's half: the command line for one turn, the host's name for a
+ * configured model pattern (undefined when it cannot run that model), and a
+ * preflight that says why the worktree's gate would not hold, so a launch
+ * fails closed before it starts. Another way of running architects (one
+ * visible subagent at a time, say) is another implementation of this seam.
+ */
 export interface ArchitectHost {
   readonly name: string;
   command(spec: ArchitectTurnSpec): HostCommand;
   model(pattern: string): string | undefined;
+  preflight(worktree: string): string | undefined;
 }
 
 export interface ArchitectState {
@@ -62,6 +69,8 @@ export interface ArchitectState {
   readonly turn: number;
   readonly state: "running" | "ended";
   readonly pid: number;
+  /** The recording process's start time, so a reused pid is never mistaken for it. */
+  readonly pidStarted?: string;
   readonly startedAt: string;
   readonly endedAt?: string;
   readonly exitCode?: number;
@@ -90,21 +99,17 @@ function writeState(worktree: string, state: ArchitectState): void {
   writeFileSync(join(dirOf(worktree), STATE), JSON.stringify(state, null, 2) + "\n");
 }
 
-/** Whether a process is alive. A process we may not signal still exists. */
-export function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as { code?: unknown }).code === "EPERM";
-  }
-}
-
-export function architectStatus(worktree: string, alive: (pid: number) => boolean = processAlive): ArchitectStatus {
+export function architectStatus(worktree: string, probe: ProcessProbe = systemProcesses): ArchitectStatus {
   const state = readArchitectState(worktree);
   if (state === undefined) return { kind: "none" };
   if (state.state === "ended") return { kind: "ended", turn: state.turn, exitCode: state.exitCode ?? 1 };
-  return alive(state.pid) ? { kind: "running", turn: state.turn, since: state.startedAt } : { kind: "lost", turn: state.turn };
+  const alive = ownerAlive({ pid: state.pid, started: state.pidStarted ?? "unrecorded" }, probe);
+  return alive ? { kind: "running", turn: state.turn, since: state.startedAt } : { kind: "lost", turn: state.turn };
+}
+
+/** A message that a host's command line could read as an option. */
+export function flagLike(message: string): boolean {
+  return message.trimStart().startsWith("-");
 }
 
 /** Start a detached program and return its pid. Tests replace it. */
@@ -129,18 +134,17 @@ export function launchArchitectTurn(
   worktree: string,
   message: string,
   host: ArchitectHost,
-  options: { readonly model?: string; readonly spawn?: SpawnDetached; readonly alive?: (pid: number) => boolean } = {},
+  options: { readonly model?: string; readonly spawn?: SpawnDetached; readonly probe?: ProcessProbe } = {},
 ): LaunchResult {
+  if (flagLike(message)) return { ok: false, reason: "a message to the architect may not begin with '-'" };
+  const probe = options.probe ?? systemProcesses;
+  const unsafe = host.preflight(worktree);
+  if (unsafe !== undefined) return { ok: false, reason: `the architect was not launched, because its gate would not hold: ${unsafe}` };
   mkdirSync(dirOf(worktree), { recursive: true });
-  const lockPath = join(dirOf(worktree), LOCK);
-  let lock: number;
+  const lock = acquireLock(join(dirOf(worktree), LOCK), probe);
+  if (!lock.ok) return { ok: false, reason: `another architect launch in this worktree is in progress (pid ${lock.owner.pid})` };
   try {
-    lock = openSync(lockPath, "wx");
-  } catch {
-    return { ok: false, reason: "another architect launch in this worktree is in progress" };
-  }
-  try {
-    const status = architectStatus(worktree, options.alive);
+    const status = architectStatus(worktree, probe);
     if (status.kind === "running") {
       return { ok: false, reason: `this ticket's architect is still running (turn ${status.turn}); one architect runs per worktree` };
     }
@@ -157,10 +161,12 @@ export function launchArchitectTurn(
     // once still finds its state to close; the wrapper's pid replaces this
     // process's only while the turn is still recorded as running.
     const startedAt = new Date().toISOString();
-    writeState(worktree, { sessionId, turn, state: "running", pid: process.pid, startedAt });
+    writeState(worktree, { sessionId, turn, state: "running", pid: process.pid, pidStarted: probe.startTime(process.pid) ?? "unknown", startedAt });
     const pid = (options.spawn ?? spawnDetached)(process.execPath, [wrapper, worktree, String(turn)], worktree);
     const now = readArchitectState(worktree);
-    if (now?.turn === turn && now.state === "running") writeState(worktree, { ...now, pid });
+    if (now?.turn === turn && now.state === "running") {
+      writeState(worktree, { ...now, pid, pidStarted: probe.startTime(pid) ?? "unknown" });
+    }
     return { ok: true, turn, sessionId };
   } catch (error) {
     const stuck = readArchitectState(worktree);
@@ -169,8 +175,7 @@ export function launchArchitectTurn(
     }
     return { ok: false, reason: `the architect could not be launched: ${error instanceof Error ? error.message : String(error)}` };
   } finally {
-    closeSync(lock);
-    rmSync(lockPath, { force: true });
+    lock.release();
   }
 }
 
