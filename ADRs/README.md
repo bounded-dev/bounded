@@ -79,7 +79,7 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-045](2026-045-project-init-host-guards.md) | Make initialized host guards usable and non-bypassable | accepted |
 | [2026-046](2026-046-shadow-red-generated-support-and-forward-types.md) | Rebuild generated support in red shadows; verify forward types live | accepted |
 | [2026-047](2026-047-composed-service-green-gates.md) | Keep composed service and web green gates consistent | accepted |
-| [2026-048](2026-048-team-lead-project-entry.md) | Team lead as the project entry | accepted |
+| [2026-048](2026-048-team-lead-project-entry.md) | Team lead as the project entry | accepted; partly superseded by 2026-066 |
 | [2026-049](2026-049-business-rule-ownership-review.md) | Review ownership of business rules | accepted |
 | [2026-050](2026-050-ticket-numbered-technical-notes.md) | Ticket-numbered Technical Notes in target projects | accepted |
 | [2026-051](2026-051-project-setup-socket.md) | Project dependency setup is a pack socket | accepted |
@@ -97,6 +97,7 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-063](2026-063-hexagonal-and-adapter-packs.md) | The hexagonal pack and the adapter packs | accepted |
 | [2026-064](2026-064-store-tests-need-docker-at-green.md) | Store tests need a container runtime only at green | accepted |
 | [2026-065](2026-065-spec-first-init-by-product-surface.md) | Initialization reads the spec and selects by product surface | accepted |
+| [2026-066](2026-066-lead-on-main-ticket-worktrees.md) | The lead on main, a worktree per ticket, a board moved by gates | accepted |
 | [2026-067](2026-067-generated-composition-roots.md) | Composition roots are generated, their dependencies grouped by area | accepted |
 | [2026-068](2026-068-harness-development-lifecycle.md) | A development lifecycle for harness work | accepted |
 | [2026-070](2026-070-mutation-measurement-survives-interruption.md) | The mutation measurement survives interruption, samples enough, and fits its host's time | accepted |
