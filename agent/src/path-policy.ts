@@ -76,6 +76,28 @@ export interface Ctx {
    * protected is unknown.
    */
   readonly writeProtection?: WriteProtection | "unreadable";
+  /**
+   * In a ticket's own worktree (ADR 2026-066): the ticket's number and the
+   * paths it alone may change. Every role there writes only under them, plus
+   * test-side and generated files, and the architect its own TN and scratch.
+   * Absent outside a ticket worktree.
+   */
+  readonly ownedPaths?: { readonly ticket: number; readonly paths: readonly string[] };
+}
+
+/** Why a write in a ticket worktree falls outside the ticket's owned paths,
+ *  or null when it does not. Paths compare without case (ADR 2026-057). */
+export function ownedPathRefusal(role: Role, path: string, owned: NonNullable<Ctx["ownedPaths"]>, layout: PathLayout): string | null {
+  const lower = path.toLowerCase();
+  const under = owned.paths.some((p) => {
+    const base = p.replace(/\/+$/, "").toLowerCase();
+    return lower === base || lower.startsWith(`${base}/`);
+  });
+  if (under) return null;
+  if (isTestSide(path, layout) === true || isGenerated(path, layout.generatedGlobs) === true) return null;
+  if (role === "architect" && (lower === `docs/tn/tn-${owned.ticket}.md` || lower.startsWith("scratch/"))) return null;
+  const list = owned.paths.length > 0 ? owned.paths.join(", ") : "nothing";
+  return `ticket #${owned.ticket} owns only ${list} — a change elsewhere needs the ticket's owned paths widened, which only a new ticket can do; route → team lead`;
 }
 
 /** Filesystem facts a host supplies for content search (see Ctx.pathFacts). */
@@ -1207,6 +1229,10 @@ export function decide(
     }
     const refusal = writeRefusal(role, t, layout, ctx.writeProtection);
     if (refusal !== null) return block(`path-gate: ${role} may not write '${t}': ${refusal}`);
+    if (ctx.ownedPaths !== undefined) {
+      const outside = ownedPathRefusal(role, t, ctx.ownedPaths, layout);
+      if (outside !== null) return block(`path-gate: ${role} may not write '${t}': ${outside}`);
+    }
     return gitBlocked() ?? ALLOW;
   }
 

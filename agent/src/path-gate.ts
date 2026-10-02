@@ -32,6 +32,7 @@ import {
 } from "./pack-contrib.ts";
 import type { KnownModel } from "./model-tier.ts";
 import { designNotePath, resolveTicketDesign, ticketWriteScope } from "./ticket-design.ts";
+import { readTicketMarker } from "./ticket-worktree.ts";
 import { createHash } from "node:crypto";
 import { hostPathArgument, piReadVariant, type PathHost } from "./host-paths.ts";
 
@@ -483,7 +484,10 @@ function hostedInput(role: Role, ev: GateInput):
  * every host builds the same context (the Claude Code bash policy included).
  */
 export function pathGateCtx(role: Role, cwd: string, harnessRoot?: string): Ctx {
+  const marker = readTicketMarker(cwd);
   return {
+    // A ticket worktree confines every role to the ticket's owned paths (ADR 2026-066).
+    ...(marker !== undefined ? { ownedPaths: { ticket: marker.issue, paths: marker.owns ?? [] } } : {}),
     cwd,
     ...(harnessRoot !== undefined ? { harnessRoot } : {}),
     ...(role === "architect" ? { ticketScope: ticketWriteScope(cwd) } : {}),
