@@ -16,6 +16,7 @@ async function main(args: string[]): Promise<void> {
   const without: string[] = [];
   let digest = "";
   let project: string | undefined;
+  let createStatuses = false;
   let interactive = false;
   let fullJson = false;
   for (let i = 0; i < args.length; i++) {
@@ -26,6 +27,7 @@ async function main(args: string[]): Promise<void> {
     }
     if (arg === "--interactive") { interactive = true; continue; }
     if (arg === "--json") { fullJson = true; continue; }
+    if (arg === "--create-statuses") { createStatuses = true; continue; }
     if (["--cwd", "--host", "--pack", "--surface", "--without", "--apply", "--project"].includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith("--")) throw new Error(`${arg} needs a value`);
@@ -54,11 +56,11 @@ async function main(args: string[]): Promise<void> {
       if (!host) host = (await rl.question("Current agent host (pi or claude-code): ")).trim();
       if (!packs.length) packs.push(...(await rl.question("Capabilities (comma-separated; empty for all): ")).split(",").map((x) => x.trim()).filter(Boolean));
       if (!packs.length) packs.push(...defaultSelection());
-      const options = { trackerConfig: trackerConfigAtInit(target, project !== undefined ? { project } : {}) };
-      const plan = await planInit(target, host, packs, options);
+      const plan = await planInit(target, host, packs);
       console.log(JSON.stringify(view("plan", plan, fullJson), null, 2));
       const answer = (await rl.question("Apply this exact plan? Type its digest: ")).trim();
       if (answer !== plan.digest) throw new Error("Digest did not match; nothing written");
+      const options = { trackerConfig: trackerConfigAtInit(target, { ...(project !== undefined ? { project } : {}), createStatuses }) };
       console.log(JSON.stringify(view("applied", await applyInit(target, host, packs, answer, options), fullJson), null, 2));
     } finally { rl.close(); }
     return;
@@ -84,10 +86,13 @@ async function main(args: string[]): Promise<void> {
   }
   // No --pack selects every installed capability: the whole stack.
   if (!packs.length) packs.push(...defaultSelection());
-  // GitHub is the required tracker (ADR 2026-066): no plan without an
-  // authenticated gh, a GitHub repository here and a board with the statuses.
-  const options = { trackerConfig: trackerConfigAtInit(target, project !== undefined ? { project } : {}) };
-  const plan = digest ? await applyInit(target, host, packs, digest, options) : await planInit(target, host, packs, options);
+  // GitHub is the required tracker (ADR 2026-066): planning needs nothing
+  // from it, but nothing is applied without an authenticated gh, a GitHub
+  // repository here and a board with the statuses.
+  const plan = digest
+    ? await applyInit(target, host, packs, digest,
+      { trackerConfig: trackerConfigAtInit(target, { ...(project !== undefined ? { project } : {}), createStatuses }) })
+    : await planInit(target, host, packs);
   const conflicts = (report ?? []).filter((surface) => surface.declined === true);
   console.log(JSON.stringify({
     ...view(digest ? "applied" : "plan", plan, fullJson),

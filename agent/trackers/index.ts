@@ -15,8 +15,10 @@ export function openTracker(cwd: string): Tracker {
 
 /** The tracker config init writes, after checking the required tracker is
  *  reachable and set up. The harness requires GitHub (ADR 2026-066). */
-export function trackerConfigAtInit(target: string, options: { readonly project?: string } = {}): string {
-  return JSON.stringify(resolveGitHubAtInit(target, options.project ?? recordedProject(target)), null, 2) + "\n";
+export function trackerConfigAtInit(target: string, options: { readonly project?: string; readonly createStatuses?: boolean } = {}): string {
+  const config = resolveGitHubAtInit(target, options.project ?? recordedProject(target), ghCommandLine(),
+    options.createStatuses === true ? { createStatuses: true } : {});
+  return JSON.stringify(config, null, 2) + "\n";
 }
 
 /** A re-plan keeps the board the installation already records. */

@@ -878,7 +878,7 @@ export function describeInit(): object {
         "Run bounded init --host <current-host> with --surface <id> for every needed surface and --without <id> for every declined one. Init selects the capabilities from the packs' own data. If it answers with open surfaces, ask their questions and run it again with the answers.",
         "If the plan marks a surface declined: true, the user declined it but another part of the product needs it (pulledInBy). Explain that conflict to the user in product terms before going on.",
         "Use the agent host already running this conversation; do not ask the user to select another agent.",
-        "GitHub is the required tracker. Init refuses unless gh is authenticated, this directory is a clone of a GitHub repository, and the owner has a Projects board whose Status field has exactly the options Backlog, Queued, In Design, Building, Awaiting Merge and Done. Pass --project <number> (or <owner>/<number>) when the owner has more than one board. If init refuses for any of these, tell the user exactly what to set up and stop.",
+        "GitHub is the required tracker. Planning needs nothing from it, but applying refuses unless gh is authenticated, this directory is a clone of a GitHub repository, and the owner has a Projects board whose Status field has exactly the options Backlog, Queued, In Design, Building, Awaiting Merge and Done. Pass --project <number> (or <owner>/<number>) when the owner has more than one board. When the Status options differ, apply refuses and offers --create-statuses, which sets them to exactly those six; pass it only after the user agrees. If apply refuses for any other reason, tell the user exactly what to set up and stop.",
         "If the complete application cannot be scaffolded, explain the gap in product terms and stop. Do not silently omit a required part of the application.",
         "When a complete plan succeeds, explain what Bounded will create in plain language and review the plan before applying its digest.",
         "Until the first ticket is prepared, the selection can be corrected from inside the project: run bounded init again with the corrected surfaces. The plan replaces the untouched installation; it lists the setup output it deletes and the user's files it keeps. Apply it only after the user explicitly agrees.",
@@ -899,18 +899,15 @@ function scaffolderAvailable(pack: string): boolean {
   return Array.isArray(raw.projectInitScripts) && raw.projectInitScripts.length > 0;
 }
 
-/** What the init command line adds to a plan besides the selection. */
+/** What applying adds besides the reviewed plan. */
 export interface InitOptions {
-  /** The tracker config the command resolved and checked (ADR 2026-066),
-   *  committed at TRACKER_CONFIG_RELATIVE so every worktree has it. */
+  /** The tracker config the command resolved and checked when applying (ADR
+   *  2026-066), committed at TRACKER_CONFIG_RELATIVE so every worktree has it.
+   *  It is not part of the reviewed plan: planning needs no tracker. */
   readonly trackerConfig?: string;
 }
 
-function stageOptions(stage: string, options: InitOptions): void {
-  if (options.trackerConfig !== undefined) writeFileSync(join(stage, TRACKER_CONFIG_RELATIVE), options.trackerConfig);
-}
-
-export async function planInit(target: string, host: string, requested: readonly string[], options: InitOptions = {}): Promise<InitPlan> {
+export async function planInit(target: string, host: string, requested: readonly string[]): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'; choose pi or claude-code`);
   assertNoInterruptedReplan(target);
   const packs = canonicalClosure(requested);
@@ -920,7 +917,6 @@ export async function planInit(target: string, host: string, requested: readonly
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-plan-"));
   try {
     await assemble(stage, host, packs, projectNameOf(target));
-    stageOptions(stage, options);
     return planFromStage(stage, host, packs, existing?.replacement);
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
@@ -935,6 +931,7 @@ export async function applyInit(
   const existing = await existingInstallation(target, host, packs);
   if (existing?.kind === "same") {
     if (existing.plan.digest !== reviewedDigest) throw new Error("Existing installation differs from the reviewed plan; bounded update is required");
+    if (options.trackerConfig !== undefined) writeFileSync(join(target, TRACKER_CONFIG_RELATIVE), options.trackerConfig);
     return existing.plan;
   }
   if (existing === undefined) assertEmpty(target);
@@ -942,7 +939,6 @@ export async function applyInit(
   let replaced: Removal | undefined;
   try {
     await assemble(stage, host, packs, projectNameOf(target));
-    stageOptions(stage, options);
     const plan = planFromStage(stage, host, packs, existing?.replacement);
     if (plan.digest !== reviewedDigest) throw new Error("Plan changed since review; run bounded init with the same options again");
     writeFileSync(join(stage, MANIFEST), JSON.stringify(plan, null, 2) + "\n");
@@ -964,6 +960,7 @@ export async function applyInit(
         created.push(dest);
       }
       replaced?.reinstate();
+      if (options.trackerConfig !== undefined) writeFileSync(join(target, TRACKER_CONFIG_RELATIVE), options.trackerConfig);
     } catch (error) {
       for (const path of created.reverse()) rmSync(path, { force: true });
       for (const path of directories.reverse()) {

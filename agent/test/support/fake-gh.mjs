@@ -82,5 +82,28 @@ if (a === "issue" && b === "list") {
 }
 if (a === "issue" && b === "comment") { const issue = issueOf(args[2]); (issue.comments ??= []).push(flag("--body")); out(""); }
 if (a === "issue" && b === "close") { issueOf(args[2]).state = "CLOSED"; out(""); }
-if (a === "label" && b === "create") { if (!state.labels.includes(args[2])) state.labels.push(args[2]); out(""); }
+if (a === "label" && b === "list") {
+  const search = flag("--search") ?? "";
+  out(state.labels.filter((l) => l.includes(search)).map((name) => ({ name })));
+}
+if (a === "label" && b === "create") {
+  if (args.includes("--force")) fail("fake gh: label create --force overwrites an existing label");
+  if (state.labels.includes(args[2])) fail(`label "${args[2]}" already exists`);
+  state.labels.push(args[2]);
+  out("");
+}
+if (a === "api" && b === "graphql") {
+  const fields = Object.fromEntries(args.flatMap((x, i) => (x === "-f" || x === "-F") ? [args[i + 1].split(/=(.*)/s).slice(0, 2)] : []));
+  if (fields.query.includes("updateProjectV2Field")) {
+    state.statusOptions = args.flatMap((x, i) => x === "-f" && args[i + 1].startsWith("options[][name]=") ? [args[i + 1].slice("options[][name]=".length)] : []);
+    out({ data: { updateProjectV2Field: { clientMutationId: null } } });
+  }
+  const issue = state.issues[String(Number(fields.number))];
+  if (!issue) out({ data: { repository: { issue: null } } });
+  out({ data: { repository: { issue: {
+    number: issue.number, title: issue.title, body: issue.body, state: issue.state,
+    labels: { nodes: issue.labels.map((name) => ({ name })) },
+    projectItems: { nodes: issue.item ? [{ project: { id: project.id }, fieldValueByName: issue.status ? { optionId: optionId(issue.status) } : null }] : [] },
+  } } } });
+}
 fail(`fake gh: unsupported call: ${args.join(" ")}`, 2);

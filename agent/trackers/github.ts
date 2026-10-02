@@ -16,9 +16,14 @@ export const GITHUB_KIND = "github";
 /** One `gh` invocation: argv after `gh`, run in `cwd` when given. */
 export type GhRun = (args: readonly string[], cwd?: string) => { readonly status: number; readonly stdout: string; readonly stderr: string };
 
-/** The real command line. `BOUNDED_GH` names another executable, so a test
- *  of a spawned command can point it at a fake. */
-export function ghCommandLine(bin: string = process.env["BOUNDED_GH"] ?? "gh"): GhRun {
+/** The executable to run: `gh`, or — only under the test runner — the fake
+ *  that `BOUNDED_GH` names, so no installed harness can be pointed elsewhere. */
+export function ghExecutable(env: NodeJS.ProcessEnv = process.env): string {
+  return env["VITEST"] === "true" && env["BOUNDED_GH"] !== undefined && env["BOUNDED_GH"] !== "" ? env["BOUNDED_GH"] : "gh";
+}
+
+/** The real command line. */
+export function ghCommandLine(bin: string = ghExecutable()): GhRun {
   return (args, cwd) => {
     const run = spawnSync(bin, [...args], { encoding: "utf8", ...(cwd !== undefined ? { cwd } : {}), maxBuffer: 16 * 1024 * 1024 });
     if (run.error !== undefined) return { status: 127, stdout: "", stderr: run.error.message };
@@ -78,6 +83,24 @@ function json<T>(run: GhRun, args: readonly string[], cwd?: string): T {
 
 const ISSUE_URL = /\/issues\/([1-9][0-9]*)\s*$/;
 
+/** An issue with its board items, read by GraphQL so the board is matched by
+ *  its id (which init records), never by its title. */
+const ISSUE_QUERY = [
+  "query($owner: String!, $name: String!, $number: Int!) {",
+  "  repository(owner: $owner, name: $name) { issue(number: $number) {",
+  "    number title body state labels(first: 100) { nodes { name } }",
+  "    projectItems(first: 50) { nodes { project { id } fieldValueByName(name: \"Status\") {",
+  "      ... on ProjectV2ItemFieldSingleSelectValue { optionId } } } }",
+  "  } }",
+  "}",
+].join("\n");
+
+interface IssueNode {
+  number: number; title: string; body: string; state: string;
+  labels: { nodes: { name: string }[] };
+  projectItems: { nodes: { project: { id: string }; fieldValueByName: { optionId?: string } | null }[] };
+}
+
 export function gitHubTracker(settings: GitHubSettings, run: GhRun = ghCommandLine()): Tracker {
   const repo = ["--repo", settings.repository];
   const { project } = settings;
@@ -94,16 +117,19 @@ export function gitHubTracker(settings: GitHubSettings, run: GhRun = ghCommandLi
       return { number: Number(match[1]), url };
     },
     viewIssue(issue): TrackerIssue {
-      const raw = json<{
-        number: number; title: string; body: string; state: string;
-        labels: { name: string }[]; projectItems?: { title: string; status?: { name?: string } | null }[];
-      }>(run, ["issue", "view", String(issue), ...repo, "--json", "number,title,body,state,labels,projectItems"]);
-      const item = (raw.projectItems ?? []).find((i) => i.title === project.title);
-      const status = item?.status?.name;
+      const [owner, name] = settings.repository.split("/") as [string, string];
+      const data = json<{ data?: { repository?: { issue?: IssueNode | null } | null } }>(run, [
+        "api", "graphql", "-f", `query=${ISSUE_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${issue}`,
+      ]);
+      const raw = data.data?.repository?.issue;
+      if (raw === undefined || raw === null) throw new TrackerError(`issue #${issue} not found in ${settings.repository}`);
+      const item = raw.projectItems.nodes.find((i) => i.project.id === project.id);
+      const optionId = item?.fieldValueByName?.optionId;
+      const status = BOARD_STATUSES.find((s) => project.options[s] === optionId);
       return {
         number: raw.number, title: raw.title, body: raw.body ?? "",
         state: raw.state.toUpperCase() === "OPEN" ? "open" : "closed",
-        labels: raw.labels.map((l) => l.name),
+        labels: raw.labels.nodes.map((l) => l.name),
         ...(isBoardStatus(status) ? { status } : {}),
       };
     },
@@ -118,7 +144,9 @@ export function gitHubTracker(settings: GitHubSettings, run: GhRun = ghCommandLi
       ]);
     },
     addLabel(issue, label) {
-      call(run, ["label", "create", label, ...repo, "--force", "--color", "ededed"]);
+      // Created only when missing: an existing label keeps its colour and description.
+      const existing = json<{ name: string }[]>(run, ["label", "list", ...repo, "--search", label, "--limit", "100", "--json", "name"]);
+      if (!existing.some((l) => l.name === label)) call(run, ["label", "create", label, ...repo, "--color", "ededed"]);
       call(run, ["issue", "edit", String(issue), ...repo, "--add-label", label]);
     },
     removeLabel(issue, label) {
@@ -152,10 +180,18 @@ export function parseProjectRef(ref: string | undefined, repoOwner: string): { o
  * an authenticated `gh`, a GitHub repository at `target`, and a Projects board
  * whose Status field has exactly the harness's statuses.
  */
+/** Set the board's Status options to exactly the harness's statuses. */
+const SET_STATUSES = [
+  "mutation($field: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {",
+  "  updateProjectV2Field(input: { fieldId: $field, singleSelectOptions: $options }) { clientMutationId }",
+  "}",
+].join("\n");
+
 export function resolveGitHubAtInit(
   target: string,
   projectRef: string | undefined,
   run: GhRun = ghCommandLine(),
+  init: { readonly createStatuses?: boolean } = {},
 ): { readonly kind: string } & GitHubSettings {
   if (run(["auth", "status"]).status !== 0) {
     throw new TrackerError("GitHub is required: `gh` is not installed or not authenticated — run `gh auth login`");
@@ -178,16 +214,30 @@ export function resolveGitHubAtInit(
     ref = { owner: repo.owner.login, number: open[0]!.number };
   }
   const view = json<{ id: string; title: string }>(run, ["project", "view", String(ref.number), "--owner", ref.owner, "--format", "json"]);
-  const fields = json<{ fields: { id: string; name: string; options?: { id: string; name: string }[] }[] }>(
-    run, ["project", "field-list", String(ref.number), "--owner", ref.owner, "--format", "json"]);
-  const status = fields.fields.find((f) => f.name === "Status" && Array.isArray(f.options));
-  const names = (status?.options ?? []).map((o) => o.name);
-  const exact = status !== undefined && names.length === BOARD_STATUSES.length && BOARD_STATUSES.every((s) => names.includes(s));
-  if (!exact) {
+  const statusField = () => json<{ fields: { id: string; name: string; options?: { id: string; name: string }[] }[] }>(
+    run, ["project", "field-list", String(ref.number), "--owner", ref.owner, "--format", "json"])
+    .fields.find((f) => f.name === "Status" && Array.isArray(f.options));
+  const exactly = (field: ReturnType<typeof statusField>): boolean => {
+    const names = (field?.options ?? []).map((o) => o.name);
+    return field !== undefined && names.length === BOARD_STATUSES.length && BOARD_STATUSES.every((s) => names.includes(s));
+  };
+  let status = statusField();
+  if (!exactly(status) && status !== undefined && init.createStatuses === true) {
+    // gh builds the list of option objects from repeated `options[][key]=value` fields.
+    call(run, [
+      "api", "graphql", "-f", `query=${SET_STATUSES}`, "-f", `field=${status.id}`,
+      ...BOARD_STATUSES.flatMap((s) => ["-f", `options[][name]=${s}`, "-f", "options[][color]=GRAY", "-f", "options[][description]="]),
+    ]);
+    status = statusField();
+  }
+  if (!exactly(status)) {
+    const names = (status?.options ?? []).map((o) => o.name);
     throw new TrackerError(
       `the board's Status field must have exactly these options: ${BOARD_STATUSES.join(", ")} ` +
-      `(found: ${names.length > 0 ? names.join(", ") : "no Status field"}) — edit the field on ${ref.owner}'s project ${ref.number} and rerun`);
+      `(found: ${names.length > 0 ? names.join(", ") : "no Status field"}) — rerun init with --create-statuses to set them ` +
+      `(any other option is removed, and items using it lose their status), or edit the field on ${ref.owner}'s project ${ref.number}`);
   }
+  if (status === undefined) throw new TrackerError("the board has no Status field");
   const options = Object.fromEntries(BOARD_STATUSES.map((s) => [s, status.options!.find((o) => o.name === s)!.id])) as Record<BoardStatus, string>;
   return {
     kind: GITHUB_KIND,

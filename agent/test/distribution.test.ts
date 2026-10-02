@@ -140,7 +140,7 @@ describe("the npm distribution", () => {
     mkdirSync(target);
     // Through the bin under node_modules: node there cannot type-strip, so
     // every pack script init runs must come from dist/.
-    // GitHub is required at init (ADR 2026-066); a fake gh answers for it.
+    // Planning needs no tracker (ADR 2026-066); the fake gh records that nothing asked it.
     const ghState = join(temp, "gh-state.json");
     writeFileSync(ghState, "{}\n");
     const out = execFileSync(join(installed, "scripts", "bounded"), ["init", "--host", "claude-code", "--cwd", target], {
@@ -148,10 +148,11 @@ describe("the npm distribution", () => {
       env: { ...process.env, BOUNDED_GH: join(import.meta.dirname, "support", "fake-gh.mjs"), FAKE_GH_STATE: ghState },
     });
     const plan = JSON.parse(out) as { action: string; packs: string[]; paths: string[] };
+    expect(JSON.parse(readFileSync(ghState, "utf8")).calls).toBeUndefined();
     expect(plan.action).toBe("plan");
     expect(plan.packs).toEqual(["ts", "ts-hexagonal", "ts-trpc", "ts-mcp", "ts-lambda", "ts-web", "ts-desktop", "ts-drizzle-postgres"]);
     // project-package's output: the manifest and the lockfile it pins.
-    expect(plan.paths).toEqual(expect.arrayContaining(["package.json", "bun.lock", "tsconfig.json", ".bounded/tracker.json",
+    expect(plan.paths).toEqual(expect.arrayContaining(["package.json", "bun.lock", "tsconfig.json",
       ".bounded/harness/packs/ts-hexagonal/reference/contexts/project-management/src/domain/projects/project-name.test.ts"]));
   }, 120_000);
 });

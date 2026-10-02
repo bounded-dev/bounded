@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { BOARD_STATUSES } from "../src/tracker.ts";
-import { ghCommandLine, gitHubSettings, gitHubTracker, parseProjectRef, resolveGitHubAtInit, type GhRun } from "./github.ts";
+import { ghCommandLine, ghExecutable, gitHubSettings, gitHubTracker, parseProjectRef, resolveGitHubAtInit, type GhRun } from "./github.ts";
 import { openTracker, trackerConfigAtInit } from "./index.ts";
 
 // The GitHub adapter (ADR 2026-066), driven through a fake `gh` command line:
@@ -44,12 +44,27 @@ describe("init: GitHub is required", () => {
     [{ unauthenticated: true }, "gh auth login"],
     [{ noRepository: true }, "not a clone of a GitHub repository"],
     [{ noProject: true }, "has no open Projects board"],
-    [{ statusOptions: ["Todo", "In Progress", "Done"] }, "exactly these options: Backlog, Queued, In Design, Building, Awaiting Merge, Done"],
+    [{ statusOptions: ["Todo", "In Progress", "Done"] }, "rerun init with --create-statuses"],
     [{ statusOptions: [...BOARD_STATUSES, "Parking Lot"] }, "found: Backlog, Queued, In Design, Building, Awaiting Merge, Done, Parking Lot"],
     [{ offline: true }, "gh auth login"],
   ])("refuses %j", (seeded, why) => {
     seed(seeded);
     expect(() => resolveGitHubAtInit(dir, undefined, gh())).toThrow(why);
+  });
+
+  test("--create-statuses sets the board's Status options to exactly the six, and only when asked", () => {
+    seed({ statusOptions: ["Todo", "Backlog", "Done"] });
+    expect(() => resolveGitHubAtInit(dir, undefined, gh())).toThrow("--create-statuses");
+    expect(state().calls.some((c) => c[0] === "api")).toBe(false);
+    const config = resolveGitHubAtInit(dir, undefined, gh(), { createStatuses: true });
+    expect(Object.keys(config.project.options)).toEqual([...BOARD_STATUSES]);
+    expect(state()["statusOptions"]).toEqual([...BOARD_STATUSES]);
+  });
+
+  test("BOUNDED_GH names a fake only under the test runner", () => {
+    expect(ghExecutable({ VITEST: "true", BOUNDED_GH: "/fake" })).toBe("/fake");
+    expect(ghExecutable({ BOUNDED_GH: "/fake" })).toBe("gh");
+    expect(ghExecutable({ VITEST: "true" })).toBe("gh");
   });
 
   test("--project names the board; a malformed one is refused", () => {
@@ -101,17 +116,30 @@ describe("the tracker port over gh", () => {
     expect(tracker.viewIssue(1)).toMatchObject({ state: "closed", labels: [] });
     const calls = state().calls;
     expect(calls).toContainEqual(["project", "item-edit", "--id", "PVTI_1", "--project-id", "PVT_1", "--field-id", "F_status", "--single-select-option-id", "opt-queued"]);
-    expect(calls).toContainEqual(["label", "create", "blocked: builder", "--repo", "acme/shop", "--force", "--color", "ededed"]);
+    // The label is created once, never forced over an existing one.
+    tracker.addLabel(1, "blocked: builder");
+    const creates = state().calls.filter((c) => c[0] === "label" && c[1] === "create");
+    expect(creates).toEqual([["label", "create", "blocked: builder", "--repo", "acme/shop", "--color", "ededed"]]);
     expect(state().issues["1"]!["comments"]).toEqual(["`design-gate`: PASS — frozen"]);
+  });
+
+  test("the board is matched by the id init recorded, not by its title", () => {
+    const tracker = gitHubTracker(settings(), gh());
+    tracker.createIssue("A", "b");
+    tracker.setStatus(1, "Building");
+    expect(tracker.viewIssue(1).status).toBe("Building");
+    const other = gitHubSettings({ ...(resolveGitHubAtInit(dir, undefined, gh()) as unknown as Record<string, unknown>) });
+    const renamed = gitHubTracker({ ...other, project: { ...other.project, id: "PVT_other", title: "Shop" } }, gh());
+    expect(renamed.viewIssue(1).status).toBeUndefined();
   });
 
   test("an unreachable or failing gh is a TrackerError that names the call", () => {
     const tracker = gitHubTracker(settings(), gh());
     seed({ offline: true });
     expect(() => tracker.check()).toThrow(/gh auth status failed: error connecting/);
-    expect(() => tracker.viewIssue(1)).toThrow(/gh issue view failed/);
+    expect(() => tracker.viewIssue(1)).toThrow(/gh api graphql failed/);
     seed({});
-    expect(() => tracker.viewIssue(9)).toThrow("issue 9 not found");
+    expect(() => tracker.viewIssue(9)).toThrow("issue #9 not found");
     expect(() => gitHubTracker(settings(), ghCommandLine(join(dir, "no-such-gh"))).check()).toThrow(/gh auth status failed/);
   });
 });
