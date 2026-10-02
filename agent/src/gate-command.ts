@@ -50,9 +50,17 @@ export interface FlagSpec {
  *  accessors below rather than by hand. */
 export type GateArgs = Readonly<Record<string, unknown>>;
 
+/** A point in a ticket's delivery that a gate's pass marks, which the board
+ *  follows (src/board-sync.ts, ADR 2026-066). Packs tag their gates; the core
+ *  names no gate. */
+export type GateMilestone = "design-frozen" | "delivered" | "handoff-published";
+export const GATE_MILESTONES: readonly GateMilestone[] = ["design-frozen", "delivered", "handoff-published"];
+
 export interface GateCommand {
   /** The CLI name: `bounded gates <name>`. Also the prefix of the verdict line. */
   readonly name: string;
+  /** The delivery milestone this gate's pass marks, if any. */
+  readonly milestone?: GateMilestone;
   /** The pi tool name, when the gate is exposed as one. Absent for a gate that
    *  is CLI-only: a step of a composite (scaffold) or a check the delivered
    *  project runs on its own (surface-check). */
@@ -90,6 +98,7 @@ export function isGateCommand(x: unknown): x is GateCommand {
   const c: Record<string, unknown> = { ...x };
   return (
     typeof c["name"] === "string" &&
+    (c["milestone"] === undefined || (GATE_MILESTONES as readonly unknown[]).includes(c["milestone"])) &&
     (c["tool"] === undefined || typeof c["tool"] === "string") &&
     typeof c["description"] === "string" &&
     Array.isArray(c["flags"]) &&

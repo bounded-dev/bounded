@@ -1,0 +1,136 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { boardOpsFor, boardPending, pendingOps, routeOf, runGateWithBoard } from "./board-sync.ts";
+import type { GateResult } from "./gate-result.ts";
+import { readGuardLog } from "./guard-log.ts";
+import { TICKET_MARKER_RELATIVE } from "./ticket-worktree.ts";
+import { FakeTracker } from "../test/support/fake-tracker.ts";
+
+// The board follows the gates in a ticket worktree (ADR 2026-066).
+
+const pass = (summary = "ok", detail: Readonly<Record<string, unknown>> = {}): GateResult =>
+  ({ code: 0, verdict: "pass", summary, lines: [summary], detail });
+const block = (route?: string): GateResult => ({
+  code: 1, verdict: "block", summary: "contracts not frozen",
+  lines: ["x: BLOCK — contracts not frozen", ...(route !== undefined ? [`x: route → ${route}`] : [])], detail: {},
+});
+const error = (): GateResult => ({ code: 2, verdict: "error", summary: "misuse", lines: [], detail: {} });
+
+let dir = "";
+let tracker: FakeTracker;
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "bounded-board-"));
+  mkdirSync(join(dir, ".bounded"));
+  writeFileSync(join(dir, TICKET_MARKER_RELATIVE), JSON.stringify({ issue: 7, branch: "ticket/7", main: "/m" }));
+  tracker = new FakeTracker();
+  tracker.seed({ number: 7, title: "t", status: "In Design" });
+  vi.stubEnv("BOUNDED_GUARD_LOG", "");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const run = (gate: { name: string; milestone?: "design-frozen" | "delivered" | "handoff-published" }, result: GateResult, role?: string) => {
+  const ran = vi.fn(async () => result);
+  return { ran, out: runGateWithBoard(dir, gate, ran, () => tracker, role) };
+};
+
+describe("routeOf", () => {
+  test("the detail's route, else the gate's own route line", () => {
+    expect(routeOf(pass("x", { route: "builder" }))).toBe("builder");
+    expect(routeOf(block("test-writer"))).toBe("test-writer");
+    expect(routeOf(block())).toBeUndefined();
+  });
+});
+
+describe("boardOpsFor — the transitions", () => {
+  const state = { blocked: {} };
+  test("every gate comments its one-line summary", () => {
+    expect(boardOpsFor(7, { name: "typecheck" }, error(), state).ops).toEqual([{ op: "comment", issue: 7, body: "`typecheck`: ERROR — misuse" }]);
+  });
+  test("design frozen → Building; delivered → Awaiting Merge", () => {
+    expect(boardOpsFor(7, { name: "design-gate", milestone: "design-frozen" }, pass(), state).ops).toContainEqual({ op: "status", issue: 7, status: "Building" });
+    expect(boardOpsFor(7, { name: "deliver", milestone: "delivered" }, pass(), state).ops).toContainEqual({ op: "status", issue: 7, status: "Awaiting Merge" });
+    expect(boardOpsFor(7, { name: "deliver", milestone: "delivered" }, block("builder"), state).ops).not.toContainEqual(expect.objectContaining({ op: "status" }));
+  });
+  test("a refusal labels the route; the same gate's pass clears it; another gate's label stays", () => {
+    const blocked = boardOpsFor(7, { name: "red-gate" }, block("test-writer"), state);
+    expect(blocked.ops).toContainEqual({ op: "add-label", issue: 7, label: "blocked: test-writer" });
+    const other = boardOpsFor(7, { name: "green-gate" }, block(), blocked.state, { role: "builder" });
+    expect(other.ops).toContainEqual({ op: "add-label", issue: 7, label: "blocked: builder" });
+    const otherPass = boardOpsFor(7, { name: "typecheck" }, pass(), other.state);
+    expect(otherPass.ops).toHaveLength(1);
+    const cleared = boardOpsFor(7, { name: "red-gate" }, pass(), other.state);
+    expect(cleared.ops).toContainEqual({ op: "remove-label", issue: 7, label: "blocked: test-writer" });
+    expect(cleared.state.blocked).toEqual({ "green-gate": "blocked: builder" });
+  });
+  test("a refusal routed elsewhere replaces that gate's label; a label two gates share stays until both pass", () => {
+    const first = boardOpsFor(7, { name: "red-gate" }, block("test-writer"), state);
+    const moved = boardOpsFor(7, { name: "red-gate" }, block("architect"), first.state);
+    expect(moved.ops).toContainEqual({ op: "remove-label", issue: 7, label: "blocked: test-writer" });
+    const shared = boardOpsFor(7, { name: "green-gate" }, block("architect"), moved.state);
+    expect(boardOpsFor(7, { name: "red-gate" }, pass(), shared.state).ops).not.toContainEqual(expect.objectContaining({ op: "remove-label" }));
+  });
+  test("a published handoff labels the producer and releases every ticket waiting on it", () => {
+    const ops = boardOpsFor(7, { name: "handoff-publish", milestone: "handoff-published" }, pass(), state, { waiting: () => [8, 9] }).ops;
+    expect(ops).toEqual(expect.arrayContaining([
+      { op: "add-label", issue: 7, label: "handoff published" },
+      { op: "remove-label", issue: 8, label: "waiting on #7" },
+      { op: "remove-label", issue: 9, label: "waiting on #7" },
+    ]));
+  });
+});
+
+describe("runGateWithBoard", () => {
+  test("outside a ticket worktree the gate just runs, and the tracker is never opened", async () => {
+    rmSync(join(dir, TICKET_MARKER_RELATIVE));
+    const open = vi.fn(() => tracker);
+    const ran = vi.fn(async () => pass());
+    expect(await runGateWithBoard(dir, { name: "design-gate" }, ran, open)).toEqual(pass());
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  test("a design-gate pass moves the ticket to Building and comments", async () => {
+    const { out } = run({ name: "design-gate", milestone: "design-frozen" }, pass("frozen"));
+    expect((await out).code).toBe(0);
+    expect(tracker.issues.get(7)).toMatchObject({ status: "Building", comments: ["`design-gate`: PASS — frozen"] });
+  });
+
+  test("a refusal sets the blocked label; that gate's next pass clears it", async () => {
+    await run({ name: "green-gate" }, block("builder")).out;
+    expect(tracker.issues.get(7)!.labels).toEqual(["blocked: builder"]);
+    await run({ name: "green-gate" }, pass()).out;
+    expect(tracker.issues.get(7)!.labels).toEqual([]);
+  });
+
+  test("an unreachable tracker refuses before the gate runs, routed to the user", async () => {
+    tracker.offline = true;
+    const { ran, out } = run({ name: "deliver", milestone: "delivered" }, pass());
+    const result = await out;
+    expect(ran).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ code: 2, detail: { route: "user" } });
+    expect(result.lines.at(-1)).toContain("route → user");
+    expect(readGuardLog(dir).at(-1)).toMatchObject({ guard: "board", verdict: "block" });
+  });
+
+  test("a board update that fails after the gate ran stays pending; the next gate replays it first", async () => {
+    tracker.failAfter = 2; // check, then the comment; the status update fails
+    const result = await run({ name: "deliver", milestone: "delivered" }, pass("delivered")).out;
+    expect(result).toMatchObject({ code: 2, detail: { route: "user", board: "pending", gateCode: 0 } });
+    expect(boardPending(dir)).toBe(true);
+    expect(pendingOps(dir)).toEqual([{ op: "status", issue: 7, status: "Awaiting Merge" }]);
+    expect(tracker.issues.get(7)!.status).toBe("In Design");
+    // Still failing: the next gate does not run.
+    const { ran, out } = run({ name: "typecheck" }, pass());
+    expect((await out).code).toBe(2);
+    expect(ran).not.toHaveBeenCalled();
+    // Reachable again: the pending update lands before the next gate runs.
+    tracker.failAfter = undefined;
+    expect((await run({ name: "typecheck" }, pass()).out).code).toBe(0);
+    expect(tracker.issues.get(7)!.status).toBe("Awaiting Merge");
+    expect(existsSync(join(dir, ".bounded/board-pending.json"))).toBe(false);
+  });
+});

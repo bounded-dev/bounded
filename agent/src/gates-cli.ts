@@ -38,6 +38,8 @@ import { logGuardEvent } from "./guard-log.ts";
 import { HOST_ENV, NO_HOST, hostFromEnv, recordHostDeclaration, type HostName } from "./host.ts";
 import { isMainModule } from "./is-main-module.ts";
 import { asRole } from "./path-gate.ts";
+import { runGateWithBoard } from "./board-sync.ts";
+import { openTracker } from "../trackers/index.ts";
 import { targetCwd } from "./target-cwd.ts";
 
 /** sysexits' EX_USAGE: the program was invoked wrongly, no gate ran. */
@@ -272,7 +274,10 @@ export async function main(
 
   let result: GateResult;
   try {
-    result = await gate.run(cwd, envArgs(gate, parsed.args, process.env));
+    // In a ticket worktree the board follows the gate (ADR 2026-066).
+    const role = process.env["BOUNDED_DEV_STAGE_ROLE"];
+    result = await runGateWithBoard(cwd, gate, () => gate.run(cwd, envArgs(gate, parsed.args, process.env)), openTracker,
+      asRole(role) !== undefined ? role : undefined);
   } catch (e) {
     // A gate that throws could not run: ERROR, in the same shape as any
     // other, so a --json consumer never has to parse a stack trace — and
