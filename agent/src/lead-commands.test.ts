@@ -98,7 +98,7 @@ const deliver = (n: number, rel = `contexts/t${n}.ts`): void => {
 
 describe("parseLeadArgs — one parser for every host", () => {
   test("every command's usage is a shape the parser knows", () => {
-    expect(LEAD_COMMANDS.map((c) => c.name)).toEqual(["ticket create", "queue", "start", "status", "reply", "merge"]);
+    expect(LEAD_COMMANDS.map((c) => c.name)).toEqual(["ticket create", "queue", "start", "status", "reply", "merge", "board"]);
   });
   test.each([
     [["status"], { command: "status" }],
@@ -360,6 +360,27 @@ describe("review fixes (ADR 2026-066)", () => {
     const failed = await lead(["start", String(k)]);
     expect(failed.text).toContain(`run bounded lead start ${k} again to finish it`);
     expect(existsSync(ticketWorktreePath(main, k))).toBe(true);
+  });
+
+  // Regression (re-review): one permanently failing update blocked every command.
+  test("a board update that keeps failing while the tracker answers is quarantined, reported, and retried or discarded", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    const wt = ticketWorktreePath(main, n);
+    write(wt, ".bounded/board-pending.json", JSON.stringify([
+      { op: "add-label", issue: 999, label: "blocked: builder" }, { op: "status", issue: n, status: "Building" },
+    ]));
+    for (let i = 1; i < 3; i++) expect((await lead(["status"])).text, `attempt ${i}`).toContain("route → user");
+    const status = await lead(["status"]);
+    expect(status.ok, status.text).toBe(true);
+    expect(status.text).toContain(`board update quarantined (.bounded/worktrees/${n}): add-label 'blocked: builder' on #999 failed 3 times`);
+    expect(status.text).toContain("bounded lead board retry");
+    expect(issue(n).status).toBe("Building");
+    // A retry puts it back in line; it fails again and is set aside again.
+    expect((await lead(["board", "retry"])).text).toContain("pending again");
+    expect((await lead(["status"])).ok).toBe(false);
+    expect((await lead(["status"])).text).toContain("quarantined");
+    expect((await lead(["board", "discard"])).text).toContain("discarded 1");
+    expect((await lead(["status"])).text).not.toContain("quarantined");
   });
 
   test("a board update a gate left pending in a ticket worktree is replayed by the next lead command", async () => {

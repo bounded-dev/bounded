@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { boardOpsFor, boardPending, pendingOps, routeOf, runGateWithBoard } from "./board-sync.ts";
+import { applyBoardOps, boardOpsFor, boardPending, pendingOps, quarantinedOps, routeOf, runGateWithBoard } from "./board-sync.ts";
 import type { GateResult } from "./gate-result.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { TICKET_MARKER_RELATIVE } from "./ticket-worktree.ts";
@@ -135,7 +135,7 @@ describe("runGateWithBoard", () => {
     const result = await run({ name: "deliver", milestone: "delivered" }, pass("delivered")).out;
     expect(result).toMatchObject({ code: 2, detail: { route: "user", board: "pending", gateCode: 0 } });
     expect(boardPending(dir)).toBe(true);
-    expect(pendingOps(dir)).toEqual([{ op: "status", issue: 7, status: "Awaiting Merge" }]);
+    expect(pendingOps(dir)).toEqual([{ op: "status", issue: 7, status: "Awaiting Merge", attempts: 0 }]);
     expect(tracker.issues.get(7)!.status).toBe("In Design");
     // Still failing: the next gate does not run.
     const { ran, out } = run({ name: "typecheck" }, pass());
@@ -146,5 +146,51 @@ describe("runGateWithBoard", () => {
     expect((await run({ name: "typecheck" }, pass()).out).code).toBe(0);
     expect(tracker.issues.get(7)!.status).toBe("Awaiting Merge");
     expect(existsSync(join(dir, ".bounded/board-pending.json"))).toBe(false);
+  });
+});
+
+describe("pending board updates", () => {
+  const pending = (ops: unknown[]) => writeFileSync(join(dir, ".bounded/board-pending.json"), JSON.stringify(ops));
+
+  test("an unreachable tracker never counts toward quarantine", () => {
+    pending([{ op: "status", issue: 7, status: "Building" }]);
+    tracker.offline = true;
+    for (let i = 0; i < 5; i++) expect(() => applyBoardOps(dir, tracker, [])).toThrow();
+    expect(quarantinedOps(dir)).toEqual([]);
+    expect(pendingOps(dir)).toEqual([{ op: "status", issue: 7, status: "Building", attempts: 0 }]);
+  });
+
+  test("after three failures with the tracker answering, the update is quarantined and the rest go on", () => {
+    pending([{ op: "comment", issue: 404, body: "x" }, { op: "status", issue: 7, status: "Building" }]);
+    expect(() => applyBoardOps(dir, tracker, [])).toThrow();
+    expect(() => applyBoardOps(dir, tracker, [])).toThrow();
+    applyBoardOps(dir, tracker, []);
+    expect(quarantinedOps(dir)).toMatchObject([{ op: { op: "comment", issue: 404 }, attempts: 3, error: expect.stringContaining("not found") }]);
+    expect(tracker.issues.get(7)!.status).toBe("Building");
+    expect(pendingOps(dir)).toEqual([]);
+  });
+
+  // Regression (re-review): a gate and the lead replaying one worktree must
+  // never both post the same update.
+  test("a replay claims the pending file, so a second replay meanwhile finds nothing to post", () => {
+    pending([{ op: "comment", issue: 7, body: "once" }]);
+    const original = tracker.comment.bind(tracker);
+    let nested = false;
+    tracker.comment = (n: number, body: string) => {
+      if (!nested) {
+        nested = true;
+        applyBoardOps(dir, tracker, []); // the other process, mid-replay
+      }
+      original(n, body);
+    };
+    applyBoardOps(dir, tracker, []);
+    expect(tracker.issues.get(7)!.comments).toEqual(["once"]);
+    expect(readdirSync(join(dir, ".bounded")).filter((f) => f.startsWith("board-pending"))).toEqual([]);
+  });
+
+  test("a claim left by a process that died is adopted", () => {
+    writeFileSync(join(dir, ".bounded/board-pending.claim-4194311-dead"), JSON.stringify([{ op: "status", issue: 7, status: "Done" }]));
+    applyBoardOps(dir, tracker, []);
+    expect(tracker.issues.get(7)!.status).toBe("Done");
   });
 });

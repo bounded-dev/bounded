@@ -27,6 +27,7 @@ export const LEAD_COMMAND_TOOLS: Readonly<Record<string, string>> = {
   status: "lead_status",
   reply: "lead_reply",
   merge: "lead_merge",
+  board: "lead_board",
 };
 /** Every lead-only tool: a seat that is not the lead never holds one. */
 export const LEAD_TOOLS: readonly string[] = [...Object.values(LEAD_COMMAND_TOOLS), LEAD_SETUP_TOOL, LEAD_REPLAN_TOOL];

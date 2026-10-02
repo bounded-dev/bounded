@@ -20,7 +20,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { applyBoardOps, boardReady, type BoardOp } from "./board-sync.ts";
+import { applyBoardOps, boardReady, quarantinedOps, releaseQuarantine, type BoardOp } from "./board-sync.ts";
 import {
   architectStatus, flagLike, launchArchitectTurn, turnOutput, type ArchitectHost, type LaunchResult, type SpawnDetached,
 } from "./architect-launch.ts";
@@ -72,13 +72,15 @@ export const LEAD_COMMANDS: readonly LeadCommandSpec[] = [
   { name: "status", usage: "bounded lead status", summary: "Show every started ticket's board status and its architect's state, with the report of a finished turn." },
   { name: "reply", usage: "bounded lead reply <issue> <message>", summary: "Continue a ticket's finished architect turn with the user's answer." },
   { name: "merge", usage: "bounded lead merge <issue>", summary: "Merge a delivered ticket into local main, run the project's check, push main and close the ticket; it moves to Done." },
+  { name: "board", usage: "bounded lead board <retry|discard>", summary: "Try again, or set aside for good, the board updates that kept failing and were quarantined; status lists them." },
 ];
 
 export type LeadRequest =
   | { readonly command: "ticket-create"; readonly fields: TicketFields }
   | { readonly command: "queue" | "start" | "merge"; readonly issue: number }
   | { readonly command: "status" }
-  | { readonly command: "reply"; readonly issue: number; readonly message: string };
+  | { readonly command: "reply"; readonly issue: number; readonly message: string }
+  | { readonly command: "board"; readonly action: "retry" | "discard" };
 
 export type ParsedLead = { readonly ok: true; readonly request: LeadRequest } | { readonly ok: false; readonly reason: string };
 
@@ -118,6 +120,11 @@ export function parseLeadArgs(args: readonly string[]): ParsedLead {
   if (first === "queue" || first === "start" || first === "merge") {
     const issue = rest.length === 1 ? parseIssueRef(rest[0]!) : undefined;
     return issue === undefined ? { ok: false, reason: usageOf(first) } : { ok: true, request: { command: first, issue } };
+  }
+  if (first === "board") {
+    const action = rest[0];
+    return rest.length === 1 && (action === "retry" || action === "discard")
+      ? { ok: true, request: { command: "board", action } } : { ok: false, reason: usageOf("board") };
   }
   if (first === "reply") {
     const issue = rest.length === 2 ? parseIssueRef(rest[0]!) : undefined;
@@ -317,7 +324,44 @@ async function dispatch(main: string, request: LeadRequest, deps: LeadDeps, trac
     case "status": return status(main, deps, tracker);
     case "reply": return reply(main, request.issue, request.message, deps, tracker);
     case "merge": return merge(main, request.issue, deps, tracker);
+    case "board": return boardQuarantine(main, request.action, tracker);
   }
+}
+
+/** The main worktree and every ticket worktree: the places board updates queue. */
+const boardPlaces = (main: string): readonly string[] => [main, ...ticketWorktreeDirs(main)];
+
+/** One line per quarantined board update, with the two ways out. */
+function quarantineLines(main: string): string[] {
+  const lines: string[] = [];
+  for (const place of boardPlaces(main)) {
+    for (const q of quarantinedOps(place)) {
+      const what = q.op.op === "status" ? `set #${q.op.issue} to ${q.op.status}` : q.op.op === "comment" ? `comment on #${q.op.issue}`
+        : q.op.op === "close" ? `close #${q.op.issue}` : `${q.op.op} '${q.op.label}' on #${q.op.issue}`;
+      lines.push(`board update quarantined (${relative(main, place) || "main worktree"}): ${what} failed ${q.attempts} times (${q.error.slice(0, 160)}) — retry with bounded lead board retry, or drop it with bounded lead board discard`);
+    }
+  }
+  return lines;
+}
+
+function boardQuarantine(main: string, action: "retry" | "discard", tracker: Tracker): LeadOutcome {
+  let count = 0;
+  for (const place of boardPlaces(main)) {
+    const released = releaseQuarantine(place, action === "retry");
+    count += released;
+    if (action === "retry" && released > 0) {
+      try {
+        applyBoardOps(place, tracker, []);
+      } catch (error) {
+        return refused(`the retried board updates are pending again: ${trackerRefusal(error)}`);
+      }
+    }
+  }
+  const left = quarantineLines(main);
+  if (count === 0) return done("no board update is quarantined");
+  return done(action === "retry"
+    ? `retried ${count} quarantined board update(s)${left.length > 0 ? `; ${left.length} failed again and are quarantined` : ""}`
+    : `discarded ${count} quarantined board update(s); the board may need fixing by hand`);
 }
 
 /** Whether the worktree still holds exactly what its deliver gate passed on. */
@@ -476,8 +520,9 @@ async function start(main: string, issueNumber: number, deps: LeadDeps, tracker:
 
 function status(main: string, deps: LeadDeps, tracker: Tracker): LeadOutcome {
   const started = startedTickets(main);
-  if (started.length === 0) return done("no ticket is started");
-  const lines: string[] = [];
+  const quarantined = quarantineLines(main);
+  if (started.length === 0) return done(["no ticket is started", ...quarantined].join("\n"));
+  const lines: string[] = [...quarantined];
   for (const ticket of started) {
     const issue = tracker.viewIssue(ticket.issue);
     if (ticket.phase === "starting") {

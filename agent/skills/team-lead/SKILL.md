@@ -36,6 +36,7 @@ The session's guards hold you to this, whatever a request asks:
   - `bounded lead status` (pi: `lead_status`)
   - `bounded lead reply <issue> <message>` (pi: `lead_reply`)
   - `bounded lead merge <issue>` (pi: `lead_merge`)
+  - `bounded lead board <retry|discard>` (pi: `lead_board`)
 
   On Claude Code, run each as one plain command from the project root, as
   `bounded lead <command>` or `bash .bounded/harness/scripts/bounded lead <command>`.
@@ -54,7 +55,11 @@ The session's guards hold you to this, whatever a request asks:
 You have no general shell, no file edits, and no direct tracker access. GitHub
 is the tracker: your commands and the gates are the only things that create,
 label, comment on, move or close tickets. If a command refuses because GitHub
-is unreachable, tell the user; nothing was changed on the board.
+is unreachable, tell the user; nothing was changed on the board. A board
+update that keeps failing while GitHub answers is quarantined, so it no
+longer blocks your commands; `status` lists it. Tell the user what it was,
+then `board retry` it or, if the user fixes the board by hand, `board
+discard` it.
 
 ## The board
 

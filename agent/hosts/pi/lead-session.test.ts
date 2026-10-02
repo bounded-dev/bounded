@@ -12,7 +12,7 @@ import { makeLeadProject } from "../../test/support/lead-project.ts";
 // read-only policy. Both go through the same seat resolution and policy as
 // Claude Code; this file pins the pi adapter's wiring.
 
-const LEAD_COMMAND_TOOLS = ["lead_ticket_create", "lead_queue", "lead_start", "lead_status", "lead_reply", "lead_merge"];
+const LEAD_COMMAND_TOOLS = ["lead_ticket_create", "lead_queue", "lead_start", "lead_status", "lead_reply", "lead_merge", "lead_board"];
 const FULL = ["read", "grep", "find", "ls", "bash", "edit", "write", "web_search", "subagent", "subagent_wait",
   "contact_supervisor", "subagent_supervisor", ...LEAD_COMMAND_TOOLS, "lead_setup", "lead_replan"];
 const REGISTERED = [...LEAD_COMMAND_TOOLS, "lead_replan", "lead_setup"].sort();

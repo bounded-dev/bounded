@@ -13,7 +13,9 @@
 // ran is kept as pending, and the result says so; the next gate or command
 // cannot run until it has been replayed.
 
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { systemProcesses } from "./process-lock.ts";
 import { join } from "node:path";
 import type { GateMilestone } from "./gate-command.ts";
 import type { GateResult } from "./gate-result.ts";
@@ -52,35 +54,139 @@ function applyOp(tracker: Tracker, op: BoardOp): void {
   }
 }
 
-export function pendingOps(cwd: string): readonly BoardOp[] {
+/** A pending update, with how many times it failed while the tracker answered. */
+export type PendingOp = BoardOp & { readonly attempts?: number };
+
+/** An update that kept failing while the tracker answered, set aside. */
+export interface QuarantinedOp {
+  readonly op: BoardOp;
+  readonly attempts: number;
+  readonly error: string;
+  readonly at: string;
+}
+
+/** After this many failures with the tracker answering, an update is quarantined. */
+export const MAX_BOARD_ATTEMPTS = 3;
+const QUARANTINE_RELATIVE = ".bounded/board-quarantine.json";
+
+function readList<T>(path: string): T[] {
   try {
-    const raw: unknown = JSON.parse(readFileSync(join(cwd, PENDING_RELATIVE), "utf8"));
-    return Array.isArray(raw) ? (raw as BoardOp[]) : [];
+    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return Array.isArray(raw) ? (raw as T[]) : [];
   } catch {
     return [];
   }
 }
 
-function savePending(cwd: string, ops: readonly BoardOp[]): void {
-  if (ops.length === 0) rmSync(join(cwd, PENDING_RELATIVE), { force: true });
-  else writeFileSync(join(cwd, PENDING_RELATIVE), JSON.stringify(ops, null, 2) + "\n");
+/** Write a whole file at once: readers see the old list or the new one. */
+function writeList(path: string, list: readonly unknown[]): void {
+  if (list.length === 0) {
+    rmSync(path, { force: true });
+    return;
+  }
+  const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+  writeFileSync(tmp, JSON.stringify(list, null, 2) + "\n");
+  renameSync(tmp, path);
+}
+
+export function pendingOps(cwd: string): readonly PendingOp[] {
+  return readList<PendingOp>(join(cwd, PENDING_RELATIVE));
+}
+
+export function quarantinedOps(cwd: string): readonly QuarantinedOp[] {
+  return readList<QuarantinedOp>(join(cwd, QUARANTINE_RELATIVE));
+}
+
+/** Set quarantined updates aside for good, or put them back to be tried again. */
+export function releaseQuarantine(cwd: string, retry: boolean): number {
+  const path = join(cwd, QUARANTINE_RELATIVE);
+  const held = readList<QuarantinedOp>(path);
+  if (held.length === 0) return 0;
+  rmSync(path, { force: true });
+  if (retry) restorePending(cwd, held.map((q) => q.op));
+  return held.length;
 }
 
 /**
- * Apply `ops` after any still pending, in order. On the first failure the
- * failed update and every one after it stay pending, and the error is thrown.
+ * Claim the pending updates by renaming the file away: a gate in the
+ * worktree and the lead replaying it can never both take the same updates.
+ * A claim left by a process that has gone is adopted.
+ */
+function claimPending(cwd: string): { readonly ops: PendingOp[]; readonly files: string[] } {
+  const dir = join(cwd, ".bounded");
+  const files: string[] = [];
+  const ops: PendingOp[] = [];
+  for (const name of existsSync(dir) ? readdirSync(dir).sort() : []) {
+    const orphan = /^board-pending\.claim-([0-9]+)-/.exec(name);
+    if (orphan === null || systemProcesses.startTime(Number(orphan[1])) !== undefined) continue;
+    files.push(join(dir, name));
+    ops.push(...readList<PendingOp>(join(dir, name)));
+  }
+  const claim = join(dir, `board-pending.claim-${process.pid}-${randomBytes(4).toString("hex")}`);
+  try {
+    renameSync(join(cwd, PENDING_RELATIVE), claim);
+    files.push(claim);
+    ops.push(...readList<PendingOp>(claim));
+  } catch {
+    // Nothing pending, or another process claimed it first.
+  }
+  return { ops, files };
+}
+
+/** Put updates back in front of any pending since they were claimed. */
+function restorePending(cwd: string, ops: readonly PendingOp[]): void {
+  if (ops.length === 0) return;
+  const since = claimPending(cwd);
+  writeList(join(cwd, PENDING_RELATIVE), [...ops, ...since.ops]);
+  for (const file of since.files) rmSync(file, { force: true });
+}
+
+function quarantine(cwd: string, op: PendingOp, attempts: number, error: unknown): void {
+  const path = join(cwd, QUARANTINE_RELATIVE);
+  const { attempts: _drop, ...bare } = op;
+  writeList(path, [...readList<QuarantinedOp>(path), {
+    op: bare as BoardOp, attempts, error: error instanceof Error ? error.message : String(error), at: new Date().toISOString(),
+  }]);
+}
+
+const answers = (tracker: Tracker): boolean => {
+  try {
+    tracker.check();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Apply `ops` after any still pending, in order. On a failure the failed
+ * update and every one after it stay pending, and the error is thrown —
+ * unless the tracker answers and the update has now failed
+ * MAX_BOARD_ATTEMPTS times: then it is quarantined (`bounded lead status`
+ * reports it) and the rest go on, so one bad update cannot block the board.
  */
 export function applyBoardOps(cwd: string, tracker: Tracker, ops: readonly BoardOp[]): void {
-  const queue = [...pendingOps(cwd), ...ops];
-  for (let i = 0; i < queue.length; i++) {
-    try {
-      applyOp(tracker, queue[i]!);
-    } catch (error) {
-      savePending(cwd, queue.slice(i));
-      throw error;
+  const claimed = claimPending(cwd);
+  const queue: PendingOp[] = [...claimed.ops, ...ops];
+  try {
+    for (let i = 0; i < queue.length; i++) {
+      const op = queue[i]!;
+      try {
+        applyOp(tracker, op);
+      } catch (error) {
+        const reachable = answers(tracker);
+        const attempts = (op.attempts ?? 0) + (reachable ? 1 : 0);
+        if (reachable && attempts >= MAX_BOARD_ATTEMPTS) {
+          quarantine(cwd, op, attempts, error);
+          continue;
+        }
+        restorePending(cwd, [{ ...op, attempts }, ...queue.slice(i + 1)]);
+        throw error;
+      }
     }
+  } finally {
+    for (const file of claimed.files) rmSync(file, { force: true });
   }
-  savePending(cwd, []);
 }
 
 /** Replay pending updates and prove the tracker answers; throws otherwise. */
