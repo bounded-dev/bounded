@@ -58,8 +58,8 @@ describe("install — fresh project", () => {
       env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
       hooks: {
         PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
-        PostToolUse: [{ matcher: "Agent|Task", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
-        PostToolUseFailure: [{ matcher: "Agent|Task", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        PostToolUse: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        PostToolUseFailure: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
       },
     });
     expect(readFileSync(join(dir, ".claude/settings.json"), "utf8")).toMatch(/^\{\n {2}"env"/); // 2-space JSON
@@ -95,8 +95,8 @@ describe("install — an existing settings.json", () => {
           { matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] },
         ],
         Stop: [],
-        PostToolUse: [{ matcher: "Agent|Task", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
-        PostToolUseFailure: [{ matcher: "Agent|Task", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        PostToolUse: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        PostToolUseFailure: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
       },
       model: "opus",
     });

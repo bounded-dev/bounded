@@ -73,9 +73,14 @@ bash .bounded/harness/scripts/bounded setup
 bash .bounded/harness/scripts/bounded gates --list
 ```
 
-In that project the agent session is the team lead: it opens each work item
-with `bounded lead prepare [--new] [ticket-number]` (the `lead_prepare` tool
-on pi) and commissions the architect who designs and delivers it.
+In that project the agent session is the team lead. Tickets are GitHub
+issues, so init needs an authenticated `gh`, a GitHub repository and a
+Projects board whose Status field has exactly Backlog, Queued, In Design,
+Building, Awaiting Merge and Done. The lead creates and queues tickets, then
+`bounded lead start <issue>` gives each one its own worktree and starts its
+architect there, so tickets run in parallel. The gates move the board, and
+`bounded lead merge <issue>` merges a delivered ticket into `main`, runs the
+project's check and pushes. The `lead_*` tools do the same on pi.
 
 The project's configuration (every package manifest, the lockfile, compiler
 config) is generated from the selected capabilities and the design, and no

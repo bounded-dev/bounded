@@ -3,7 +3,7 @@
 // neutral actions below; this policy judges only those actions, so it names no
 // host tool, field or command.
 
-import { LEAD_SEAT, SCOUT_SEAT, isProjectLocalHarness, preparedTicket } from "./lead-state.ts";
+import { LEAD_SEAT, SCOUT_SEAT, isProjectLocalHarness } from "./lead-state.ts";
 import { decide } from "./path-policy.ts";
 import { join } from "node:path";
 import {
@@ -12,15 +12,24 @@ import {
 
 export { ACTIVE_TICKET_RELATIVE } from "./ticket-design.ts";
 export { isProjectLocalHarness, preparedTicket } from "./lead-state.ts";
-export { LEAD_PREPARE_USAGE, parseLeadPrepareArgs, prepareLeadRun } from "./lead-run.ts";
+export { LEAD_COMMANDS, parseLeadArgs, runLeadCommand } from "./lead-commands.ts";
 export { LEAD_REPLAN_USAGE, parseReplanArgs, parseReplanCommand, replanCliArgs } from "./init-command.ts";
 
 /** Host tool names for the run-control tools a host may register. */
-export const LEAD_PREPARE_TOOL = "lead_prepare";
 export const LEAD_SETUP_TOOL = "lead_setup";
 export const LEAD_REPLAN_TOOL = "lead_replan";
+/** The tool a host that registers tools gives each lead command
+ *  (lead-commands.ts), by the command's name. */
+export const LEAD_COMMAND_TOOLS: Readonly<Record<string, string>> = {
+  "ticket create": "lead_ticket_create",
+  queue: "lead_queue",
+  start: "lead_start",
+  status: "lead_status",
+  reply: "lead_reply",
+  merge: "lead_merge",
+};
 /** Every lead-only tool: a seat that is not the lead never holds one. */
-export const LEAD_TOOLS: readonly string[] = [LEAD_PREPARE_TOOL, LEAD_SETUP_TOOL, LEAD_REPLAN_TOOL];
+export const LEAD_TOOLS: readonly string[] = [...Object.values(LEAD_COMMAND_TOOLS), LEAD_SETUP_TOOL, LEAD_REPLAN_TOOL];
 
 /** The project reads the path policy judges, in its own vocabulary. */
 export type ProjectReadTool = "read" | "grep" | "find" | "ls";
@@ -37,8 +46,8 @@ export type SeatAction =
   | { readonly kind: "reply" }
   /** Start one seat on one task. */
   | { readonly kind: "commission"; readonly role: unknown; readonly task: unknown }
-  /** Select the ticket and open, resume or change its run. */
-  | { readonly kind: "prepare" }
+  /** One of the lead's commands (lead-commands.ts): tickets, the board, architects, merging. */
+  | { readonly kind: "lead-command"; readonly command: string }
   /** Install the project's pinned dependencies. */
   | { readonly kind: "setup" }
   /** Re-plan the installation's capability selection before the first ticket (ADR 2026-065). */
@@ -54,7 +63,7 @@ export type SeatDecision =
 
 const ALLOW: SeatDecision = { allow: true };
 const refuse = (seat: string, why: string): SeatDecision => ({ allow: false, reason: `${seat}: ${why}` });
-const COMMISSIONABLE: ReadonlySet<unknown> = new Set([SCOUT_SEAT, "architect"]);
+const COMMISSIONABLE: ReadonlySet<unknown> = new Set([SCOUT_SEAT]);
 
 /**
  * Project reads are held to the architect's read zone, for every read-only
@@ -72,10 +81,11 @@ function judgeRead(seat: string, action: Extract<SeatAction, { kind: "read" }>, 
   return resolved.allow ? ALLOW : refuse(seat, resolved.reason);
 }
 
-/** The lead may inspect, look things up, prepare a ticket, commission one
- *  bound seat, or answer a commissioned seat that asks it for a decision —
+/** The lead may inspect, look things up, run its commands, commission the
+ *  scout, or answer a commissioned seat that asks it for a decision —
  *  otherwise a seat that escalates to the lead waits for an answer that
- *  cannot come. */
+ *  cannot come. An architect starts only through `bounded lead start`, in
+ *  its ticket's own worktree (ADR 2026-066). */
 export function decideLead(action: SeatAction, cwd: string): SeatDecision {
   switch (action.kind) {
     case "read":
@@ -83,7 +93,7 @@ export function decideLead(action: SeatAction, cwd: string): SeatDecision {
     case "lookup":
     case "observe":
     case "reply":
-    case "prepare":
+    case "lead-command":
       return ALLOW;
     case "setup":
       return setupAvailable(cwd) ? ALLOW : { allow: false, reason: SETUP_REFUSED };
@@ -94,12 +104,12 @@ export function decideLead(action: SeatAction, cwd: string): SeatDecision {
     case "other":
       return refuse(LEAD_SEAT, `'${action.tool}' is outside the read-only lead toolset`);
     case "commission":
-      if (!COMMISSIONABLE.has(action.role)) return refuse(LEAD_SEAT, "only scout and architect may be commissioned by the lead");
-      if (typeof action.task !== "string" || action.task.trim() === "") {
-        return refuse(LEAD_SEAT, "a scout or architect commission needs a task");
+      if (action.role === "architect") {
+        return refuse(LEAD_SEAT, "an architect starts only through `bounded lead start <issue>`, in its ticket's own worktree");
       }
-      if (action.role === "architect" && preparedTicket(cwd) === undefined) {
-        return refuse(LEAD_SEAT, "prepare the ticket's run boundary before commissioning its architect");
+      if (!COMMISSIONABLE.has(action.role)) return refuse(LEAD_SEAT, "only the scout may be commissioned by the lead");
+      if (typeof action.task !== "string" || action.task.trim() === "") {
+        return refuse(LEAD_SEAT, "a scout commission needs a task");
       }
       return ALLOW;
   }

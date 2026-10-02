@@ -27,7 +27,10 @@
 //
 // `--role scout` binds the read-only scout (lead-hook.ts). Project-local, with
 // no --role, the main session is the read-only team lead; the role file
-// cannot silently promote it. Outside an initialized project,
+// cannot silently promote it. In a ticket worktree (ADR 2026-066) the
+// top-level session is the architect only when `bounded lead start` launched
+// it with the seat in its environment (launchedSeat below); any other
+// top-level session there is read-only. Outside an initialized project,
 // `.bounded/dev-stage-role` remains the legacy ambient fallback; no role
 // there means the gate is inactive. The seat itself is decided by the shared
 // resolveSessionRole (src/session-role.ts), which pi uses too.
@@ -97,7 +100,9 @@ import { resolveSessionRole } from "../../src/session-role.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
-import { boundDefinitionInForce, evaluateLead, evaluateScout, recordLeadArchitectOutcome } from "./lead-hook.ts";
+import { boundDefinitionInForce, evaluateLead, evaluateScout } from "./lead-hook.ts";
+import { LAUNCHED_SEAT_ENV } from "./architect-launch.ts";
+import { readTicketMarker } from "../../src/ticket-worktree.ts";
 
 /** What one hook run says back to Claude Code. Exit is always 0. */
 export interface HookOutcome {
@@ -264,17 +269,14 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     rec = parseRecord(rawStdin);
     toolName = toolNameOf(rec);
     const payload = narrowPayload(rec, toolName);
+    const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? payload.cwd ?? fallbackCwd;
+    const boundSeat = flags.role ?? launchedSeat(flags, payload, projectDir);
     // A bound role's definition also registers this hook after Agent and
     // SendMessage calls: that is how a started worker's agent id reaches the
     // guard log, and how a failed continuation licenses a relaunch
     // (continuation.ts). Nothing after a call is ever refused here.
     if (payload.event === "PostToolUse" || payload.event === "PostToolUseFailure") {
-      const role = asRole(flags.role);
-      // The lead (the main session of a project installation) records when an
-      // architect it launched has ended (lead-hook.ts).
-      if (flags.projectLocal && flags.role === undefined && payload.agentId === undefined) {
-        recordLeadArchitectOutcome(payload, rec, payload.cwd ?? fallbackCwd);
-      }
+      const role = asRole(boundSeat);
       if (role !== undefined) {
         const at = payload.cwd ?? fallbackCwd;
         try {
@@ -298,11 +300,12 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     // judged by its own definition's hook; judging it again here would confine
     // it to the intersection of two seats, so this hook stands down.
     const seat = resolveSessionRole({
-      ...(flags.role !== undefined ? { boundSeat: flags.role } : {}),
+      ...(boundSeat !== undefined ? { boundSeat } : {}),
       projectLocal: flags.projectLocal,
       child: payload.agentId !== undefined,
+      ticketWorktree: flags.projectLocal && readTicketMarker(projectDir) !== undefined,
       judgedElsewhere: flags.projectLocal
-        ? payload.agentId !== undefined && boundDefinitionInForce(process.env["CLAUDE_PROJECT_DIR"] ?? cwd, payload.agentType)
+        ? payload.agentId !== undefined && boundDefinitionInForce(projectDir, payload.agentType)
         : payload.agentType !== undefined || payload.agentId !== undefined,
       ambientRole: () => sessionRole(cwd),
     });
@@ -426,6 +429,20 @@ export function licenseUnknownOutcome(role: Role, payload: Payload, cwd: string,
     summary: `the outcome of the ${asked} launch could not be recorded — a fresh ${asked} may be launched`,
     detail: { kind: CONTINUATION_CHECKED, role, target: asked },
   });
+}
+
+/**
+ * The seat of a session `bounded lead start` launched (architect-launch.ts):
+ * the project-wide hook, a top-level call (no agent id), the launch's seat in
+ * this process's environment, inside a worktree the start command marked as a
+ * ticket's. The model cannot change the environment of the process running
+ * it, and outside a marked ticket worktree the variable means nothing.
+ */
+export function launchedSeat(flags: { readonly projectLocal: boolean }, payload: Payload, projectDir: string): string | undefined {
+  if (!flags.projectLocal || payload.agentId !== undefined) return undefined;
+  const seat = process.env[LAUNCHED_SEAT_ENV];
+  if (seat !== "architect" || readTicketMarker(projectDir) === undefined) return undefined;
+  return seat;
 }
 
 /** The seat instance making a call: a subagent's agent id, else the session. */

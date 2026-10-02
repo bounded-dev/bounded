@@ -107,9 +107,11 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
   const leadInstructions = [
     "# Bounded project entry",
     "",
-    "The main user-facing session starts each request as the read-only team lead. Load the team-lead skill automatically; the user never has to name a role or describe the workflow. Use the scout agent for read-only investigation. Keep user interaction in the main session. Subagents follow their own installed role definitions.",
+    "In the main worktree, the main user-facing session starts each request as the read-only team lead. Load the team-lead skill automatically; the user never has to name a role or describe the workflow. Use the scout agent for read-only investigation. Keep user interaction in the main session. Subagents follow their own installed role definitions.",
     "",
-    "Prepare each run with `bash .bounded/harness/scripts/bounded lead prepare`. Use `--new` when the user's request is a new work item after the prior one was delivered; omit it for a follow-up to the current item. For a new tracked issue, use `--new <ticket>`; otherwise let the command allocate a local number. Decide this from the request and project state; the user need not know the mechanics. Then delegate delivery to the architect as an ordinary unnamed foreground subagent. The architect runs the developer-stage skill and commissions its own reviewer, test-writer, and builder. Let each role's installed definition bind its tools and hook. Never implement the work as the lead.",
+    "Tickets are GitHub issues, and the lead works only through `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`. `bounded lead start <issue>` gives the ticket its own worktree under `.bounded/worktrees/` and starts its architect there as that worktree's own session; never commission an architect as a subagent, and never implement the work as the lead.",
+    "",
+    "In a ticket worktree (one with `.bounded/ticket-worktree.json`), the top-level session started by `bounded lead start` is that ticket's architect, not the team lead: it runs the developer-stage skill and commissions its own reviewer, test-writer, and builder.",
     "",
     `Before the first run, and whenever the entry reports that dependencies are not ready, run exactly \`${SETUP_COMMAND}\`. Until setup completes, the session can only read project files. Gate discovery is available through \`bash .bounded/harness/scripts/bounded gates --list\`.`,
     "",

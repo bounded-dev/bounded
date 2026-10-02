@@ -9,7 +9,7 @@ vi.mock("node:child_process", async (original) => ({
 
 import { execFileSync } from "node:child_process";
 import { readGuardLog } from "./guard-log.ts";
-import { nextLocalTicket, parseLeadPrepareArgs, prepareLeadRun } from "./lead-run.ts";
+import { nextLocalTicket, prepareLeadRun } from "./lead-run.ts";
 import { preparedTicket } from "./lead-state.ts";
 import type { TempProject } from "../test/support/temp-project.ts";
 import {
@@ -37,23 +37,6 @@ const active = (dir: string): string => readFileSync(join(dir, ".bounded/active-
 /** The ticket the change boundary was drawn for, per call. */
 const boundaryTickets = (): (string | undefined)[] =>
   boundary.mock.calls.map((call) => (call[2] as { env?: NodeJS.ProcessEnv }).env?.["BOUNDED_TICKET"]);
-
-describe("parseLeadPrepareArgs — the one accepted shape", () => {
-  test.each([
-    [[], { ok: true, fresh: false }],
-    [["7"], { ok: true, fresh: false, ticket: "7" }],
-    [["--new"], { ok: true, fresh: true }],
-    [["--new", "12"], { ok: true, fresh: true, ticket: "12" }],
-  ])("%j is accepted", (args, expected) => {
-    expect(parseLeadPrepareArgs(args)).toEqual(expected);
-  });
-  test.each([[["0"]], [["07"]], [["x"]], [["1", "2"]], [["--new", "1", "2"]], [["1", "--new"]], [["--force"]], [["--new", "-1"]]])(
-    "%j is refused with the usage", (args) => {
-      const parsed = parseLeadPrepareArgs(args);
-      expect(parsed.ok).toBe(false);
-      if (!parsed.ok) expect(parsed.reason).toBe("usage: bounded lead prepare [--new] [ticket-number]");
-    });
-});
 
 describe("nextLocalTicket", () => {
   test("an empty project starts at 1", () => {

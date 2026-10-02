@@ -79,13 +79,10 @@ capabilities and still needs a live run before its behavior can be claimed.
   role is licensed only by positive evidence: a failed continuation of its
   current worker, a launch that failed or reported a terminal non-completed
   status, an after-call hook that errored on the launch, or a launch with no
-  recorded outcome made by an earlier architect whose end the lead's own
-  after-call hook recorded (a different agent id alone is never evidence). No
-  architect may commission another, and the lead runs one architect at a time:
-  the project hook also runs after the lead's Agent calls, recording each
-  architect's end; a session that died with an architect still recorded as
-  running is released by the user with `bounded lead release`, which the lead
-  itself may not run. A
+  recorded outcome made before an architect turn whose end the launch wrapper
+  recorded in the ticket worktree's guard log (a different agent id alone is
+  never evidence). No architect may commission another, and each ticket
+  worktree runs one architect turn at a time (ADR 2026-066). A
   launch still running — including a background one, recorded from its
   `async_launched` id — licenses nothing. The architect's Agent calls are held
   to the lead's field allowlist, so `run_in_background`, `isolation` and
@@ -256,34 +253,44 @@ project's `.gitignore`, next to `.bounded/`; a clone re-runs the installer.
 
 ## Running a ticket
 
-Initialized projects open the main Claude Code session as a read-only team
-lead. The installer gives it the team-lead skill and a read-only scout
-definition. The user states the outcome or ticket without naming roles. The
-lead inspects the project, runs exact dependency setup before the first run,
-prepares the work item with `bounded lead prepare [--new] [ticket-number]`, and
-commissions an ordinary unnamed architect subagent. It does not edit product
-files.
+Initialized projects open the main Claude Code session, in the main
+worktree, as a read-only team lead. The installer gives it the team-lead
+skill and a read-only scout definition. The user states the outcome without
+naming roles. The lead inspects the project, runs exact dependency setup
+before the first ticket, and works through its commands (ADR 2026-066):
+`bounded lead ticket create ...` creates a GitHub issue with its sections,
+`bounded lead queue <issue>` queues it, and `bounded lead start <issue>`
+gives it its own worktree under `.bounded/worktrees/<issue>` and branch
+`ticket/<issue>`, sets it up, prepares its run and launches its architect
+there. `bounded lead status` shows every started ticket, `bounded lead reply
+<issue> <message>` continues an architect with the user's answer, and
+`bounded lead merge <issue>` merges a delivered ticket into `main`, runs the
+project's check, pushes and closes it. The lead never commissions an
+architect as a subagent and does not edit product files.
 
-Current Claude Code supports nested ordinary subagents: the architect's
-generated definition gives it `Agent`, and it can commission reviewer,
-test-writer, and builder as nested subagents. Their generated definitions
-bind each role's tools and `PreToolUse` hook. Project settings keep those
-calls in the foreground. Agent teams remain disabled; this route does not
-depend on teammate hook behavior. See the [Claude Code subagent
-documentation](https://code.claude.com/docs/en/sub-agents) for nested agent
-and definition hook behavior.
+The architect runs as the ticket worktree's own top-level Claude Code session
+(`claude -p`, one run per turn; `architect-launch.ts`), so its working
+directory, `CLAUDE_PROJECT_DIR`, hooks, path gate and `.bounded/` state are
+all the worktree's. The launch puts the seat in the session's environment;
+the worktree's project-wide hook accepts it only in a worktree the start
+command marked, judges every call as the architect, and records its Agent
+and `SendMessage` outcomes. A top-level session in a ticket worktree that was
+not launched that way is read-only. The architect's nested reviewer,
+test-writer and builder are ordinary subagents bound by their generated
+definitions, as before; they inherit the worktree as their working
+directory. Project settings keep those calls in the foreground, and agent
+teams remain disabled. The Claude Code [subagent
+documentation](https://code.claude.com/docs/en/sub-agents) describes nested
+agent and definition hook behavior.
 
 The lead hook admits the project-local command
 `bash .bounded/harness/scripts/bounded gates --list` for discovery,
 `bash .bounded/harness/scripts/bounded setup` to install the project's pinned
-dependencies (before the first run, or to repair a completed setup whose
-dependencies are missing), and
-`bash .bounded/harness/scripts/bounded lead prepare [--new] [ticket-number]`
-for run preparation. The lead uses `--new` for a fresh work item after
-delivery, adding the number when the issue is already tracked, and omits it
-for a follow-up to the current item. Without a number, the command allocates
-the next local ticket number.
-Before the first ticket is prepared, before or after setup, it also admits
+dependencies (before the first ticket starts, or to repair a completed setup
+whose dependencies are missing), and the lead's commands as
+`bash .bounded/harness/scripts/bounded lead <command>` (or `bounded lead
+<command>`), each one plain command validated with the commands' own parser.
+Before the first ticket starts, before or after setup, it also admits
 the user's own
 `bounded init --host <host> --surface <id>... [--without <id>...] [--pack <name>...] [--apply <digest>]`
 (with `--host claude-code`) as one plain command, unrewritten, so the lead
@@ -291,8 +298,8 @@ can re-plan a capability selection the spec showed was wrong. Init replaces
 the installation only while it is untouched (ADR 2026-065); setup then runs
 again.
 It refuses arbitrary Bash and file edits even when an old
-`.bounded/dev-stage-role` names an architect. The shared lead policy requires
-a prepared ticket before an architect commission.
+`.bounded/dev-stage-role` names an architect, and it refuses every architect
+commission: an architect starts only through `bounded lead start <issue>`.
 
 The generated scout definition binds its own hook with `--role scout`, which
 holds it to project reads (Read, and `ls` / `find` through Bash) and nothing else. Any other

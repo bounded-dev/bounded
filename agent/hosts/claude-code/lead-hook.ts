@@ -1,25 +1,23 @@
 // Claude Code side of the read-only seats (ADR 2026-048): the project-local
 // team lead and the scout. The decision is the host-neutral policy in
 // src/lead-policy.ts; this module only turns Claude Code calls into its
-// actions (tool-map.ts), parses the lead's few shell commands, rewrites them
-// onto the project's own harness, and picks the commissioned architect's
-// model tier. Dependency setup never reaches this hook: the dependency-free
-// bootstrap hook answers the setup command itself.
+// actions (tool-map.ts), parses the lead's few shell commands with the
+// commands' own parser, and rewrites them onto the project's own harness.
+// Dependency setup never reaches this hook: the dependency-free bootstrap hook
+// answers the setup command itself.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logGuardEvent, readGuardLog } from "../../src/guard-log.ts";
-import { decideLead, decideScout, parseLeadPrepareArgs, parseReplanCommand, type SeatAction } from "../../src/lead-policy.ts";
-import { ARCHITECT_ENDED, ARCHITECT_LAUNCHED, LEAD_GUARD, LEAD_SEAT, runningArchitects, SCOUT_SEAT } from "../../src/lead-state.ts";
-import { readDevStageModels } from "../../src/dev-stage-models.ts";
-import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
+import { logGuardEvent } from "../../src/guard-log.ts";
+import { decideLead, decideScout, parseLeadArgs, parseReplanCommand, type SeatAction } from "../../src/lead-policy.ts";
+import { LEAD_GUARD, SCOUT_SEAT } from "../../src/lead-state.ts";
 import { asRole, projectPathFacts } from "../../src/path-gate.ts";
 import { shellWords } from "./bash-policy.ts";
 import { gateInputs, isListing, listingCall } from "./listing.ts";
 import { isSearch, searchCall, searchGateInput } from "./search.ts";
 import { searchPatternContained } from "../../src/setup-state.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
-import { claudeSeatActions, claudeTaskModel } from "./tool-map.ts";
+import { claudeSeatActions } from "./tool-map.ts";
 
 /** How the lead reaches the project's copied CLI from the project root. */
 export const PROJECT_CLI = ".bounded/harness/scripts/bounded";
@@ -47,13 +45,15 @@ export function leadCommand(command: unknown): LeadCommand {
       : undefined;
     if (cli !== undefined) {
       if (sameWords(cli, ["gates", "--list"])) return { action: { kind: "lookup", tool: "gates --list" }, cli };
-      if (cli[0] === "lead" && cli[1] === "prepare") {
-        const parsed = parseLeadPrepareArgs(cli.slice(2));
-        return parsed.ok ? { action: { kind: "prepare" }, cli } : { action: { kind: "refused", reason: parsed.reason } };
+      if (cli[0] === "lead") {
+        // The same parser the command itself runs (lead-commands.ts, ADR 2026-066).
+        const parsed = parseLeadArgs(cli.slice(1));
+        return parsed.ok ? { action: { kind: "lead-command", command: parsed.request.command }, cli }
+          : { action: { kind: "refused", reason: parsed.reason } };
       }
     }
   }
-  return { action: { kind: "refused", reason: "Bash is limited to gate discovery, run preparation and, before the first ticket, re-planning initialization in this session" } };
+  return { action: { kind: "refused", reason: "Bash is limited to gate discovery, the lead's `bounded lead` commands and, before the first ticket, re-planning initialization in this session" } };
 }
 
 /**
@@ -95,8 +95,7 @@ function runOnProjectCopy(payload: HookPayload, harnessRoot: string, cli: readon
     command: [join(harnessRoot, "scripts", "bounded"), ...cli].map(shellQuote).join(" ") });
 }
 
-/** Project-local main-session policy. The architect is an ordinary bound
- * subagent; current Claude Code supports its nested worker commissions. */
+/** Project-local main-session policy: the team lead in the main worktree. */
 export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: string): string {
   const refuse = (reason: string): string => {
     logGuardEvent(cwd, {
@@ -119,73 +118,13 @@ export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: str
     if (!decision.allow) return refuse(decision.reason);
     return command.cli === undefined ? "" : runOnProjectCopy(payload, harnessRoot, command.cli);
   }
-  const actions = claudeSeatActions({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd);
-  for (const action of actions) {
+  // An architect is never commissioned here: `bounded lead start` launches it
+  // as its ticket worktree's own session (ADR 2026-066), and the policy says so.
+  for (const action of claudeSeatActions({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd)) {
     const decision = decideLead(action, cwd);
     if (!decision.allow) return refuse(decision.reason);
   }
-  const architect = actions.find((action) => action.kind === "commission" && action.role === "architect");
-  if (architect === undefined) return "";
-  // One architect at a time (lead-state.ts): a second would commission its
-  // own workers while the first's still run.
-  const running = runningArchitects(readGuardLog(cwd));
-  if (running.length > 0) {
-    return refuse("an architect is already running — wait for it to finish; one architect runs at a time");
-  }
-  if (payload.toolUseId === undefined) {
-    return refuse("this host gave the architect commission no call id, so its end could never be recorded");
-  }
-  const decision = architectTier(payload, cwd);
-  if (!decision.includes('"deny"')) {
-    logGuardEvent(cwd, {
-      guard: LEAD_GUARD, verdict: "pass", summary: "architect commissioned",
-      detail: { host: "claude-code", kind: ARCHITECT_LAUNCHED, launch: payload.toolUseId },
-    });
-  }
-  return decision;
-}
-
-/**
- * After the lead's Agent call: record that an architect it launched has ended
- * — completed, failed or interrupted. A background launch is still running,
- * and so records nothing. What the result reports as the architect's agent id
- * is kept, so a successor architect can show the one before it ended
- * (continuation.ts).
- */
-export function recordLeadArchitectOutcome(payload: HookPayload, rec: Readonly<Record<string, unknown>>, cwd: string): void {
-  if (payload.toolName !== "Agent" && payload.toolName !== "Task") return;
-  if (payload.toolInput["subagent_type"] !== "architect" || payload.toolUseId === undefined) return;
-  const response = rec["tool_response"];
-  const r = typeof response === "object" && response !== null ? (response as Readonly<Record<string, unknown>>) : {};
-  if (payload.event === "PostToolUse" && r["status"] === "async_launched") return;
-  const agent = typeof r["agentId"] === "string" ? r["agentId"] : undefined;
-  logGuardEvent(cwd, {
-    guard: LEAD_GUARD, verdict: "pass",
-    summary: payload.event === "PostToolUseFailure" ? "architect ended without completing" : "architect finished",
-    detail: { host: "claude-code", kind: ARCHITECT_ENDED, launch: payload.toolUseId, ...(agent !== undefined ? { agent } : {}) },
-  });
-}
-
-/** The architect seat runs on its configured tier, chosen here as on pi. */
-function architectTier(payload: HookPayload, cwd: string): string {
-  const model = payload.toolInput["model"];
-  const plan = planModelTier({ agent: "architect", ...(model !== undefined ? { model } : {}) }, readDevStageModels(cwd));
-  if (plan.kind !== "inject") return "";
-  const hostModel = claudeTaskModel(plan.model);
-  if (hostModel === undefined) {
-    const reason = `model-tier: ${plan.key} '${plan.model}' names no model this host can run — change .bounded/dev-stage-models.json or drive this ticket under pi`;
-    logGuardEvent(cwd, {
-      guard: MODEL_TIER_GUARD, verdict: "block", summary: reason,
-      detail: { role: LEAD_SEAT, kind: "unresolvable-tier", key: plan.key, model: plan.model },
-    });
-    return deny(reason);
-  }
-  logGuardEvent(cwd, {
-    guard: MODEL_TIER_GUARD, verdict: "pass",
-    summary: `${tierSummary(plan)} — as '${hostModel}' on this host`,
-    detail: { role: LEAD_SEAT, kind: "tier-injected", key: plan.key, model: plan.model, hostModel },
-  });
-  return allowWith({ ...payload.toolInput, model: hostModel });
+  return "";
 }
 
 /** The scout, and any child this project's hook cannot prove is bound

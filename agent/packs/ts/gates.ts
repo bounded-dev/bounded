@@ -197,7 +197,8 @@ export function deadlineForBudgetMs(budgetMs: number): number {
 export const gates: readonly GateCommand[] = ([
   {
     name: "handoff-publish",
-    description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. In a ticket-numbered TN project, the active ticket (recorded by lead prepare; BOUNDED_TICKET overrides) must match --producer; the receipt includes that TN and its owned contracts.",
+    milestone: "handoff-published",
+    description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. In a ticket-numbered TN project, the active ticket (recorded when the ticket's run was prepared; BOUNDED_TICKET overrides) must match --producer; the receipt includes that TN and its owned contracts.",
     flags: [{ name: "producer", kind: "string", required: true, description: "The producing ticket's identity." }],
     async run(cwd, args) {
       const { runHandoffPublish } = await import("./scripts/handoff-publish.ts");
@@ -219,9 +220,10 @@ export const gates: readonly GateCommand[] = ([
   {
     name: "design-gate",
     tool: "design_gate",
+    milestone: "design-frozen",
     promptSnippet: "Run the design phase: purity, scaffold, typecheck, design-review, freeze.",
     description:
-      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze. In a ticket-numbered TN project, the active ticket recorded by lead prepare selects the TN (BOUNDED_TICKET overrides); review and freeze cover that TN and its listed contracts. Project typecheck remains project-wide. On a RE-freeze the review is checked first and worker-owned type drift may proceed; design-owned diagnostics still block.",
+      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze. In a ticket-numbered TN project, the active ticket recorded when the ticket's run was prepared selects the TN (BOUNDED_TICKET overrides); review and freeze cover that TN and its listed contracts. Project typecheck remains project-wide. On a RE-freeze the review is checked first and worker-owned type drift may proceed; design-owned diagnostics still block.",
     flags: [PATTERN_FLAG],
     promptGuidelines: [
       "It will not freeze a design nobody has challenged: commission the `reviewer` subagent once first. A review covers the SET of contract files it saw, so editing one you revised in answer to it does not un-review the design — only adding or removing a contract file does, and then the step names the file.",
@@ -344,6 +346,7 @@ export const gates: readonly GateCommand[] = ([
   {
     name: "deliver",
     tool: "deliver",
+    milestone: "delivered",
     promptSnippet: "Deliver: strip scaffolding, ship the surface check, make the repo hand-off ready.",
     description:
       "Run the delivery pass after sign_off: remove the red-phase errors modules (each context's domain/shared/errors.ts) and the red gate's shadow project, check every generated file is what the design produces and no skeleton still throws NotImplementedError, check the shipped scripts/surface-check.ts is wired into the project's check, ignore runtime state under .bounded/ while preserving a committed local harness, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `bun run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if anything still imports NotImplementedError, if a generated file is out of date, or if the project's own check is red.",

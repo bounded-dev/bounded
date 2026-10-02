@@ -37,7 +37,7 @@ import {
 import { join, resolve } from "node:path";
 import { isMainModule } from "../../src/is-main-module.ts";
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
-import { defaultHarnessRoot, GENERATED_MARKER, hookCommandFor, isGenerated, renderAllAgents } from "./render-agents.ts";
+import { COMMISSION_MATCHER, defaultHarnessRoot, GENERATED_MARKER, hookCommandFor, isGenerated, renderAllAgents } from "./render-agents.ts";
 
 export const AGENTS_DIR = join(".claude", "agents");
 export const SETTINGS_FILE = join(".claude", "settings.json");
@@ -108,14 +108,15 @@ export function mergeAmbientHook(settings: Json, command: string): Merge {
 
 /**
  * The events the project-wide hook runs on. Before every call it decides;
- * after an Agent call it only records — that is how the lead's architect is
- * known to have ended (or not), so a second architect is never started while
- * one runs (lead-hook.ts).
+ * after an Agent or SendMessage call it only records — that is how a ticket
+ * architect launched as a worktree's own session (architect-launch.ts) leaves
+ * its workers' agent ids and failed continuations in the guard log, as a bound
+ * definition's own hook does for a commissioned role (continuation.ts).
  */
 export const AMBIENT_HOOK_EVENTS: readonly (readonly [string, string])[] = [
   ["PreToolUse", ""],
-  ["PostToolUse", "Agent|Task"],
-  ["PostToolUseFailure", "Agent|Task"],
+  ["PostToolUse", COMMISSION_MATCHER],
+  ["PostToolUseFailure", COMMISSION_MATCHER],
 ];
 
 function isOurHook(entry: unknown): boolean {

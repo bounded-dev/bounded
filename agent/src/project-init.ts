@@ -599,13 +599,13 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
   writeFileSync(join(stage, "AGENTS.md"), [
     "# Project agent instructions", "",
     "This project includes its own Bounded harness at `.bounded/harness/`.",
-    "Initialization uses the agent host already running. For later requests, the main conversation is the team lead: discuss the user's goal, inspect the project, and delegate each ticket to a bound architect. The team lead does not edit product files. A read-only scout can investigate first. The architect runs the existing design, review, test, build, and delivery loop, even for one ticket.",
-    "The user only needs to describe the product change. Select and prepare the ticket through the local lead workflow; do not ask the user to choose roles or run gate commands.",
-    host === "pi" ? "Before commissioning the architect, call `lead_prepare`. Use its `new` option for a new work item after delivery; otherwise it resumes or changes the selected ticket." : "Before commissioning the architect, run `bash .bounded/harness/scripts/bounded lead prepare`, adding `--new` for a new work item after delivery. Then delegate to the generated architect agent as an ordinary foreground subagent without a name; it runs the existing loop through nested subagents.",
+    "Initialization uses the agent host already running. For later requests, the main conversation in the main worktree is the team lead: discuss the user's goal, inspect the project, and break the work into GitHub issues. The team lead does not edit product files. A read-only scout can investigate first. Each ticket gets its own worktree under `.bounded/worktrees/` and its own architect there, which runs the existing design, review, test, build, and delivery loop, even for one ticket. In a ticket worktree, the top-level session is that ticket's architect.",
+    "The user only needs to describe the product change. Create, queue, start and merge tickets with the lead's commands; do not ask the user to choose roles or run gate commands. GitHub issues are the tickets, and the commands and gates move the board.",
+    host === "pi" ? "The lead's commands are the `lead_ticket_create`, `lead_queue`, `lead_start`, `lead_status`, `lead_reply` and `lead_merge` tools." : "The lead's commands are `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`, each one plain command. `bounded lead start <issue>` starts the ticket's architect in its own worktree; an architect is never commissioned as a subagent.",
     "Run the project's `check`, `test`, `build`, and `lint` commands when present through the role that owns them.",
     host === "pi" ? "After a fresh clone, the team lead calls `lead_setup` before the first run; reload the session afterwards to load the full gates." : `After a fresh clone, the team lead runs \`${SETUP_COMMAND}\` before the first run; the next hook call loads the full gates.`,
     "Use `bash .bounded/harness/scripts/bounded gates --list` to discover the local gates.",
-    "The architect owns `docs/tn/TN-<ticket-number>.md` and its contract paths. The lead selects the current ticket for this worktree before delegation.",
+    "The architect owns `docs/tn/TN-<ticket-number>.md` and its contract paths. `bounded lead start` selects the ticket in its own worktree before the architect starts.",
     `Selected capabilities: ${packs.join(", ")}.`, "",
   ].join("\n"));
   if (host === "pi") {

@@ -73,15 +73,11 @@ import {
   decideLead,
   decideScout,
   isProjectLocalHarness,
-  LEAD_PREPARE_TOOL,
-  LEAD_PREPARE_USAGE,
   LEAD_REPLAN_TOOL,
   LEAD_REPLAN_USAGE,
   LEAD_SETUP_TOOL,
   LEAD_TOOLS,
-  parseLeadPrepareArgs,
   parseReplanArgs,
-  prepareLeadRun,
   replanCliArgs,
   seatMayHold,
   setupLeadProject,
@@ -89,7 +85,9 @@ import {
 import { logGuardEvent } from "../../../src/guard-log.ts";
 import { LEAD_GUARD, SCOUT_SEAT } from "../../../src/lead-state.ts";
 import { resolveSessionRole, type SessionSeat } from "../../../src/session-role.ts";
+import { isTicketWorktree } from "../../../src/ticket-worktree.ts";
 import { piSeatAction } from "./lib/lead-actions.ts";
+import { registerLeadCommandTools } from "./lib/lead-command-tools.ts";
 
 // This file lives at <harness>/hosts/pi/extensions/path-gate.ts, so the harness
 // root (the `agent/` dir) is FOUR levels up: extensions → pi → hosts → agent.
@@ -151,6 +149,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     ...(boundRole !== undefined ? { boundSeat: boundRole } : {}),
     projectLocal: projectCopy && isProjectLocalHarness(cwd),
     child: process.env["PI_SUBAGENT_CHILD"] === "1",
+    ticketWorktree: projectCopy && isTicketWorktree(cwd),
     judgedElsewhere: boundRole === undefined && isAmbientSuppressed(),
     // A global harness never applies the legacy role file inside a project installation.
     ambientRole: () => (isProjectLocalHarness(cwd) ? undefined : fallback!(cwd)),
@@ -163,29 +162,9 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
   // startup. A bound role is never the lead, so it loses nothing.
   const leadTools = projectCopy && boundRole === undefined;
 
-  if (leadTools) pi.registerTool({
-    name: LEAD_PREPARE_TOOL,
-    label: "Prepare ticket run",
-    description: `Open or resume the active ticket's run (the shell form is \`${LEAD_PREPARE_USAGE}\`). Pass new: true after final delivery to start another ticket; include ticket for a tracked issue or omit it for the next local number.`,
-    parameters: Type.Object({
-      ticket: Type.Optional(Type.String({ description: "Positive issue number, if tracked externally" })),
-      new: Type.Optional(Type.Boolean({ description: "Start the next local work item after final delivery" })),
-    }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      if (!leadSession(ctx.cwd)) {
-        return { content: [{ type: "text" as const, text: "team-lead: only the project-local lead may prepare a ticket run" }], details: { ok: false } };
-      }
-      const args = parseLeadPrepareArgs([...(params.new === true ? ["--new"] : []), ...(params.ticket !== undefined ? [params.ticket] : [])]);
-      if (!args.ok) {
-        return { content: [{ type: "text" as const, text: `team-lead: ${args.reason}` }], details: { ok: false } };
-      }
-      const result = prepareLeadRun(ctx.cwd, args.ticket, args.fresh);
-      return {
-        content: [{ type: "text" as const, text: result.ok ? result.summary : result.reason }],
-        details: result,
-      };
-    },
-  });
+  // The lead's commands (ADR 2026-066): tickets, the board, each ticket's
+  // worktree and architect, merging.
+  if (leadTools) registerLeadCommandTools(pi, leadSession);
 
   if (leadTools) pi.registerTool({
     name: LEAD_SETUP_TOOL,

@@ -19,39 +19,22 @@ export const LEAD_SEAT = "team-lead";
 /** The read-only investigator the lead may commission. */
 export const SCOUT_SEAT = "scout";
 
-// ── One architect at a time ────────────────────────────────────────────────
+// ── One architect per worktree ─────────────────────────────────────────────
 //
-// The lead runs at most one architect at once, project-wide: two architects
-// would each commission workers, and the cold-relaunch rule (phase-gate.ts) is
-// per role, not per architect. A host adapter records each architect the lead
-// launches (with the host's id for that launch) and its end; "running" is a
-// launch with no recorded end. Only evidence clears one: the host reporting
-// the launch over (completed, failed, interrupted), or the USER releasing it
-// with `bounded lead release` after a session died with no end recorded — a
-// command the lead itself is never allowed to run.
+// Each ticket has its own worktree and at most one architect, launched there
+// by `bounded lead start` and continued by `bounded lead reply`
+// (architect-launch.ts, ADR 2026-066). The launch's state file is the
+// worktree's lock, and the launch wrapper records each turn's end in the
+// worktree's guard log. The cold-relaunch rule (phase-gate.ts) reads that
+// end: a worker launch left without an outcome by a turn that has since ended
+// can never be continued.
 
-/** Detail kind: the lead launched an architect (`launch` = the host's id). */
-export const ARCHITECT_LAUNCHED = "architect-launched";
-/** Detail kind: that architect ended (`launch`), or all were released (`all`). */
+/** Detail kind: an architect turn in this worktree ended (`launch` names it). */
 export const ARCHITECT_ENDED = "architect-ended";
 
 type Detail = Readonly<Record<string, unknown>>;
 const leadDetail = (e: { readonly guard: string; readonly detail?: unknown }): Detail =>
   e.guard === LEAD_GUARD && typeof e.detail === "object" && e.detail !== null ? (e.detail as Detail) : {};
-
-/** The launch ids of architects the lead started whose end is not recorded. */
-export function runningArchitects(events: readonly { readonly guard: string; readonly detail?: unknown }[]): readonly string[] {
-  const running = new Set<string>();
-  for (const e of events) {
-    const d = leadDetail(e);
-    if (d["kind"] === ARCHITECT_LAUNCHED && typeof d["launch"] === "string") running.add(d["launch"]);
-    if (d["kind"] === ARCHITECT_ENDED) {
-      if (d["all"] === true) running.clear();
-      else if (typeof d["launch"] === "string") running.delete(d["launch"]);
-    }
-  }
-  return [...running];
-}
 
 /** Is an architect's end recorded after event `index` — and, when the end
  *  names the architect's agent id, is it `agent`? */

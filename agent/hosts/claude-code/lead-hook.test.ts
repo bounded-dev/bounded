@@ -1,6 +1,4 @@
-import { spawnSync } from "node:child_process";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
@@ -8,6 +6,8 @@ import type { TempProject } from "../../test/support/temp-project.ts";
 import { LOG, logLines, makeLeadProject, prepared } from "../../test/support/lead-project.ts";
 import { runHook } from "./path-gate-hook.ts";
 import { boundDefinitionInForce, leadCommand } from "./lead-hook.ts";
+import { LAUNCHED_SEAT_ENV } from "./architect-launch.ts";
+import { TICKET_MARKER_RELATIVE } from "../../src/ticket-worktree.ts";
 
 // ADR 2026-048 on Claude Code: the project-wide hook (`--project-local`)
 // makes the main session the read-only team lead, holds unbound children to
@@ -28,6 +28,7 @@ beforeEach(() => {
   vi.stubEnv("BOUNDED_DEV_STAGE_ROLE", undefined);
   vi.stubEnv("BOUNDED_TICKET", undefined);
   vi.stubEnv("BOUNDED_GUARD_LOG", "");
+  vi.stubEnv(LAUNCHED_SEAT_ENV, undefined);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -53,25 +54,40 @@ function hook(dir: string, tool: string, input: Readonly<Record<string, unknown>
 
 const q = (...words: string[]): string => words.map((w) => `'${w}'`).join(" ");
 
-describe("lead Bash: only run control, rewritten onto the project's harness", () => {
+describe("lead Bash: only its commands, rewritten onto the project's harness", () => {
+  const CLI = `${HARNESS}/scripts/bounded`;
   test.each([
-    ["bounded gates --list", q(`${HARNESS}/scripts/bounded`, "gates", "--list")],
-    ["bash .bounded/harness/scripts/bounded gates --list", q(`${HARNESS}/scripts/bounded`, "gates", "--list")],
-    ["bounded lead prepare", q(`${HARNESS}/scripts/bounded`, "lead", "prepare")],
-    ["bash .bounded/harness/scripts/bounded lead prepare --new 4", q(`${HARNESS}/scripts/bounded`, "lead", "prepare", "--new", "4")],
+    ["bounded gates --list", q(CLI, "gates", "--list")],
+    ["bash .bounded/harness/scripts/bounded gates --list", q(CLI, "gates", "--list")],
+    ["bounded lead status", q(CLI, "lead", "status")],
+    ["bounded lead queue 4", q(CLI, "lead", "queue", "4")],
+    ["bash .bounded/harness/scripts/bounded lead start 4", q(CLI, "lead", "start", "4")],
+    ["bounded lead merge '#4'", q(CLI, "lead", "merge", "#4")],
+    ["bounded lead reply 4 'use the shorter name'", q(CLI, "lead", "reply", "4", "use the shorter name")],
+    ["bounded lead ticket create --title 'Invoices' --outcome 'Send invoices' --acceptance 'A sent invoice is listed' --owns contexts/billing/invoice.contract.ts --depends 3 --decisions 'Currency'",
+      q(CLI, "lead", "ticket", "create", "--title", "Invoices", "--outcome", "Send invoices", "--acceptance", "A sent invoice is listed",
+        "--owns", "contexts/billing/invoice.contract.ts", "--depends", "3", "--decisions", "Currency")],
   ])("%s", (command, rewritten) => {
     const r = hook(project(), "Bash", { command, description: "d" });
     expect(r).toEqual({ decision: "rewrite", input: { command: rewritten, description: "d" } });
   });
 
-  test.each(["bounded lead prepare 1 2", "bounded lead prepare --new x", "bounded lead prepare --force"])(
-    "bad prepare arguments are refused with the usage: %s", (command) => {
-      const r = hook(project(), "Bash", { command });
-      expect(r.decision).toBe("deny");
-      expect(r.reason).toContain("usage: bounded lead prepare [--new] [ticket-number]");
-    });
+  test.each([
+    ["bounded lead prepare", "usage: bounded lead"],
+    ["bounded lead release", "usage: bounded lead"],
+    ["bounded lead start", "usage: bounded lead start <issue>"],
+    ["bounded lead start 1 2", "usage: bounded lead start <issue>"],
+    ["bounded lead reply 4", "usage: bounded lead reply <issue> <message>"],
+    ["bounded lead ticket create --title x --outcome y --acceptance z --decisions d", "at least one owned path"],
+    ["bounded lead ticket create --title x --outcome y --acceptance z --owns ../up --decisions d", "plain project-relative path"],
+  ])("a malformed lead command is refused with its reason: %s", (command, why) => {
+    const r = hook(project(), "Bash", { command });
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain(why);
+  });
 
   test.each(["npm test", "rm -rf src", "bounded gates --list; rm -rf src", "bounded gates red-gate", "git status", "bounded lead finish",
+    "gh issue list",
     "bounded sync-config", "bash .bounded/harness/scripts/bounded sync-config"])(
     "anything else is refused: %s", (command) => {
       const dir = project();
@@ -148,67 +164,53 @@ describe("lead commissions", () => {
     expect(r.reason).toContain("fresh, unnamed foreground");
   });
 
-  test.each(["general-purpose", "builder", "Explore"])("only scout and architect: %s refused", (role) => {
+  test.each(["general-purpose", "builder", "Explore"])("only the scout: %s refused", (role) => {
     expect(hook(project(), "Task", { subagent_type: role, prompt: "do" }).decision).toBe("deny");
   });
 
-  test("the architect waits for a prepared run, then gets its tier", () => {
-    const dir = project({ ".bounded/dev-stage-models.json": '{"designModel": "anthropic/claude-opus-5:high"}\n' });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("prepare the ticket's run boundary");
-    writeFileSync(join(dir, ".bounded/active-ticket"), "1\n");
-    writeFileSync(join(dir, LOG), logLines(prepared("1")));
-    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver", model: "haiku" }, LEAD, { tool_use_id: "t1" });
-    expect(r).toEqual({ decision: "rewrite", input: { subagent_type: "architect", prompt: "deliver", model: "opus" } });
-    expect(readGuardLog(dir).find((e) => e.guard === "model-tier")).toMatchObject({ verdict: "pass", detail: { role: "team-lead" } });
-  });
-
-  test("one architect at a time: a second waits until the first's end is recorded", () => {
+  test("an architect is never commissioned in the lead's session, prepared run or not (ADR 2026-066)", () => {
     const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    const launch = (id: string) => hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: id });
-    const after = (event: string, id: string, extra: Readonly<Record<string, unknown>> = {}) =>
-      runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: event, tool_name: "Agent", tool_use_id: id,
-        tool_input: { subagent_type: "architect", prompt: "deliver" }, ...extra }), dir);
-    expect(launch("t1").decision).toBe("allow");
-    expect(launch("t2").reason).toContain("an architect is already running");
-    // A background launch is still running.
-    after("PostToolUse", "t1", { tool_response: { status: "async_launched", agentId: "a0000000000000aaa" } });
-    expect(launch("t2").decision).toBe("deny");
-    after("PostToolUse", "t1", { tool_response: { status: "completed", agentId: "a0000000000000aaa", agentType: "architect" } });
-    expect(launch("t2").decision).toBe("allow");
-    // An interrupted or failed architect has ended too.
-    after("PostToolUseFailure", "t2", { error: "interrupted", is_interrupt: true });
-    expect(launch("t3").decision).toBe("allow");
-    // A child's Agent calls never end the lead's architect.
-    runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "t3",
-      agent_id: "a0000000000000aaa", agent_type: "architect", tool_input: { subagent_type: "architect" }, tool_response: { status: "completed" } }), dir);
-    expect(launch("t4").decision).toBe("deny");
-  });
-
-  test("an architect commission with no call id is refused: its end could never be recorded", () => {
-    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("no call id");
-  });
-
-  test("only the user releases a stuck architect: the lead may not run the release", () => {
-    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
-    expect(hook(dir, "Bash", { command: "bounded lead release" }).decision).toBe("deny");
-    expect(hook(dir, "Bash", { command: "bash .bounded/harness/scripts/bounded lead release" }).decision).toBe("deny");
-    const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../../src/lead-cli.ts", import.meta.url)), "release"], { cwd: dir, encoding: "utf8", env: { ...process.env, BOUNDED_GUARD_LOG: "" } });
-    expect(cli.stdout).toContain("released");
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t2" }).decision).toBe("allow");
-  });
-
-  test("a tier this host cannot run refuses the architect; no tier leaves the call untouched", () => {
-    const dir = project({
-      ".bounded/dev-stage-models.json": '{"designModel": "fireworks/kimi-k3:medium"}\n',
-      ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")),
-    });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).reason).toContain("names no model this host can run");
-    const plain = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(plain, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
+    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" });
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("bounded lead start <issue>");
   });
 });
+
+describe("a ticket worktree's own session (ADR 2026-066)", () => {
+  const ticket = (): string => project({
+    [TICKET_MARKER_RELATIVE]: JSON.stringify({ issue: 7, branch: "ticket/7", main: "/m" }),
+    "docs/tn/README.md": "# TNs\n", ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7")),
+  });
+
+  test("launched as the architect, the project-wide hook binds it and judges it as the architect", () => {
+    const dir = ticket();
+    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
+    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" }).decision).toBe("allow");
+    expect(hook(dir, "Write", { file_path: join(dir, "src/impl.ts"), content: "x" }).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "bounded lead status" }).decision).toBe("deny");
+    expect(readGuardLog(dir).some((e) => e.guard === "host")).toBe(true);
+  });
+
+  test("not launched, the worktree's top-level session is only read-only", () => {
+    const dir = ticket();
+    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" }).decision).toBe("deny");
+    expect(hook(dir, "Bash", { command: "bounded lead status" }).decision).toBe("deny");
+    expect(hook(dir, "Read", { file_path: join(dir, "docs/tn/README.md") }).decision).toBe("allow");
+  });
+
+  test("the launch's seat means nothing outside a marked ticket worktree, or for a child", () => {
+    const main = project({ "src/a.ts": "" });
+    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
+    vi.stubEnv("CLAUDE_PROJECT_DIR", main);
+    expect(hook(main, "Write", { file_path: join(main, "docs/tn/TN-1.md"), content: "x" }).decision).toBe("deny");
+    const dir = ticket();
+    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" }, LEAD, { agent_id: "a-1", agent_type: "general-purpose" }).decision).toBe("deny");
+  });
+});
+
 
 describe("children: stand down only for a proven bound definition", () => {
   const child = (agent_type: string): Readonly<Record<string, unknown>> => ({ agent_id: "a-1", agent_type });
