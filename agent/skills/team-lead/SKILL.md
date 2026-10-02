@@ -130,7 +130,7 @@ creates the ticket's worktree under `.bounded/worktrees/<issue>` on branch
 `ticket/<issue>`, installs its dependencies, prepares its run and launches its
 architect there, then returns at once. The architect works on its own; one
 architect runs per worktree, and it may change only the ticket's owned paths,
-its tests and its Technical Note. If `start` stops part way, or `status`
+its tests there, and its Technical Note. If `start` stops part way, or `status`
 says a start did not finish, run `start` again: it finishes what is left. Your
 commands run one at a time; if one says another is running, wait for it.
 

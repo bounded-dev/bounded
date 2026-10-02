@@ -85,9 +85,18 @@ routes to the user. Any lead command refuses in the same way.
   replays first the main worktree's pending updates, then each ticket
   worktree's.
 - **Owned paths are enforced.** In a ticket worktree the path gate confines
-  every role to the ticket's owned paths, compared without case, plus
-  test-side and generated files, the ticket's own TN and the architect's
-  scratch. A write elsewhere is refused and routed to the team lead.
+  every role to the ticket's owned paths (test files included only there),
+  plus the ticket's own TN and the architect's scratch. Case is ignored only
+  where the filesystem ignores it. A write elsewhere is refused and routed to
+  the team lead.
+- **Only judged tools run in a launched session.** The hook denies any tool it
+  does not map and judge (MCP tools, WebFetch, Skill and the like), and the
+  Claude Code launch loads no MCP server (`--strict-mcp-config`).
+- **Locks are taken over atomically.** A stale lock is claimed by rename, and
+  an owner whose liveness cannot be told is never stale.
+- **A failing board update cannot block the board.** After three failures
+  with the tracker answering it is quarantined; `bounded lead board
+  <retry|discard>` deals with it, and pending updates are claimed by rename.
 
 ## Why
 

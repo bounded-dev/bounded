@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { pathGateCtx } from "./path-gate.ts";
+import { foldsCase, pathGateCtx } from "./path-gate.ts";
 import { decide, type Ctx } from "./path-policy.ts";
 import { TICKET_MARKER_RELATIVE } from "./ticket-worktree.ts";
 
@@ -17,14 +17,16 @@ const LAYOUT: Omit<Ctx, "cwd"> = {
   contractGlobs: ["contexts/**/*.contract.ts"],
   writeProtection: { dirNames: [], fileNames: [] },
 };
-const ctx = (paths: readonly string[]): Ctx => ({ cwd: "/p", ...LAYOUT, ownedPaths: { ticket: 7, paths } });
-const write = (role: "architect" | "builder" | "test-writer", path: string, paths: readonly string[] = ["contexts/billing/"]) =>
-  decide(role, "write", { path, content: "" }, ctx(paths));
+const ctx = (paths: readonly string[], caseInsensitive = true): Ctx => ({ cwd: "/p", ...LAYOUT, ownedPaths: { ticket: 7, paths, caseInsensitive } });
+const write = (role: "architect" | "builder" | "test-writer", path: string, paths: readonly string[] = ["contexts/billing/"], caseInsensitive = true) =>
+  decide(role, "write", { path, content: "" }, ctx(paths, caseInsensitive));
 
 describe("owned-path confinement", () => {
-  test("a write under an owned path is allowed, in any case", () => {
+  test("a write under an owned path is allowed; case is ignored only on a case-folding filesystem", () => {
     expect(write("builder", "contexts/billing/invoice.ts").allow).toBe(true);
     expect(write("builder", "Contexts/Billing/invoice.ts").allow).toBe(true);
+    expect(write("builder", "Contexts/Billing/invoice.ts", ["contexts/billing/"], false).allow).toBe(false);
+    expect(write("builder", "contexts/billing/invoice.ts", ["contexts/billing/"], false).allow).toBe(true);
     expect(write("architect", "contexts/billing/invoice.contract.ts").allow).toBe(true);
     expect(write("builder", "contexts/billing.ts", ["contexts/billing.ts"]).allow).toBe(true);
   });
@@ -41,8 +43,12 @@ describe("owned-path confinement", () => {
     expect(write("architect", "CONTEXT.md").allow).toBe(false);
   });
 
-  test("test-side files, the ticket's own TN and the architect's scratch are allowed outside", () => {
-    expect(write("test-writer", "contexts/orders/order.test.ts").allow).toBe(true);
+  // Regression (re-review): test-side and generated files were exempt anywhere.
+  test("test-side files only under owned paths; the ticket's own TN and the architect's scratch outside", () => {
+    expect(write("test-writer", "contexts/billing/invoice.test.ts").allow).toBe(true);
+    const outside = write("test-writer", "contexts/orders/order.test.ts");
+    expect(outside.allow).toBe(false);
+    if (!outside.allow) expect(outside.reason).toContain("owns only contexts/billing/");
     expect(write("architect", "docs/tn/TN-7.md").allow).toBe(true);
     expect(write("architect", "docs/tn/tn-7.md").allow).toBe(true);
     expect(write("architect", "docs/tn/TN-8.md").allow).toBe(false);
@@ -69,10 +75,24 @@ describe("the path gate reads the confinement from the ticket worktree's marker"
   test("owned paths come from the marker; a marker with none confines to nothing", () => {
     mkdirSync(join(dir, ".bounded"));
     writeFileSync(join(dir, TICKET_MARKER_RELATIVE), JSON.stringify({ issue: 3, branch: "ticket/3", main: "/m", owns: ["contexts/a/"] }));
-    expect(pathGateCtx("builder", dir).ownedPaths).toEqual({ ticket: 3, paths: ["contexts/a/"] });
+    expect(pathGateCtx("builder", dir).ownedPaths).toEqual({ ticket: 3, paths: ["contexts/a/"], caseInsensitive: foldsCase(dir) });
     writeFileSync(join(dir, TICKET_MARKER_RELATIVE), JSON.stringify({ issue: 3, branch: "ticket/3", main: "/m", owns: "contexts/a/" }));
-    expect(pathGateCtx("builder", dir).ownedPaths).toEqual({ ticket: 3, paths: [] });
+    expect(pathGateCtx("builder", dir).ownedPaths).toMatchObject({ ticket: 3, paths: [] });
     rmSync(join(dir, TICKET_MARKER_RELATIVE));
     expect(pathGateCtx("builder", dir).ownedPaths).toBeUndefined();
+  });
+});
+
+describe("foldsCase", () => {
+  test("answers what the filesystem does", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bounded-fold-"));
+    try {
+      mkdirSync(join(dir, ".bounded"));
+      const folds = (() => { try { mkdirSync(join(dir, ".BOUNDED")); return false; } catch { return true; } })();
+      if (!folds) rmSync(join(dir, ".BOUNDED"), { recursive: true });
+      expect(foldsCase(dir)).toBe(folds);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
