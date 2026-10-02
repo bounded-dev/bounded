@@ -17,6 +17,7 @@ import {
 import { COMPOSITION_FILE, writeProjectPacks } from "./project-composition.ts";
 import { lockFor, sourceLockPath, type RuntimePackage } from "./runtime-lock.ts";
 import { beforeFirstRun, HOST_PACKAGE_DIRS, SETUP_COMMAND } from "./setup-state.ts";
+import { TRACKER_CONFIG_RELATIVE } from "./tracker.ts";
 import {
   offeredSurfaces, selectForSurfaces, type SurfaceDecisions, type SurfacePack, type SurfaceSelection,
 } from "./product-surfaces.ts";
@@ -511,6 +512,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
   const omit = (path: string): boolean => /(^|\/)(?:node_modules|testdata)(\/|$)/.test(path) || /(?:^|\.)test\.ts$/.test(path) ||
     path === "project-init.ts" || path === "project-init-cli.ts";
   copyTree(join(agentRoot, "src"), join(harnessRoot, "src"), omit);
+  copyTree(join(agentRoot, "trackers"), join(harnessRoot, "trackers"), omit);
   copyTree(join(agentRoot, "skills"), join(harnessRoot, "skills"), omit);
   copyTree(join(agentRoot, "agents"), join(harnessRoot, "agents"), omit);
   mkdirSync(join(harnessRoot, "scripts"), { recursive: true });
@@ -639,7 +641,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
   // the committed lockfile must match, so a fresh clone can verify it.
   const rules = [...projectIgnoreRules(packs, join(agentRoot, "packs")), ...HOST_PACKAGE_DIRS.map((dir) => `${dir}/`),
     ".bounded/*", "!.bounded/harness/", ".bounded/harness/node_modules/", "!.bounded/composed-packs.json", "!.bounded/installation.json",
-    "!.bounded/lockfile-fingerprint.json"];
+    "!.bounded/lockfile-fingerprint.json", `!${TRACKER_CONFIG_RELATIVE}`];
   writeFileSync(ignoreFile, existingIgnore + rules.filter((rule) => !existingIgnore.split("\n").includes(rule)).join("\n") + "\n");
 }
 
@@ -876,6 +878,7 @@ export function describeInit(): object {
         "Run bounded init --host <current-host> with --surface <id> for every needed surface and --without <id> for every declined one. Init selects the capabilities from the packs' own data. If it answers with open surfaces, ask their questions and run it again with the answers.",
         "If the plan marks a surface declined: true, the user declined it but another part of the product needs it (pulledInBy). Explain that conflict to the user in product terms before going on.",
         "Use the agent host already running this conversation; do not ask the user to select another agent.",
+        "GitHub is the required tracker. Init refuses unless gh is authenticated, this directory is a clone of a GitHub repository, and the owner has a Projects board whose Status field has exactly the options Backlog, Queued, In Design, Building, Awaiting Merge and Done. Pass --project <number> (or <owner>/<number>) when the owner has more than one board. If init refuses for any of these, tell the user exactly what to set up and stop.",
         "If the complete application cannot be scaffolded, explain the gap in product terms and stop. Do not silently omit a required part of the application.",
         "When a complete plan succeeds, explain what Bounded will create in plain language and review the plan before applying its digest.",
         "Until the first ticket is prepared, the selection can be corrected from inside the project: run bounded init again with the corrected surfaces. The plan replaces the untouched installation; it lists the setup output it deletes and the user's files it keeps. Apply it only after the user explicitly agrees.",
@@ -896,7 +899,18 @@ function scaffolderAvailable(pack: string): boolean {
   return Array.isArray(raw.projectInitScripts) && raw.projectInitScripts.length > 0;
 }
 
-export async function planInit(target: string, host: string, requested: readonly string[]): Promise<InitPlan> {
+/** What the init command line adds to a plan besides the selection. */
+export interface InitOptions {
+  /** The tracker config the command resolved and checked (ADR 2026-066),
+   *  committed at TRACKER_CONFIG_RELATIVE so every worktree has it. */
+  readonly trackerConfig?: string;
+}
+
+function stageOptions(stage: string, options: InitOptions): void {
+  if (options.trackerConfig !== undefined) writeFileSync(join(stage, TRACKER_CONFIG_RELATIVE), options.trackerConfig);
+}
+
+export async function planInit(target: string, host: string, requested: readonly string[], options: InitOptions = {}): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'; choose pi or claude-code`);
   assertNoInterruptedReplan(target);
   const packs = canonicalClosure(requested);
@@ -906,11 +920,14 @@ export async function planInit(target: string, host: string, requested: readonly
   const stage = mkdtempSync(join(tmpdir(), "bounded-init-plan-"));
   try {
     await assemble(stage, host, packs, projectNameOf(target));
+    stageOptions(stage, options);
     return planFromStage(stage, host, packs, existing?.replacement);
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
-export async function applyInit(target: string, host: string, requested: readonly string[], reviewedDigest: string): Promise<InitPlan> {
+export async function applyInit(
+  target: string, host: string, requested: readonly string[], reviewedDigest: string, options: InitOptions = {},
+): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'`);
   if (!/^[a-f0-9]{64}$/.test(reviewedDigest)) throw new Error("Supply the SHA-256 digest of a reviewed plan");
   assertNoInterruptedReplan(target);
@@ -925,6 +942,7 @@ export async function applyInit(target: string, host: string, requested: readonl
   let replaced: Removal | undefined;
   try {
     await assemble(stage, host, packs, projectNameOf(target));
+    stageOptions(stage, options);
     const plan = planFromStage(stage, host, packs, existing?.replacement);
     if (plan.digest !== reviewedDigest) throw new Error("Plan changed since review; run bounded init with the same options again");
     writeFileSync(join(stage, MANIFEST), JSON.stringify(plan, null, 2) + "\n");

@@ -11,6 +11,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["extensions/**/*.ts", "hosts/**/*.ts", "packs/**/*.ts", "src/**/*.ts", "test/**/*.ts"],
+  "include": ["extensions/**/*.ts", "hosts/**/*.ts", "packs/**/*.ts", "src/**/*.ts", "test/**/*.ts", "trackers/**/*.ts"],
   "exclude": ["extensions/orca-*.ts", "packs/ts/scripts/testdata", "packs/*/reference"]
 }
