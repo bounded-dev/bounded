@@ -324,9 +324,17 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
         });
         return { stdout: "", stderr: `${DENY_PREFIX}: --role ${seat.note}\n` };
       case "role": {
-        const out = evaluate(seat.role, seat.bound, payload, cwd, harnessRoot, flags.projectLocal);
         // A launched session grants nothing itself (dontAsk): what the gate
-        // allows there, it allows in words, and a missing hook allows nothing.
+        // judged and allowed there, it allows in words, and a missing hook
+        // allows nothing. A tool the gate does not judge at all (an MCP tool,
+        // WebFetch, Skill, ...) is refused outright: an empty verdict on an
+        // unjudged call is not a permission.
+        if (inLaunchedSession(flags, projectDir) && !gateJudges(payload, cwd)) {
+          const reason = `path-gate: '${payload.toolName}' is not a tool the gate judges, so a launched ${seat.role} session may not use it`;
+          logGuardEvent(cwd, { guard: "path-gate", verdict: "block", summary: reason, detail: { host: "claude-code", role: seat.role, tool: payload.toolName } });
+          return { stdout: deny(reason), stderr: "" };
+        }
+        const out = evaluate(seat.role, seat.bound, payload, cwd, harnessRoot, flags.projectLocal);
         return { stdout: out === "" && inLaunchedSession(flags, projectDir) ? allow() : out, stderr: "" };
       }
     }
@@ -447,6 +455,13 @@ export function launchedSeat(flags: { readonly projectLocal: boolean }, payload:
   const seat = process.env[LAUNCHED_SEAT_ENV];
   if (seat !== "architect" || readTicketMarker(projectDir) === undefined) return undefined;
   return seat;
+}
+
+/** Whether the gate judges this call at all: a tool it maps onto the calls
+ *  it decides, or the continuation it handles itself. */
+export function gateJudges(payload: Payload, cwd: string): boolean {
+  if (payload.toolName === SEND_MESSAGE_TOOL) return true;
+  return mapToolCall({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd).length > 0;
 }
 
 /** This call belongs to a session `bounded lead start` launched: the

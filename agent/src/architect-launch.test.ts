@@ -118,7 +118,7 @@ describe("the hosts' commands", () => {
     expect(first.args).toEqual([
       "-p", "--session-id", "0000-1", "--setting-sources", "project", "--permission-mode", "dontAsk",
       "--append-system-prompt", "## Brief", "--tools", "Read,Bash,Write,Edit,Agent,SendMessage",
-      "--model", "opus", "--output-format", "text", "--", "Ticket #4",
+      "--model", "opus", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--output-format", "text", "--", "Ticket #4",
     ]);
     expect(first.args).not.toContain("--allowedTools");
     expect(first.args).not.toContain("acceptEdits");

@@ -193,6 +193,37 @@ describe("a ticket worktree's own session (ADR 2026-066)", () => {
     expect(readGuardLog(dir).some((e) => e.guard === "host")).toBe(true);
   });
 
+  // Regression (re-review): an empty verdict on a tool the gate never judged
+  // was turned into an explicit allow.
+  test.each([
+    ["mcp__claude_ai_Gmail__send_message", { to: "x@example.invalid", body: "hi" }],
+    ["mcp__any_server__any_tool", {}],
+    ["WebFetch", { url: "https://example.invalid", prompt: "x" }],
+    ["WebSearch", { query: "x" }],
+    ["Skill", { skill: "developer-stage" }],
+    ["TodoWrite", { todos: [] }],
+    ["KillShell", { shell_id: "1" }],
+    ["ExitPlanMode", { plan: "x" }],
+    ["SomeFutureTool", {}],
+  ])("a launched session denies a tool the gate does not judge: %s", (tool, input) => {
+    const dir = ticket();
+    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
+    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+    const r = hook(dir, tool, input);
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("not a tool the gate judges");
+    // And a worker's own bound hook in that session does the same.
+    const worker = hook(dir, tool, input, [...LEAD, "--role", "builder"], { agent_id: "a-3", agent_type: "builder" });
+    expect(worker.decision).toBe("deny");
+  });
+
+  test("NotebookEdit is judged as an edit, not waved through", () => {
+    const dir = ticket();
+    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
+    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
+    expect(hook(dir, "NotebookEdit", { notebook_path: join(dir, "src/x.ipynb"), new_source: "" }).decision).toBe("deny");
+  });
+
   test("a worker the launched architect commissions is allowed in words by its own bound hook", () => {
     const dir = project({
       [TICKET_MARKER_RELATIVE]: JSON.stringify({ issue: 7, branch: "ticket/7", main: "/m", owns: ["contexts/billing/"] }),

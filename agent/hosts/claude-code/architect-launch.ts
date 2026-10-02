@@ -35,6 +35,9 @@ export const MANAGED_SETTINGS_PATHS: readonly string[] = [
   "/etc/claude-code/managed-settings.json",
 ];
 
+/** The only MCP configuration a launched session loads: none. */
+export const EMPTY_MCP_CONFIG = '{"mcpServers":{}}';
+
 /** The project hook entry, as the installer writes it (project-install.ts). */
 const PROJECT_HOOK = "hosts/claude-code/bootstrap-hook.ts";
 
@@ -99,6 +102,9 @@ export const CLAUDE_ARCHITECT_HOST: ArchitectHost = {
         "--append-system-prompt", brief,
         "--tools", tools.join(","),
         ...(spec.model !== undefined ? ["--model", spec.model] : []),
+        // No MCP server or connector loads: only this empty configuration
+        // counts. (A variadic flag; the next flag ends its list.)
+        "--strict-mcp-config", "--mcp-config", EMPTY_MCP_CONFIG,
         "--output-format", "text",
         "--", spec.message,
       ],
