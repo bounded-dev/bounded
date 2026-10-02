@@ -124,7 +124,10 @@ waiting on a dependency. Tickets run in parallel by default: each `start`
 creates the ticket's worktree under `.bounded/worktrees/<issue>` on branch
 `ticket/<issue>`, installs its dependencies, prepares its run and launches its
 architect there, then returns at once. The architect works on its own; one
-architect runs per worktree.
+architect runs per worktree, and it may change only the ticket's owned paths,
+its tests and its Technical Note. If `start` stops part way, or `status`
+says a start did not finish, run `start` again: it finishes what is left. Your
+commands run one at a time; if one says another is running, wait for it.
 
 Check on the architects with `status`. It shows each started ticket's board
 status and labels, whether its architect is still running, and the report a
@@ -219,8 +222,10 @@ receipt, and the consumer's architect must reassess it before continuing.
 
 ## Merge
 
-A ticket merges only once its deliver gate passed (it is Awaiting Merge) and
-its architect is not running. `merge`:
+A ticket merges only once its deliver gate passed (it is Awaiting Merge), its
+worktree still holds exactly what that gate passed, and its architect is not
+running. A `reply` to a delivered ticket reopens it to Building: it must pass
+deliver again before it merges. `merge`:
 
 1. fetches, and refuses unless local `main` is level with `origin/main`;
 2. commits the ticket's delivered work on its branch and merges it into
@@ -229,7 +234,9 @@ its architect is not running. `merge`:
 4. only then pushes `main` to `origin/main`, never forced, closes the issue,
    sets it to Done and removes the ticket's worktree.
 
-Merge one ticket at a time, producers before their consumers. When a merge
+Merge one ticket at a time, producers before their consumers. If `merge` says
+the worktree changed after delivery, ask the architect with `reply` to rerun
+deliver. When a merge
 refuses, tell the user exactly why: a conflict or a failing check goes back to
 the ticket's architect with `reply`; a `main` that is not level with
 `origin/main` is the user's to bring level. Check the parent's acceptance

@@ -271,7 +271,11 @@ architect as a subagent and does not edit product files.
 The architect runs as the ticket worktree's own top-level Claude Code session
 (`claude -p`, one run per turn; `architect-launch.ts`), so its working
 directory, `CLAUDE_PROJECT_DIR`, hooks, path gate and `.bounded/` state are
-all the worktree's. The launch puts the seat in the session's environment;
+all the worktree's. It loads only the project's settings and runs in
+`dontAsk` mode with nothing pre-approved: the hook allows each call it judges
+as allowed explicitly, so a session whose hook never ran can change nothing.
+The launch refuses when the worktree does not register the hook, or when a
+managed policy switches hooks off. The launch puts the seat in the session's environment;
 the worktree's project-wide hook accepts it only in a worktree the start
 command marked, judges every call as the architect, and records its Agent
 and `SendMessage` outcomes. A top-level session in a ticket worktree that was

@@ -4,10 +4,13 @@
 
 ## Decision
 
-GitHub is the required tracker. `bounded init` refuses without an
-authenticated `gh`, a GitHub repository and a Projects board whose Status
-field has exactly Backlog, Queued, In Design, Building, Awaiting Merge and
-Done. It commits the resolved config as `.bounded/tracker.json`. The core
+GitHub is the required tracker. Planning with `bounded init` needs nothing
+from it, but applying refuses without an authenticated `gh`, a GitHub
+repository and a Projects board whose Status field has exactly Backlog,
+Queued, In Design, Building, Awaiting Merge and Done. `--create-statuses` sets
+those options when the user agrees. Apply commits the resolved config,
+including the board's id, as `.bounded/tracker.json`; issues are matched to
+the board by that id. The core
 holds a tracker port (`src/tracker.ts`), the adapter lives in `trackers/`,
 and no role can reach the tracker.
 
@@ -53,6 +56,39 @@ it. Packs tag the milestone gates. Before a gate runs, it replays any pending
 board update and checks that the tracker responds. If not, it refuses and
 routes to the user. Any lead command refuses in the same way.
 
+### Hardening after review
+
+- **Merge takes only the delivered tree.** A delivered pass records the
+  worktree's tree hash and its index's tree hash. `merge` refuses on any
+  difference ("the worktree changed after delivery; rerun deliver") and checks
+  that the committed tree is the recorded one. A `reply` to a ticket that is
+  Awaiting Merge reopens it to Building and drops the record.
+- **The launch fails closed.** Before a launch, the host's preflight checks
+  that the worktree registers its gate hook (Claude Code: the project-wide
+  PreToolUse hook for every tool, with no setting or managed policy switching
+  hooks off; pi: the role loader and the project extension). The Claude Code
+  session loads only project settings and runs in `dontAsk` with nothing
+  pre-approved. The hook allows every call it judges as allowed in words, so
+  a session whose hook never ran cannot write, edit or run a shell command
+  that changes anything; an opt-in live test shows both that and its
+  control. A message that begins with `-` is refused, and the Claude Code
+  message follows `--`.
+- **One lead command at a time.** Every lead command holds a lock in the main
+  worktree. `start` writes its record before anything else, so the ownership
+  check always sees a parallel ticket. Locks and running architect turns are
+  owned by a pid and that process's start time: a lock whose owner has gone,
+  or whose pid was reused, is stale and is cleared.
+- **Start is resumable.** Each step of `start` is skipped when it is already
+  done, so running it again finishes a start that a crash interrupted.
+  `status` names that command.
+- **Pending board updates are replayed everywhere.** Every lead command
+  replays first the main worktree's pending updates, then each ticket
+  worktree's.
+- **Owned paths are enforced.** In a ticket worktree the path gate confines
+  every role to the ticket's owned paths, compared without case, plus
+  test-side and generated files, the ticket's own TN and the architect's
+  scratch. A write elsewhere is refused and routed to the team lead.
+
 ## Why
 
 The user asked for parallel tickets in which every step is controlled by
@@ -85,9 +121,13 @@ talking to the user.
   run a mutating git command.
 - Each worktree installs its own dependencies, so `start` costs one lockfile
   install.
-- A headless turn cannot answer a permission prompt. The Claude Code launch
-  therefore accepts edits and allows the architect's own tools, and the hook,
-  which runs before any permission rule, remains the gate.
+- A headless turn cannot answer a permission prompt, so on Claude Code the
+  hook's explicit allow is the only permission a launched session has.
+  Claude Code still lets a session without its hook read files and run shell
+  commands it classifies as read-only; such a session can change nothing.
+- The launcher sits behind one seam (`ArchitectHost`, and the `launch`
+  dependency of the lead's commands), so running architects another way, for
+  example one visible subagent at a time, replaces that seam alone.
 - The architect talks to the user only through the lead's `status` and
   `reply`.
 - Projects initialized before this decision lack the tracker config. They need
