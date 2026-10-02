@@ -69,7 +69,7 @@ describe("launching turns", () => {
     expect(launchArchitectTurn(worktree, "brief", host(), { spawn: () => 4242, probe: { startTime: (pid) => (pid === 999_999 ? undefined : "t") } }).ok).toBe(true);
     writeFileSync(join(worktree, ".bounded/architect/launch.lock"), JSON.stringify({ pid: 999_998, started: "t" }));
     const held = launchArchitectTurn(worktree, "again", host(), { spawn: () => 4243, probe: { startTime: (pid) => (pid === 4242 ? undefined : "t") } });
-    expect(held).toMatchObject({ ok: false, reason: expect.stringContaining("in progress (pid 999998)") });
+    expect(held).toMatchObject({ ok: false, reason: expect.stringContaining("in progress (held by pid 999998)") });
   });
 
   test("a message that could be read as an option, or a worktree whose gate would not hold, launches nothing", () => {

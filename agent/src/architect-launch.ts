@@ -142,7 +142,7 @@ export function launchArchitectTurn(
   if (unsafe !== undefined) return { ok: false, reason: `the architect was not launched, because its gate would not hold: ${unsafe}` };
   mkdirSync(dirOf(worktree), { recursive: true });
   const lock = acquireLock(join(dirOf(worktree), LOCK), probe);
-  if (!lock.ok) return { ok: false, reason: `another architect launch in this worktree is in progress (pid ${lock.owner.pid})` };
+  if (!lock.ok) return { ok: false, reason: `another architect launch in this worktree is in progress (${lock.reason})` };
   try {
     const status = architectStatus(worktree, probe);
     if (status.kind === "running") {

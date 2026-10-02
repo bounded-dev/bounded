@@ -276,7 +276,7 @@ export async function runLeadCommand(main: string, request: LeadRequest, deps: L
   // One lead command at a time: two starts must never both pass the
   // ownership check. A lock whose owner has gone is cleared (process-lock.ts).
   const lock = acquireLock(join(main, LEAD_LOCK_RELATIVE), deps.processes ?? systemProcesses);
-  if (!lock.ok) return refused(`another lead command is running (pid ${lock.owner.pid}); wait for it to finish`);
+  if (!lock.ok) return refused(`another lead command is running (${lock.reason}); wait for it to finish`);
   try {
     return await runLocked(main, request, deps);
   } finally {
