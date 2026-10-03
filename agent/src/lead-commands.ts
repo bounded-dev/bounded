@@ -14,7 +14,7 @@
 // Every host reaches these through `parseLeadArgs`, so the accepted shapes
 // cannot drift between the shell form and a host's tools. Everything with a
 // side effect outside this process — the tracker, git, dependency setup, the
-// project check, the architect's launch — is a dependency, so each transition
+// project check, the architect host — is a dependency, so each transition
 // is tested without the network or a host.
 
 import { spawnSync } from "node:child_process";
@@ -22,8 +22,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { applyBoardOps, boardReady, quarantinedOps, releaseQuarantine, type BoardOp } from "./board-sync.ts";
 import {
-  architectStatus, flagLike, launchArchitectTurn, turnOutput, type ArchitectHost, type LaunchResult, type SpawnDetached,
-} from "./architect-launch.ts";
+  architectStatus, flagLike, readPendingLaunch, readPendingReply, writePendingLaunch, writePendingReply, type ArchitectHost,
+} from "./architect-seat.ts";
 import { clearDeliverySnapshot, readDeliverySnapshot, worktreeSnapshot } from "./delivery-snapshot.ts";
 import { acquireLock, systemProcesses, type ProcessProbe } from "./process-lock.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
@@ -156,18 +156,10 @@ export interface LeadDeps {
   readonly setup: (worktree: string) => Promise<SetupResult>;
   /** The project's full check, in `cwd`. */
   readonly check: (cwd: string) => { readonly ok: boolean; readonly output: string };
-  readonly spawn?: SpawnDetached;
   /** Which processes run, by pid and start time (locks and architect turns). */
   readonly processes?: ProcessProbe;
   /** Whether a worktree's dependencies are installed (default: the setup probes). */
   readonly ready?: (worktree: string) => boolean;
-  /**
-   * How an architect turn is started. The default launches the host's own
-   * session in the ticket worktree (architect-launch.ts); another way of
-   * running architects plugs in here without touching the commands.
-   */
-  readonly launch?: (worktree: string, message: string, host: ArchitectHost,
-    options: { readonly model?: string; readonly spawn?: SpawnDetached; readonly probe?: ProcessProbe }) => LaunchResult;
 }
 
 /** The lock every lead command holds in the main worktree, so no two interleave. */
@@ -234,8 +226,8 @@ function installationHost(main: string): string | undefined {
 /** The architect launch adapter for the host this project was installed for. */
 export async function installedArchitectHost(main: string): Promise<ArchitectHost> {
   const host = installationHost(main);
-  if (host === "claude-code") return (await import("../hosts/claude-code/architect-launch.ts")).CLAUDE_ARCHITECT_HOST;
-  if (host === "pi") return (await import("../hosts/pi/architect-launch.ts")).PI_ARCHITECT_HOST;
+  if (host === "claude-code") return (await import("../hosts/claude-code/architect-seat.ts")).CLAUDE_ARCHITECT_HOST;
+  if (host === "pi") return (await import("../hosts/pi/architect-seat.ts")).PI_ARCHITECT_HOST;
   throw new Error(`the installation names no supported host ('${String(host)}')`);
 }
 
@@ -419,11 +411,6 @@ function queue(main: string, issueNumber: number, tracker: Tracker): LeadOutcome
   return pending === undefined ? done(`#${issueNumber} queued${note}`) : refused(`#${issueNumber}: ${pending}`);
 }
 
-/** The launch options a command passes on. */
-function launchOptions(deps: LeadDeps, model: { readonly model?: string }) {
-  return { ...model, ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}), probe: deps.processes ?? systemProcesses };
-}
-
 /**
  * `start` is a sequence of steps, each skipped when already done, so a start
  * that a crash interrupted is finished by running it again. The record is
@@ -435,7 +422,15 @@ async function start(main: string, issueNumber: number, deps: LeadDeps, tracker:
   if (issue.state !== "open") return refused(`#${issueNumber} is closed`);
   const worktree = ticketWorktreePath(main, issueNumber);
   const record = readStartedTicket(main, issueNumber);
+  const pending = readPendingLaunch(main);
+  if (pending !== undefined && pending.issue !== issueNumber) {
+    return refused(`#${pending.issue} is waiting for its architect; start that one first, then this ticket`);
+  }
   if (record?.phase !== "starting" && record !== undefined) {
+    if (pending?.issue === issueNumber) {
+      const host = await deps.host(main);
+      return done(`#${issueNumber} is waiting for its architect. ${host.launchInstruction(pending)}`);
+    }
     return refused(`#${issueNumber} already has a worktree and an architect; continue it with reply`);
   }
   // Resuming: the record says a start began, or the board and the worktree
@@ -506,19 +501,25 @@ async function start(main: string, issueNumber: number, deps: LeadDeps, tracker:
       return rollback(trackerRefusal(error));
     }
   }
+  // The architect is the host's own subagent: the core leaves one pending
+  // launch, and the host adapter binds the next architect launch to it.
+  const unsafe = host.preflight(worktree);
+  if (unsafe !== undefined) {
+    const back = resuming ? undefined : board(main, tracker, [{ op: "status", issue: issueNumber, status: "Queued" }]);
+    const out = rollback(`its architect's gate would not hold: ${unsafe}`);
+    return back === undefined ? out : refused(`${out.text}; ${back}`);
+  }
+  let instruction = "";
   if (architectStatus(worktree, deps.processes ?? systemProcesses).kind === "none") {
-    const launched = (deps.launch ?? launchArchitectTurn)(worktree, openingBrief(issue, worktree, main), host, launchOptions(deps, model));
-    if (!launched.ok) {
-      const back = resuming ? undefined : board(main, tracker, [{ op: "status", issue: issueNumber, status: "Queued" }]);
-      const out = rollback(launched.reason);
-      return back === undefined ? out : refused(`${out.text}; ${back}`);
-    }
+    const launch = { issue: issueNumber, worktree, brief: openingBrief(issue, worktree, main), ...model, createdAt: new Date().toISOString() };
+    writePendingLaunch(main, launch);
+    instruction = ` ${host.launchInstruction(launch)}`;
   }
   writeStartedTicket(main, { ...started, phase: "started" });
-  return done(`#${issueNumber} ${resuming ? "start finished" : "started"} in ${relative(main, worktree)} on ${branch}; its architect is running. It is In Design. Check on it with bounded lead status.`);
+  return done(`#${issueNumber} ${resuming ? "start finished" : "started"} in ${relative(main, worktree)} on ${branch}. It is In Design.${instruction}`);
 }
 
-function status(main: string, deps: LeadDeps, tracker: Tracker): LeadOutcome {
+async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
   const started = startedTickets(main);
   const quarantined = quarantineLines(main);
   if (started.length === 0) return done(["no ticket is started", ...quarantined].join("\n"));
@@ -535,18 +536,16 @@ function status(main: string, deps: LeadDeps, tracker: Tracker): LeadOutcome {
       lines.push(`  the worktree changed after delivery; its architect must rerun deliver (bounded lead reply ${ticket.issue} <message>)`);
     }
     const architect = architectStatus(ticket.worktree, deps.processes ?? systemProcesses);
+    const pending = readPendingLaunch(main);
     switch (architect.kind) {
-      case "none": lines.push("  architect: never launched"); break;
-      case "running": lines.push(`  architect: running turn ${architect.turn} since ${architect.since}`); break;
-      case "ended":
-      case "lost": {
-        lines.push(architect.kind === "ended"
-          ? `  architect: turn ${architect.turn} ${architect.exitCode === 0 ? "finished" : `ended with exit ${architect.exitCode}`}; answer it with bounded lead reply ${ticket.issue} <message>`
-          : `  architect: turn ${architect.turn} ended without a record; continue it with bounded lead reply ${ticket.issue} <message>`);
-        const report = turnOutput(ticket.worktree, architect.turn, 40);
-        if (report !== "") lines.push(...report.split("\n").map((line) => `  > ${line}`));
+      case "none":
+        lines.push(pending?.issue === ticket.issue
+          ? `  architect: waiting to be launched — ${(await deps.host(main)).launchInstruction(pending)}`
+          : "  architect: never launched");
         break;
-      }
+      case "running": lines.push(`  architect: running turn ${architect.turn} since ${architect.since}`); break;
+      case "ended": lines.push(`  architect: turn ${architect.turn} stopped and reported to you; continue it with bounded lead reply ${ticket.issue} <message>`); break;
+      case "lost": lines.push(`  architect: turn ${architect.turn} ended with its session; continue it with bounded lead reply ${ticket.issue} <message>`); break;
     }
   }
   return done(`started tickets:\n${lines.join("\n")}`);
@@ -565,8 +564,13 @@ async function reply(main: string, issueNumber: number, message: string, deps: L
   } catch (error) {
     return refused(error instanceof Error ? error.message : String(error));
   }
-  const model = architectModel(main, host);
-  if ("error" in model) return refused(model.error);
+  const architect = architectStatus(ticket.worktree, deps.processes ?? systemProcesses);
+  if (architect.kind === "none") return refused(`#${issueNumber}'s architect was never launched; launch it as bounded lead start ${issueNumber} says`);
+  if (architect.kind === "running") return refused(`#${issueNumber}'s architect is still running; one architect turn runs per worktree`);
+  const unsafe = host.preflight(ticket.worktree);
+  if (unsafe !== undefined) return refused(`#${issueNumber}'s architect was not continued, because its gate would not hold: ${unsafe}`);
+  const other = readPendingReply(main);
+  if (other !== undefined && other.issue !== issueNumber) return refused(`a reply to #${other.issue} is waiting to be sent; send it first`);
   // A reply to a delivered ticket reopens it: the architect may change the
   // tree, so the delivery no longer stands until deliver passes again.
   const reopen = issue.status === "Awaiting Merge";
@@ -575,10 +579,9 @@ async function reply(main: string, issueNumber: number, message: string, deps: L
     if (pending !== undefined) return refused(`#${issueNumber} was not reopened: ${pending}`);
     clearDeliverySnapshot(ticket.worktree);
   }
-  const launched = (deps.launch ?? launchArchitectTurn)(ticket.worktree, message, host, launchOptions(deps, model));
-  return launched.ok
-    ? done(`#${issueNumber}'s architect continues (turn ${launched.turn})${reopen ? "; the ticket is reopened to Building until deliver passes again" : ""}`)
-    : refused(launched.reason);
+  const pendingReply = { issue: issueNumber, worktree: ticket.worktree, agent: architect.agent, message, createdAt: new Date().toISOString() };
+  writePendingReply(main, pendingReply);
+  return done(`#${issueNumber}'s reply is ready${reopen ? "; the ticket is reopened to Building until deliver passes again" : ""}. ${host.replyInstruction(pendingReply)}`);
 }
 
 async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {

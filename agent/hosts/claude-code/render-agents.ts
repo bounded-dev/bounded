@@ -95,6 +95,10 @@ export interface RenderOptions {
   /** Override the hook command (tests, or a wrapper). Default: this host's
    *  hook under `harnessRoot`, bound with `--role <role>`. */
   readonly hookCommand?: string;
+  /** A permission mode for the definition. A project installation runs every
+   *  role in `dontAsk`, so a call that needs permission runs only when the
+   *  role's gate explicitly allows it (ADR 2026-066). */
+  readonly permissionMode?: "dontAsk";
 }
 
 /** The hook command for a role, or the ambient (unbound) one when omitted. */
@@ -232,6 +236,7 @@ export function renderAgent(role: Role, opts: RenderOptions): string {
     `name: ${role}`,
     `description: ${yamlString(pi.description)}`,
     `tools: ${claudeTools(role).join(", ")}`,
+    ...(opts.permissionMode !== undefined ? [`permissionMode: ${opts.permissionMode}`] : []),
     ...hookFrontmatter(command, { commissions: ROLE_TOOLS[role].includes("subagent") }),
     "---",
   ];

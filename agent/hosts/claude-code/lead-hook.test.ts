@@ -6,7 +6,9 @@ import type { TempProject } from "../../test/support/temp-project.ts";
 import { LOG, logLines, makeLeadProject, prepared } from "../../test/support/lead-project.ts";
 import { runHook } from "./path-gate-hook.ts";
 import { boundDefinitionInForce, leadCommand } from "./lead-hook.ts";
-import { LAUNCHED_SEAT_ENV } from "./architect-launch.ts";
+import {
+  readArchitectState, readPendingLaunch, readPendingReply, recordArchitectEnded, recordArchitectRunning, writePendingLaunch, writePendingReply,
+} from "../../src/architect-seat.ts";
 import { TICKET_MARKER_RELATIVE } from "../../src/ticket-worktree.ts";
 
 // ADR 2026-048 on Claude Code: the project-wide hook (`--project-local`)
@@ -28,7 +30,6 @@ beforeEach(() => {
   vi.stubEnv("BOUNDED_DEV_STAGE_ROLE", undefined);
   vi.stubEnv("BOUNDED_TICKET", undefined);
   vi.stubEnv("BOUNDED_GUARD_LOG", "");
-  vi.stubEnv(LAUNCHED_SEAT_ENV, undefined);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -176,25 +177,45 @@ describe("lead commissions", () => {
   });
 });
 
-describe("a ticket worktree's own session (ADR 2026-066)", () => {
-  const ticket = (): string => project({
-    [TICKET_MARKER_RELATIVE]: JSON.stringify({ issue: 7, branch: "ticket/7", main: "/m" }),
-    "docs/tn/README.md": "# TNs\n", ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7")),
+describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
+  const AGENT = "a00000000000000a7";
+  /** A main worktree with one ticket worktree under it, as `bounded lead start` leaves them. */
+  const ticketed = (owns: readonly string[] = []): { main: string; wt: string } => {
+    const main = project({ "src/a.ts": "" });
+    const wt = join(main, ".bounded/worktrees/7");
+    for (const [rel, text] of Object.entries({
+      [TICKET_MARKER_RELATIVE]: JSON.stringify({ issue: 7, branch: "ticket/7", main, owns }),
+      ".bounded/installation.json": "{}\n", ".bounded/harness/.keep": "", ".bounded/composed-packs.json": "[\"ts\"]\n", "docs/tn/README.md": "# TNs\n",
+      ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7")),
+    })) {
+      mkdirSync(join(wt, rel, ".."), { recursive: true });
+      writeFileSync(join(wt, rel), text);
+    }
+    vi.stubEnv("CLAUDE_PROJECT_DIR", main);
+    return { main, wt };
+  };
+  const ARCHITECT = [...LEAD, "--role", "architect"];
+  const child = (role: string) => ({ agent_id: AGENT, agent_type: role });
+  const at = (wt: string, tool: string, input: Readonly<Record<string, unknown>>, flags = ARCHITECT, role = "architect") =>
+    runHook(flags, JSON.stringify({ cwd: wt, hook_event_name: "PreToolUse", tool_name: tool, tool_input: input, ...child(role) }), wt);
+  const verdict = (out: { stdout: string }): string =>
+    out.stdout === "" ? "none" : (JSON.parse(out.stdout) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision;
+
+  test("its calls are judged against the ticket worktree and allowed in words; a write outside is refused", () => {
+    const { main, wt } = ticketed();
+    expect(verdict(at(wt, "Write", { file_path: join(wt, "docs/tn/TN-7.md"), content: "x" }))).toBe("allow");
+    expect(verdict(at(wt, "Write", { file_path: join(main, "src/a.ts"), content: "x" }))).toBe("deny");
+    expect(verdict(at(wt, "Write", { file_path: "/tmp/elsewhere.md", content: "x" }))).toBe("deny");
+    expect(readGuardLog(wt).some((e) => e.guard === "host")).toBe(true);
+    expect(readGuardLog(main).some((e) => e.guard === "host")).toBe(false);
   });
 
-  test("launched as the architect, the project-wide hook binds it, judges it, and allows in words what it allows", () => {
-    const dir = ticket();
-    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
-    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
-    // The session grants nothing itself (dontAsk): an allowed call carries an explicit allow.
-    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" })).toEqual({ decision: "rewrite", input: {} });
-    expect(hook(dir, "Write", { file_path: join(dir, "src/impl.ts"), content: "x" }).decision).toBe("deny");
-    expect(hook(dir, "Bash", { command: "bounded lead status" }).decision).toBe("deny");
-    expect(readGuardLog(dir).some((e) => e.guard === "host")).toBe(true);
+  test("a worker it commissions is allowed in words by its own bound hook, in the same worktree", () => {
+    const { wt } = ticketed();
+    expect(verdict(at(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }, [...LEAD, "--role", "reviewer"], "reviewer"))).toBe("allow");
+    expect(verdict(at(wt, "Write", { file_path: join(wt, "x.md"), content: "" }, [...LEAD, "--role", "reviewer"], "reviewer"))).toBe("deny");
   });
 
-  // Regression (re-review): an empty verdict on a tool the gate never judged
-  // was turned into an explicit allow.
   test.each([
     ["mcp__claude_ai_Gmail__send_message", { to: "x@example.invalid", body: "hi" }],
     ["mcp__any_server__any_tool", {}],
@@ -205,61 +226,117 @@ describe("a ticket worktree's own session (ADR 2026-066)", () => {
     ["KillShell", { shell_id: "1" }],
     ["ExitPlanMode", { plan: "x" }],
     ["SomeFutureTool", {}],
-  ])("a launched session denies a tool the gate does not judge: %s", (tool, input) => {
-    const dir = ticket();
-    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
-    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
-    const r = hook(dir, tool, input);
-    expect(r.decision).toBe("deny");
-    expect(r.reason).toContain("not a tool the gate judges");
-    // And a worker's own bound hook in that session does the same.
-    const worker = hook(dir, tool, input, [...LEAD, "--role", "builder"], { agent_id: "a-3", agent_type: "builder" });
-    expect(worker.decision).toBe("deny");
+  ])("a tool the gate does not judge is denied to the architect and to its workers: %s", (tool, input) => {
+    const { wt } = ticketed();
+    const out = at(wt, tool, input);
+    expect(verdict(out)).toBe("deny");
+    expect(out.stdout).toContain("not a tool the gate judges");
+    expect(verdict(at(wt, tool, input, [...LEAD, "--role", "builder"], "builder"))).toBe("deny");
+  });
+
+  // Regression (#47 planning): a worker's report and loading a deferred tool
+  // are a seat's plumbing, judged as such and allowed, never denied as unknown.
+  test.each([
+    ["SubagentHandback", { message: "report" }],
+    ["ToolSearch", { query: "select:SendMessage", max_results: 1 }],
+  ])("%s is allowed in words to the architect and to its workers", (tool, input) => {
+    const { wt } = ticketed();
+    expect(verdict(at(wt, tool, input))).toBe("allow");
+    for (const role of ["reviewer", "test-writer", "builder"]) {
+      expect(verdict(at(wt, tool, input, [...LEAD, "--role", role], role)), role).toBe("allow");
+    }
   });
 
   test("NotebookEdit is judged as an edit, not waved through", () => {
-    const dir = ticket();
-    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
-    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
-    expect(hook(dir, "NotebookEdit", { notebook_path: join(dir, "src/x.ipynb"), new_source: "" }).decision).toBe("deny");
+    const { wt } = ticketed();
+    expect(verdict(at(wt, "NotebookEdit", { notebook_path: join(wt, "src/x.ipynb"), new_source: "" }))).toBe("deny");
   });
 
-  test("a worker the launched architect commissions is allowed in words by its own bound hook", () => {
-    const dir = project({
-      [TICKET_MARKER_RELATIVE]: JSON.stringify({ issue: 7, branch: "ticket/7", main: "/m", owns: ["contexts/billing/"] }),
-      "docs/tn/README.md": "# TNs\n", ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7")),
-    });
-    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
-    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
-    const reviewerRead = hook(dir, "Read", { file_path: join(dir, "docs/tn/README.md") }, [...LEAD, "--role", "reviewer"], { agent_id: "a-2", agent_type: "reviewer" });
-    expect(reviewerRead).toEqual({ decision: "rewrite", input: {} });
-    expect(hook(dir, "Write", { file_path: join(dir, "x.md"), content: "" }, [...LEAD, "--role", "reviewer"], { agent_id: "a-2", agent_type: "reviewer" }).decision).toBe("deny");
-  });
-
-  test("outside a launched session an allowed call is left to the host's own permissions", () => {
+  test("outside a ticket worktree an allowed call is left to the host's own permissions", () => {
     const dir = project({ "src/a.ts": "" });
     expect(hook(dir, "Read", { file_path: join(dir, "src/a.ts") })).toEqual({ decision: "allow" });
   });
 
-  test("not launched, the worktree's top-level session is only read-only", () => {
-    const dir = ticket();
-    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
-    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" }).decision).toBe("deny");
-    expect(hook(dir, "Bash", { command: "bounded lead status" }).decision).toBe("deny");
-    expect(hook(dir, "Read", { file_path: join(dir, "docs/tn/README.md") }).decision).toBe("allow");
-  });
-
-  test("the launch's seat means nothing outside a marked ticket worktree, or for a child", () => {
-    const main = project({ "src/a.ts": "" });
-    vi.stubEnv(LAUNCHED_SEAT_ENV, "architect");
-    vi.stubEnv("CLAUDE_PROJECT_DIR", main);
-    expect(hook(main, "Write", { file_path: join(main, "docs/tn/TN-1.md"), content: "x" }).decision).toBe("deny");
-    const dir = ticket();
-    vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
-    expect(hook(dir, "Write", { file_path: join(dir, "docs/tn/TN-7.md"), content: "x" }, LEAD, { agent_id: "a-1", agent_type: "general-purpose" }).decision).toBe("deny");
+  test("a top-level session in a ticket worktree is only read-only", () => {
+    const { wt } = ticketed();
+    vi.stubEnv("CLAUDE_PROJECT_DIR", wt);
+    expect(hook(wt, "Write", { file_path: join(wt, "docs/tn/TN-7.md"), content: "x" }).decision).toBe("deny");
+    expect(hook(wt, "Bash", { command: "bounded lead status" }).decision).toBe("deny");
+    expect(hook(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }).decision).toBe("allow");
   });
 });
 
+describe("the lead's architect launch and reply (ADR 2026-066)", () => {
+  const BRIEF = "Ticket #7: Invoices";
+  const pendingAt = (main: string, wt: string): void => writePendingLaunch(main, { issue: 7, worktree: wt, brief: BRIEF, model: "opus", createdAt: "t" });
+  const setup = () => {
+    const main = project();
+    const wt = join(main, ".bounded/worktrees/7");
+    mkdirSync(join(wt, ".bounded"), { recursive: true });
+    writeFileSync(join(wt, TICKET_MARKER_RELATIVE), JSON.stringify({ issue: 7, branch: "ticket/7", main, owns: [] }));
+    vi.stubEnv("CLAUDE_PROJECT_DIR", main);
+    return { main, wt };
+  };
+  const event = (main: string, name: string, fields: Readonly<Record<string, unknown>>) =>
+    runHook(LEAD, JSON.stringify({ cwd: main, hook_event_name: name, ...fields }), main);
+
+  test("an architect launch needs a pending ticket; it is rewritten to exactly that ticket's brief, in a background worktree", () => {
+    const { main, wt } = setup();
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t1" }).reason).toContain("run bounded lead start <issue> first");
+    pendingAt(main, wt);
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go", cwd: "/elsewhere" }, LEAD, { tool_use_id: "t1" }).reason).toContain("'cwd' is not allowed");
+    const launch = hook(main, "Agent", { subagent_type: "architect", prompt: "go", run_in_background: false }, LEAD, { tool_use_id: "t1" });
+    expect(launch).toEqual({ decision: "rewrite", input: {
+      subagent_type: "architect", description: "Architect for ticket #7", prompt: BRIEF, isolation: "worktree", run_in_background: true, model: "opus",
+    } });
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "again" }, LEAD, { tool_use_id: "t2" }).reason).toContain("already under way");
+  });
+
+  test("WorktreeCreate binds the launched agent to the ticket's existing worktree; nothing else gets a worktree", () => {
+    const { main, wt } = setup();
+    expect(event(main, "WorktreeCreate", { name: "agent-a1234567890abcdef" })).toMatchObject({ stdout: "", exit: 1 });
+    pendingAt(main, wt);
+    hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t1" });
+    expect(event(main, "WorktreeCreate", { name: "feature-x" })).toMatchObject({ exit: 1 });
+    expect(event(main, "WorktreeCreate", { name: "agent-a1234567890abcdef" })).toEqual({ stdout: `${wt}\n`, stderr: "", exit: 0 });
+    expect(readArchitectState(wt)).toMatchObject({ agent: "a1234567890abcdef", state: "running", turn: 1 });
+    expect(readPendingLaunch(main)).toBeUndefined();
+    // Only that agent's stop ends the seat.
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a9999999999999999", agent_type: "builder" }), wt);
+    expect(readArchitectState(wt)?.state).toBe("running");
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a1234567890abcdef", agent_type: "architect" }), wt);
+    expect(readArchitectState(wt)?.state).toBe("ended");
+  });
+
+  test("a launch that failed releases its claim", () => {
+    const { main, wt } = setup();
+    pendingAt(main, wt);
+    hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t1" });
+    event(main, "PostToolUseFailure", { tool_name: "Agent", tool_use_id: "t1", tool_input: { subagent_type: "architect" } });
+    expect(readPendingLaunch(main)?.claimedBy).toBeUndefined();
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t3" }).decision).toBe("rewrite");
+  });
+
+  test("SendMessage continues only the architect a reply was prepared for, carrying exactly that reply", () => {
+    const { main, wt } = setup();
+    const agent = "a1234567890abcdef";
+    expect(hook(main, "SendMessage", { to: agent, message: "yes" }).reason).toContain("no reply is waiting");
+    writeArchitectEnded(wt, agent);
+    writePendingReply(main, { issue: 7, worktree: wt, agent, message: "Euros.", createdAt: "t" });
+    expect(hook(main, "SendMessage", { to: "a9999999999999999", message: "Euros." }).reason).toContain("not a9999999999999999");
+    expect(hook(main, "SendMessage", { to: agent, message: "anything" })).toEqual({ decision: "rewrite", input: { to: agent, message: "Euros." } });
+    expect(readArchitectState(wt)).toMatchObject({ state: "running", turn: 2 });
+    expect(readPendingReply(main)).toBeUndefined();
+    // A continuation that did not go through ends the turn again.
+    event(main, "PostToolUse", { tool_name: "SendMessage", tool_input: { to: agent, message: "Euros." }, tool_response: { success: false } });
+    expect(readArchitectState(wt)?.state).toBe("ended");
+  });
+});
+
+function writeArchitectEnded(wt: string, agent: string): void {
+  recordArchitectRunning(wt, agent, { pid: process.pid, pidStarted: "t" });
+  recordArchitectEnded(wt, agent);
+}
 
 describe("children: stand down only for a proven bound definition", () => {
   const child = (agent_type: string): Readonly<Record<string, unknown>> => ({ agent_id: "a-1", agent_type });

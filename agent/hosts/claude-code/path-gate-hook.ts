@@ -101,13 +101,15 @@ import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
 import { allow, allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { boundDefinitionInForce, evaluateLead, evaluateScout } from "./lead-hook.ts";
-import { LAUNCHED_SEAT_ENV } from "./architect-launch.ts";
 import { readTicketMarker } from "../../src/ticket-worktree.ts";
+import { afterLeadArchitectCall, afterLeadReply, onSubagentStop, onWorktreeCreate, ticketRootOf } from "./seat-hooks.ts";
 
-/** What one hook run says back to Claude Code. Exit is always 0. */
+/** What one hook run says back to Claude Code. Exit is 0 unless an event's
+ *  answer is a refusal by exit code (WorktreeCreate). */
 export interface HookOutcome {
   readonly stdout: string;
   readonly stderr: string;
+  readonly exit?: number;
 }
 
 const DENY_PREFIX = "path-gate-hook";
@@ -267,15 +269,31 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
   let rec: Readonly<Record<string, unknown>> | undefined;
   try {
     rec = parseRecord(rawStdin);
+    const leadProject = process.env["CLAUDE_PROJECT_DIR"] ?? nonEmpty(rec["cwd"]) ?? fallbackCwd;
+    // The architect seat's own events (architect-seat.ts), seen by the
+    // project-wide hook only: binding a launch to its ticket, and its end.
+    const event = nonEmpty(rec["hook_event_name"]);
+    const projectWide = flags.projectLocal && flags.role === undefined;
+    if (event === "WorktreeCreate") return projectWide ? onWorktreeCreate(rec, leadProject) : { stdout: "", stderr: "" };
+    if (event === "SubagentStop") {
+      if (projectWide) onSubagentStop(rec);
+      return { stdout: "", stderr: "" };
+    }
     toolName = toolNameOf(rec);
     const payload = narrowPayload(rec, toolName);
-    const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? payload.cwd ?? fallbackCwd;
-    const boundSeat = flags.role ?? launchedSeat(flags, payload, projectDir);
+    // A call made in a ticket worktree is judged against that worktree: its
+    // marker, its owned paths, its guard log and its definitions.
+    const projectDir = ticketRootOf(payload.cwd) ?? leadProject;
+    const boundSeat = flags.role;
     // A bound role's definition also registers this hook after Agent and
     // SendMessage calls: that is how a started worker's agent id reaches the
     // guard log, and how a failed continuation licenses a relaunch
     // (continuation.ts). Nothing after a call is ever refused here.
     if (payload.event === "PostToolUse" || payload.event === "PostToolUseFailure") {
+      if (projectWide && payload.agentId === undefined) {
+        if (AGENT_TOOLS.has(payload.toolName) && payload.toolInput["subagent_type"] === "architect") afterLeadArchitectCall(payload, leadProject);
+        if (payload.toolName === SEND_MESSAGE_TOOL) afterLeadReply(payload, rec, leadProject);
+      }
       const role = asRole(boundSeat);
       if (role !== undefined) {
         const at = payload.cwd ?? fallbackCwd;
@@ -303,7 +321,7 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
       ...(boundSeat !== undefined ? { boundSeat } : {}),
       projectLocal: flags.projectLocal,
       child: payload.agentId !== undefined,
-      ticketWorktree: flags.projectLocal && readTicketMarker(projectDir) !== undefined,
+      ticketWorktree: flags.projectLocal && readTicketMarker(projectDir) !== undefined && payload.agentId === undefined,
       judgedElsewhere: flags.projectLocal
         ? payload.agentId !== undefined && boundDefinitionInForce(projectDir, payload.agentType)
         : payload.agentType !== undefined || payload.agentId !== undefined,
@@ -324,18 +342,18 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
         });
         return { stdout: "", stderr: `${DENY_PREFIX}: --role ${seat.note}\n` };
       case "role": {
-        // A launched session grants nothing itself (dontAsk): what the gate
+        // A ticket's seats grant nothing themselves (dontAsk): what the gate
         // judged and allowed there, it allows in words, and a missing hook
         // allows nothing. A tool the gate does not judge at all (an MCP tool,
         // WebFetch, Skill, ...) is refused outright: an empty verdict on an
         // unjudged call is not a permission.
-        if (inLaunchedSession(flags, projectDir) && !gateJudges(payload, cwd)) {
+        if (inTicketSeat(flags, payload, projectDir) && !gateJudges(payload, cwd)) {
           const reason = `path-gate: '${payload.toolName}' is not a tool the gate judges, so a launched ${seat.role} session may not use it`;
           logGuardEvent(cwd, { guard: "path-gate", verdict: "block", summary: reason, detail: { host: "claude-code", role: seat.role, tool: payload.toolName } });
           return { stdout: deny(reason), stderr: "" };
         }
         const out = evaluate(seat.role, seat.bound, payload, cwd, harnessRoot, flags.projectLocal);
-        return { stdout: out === "" && inLaunchedSession(flags, projectDir) ? allow() : out, stderr: "" };
+        return { stdout: out === "" && inTicketSeat(flags, payload, projectDir) ? allow() : out, stderr: "" };
       }
     }
   } catch (err) {
@@ -444,30 +462,29 @@ export function licenseUnknownOutcome(role: Role, payload: Payload, cwd: string,
 }
 
 /**
- * The seat of a session `bounded lead start` launched (architect-launch.ts):
- * the project-wide hook, a top-level call (no agent id), the launch's seat in
- * this process's environment, inside a worktree the start command marked as a
- * ticket's. The model cannot change the environment of the process running
- * it, and outside a marked ticket worktree the variable means nothing.
+ * Claude Code's own plumbing every seat needs, judged here as what it is and
+ * allowed: a subagent's report to the seat that commissioned it, and loading
+ * a deferred tool's schema (which runs nothing; the loaded tool is judged
+ * when it is called). Nothing else unmapped is allowed in a ticket seat.
  */
-export function launchedSeat(flags: { readonly projectLocal: boolean }, payload: Payload, projectDir: string): string | undefined {
-  if (!flags.projectLocal || payload.agentId !== undefined) return undefined;
-  const seat = process.env[LAUNCHED_SEAT_ENV];
-  if (seat !== "architect" || readTicketMarker(projectDir) === undefined) return undefined;
-  return seat;
-}
+export const SEAT_PLUMBING_TOOLS: ReadonlyMap<string, string> = new Map([
+  ["SubagentHandback", "a report to the commissioning seat"],
+  ["ToolSearch", "loading a deferred tool's schema"],
+]);
 
 /** Whether the gate judges this call at all: a tool it maps onto the calls
- *  it decides, or the continuation it handles itself. */
+ *  it decides, the continuation it handles itself, or a seat's plumbing. */
 export function gateJudges(payload: Payload, cwd: string): boolean {
   if (payload.toolName === SEND_MESSAGE_TOOL) return true;
+  if (SEAT_PLUMBING_TOOLS.has(payload.toolName)) return true;
   return mapToolCall({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd).length > 0;
 }
 
-/** This call belongs to a session `bounded lead start` launched: the
- *  architect's own calls and its workers', in a marked ticket worktree. */
-export function inLaunchedSession(flags: { readonly projectLocal: boolean }, projectDir: string): boolean {
-  return flags.projectLocal && process.env[LAUNCHED_SEAT_ENV] === "architect" && readTicketMarker(projectDir) !== undefined;
+/** This call is a subagent's in a ticket worktree: the architect's own or a
+ *  worker's. Those seats grant nothing themselves (their definitions run in
+ *  dontAsk), so the gate allows what it judged in words and denies the rest. */
+export function inTicketSeat(flags: { readonly projectLocal: boolean }, payload: Payload, projectDir: string): boolean {
+  return flags.projectLocal && payload.agentId !== undefined && readTicketMarker(projectDir) !== undefined;
 }
 
 /** The seat instance making a call: a subagent's agent id, else the session. */
@@ -645,6 +662,12 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
         });
         allowed = allowWith({ ...payload.toolInput, model: hostModel });
       }
+      // A worker always runs in the foreground: background tasks are on for
+      // the lead's architects (ADR 2026-066), and an architect must await its
+      // reviewer before freezing a design.
+      const current = allowed === "" ? payload.toolInput
+        : (JSON.parse(allowed) as { hookSpecificOutput: { updatedInput: Record<string, unknown> } }).hookSpecificOutput.updatedInput;
+      allowed = allowWith({ ...current, run_in_background: false });
     }
     const blocked = evaluatePathGate({
       role,
@@ -696,5 +719,6 @@ if (isMainModule(import.meta.url)) {
   const out = runHook(process.argv.slice(2), readStdin(), process.cwd());
   if (out.stdout !== "") process.stdout.write(out.stdout);
   if (out.stderr !== "") process.stderr.write(out.stderr);
-  process.exit(0); // never non-zero: a hook failure is a fail-open, not a block
+  // Zero except for an event whose refusal is its exit code (WorktreeCreate).
+  process.exit(out.exit ?? 0);
 }

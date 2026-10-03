@@ -30,9 +30,9 @@ export function deny(reason: string): string {
   );
 }
 
-/** Allow explicitly, the input unchanged. A launched architect session grants
- *  no permission of its own (architect-launch.ts), so every call its gate
- *  allows is allowed here, in words. */
+/** Allow explicitly, the input unchanged. A ticket's seats run in `dontAsk`
+ *  and grant no permission of their own (architect-seat.ts), so every call
+ *  their gate allows is allowed here, in words. */
 export function allow(): string {
   return JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }) + "\n";
 }

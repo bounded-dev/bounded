@@ -647,7 +647,8 @@ describe("path-gate-hook — the model tier on Agent (ADR 2026-022)", () => {
     });
     const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "read it" }));
     expect(r.decision).toBe("allow");
-    expect(r.updatedInput).toEqual({ subagent_type: "reviewer", prompt: "read it", model: "opus" });
+    // Every worker also runs in the foreground (ADR 2026-066).
+    expect(r.updatedInput).toEqual({ subagent_type: "reviewer", prompt: "read it", model: "opus", run_in_background: false });
     const event = gateEvents(dir).find((e) => e.guard === "model-tier");
     expect(event).toMatchObject({ verdict: "pass", detail: { kind: "tier-injected", key: "designModel", hostModel: "opus" } });
   });
@@ -676,13 +677,13 @@ describe("path-gate-hook — the model tier on Agent (ADR 2026-022)", () => {
     expect(event).toMatchObject({ verdict: "block", detail: { kind: "unresolvable-tier" } });
   });
 
-  test("no config, or this tier unset: the spawn is untouched and nothing is logged", () => {
+  test("no config, or this tier unset: the spawn keeps its model, runs in the foreground, and nothing is logged", () => {
     const cases: readonly Readonly<Record<string, string>>[] = [{}, { [MODELS]: '{"workerModel": "anthropic/claude-sonnet-5"}\n' }];
     for (const files of cases) {
       const dir = makeTempProject({ ".bounded/dev-stage-role": "architect\n", ...files });
       const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "read it" }));
       expect(r.decision).toBe("allow");
-      expect(r.updatedInput).toBeUndefined();
+      expect(r.updatedInput).toEqual({ subagent_type: "reviewer", prompt: "read it", run_in_background: false });
       expect(gateEvents(dir).some((e) => e.guard === "model-tier")).toBe(false);
     }
   });

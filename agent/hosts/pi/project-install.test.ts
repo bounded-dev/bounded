@@ -47,7 +47,7 @@ describe("project-local pi install", () => {
     expect(settings.packages).toEqual(["npm:pi-subagents@0.52.1"]);
     expect(settings.skills).toEqual(["../.bounded/harness/skills", "../.bounded/harness/packs"]);
     const architect = readFileSync(join(project, ".pi/agents/architect.md"), "utf8");
-    expect(architect).toContain("subagentOnlyExtensions: .bounded/harness/hosts/pi/extensions/path-gate/architect.ts");
+    expect(architect).toContain("subagentOnlyExtensions: ../../.bounded/harness/hosts/pi/extensions/path-gate/architect.ts");
     expect(architect).not.toContain("~/.pi/agent");
     expect(loader + architect + JSON.stringify(settings)).not.toContain(project);
   });

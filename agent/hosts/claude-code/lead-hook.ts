@@ -18,6 +18,7 @@ import { isSearch, searchCall, searchGateInput } from "./search.ts";
 import { searchPatternContained } from "../../src/setup-state.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { claudeSeatActions } from "./tool-map.ts";
+import { leadArchitectLaunch, leadReplySend } from "./seat-hooks.ts";
 
 /** How the lead reaches the project's copied CLI from the project root. */
 export const PROJECT_CLI = ".bounded/harness/scripts/bounded";
@@ -118,8 +119,12 @@ export function evaluateLead(payload: HookPayload, cwd: string, harnessRoot: str
     if (!decision.allow) return refuse(decision.reason);
     return command.cli === undefined ? "" : runOnProjectCopy(payload, harnessRoot, command.cli);
   }
-  // An architect is never commissioned here: `bounded lead start` launches it
-  // as its ticket worktree's own session (ADR 2026-066), and the policy says so.
+  // The architect is the lead's background subagent, launched only as the one
+  // pending ticket's (seat-hooks.ts), and continued only with a prepared reply.
+  if ((payload.toolName === "Agent" || payload.toolName === "Task") && payload.toolInput["subagent_type"] === "architect") {
+    return leadArchitectLaunch(payload, cwd);
+  }
+  if (payload.toolName === "SendMessage") return leadReplySend(payload, cwd);
   for (const action of claudeSeatActions({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd)) {
     const decision = decideLead(action, cwd);
     if (!decision.allow) return refuse(decision.reason);

@@ -31,7 +31,7 @@
 //     END the launch wrapper recorded in the worktree's guard log (it
 //     finished, failed or was interrupted; lead-state.ts). A different id is
 //     never evidence by itself. A ticket worktree runs one architect turn at
-//     a time (architect-launch.ts) and no architect may start another
+//     a time (architect-seat.ts) and no architect may start another
 //     (phase-gate.ts), so the recorded end is the end of the launch's maker.
 //     Within one architect a launch with no outcome is still running, which
 //     is why two parallel launches of one role are refused.
@@ -214,7 +214,7 @@ function unresolvedLaunch(role: string, events: readonly LoggedGuardEvent[]): { 
  * May `caller` relaunch `role` whose last launch has no recorded outcome?
  * Only when an architect turn's end is recorded after that launch
  * (lead-state.ts). A ticket worktree runs one architect turn at a time
- * (architect-launch.ts) and no architect starts another, so an end recorded
+ * (architect-seat.ts) and no architect starts another, so an end recorded
  * after the stuck launch is the end of the process that made it — even when
  * the next turn continues the same session, and so carries the same caller.
  * Different ids are never evidence by themselves.

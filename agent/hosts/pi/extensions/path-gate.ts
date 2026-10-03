@@ -88,6 +88,7 @@ import { resolveSessionRole, type SessionSeat } from "../../../src/session-role.
 import { isTicketWorktree } from "../../../src/ticket-worktree.ts";
 import { piSeatAction } from "./lib/lead-actions.ts";
 import { registerLeadCommandTools } from "./lib/lead-command-tools.ts";
+import { afterLeadArchitectCall, leadArchitectCall, recordArchitectSeatLife } from "./lib/architect-seat-gate.ts";
 
 // This file lives at <harness>/hosts/pi/extensions/path-gate.ts, so the harness
 // root (the `agent/` dir) is FOUR levels up: extensions → pi → hosts → agent.
@@ -283,12 +284,36 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     }
   });
 
+  // A ticket's architect is the lead's async child in the ticket worktree
+  // (ADR 2026-066): its own loader records the seat's start and end there.
+  if (boundRole === "architect" && projectCopy) {
+    pi.on("session_start", (_event, ctx) => { if (isTicketWorktree(ctx.cwd)) recordArchitectSeatLife(ctx.cwd, "start"); });
+    pi.on("session_shutdown", (_event, ctx) => { if (isTicketWorktree(ctx.cwd)) recordArchitectSeatLife(ctx.cwd, "end"); });
+  }
+  if (leadTools) {
+    pi.on("tool_result", (event, ctx) => {
+      if (event.toolName === "subagent" && leadSession(ctx.cwd)) {
+        afterLeadArchitectCall(event.input as Record<string, unknown>, event.toolCallId, event.isError, ctx.cwd);
+      }
+      return undefined;
+    });
+  }
+
   function judgeCall(
-    event: { readonly toolName: string; readonly input: unknown },
+    event: { readonly toolName: string; readonly input: unknown; readonly toolCallId?: string },
     ctx: Parameters<typeof knownModels>[0] & { readonly cwd: string },
   ): { block: true; reason: string } | undefined {
     const seat = seatFor(ctx.cwd);
     if (seat.kind === "none") return undefined;
+    // The lead starts and continues architects only as its commands prepared.
+    if (seat.kind === "lead" && event.toolName === "subagent") {
+      const call = leadArchitectCall(event.input as Record<string, unknown>, event.toolCallId ?? "", ctx.cwd);
+      if (call.handled) {
+        if (call.refuse === undefined) return undefined;
+        logGuardEvent(ctx.cwd, { guard: LEAD_GUARD, verdict: "block", summary: call.refuse, detail: { tool: event.toolName } });
+        return { block: true, reason: call.refuse };
+      }
+    }
     if (seat.kind === "lead" || seat.kind === "scout") {
       const action = piSeatAction(event.toolName, event.input as Readonly<Record<string, unknown>>);
       const decision = seat.kind === "lead" ? decideLead(action, ctx.cwd) : decideScout(action, ctx.cwd);

@@ -55,11 +55,13 @@ describe("install — fresh project", () => {
       expect(file).toContain(`--role ${role}`);
     }
     expect(settingsOf(dir)).toEqual({
-      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
+      env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
       hooks: {
         PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         PostToolUse: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         PostToolUseFailure: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        WorktreeCreate: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        SubagentStop: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
       },
     });
     expect(readFileSync(join(dir, ".claude/settings.json"), "utf8")).toMatch(/^\{\n {2}"env"/); // 2-space JSON
@@ -88,7 +90,7 @@ describe("install — an existing settings.json", () => {
     expect(install(dir).status).toBe(0);
     expect(settingsOf(dir)).toEqual({
       permissions: { allow: ["Bash(ls:*)"] },
-      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
+      env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
       hooks: {
         PreToolUse: [
           { matcher: "Write", hooks: [{ type: "command", command: "echo hi" }] },
@@ -97,6 +99,8 @@ describe("install — an existing settings.json", () => {
         Stop: [],
         PostToolUse: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         PostToolUseFailure: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        WorktreeCreate: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        SubagentStop: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
       },
       model: "opus",
     });
@@ -113,13 +117,16 @@ describe("install — an existing settings.json", () => {
     );
     expect(merged).toMatchObject({ ok: true, changed: true });
     if (merged.ok) {
-      expect(merged.value).toMatchObject({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" } });
+      expect(merged.value).toMatchObject({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" } });
     }
   });
 
-  test("an explicit conflicting background setting is refused", () => {
-    expect(mergeAmbientHook({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "0" } }, "x"))
-      .toMatchObject({ ok: false, reason: expect.stringContaining("conflicts") });
+  // Background tasks stay on: each ticket's architect is a background subagent (ADR 2026-066).
+  test("a setting that disables background tasks is refused; an explicit on is kept", () => {
+    expect(mergeAmbientHook({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" } }, "x"))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("one at a time") });
+    const kept = mergeAmbientHook({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "0" } }, "x");
+    expect(kept.ok && kept.value["env"]).toMatchObject({ CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "0" });
   });
 
   test("agent teams must stay off: a conflicting value is refused, an explicit off is kept", () => {

@@ -58,7 +58,7 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
   // Rendering reads role briefs from the project-local copy. No generated
   // definition refers to the installer checkout.
   const rendered = Object.fromEntries(
-    PIPELINE_ROLES.map((role) => [role, renderAgent(role, { harnessRoot, hookCommand: `${hookCommand} --role ${role}` })]),
+    PIPELINE_ROLES.map((role) => [role, renderAgent(role, { harnessRoot, hookCommand: `${hookCommand} --role ${role}`, permissionMode: "dontAsk" })]),
   ) as Record<(typeof PIPELINE_ROLES)[number], string>;
   // The scout's own hook binds it to the read-only scout policy, so the
   // project-wide hook can prove the child is judged and stand down.
@@ -109,9 +109,9 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
     "",
     "In the main worktree, the main user-facing session starts each request as the read-only team lead. Load the team-lead skill automatically; the user never has to name a role or describe the workflow. Use the scout agent for read-only investigation. Keep user interaction in the main session. Subagents follow their own installed role definitions.",
     "",
-    "Tickets are GitHub issues, and the lead works only through `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`. `bounded lead start <issue>` gives the ticket its own worktree under `.bounded/worktrees/` and starts its architect there as that worktree's own session; never commission an architect as a subagent, and never implement the work as the lead.",
+    "Tickets are GitHub issues, and the lead works only through `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`. `bounded lead start <issue>` gives the ticket its own worktree under `.bounded/worktrees/` and then says how to launch its architect: a background Agent call with subagent_type architect, which the hook binds to that worktree. Continue an architect only after `bounded lead reply`, with SendMessage. Never implement the work as the lead.",
     "",
-    "In a ticket worktree (one with `.bounded/ticket-worktree.json`), the top-level session started by `bounded lead start` is that ticket's architect, not the team lead: it runs the developer-stage skill and commissions its own reviewer, test-writer, and builder.",
+    "The architect subagent runs in its ticket's worktree: it runs the developer-stage skill and commissions its own reviewer, test-writer, and builder there. A session opened directly in a ticket worktree is read-only.",
     "",
     `Before the first run, and whenever the entry reports that dependencies are not ready, run exactly \`${SETUP_COMMAND}\`. Until setup completes, the session can only read project files. Gate discovery is available through \`bash .bounded/harness/scripts/bounded gates --list\`.`,
     "",

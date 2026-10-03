@@ -367,7 +367,8 @@ function localizeRoleSources(harnessRoot: string, host: InitHost): void {
     let rendered = original.replace(/\bbounded change-run\b/g, "bash .bounded/harness/scripts/bounded change-run");
     rendered = localPackPaths(rendered);
     if (host === "pi") rendered = rendered.replace(/~\/\.pi\/agent\/hosts\/pi\/extensions\/path-gate\//g,
-      "./.bounded/harness/hosts/pi/extensions/path-gate/");
+      // Relative to .pi/agents/, where pi-subagents resolves a definition's loader.
+      "../../.bounded/harness/hosts/pi/extensions/path-gate/");
     else rendered = rendered.replace(/^subagentOnlyExtensions: ~\/\.pi\/agent\/[^\n]+\n/gm, "");
     if (rendered !== original) writeFileSync(absolute, rendered);
   }
@@ -599,9 +600,9 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
   writeFileSync(join(stage, "AGENTS.md"), [
     "# Project agent instructions", "",
     "This project includes its own Bounded harness at `.bounded/harness/`.",
-    "Initialization uses the agent host already running. For later requests, the main conversation in the main worktree is the team lead: discuss the user's goal, inspect the project, and break the work into GitHub issues. The team lead does not edit product files. A read-only scout can investigate first. Each ticket gets its own worktree under `.bounded/worktrees/` and its own architect there, which runs the existing design, review, test, build, and delivery loop, even for one ticket. In a ticket worktree, the top-level session is that ticket's architect.",
+    "Initialization uses the agent host already running. For later requests, the main conversation in the main worktree is the team lead: discuss the user's goal, inspect the project, and break the work into GitHub issues. The team lead does not edit product files. A read-only scout can investigate first. Each ticket gets its own worktree under `.bounded/worktrees/` and its own architect there, the lead's background subagent, which runs the existing design, review, test, build, and delivery loop, even for one ticket. A session opened directly in a ticket worktree is read-only.",
     "The user only needs to describe the product change. Create, queue, start and merge tickets with the lead's commands; do not ask the user to choose roles or run gate commands. GitHub issues are the tickets, and the commands and gates move the board.",
-    host === "pi" ? "The lead's commands are the `lead_ticket_create`, `lead_queue`, `lead_start`, `lead_status`, `lead_reply` and `lead_merge` tools." : "The lead's commands are `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`, each one plain command. `bounded lead start <issue>` starts the ticket's architect in its own worktree; an architect is never commissioned as a subagent.",
+    host === "pi" ? "The lead's commands are the `lead_ticket_create`, `lead_queue`, `lead_start`, `lead_status`, `lead_reply` and `lead_merge` tools." : "The lead's commands are `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`, each one plain command. `bounded lead start <issue>` prepares the ticket's worktree and says how to launch its architect there as a background subagent.",
     "Run the project's `check`, `test`, `build`, and `lint` commands when present through the role that owns them.",
     host === "pi" ? "After a fresh clone, the team lead calls `lead_setup` before the first run; reload the session afterwards to load the full gates." : `After a fresh clone, the team lead runs \`${SETUP_COMMAND}\` before the first run; the next hook call loads the full gates.`,
     "Use `bash .bounded/harness/scripts/bounded gates --list` to discover the local gates.",

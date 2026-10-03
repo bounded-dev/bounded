@@ -10,7 +10,7 @@
 //      read-only: project-local reads by the lead, and nothing else.
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logGuardEvent } from "../../src/guard-log.ts";
@@ -80,7 +80,56 @@ function bootstrapDecision(): void {
     "bootstrap-setup-required");
 }
 
+/** The ticket worktree under this project that `cwd` lies in, if any: the
+ *  nearest directory upward with a ticket marker, inside
+ *  `.bounded/worktrees/` of this project (ADR 2026-066). */
+function ticketWorktreeOf(cwd: unknown): string | undefined {
+  if (typeof cwd !== "string") return undefined;
+  let dir: string;
+  let base: string;
+  try {
+    dir = realpathSync(cwd);
+    base = realpathSync(join(projectRoot, ".bounded", "worktrees"));
+  } catch {
+    return undefined;
+  }
+  while (dir.startsWith(`${base}/`)) {
+    if (existsSync(join(dir, ".bounded", "ticket-worktree.json"))) return dir;
+    dir = dirname(dir);
+  }
+  return undefined;
+}
+
+/**
+ * A call made in a ticket worktree — by the architect subagent or one of its
+ * workers — is judged by that worktree's own harness, with the worktree as the
+ * project: its definitions, its policy, its guard log and `.bounded` state.
+ * Its hook entry decides, and its answer (or exit) is passed back as is; a
+ * worktree whose hook cannot run gets this entry's read-only refusal.
+ */
+function routeToTicketWorktree(): boolean {
+  const worktree = ticketWorktreeOf(payload?.["cwd"]);
+  if (worktree === undefined || raw === undefined) return false;
+  const entry = join(worktree, ".bounded", "harness", "hosts", "claude-code", "bootstrap-hook.ts");
+  const routed = existsSync(entry)
+    ? spawnSync(process.execPath, [entry, ...process.argv.slice(2)], {
+      input: raw, encoding: "utf8", cwd: worktree, env: { ...process.env, CLAUDE_PROJECT_DIR: worktree },
+    })
+    : undefined;
+  if (routed !== undefined && routed.error === undefined && routed.status !== null) {
+    if (routed.stdout) process.stdout.write(routed.stdout);
+    if (routed.stderr) process.stderr.write(routed.stderr);
+    process.exitCode = routed.status;
+    return true;
+  }
+  if (payload?.["hook_event_name"] === "PreToolUse") {
+    deny(`team-lead: the ticket worktree ${worktree} has no hook that could judge this call`, "ticket-route-failed");
+  }
+  return true;
+}
+
 function main(): void {
+  if (routeToTicketWorktree()) return;
   if (lead && tool === "Bash" && input["command"] === SETUP_COMMAND &&
       projectContext(payload?.["cwd"], true) !== undefined && setupPermitted(projectRoot)) {
     return; // Claude Code's own permission decision applies to this exact command.
@@ -98,6 +147,12 @@ function main(): void {
     if (full.status === 0 && full.error === undefined) {
       if (full.stdout) process.stdout.write(full.stdout);
       if (full.stderr) process.stderr.write(full.stderr);
+      return;
+    }
+    // An event that answers by its exit code (WorktreeCreate) refused.
+    if (full.error === undefined && full.status !== null && payload?.["hook_event_name"] === "WorktreeCreate") {
+      if (full.stderr) process.stderr.write(full.stderr);
+      process.exitCode = full.status;
       return;
     }
     const why = full.error?.message ?? (full.stderr?.trim() || `exit ${String(full.status)}`);

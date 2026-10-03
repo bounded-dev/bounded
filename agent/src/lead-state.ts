@@ -21,13 +21,12 @@ export const SCOUT_SEAT = "scout";
 
 // ── One architect per worktree ─────────────────────────────────────────────
 //
-// Each ticket has its own worktree and at most one architect, launched there
-// by `bounded lead start` and continued by `bounded lead reply`
-// (architect-launch.ts, ADR 2026-066). The launch's state file is the
-// worktree's lock, and the launch wrapper records each turn's end in the
-// worktree's guard log. The cold-relaunch rule (phase-gate.ts) reads that
-// end: a worker launch left without an outcome by a turn that has since ended
-// can never be continued.
+// Each ticket has its own worktree and at most one architect, the host's own
+// subagent, bound to it when the lead launches it after `bounded lead start`
+// and continued after `bounded lead reply` (architect-seat.ts, ADR 2026-066).
+// The host adapter records each turn's end in the worktree's guard log. The
+// cold-relaunch rule (phase-gate.ts) reads that end: a worker launch left
+// without an outcome by a turn that has since ended can never be continued.
 
 /** Detail kind: an architect turn in this worktree ended (`launch` names it). */
 export const ARCHITECT_ENDED = "architect-ended";
