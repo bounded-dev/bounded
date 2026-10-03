@@ -21,8 +21,10 @@ Assume it is wrong and look for where. In order of weight:
 
 1. **Behavior.** Does it meet the issue? Invalid input, empty and boundary
    cases, failure paths, stale state, both host adapters, concurrency.
-2. **Tests.** Would the tests fail if the implementation were wrong? Are any
-   red-commit cases changed (see the check's notes)? Do they test the
+2. **Tests.** Would the tests fail if the implementation were wrong? The
+   red-first check counts assertions without reading them, so read every
+   case its notes list as changed, red commit against head, and treat a
+   replaced or loosened assertion as a finding. Do the tests check the
    requirement or the implementation?
 3. **Enforcement.** Any refusal path that can now be bypassed, any guard
    relaxed, any evidence reusable after the thing it certifies changed.

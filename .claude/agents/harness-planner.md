@@ -47,6 +47,8 @@ Implementation detail that can change cheaply later is not a question.
 ```text
 # Plan: #<n> <title>
 Base: <main sha>
+## Issue            the issue body and comments, copied verbatim
+                    (the reviewers have no shell to fetch them)
 ## Decisions        one line each, pick + reason
 ## Open questions   numbered; empty when none
 ## Approach         what changes and why, in the order it should land

@@ -22,8 +22,10 @@ The builder commits the plan's failing tests alone as the red commit.
 `scripts/workflow/red-first-check.ts` checks mechanically that the red commit
 touches only test files and fixtures, that its test files fail under the
 package's test command at that commit, and that at the branch head none of
-its test cases is deleted, skipped, emptied or left with fewer assertions.
-The orchestrator runs it before final review and merges with `--no-ff` so the
+its test cases is deleted, skipped, emptied or left with fewer assertions,
+and each still runs, passes and makes an assertion under the same test
+command. The planner's write and shell limits are enforced by a PreToolUse
+hook in its definition (`scripts/workflow/planner-gate.ts`). The orchestrator runs it before final review and merges with `--no-ff` so the
 red commit stays in history.
 
 ## Why
@@ -38,10 +40,11 @@ instruction into a check, in line with determinism over prompt instructions.
 ## Consequences
 
 The lifecycle remains a working agreement: the check is not a merge gate or a
-CI job, and nothing stops a direct push. The test comparison parses without
-executing, so it misses assertions inside helpers and changed expected values,
-and reads a moved or retitled case as deleted; the script's header lists these
-limits, and the final reviewer covers them. The reviewers have no shell, so
+CI job, and nothing stops a direct push. The check counts assertions and
+never reads them: a replaced, loosened or tautological assertion passes it,
+so the final reviewer must read every case it notes as changed. It also misses
+assertions inside helpers and reads a moved or retitled case as deleted; the
+script's header lists these limits. The reviewers have no shell, so
 their repros are run by the builder, which confirms each one fails before
 fixing it. The role files are Claude Code's format; other hosts follow the
 same stages with their own read-only and write-capable roles. This covers the

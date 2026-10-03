@@ -132,7 +132,9 @@ keeps ticket design with each architect and tracks reviewed design handoffs.
   before implementing. Before final review, run
   `node scripts/workflow/red-first-check.ts <red-commit> <branch>`: the red
   commit touches only tests and fixtures, its tests fail at that commit, and
-  none of them is later deleted, skipped, emptied or stripped of assertions.
+  none of them is later deleted, skipped, emptied or stripped of assertions,
+  and each still runs and passes at the head. It counts assertions without
+  reading them: the final reviewer reads every case it notes as changed.
 - **Independent review before landing.** A fresh read-only architect (or a
   contributor who did not write it) reviews the plan before tests, and the
   final diff before merge, with ranked findings, repros and a verdict. The

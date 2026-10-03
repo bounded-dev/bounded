@@ -25,7 +25,10 @@ are this repository's project agents in `.claude/agents/`, all on Opus:
 | Final reviewer | `harness-final-reviewer` | read, search | nothing |
 
 The reviewers have no shell, so they cannot change anything; they give repros
-for the builder to run. On another host, follow the same stages with that
+for the builder to run. The planner's limits are enforced, not only asked: a
+PreToolUse hook in its definition (`scripts/workflow/planner-gate.ts`) allows
+writes only under `.agent-state/` and Bash only as one plain read-only
+command (`gh` issue and PR reads, read-only `git`, `ls`, `pwd`). On another host, follow the same stages with that
 host's read-only and write-capable roles (on pi, `scout` and `delegate`) and
 the agent files above as their briefs.
 
@@ -36,8 +39,9 @@ the agent files above as their briefs.
    what here affects the longer-term architecture and is unclear? It takes
    obvious picks itself with a one-line reason and returns genuine questions.
    The orchestrator puts those to the user and resumes the planner with the
-   answers. Output: `.agent-state/<issue>/plan.md`, covering approach, files,
-   the tests to write, and the decisions taken.
+   answers. Output: `.agent-state/<issue>/plan.md`, opening with the issue's
+   text and comments copied verbatim (the reviewers have no shell to fetch
+   them), then the approach, files, the tests to write, and the decisions taken.
 2. **Plan review.** Brief a separate `harness-plan-reviewer` with the plan
    path. It checks the plan against `AGENTS.md`, the core/pack split, the ADRs
    and existing patterns. Resume the planner with the findings; it folds them
@@ -67,7 +71,7 @@ node scripts/workflow/red-first-check.ts <red-commit> [<branch>]
 ```
 
 Run from a checkout with `agent/node_modules` installed; `<branch>` defaults
-to `HEAD`. It exits 0 when all three checks pass, 1 with a `FAIL` line per
+to `HEAD`. It exits 0 when all four checks pass, 1 with a `FAIL` line per
 finding, and 2 on a usage or environment error.
 
 - **Scope:** the red commit only adds or modifies `*.test.ts` / `*.test.tsx`
@@ -82,13 +86,21 @@ finding, and 2 on a usage or environment error.
   `describe` or a `.only` elsewhere), emptied, or left with fewer assertions.
   Renamed files are followed. Cases whose text changed at all are listed as
   notes for the final reviewer.
+- **Head:** in a temporary worktree at the branch head, the same test command
+  runs those files and must collect, run and pass every red case, and see each
+  make at least one assertion. A file renamed out of the runner's reach or
+  excluded in its configuration, `ctx.skip()`, an early `return` and
+  assertions behind a false condition all fail here.
 
-The comparison parses the files and executes nothing, so it has limits,
-listed in the script's header: assertions inside helper functions are not
-counted, a changed matcher or expected value is not detected, and a case moved
-to another file or retitled reads as deleted. The final reviewer covers those.
-Any checkout of the repository can run it, since worktrees share commits; it
-adds and removes a temporary git worktree for the red run.
+**The comparison counts assertions; it never reads them.** It parses the files
+and executes nothing, and the head run only shows that some assertion ran. A
+red `expect(add(1, 2)).toBe(3)` replaced by `expect(1).toBe(1)`, or by
+`expect(add(1, 2)).toBeDefined()`, passes every check. So the final reviewer
+must read every "changed" note against the red commit. Other limits, listed in
+the script's header: assertions inside helper functions are not counted, and a
+case moved to another file or retitled reads as deleted. Any checkout of the
+repository can run it, since worktrees share commits; it adds and removes
+temporary git worktrees for the red and head runs.
 
 ## What the final reviewer checks
 
