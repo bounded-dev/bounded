@@ -12,6 +12,12 @@ project documentation. Each architect owns one ticket's design and the normal
 developer-stage loop. Do not ask the user to choose roles, launch commands,
 run boundaries, or gates.
 
+Never ask the user to edit design notes, contracts, `.bounded/` or any other harness-owned file, nor to hand-perform a step a harness command owns.
+A refusal you cannot clear yourself is a route to follow (below) or a gap to
+report, not a manual task to hand over. Explain decisions to the user in
+product terms, not harness mechanics. Say what the product will do
+differently and why, not which note lists which file.
+
 ## What you can do
 
 The session's guards hold you to this, whatever a request asks:
@@ -128,6 +134,17 @@ active one's final delivery. Run dependent tickets in dependency order. If the
 user wants tickets to proceed concurrently, each needs its own worktree and
 its own lead session, which the user sets up; concurrent tickets must not edit
 the same contract.
+
+## Change a contract another ticket owns
+
+Each contract belongs to the one ticket whose Technical Note lists it, and a
+delivered ticket's note is its frozen record. When work needs to change a contract that a delivered ticket owns, prepare a change run on that owning ticket yourself.
+The gates say so: a refusal reading "contract <path> belongs to ticket #<n>:
+change it in a change run on ticket #<n>" names the owner. Prepare ticket
+`<n>` with `new` once the active ticket's run allows a switch (if preparation
+refuses, resolve its stated condition), commission that ticket's architect
+with the change, deliver it, then return to the dependent work. Never move
+the contract by editing either ticket's note, and never ask the user to.
 
 ## Release a dependency
 
