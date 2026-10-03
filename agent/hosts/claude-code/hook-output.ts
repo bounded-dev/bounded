@@ -15,6 +15,10 @@ export interface HookPayload {
   readonly caller?: string;
   /** The host's id for this one tool call, the same before and after it. */
   readonly toolUseId?: string;
+  /** The session's id and its main transcript, which locate the caller's own
+   *  saved tool outputs (spill-read.ts). */
+  readonly sessionId?: string;
+  readonly transcriptPath?: string;
 }
 
 /** Refuse the call and tell the model why. */

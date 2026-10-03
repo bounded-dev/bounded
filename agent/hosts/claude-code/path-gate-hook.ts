@@ -64,7 +64,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logGuardEvent, readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
-import { WORKER_CONTINUING, WORKER_RESUMED, WORKER_SEND_FAILED } from "../../src/lead-state.ts";
+import { LEAD_GUARD, LEAD_SEAT, SCOUT_SEAT, WORKER_CONTINUING, WORKER_RESUMED, WORKER_SEND_FAILED } from "../../src/lead-state.ts";
 import { isMainModule } from "../../src/is-main-module.ts";
 import {
   asRole,
@@ -96,7 +96,8 @@ import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
 import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
-import { BASH_TOOL, claudeTaskModel, mapToolCall, unplainAgentField } from "./tool-map.ts";
+import { BASH_TOOL, CLAUDE_SESSION_TOOLS, claudeTaskModel, mapToolCall, unplainAgentField } from "./tool-map.ts";
+import { spillRead } from "./spill-read.ts";
 import { resolveSessionRole } from "../../src/session-role.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
@@ -180,7 +181,11 @@ function narrowPayload(rec: Readonly<Record<string, unknown>>, toolName: string)
   const agentId = nonEmpty(rec["agent_id"]);
   const caller = callerOf(rec);
   const toolUseId = nonEmpty(rec["tool_use_id"]);
+  const sessionId = nonEmpty(rec["session_id"]);
+  const transcriptPath = nonEmpty(rec["transcript_path"]);
   return {
+    ...(sessionId !== undefined ? { sessionId } : {}),
+    ...(transcriptPath !== undefined ? { transcriptPath } : {}),
     ...(caller !== undefined ? { caller } : {}),
     ...(toolUseId !== undefined ? { toolUseId } : {}),
     ...(event !== undefined ? { event } : {}),
@@ -338,6 +343,20 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
         : payload.agentType !== undefined || payload.agentId !== undefined,
       ambientRole: () => sessionRole(cwd),
     });
+    // A seat re-reading its own saved tool output (spill-read.ts), judged the
+    // same for every seat and before its own dispatch: the content came from
+    // the caller's own already-gated call. Anything it does not own goes on.
+    if (seat.kind !== "none") {
+      const spill = spillRead(payload.toolName, payload.toolInput, {
+        ...(payload.transcriptPath !== undefined ? { transcriptPath: payload.transcriptPath } : {}),
+        ...(payload.sessionId !== undefined ? { sessionId: payload.sessionId } : {}),
+        ...(payload.agentId !== undefined ? { agentId: payload.agentId } : {}),
+      });
+      if (spill !== undefined) {
+        if (spill.allow) return { stdout: inTicketSeat(flags, payload, projectDir) ? allow() : "", stderr: "" };
+        return { stdout: refuseSpill(seat.kind === "role" ? seat.role : seat.kind, spill.reason, payload, cwd), stderr: "" };
+      }
+    }
     switch (seat.kind) {
       case "lead":
         return { stdout: evaluateLead(payload, cwd, harnessRoot), stderr: "" };
@@ -496,22 +515,28 @@ export function licenseUnknownOutcome(role: Role, payload: Payload, cwd: string,
   });
 }
 
-/**
- * Claude Code's own plumbing every seat needs, judged here as what it is and
- * allowed: a subagent's report to the seat that commissioned it, and loading
- * a deferred tool's schema (which runs nothing; the loaded tool is judged
- * when it is called). Nothing else unmapped is allowed in a ticket seat.
- */
-export const SEAT_PLUMBING_TOOLS: ReadonlyMap<string, string> = new Map([
-  ["SubagentHandback", "a report to the commissioning seat"],
-  ["ToolSearch", "loading a deferred tool's schema"],
-]);
+/** A refused saved-output read, logged under the refused seat's own guard and
+ *  in its own words, as that seat's other refusals are. */
+function refuseSpill(seat: "lead" | "scout" | Role, why: string, payload: Payload, cwd: string): string {
+  const detail = { host: "claude-code", tool: payload.toolName };
+  if (seat === "lead") {
+    const reason = `${LEAD_SEAT}: ${why}`;
+    logGuardEvent(cwd, { guard: LEAD_GUARD, verdict: "block", summary: reason, detail });
+    return deny(reason);
+  }
+  const reason = seat === "scout" ? `${SCOUT_SEAT}: ${why}` : `path-gate: ${seat} ${why}`;
+  logGuardEvent(cwd, { guard: "path-gate", verdict: "block", summary: reason, detail: { ...detail, role: seat === "scout" ? SCOUT_SEAT : seat } });
+  return deny(reason);
+}
 
 /** Whether the gate judges this call at all: a tool it maps onto the calls
- *  it decides, the continuation it handles itself, or a seat's plumbing. */
+ *  it decides, the continuation it handles itself, or one of Claude Code's
+ *  conversation tools every seat needs (tool-map.ts CLAUDE_SESSION_TOOLS: a
+ *  subagent's report, loading a deferred tool's schema), judged as what they
+ *  are and allowed. Nothing else unmapped is allowed in a ticket seat. */
 export function gateJudges(payload: Payload, cwd: string): boolean {
   if (payload.toolName === SEND_MESSAGE_TOOL) return true;
-  if (SEAT_PLUMBING_TOOLS.has(payload.toolName)) return true;
+  if (CLAUDE_SESSION_TOOLS.has(payload.toolName)) return true;
   return mapToolCall({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd).length > 0;
 }
 

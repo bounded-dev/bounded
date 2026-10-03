@@ -4,7 +4,7 @@
 // host tool, field or command.
 
 import { LEAD_SEAT, SCOUT_SEAT, isProjectLocalHarness } from "./lead-state.ts";
-import { decide } from "./path-policy.ts";
+import { decide, type Role } from "./path-policy.ts";
 import { join } from "node:path";
 import {
   REPLAN_REFUSED, replanPermitted, resolvedProjectPath, runProjectSetup, SETUP_REFUSED, setupPermitted,
@@ -72,14 +72,26 @@ const COMMISSIONABLE: ReadonlySet<unknown> = new Set([SCOUT_SEAT]);
  * to: a link out of the project, or into .git, is refused (ADR 2026-048).
  */
 function judgeRead(seat: string, action: Extract<SeatAction, { kind: "read" }>, cwd: string): SeatDecision {
-  const result = decide("architect", action.tool, action.input, { cwd });
-  if (!result.allow) return refuse(seat, result.reason);
+  const result = decide(BORROWED_ZONE, action.tool, action.input, { cwd });
+  if (!result.allow) return refuse(seat, ownWords(result.reason));
   const raw = action.input["path"];
   if (typeof raw !== "string") return ALLOW;
   const real = resolvedProjectPath(cwd, raw);
   if (real === undefined) return refuse(seat, `'${raw}' resolves outside the project or into .git`);
-  const resolved = decide("architect", action.tool, { ...action.input, path: join(cwd, real) }, { cwd });
-  return resolved.allow ? ALLOW : refuse(seat, resolved.reason);
+  const resolved = decide(BORROWED_ZONE, action.tool, { ...action.input, path: join(cwd, real) }, { cwd });
+  return resolved.allow ? ALLOW : refuse(seat, ownWords(resolved.reason));
+}
+
+/** The role whose read zone every read-only seat borrows. */
+const BORROWED_ZONE: Role = "architect";
+/** decide()'s lead-in for that role, which would name the wrong seat. */
+const BORROWED_LEAD_IN = `path-gate: ${BORROWED_ZONE} `;
+
+/** A borrowed refusal in the refused seat's own words: decide()'s lead-in,
+ *  which names the architect, is dropped only when it is exactly that;
+ *  any other reason is kept whole. */
+function ownWords(reason: string): string {
+  return reason.startsWith(BORROWED_LEAD_IN) ? reason.slice(BORROWED_LEAD_IN.length) : reason;
 }
 
 /** The lead may inspect, look things up, run its commands, commission the

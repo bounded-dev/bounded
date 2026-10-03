@@ -182,7 +182,8 @@ export function leadReplySend(payload: HookPayload, main: string): string {
   if (!target.ok) return refuse(`team-lead: ${target.reason}`);
   const pending = pendingReplyFor(main, target.to);
   if (pending === undefined) {
-    return refuse(`team-lead: no reply is waiting for ${target.to}; prepare one with bounded lead reply <issue> <message>`);
+    return refuse(`team-lead: no reply is waiting for ${target.to}; a scout is not continued (commission a fresh scout), ` +
+      "and an architect is continued once a reply is prepared with bounded lead reply <issue> <message>");
   }
   // Only a stopped seat whose session still runs continues; one whose session
   // has gone is relaunched by `bounded lead start` (ADR 2026-066).
