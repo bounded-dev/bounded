@@ -7,7 +7,7 @@ import { paramName, toolFlags, toolParams } from "../../hosts/pi/extensions/lib/
 import { isGateCommand } from "../../src/gate-command.ts";
 import { ARTIFACT_GATE_TOOLS } from "../../src/path-policy.ts";
 import { makeTempProject, type TempProject } from "../../test/support/temp-project.ts";
-import { gates } from "./gates.ts";
+import { gates, mutationBudgetMs } from "./gates.ts";
 import { parseFindings } from "./scripts/sign-off.ts";
 
 // The registry is the one place a gate's public face lives (ADR 2026-034):
@@ -102,6 +102,18 @@ describe("the registry is well-formed", () => {
         if (flag.name === "findings") expect(parseFindings(example).ok, where).toBe(true);
       }
     }
+  });
+});
+
+// mutation-score's budget is the host's command deadline less a margin for
+// releasing what it started (ADR 2026-069): the larger of 15% and 15 s.
+describe("mutation-score's time budget", () => {
+  test("is the host's deadline less the larger of 15% and 15 s, and none without a deadline", () => {
+    expect(mutationBudgetMs(undefined)).toBeUndefined();
+    expect(mutationBudgetMs(600_000)).toBe(510_000);
+    expect(mutationBudgetMs(120_000)).toBe(102_000);
+    expect(mutationBudgetMs(60_000)).toBe(45_000);
+    expect(mutationBudgetMs(10_000)).toBe(0);
   });
 });
 

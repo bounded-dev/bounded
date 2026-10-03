@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
@@ -631,6 +631,15 @@ describe("runMutationScore within a time budget", () => {
     expect(second.complete).toBe(true);
     expect(second.outcomes).toHaveLength(6);
     expect(second.score).toBe(100);
+  });
+
+  test("a measurement leaves no signal listener and no journal behind", async () => {
+    const dir = proj();
+    const before = { int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") };
+    await runMutationScore(dir, { minimumSample: 3, runSuite: indexedRunner() });
+    expect({ int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") }).toEqual(before);
+    expect(existsSync(join(dir, ".bounded/mutation-score/journal.json"))).toBe(false);
+    expect(existsSync(join(dir, ".bounded/mutation-score/progress.json"))).toBe(false);
   });
 
   test("a change to the tree between runs starts the sample over", async () => {
