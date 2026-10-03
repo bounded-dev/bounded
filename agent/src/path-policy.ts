@@ -9,7 +9,7 @@
 
 import picomatch from "picomatch";
 import type { TicketWriteScope } from "./ticket-design.ts";
-import { changeRunRoute, foreignContractRefusal } from "./ticket-route.ts";
+import { changeRunRoute } from "./ticket-route.ts";
 import { pathGlobMatcher, sourceRootOf } from "./pack-contrib.ts";
 
 export type Role = "architect" | "test-writer" | "builder" | "reviewer";
@@ -1174,10 +1174,10 @@ export function decide(
       const scope = ctx.ticketScope;
       const otherNote = /^docs\/tn\/TN-([1-9][0-9]*)\.md$/i.exec(t);
       if (otherNote && t.toLowerCase() !== `docs/tn/tn-${scope.ticket}.md`) {
-        return block(
-          `path-gate: architect may write only ticket #${scope.ticket ?? "unselected"}'s TN; ` +
-          `${t} belongs to ticket #${otherNote[1]}: ${changeRunRoute(otherNote[1]!)}`,
-        );
+        const owner = otherNote[1]!;
+        const target = { ticket: owner, frozen: scope.frozenTickets?.includes(owner) ?? false };
+        const whose = scope.ticket !== undefined ? `architect may write only ticket #${scope.ticket}'s TN` : "no ticket is selected";
+        return block(`path-gate: ${whose}; ${t} belongs to ticket #${owner}: ${changeRunRoute(target, scope.ticket)}`);
       }
       if (t.toLowerCase() === "spec.md") {
         return block("path-gate: ticket-numbered projects write their ticket TN, not root spec.md");
@@ -1191,8 +1191,8 @@ export function decide(
       if (unknown || suffixes.some((suffix) => lower.endsWith(suffix))) {
         if (scope.error) return block(`path-gate: ${scope.error}`);
         if (!scope.contracts.includes(t)) {
-          const owner = scope.owners !== undefined && Object.hasOwn(scope.owners, t) ? scope.owners[t] : undefined;
-          if (owner !== undefined) return block(`path-gate: ${foreignContractRefusal(t, owner)}`);
+          const foreign = scope.foreign !== undefined && Object.hasOwn(scope.foreign, t) ? scope.foreign[t] : undefined;
+          if (foreign !== undefined) return block(`path-gate: ${foreign}`);
           return block(
             `path-gate: contract '${t}' is not owned by ticket #${scope.ticket}; ` +
             `list it under \`contracts:\` in the front matter of docs/tn/TN-${scope.ticket}.md, then write it`,

@@ -114,6 +114,21 @@ describe("a contract another ticket owns is changed by a change run on that tick
       "When work needs to change a contract that a delivered ticket owns, prepare a change run on that " +
       "owning ticket yourself.");
   });
+  // Review repro: the lead cannot switch tickets while the active one is
+  // mid-run (lead-run.ts refuses), so the brief must give the sequence that
+  // works rather than a route with no legal next move.
+  test("the lead finishes the active ticket first, or stops and says what is blocked", () => {
+    expect(lead).toContain(
+      "Deliver the active ticket without that change, record the needed change as a follow-up, " +
+      "then prepare the run on the owning ticket.");
+    expect(lead).toContain(
+      "If the active ticket truly cannot be delivered without it, stop and tell the user in product terms " +
+      "what is blocked and why.");
+    expect(lead).toContain("after the active ticket is delivered");
+  });
+  test("the architect is told the change waits for the active ticket's delivery", () => {
+    expect(architectText).toContain("after the active ticket is delivered");
+  });
   test("the lead explains decisions in product terms", () => {
     expect(lead).toContain("Explain decisions to the user in product terms, not harness mechanics.");
   });

@@ -137,14 +137,24 @@ the same contract.
 
 ## Change a contract another ticket owns
 
-Each contract belongs to the one ticket whose Technical Note lists it, and a
+Each contract belongs to the one ticket whose frozen design holds it, and a
 delivered ticket's note is its frozen record. When work needs to change a contract that a delivered ticket owns, prepare a change run on that owning ticket yourself.
 The gates say so: a refusal reading "contract <path> belongs to ticket #<n>:
-change it in a change run on ticket #<n>" names the owner. Prepare ticket
-`<n>` with `new` once the active ticket's run allows a switch (if preparation
-refuses, resolve its stated condition), commission that ticket's architect
-with the change, deliver it, then return to the dependent work. Never move
-the contract by editing either ticket's note, and never ask the user to.
+after the active ticket is delivered, change it in a change run on ticket
+#<n>" names the owner. You cannot switch tickets while the active one is
+mid-run, so follow this order:
+
+1. Deliver the active ticket without that change, record the needed change as a follow-up, then prepare the run on the owning ticket.
+2. Prepare ticket `<n>` with `new`, commission its architect with the
+   follow-up, and deliver it.
+3. Return to the work that needed it, as a new run.
+
+If the active ticket truly cannot be delivered without it, stop and tell the user in product terms what is blocked and why.
+Never ask them to edit files to get past it. A refusal that says a contract
+"is claimed by ticket #<a> and ticket #<b>" has no settled owner: decide
+with the user, in product terms, which part of the product it belongs to,
+then follow the same order. Never move a contract by editing either
+ticket's note.
 
 ## Release a dependency
 

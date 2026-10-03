@@ -20,12 +20,15 @@ project, for the ticket the team lead selected in `.bounded/active-ticket`
 `spec.md`. List the ticket's owned contracts in its TN front matter.
 
 **A contract another ticket owns is not yours to change.** Each contract
-belongs to the one ticket whose note lists it; a delivered ticket's note is its
-frozen record, and the gates refuse a second claim with "contract <path>
-belongs to ticket #<n>: change it in a change run on ticket #<n>". If your
-design needs that contract changed, stop and return it to the team lead, who
-prepares a change run on the ticket that owns it; never edit another ticket's
-design note, and never list its contract in yours. Never ask the user to edit
+belongs to the one ticket whose frozen design holds it; a delivered ticket's
+note is its frozen record, and the gates refuse a second claim with
+"contract <path> belongs to ticket #<n>: after the active ticket is
+delivered, change it in a change run on ticket #<n>" (or name every claimant
+when no single freeze settles it). If your design needs that contract
+changed, design this ticket without the change where you can and say what is
+needed; then return it to the team lead, who prepares a change run on the ticket that owns it
+after this one is delivered. Do not work around it: never edit another
+ticket's design note, and never list its contract in yours. Never ask the user to edit
 design notes, contracts or `.bounded/`, nor to hand-perform a step a harness
 command owns: explain what the product needs in product terms.
 
