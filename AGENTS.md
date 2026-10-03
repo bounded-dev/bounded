@@ -53,14 +53,17 @@ rules, not just today's dozens.
   update projects that already contain a local harness (ADR 2026-041).
 - **Repo experiments stay in repo scripts.** Dogfood reset, archive and model
   probes live under `scripts/dogfood/` and are not `bounded` CLI commands or
-  part of its npm package (ADR 2026-042).
+  part of its npm package (ADR 2026-042). Development-workflow checks live
+  under `scripts/workflow/` on the same terms.
 - **Dogfood prompts are copy-ready.** A `docs/dogfood/*-prompt.md` file holds
   only the prompt text, so the user can select all and paste it. No header
   comment, usage note or run instructions in the file: those go in
   `docs/dogfood/README.md` (enforced by `agent/test/dogfood-prompts.test.ts`).
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
   (write-capable worker), `product-expert` — "the PM" (read-only + web,
-  product judgment). Don't add roles ad hoc (ADR 2026-003).
+  product judgment). Don't add roles ad hoc (ADR 2026-003). The four
+  `harness-*` agents in `.claude/agents/` are not part of this roster: they
+  are Claude Code tooling for developing this repository (ADR 2026-068).
 
 ## The extension model — binding for ALL harness work
 
@@ -121,11 +124,21 @@ keeps ticket design with each architect and tracks reviewed design handoffs.
 
 ## Git workflow — trunk-based
 
-- **Independent review before landing.** Every non-trivial harness change
-  follows [the harness review workflow](docs/harness-workflow.md): a fresh
-  read-only agent or another contributor reviews the final diff, the driver
-  resolves findings and records the checks and review evidence. This is a
-  working agreement, not an automated merge gate (ADR 2026-038).
+- **One lifecycle per issue.** Every non-trivial harness change follows
+  [the development lifecycle](docs/harness-workflow.md): plan, plan review,
+  red commit, build, final review, report. Subagents do the work; the driving
+  session only orchestrates and writes no code (ADR 2026-068).
+- **Red first, never weakened.** The builder commits the failing tests alone
+  before implementing. Before final review, run
+  `node scripts/workflow/red-first-check.ts <red-commit> <branch>`: the red
+  commit touches only tests and fixtures, its tests fail at that commit, and
+  none of them is later deleted, skipped, emptied or stripped of assertions.
+- **Independent review before landing.** A fresh read-only architect (or a
+  contributor who did not write it) reviews the plan before tests, and the
+  final diff before merge, with ranked findings, repros and a verdict. The
+  builder fixes until the verdict is merge; a later change needs a fresh
+  review. Merge with `--no-ff` so the red commit stays in history. This is a
+  working agreement, not an automated merge gate (ADR 2026-038, 2026-068).
 
 - Work happens in worktrees, each on a local branch (created automatically).
 - Local branches always track `main`; **"push" means push to remote `main`**

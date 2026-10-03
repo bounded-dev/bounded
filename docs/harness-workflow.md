@@ -1,37 +1,96 @@
 # Developing and reviewing the harness
 
-Issue #15 establishes independent review for non-trivial changes to the
-harness itself. Changes to behavior, enforcement, architecture or contributor
-policy qualify. Typographical fixes can use the driver's review alone.
-This agreement is not an automated merge gate.
+Every non-trivial change to the harness itself runs through one light
+lifecycle, per GitHub issue: plan, plan review, red-first tests, build, final
+review, report (ADR 2026-068, extending the independent review of ADR
+2026-038). Changes to behavior, enforcement, architecture or contributor
+policy qualify; typographical fixes need only the driver's own review.
 
-## Before landing
+The lifecycle is for working **on this repository**. It does not recreate the
+developer stage the harness gives target projects: no contracts, no frozen
+design, no guard log. Its one mechanical check is the red-first check below.
 
-1. Identify the issue, acceptance criteria, starting revision and owned paths.
-   Parallel writers own separate paths; shared interfaces settle before their
-   consumers change. Use the issue-tracking skill for issue and board updates.
-2. Implement in a worktree. Read `docs/VISION.md`, root instructions and any
-   instructions beneath the affected directory. Record architectural decisions
-   as concise ADRs. Keep runtime state and review scratch in `.agent-state/`.
-3. Run relevant checks. For executable harness changes, run `npm run check`
-   from `agent/`; it includes typechecking and the test suite. Add focused
-   regression coverage for changed behavior and failure paths. Pure prose
-   changes require checking references and claims against the implementation.
-4. Commission a fresh read-only `scout`, or another contributor who did not
-   author the change, on the final diff and surrounding code. Include the issue,
-   acceptance criteria, base revision, changed paths and validation results.
-   A delegate who authored a separate ticket can review this ticket if they
-   have not contributed its implementation. Use read-only tools for the pass.
-5. Resolve each finding with a correction or a reason grounded in evidence.
-   Re-run affected checks after corrections. Obtain another independent pass
-   on substantive revisions; do not present an earlier review as covering
-   later behavior. Unresolved correctness or enforcement defects prevent
-   landing; advisory preferences can be declined with reasons.
-6. Record the review and checks with the change before landing under the
-   repository's trunk workflow. Local completion alone does not mean merged
-   or Done. Follow the issue-tracking skill for the actual status transition.
+## Roles
 
-## What the independent reader checks
+The work runs in subagents. The session that drives it, the
+**orchestrator**, never writes code or tests: it briefs the roles, carries
+questions to the user, runs the checks, and merges. On Claude Code the roles
+are this repository's project agents in `.claude/agents/`, all on Opus:
+
+| Role | Agent | Tools | Writes |
+| --- | --- | --- | --- |
+| Planner | `harness-planner` | read, search, Bash for reading, write | `.agent-state/<issue>/plan.md` only |
+| Plan reviewer | `harness-plan-reviewer` | read, search | nothing |
+| Builder | `harness-builder` | full, in its own worktree | its branch |
+| Final reviewer | `harness-final-reviewer` | read, search | nothing |
+
+The reviewers have no shell, so they cannot change anything; they give repros
+for the builder to run. On another host, follow the same stages with that
+host's read-only and write-capable roles (on pi, `scout` and `delegate`) and
+the agent files above as their briefs.
+
+## The stages
+
+1. **Plan.** Brief `harness-planner` with the issue number. It reads the
+   issue and the code, then grills the open decisions with one question:
+   what here affects the longer-term architecture and is unclear? It takes
+   obvious picks itself with a one-line reason and returns genuine questions.
+   The orchestrator puts those to the user and resumes the planner with the
+   answers. Output: `.agent-state/<issue>/plan.md`, covering approach, files,
+   the tests to write, and the decisions taken.
+2. **Plan review.** Brief a separate `harness-plan-reviewer` with the plan
+   path. It checks the plan against `AGENTS.md`, the core/pack split, the ADRs
+   and existing patterns. Resume the planner with the findings; it folds them
+   in and logs each. Anything still unresolved goes to the user.
+3. **Red commit.** Brief `harness-builder` with the plan path and base
+   revision. In its own worktree it writes the plan's tests and commits them
+   alone: test files and fixtures only, failing for the reasons the plan gives.
+4. **Build.** The same builder implements until `cd agent && npm run check`
+   is green, without weakening the red commit's tests, and reports its branch,
+   red commit and check output.
+5. **Final review.** The orchestrator runs the red-first check itself, saves
+   the branch diff (`git diff main...<branch> > .agent-state/<issue>/final.diff`)
+   and briefs a fresh `harness-final-reviewer` with the plan, diff, worktree
+   path and both check outputs. It returns ranked findings with repros and a
+   verdict. While the verdict is `fix`, resume the builder with the findings,
+   re-run the checks, and brief a fresh final reviewer on the new diff; an
+   earlier review does not cover later changes.
+6. **Report and close.** On `Verdict: merge` with both checks green, the
+   orchestrator merges the branch into local `main` with `git merge --no-ff`
+   (never squash: the red commit is the evidence) and reports. The issue
+   closes when `main` is pushed, under the trunk workflow in `AGENTS.md`.
+
+## The red-first check
+
+```bash
+node scripts/workflow/red-first-check.ts <red-commit> [<branch>]
+```
+
+Run from a checkout with `agent/node_modules` installed; `<branch>` defaults
+to `HEAD`. It exits 0 when all three checks pass, 1 with a `FAIL` line per
+finding, and 2 on a usage or environment error.
+
+- **Scope:** the red commit only adds or modifies `*.test.ts` / `*.test.tsx`
+  files and fixtures under `testdata/`, `fixtures/`, `__fixtures__/` or
+  `__snapshots__/`, and adds at least one runnable test file.
+- **Red:** in a temporary worktree at the red commit, `npm test` in `agent/`
+  scoped to those files fails for each of them (a failing test or a file that
+  does not load). A new case that already passes inside a failing file is a
+  note.
+- **Preserved:** at the branch head, none of the red commit's added or changed
+  cases is deleted, skipped (including `todo`, `skipIf`, `fails`, a skipped
+  `describe` or a `.only` elsewhere), emptied, or left with fewer assertions.
+  Renamed files are followed. Cases whose text changed at all are listed as
+  notes for the final reviewer.
+
+The comparison parses the files and executes nothing, so it has limits,
+listed in the script's header: assertions inside helper functions are not
+counted, a changed matcher or expected value is not detected, and a case moved
+to another file or retitled reads as deleted. The final reviewer covers those.
+Any checkout of the repository can run it, since worktrees share commits; it
+adds and removes a temporary git worktree for the red run.
+
+## What the final reviewer checks
 
 - **Behavior:** does the change satisfy the issue, including invalid inputs,
   stale evidence, compatibility and failure paths? Do tests establish the
@@ -48,27 +107,28 @@ This agreement is not an automated merge gate.
   historical experiment results as historical evidence.
 - **Repository rules:** no secrets or runtime state, no project-specific global
   configuration, no hand-edited package installation state, and no incidental
-  changes to another delegate's work.
+  changes to another contributor's work.
 
-Return findings with severity, file/location, concrete failure scenario and
-suggested remedy. An empty finding list is valid; state the review scope and
+An empty finding list is valid when the reviewer states its scope and
 remaining uncertainty. A review does not prove domain correctness.
 
-The minimum review record is:
+## The record
+
+Keep the plan, the review replies and the check outputs in `.agent-state/<issue>/`.
+The orchestrator's report carries the minimum record:
 
 ```text
 Issue and acceptance criteria:
-Base revision and reviewed revision (or saved diff fingerprint):
-Reviewer and reviewed paths:
-Findings and resolutions:
-Checks, results and limitations:
-Changes since review and any follow-up review:
+Base revision, red commit and reviewed revision:
+Plan review: findings and resolutions:
+Final review: reviewer, findings and resolutions, verdict:
+npm run check and red-first check: results and limitations:
+Changes since the last review and any follow-up review:
 ```
 
-Keep working records in `.agent-state/`; include this evidence in the final
-handoff or, when publication is authorized, the issue or PR. Do not put
-machine paths, transcripts containing credentials, or private run state in
-tracked documents.
+Include it in the final handoff or, when publication is authorized, the issue
+or PR. Do not put machine paths, transcripts containing credentials, or
+private run state in tracked documents.
 
 ## First self-hosting experiment — planned, not executed
 
