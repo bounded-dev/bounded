@@ -33,7 +33,10 @@
 # its log would void a standing red and orphan its review mid-flight.
 # Re-entering a live run after an interruption is a RESUME (`pi -c`), not a
 # boundary — that path needs the log intact. `--force` overrides when a run is
-# abandoned.
+# abandoned, and marks the ticket the abandoned log names with
+# `.bounded/tickets/<n>/abandoned`, so no later ticket takes a contract from it
+# (ADR 2026-071). A delivered boundary clears the marker of the ticket its log
+# names, and none when it names no ticket.
 set -euo pipefail
 
 FORCE=0
@@ -77,7 +80,12 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 if [ -f "$LOG" ]; then
-  if ! DELIVERY_STATE="$(node "$(dirname "$0")/../src/change-run-status.ts" "$LOG")"; then
+  STATUS_SCRIPT="$(dirname "$0")/../src/change-run-status.ts"
+  if ! DELIVERY_STATE="$(node "$STATUS_SCRIPT" "$LOG")"; then
+    exit 1
+  fi
+  # The ticket the run worked on, as its log records it (ADR 2026-071).
+  if ! RUN_TICKET="$(node "$STATUS_SCRIPT" --ticket "$LOG")"; then
     exit 1
   fi
   if [ "$DELIVERY_STATE" = "malformed" ]; then
@@ -85,6 +93,13 @@ if [ -f "$LOG" ]; then
     exit 1
   fi
   if [ "$DELIVERY_STATE" = "delivered" ]; then
+    # A ticket abandoned earlier and now delivered may be taken from again.
+    # Never fall back to the selected ticket: it may not be the one delivered.
+    if [ -n "$RUN_TICKET" ]; then
+      rm -f "$TARGET/.bounded/tickets/$RUN_TICKET/abandoned"
+    else
+      echo "bounded change-run: the delivered run names no ticket, so no abandoned marker is cleared"
+    fi
     # Snapshot the last delivered design before the run record rotates.
     bash "$(dirname "$0")/bounded" capture-baseline --cwd "$TARGET"
   elif [ "$DELIVERY_STATE" = "undelivered" ]; then
@@ -105,6 +120,19 @@ if [ -f "$LOG" ]; then
   STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
   mv "$LOG" "$ARCHIVE_DIR/guard-log-$STAMP.jsonl"
   echo "bounded change-run: archived the run log to .bounded/guard-log-archive/guard-log-$STAMP.jsonl"
+  if [ "$DELIVERY_STATE" = "undelivered" ]; then
+    # Mark the abandoned run's ticket so no later ticket takes a contract from
+    # it (ADR 2026-071). Never fall back to the selected ticket: it may be the
+    # next ticket, not the abandoned one.
+    if [ -n "$RUN_TICKET" ]; then
+      mkdir -p "$TARGET/.bounded/tickets/$RUN_TICKET"
+      printf '{"archive":"guard-log-%s.jsonl","at":"%s"}\n' "$STAMP" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        > "$TARGET/.bounded/tickets/$RUN_TICKET/abandoned"
+      echo "bounded change-run: marked ticket #$RUN_TICKET abandoned (.bounded/tickets/$RUN_TICKET/abandoned)"
+    else
+      echo "bounded change-run: the abandoned run names no ticket, so no ticket is marked abandoned"
+    fi
+  fi
 else
   echo "bounded change-run: no guard log to archive — already at a boundary"
 fi

@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
-import { deliveryState } from "./change-run-status.ts";
+import { deliveryState, runTicket } from "./change-run-status.ts";
 
 const run = promisify(execFile);
 const SCRIPTS = join(import.meta.dirname, "..", "scripts");
@@ -45,6 +45,19 @@ describe("deliveryState", () => {
     expect(deliveryState(line({ guard: "deliver", verdict: "pass", detail: { step: "summary" } }))).toBe("malformed");
     expect(deliveryState(line({ guard: "deliver", verdict: "maybe", summary: "x" }))).toBe("malformed");
     expect(deliveryState("[]")).toBe("malformed");
+  });
+});
+
+describe("runTicket", () => {
+  test("runTicket names the latest ticket a run's log carries", () => {
+    const prepared = (ticket: unknown) =>
+      line({ guard: "team-lead", verdict: "pass", summary: "prepared", detail: { kind: "run-prepared", ticket } });
+    const gated = (ticket: unknown) => line({ guard: "design-gate", verdict: "pass", summary: "OK", detail: { ticket } });
+    expect(runTicket([prepared("4"), gated("4"), prepared("5")].join("\n"))).toBe("5");
+    expect(runTicket([gated("4"), gated("5"), summary].join("\n"))).toBe("5");
+    expect(runTicket([summary, line({ guard: "design-gate", verdict: "pass", summary: "OK" })].join("\n"))).toBeUndefined();
+    expect(runTicket("")).toBeUndefined();
+    expect(runTicket([gated("4"), gated("five"), gated(6)].join("\n"))).toBe("4");
   });
 });
 
@@ -94,6 +107,49 @@ describe("bounded change-run", () => {
     expect(forced.stdout).toContain("--force — abandoning an undelivered run");
     expect(existsSync(join(root, ".bounded/guard-log.jsonl"))).toBe(false);
     expect(readdirSync(join(root, ".bounded/guard-log-archive"))).toHaveLength(1);
+  });
+
+  test("--force marks the abandoned run's ticket", async () => {
+    const prepared = line({ guard: "team-lead", verdict: "pass", summary: "prepared", detail: { kind: "run-prepared", ticket: "5" } });
+    const gated = line({ guard: "design-gate", verdict: "pass", summary: "OK", detail: { ticket: "5" } });
+    const root = tree(`${prepared}\n${gated}\n`);
+    const forced = await script("bounded-change-run", ["--force", root], root);
+    expect(forced.code).toBe(0);
+    const marker = join(root, ".bounded/tickets/5/abandoned");
+    expect(existsSync(marker)).toBe(true);
+    const archived = readdirSync(join(root, ".bounded/guard-log-archive"));
+    expect(archived).toHaveLength(1);
+    expect((JSON.parse(readFileSync(marker, "utf8")) as { archive: string }).archive).toBe(archived[0]);
+    expect(existsSync(join(root, ".bounded/tickets/7/abandoned"))).toBe(false);
+
+    const anonymous = tree(line({ guard: "design-gate", verdict: "pass", summary: "OK" }) + "\n");
+    const unnamed = await script("bounded-change-run", ["--force", anonymous], anonymous);
+    expect(unnamed.code).toBe(0);
+    expect(unnamed.stdout).toContain("names no ticket, so no ticket is marked abandoned");
+    const tickets = join(anonymous, ".bounded/tickets");
+    expect(readdirSync(tickets).filter((n) => existsSync(join(tickets, n, "abandoned")))).toEqual([]);
+  });
+
+  test("a delivered boundary clears the delivered run's abandoned marker", async () => {
+    const prepared = line({ guard: "team-lead", verdict: "pass", summary: "prepared", detail: { kind: "run-prepared", ticket: "5" } });
+    const root = tree(`${prepared}\n${summary}\n`);
+    for (const n of [5, 7]) {
+      mkdirSync(join(root, `.bounded/tickets/${n}`), { recursive: true });
+      writeFileSync(join(root, `.bounded/tickets/${n}/abandoned`), "{}\n");
+    }
+    // The exit code is not asserted: this minimal tree cannot capture a
+    // baseline, and the marker is cleared before the capture.
+    await script("bounded-change-run", [root], root);
+    expect(existsSync(join(root, ".bounded/tickets/5/abandoned"))).toBe(false);
+    expect(existsSync(join(root, ".bounded/tickets/7/abandoned"))).toBe(true);
+
+    const selected = tree(summary + "\n");
+    writeFileSync(join(selected, ".bounded/tickets/7/abandoned"), "{}\n");
+    // A log that names no ticket clears no marker: the selected ticket may not
+    // be the one that delivered (review minor; the same rule as --force).
+    const unnamed = await script("bounded-change-run", [selected], selected);
+    expect(existsSync(join(selected, ".bounded/tickets/7/abandoned"))).toBe(true);
+    expect(unnamed.stdout).toContain("the delivered run names no ticket, so no abandoned marker is cleared");
   });
 
   test("falls back to the active-ticket file, and BOUNDED_TICKET overrides it", async () => {

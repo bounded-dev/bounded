@@ -37,13 +37,16 @@ recorded in the composite event as `typecheckDrift` — while anything
 design-owned still blocks: a contract file, project config, or a *generated
 skeleton*, whose diagnostics are the contract's own defects wearing the
 builder's path (`isGeneratedArtifact` decides). A first freeze keeps the full
-block: there `src/` holds nothing but skeletons and no tests exist, so every
+block unless the ticket takes a delivered contract (2026-071): otherwise
+`src/` holds nothing of its own but skeletons and no tests exist, so every
 diagnostic is the design's. `green_gate` still requires a fully compiling
 project, so the false-green invariant is untouched.
 
 `bounded change-run` refuses to draw a boundary through a live run (a log without
 a final successful delivery, ADR 2026-053) unless `--force`d: re-entering an interrupted run is a resume
-(`pi -c`, r20), which needs the log intact, not a boundary.
+(`pi -c`, r20), which needs the log intact, not a boundary. `--force` now also
+marks the abandoned run's ticket with `.bounded/tickets/<n>/abandoned`
+(2026-071).
 
 ## Why
 

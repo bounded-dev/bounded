@@ -489,6 +489,64 @@ describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", (
     expect(r.stdout).toContain("design-gate: FAIL — typecheck blocked; design-review, freeze did not run");
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
   });
+
+  // ADR 2026-071: a ticket that takes a delivered ticket's contract changes
+  // what the earlier ticket's workers built, so on its FIRST freeze that
+  // worker-owned drift is the change, exactly as on a re-freeze.
+  const CURRENCY_REL = "contexts/money/src/domain/currencies/currency.contract.ts";
+
+  /** TN-1 owns the currency contract; TN-2 lists it and the ticker, and takes
+   *  the currency contract from TN-1 when `take` is set (else lists only the
+   *  ticker). Ticket 2 is active; the gate is run under it. */
+  function takingFixture(prefix: string, take: boolean): { dir: string; gate: () => ReturnType<typeof runGate> } {
+    const dir = fixtureRepo(prefix, CLEAN_CONTRACT);
+    place(dir, TICKER_PATH, TICKER_CONTRACT);
+    mkdirSync(join(dir, "docs/tn"), { recursive: true });
+    writeFileSync(join(dir, "docs/tn/README.md"), "# Technical Notes\n");
+    writeFileSync(join(dir, "docs/tn/TN-1.md"),
+      `---\nissue: 1\nstatus: active\ncontracts:\n  - ${CURRENCY_REL}\n---\n\n${SPEC}`);
+    writeFileSync(join(dir, "docs/tn/TN-2.md"), take
+      ? `---\nissue: 2\nstatus: active\ncontracts:\n  - ${CURRENCY_REL}\n  - ${TICKER_REL}\n` +
+        `takes:\n  - ${CURRENCY_REL} from TN-1\n---\n\n${SPEC}`
+      : `---\nissue: 2\nstatus: active\ncontracts:\n  - ${TICKER_REL}\n---\n\n${SPEC}`);
+    // A hand-written implementation file from ticket #1's build: builder-owned.
+    writeFileSync(join(dir, ROOT, "domain", "currencies", "currency-format.ts"), "export const rounding = 1;\n");
+    writeFileSync(join(dir, "tsc.txt"), `${HAND_IMPL_ERR}\n${TESTS_TYPE_ERR}\nFound 2 errors.\n`);
+    const withTicket = <T>(fn: () => T): T => {
+      const prior = process.env.BOUNDED_TICKET;
+      process.env.BOUNDED_TICKET = "2";
+      try {
+        return fn();
+      } finally {
+        if (prior === undefined) delete process.env.BOUNDED_TICKET;
+        else process.env.BOUNDED_TICKET = prior;
+      }
+    };
+    withTicket(() => review(dir));
+    return { dir, gate: () => withTicket(() => runGate(dir, true)) };
+  }
+
+  test("a first freeze that takes a delivered contract stands over worker-owned drift in earlier work", () => {
+    const { dir, gate } = takingFixture("design-take-drift-", true);
+    const r = gate();
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/worker-owned/);
+    expect(r.stdout).toContain("  builder (1):");
+    const manifest = join(dir, ".bounded/tickets/2/contract-checksums.json");
+    expect(existsSync(manifest)).toBe(true);
+    expect(readFileSync(manifest, "utf8")).toContain(CURRENCY_REL);
+    expect(readGuardLog(dir).filter((e) => e.guard === "design-gate").at(-1)).toMatchObject({
+      detail: { reFreeze: false, typecheckDrift: { errors: 2 } },
+    });
+  });
+
+  test("the same drift on a first freeze with no take still blocks", () => {
+    const { dir, gate } = takingFixture("design-notake-drift-", false);
+    const r = gate();
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("design-gate: FAIL — typecheck blocked");
+    expect(existsSync(join(dir, ".bounded/tickets/2/contract-checksums.json"))).toBe(false);
+  });
 });
 
 

@@ -10,6 +10,9 @@ export interface RouteTarget {
   readonly ticket: string;
   /** It has a frozen design, so the lead will prepare a change run on it. */
   readonly frozen: boolean;
+  /** Its last run was abandoned, so no ticket may take a contract from it
+   *  (ADR 2026-071). */
+  readonly abandoned?: boolean;
 }
 
 const NEVER_EDIT = "never edit another ticket's design note";
@@ -22,9 +25,19 @@ export function changeRunRoute(target: RouteTarget, active: string | undefined):
   return `${wait}change it in ${run} on ticket #${target.ticket}; ${NEVER_EDIT}`;
 }
 
-/** The refusal for a contract another ticket owns. */
+/** The refusal for a contract another ticket owns. When the owner has a
+ *  frozen design, was not abandoned, and a ticket is active, that ticket may
+ *  instead take the contract over in its own note (ADR 2026-071). */
 export function foreignContractRefusal(path: string, owner: RouteTarget, active: string | undefined): string {
-  return `contract ${path} belongs to ticket #${owner.ticket}: ${changeRunRoute(owner, active)}`;
+  const route = `contract ${path} belongs to ticket #${owner.ticket}: ${changeRunRoute(owner, active)}`;
+  const takeable = owner.frozen && owner.abandoned !== true && active !== undefined;
+  return takeable ? `${route}. ${takeAlternative(path, owner.ticket)}` : route;
+}
+
+/** How the active ticket takes over a delivered ticket's contract. */
+function takeAlternative(path: string, owner: string): string {
+  return "If this ticket's design must change it, take it over in this ticket's own note instead: " +
+    `list it with its other contracts and add the line \`  - ${path} from TN-${owner}\` under \`takes:\``;
 }
 
 /** The refusal for a contract several tickets claim when no single frozen

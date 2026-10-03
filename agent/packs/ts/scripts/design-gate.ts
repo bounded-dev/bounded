@@ -185,12 +185,15 @@ export interface TypecheckDrift {
  * What still blocks a re-freeze: a diagnostic in design-owned surface — a
  * contract file, project config (`orchestrator`), or a GENERATED skeleton,
  * whose errors are the contract's own defects wearing the builder's path. A
- * FIRST freeze keeps the full block: there, `src/` holds nothing but skeletons
- * and no tests exist yet, so every diagnostic is the design's.
+ * FIRST freeze keeps the full block unless the ticket takes a delivered
+ * contract (ADR 2026-071). Without a take, worker-owned diagnostics on a first
+ * freeze have no such cause, so every diagnostic is the design's. A ticket
+ * that takes a delivered contract changes what the earlier ticket's workers
+ * built, so on its first freeze that drift is the change, as on a re-freeze.
  */
 async function runProjectTypecheck(
   cwd: string,
-  reFreeze: boolean,
+  tolerate: { readonly reFreeze: boolean; readonly takingTicket?: string },
 ): Promise<{ code: number; lines: readonly string[]; drift?: TypecheckDrift }> {
   const result = await typecheck(cwd, gateTypecheckOptionsFromEnv());
   if (result.ok) return { code: 0, lines: [formatTypecheck(result)] };
@@ -210,7 +213,7 @@ async function runProjectTypecheck(
   }
   const plural = routing.errorCount === 1 ? "" : "s";
 
-  if (reFreeze) {
+  if (tolerate.reFreeze || tolerate.takingTicket !== undefined) {
     const untouched = untouchedSkeletons(cwd);
     const generated = (routing.byOwner.builder ?? [])
       .filter(isDiagnosticStart)
@@ -221,7 +224,10 @@ async function runProjectTypecheck(
       return {
         code: 0,
         lines: [
-          `typecheck: ${routing.errorCount} pre-freeze drift error${plural} — all worker-owned, so the re-freeze proceeds`,
+          `typecheck: ${routing.errorCount} pre-freeze drift error${plural} — all worker-owned, so the ` +
+            (tolerate.reFreeze
+              ? "re-freeze proceeds"
+              : `freeze proceeds: ticket #${tolerate.takingTicket} takes a delivered contract`),
           ...typecheckLines(routing).slice(1),
           "  this drift is the change itself: the workers repair their own zones once commissioned, and green_gate still requires a clean project",
         ],
@@ -520,6 +526,16 @@ function composedContractPatterns(cwd: string): readonly string[] | undefined {
   return globs.length > 0 ? globs : undefined;
 }
 
+/** How many delivered contracts the active ticket takes, and its number. */
+function takenContracts(cwd: string): { readonly count: number; readonly ticket?: string } {
+  try {
+    const design = activeTicketDesign(cwd);
+    return design ? { count: design.taken.length, ticket: design.ticket } : { count: 0 };
+  } catch {
+    return { count: 0 };
+  }
+}
+
 export async function runDesignGate(
   cwd: string,
   patterns?: readonly string[],
@@ -540,6 +556,10 @@ export async function runDesignGate(
   if (configBlock !== undefined) return { ...configBlock, steps: [] };
 
   const reFreeze = hasManifest(cwd);
+  // A ticket that takes a delivered contract (ADR 2026-071), with the take
+  // valid: only then does a first freeze stand over worker-owned drift. A
+  // design that cannot resolve takes nothing here; the freeze step says why.
+  const takes = takenContracts(cwd);
   if (reFreeze) {
     const started = Date.now();
     const early = runDesignReviewStep(cwd);
@@ -568,7 +588,10 @@ export async function runDesignGate(
     {
       step: "typecheck",
       run: async () => {
-        const r = await runProjectTypecheck(cwd, reFreeze);
+        const r = await runProjectTypecheck(cwd, {
+          reFreeze,
+          ...(takes.count > 0 ? { takingTicket: takes.ticket } : {}),
+        });
         drift = r.drift;
         return { code: r.code, lines: r.lines };
       },
@@ -602,6 +625,7 @@ export async function runDesignGate(
   return finishDesignGate(cwd, steps, review, {
     reFreeze,
     ...(drift !== undefined ? { typecheckDrift: drift } : {}),
+    ...(takes.count > 0 ? { takes: takes.count } : {}),
   });
 }
 

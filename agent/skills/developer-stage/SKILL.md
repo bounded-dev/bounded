@@ -19,6 +19,15 @@ then only read-only helpers can be commissioned. List this ticket's owned
 contracts in the note's front matter. Projects without `docs/tn/README.md`
 retain the legacy root `spec.md`.
 
+**Taking a delivered ticket's contract.** When this ticket must change a
+contract an earlier, delivered ticket owns, list it under `contracts:` and also
+under `takes:` as `  - <path> from TN-<n>`, citing that ticket's note (ADR
+2026-071). Never edit the earlier note: you may write only this ticket's TN,
+and the earlier ticket's record stays as it was delivered. The gates then treat
+this ticket as the owner. A take must cite an active or ratified note that lists
+the contract and was not abandoned; when another ticket already took it, take it
+from that ticket instead.
+
 The one thing this pipeline exists to prevent is an agent grading its own
 exam. An agent that writes both the tests and the implementation will write a
 test that cannot fail — we have watched it happen in two independent bare runs
@@ -354,7 +363,9 @@ five phases with three things worth knowing:
   the typecheck step prints it, attributes each error to its owner, and does
   not block the freeze on worker-owned errors — only a diagnostic in a
   contract, config, or generated skeleton blocks. Green is unchanged: the
-  project must fully compile before you may call it green.
+  project must fully compile before you may call it green. So does a first
+  freeze whose ticket takes a delivered contract, because changing it breaks
+  the earlier ticket's code (ADR 2026-071).
 - **Workers revise, blindness holds.** Commission both as usual. The
   test-writer updates and extends the test files from the revised spec — still
   never seeing an implementation file; the builder brings the implementation

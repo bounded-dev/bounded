@@ -156,6 +156,16 @@ with the user, in product terms, which part of the product it belongs to,
 then follow the same order. Never move a contract by editing either
 ticket's note.
 
+When the change is the active ticket's own work, its architect can instead
+take the delivered contract over in that ticket's own note, through its
+`takes:` list (ADR 2026-071); the refusal names this too. The gates then treat
+the active ticket as the owner and leave the earlier ticket's note as it was
+delivered, so no change run on the earlier ticket is needed.
+
+A ticket whose last run was abandoned keeps the contracts its frozen design
+holds. When a refusal names an abandoned ticket as a claimant or owner, no ticket can take the contract from it: prepare a run on that ticket and deliver it, or have that ticket's architect, in such a run, drop the contract from its own note.
+Either way, follow the order above.
+
 ## Release a dependency
 
 A dependent ticket needs the producer's reviewed, frozen Technical Note, even
