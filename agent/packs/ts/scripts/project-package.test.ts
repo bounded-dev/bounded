@@ -397,6 +397,31 @@ describe("the generated manifests equal the example's, modulo exact pins and sco
     expect(context["devDependencies"]).toBeUndefined();
   });
 
+  test("a tag in a one-line doc block counts, as the worked example writes @implementedBy console", () => {
+    const p = exampleProject(f, { name: "example" });
+    cleanups.push(p.cleanup);
+    const path = join(p.project, "contexts/project-management/src/application/projects/export-projects/export-projects.contract.ts");
+    writeFileSync(path, [
+      'import type { Project } from "@example/project-management/domain";',
+      "",
+      "/**",
+      " * Export every project",
+      " * @exposedVia lambda",
+      " */",
+      "export interface ExportProjects {",
+      "  execute(): Promise<void>;",
+      "}",
+      "",
+      "/** @implementedBy console */",
+      "export interface ProjectExporter {",
+      "  export(projects: Project[]): Promise<void>;",
+      "}",
+      "",
+    ].join("\n"));
+    const context = generatedManifests(p.project, f.packs, f.packsDir, "example").manifests.get("contexts/project-management")!;
+    expect(Object.keys(context["exports"] as object)).toContain("./adapters/console");
+  });
+
   test("review repro: a stray folder or file under adapters/ changes no manifest", () => {
     const p = exampleProject(f, { name: "example" });
     cleanups.push(p.cleanup);

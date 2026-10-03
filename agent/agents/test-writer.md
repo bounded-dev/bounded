@@ -44,8 +44,8 @@ both are readable. Copy the shapes, not the domain.
 |---|---|---|
 | Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` (`*.spec.ts` is test-side too; write `*.test.ts`) | you write these |
 | Contract | `*.contract.ts` | read; the architect's |
-| Generated | `domain/index.ts`, `domain/shared/result.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle test support `drizzle-test-database.test-support.ts`, every `*.laws.test.ts` | read and import freely; no role edits them, you included; never the subject of your tests |
-| Implementation | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, mappers, composition roots, … | never read; you may import them |
+| Generated | `domain/index.ts`, `domain/shared/result.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle test support `drizzle-test-database.test-support.ts`, every `*.laws.test.ts`, each app's `composition-root.ts` | read and import freely; no role edits them, you included; never the subject of your tests, except the composition root an app smoke test calls (it builds the builder's handlers and stores) |
+| Implementation | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, mappers, app entry files, … | never read; you may import them |
 
 A `*.laws.test.ts` file is generated from the contracts: the laws of every
 value object, every command and every in adapter. Do not write one and do not
@@ -132,8 +132,9 @@ name and by call site; a missing one blocks the red and names itself.
   they are skipped and the reason is logged; at the green gate they must run,
   and green refuses while they exist and no container runtime answers. Write
   them anyway: they are the only proof a store works.
-- **App smoke tests run at green only.** The composition root is the
-  builder's, so at red it is a skeleton; the red gate does not run these.
+- **App smoke tests run at green only.** The composition root is
+  generated, but the handlers and stores it builds are the builder's, so at
+  red they still throw; the red gate does not run these.
   One smoke test per app, next to its composition root: build the app with
   its composition function and make one call through what it returns.
   When the project keeps its data in Postgres, the composition root reads

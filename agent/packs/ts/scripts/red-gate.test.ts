@@ -239,7 +239,8 @@ describe("the shadow project", () => {
     for (const impl of ["domain/notes/note.ts", "application/notes/create-note/create-note.handler.ts", "adapters/out/in-memory/notes/create-note.store.ts"]) {
       expect(copy).not.toContain(`${CONTEXT_SRC}/${impl}`);
     }
-    expect(copy).not.toContain("apps/web/src/server/composition-root.ts");
+    // The composition root is generated (ADR 2026-067), so it is copied like any generated file.
+    expect(copy).toContain("apps/web/src/server/composition-root.ts");
     expect(workspaces).toEqual(["apps/web", "contexts/notebook"]);
   });
 

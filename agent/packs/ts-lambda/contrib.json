@@ -14,7 +14,9 @@
       "description": "One Lambda handler factory per feature tagged @exposedVia lambda, bundled for the Node runtime by the lambdas app"
     }
   ],
+  "//generatedFileGlobs": "The Lambda in adapter, and the Lambda app's composition root (ADR 2026-067), are generated from the design.",
   "generatedFileGlobs": [
+    "apps/*/src/composition-root.ts",
     "contexts/*/src/adapters/in/lambda/**"
   ],
   "workspaceTemplates": {
@@ -22,7 +24,7 @@
       "root": "apps",
       "manifest": "templates/lambdas/package.json",
       "runtime": "node",
-      "description": "A Lambda app: src/<feature>.ts per Lambda exports `handler`, built once per cold start from src/composition-root.ts; the build bundles exactly those entries for Node."
+      "description": "A Lambda app: src/<feature>.ts per Lambda exports `handler`, built once per cold start from the generated src/composition-root.ts; the build bundles exactly those entries for Node."
     }
   },
   "projectInitScripts": [

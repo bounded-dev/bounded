@@ -1,6 +1,8 @@
 import type { ExportProjects } from "@example/project-management/application";
 
-// Driving adapter: each scheduled invocation triggers one export.
-export const createExportProjectsLambda = (exportProjects: ExportProjects) => async (): Promise<void> => {
-  await exportProjects.execute();
-};
+// Driving adapter: each invocation calls the in port once.
+export const createExportProjectsLambda =
+  (deps: { projects: { export: ExportProjects } }) =>
+  async (): Promise<void> => {
+    await deps.projects.export.execute();
+  };

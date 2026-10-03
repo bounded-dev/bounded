@@ -12,9 +12,13 @@
       "root": "apps",
       "manifest": "templates/desktop/package.json",
       "runtime": "node",
-      "description": "An Electron app: src/main/main.ts opens the window and calls the context's router in-process through composeApp().createCaller({}); src/renderer/ is the React page it loads."
+      "description": "An Electron app: src/main/main.ts opens the window and calls the context's router in-process through composeApp().createCaller({}); src/main/composition-root.ts, generated, wires handlers and adapters; src/renderer/ is the React page it loads."
     }
   },
+  "//generatedFileGlobs": "The desktop app's composition root is generated from the design (ADR 2026-067): write-denied to every role and drift-checked.",
+  "generatedFileGlobs": [
+    "apps/*/src/main/composition-root.ts"
+  ],
   "projectInitScripts": [
     "scripts/seed-apps.ts"
   ],

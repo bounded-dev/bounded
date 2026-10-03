@@ -1,8 +1,8 @@
 // The web app's seed files (ADR 2026-061, TN-26-012 §1), emitted for every
-// workspace a TN declares with kind `web`. All are skeletons: written once,
-// then the builder's.
+// workspace a TN declares with kind `web`. The composition root is generated
+// (ADR 2026-067); the rest are skeletons: written once, then the builder's.
 //
-//   src/server/composition-root.ts   composeApp(): <Context>Router — the builder wires handlers and adapters
+//   src/server/composition-root.ts   composeApp(): <Context>Router — generated: every handler and adapter, wired
 //   src/server/main.ts               Bun.serve: the client's HTML import at "/", the router at "/trpc/*"
 //   src/client/index.html            the page, titled after the context
 //   src/client/main.tsx              a React root with a tRPC client typed by the router's re-exported type
@@ -87,7 +87,7 @@ export function emitWebApps(facts: ProjectFacts): EmittedFile[] {
         "</html>",
       ]),
       skeleton(`${src}/client/main.tsx`, clientMain(facts.scope, context, firstInputlessQuery(facts, context))),
-      routerCompositionRoot(`${src}/server/composition-root.ts`, facts.scope, context),
+      routerCompositionRoot(facts, app, `${src}/server/composition-root.ts`, context),
       skeleton(`${src}/server/main.ts`, [
         'import { fetchRequestHandler } from "@trpc/server/adapters/fetch";',
         'import index from "../client/index.html";',
@@ -113,6 +113,6 @@ export const webAppEmitter: Emitter = {
   name: "web-app",
   description:
     "The seed files of every web app a TN declares: a Bun.serve server hosting the context's tRPC router at /trpc/* " +
-    "and its HTML page at /, a React client typed by the router's re-exported type, and the composeApp() skeleton.",
+    "and its HTML page at /, a React client typed by the router's re-exported type, and the generated composeApp().",
   emit: emitWebApps,
 };

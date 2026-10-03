@@ -36,7 +36,8 @@ at red, because their shapes are known before the builder starts.
 ## Consequences
 
 The builder authors only domain `Impl` bodies, handler bodies, store and
-out-adapter bodies, mappers and composition roots. The in-adapter test
+out-adapter bodies and mappers. Composition roots were the builder's too,
+until ADR 2026-067 made them generated. The in-adapter test
 level is generated laws (TN-26-012).
 
 The contract-support-file socket (`contractSupportFiles`, ADR 2026-046) is

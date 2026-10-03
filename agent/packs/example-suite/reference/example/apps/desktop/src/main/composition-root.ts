@@ -1,10 +1,5 @@
-import {
-  CreateNoteHandler,
-  CreateProjectHandler,
-  ListNotesHandler,
-  ListProjectsHandler,
-} from "@example/project-management/application";
-import { createProjectManagementRouter } from "@example/project-management/adapters/trpc";
+// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.
+// The one place that decides which adapter backs which port.
 import {
   InMemoryCreateNoteStore,
   InMemoryCreateProjectStore,
@@ -12,15 +7,25 @@ import {
   InMemoryListNotesStore,
   InMemoryListProjectsStore,
 } from "@example/project-management/adapters/in-memory";
+import { createProjectManagementRouter, type ProjectManagementRouter } from "@example/project-management/adapters/trpc";
+import {
+  CreateNoteHandler,
+  CreateProjectHandler,
+  ListNotesHandler,
+  ListProjectsHandler,
+} from "@example/project-management/application";
 
-// The one place that decides which adapter backs which port.
-export function composeApp() {
+export function composeApp(): ProjectManagementRouter {
   const db = new InMemoryDatabase();
 
   return createProjectManagementRouter({
-    createNote: new CreateNoteHandler(new InMemoryCreateNoteStore(db)),
-    listNotes: new ListNotesHandler(new InMemoryListNotesStore(db)),
-    createProject: new CreateProjectHandler(new InMemoryCreateProjectStore(db)),
-    listProjects: new ListProjectsHandler(new InMemoryListProjectsStore(db)),
+    notes: {
+      create: new CreateNoteHandler(new InMemoryCreateNoteStore(db)),
+      list: new ListNotesHandler(new InMemoryListNotesStore(db)),
+    },
+    projects: {
+      create: new CreateProjectHandler(new InMemoryCreateProjectStore(db)),
+      list: new ListProjectsHandler(new InMemoryListProjectsStore(db)),
+    },
   });
 }

@@ -6,23 +6,31 @@ import { exampleContracts, exampleFacts, manifestDifferences, readExample } from
 import { emitMcpApps } from "./mcp-app-emitter.ts";
 
 // The app-template golden (WI-7): the MCP app seeded from the worked
-// example's design is the example's apps/mcp, with the composition root left
-// as the builder's skeleton.
+// example's design is the example's apps/mcp, with the composition root
+// generated: the example's, its dependencies grouped by area (ADR 2026-067).
 
 describe("the MCP app of the worked example", () => {
   const emitted = emitMcpApps(exampleFacts());
 
-  test("seeds the entry, byte for byte, and the composeApp() skeleton", () => {
+  test("seeds the entry, byte for byte, and generates composeApp()", () => {
     expect(emitted.map((f) => [f.path, f.mode])).toEqual([
-      ["apps/mcp/src/composition-root.ts", "skeleton"],
+      ["apps/mcp/src/composition-root.ts", "generated"],
       ["apps/mcp/src/main.ts", "skeleton"],
     ]);
     expect(emitted[1]!.content).toBe(readExample("apps/mcp/src/main.ts"));
-    expect(readExample("apps/mcp/src/composition-root.ts")).toContain("export function composeApp() {");
-    expect(emitted[0]!.content).toContain(
-      'import type { createProjectManagementMcpServer } from "@example/project-management/adapters/mcp";',
-    );
-    expect(emitted[0]!.content).toContain("export function composeApp(): ReturnType<typeof createProjectManagementMcpServer> {");
+    expect(emitted[0]!.content).toBe(readExample("apps/mcp/src/composition-root.ts"));
+    expect(emitted[0]!.content).toContain([
+      "export function composeApp(): ReturnType<typeof createProjectManagementMcpServer> {",
+      "  const db = new InMemoryDatabase();",
+      "",
+      "  return createProjectManagementMcpServer({",
+      "    projects: {",
+      "      create: new CreateProjectHandler(new InMemoryCreateProjectStore(db)),",
+      "      list: new ListProjectsHandler(new InMemoryListProjectsStore(db)),",
+      "    },",
+      "  });",
+      "}",
+    ].join("\n"));
   });
 
   test("the manifest template is the example's, pinned exactly", () => {

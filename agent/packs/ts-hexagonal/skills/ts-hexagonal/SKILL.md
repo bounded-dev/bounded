@@ -17,8 +17,9 @@ every file kind and a test at every level. Copy its shapes.
 Everything mechanical is **generated** from the contracts and is readable by
 every role but written by none: `domain/index.ts`, `domain/shared/result.ts`,
 `application/index.ts`, `<feature>.command.ts`, every `*.laws.test.ts`,
-everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`,
-`architecture.test.ts` and `docs/architecture/`. While skeletons exist,
+everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, each
+app's `composition-root.ts`, `architecture.test.ts` and `docs/architecture/`.
+While skeletons exist,
 `domain/shared/errors.ts` holds `NotImplementedError`; delivery removes it.
 
 ## Names you never choose
@@ -152,9 +153,13 @@ declarations exactly, and replace each `throw new NotImplementedError(…)`.
 - **Stores and other out adapters**: method bodies, plus fields on
   `<Tech>Database`. Mappers (`<concept>.mapper.ts`) rebuild value objects with
   `parse` and throw on corrupt rows.
-- **Composition roots** (`apps/<app>/src/**/composition-root.ts`): the only
-  place that constructs handlers, stores and in adapters. Entry files host
-  what it returns and import from contexts as types only.
+- **Composition roots** (`apps/<app>/src/**/composition-root.ts`) are
+  generated, not yours (ADR 2026-067). Each is the only place that constructs
+  handlers, stores, out adapters and in adapters. It builds every handler the
+  app exposes with its out ports in contract order, shares one database, and
+  passes the handlers grouped by area (`{ notes: { create, list } }`). Make
+  what it constructs work; a wrong composition root is a `CONTRACT-DISPUTE`.
+  Entry files host what it returns and import from contexts as types only.
 - Browser code (`client/`, `renderer/`) imports server code with
   `import type { … }` only; `import { type … }` still loads the module.
 

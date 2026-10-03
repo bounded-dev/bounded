@@ -3,9 +3,9 @@ import { t } from "../trpc.ts";
 import { createNoteProcedure } from "./create-note.procedure.ts";
 import { listNotesProcedure } from "./list-notes.procedure.ts";
 
-export function createNotesRouter(deps: { createNote: CreateNote; listNotes: ListNotes }) {
+export function createNotesRouter(deps: { create: CreateNote; list: ListNotes }) {
   return t.router({
-    create: createNoteProcedure(deps.createNote),
-    list: listNotesProcedure(deps.listNotes),
+    create: createNoteProcedure(deps.create),
+    list: listNotesProcedure(deps.list),
   });
 }

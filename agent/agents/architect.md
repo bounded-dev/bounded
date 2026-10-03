@@ -258,17 +258,20 @@ the TN; everything else is written by a generator or a worker.
 
   The value is an app kind a composed pack provides (`web`, `mcp`,
   `lambdas`, `desktop`). Contexts are never declared: they come from contract
-  paths. The design gate seeds each app's entry files and its
-  `composition-root.ts` skeleton, and the config sync writes its manifest.
+  paths. The design gate seeds each app's entry files, generates its
+  `composition-root.ts` (ADR 2026-067: every handler the app exposes, built
+  with its out ports and grouped by area), and the config sync writes its
+  manifest.
 - **Generated and skeleton files.** From your contracts the design gate
   generates the domain and application barrels, `domain/shared/result.ts`,
   each `<feature>.command.ts` (its zod wire schema and its parse), every file
   under `adapters/in/<tech>/`, every out-adapter barrel, the Drizzle
-  config and schema namespace, and the law suites (`*.laws.test.ts`). No role
+  config and schema namespace, each app's composition root, and the law
+  suites (`*.laws.test.ts`). No role
   edits a generated file, you included: change the contract instead. It also
   writes **skeletons** once — each `<concept>.ts`, `<feature>.handler.ts`,
   store, out adapter, `<tech>-database.ts` for in-memory, Drizzle table file
-  and app composition root — which the builder then owns.
+  and app entry file — which the builder then owns.
 - **The test levels are fixed (ADR 2026-063).** Domain unit tests per
   concept; a handler test per feature with fakes of its out ports; a store
   conformance suite per feature (`<feature>.store.test-support.ts`) run by a

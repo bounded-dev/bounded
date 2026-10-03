@@ -20,7 +20,7 @@ shape of a worked example: a Bun monorepo of bounded contexts
 - **Everything mechanical is generated** from contracts and two JSDoc tags
   (`@exposedVia` on the in port, `@implementedBy` on non-store out ports):
   barrels, command files, every in adapter (tRPC, MCP, Lambda), Drizzle
-  config, and law suites. Handlers, stores, out adapters and composition roots
+  config, law suites and app composition roots (ADR 2026-067). Handlers, stores and out adapters
   are skeletons the builder fills. Apps are declared in the ticket TN's
   `workspaces:` map.
 - **Bun is the project toolchain** (`bun install`, `bun test`,

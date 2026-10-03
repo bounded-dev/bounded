@@ -36,7 +36,7 @@ contexts/<context>/
 
 ## Drivers
 
-Each composition root picks the driver for its runtime:
+Each generated composition root uses the driver for its app's runtime:
 
 | Runtime | Driver |
 |---|---|

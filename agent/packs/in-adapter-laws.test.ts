@@ -195,8 +195,8 @@ describe.skipIf(!hasBun)("the generated adapter laws under bun test", () => {
     files = mutate(files, "projects/create-project.tool.ts",
       '      if (!command.ok) return { isError: true, content: [{ type: "text", text: command.error }] };\n', "");
     // Lambda: execute is called twice.
-    files = mutate(files, "projects/export-projects.lambda.ts", "  await exportProjects.execute();\n",
-      "  await exportProjects.execute();\n  await exportProjects.execute();\n");
+    files = mutate(files, "projects/export-projects.lambda.ts", "    await deps.projects.export.execute();\n",
+      "    await deps.projects.export.execute();\n    await deps.projects.export.execute();\n");
     const { status, output } = bunTest(fixture(files));
     expect(status).not.toBe(0);
     for (const law of [

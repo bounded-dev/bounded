@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   adapterClassPrefix, adapterExportPath, adapterIndexPath, camelCase, featureKind, pascalCase, pascalWords, portRole,
-  routeKey, snakeCase, toolName,
+  dependencyGroups, routeKey, snakeCase, toolName,
 } from "./naming.ts";
 
 // Every expectation below is a name the worked example (TN-26-012) actually
@@ -40,6 +40,23 @@ describe("tRPC route keys", () => {
     ["notes", "note-note", "note"],
   ])("%s/%s → %s", (area, feature, key) => {
     expect(routeKey(area, feature)).toBe(key);
+  });
+});
+
+describe("dependencyGroups: the grouped dependency shape (ADR 2026-067)", () => {
+  const f = (area: string, feature: string) => ({ area, feature });
+
+  test("areas sorted, each keyed camelCase; features under their route keys, in the order given", () => {
+    const groups = dependencyGroups([f("tagging-schemes", "add-tag"), f("members", "rename-member"), f("members", "add-member")]);
+    expect(groups.map((g) => [g.key, g.area, g.members.map((m) => [m.key, m.item.feature])])).toEqual([
+      ["members", "members", [["rename", "rename-member"], ["add", "add-member"]]],
+      ["taggingSchemes", "tagging-schemes", [["addTag", "add-tag"]]],
+    ]);
+  });
+
+  test("two features with one route key in an area are refused, naming both", () => {
+    expect(() => dependencyGroups([f("notes", "create-note"), f("notes", "create-notes")]))
+      .toThrow("features 'create-note' and 'create-notes' share the route key 'notes.create'");
   });
 });
 

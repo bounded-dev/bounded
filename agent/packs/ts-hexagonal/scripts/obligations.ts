@@ -17,8 +17,9 @@
 //
 // And per app workspace, at green only (Q2): a composition-root.test.ts next
 // to every composition-root.ts, the app's smoke test, which imports a
-// compose… function from ./composition-root.ts and calls it. It runs against code
-// only the builder writes, so red cannot ask for it.
+// compose… function from ./composition-root.ts and calls it. The composition
+// root is generated (ADR 2026-067), but what it constructs is the builder's, so
+// red cannot ask for it.
 
 import type { ObligationGap, ObligationInput, TestObligation } from "../../ts/pack.ts";
 import type { FeatureContractModel } from "../../ts/scripts/feature-model.ts";
@@ -147,7 +148,7 @@ function appGaps(input: ObligationInput): ObligationGap[] {
   for (const app of input.facts.workspaces.filter((w) => w.kind !== "context")) {
     const roots = input.files.filter((f) => f.startsWith(`${app.sourceRoot}/`) && f.endsWith(`/${COMPOSITION_ROOT}`));
     if (roots.length === 0) {
-      gaps.push({ level: "app", message: `${app.dir} has no ${COMPOSITION_ROOT}; run the design gate, which seeds it` });
+      gaps.push({ level: "app", message: `${app.dir} has no ${COMPOSITION_ROOT}; run the design gate, which generates it` });
     }
     for (const root of roots) {
       const smoke = `${root.slice(0, -COMPOSITION_ROOT.length)}${SMOKE_TEST}`;

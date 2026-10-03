@@ -69,6 +69,40 @@ export function routeKey(area: string, feature: string): string {
   return camelCase(feature);
 }
 
+/** One area of the grouped dependency shape (ADR 2026-067). */
+export interface DependencyGroup<T> {
+  /** `camel(area)`: the router namespace, e.g. `taggingSchemes`. */
+  readonly key: string;
+  readonly area: string;
+  /** Each feature under its route key, in the order given. */
+  readonly members: readonly { readonly key: string; readonly item: T }[];
+}
+
+/**
+ * The grouped dependency shape every in-adapter factory takes and every
+ * composition root builds (ADR 2026-067): `{ <camel(area)>: { <routeKey>:
+ * <in port>, … }, … }`, the namespaces of the generated router
+ * (`members.add`). Areas sorted, features in the order given. Two features
+ * with one route key in an area are refused, naming both.
+ */
+export function dependencyGroups<T extends { readonly area: string; readonly feature: string }>(
+  features: readonly T[],
+): DependencyGroup<T>[] {
+  const areas = [...new Set(features.map((f) => f.area))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return areas.map((area) => {
+    const members: { key: string; item: T }[] = [];
+    for (const item of features.filter((f) => f.area === area)) {
+      const key = routeKey(area, item.feature);
+      const other = members.find((m) => m.key === key);
+      if (other !== undefined) {
+        throw new Error(`features '${other.item.feature}' and '${item.feature}' share the route key '${camelCase(area)}.${key}'; rename one (TN-26-012 §6)`);
+      }
+      members.push({ key, item });
+    }
+    return { key: camelCase(area), area, members };
+  });
+}
+
 /** The MCP tool name of a feature: `create-project` → `create_project`. */
 export function toolName(feature: string): string {
   return snakeCase(feature);

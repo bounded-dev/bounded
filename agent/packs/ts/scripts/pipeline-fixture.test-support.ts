@@ -5,7 +5,7 @@
 //            (a command) and list-notes (a query), both exposed via tRPC; a
 //            web app declared in the TN
 //   tests    the test-writer's files at every level, the app smoke test included
-//   build    the builder's implementations and the web app's composition root
+//   build    the builder's implementations (the web app's composition root is generated)
 //   half     a half-written create-note handler (for the isolation proof)
 //   tests-drizzle, build-drizzle   the Drizzle store tests, schema, stores and
 //            mapper, for a composition with ts-drizzle-postgres

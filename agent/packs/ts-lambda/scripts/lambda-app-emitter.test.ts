@@ -33,21 +33,25 @@ function renderEntries(text: string, workspace: string, files: readonly EmittedF
 describe("the Lambda app of the worked example", () => {
   const emitted = emitLambdaApps(exampleFacts());
 
-  test("seeds the entry, byte for byte, and the composeExportProjects() skeleton", () => {
+  test("seeds the entry, byte for byte, and generates composeExportProjects()", () => {
     expect(emitted.map((f) => [f.path, f.mode])).toEqual([
-      ["apps/lambdas/src/composition-root.ts", "skeleton"],
+      ["apps/lambdas/src/composition-root.ts", "generated"],
       ["apps/lambdas/src/export-projects.ts", "skeleton"],
     ]);
     expect(emitted[1]!.content).toBe(readExample("apps/lambdas/src/export-projects.ts"));
-    expect(readExample("apps/lambdas/src/composition-root.ts")).toContain("export function composeExportProjects() {");
-    expect(emitted[0]!.content).toBe([
-      'import type { createExportProjectsLambda } from "@example/project-management/adapters/lambda";',
-      "",
-      "// The one place that decides which adapter backs which port. One function per Lambda.",
+    // The reference copy's composition root is the generated one: the
+    // example's, with its dependencies grouped by area (ADR 2026-067).
+    expect(emitted[0]!.content).toBe(readExample("apps/lambdas/src/composition-root.ts"));
+    expect(emitted[0]!.content).toContain([
       "export function composeExportProjects(): ReturnType<typeof createExportProjectsLambda> {",
-      '  throw new Error("Not implemented: composeExportProjects");',
-      "}",
+      "  const db = new InMemoryDatabase();",
       "",
+      "  return createExportProjectsLambda({",
+      "    projects: {",
+      "      export: new ExportProjectsHandler(new InMemoryExportProjectsStore(db), new ConsoleProjectExporter()),",
+      "    },",
+      "  });",
+      "}",
     ].join("\n"));
   });
 
@@ -73,6 +77,10 @@ describe("the Lambda app of the worked example", () => {
       mkdirSync(dirname(join(dir, file.path)), { recursive: true });
       writeFileSync(join(dir, file.path), file.content);
     }
+    // The bundle's question is which files are entries, not what the context
+    // does: a stand-in composition root keeps the context packages out of it.
+    writeFileSync(join(app, "src", "composition-root.ts"),
+      "export function composeExportProjects() {\n  return async (): Promise<void> => {};\n}\n");
     writeFileSync(join(app, "src", "composition-root.test.ts"), "export {};\n");
     writeFileSync(join(app, "src", "export-projects.test.ts"), "export {};\n");
     const manifest = JSON.parse(renderEntries(readFileSync(join(import.meta.dirname, "..", "templates", "lambdas", "package.json"), "utf8"),
@@ -84,13 +92,22 @@ describe("the Lambda app of the worked example", () => {
 
   test("two Lambdas get two entries and two compose functions", () => {
     const contracts = exampleContracts().map((c) => ({ ...c, source: c.source.replace("@exposedVia trpc mcp", "@exposedVia trpc mcp lambda") }));
-    const paths = emitLambdaApps(exampleFacts({ contracts })).map((f) => f.path);
-    expect(paths).toEqual([
+    const files = emitLambdaApps(exampleFacts({ contracts }));
+    expect(files.map((f) => f.path)).toEqual([
       "apps/lambdas/src/composition-root.ts",
       "apps/lambdas/src/create-project.ts",
       "apps/lambdas/src/export-projects.ts",
       "apps/lambdas/src/list-projects.ts",
     ]);
+    const root = files[0]!.content;
+    expect(root.match(/^export function compose\w+\(\)/gm)).toEqual([
+      "export function composeCreateProject()",
+      "export function composeExportProjects()",
+      "export function composeListProjects()",
+    ]);
+    // Each builds only its own handler, with its own database.
+    expect(root).toContain("  return createListProjectsLambda({\n    projects: {\n      list: new ListProjectsHandler(new InMemoryListProjectsStore(db)),\n");
+    expect(root.match(/const db = new InMemoryDatabase\(\);/g)).toHaveLength(3);
   });
 
   test("refuses a Lambda app with nothing to host", () => {

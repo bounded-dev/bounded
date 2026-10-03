@@ -15,9 +15,9 @@ describe("the desktop app of the worked example", () => {
   const emitted = emitDesktopApps(exampleFacts());
   const content = (path: string): string => emitted.find((f) => f.path === `${APP}/${path}`)!.content;
 
-  test("seeds four skeleton files", () => {
+  test("generates the composition root and seeds three skeleton files", () => {
     expect(emitted.map((f) => [f.path, f.mode])).toEqual([
-      [`${APP}/main/composition-root.ts`, "skeleton"],
+      [`${APP}/main/composition-root.ts`, "generated"],
       [`${APP}/main/main.ts`, "skeleton"],
       [`${APP}/renderer/index.html`, "skeleton"],
       [`${APP}/renderer/main.tsx`, "skeleton"],
@@ -50,7 +50,8 @@ describe("the desktop app of the worked example", () => {
       expect(example, line).toContain(line);
       expect(main, line).toContain(line);
     }
-    expect(readExample(`${APP}/main/composition-root.ts`)).toContain("export function composeApp() {");
+    // The generated composition root, the example's grouped by area (ADR 2026-067).
+    expect(content("main/composition-root.ts")).toBe(readExample(`${APP}/main/composition-root.ts`));
     expect(content("main/composition-root.ts")).toContain("export function composeApp(): ProjectManagementRouter {");
   });
 

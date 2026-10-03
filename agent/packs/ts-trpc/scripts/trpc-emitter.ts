@@ -13,7 +13,7 @@
 
 import type { EmittedFile, Emitter, ProjectFacts } from "../../ts/pack.ts";
 import type { FeatureContractModel } from "../../ts/scripts/feature-model.ts";
-import { camelCase, pascalCase, routeKey } from "../../ts/scripts/naming.ts";
+import { camelCase, type DependencyGroup, pascalCase } from "../../ts/scripts/naming.ts";
 import {
   applicationImport,
   byCodePoint,
@@ -21,6 +21,7 @@ import {
   depsFunctionHead,
   featuresExposedVia,
   fits,
+  groupsOf,
   importLine,
   indent,
   inAdapterDir,
@@ -78,43 +79,35 @@ function procedureFile(feature: FeatureContractModel): string[] {
   return [...imports, head, `  t.procedure.${kind}(async () => {`, ...indent(body.statements, 4), "  });"];
 }
 
-function areaRouterFile(area: string, features: readonly FeatureContractModel[]): string[] {
-  const keys = new Map<string, string>();
-  for (const feature of features) {
-    const key = routeKey(area, feature.feature);
-    const other = keys.get(key);
-    if (other !== undefined) {
-      throw new Error(`${feature.contractPath}: route key '${area}.${key}' is also ${other}'s — rename one feature (TN-26-012 §6)`);
-    }
-    keys.set(key, feature.feature);
-  }
+function areaRouterFile(group: DependencyGroup<FeatureContractModel>): string[] {
+  const features = group.members.map((m) => m.item);
   return [
     importLine([], features.map((f) => f.inPort.name), applicationImport(features[0]!)),
     'import { t } from "../trpc.ts";',
     ...features.map((f) => `import { ${procedureName(f.feature)} } from "./${f.feature}.procedure.ts";`),
     "",
-    depsFunctionHead(areaRouterFactory(area), features.map((f) => [portVariable(f), f.inPort.name] as const)),
+    depsFunctionHead(areaRouterFactory(group.area), group.members.map((m) => [m.key, m.item.inPort.name] as const)),
     "  return t.router({",
-    ...features.map((f) => `    ${routeKey(area, f.feature)}: ${procedureName(f.feature)}(deps.${portVariable(f)}),`),
+    ...group.members.map((m) => `    ${m.key}: ${procedureName(m.item.feature)}(deps.${m.key}),`),
     "  });",
     "}",
   ];
 }
 
-function contextRouterFile(context: string, areas: readonly string[]): string[] {
-  const factories = areas.map(areaRouterFactory);
-  const parts = factories.map((f) => `Parameters<typeof ${f}>[0]`);
-  const deps = `type Deps = ${parts.join(" & ")};`;
+function contextRouterFile(context: string, groups: readonly DependencyGroup<FeatureContractModel>[]): string[] {
+  // Grouped by area, as the router nests (ADR 2026-067): `deps.notes` feeds `notes.*`.
+  const members = groups.map((g) => `${g.key}: Parameters<typeof ${areaRouterFactory(g.area)}>[0]`);
+  const deps = `type Deps = { ${members.join("; ")} };`;
   return [
-    ...areas.map((area) => `import { ${areaRouterFactory(area)} } from "./${area}/${area}.router.ts";`),
+    ...groups.map((g) => `import { ${areaRouterFactory(g.area)} } from "./${g.area}/${g.area}.router.ts";`),
     'import { t } from "./trpc.ts";',
     "",
-    ...(fits(deps) ? [deps] : [`type Deps = ${parts[0]!} &`, ...parts.slice(1).map((p, i) => `  ${p}${i === parts.length - 2 ? ";" : " &"}`)]),
+    ...(fits(deps) ? [deps] : ["type Deps = {", ...members.map((m) => `  ${m};`), "};"]),
     "",
-    `// The whole context's API: ${listing(areas.map((a) => `${camelCase(a)}.*`))}`,
+    `// The whole context's API: ${listing(groups.map((g) => `${g.key}.*`))}`,
     `export function ${contextRouterFactory(context)}(deps: Deps) {`,
     "  return t.router({",
-    ...areas.map((area) => `    ${camelCase(area)}: ${areaRouterFactory(area)}(deps),`),
+    ...groups.map((g) => `    ${g.key}: ${areaRouterFactory(g.area)}(deps.${g.key}),`),
     "  });",
     "}",
     "",
@@ -212,7 +205,8 @@ export function emitTrpcAdapters(facts: ProjectFacts): EmittedFile[] {
   const out: EmittedFile[] = [];
   for (const [context, features] of byContext(featuresExposedVia(facts, TRPC))) {
     const dir = inAdapterDir(context, TRPC);
-    const areas = [...new Set(features.map((f) => f.area))].sort(byCodePoint);
+    const groups = groupsOf(features);
+    const areas = groups.map((g) => g.area);
     const clash = areas.find((area) => areaRouterFactory(area) === contextRouterFactory(context));
     if (clash !== undefined) {
       // router.ts would declare the context's factory and import the area's
@@ -227,15 +221,15 @@ export function emitTrpcAdapters(facts: ProjectFacts): EmittedFile[] {
       "// Shared by every router in this context so they can be combined.",
       "export const t = initTRPC.create();",
     ]));
-    for (const area of areas) {
-      const inArea = features.filter((f) => f.area === area);
-      out.push(file(`${dir}/${area}/${area}.router.ts`, areaRouterFile(area, inArea)));
-      for (const feature of inArea) {
+    for (const group of groups) {
+      const area = group.area;
+      out.push(file(`${dir}/${area}/${area}.router.ts`, areaRouterFile(group)));
+      for (const { item: feature } of group.members) {
         out.push(file(`${dir}/${area}/${feature.feature}.procedure.ts`, procedureFile(feature)));
         out.push(file(`${dir}/${area}/${feature.feature}.procedure.laws.test.ts`, lawsFile(feature, facts)));
       }
     }
-    out.push(file(`${dir}/router.ts`, contextRouterFile(context, areas)));
+    out.push(file(`${dir}/router.ts`, contextRouterFile(context, groups)));
     out.push(file(`${dir}/index.ts`, [
       `export { ${contextRouterFactory(context)}, type ${contextRouterType(context)} } from "./router.ts";`,
     ]));
