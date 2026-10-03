@@ -69,7 +69,7 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-035](2026-035-bounded-state-dir-and-adapter-layout.md) | Harness state lives in `.bounded/`; every adapter lives in `hosts/<host>/` with its own install script | accepted |
 | [2026-036](2026-036-project-pack-selection-and-delivery-obligations.md) | Project composition selects rules and delivery obligations | accepted |
 | [2026-037](2026-037-explicit-model-deployment-smoke.md) | Explicit model deployment smoke at reset | accepted |
-| [2026-038](2026-038-independent-harness-review.md) | Independent review for harness changes | accepted |
+| [2026-038](2026-038-independent-harness-review.md) | Independent review for harness changes | accepted; extended by 2026-068 |
 | [2026-039](2026-039-change-boundary-and-project-adoption.md) | Adopt projects and review changes against a delivery baseline | accepted |
 | [2026-040](2026-040-project-local-init.md) | Initialize a project with a local harness | accepted |
 | [2026-041](2026-041-local-cli-publish.md) | Install local CLI snapshots through npm | accepted |
@@ -98,3 +98,4 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-064](2026-064-store-tests-need-docker-at-green.md) | Store tests need a container runtime only at green | accepted |
 | [2026-065](2026-065-spec-first-init-by-product-surface.md) | Initialization reads the spec and selects by product surface | accepted |
 | [2026-067](2026-067-generated-composition-roots.md) | Composition roots are generated, their dependencies grouped by area | accepted |
+| [2026-068](2026-068-harness-development-lifecycle.md) | A development lifecycle for harness work | accepted |

@@ -1,6 +1,6 @@
 # 2026-038: Independent review for harness changes
 
-**Status:** accepted
+**Status:** accepted; extended by 2026-068 (development lifecycle)
 
 ## Decision
 

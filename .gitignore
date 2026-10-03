@@ -11,6 +11,10 @@ run-history.jsonl
 # Git worktrees of this repo (live harness checkouts)
 .worktrees/
 
+# Claude Code's per-checkout state; only .claude/agents/ is tracked (ADR 2026-068)
+.claude/worktrees/
+.claude/settings.local.json
+
 # Installed packages (restored by pi from settings.json "packages" list)
 npm/
 git/

@@ -65,6 +65,7 @@ commands can replace experiment directories or archive their results.
 ## Checks and review
 
 The `agent/` package declares `check`, `test`, and build commands. Harness
-changes follow [the review workflow](harness-workflow.md), including an
-independent reader for changes to behavior or architecture. Never commit
+changes follow [the development lifecycle](harness-workflow.md): a reviewed
+plan, failing tests committed first, and an independent final review for
+changes to behavior or architecture. Never commit
 credentials, sessions, or experiment state.
