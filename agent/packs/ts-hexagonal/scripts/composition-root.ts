@@ -1,4 +1,4 @@
-// The generated composition root (ADR 2026-066, TN-26-012 §11).
+// The generated composition root (ADR 2026-067, TN-26-012 §11).
 //
 // Every app pack (web, MCP, Lambda, desktop) emits its app's
 // `composition-root.ts` through `compositionRoot` here, because what goes
@@ -53,7 +53,7 @@ export interface CompositionRootSpec {
 }
 
 const HEADER = [
-  "// Generated from the design (ADR 2026-066); do not edit: the design gate regenerates it.",
+  "// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.",
   "// The one place that decides which adapter backs which port.",
 ];
 
@@ -115,8 +115,11 @@ export function compositionStorage(facts: ProjectFacts): AdapterTechnology {
   return chosen[0]!;
 }
 
-/** `DATABASE_URL` → `databaseUrl`. */
-const envFunction = (env: string): string => camelCase(env.toLowerCase().split("_").filter((w) => w !== "").join("-"));
+/** `DATABASE_URL` → `connectionUrl`. */
+/** The URL helper's one fixed name. Deriving it from the variable could
+ *  collide with a local (`DB` → `db`); every other local is `db`,
+ *  `<context>Db` or a PascalCase class, and the driver may not take it. */
+export const CONNECTION_URL = "connectionUrl";
 
 function packageOf(facts: ProjectFacts, context: string): string {
   return facts.workspaces.find((w) => w.dir === `contexts/${context}`)?.packageName ?? `${facts.scope}/${context}`;
@@ -146,8 +149,11 @@ export function compositionRoot(facts: ProjectFacts, spec: CompositionRootSpec):
         throw new Error(`${spec.app.dir} (${spec.app.kind}) runs on '${runtime ?? "no runtime"}', for which the storage technology ` +
           `'${storage.id}' declares no connect driver`);
       }
+      if (driver.function === CONNECTION_URL || driver.function === "db") {
+        throw new Error(`the storage technology '${storage.id}' names its connect function '${driver.function}', a name the composition root uses itself`);
+      }
       const connect = imports.value(driver.function, driver.from, () => `${camelCase(storage.id)}${pascalCase(driver.function)}`);
-      const url = envFunction(storage.connect.env);
+      const url = CONNECTION_URL;
       helpers.set(url, [
         `// ${storage.connect.env} comes only from the environment: never a hard-coded address, never a fallback.`,
         `function ${url}(): string {`,

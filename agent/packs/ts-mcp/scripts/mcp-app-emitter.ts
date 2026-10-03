@@ -2,7 +2,7 @@
 // workspace a TN declares with kind `mcp`.
 //
 //   src/main.ts               skeleton: connects the composed server to a stdio transport
-//   src/composition-root.ts   generated (ADR 2026-066): composeApp(), the context's MCP server with
+//   src/composition-root.ts   generated (ADR 2026-067): composeApp(), the context's MCP server with
 //                             every exposed feature's handler and adapters, grouped by area
 //
 // An MCP app hosts exactly one context's server: the context whose features

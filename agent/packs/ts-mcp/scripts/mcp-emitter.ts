@@ -106,7 +106,7 @@ function toolFile(feature: FeatureContractModel): string[] {
 }
 
 function serverFile(context: string, features: readonly FeatureContractModel[]): string[] {
-  // Grouped by area, as the tRPC router nests (ADR 2026-066).
+  // Grouped by area, as the tRPC router nests (ADR 2026-067).
   const groups = groupsOf(features);
   return [
     `import { McpServer } from "${SDK_SERVER}";`,

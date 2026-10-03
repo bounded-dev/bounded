@@ -331,12 +331,12 @@ function barrelExports(text: string, path: string): { names: Map<string, string>
 }
 
 /**
- * The imported values a module constructs with `new` (`new CreateNoteHandler(…)`),
+ * The imported values the export `name` of a module constructs with `new` (`new CreateNoteHandler(…)`),
  * as `{ spec, name }`, or undefined when it does not parse. A generated module
  * that constructs authored classes is wiring (a generated composition root,
- * ADR 2026-066): using it runs them, so it reaches what it constructs.
+ * ADR 2026-067): using it runs them, so it reaches what it constructs.
  */
-function constructedImports(text: string, path: string): { spec: string; name: string }[] | undefined {
+function constructedImports(text: string, path: string, name: string): { spec: string; name: string }[] | undefined {
   let ast: TSESTree.Program;
   try {
     ast = parseForESLint(text, { filePath: path, range: true }).ast as TSESTree.Program;
@@ -366,7 +366,18 @@ function constructedImports(text: string, path: string): { spec: string; name: s
     }
     for (const [key, child] of Object.entries(node)) if (key !== "parent" && key !== "range" && key !== "loc") visit(child);
   };
-  visit(ast.body);
+  // Only the declaration of the binding the test imports counts: a test of a
+  // module's other export reaches none of what this one constructs.
+  const declaration = ast.body.flatMap((statement): TSESTree.Node[] => {
+    if (statement.type !== "ExportNamedDeclaration" || statement.declaration === null || statement.source !== null) return [];
+    const d = statement.declaration;
+    if (d.type === "FunctionDeclaration" && d.id?.name === name) return [d];
+    if (d.type === "ClassDeclaration" && d.id?.name === name) return [d];
+    if (d.type === "VariableDeclaration") return d.declarations.filter((v) => v.id.type === "Identifier" && v.id.name === name);
+    return [];
+  });
+  // A namespace import (`root.composeApp()`) may reach any export.
+  visit(name === "*" ? ast.body : declaration);
   return out;
 }
 
@@ -459,7 +470,7 @@ export function subjectResolver(cwd: string, packsDir?: string): SubjectResolver
     const barrel = barrelExports(text, path);
     if (barrel === undefined) {
       // Generated wiring that constructs authored classes reaches them.
-      const constructed = constructedImports(text, path);
+      const constructed = constructedImports(text, path, name);
       if (constructed === undefined) return "generated";
       const kinds = constructed.map((c) => classify(path, c.spec, c.name, depth + 1)).filter((k) => k !== "none" && k !== "generated");
       return kinds.length === 0 ? "generated" : combineKinds(kinds);

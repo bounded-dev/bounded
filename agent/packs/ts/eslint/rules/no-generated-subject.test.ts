@@ -89,11 +89,50 @@ test("a", () => { expect(CreateNoteCommand.parse(1).ok).toBe(false); });
     const found = await problems("apps/web/src/server/router.test.ts", `import { expect, test } from "bun:test";
 import { createNotebookRouter } from "@demo/notebook/adapters/trpc";
 test("lists", async () => {
-  const router = createNotebookRouter({ createNote: { execute: async () => { throw new Error("x"); } }, listNotes: { execute: async () => [] } });
+  const router = createNotebookRouter({ notes: { create: { execute: async () => { throw new Error("x"); } }, list: { execute: async () => [] } } });
   expect(await router.createCaller({}).notes.list()).toEqual([]);
 });
 `);
     expect(found).toHaveLength(1);
+  });
+
+  // The composition root is generated too (ADR 2026-067), but composeApp
+  // constructs the builder's handlers and stores, so the smoke test reaches them.
+  test("allows the app smoke test: composeApp builds authored handlers and stores", async () => {
+    expect(await problems("apps/web/src/server/smoke.test.ts", `import { expect, test } from "bun:test";
+import { composeApp } from "./composition-root.ts";
+test("lists", async () => { expect(await composeApp().createCaller({}).notes.list()).toEqual([]); });
+`)).toEqual([]);
+  });
+
+  test("only the imported binding counts: another export of the composition root that constructs nothing is refused", async () => {
+    const path = join(f.dir, "apps/web/src/server/composition-root.ts");
+    const original = readFileSync(path, "utf8");
+    writeFileSync(path, `${original}\nexport function rootLabel(): string {\n  return "web";\n}\n`);
+    try {
+      const found = await problems("apps/web/src/server/label.test.ts", `import { expect, test } from "bun:test";
+import { rootLabel } from "./composition-root.ts";
+test("label", () => { expect(rootLabel()).toBe("web"); });
+`);
+      expect(found).toHaveLength(1);
+      expect(found[0]!.message).toContain("rootLabel from ./composition-root.ts");
+    } finally {
+      writeFileSync(path, original);
+    }
+  });
+
+  test("importing composeApp does not excuse a test that uses only the generated router", async () => {
+    const found = await problems("apps/web/src/server/router2.test.ts", `import { expect, test } from "bun:test";
+import { createNotebookRouter } from "@demo/notebook/adapters/trpc";
+import { composeApp } from "./composition-root.ts";
+void composeApp;
+test("lists", async () => {
+  const router = createNotebookRouter({ notes: { create: { execute: async () => { throw new Error("x"); } }, list: { execute: async () => [] } } });
+  expect(await router.createCaller({}).notes.list()).toEqual([]);
+});
+`);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.message).toContain("createNotebookRouter from @demo/notebook/adapters/trpc");
   });
 });
 

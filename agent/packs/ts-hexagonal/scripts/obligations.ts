@@ -18,7 +18,7 @@
 // And per app workspace, at green only (Q2): a composition-root.test.ts next
 // to every composition-root.ts, the app's smoke test, which imports a
 // compose… function from ./composition-root.ts and calls it. The composition
-// root is generated (ADR 2026-066), but what it constructs is the builder's, so
+// root is generated (ADR 2026-067), but what it constructs is the builder's, so
 // red cannot ask for it.
 
 import type { ObligationGap, ObligationInput, TestObligation } from "../../ts/pack.ts";

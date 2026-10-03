@@ -259,7 +259,7 @@ the TN; everything else is written by a generator or a worker.
   The value is an app kind a composed pack provides (`web`, `mcp`,
   `lambdas`, `desktop`). Contexts are never declared: they come from contract
   paths. The design gate seeds each app's entry files, generates its
-  `composition-root.ts` (ADR 2026-066: every handler the app exposes, built
+  `composition-root.ts` (ADR 2026-067: every handler the app exposes, built
   with its out ports and grouped by area), and the config sync writes its
   manifest.
 - **Generated and skeleton files.** From your contracts the design gate

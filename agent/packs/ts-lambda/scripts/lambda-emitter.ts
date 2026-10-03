@@ -37,14 +37,14 @@ export const lambdaFactory = (feature: FeatureContractModel): string => `create$
 
 const file = (path: string, lines: readonly string[]): EmittedFile => ({ path, content: `${lines.join("\n")}\n`, mode: "generated" });
 
-/** The grouped dependency object holding one in port (ADR 2026-066):
+/** The grouped dependency object holding one in port (ADR 2026-067):
  *  `{ projects: { export: port } }`. */
 export function groupedArgument(feature: FeatureContractModel, value: string): string {
   return `{ ${camelCase(feature.area)}: { ${routeKey(feature.area, feature.feature)}: ${value} } }`;
 }
 
 function lambdaFile(feature: FeatureContractModel): string[] {
-  // The factory takes the grouped shape every in adapter takes (ADR 2026-066),
+  // The factory takes the grouped shape every in adapter takes (ADR 2026-067),
   // holding its one in port, so a composition root builds one shape everywhere.
   const port = groupedPath(feature);
   const input = feature.input;

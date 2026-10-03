@@ -7,7 +7,7 @@ import { emitMcpApps } from "./mcp-app-emitter.ts";
 
 // The app-template golden (WI-7): the MCP app seeded from the worked
 // example's design is the example's apps/mcp, with the composition root
-// generated: the example's, its dependencies grouped by area (ADR 2026-066).
+// generated: the example's, its dependencies grouped by area (ADR 2026-067).
 
 describe("the MCP app of the worked example", () => {
   const emitted = emitMcpApps(exampleFacts());

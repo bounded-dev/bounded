@@ -40,7 +40,7 @@ describe("the Lambda app of the worked example", () => {
     ]);
     expect(emitted[1]!.content).toBe(readExample("apps/lambdas/src/export-projects.ts"));
     // The reference copy's composition root is the generated one: the
-    // example's, with its dependencies grouped by area (ADR 2026-066).
+    // example's, with its dependencies grouped by area (ADR 2026-067).
     expect(emitted[0]!.content).toBe(readExample("apps/lambdas/src/composition-root.ts"));
     expect(emitted[0]!.content).toContain([
       "export function composeExportProjects(): ReturnType<typeof createExportProjectsLambda> {",

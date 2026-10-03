@@ -18,7 +18,7 @@ names they derive, the contract shapes they parse, and which files are
 generated, skeleton or role-authored. Every rule below is deterministic;
 where the example leaves a choice open, this note makes it.
 
-Decisions are in ADRs 2026-056 to 2026-064 and 2026-066. Throughout, `C` stands for
+Decisions are in ADRs 2026-056 to 2026-064 and 2026-067. Throughout, `C` stands for
 `contexts/<context>/src`, `<scope>` for the package scope with its `@`
 (`@example`), and names in angle brackets are kebab-case unless the rule
 says otherwise. The derivation functions are in
@@ -85,7 +85,7 @@ workspace directory is its source root's parent; its package name is
 | Adapter class prefix | `pascal(tech id)` (`adapterClassPrefix`) | `InMemory`, `Drizzle`, `Console` |
 | Out-adapter class | `<Prefix><Port>` in `<feature>.<role>.ts` | `InMemoryCreateNoteStore`, `ConsoleProjectExporter` |
 | Storage database | `<Prefix>Database` in `<tech>-database.ts` | `InMemoryDatabase` |
-| Composition dependency key | `camel(area)`, then `routeKey(area, feature)` (`dependencyGroups`, ADR 2026-066) | `notes.create` |
+| Composition dependency key | `camel(area)`, then `routeKey(area, feature)` (`dependencyGroups`, ADR 2026-067) | `notes.create` |
 | Package | `<scope>/<workspace dir name>` | `@example/project-management` |
 | Package export | `./domain`, `./application`, `./adapters/<tech>` | `./adapters/in-memory` |
 | CQRS kind | `query` when the first word is `count`, `find`, `get`, `list` or `search`; otherwise `command` (`featureKind`) | `list-notes` is a query |
@@ -312,7 +312,7 @@ barrel.
 ## 6. In adapters (generated)
 
 Only features whose in port names the technology in `@exposedVia` get files.
-Deps objects are grouped by area (ADR 2026-066): `{ <camel(area)>: { <routeKey>: <InPort>, … }, … }`, areas
+Deps objects are grouped by area (ADR 2026-067): `{ <camel(area)>: { <routeKey>: <InPort>, … }, … }`, areas
 sorted, features sorted within each area. File lists and
 barrels are sorted by path.
 
@@ -326,7 +326,7 @@ example:
 
 | Area / feature | Key | Example file |
 |---|---|---|
-| `notes/create-note` | `create` | `in/trpc/notes/notes.router.ts`: `create: createNoteProcedure(deps.createNote)` |
+| `notes/create-note` | `create` | `in/trpc/notes/notes.router.ts`: `create: createNoteProcedure(deps.create)` |
 | `notes/list-notes` | `list` | same file: `list: listNotesProcedure(deps.listNotes)` |
 | `projects/create-project` | `create` | `in/trpc/projects/projects.router.ts` |
 | `projects/list-projects` | `list` | same file |
@@ -383,7 +383,7 @@ Tool names are `toolName(feature)` = `snake(feature)`: `create_project`,
 | `in/lambda/<area>/<feature>.lambda.ts` | `export const create<InPort>Lambda = (deps: { <camel(area)>: { <routeKey>: <InPort> } }) => async (): Promise<void> => { await deps.<camel(area)>.<routeKey>.execute(); };` (for an input-less `void` feature, as `export-projects`; a feature with input takes `(event: unknown)`, parses it with its command and answers as a tRPC procedure does) |
 | `in/lambda/index.ts` | one `export { create<InPort>Lambda } from "./<area>/<feature>.lambda.ts";` per feature |
 
-### Composition roots (generated, ADR 2026-066)
+### Composition roots (generated, ADR 2026-067)
 
 Each app pack emits its app's composition root through ts-hexagonal's
 `compositionRoot` (`packs/ts-hexagonal/scripts/composition-root.ts`):
@@ -405,12 +405,13 @@ order:
 - Any other port gets `new <Prefix><Port>()` from the first `@implementedBy`
   id, which must be a composed out technology without storage.
 - The database is created once per function, before the `return`. A
-  connected technology gives `const db = <function>(<env helper>())`, with
+  connected technology gives `const db = <function>(connectionUrl())`, with
   the function imported from the module `connect.runtimes[<app runtime>]`
   names. Otherwise there is `const db = new <Prefix>Database();` per context
-  (`<camel(context)>Db` when one function spans several). The env helper,
-  `camel(<env>)` (`databaseUrl`), throws when the variable is unset or
-  empty.
+  (`<camel(context)>Db` when one function spans several). The helper
+  `connectionUrl()`, one fixed name, reads `process.env.<env>` and throws
+  when it is unset or empty. `connect.env` is a plain upper-case
+  identifier (`DATABASE_URL`).
 - Imports are sorted by module, values then `type` names. A name two
   contexts export is imported once as is, and as
   `<pascal(context)><Name>` from the next context.
@@ -465,9 +466,9 @@ The globs are the `generatedFileGlobs` each pack contributes:
 | `contexts/*/src/application/*/*/*.command.ts` | ts-hexagonal | WI-5 |
 | `contexts/*/src/adapters/out/*/index.ts` | ts-hexagonal | WI-5 |
 | `contexts/*/src/adapters/in/trpc/**` | ts-trpc | WI-7 |
-| `apps/*/src/server/composition-root.ts` | ts-web | ADR 2026-066 |
-| `apps/*/src/main/composition-root.ts` | ts-desktop | ADR 2026-066 |
-| `apps/*/src/composition-root.ts` | ts-mcp, ts-lambda | ADR 2026-066 |
+| `apps/*/src/server/composition-root.ts` | ts-web | ADR 2026-067 |
+| `apps/*/src/main/composition-root.ts` | ts-desktop | ADR 2026-067 |
+| `apps/*/src/composition-root.ts` | ts-mcp, ts-lambda | ADR 2026-067 |
 | `contexts/*/src/adapters/in/mcp/**` | ts-mcp | WI-7 |
 | `contexts/*/src/adapters/in/lambda/**` | ts-lambda | WI-7 |
 | `contexts/*/drizzle.config.ts` | ts-drizzle-postgres | WI-6 |
@@ -605,7 +606,7 @@ workspaces:
 | `testFileSuffixes` | data | core, same file | `string[]`; `testFileSuffixes(cwd)`, `testFileSuffixesFor(packs)`, `testFileSuffixesOrUnreadable(cwd)`, `hasTestFileSuffix(path, suffixes)` |
 | `generatedFileGlobs` | data | core, same file | `string[]`; `generatedFileGlobs(cwd)`, `generatedFileGlobsFor(packs)`, `generatedFileGlobsOrUnreadable(cwd)`, `pathGlobMatcher(globs)` |
 | `skeletonEmitters` | code | ts, `agent/packs/ts/pack.ts` | `Emitter { name; description; emit(facts: ProjectFacts): readonly EmittedFile[] }`, `EmittedFile { path; content; mode }`, `emittedFileProblem(file, emitter)` |
-| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), database? (storage), pins?, appPins?: { <runtime>: pins }, workspaceScripts?, connect? (storage: `{ env, runtimes: { <runtime>: { function, from } } }`, ADR 2026-066) }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
+| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), database? (storage), pins?, appPins?: { <runtime>: pins }, workspaceScripts?, connect? (storage: `{ env, runtimes: { <runtime>: { function, from } } }`, ADR 2026-067) }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
 | `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, runtime? (apps: required when a used technology has appPins; contexts: never), files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
 | `phaseTestPolicies` | code | ts, same file | `PhaseTestPolicy { name; description; decide({ project, phase: "red" \| "green" }) → run (prepare?(envChange), infrastructureFailure?) \| skip (red: env, unsetEnv, skippedTest) \| refuse (green) }`; ts-drizzle-postgres contributes the store-test rule (ADR 2026-064) |
 | `testObligations` | code | ts, same file | `TestObligation { name; description; phases?; check(input) → ObligationGap[] }` over the facts, the source-root files and the test-side sources; ts-hexagonal contributes the feature, store, out-adapter, in-adapter-laws and app levels (ADR 2026-063) |

@@ -154,7 +154,7 @@ declarations exactly, and replace each `throw new NotImplementedError(…)`.
   `<Tech>Database`. Mappers (`<concept>.mapper.ts`) rebuild value objects with
   `parse` and throw on corrupt rows.
 - **Composition roots** (`apps/<app>/src/**/composition-root.ts`) are
-  generated, not yours (ADR 2026-066). Each is the only place that constructs
+  generated, not yours (ADR 2026-067). Each is the only place that constructs
   handlers, stores, out adapters and in adapters. It builds every handler the
   app exposes with its out ports in contract order, shares one database, and
   passes the handlers grouped by area (`{ notes: { create, list } }`). Make

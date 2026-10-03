@@ -150,7 +150,7 @@ describe("the obligations on the notebook pipeline", () => {
     ]));
   });
 
-  test("the generated composition root still owes, and is satisfied by, the app's smoke test (ADR 2026-066)", () => {
+  test("the generated composition root still owes, and is satisfied by, the app's smoke test (ADR 2026-067)", () => {
     const f = scaffolded();
     const root = readFileSync(join(f.dir, "apps/web/src/server/composition-root.ts"), "utf8");
     expect(root.split("\n")[0]).toMatch(/^\/\/ Generated from the design/);

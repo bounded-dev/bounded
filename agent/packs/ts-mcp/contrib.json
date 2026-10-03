@@ -19,7 +19,7 @@
       }
     }
   ],
-  "//generatedFileGlobs": "The MCP in adapter, and the MCP app's composition root (ADR 2026-066), are generated from the design.",
+  "//generatedFileGlobs": "The MCP in adapter, and the MCP app's composition root (ADR 2026-067), are generated from the design.",
   "generatedFileGlobs": [
     "apps/*/src/composition-root.ts",
     "contexts/*/src/adapters/in/mcp/**"

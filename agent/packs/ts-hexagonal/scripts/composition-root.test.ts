@@ -5,7 +5,7 @@ import { EXAMPLE_CONTEXT, EXAMPLE_PACKS, exampleContracts, exampleFacts } from "
 import { type ComposeFunction, compositionRoot, compositionStorage } from "./composition-root.ts";
 import { contextModels } from "./context-model.ts";
 
-// The generated composition root's own rules (ADR 2026-066), beside the app
+// The generated composition root's own rules (ADR 2026-067), beside the app
 // packs' goldens: which storage backs the stores, how the database is made
 // once, the grouped shape, and what it refuses. The app packs supply only the
 // functions; this file plays every app kind through one spec.
@@ -43,16 +43,23 @@ describe("the storage a composition root constructs", () => {
     expect(compositionStorage(facts).id).toBe("drizzle");
     const bun = root(facts, "web", [composeApp(facts, "create-note")]);
     expect(bun).toContain('import { drizzle } from "drizzle-orm/bun-sql";');
-    expect(bun).toContain("  const db = drizzle(databaseUrl());\n");
+    expect(bun).toContain("  const db = drizzle(connectionUrl());\n");
     expect(bun).toContain("      create: new CreateNoteHandler(new DrizzleCreateNoteStore(db)),\n");
     expect(bun).toContain([
-      "function databaseUrl(): string {",
+      "function connectionUrl(): string {",
       "  const value = process.env.DATABASE_URL;",
       '  if (value === undefined || value === "") throw new Error("DATABASE_URL is not set");',
       "  return value;",
       "}",
     ].join("\n"));
     expect(bun).not.toContain("InMemory");
+    // The helper's name is fixed, so a variable named like a local cannot clash (review repro: `DB`).
+    const short = { ...facts, adapterTechnologies: facts.adapterTechnologies.map((t) =>
+      (t.id === "drizzle" ? { ...t, connect: { ...t.connect!, env: "DB" } } : t)) };
+    const db = root(short, "web", [composeApp(short, "create-note")]);
+    expect(db).toContain("  const db = drizzle(connectionUrl());\n");
+    expect(db).toContain("  const value = process.env.DB;\n");
+    expect(db.match(/\bdb\b/g)).toHaveLength(2);
     const node = root(facts, "lambdas", [composeApp(facts, "create-note")]);
     expect(node).toContain('import { drizzle } from "drizzle-orm/node-postgres";');
   });
@@ -84,6 +91,15 @@ describe("refusals", () => {
     const edited = { ...facts, adapterTechnologies: facts.adapterTechnologies.map((t) => (t.id === "drizzle" ? bunOnly : t)) };
     expect(() => root(edited, "lambdas", [composeApp(edited, "create-note")]))
       .toThrow("apps/lambdas (lambdas) runs on 'node', for which the storage technology 'drizzle' declares no connect driver");
+  });
+
+  test("a connect function named like the composition root's own locals", () => {
+    const facts = exampleFacts({ packs: WITH_POSTGRES });
+    const named = (fn: string) => ({ ...drizzle(facts), connect: { ...drizzle(facts).connect!, runtimes: { bun: { function: fn, from: "drizzle-orm/bun-sql" } } } });
+    for (const fn of ["db", "connectionUrl"]) {
+      const edited = { ...facts, adapterTechnologies: facts.adapterTechnologies.map((t) => (t.id === "drizzle" ? named(fn) : t)) };
+      expect(() => root(edited, "web", [composeApp(edited, "create-note")])).toThrow(`names its connect function '${fn}'`);
+    }
   });
 
   test("two connected storage technologies", () => {
@@ -141,7 +157,7 @@ describe("layout", () => {
     const spec = { app: app(facts, "web"), path: "apps/web/src/server/composition-root.ts", imports: [], functions: [composeApp(facts, "create-note")] };
     const file = compositionRoot(facts, spec);
     expect(file.mode).toBe("generated");
-    expect(file.content.split("\n")[0]).toBe("// Generated from the design (ADR 2026-066); do not edit: the design gate regenerates it.");
+    expect(file.content.split("\n")[0]).toBe("// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.");
     expect(compositionRoot(facts, spec)).toEqual(file);
   });
 });

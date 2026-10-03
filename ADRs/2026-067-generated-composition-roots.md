@@ -1,4 +1,4 @@
-# 2026-066: Composition roots are generated, their dependencies grouped by area
+# 2026-067: Composition roots are generated, their dependencies grouped by area
 
 **Status:** accepted
 
@@ -25,11 +25,13 @@ function names and its imports. The function builds the rest:
   and, per app runtime, the function and module that connect (`drizzle`
   from `drizzle-orm/bun-sql` on Bun, `drizzle-orm/node-postgres` on Node).
   The module's package must be in that runtime's `appPins`. The URL is read
-  through a helper that refuses an unset value and never falls back.
+  through one fixed helper, `connectionUrl()`, that refuses an unset value
+  and never falls back. `env` must be a plain upper-case identifier.
 - **The names stay** `composeApp()` and `compose<Entry>()`, so entry files and
-  app smoke tests are unchanged. The smoke test is still owed. A generated
-  module that constructs authored classes counts as reaching them, so the
-  test lint does not refuse the smoke test as a test of generated code.
+  app smoke tests are unchanged. The smoke test is still owed. An export of a
+  generated module that constructs authored classes (`composeApp`) counts as
+  reaching them, so the test lint does not refuse the smoke test as a test
+  of generated code. Its other exports, and the generated router, do not.
 - **Dependencies are grouped by area,** the generated router's namespaces:
   `createNetWorthRouter({ members: { add, list, rename }, … })`. The key is
   `camel(area)`, then the feature's `routeKey` (`dependencyGroups` in

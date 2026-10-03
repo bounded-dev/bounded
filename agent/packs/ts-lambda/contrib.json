@@ -14,7 +14,7 @@
       "description": "One Lambda handler factory per feature tagged @exposedVia lambda, bundled for the Node runtime by the lambdas app"
     }
   ],
-  "//generatedFileGlobs": "The Lambda in adapter, and the Lambda app's composition root (ADR 2026-066), are generated from the design.",
+  "//generatedFileGlobs": "The Lambda in adapter, and the Lambda app's composition root (ADR 2026-067), are generated from the design.",
   "generatedFileGlobs": [
     "apps/*/src/composition-root.ts",
     "contexts/*/src/adapters/in/lambda/**"

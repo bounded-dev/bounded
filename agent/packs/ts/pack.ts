@@ -645,7 +645,7 @@ export interface AdapterTechnology {
    *  belongs to one technology across the composition. */
   readonly workspaceScripts?: Readonly<Record<string, string>>;
   /** Storage technologies only: how a generated composition root connects
-   *  to the technology's database (ADR 2026-066). `env` names the variable
+   *  to the technology's database (ADR 2026-067). `env` names the variable
    *  the connection URL is read from, once per compose function; each app
    *  runtime names a function and the module it is imported from, called
    *  with that URL, whose result every store of the technology receives
@@ -656,7 +656,7 @@ export interface AdapterTechnology {
   readonly description: string;
 }
 
-/** A storage technology's connection, per app runtime (ADR 2026-066). */
+/** A storage technology's connection, per app runtime (ADR 2026-067). */
 export interface AppConnection {
   readonly env: string;
   readonly runtimes: Readonly<Record<string, { readonly function: string; readonly from: string }>>;
@@ -716,7 +716,8 @@ function checkedAppPins(value: unknown, where: string): Record<string, Pins> {
   return out;
 }
 
-const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
+/** A plain upper-case identifier: words of capitals and digits joined by single underscores (`DATABASE_URL`). */
+const ENV_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/;
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const MODULE_SPECIFIER = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
 
@@ -727,7 +728,7 @@ export const packageOfSpecifier = (specifier: string): string =>
 function checkedConnect(value: unknown, appPins: Readonly<Record<string, Pins>> | undefined, where: string): AppConnection {
   const entry = strictObject(value, ["env", "runtimes"], `${where} connect`);
   if (typeof entry.env !== "string" || !ENV_NAME.test(entry.env)) {
-    throw new Error(`${where} connect.env must be an upper-case environment variable name`);
+    throw new Error(`${where} connect.env must be a plain upper-case identifier such as DATABASE_URL`);
   }
   const runtimes = strictObject(entry.runtimes, Object.keys(entry.runtimes ?? {}), `${where} connect.runtimes`);
   if (Object.keys(runtimes).length === 0) throw new Error(`${where} connect.runtimes must name at least one app runtime`);

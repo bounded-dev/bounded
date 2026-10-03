@@ -50,7 +50,7 @@ and what comes back is plain `toJSON` data. Nobody writes tests under
 ## What the builder writes
 
 Not the composition roots: each app's (`composeApp()`, or one
-`compose<Feature>()` per Lambda) is generated too (ADR 2026-066). It builds
+`compose<Feature>()` per Lambda) is generated too (ADR 2026-067). It builds
 every handler with its stores and passes them to the generated factory,
 grouped by area as the router nests them:
 `createProjectManagementRouter({ notes: { create, list }, projects: { … } })`.

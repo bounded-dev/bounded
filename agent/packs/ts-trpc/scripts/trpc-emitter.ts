@@ -95,7 +95,7 @@ function areaRouterFile(group: DependencyGroup<FeatureContractModel>): string[] 
 }
 
 function contextRouterFile(context: string, groups: readonly DependencyGroup<FeatureContractModel>[]): string[] {
-  // Grouped by area, as the router nests (ADR 2026-066): `deps.notes` feeds `notes.*`.
+  // Grouped by area, as the router nests (ADR 2026-067): `deps.notes` feeds `notes.*`.
   const members = groups.map((g) => `${g.key}: Parameters<typeof ${areaRouterFactory(g.area)}>[0]`);
   const deps = `type Deps = { ${members.join("; ")} };`;
   return [

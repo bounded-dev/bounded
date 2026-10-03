@@ -117,6 +117,9 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     ["connect on a technology without storage", [{ ...CONSOLE, connect: { env: "URL", runtimes: { bun: { function: "f", from: "x" } } } }],
       /not a storage technology and cannot declare connect/],
     ["a connect env that is not an environment variable", [{ ...DB, connect: { ...DB.connect, env: "database-url" } }], /connect\.env must be/],
+    ["a connect env with a doubled underscore", [{ ...DB, connect: { ...DB.connect, env: "DATABASE__URL" } }], /plain upper-case identifier/],
+    ["a connect env with a trailing underscore", [{ ...DB, connect: { ...DB.connect, env: "DATABASE_" } }], /plain upper-case identifier/],
+    ["a connect env in mixed case", [{ ...DB, connect: { ...DB.connect, env: "Database_Url" } }], /plain upper-case identifier/],
     ["a connect with no runtimes", [{ ...DB, connect: { env: "DATABASE_URL", runtimes: {} } }], /at least one app runtime/],
     ["a connect field typo", [{ ...DB, connect: { ...DB.connect, url: "x" } }], /connect has an unknown field 'url'/],
     ["a connect driver that is not a function name", [{ ...DB, connect: { env: "DATABASE_URL", runtimes: { bun: { function: "a b", from: "orm/bun" } } } }],
@@ -153,7 +156,7 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     expect(plain).not.toHaveProperty("appPins");
   });
 
-  test("connect is read with its runtimes sorted; absent when not declared (ADR 2026-066)", () => {
+  test("connect is read with its runtimes sorted; absent when not declared (ADR 2026-067)", () => {
     const both = { ...DB, appPins: { node: { dependencies: { orm: "1.0.0" } }, bun: { dependencies: { orm: "1.0.0" } } },
       connect: { env: "DATABASE_URL", runtimes: { node: { function: "connect", from: "orm/node" }, bun: { function: "connect", from: "orm/bun" } } } };
     const [read] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [both] } }));

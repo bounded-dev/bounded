@@ -37,7 +37,7 @@ The root `docker-compose.yml`, `.env.example`, `scripts/check-db.ts` and
   passes one shared database, connected with the driver for the app's
   runtime (`drizzle-orm/bun-sql` for Bun apps, `drizzle-orm/node-postgres`
   with `pg` for Lambdas and the desktop app's main process; this pack's
-  `connect`, ADR 2026-066). Each app's manifest already pins its driver. A store
+  `connect`, ADR 2026-067). Each app's manifest already pins its driver. A store
   never imports a driver, and nothing outside `adapters/out/drizzle/` imports
   Drizzle.
 - Query with Drizzle's query builder over the table objects in `schema/`

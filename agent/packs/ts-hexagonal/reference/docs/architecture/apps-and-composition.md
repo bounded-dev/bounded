@@ -16,7 +16,7 @@ and returns the finished in adapter (a router, an MCP server, a Lambda function)
 ```ts
 // composition-root.ts
 export function composeApp(): ContextRouter {
-  const db = drizzle(databaseUrl());
+  const db = drizzle(connectionUrl());
 
   return createContextRouter({
     items: {

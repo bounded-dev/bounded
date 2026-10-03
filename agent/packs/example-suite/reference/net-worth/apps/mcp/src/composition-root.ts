@@ -1,4 +1,4 @@
-// Generated from the design (ADR 2026-066); do not edit: the design gate regenerates it.
+// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.
 // The one place that decides which adapter backs which port.
 import {
   DrizzleAddMemberStore,
@@ -62,7 +62,7 @@ import {
 import { drizzle } from "drizzle-orm/bun-sql";
 
 export function composeApp(): ReturnType<typeof createNetWorthMcpServer> {
-  const db = drizzle(databaseUrl());
+  const db = drizzle(connectionUrl());
 
   return createNetWorthMcpServer({
     accounts: {
@@ -104,7 +104,7 @@ export function composeApp(): ReturnType<typeof createNetWorthMcpServer> {
 }
 
 // DATABASE_URL comes only from the environment: never a hard-coded address, never a fallback.
-function databaseUrl(): string {
+function connectionUrl(): string {
   const value = process.env.DATABASE_URL;
   if (value === undefined || value === "") throw new Error("DATABASE_URL is not set");
   return value;
