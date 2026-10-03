@@ -300,6 +300,62 @@ describe("the check, end to end", () => {
     expect(check(repo, red).code).toBe(0);
   });
 
+  describe("the red commit's cases must still run, pass and assert at the head", () => {
+    function weakenAtHead(files: Readonly<Record<string, string>>): { code: number; out: string } {
+      const { repo } = fixtureRepo();
+      const red = commit(repo, "red", { "pkg/test/add.test.ts": RED_TEST });
+      commit(repo, "green", { "pkg/src/add.ts": IMPL, ...files });
+      return check(repo, red);
+    }
+    const headTest = (from: string, to: string) => ({ "pkg/test/add.test.ts": RED_TEST.replace(from, to) });
+
+    test("a test file renamed out of the runner's reach fails", () => {
+      const { repo } = fixtureRepo();
+      const red = commit(repo, "red", { "pkg/test/add.test.ts": RED_TEST });
+      commit(repo, "green", { "pkg/src/add.ts": IMPL });
+      git(repo, "mv", "pkg/test/add.test.ts", "pkg/test/add.disabled.ts");
+      git(repo, "commit", "-q", "-m", "park the test");
+      const result = check(repo, red);
+      expect(result.code).toBe(1);
+      expect(result.out).toMatch(/head: pkg\/test\/add\.disabled\.ts.*not collect/);
+    });
+
+    test("a test file excluded in the runner's configuration fails", () => {
+      const result = weakenAtHead({
+        "pkg/vitest.config.mjs": 'export default { test: { exclude: ["**/node_modules/**", "test/add.test.ts"] } };\n',
+      });
+      expect(result.code).toBe(1);
+      expect(result.out).toMatch(/head: pkg\/test\/add\.test\.ts.*not collect/);
+    });
+
+    test("a case that skips itself at run time fails", () => {
+      const result = weakenAtHead(headTest('test("adds two numbers", () => {', 'test("adds two numbers", (ctx) => { ctx.skip();'));
+      expect(result.code).toBe(1);
+      expect(result.out).toMatch(/head: .*"adds two numbers".*skipped/);
+    });
+
+    test("a case that returns before its assertions fails", () => {
+      const result = weakenAtHead(headTest("{ expect(add(1, 2)).toBe(3); }", "{ return; expect(add(1, 2)).toBe(3); }"));
+      expect(result.code).toBe(1);
+      expect(result.out).toMatch(/head: .*"adds two numbers".*no assertions/);
+    });
+
+    test("a case whose assertions sit behind a false condition fails", () => {
+      const result = weakenAtHead(headTest("{ expect(add(1, 2)).toBe(3); }", "{ if (false) { expect(add(1, 2)).toBe(3); } }"));
+      expect(result.code).toBe(1);
+      expect(result.out).toMatch(/head: .*"adds two numbers".*no assertions/);
+    });
+
+    test("a case that fails at the head fails", () => {
+      const { repo } = fixtureRepo();
+      const red = commit(repo, "red", { "pkg/test/add.test.ts": RED_TEST });
+      commit(repo, "half green", { "pkg/src/add.ts": STUB.replace("return 0;", "return a === 5 || b === 5 ? 5 : 3;") });
+      const result = check(repo, red);
+      expect(result.code).toBe(1);
+      expect(result.out).toMatch(/head: .*"adds zero".*failed/);
+    });
+  });
+
   test("refuses a red commit that is not on the branch, or a branch that does not exist", () => {
     const { repo, base } = fixtureRepo();
     const red = commit(repo, "red", { "pkg/test/add.test.ts": RED_TEST });
