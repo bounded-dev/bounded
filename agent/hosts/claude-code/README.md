@@ -35,6 +35,7 @@ capabilities and still needs a live run before its behavior can be claimed.
 | `tool-map.ts` | Claude Code tool call → pi tool call(s): `Read {file_path}` → `read {path}`, `Agent {subagent_type}` → `subagent {agent}`, and so on. |
 | `bash-policy.ts` | What a role may put through Bash: `bounded gates <gate>` for the gates in its `ROLE_TOOLS`, plus `git`, `sleep`, `rm <path>`, `ls` and `find` where the role holds the pi tool. Everything else refused. |
 | `listing.ts` | The names-only `ls` / `find` grammar every role, the lead and the scout list files with. |
+| `spill-read.ts` | Whether a `Read` of a Claude Code saved tool output is the caller's own, proven from the caller's own transcript (ADR 2026-069). |
 | `continuation.ts` | How a finished worker is continued here: `SendMessage` to a recorded worker, and the records that license a relaunch. |
 | `render-agents.ts` | Generates `.claude/agents/<role>.md` from `agents/<role>.md`: `tools:` from `ROLE_TOOLS`, `hooks:` binding the role, the pi brief verbatim under a host preamble. |
 | `project-install.ts` | Adds the read-only scout, team-lead skill, and main-session lead instructions to an initialized project. |
@@ -47,6 +48,17 @@ capabilities and still needs a live run before its behavior can be claimed.
   `decide()` against the role's zones. A blind role cannot read the other
   side's work product; every role's writes are confined to its zone; `.git`
   and `.bounded` are protected as in pi.
+- **A seat's own saved output** (ADR 2026-069). When a tool result is too
+  large, Claude Code saves it under `<session>/tool-results/` and the caller
+  reads it from there. Any seat may `Read` such a file only when its own
+  transcript records that its own call produced it. Every subagent shares
+  that directory, so a blind role still cannot read the other side's output.
+  `Grep`, `Glob` and Bash over it stay refused.
+- **Session tools** (ADR 2026-069). `SubagentHandback` (a report to the
+  commissioning seat) and `ToolSearch` (loading a deferred tool's schema)
+  touch only the conversation. The lead may use both, the scout only the
+  handback, and every ticket seat both. A read-only seat's `SendMessage` is
+  refused with the way forward.
 - **Model tiers** (ADR 2026-022), planned by the same core as pi's
   (`planModelTier` over `.bounded/dev-stage-models.json`): an allowed spawn of a
   pipeline role is rewritten to the seat's tier, translated into the Agent
@@ -200,6 +212,12 @@ capabilities and still needs a live run before its behavior can be claimed.
   policy to the subagent too and blocks its writes. This fails closed but can
   stall the architect's loop; inspect hook payloads before claiming an end to
   end Claude Code delivery through the new entry path.
+- **Saved-output reads depend on Claude Code's transcript layout.** The
+  layout is undocumented: a session directory, a transcript per subagent, and
+  a `<persisted-output>` header on the tool result. Anything not recognised
+  exactly is refused, so a layout change closes these reads rather than
+  opening them. Ownership is proven by a tool result's text prefix matched
+  to an earlier call of the same agent, not by anything Claude Code signs.
 - **Lexical paths, as in pi.** The gate normalises paths without resolving
   symlinks. No role can create one (no `ln`, no shell), so the surface is the
   same as pi's.
@@ -316,7 +334,8 @@ It refuses arbitrary Bash and file edits even when an old
 commission: an architect starts only through `bounded lead start <issue>`.
 
 The generated scout definition binds its own hook with `--role scout`, which
-holds it to project reads (Read, and `ls` / `find` through Bash) and nothing else. Any other
+holds it to project reads (Read, and `ls` / `find` through Bash), its own
+saved outputs, and its report back to the lead (`SubagentHandback`). Any other
 subagent the project hook cannot prove is bound by its own generated
 definition — a built-in agent, a forked skill, a user's own definition — is
 held to that same read-only scout policy.
