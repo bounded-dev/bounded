@@ -730,6 +730,43 @@ describe("a later ticket takes a delivered ticket's contract", () => {
     expect(() => activeTicketDesign(root)).toThrow(/t24\.contract\.ts is claimed by ticket #24 and ticket #25/);
   });
 
+  test("abandoning the giver's later change run does not void a take already frozen", () => {
+    const root = taken();
+    const freezeHolds = (n: number, paths: string[]) => {
+      mkdirSync(join(root, `.bounded/tickets/${n}`), { recursive: true });
+      writeFileSync(join(root, `.bounded/tickets/${n}/contract-checksums.json`),
+        JSON.stringify({ files: Object.fromEntries(paths.map((p) => [p, "0"])) }));
+    };
+    freezeHolds(24, [t24, t24b]);
+    freezeHolds(25, [t24, t25]);
+    // Ticket #24's later change run is abandoned after #25 froze its take.
+    abandon(root, 24);
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(activeTicketDesign(root)?.contracts).toEqual([t24, t25]);
+    expect(ticketWriteScope(root)?.error).toBeUndefined();
+    // A NEW take from the abandoned ticket is still refused.
+    writeNote(root, 26, { contracts: [t24b], takes: [`${t24b} from TN-24`] });
+    vi.stubEnv("BOUNDED_TICKET", "26");
+    expect(() => activeTicketDesign(root)).toThrow(/TN-24.*abandoned/);
+  });
+
+  test("a refusal never offers a take from an abandoned owner", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24] });
+    mkdirSync(join(root, ".bounded/tickets/24"), { recursive: true });
+    writeFileSync(join(root, ".bounded/tickets/24/contract-checksums.json"), JSON.stringify({ files: { [t24]: "0" } }));
+    abandon(root, 24);
+    writeNote(root, 26, { contracts: [t24, c("t26")] });
+    vi.stubEnv("BOUNDED_TICKET", "26");
+    const state = resolveTicketDesign(root);
+    expect(state.kind).toBe("refused");
+    const reason = state.kind === "refused" ? state.reason : "";
+    expect(reason).toMatch(/belongs to ticket #24: after the active ticket is delivered, change it in a change run on ticket #24/);
+    expect(reason).not.toMatch(/takes:/);
+    writeNote(root, 26, { contracts: [c("t26")] });
+    expect(ticketWriteScope(root)?.foreign?.[t24]).not.toMatch(/takes:/);
+  });
+
   test("a superseded taker's take lapses", () => {
     const root = project();
     writeNote(root, 24, { contracts: [t24] });

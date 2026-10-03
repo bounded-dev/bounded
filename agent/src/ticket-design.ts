@@ -406,7 +406,9 @@ function takeRefusal(root: string, active: ListedDesign, claimants: readonly Cla
     if (!(contractList(fm.lines) ?? []).includes(take.path)) {
       return `${what}, but ${giver} does not list it; cite the note of the ticket that owns it`;
     }
-    if (isAbandoned(root, take.from)) {
+    // Only a NEW take is refused: one this ticket's own freeze does not hold
+    // yet. Abandoning the giver's later run does not void a frozen take.
+    if (isAbandoned(root, take.from) && !frozeContract(root, active.ticket, take.path)) {
       return `${what}, but ticket #${take.from} was abandoned (${abandonedMarker(take.from)}), so it cannot be taken from`;
     }
     const holder = claimants.find((claimant) => takesFrom(claimant, take.path, take.from));
@@ -456,7 +458,7 @@ function ownershipRefusal(root: string, path: string, claimants: readonly string
   const owner = froze.length === 1 ? froze[0] : froze.length === 0 && sorted.length === 1 ? sorted[0] : undefined;
   if (owner === undefined) return contestedContractRefusal(path, sorted);
   if (owner === active) return undefined;
-  return foreignContractRefusal(path, { ticket: owner, frozen: isFrozen(root, owner) }, active);
+  return foreignContractRefusal(path, { ticket: owner, frozen: isFrozen(root, owner), abandoned: isAbandoned(root, owner) }, active);
 }
 
 /** The claimants of `path` that no other claimant has taken it from. */
