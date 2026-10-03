@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -217,5 +217,76 @@ describe("once dependencies are ready", () => {
     expect(write.allowed).toBe(false);
     expect(log(root).some((event) => event["verdict"] === "error" &&
       (event["detail"] as Record<string, unknown>)["kind"] === "full-hook-failed")).toBe(true);
+  });
+});
+
+// ADR 2026-066: a call made in a ticket worktree under this project is judged
+// by that worktree's own harness, with the worktree as the project.
+describe("routing a ticket worktree's calls", () => {
+  const STUB = (who: string): string =>
+    `import { readFileSync } from "node:fs"; const p = JSON.parse(readFileSync(0, "utf8"));\n` +
+    `if (p.hook_event_name === "WorktreeCreate") { process.stderr.write("no"); process.exit(1); }\n` +
+    `process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "${who} " + process.env.CLAUDE_PROJECT_DIR + " " + process.argv.slice(2).join(" ") } }));\n`;
+
+  function ticketed(): { main: string; wt: string } {
+    const main = project();
+    markDependenciesReady(main);
+    fullHook(main, STUB("main"));
+    const wt = join(main, ".bounded", "worktrees", "7");
+    for (const rel of BOOTSTRAP_RUNTIME) {
+      mkdirSync(dirname(join(wt, ".bounded", "harness", rel)), { recursive: true });
+      cpSync(join(SOURCE, rel), join(wt, ".bounded", "harness", rel));
+    }
+    markDependenciesReady(wt);
+    fullHook(wt, STUB("worktree"));
+    writeFileSync(join(wt, ".bounded", "ticket-worktree.json"), JSON.stringify({ issue: 7, branch: "ticket/7", main, owns: [] }));
+    mkdirSync(join(wt, "src"), { recursive: true });
+    return { main, wt };
+  }
+
+  test("a subagent's call in the ticket worktree goes to the worktree's own hook, as its project, with its role", () => {
+    const { main, wt } = ticketed();
+    const routed = call(main, { ...tool("Write", { file_path: join(wt, "src/a.ts"), content: "" }, { agent_id: "a1", agent_type: "architect" }), cwd: join(wt, "src") }, ["--role", "architect"]);
+    expect(routed.reason).toBe(`worktree ${realpathSync(wt)} --project-local --role architect`);
+    const lead = call(main, tool("Read", { file_path: join(main, "README.md") }));
+    expect(lead.reason).toContain("main ");
+  });
+
+  test("a ticket worktree without a hook gets a refusal, never a pass", () => {
+    const { main, wt } = ticketed();
+    rmSync(join(wt, ".bounded", "harness", "hosts", "claude-code", "bootstrap-hook.ts"));
+    const out = call(main, { ...tool("Write", { file_path: join(wt, "x"), content: "" }, { agent_id: "a1" }), cwd: wt });
+    expect(out.allowed).toBe(false);
+    expect(out.reason).toContain("has no hook that could judge this call");
+  });
+
+  // Final review: a crashed worktree hook must never pass a call.
+  test("a worktree hook that crashes is a refusal; an explicit block (exit 2) passes through", () => {
+    const { main, wt } = ticketed();
+    const call7 = () => call(main, { ...tool("Write", { file_path: join(wt, "x"), content: "" }, { agent_id: "a1" }), cwd: wt });
+    const entry = join(wt, ".bounded", "harness", "hosts", "claude-code", "bootstrap-hook.ts");
+    const original = readFileSync(entry, "utf8");
+    writeFileSync(entry, `process.stderr.write("boom"); process.exit(1);\n`);
+    const crashed = call7();
+    writeFileSync(entry, original);
+    expect(crashed.allowed).toBe(false);
+    expect(crashed.reason).toContain("the ticket worktree's hook failed");
+    writeFileSync(entry, `process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "blocked" } })); process.exit(2);\n`);
+    const run = spawnSync(process.execPath, [join(main, ".bounded", "harness", "hosts", "claude-code", "bootstrap-hook.ts"), "--project-local"], {
+      cwd: main, env: { ...process.env, CLAUDE_PROJECT_DIR: main, BOUNDED_GUARD_LOG: "" },
+      input: JSON.stringify({ cwd: wt, hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(wt, "x") }, agent_id: "a1" }), encoding: "utf8",
+    });
+    expect(run.status).toBe(2);
+    expect(run.stdout).toContain("blocked");
+  });
+
+  test("WorktreeCreate's refusal by exit code passes through", () => {
+    const { main } = ticketed();
+    const run = spawnSync(process.execPath, [join(main, ".bounded", "harness", "hosts", "claude-code", "bootstrap-hook.ts"), "--project-local"], {
+      cwd: main, env: { ...process.env, CLAUDE_PROJECT_DIR: main, BOUNDED_GUARD_LOG: "" },
+      input: JSON.stringify({ cwd: main, hook_event_name: "WorktreeCreate", name: "agent-a1234567890abcdef" }), encoding: "utf8",
+    });
+    expect(run.status).toBe(1);
+    expect(run.stdout).toBe("");
   });
 });

@@ -41,6 +41,8 @@ import type { FlagSpec, GateArgs, GateCommand } from "../../../../src/gate-comma
 import { verdictLine } from "../../../../src/gate-result.ts";
 import { sessionRole } from "../../../../src/path-gate.ts";
 import { targetCwd } from "../../../../src/target-cwd.ts";
+import { runGateWithBoard } from "../../../../src/board-sync.ts";
+import { openTracker } from "../../../../trackers/index.ts";
 
 /** The one parameter every gate tool takes, worded once. */
 export const CWD_DESCRIPTION =
@@ -148,7 +150,9 @@ export function registerGateTools(
       parameters: toolParams(gate),
       async execute(_id, params, signal, _onUpdate, ctx) {
         const cwd = targetCwd(ctx.cwd, stringParam(params, "cwd"));
-        const result = await gate.run(cwd, { ...gateArgsFrom(gate, params), ...hostArgs(gate, ctx.cwd) });
+        // In a ticket worktree the board follows the gate (ADR 2026-066).
+        const result = await runGateWithBoard(cwd, gate,
+          () => gate.run(cwd, { ...gateArgsFrom(gate, params), ...hostArgs(gate, ctx.cwd) }), openTracker, sessionRole(ctx.cwd));
         // A cancelled call reports the cancellation, not a verdict the caller
         // never waited for (the gate itself has already run to completion).
         if (signal?.aborted) return { content: [{ type: "text", text: `${tool}: cancelled` }], details: {} };

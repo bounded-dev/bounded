@@ -7,7 +7,7 @@
 #   bounded handoff check <receipt.json> <producer-ref>
 #   bounded ticket                  # start a session bound to the ARCHITECT role
 #   bounded change-run [dir]        # open the boundary for a change run
-#   bounded lead prepare [--new] [ticket-number] # select a ticket run
+#   bounded lead <command>          # the team lead's tickets, worktrees and merges
 #   bounded adopt [--cwd dir]       # adopt an existing project
 #   bounded change-diff [--cwd dir] # compare a project change
 #

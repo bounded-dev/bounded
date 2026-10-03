@@ -17,6 +17,7 @@ import {
 import { COMPOSITION_FILE, writeProjectPacks } from "./project-composition.ts";
 import { lockFor, sourceLockPath, type RuntimePackage } from "./runtime-lock.ts";
 import { beforeFirstRun, HOST_PACKAGE_DIRS, SETUP_COMMAND } from "./setup-state.ts";
+import { TRACKER_CONFIG_RELATIVE } from "./tracker.ts";
 import {
   offeredSurfaces, selectForSurfaces, type SurfaceDecisions, type SurfacePack, type SurfaceSelection,
 } from "./product-surfaces.ts";
@@ -366,7 +367,8 @@ function localizeRoleSources(harnessRoot: string, host: InitHost): void {
     let rendered = original.replace(/\bbounded change-run\b/g, "bash .bounded/harness/scripts/bounded change-run");
     rendered = localPackPaths(rendered);
     if (host === "pi") rendered = rendered.replace(/~\/\.pi\/agent\/hosts\/pi\/extensions\/path-gate\//g,
-      "./.bounded/harness/hosts/pi/extensions/path-gate/");
+      // Relative to .pi/agents/, where pi-subagents resolves a definition's loader.
+      "../../.bounded/harness/hosts/pi/extensions/path-gate/");
     else rendered = rendered.replace(/^subagentOnlyExtensions: ~\/\.pi\/agent\/[^\n]+\n/gm, "");
     if (rendered !== original) writeFileSync(absolute, rendered);
   }
@@ -511,6 +513,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
   const omit = (path: string): boolean => /(^|\/)(?:node_modules|testdata)(\/|$)/.test(path) || /(?:^|\.)test\.ts$/.test(path) ||
     path === "project-init.ts" || path === "project-init-cli.ts";
   copyTree(join(agentRoot, "src"), join(harnessRoot, "src"), omit);
+  copyTree(join(agentRoot, "trackers"), join(harnessRoot, "trackers"), omit);
   copyTree(join(agentRoot, "skills"), join(harnessRoot, "skills"), omit);
   copyTree(join(agentRoot, "agents"), join(harnessRoot, "agents"), omit);
   mkdirSync(join(harnessRoot, "scripts"), { recursive: true });
@@ -597,13 +600,13 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
   writeFileSync(join(stage, "AGENTS.md"), [
     "# Project agent instructions", "",
     "This project includes its own Bounded harness at `.bounded/harness/`.",
-    "Initialization uses the agent host already running. For later requests, the main conversation is the team lead: discuss the user's goal, inspect the project, and delegate each ticket to a bound architect. The team lead does not edit product files. A read-only scout can investigate first. The architect runs the existing design, review, test, build, and delivery loop, even for one ticket.",
-    "The user only needs to describe the product change. Select and prepare the ticket through the local lead workflow; do not ask the user to choose roles or run gate commands.",
-    host === "pi" ? "Before commissioning the architect, call `lead_prepare`. Use its `new` option for a new work item after delivery; otherwise it resumes or changes the selected ticket." : "Before commissioning the architect, run `bash .bounded/harness/scripts/bounded lead prepare`, adding `--new` for a new work item after delivery. Then delegate to the generated architect agent as an ordinary foreground subagent without a name; it runs the existing loop through nested subagents.",
+    "Initialization uses the agent host already running. For later requests, the main conversation in the main worktree is the team lead: discuss the user's goal, inspect the project, and break the work into GitHub issues. The team lead does not edit product files. A read-only scout can investigate first. Each ticket gets its own worktree under `.bounded/worktrees/` and its own architect there, the lead's background subagent, which runs the existing design, review, test, build, and delivery loop, even for one ticket. A session opened directly in a ticket worktree is read-only.",
+    "The user only needs to describe the product change. Create, queue, start and merge tickets with the lead's commands; do not ask the user to choose roles or run gate commands. GitHub issues are the tickets, and the commands and gates move the board.",
+    host === "pi" ? "The lead's commands are the `lead_ticket_create`, `lead_queue`, `lead_start`, `lead_status`, `lead_reply` and `lead_merge` tools." : "The lead's commands are `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`, each one plain command. `bounded lead start <issue>` prepares the ticket's worktree and says how to launch its architect there as a background subagent.",
     "Run the project's `check`, `test`, `build`, and `lint` commands when present through the role that owns them.",
     host === "pi" ? "After a fresh clone, the team lead calls `lead_setup` before the first run; reload the session afterwards to load the full gates." : `After a fresh clone, the team lead runs \`${SETUP_COMMAND}\` before the first run; the next hook call loads the full gates.`,
     "Use `bash .bounded/harness/scripts/bounded gates --list` to discover the local gates.",
-    "The architect owns `docs/tn/TN-<ticket-number>.md` and its contract paths. The lead selects the current ticket for this worktree before delegation.",
+    "The architect owns `docs/tn/TN-<ticket-number>.md` and its contract paths. `bounded lead start` selects the ticket in its own worktree before the architect starts.",
     `Selected capabilities: ${packs.join(", ")}.`, "",
   ].join("\n"));
   if (host === "pi") {
@@ -639,7 +642,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
   // the committed lockfile must match, so a fresh clone can verify it.
   const rules = [...projectIgnoreRules(packs, join(agentRoot, "packs")), ...HOST_PACKAGE_DIRS.map((dir) => `${dir}/`),
     ".bounded/*", "!.bounded/harness/", ".bounded/harness/node_modules/", "!.bounded/composed-packs.json", "!.bounded/installation.json",
-    "!.bounded/lockfile-fingerprint.json"];
+    "!.bounded/lockfile-fingerprint.json", `!${TRACKER_CONFIG_RELATIVE}`];
   writeFileSync(ignoreFile, existingIgnore + rules.filter((rule) => !existingIgnore.split("\n").includes(rule)).join("\n") + "\n");
 }
 
@@ -876,6 +879,7 @@ export function describeInit(): object {
         "Run bounded init --host <current-host> with --surface <id> for every needed surface and --without <id> for every declined one. Init selects the capabilities from the packs' own data. If it answers with open surfaces, ask their questions and run it again with the answers.",
         "If the plan marks a surface declined: true, the user declined it but another part of the product needs it (pulledInBy). Explain that conflict to the user in product terms before going on.",
         "Use the agent host already running this conversation; do not ask the user to select another agent.",
+        "GitHub is the required tracker. Planning needs nothing from it, but applying refuses unless gh is authenticated, this directory is a clone of a GitHub repository, and the owner has a Projects board whose Status field has exactly the options Backlog, Queued, In Design, Building, Awaiting Merge and Done. Pass --project <number> (or <owner>/<number>) when the owner has more than one board. When the Status options differ, apply refuses and offers --create-statuses, which sets them to exactly those six; pass it only after the user agrees. If apply refuses for any other reason, tell the user exactly what to set up and stop.",
         "If the complete application cannot be scaffolded, explain the gap in product terms and stop. Do not silently omit a required part of the application.",
         "When a complete plan succeeds, explain what Bounded will create in plain language and review the plan before applying its digest.",
         "Until the first ticket is prepared, the selection can be corrected from inside the project: run bounded init again with the corrected surfaces. The plan replaces the untouched installation; it lists the setup output it deletes and the user's files it keeps. Apply it only after the user explicitly agrees.",
@@ -896,6 +900,14 @@ function scaffolderAvailable(pack: string): boolean {
   return Array.isArray(raw.projectInitScripts) && raw.projectInitScripts.length > 0;
 }
 
+/** What applying adds besides the reviewed plan. */
+export interface InitOptions {
+  /** The tracker config the command resolved and checked when applying (ADR
+   *  2026-066), committed at TRACKER_CONFIG_RELATIVE so every worktree has it.
+   *  It is not part of the reviewed plan: planning needs no tracker. */
+  readonly trackerConfig?: string;
+}
+
 export async function planInit(target: string, host: string, requested: readonly string[]): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'; choose pi or claude-code`);
   assertNoInterruptedReplan(target);
@@ -910,7 +922,9 @@ export async function planInit(target: string, host: string, requested: readonly
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
-export async function applyInit(target: string, host: string, requested: readonly string[], reviewedDigest: string): Promise<InitPlan> {
+export async function applyInit(
+  target: string, host: string, requested: readonly string[], reviewedDigest: string, options: InitOptions = {},
+): Promise<InitPlan> {
   if (host !== "pi" && host !== "claude-code") throw new Error(`Unsupported host '${host}'`);
   if (!/^[a-f0-9]{64}$/.test(reviewedDigest)) throw new Error("Supply the SHA-256 digest of a reviewed plan");
   assertNoInterruptedReplan(target);
@@ -918,6 +932,7 @@ export async function applyInit(target: string, host: string, requested: readonl
   const existing = await existingInstallation(target, host, packs);
   if (existing?.kind === "same") {
     if (existing.plan.digest !== reviewedDigest) throw new Error("Existing installation differs from the reviewed plan; bounded update is required");
+    if (options.trackerConfig !== undefined) writeFileSync(join(target, TRACKER_CONFIG_RELATIVE), options.trackerConfig);
     return existing.plan;
   }
   if (existing === undefined) assertEmpty(target);
@@ -946,6 +961,7 @@ export async function applyInit(target: string, host: string, requested: readonl
         created.push(dest);
       }
       replaced?.reinstate();
+      if (options.trackerConfig !== undefined) writeFileSync(join(target, TRACKER_CONFIG_RELATIVE), options.trackerConfig);
     } catch (error) {
       for (const path of created.reverse()) rmSync(path, { force: true });
       for (const path of directories.reverse()) {

@@ -1,13 +1,18 @@
-import { spawnSync } from "node:child_process";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
+import { backgroundWorkers, WORKER_CONTINUING } from "../../src/lead-state.ts";
+import { logGuardEvent } from "../../src/guard-log.ts";
+import { systemProcesses } from "../../src/process-lock.ts";
 import type { TempProject } from "../../test/support/temp-project.ts";
 import { LOG, logLines, makeLeadProject, prepared } from "../../test/support/lead-project.ts";
 import { runHook } from "./path-gate-hook.ts";
 import { boundDefinitionInForce, leadCommand } from "./lead-hook.ts";
+import {
+  readArchitectState, readPendingLaunch, readPendingReply, recordArchitectEnded, recordArchitectRunning, writePendingLaunch, writePendingReply,
+} from "../../src/architect-seat.ts";
+import { TICKET_MARKER_RELATIVE } from "../../src/ticket-worktree.ts";
 
 // ADR 2026-048 on Claude Code: the project-wide hook (`--project-local`)
 // makes the main session the read-only team lead, holds unbound children to
@@ -53,25 +58,40 @@ function hook(dir: string, tool: string, input: Readonly<Record<string, unknown>
 
 const q = (...words: string[]): string => words.map((w) => `'${w}'`).join(" ");
 
-describe("lead Bash: only run control, rewritten onto the project's harness", () => {
+describe("lead Bash: only its commands, rewritten onto the project's harness", () => {
+  const CLI = `${HARNESS}/scripts/bounded`;
   test.each([
-    ["bounded gates --list", q(`${HARNESS}/scripts/bounded`, "gates", "--list")],
-    ["bash .bounded/harness/scripts/bounded gates --list", q(`${HARNESS}/scripts/bounded`, "gates", "--list")],
-    ["bounded lead prepare", q(`${HARNESS}/scripts/bounded`, "lead", "prepare")],
-    ["bash .bounded/harness/scripts/bounded lead prepare --new 4", q(`${HARNESS}/scripts/bounded`, "lead", "prepare", "--new", "4")],
+    ["bounded gates --list", q(CLI, "gates", "--list")],
+    ["bash .bounded/harness/scripts/bounded gates --list", q(CLI, "gates", "--list")],
+    ["bounded lead status", q(CLI, "lead", "status")],
+    ["bounded lead queue 4", q(CLI, "lead", "queue", "4")],
+    ["bash .bounded/harness/scripts/bounded lead start 4", q(CLI, "lead", "start", "4")],
+    ["bounded lead merge '#4'", q(CLI, "lead", "merge", "#4")],
+    ["bounded lead reply 4 'use the shorter name'", q(CLI, "lead", "reply", "4", "use the shorter name")],
+    ["bounded lead ticket create --title 'Invoices' --outcome 'Send invoices' --acceptance 'A sent invoice is listed' --owns contexts/billing/invoice.contract.ts --depends 3 --decisions 'Currency'",
+      q(CLI, "lead", "ticket", "create", "--title", "Invoices", "--outcome", "Send invoices", "--acceptance", "A sent invoice is listed",
+        "--owns", "contexts/billing/invoice.contract.ts", "--depends", "3", "--decisions", "Currency")],
   ])("%s", (command, rewritten) => {
     const r = hook(project(), "Bash", { command, description: "d" });
     expect(r).toEqual({ decision: "rewrite", input: { command: rewritten, description: "d" } });
   });
 
-  test.each(["bounded lead prepare 1 2", "bounded lead prepare --new x", "bounded lead prepare --force"])(
-    "bad prepare arguments are refused with the usage: %s", (command) => {
-      const r = hook(project(), "Bash", { command });
-      expect(r.decision).toBe("deny");
-      expect(r.reason).toContain("usage: bounded lead prepare [--new] [ticket-number]");
-    });
+  test.each([
+    ["bounded lead prepare", "usage: bounded lead"],
+    ["bounded lead release", "usage: bounded lead"],
+    ["bounded lead start", "usage: bounded lead start <issue>"],
+    ["bounded lead start 1 2", "usage: bounded lead start <issue>"],
+    ["bounded lead reply 4", "usage: bounded lead reply <issue> <message>"],
+    ["bounded lead ticket create --title x --outcome y --acceptance z --decisions d", "at least one owned path"],
+    ["bounded lead ticket create --title x --outcome y --acceptance z --owns ../up --decisions d", "plain project-relative path"],
+  ])("a malformed lead command is refused with its reason: %s", (command, why) => {
+    const r = hook(project(), "Bash", { command });
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain(why);
+  });
 
   test.each(["npm test", "rm -rf src", "bounded gates --list; rm -rf src", "bounded gates red-gate", "git status", "bounded lead finish",
+    "gh issue list",
     "bounded sync-config", "bash .bounded/harness/scripts/bounded sync-config"])(
     "anything else is refused: %s", (command) => {
       const dir = project();
@@ -148,67 +168,279 @@ describe("lead commissions", () => {
     expect(r.reason).toContain("fresh, unnamed foreground");
   });
 
-  test.each(["general-purpose", "builder", "Explore"])("only scout and architect: %s refused", (role) => {
+  test.each(["general-purpose", "builder", "Explore"])("only the scout: %s refused", (role) => {
     expect(hook(project(), "Task", { subagent_type: role, prompt: "do" }).decision).toBe("deny");
   });
 
-  test("the architect waits for a prepared run, then gets its tier", () => {
-    const dir = project({ ".bounded/dev-stage-models.json": '{"designModel": "anthropic/claude-opus-5:high"}\n' });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("prepare the ticket's run boundary");
-    writeFileSync(join(dir, ".bounded/active-ticket"), "1\n");
-    writeFileSync(join(dir, LOG), logLines(prepared("1")));
-    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver", model: "haiku" }, LEAD, { tool_use_id: "t1" });
-    expect(r).toEqual({ decision: "rewrite", input: { subagent_type: "architect", prompt: "deliver", model: "opus" } });
-    expect(readGuardLog(dir).find((e) => e.guard === "model-tier")).toMatchObject({ verdict: "pass", detail: { role: "team-lead" } });
-  });
-
-  test("one architect at a time: a second waits until the first's end is recorded", () => {
+  test("an architect is never commissioned in the lead's session, prepared run or not (ADR 2026-066)", () => {
     const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    const launch = (id: string) => hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: id });
-    const after = (event: string, id: string, extra: Readonly<Record<string, unknown>> = {}) =>
-      runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: event, tool_name: "Agent", tool_use_id: id,
-        tool_input: { subagent_type: "architect", prompt: "deliver" }, ...extra }), dir);
-    expect(launch("t1").decision).toBe("allow");
-    expect(launch("t2").reason).toContain("an architect is already running");
-    // A background launch is still running.
-    after("PostToolUse", "t1", { tool_response: { status: "async_launched", agentId: "a0000000000000aaa" } });
-    expect(launch("t2").decision).toBe("deny");
-    after("PostToolUse", "t1", { tool_response: { status: "completed", agentId: "a0000000000000aaa", agentType: "architect" } });
-    expect(launch("t2").decision).toBe("allow");
-    // An interrupted or failed architect has ended too.
-    after("PostToolUseFailure", "t2", { error: "interrupted", is_interrupt: true });
-    expect(launch("t3").decision).toBe("allow");
-    // A child's Agent calls never end the lead's architect.
-    runHook(LEAD, JSON.stringify({ cwd: dir, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "t3",
-      agent_id: "a0000000000000aaa", agent_type: "architect", tool_input: { subagent_type: "architect" }, tool_response: { status: "completed" } }), dir);
-    expect(launch("t4").decision).toBe("deny");
-  });
-
-  test("an architect commission with no call id is refused: its end could never be recorded", () => {
-    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }).reason).toContain("no call id");
-  });
-
-  test("only the user releases a stuck architect: the lead may not run the release", () => {
-    const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
-    expect(hook(dir, "Bash", { command: "bounded lead release" }).decision).toBe("deny");
-    expect(hook(dir, "Bash", { command: "bash .bounded/harness/scripts/bounded lead release" }).decision).toBe("deny");
-    const cli = spawnSync(process.execPath, [fileURLToPath(new URL("../../src/lead-cli.ts", import.meta.url)), "release"], { cwd: dir, encoding: "utf8", env: { ...process.env, BOUNDED_GUARD_LOG: "" } });
-    expect(cli.stdout).toContain("released");
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t2" }).decision).toBe("allow");
-  });
-
-  test("a tier this host cannot run refuses the architect; no tier leaves the call untouched", () => {
-    const dir = project({
-      ".bounded/dev-stage-models.json": '{"designModel": "fireworks/kimi-k3:medium"}\n',
-      ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")),
-    });
-    expect(hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).reason).toContain("names no model this host can run");
-    const plain = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
-    expect(hook(plain, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" }).decision).toBe("allow");
+    const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" });
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("bounded lead start <issue>");
   });
 });
+
+describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
+  const AGENT = "a00000000000000a7";
+  /** A main worktree with one ticket worktree under it, as `bounded lead start` leaves them. */
+  const ticketed = (owns: readonly string[] = []): { main: string; wt: string } => {
+    const main = project({ "src/a.ts": "" });
+    const wt = join(main, ".bounded/worktrees/7");
+    for (const [rel, text] of Object.entries({
+      [TICKET_MARKER_RELATIVE]: JSON.stringify({ issue: 7, branch: "ticket/7", main, owns }),
+      ".bounded/installation.json": "{}\n", ".bounded/harness/.keep": "", ".bounded/composed-packs.json": "[\"ts\"]\n", "docs/tn/README.md": "# TNs\n",
+      ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7")),
+    })) {
+      mkdirSync(join(wt, rel, ".."), { recursive: true });
+      writeFileSync(join(wt, rel), text);
+    }
+    for (const role of ["architect", "reviewer", "test-writer", "builder"]) {
+      mkdirSync(join(wt, ".claude/agents"), { recursive: true });
+      writeFileSync(join(wt, `.claude/agents/${role}.md`), ["---", `name: ${role}`, "tools: Read", "permissionMode: dontAsk", "hooks:",
+        "  PreToolUse:", '    - matcher: ""', "      hooks:", "        - type: command",
+        `          command: "node x/bootstrap-hook.ts --project-local --role ${role}"`, "---", "", "body"].join("\n"));
+    }
+    vi.stubEnv("CLAUDE_PROJECT_DIR", main);
+    return { main, wt };
+  };
+  const child = (role: string) => ({ agent_id: AGENT, agent_type: role });
+  /** A seat's call as the project-wide hook sees it: the hook that judges in a ticket seat. */
+  const at = (wt: string, tool: string, input: Readonly<Record<string, unknown>>, flags: readonly string[] = LEAD, role = "architect") =>
+    runHook(flags, JSON.stringify({ cwd: wt, hook_event_name: "PreToolUse", tool_name: tool, tool_input: input, ...child(role) }), wt);
+  const verdict = (out: { stdout: string }): string =>
+    out.stdout === "" ? "none" : (JSON.parse(out.stdout) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision;
+
+  test("its calls are judged against the ticket worktree and allowed in words; a write outside is refused", () => {
+    const { main, wt } = ticketed();
+    expect(verdict(at(wt, "Write", { file_path: join(wt, "docs/tn/TN-7.md"), content: "x" }))).toBe("allow");
+    expect(verdict(at(wt, "Write", { file_path: join(main, "src/a.ts"), content: "x" }))).toBe("deny");
+    expect(verdict(at(wt, "Write", { file_path: "/tmp/elsewhere.md", content: "x" }))).toBe("deny");
+    expect(readGuardLog(wt).some((e) => e.guard === "host")).toBe(true);
+    expect(readGuardLog(main).some((e) => e.guard === "host")).toBe(false);
+  });
+
+  // Final review: the project hook must not stand down on a definition's text.
+  test("in a ticket seat the project hook judges; a role definition's own hook stands down; an undefined type is read-only", () => {
+    const { wt } = ticketed();
+    const write = { file_path: join(wt, "docs/tn/TN-7.md"), content: "x" };
+    expect(verdict(at(wt, "Write", write, [...LEAD, "--role", "architect"]))).toBe("none");
+    expect(verdict(at(wt, "Write", write))).toBe("allow");
+    expect(verdict(at(wt, "Write", write, LEAD, "general-purpose"))).toBe("deny");
+    expect(verdict(at(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }, LEAD, "general-purpose"))).toBe("none");
+  });
+
+  test("a worker it commissions is judged by the project hook as its defined role, in the same worktree", () => {
+    const { wt } = ticketed();
+    expect(verdict(at(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }, LEAD, "reviewer"))).toBe("allow");
+    expect(verdict(at(wt, "Write", { file_path: join(wt, "x.md"), content: "" }, LEAD, "reviewer"))).toBe("deny");
+  });
+
+  test.each([
+    ["mcp__claude_ai_Gmail__send_message", { to: "x@example.invalid", body: "hi" }],
+    ["mcp__any_server__any_tool", {}],
+    ["WebFetch", { url: "https://example.invalid", prompt: "x" }],
+    ["WebSearch", { query: "x" }],
+    ["Skill", { skill: "developer-stage" }],
+    ["TodoWrite", { todos: [] }],
+    ["KillShell", { shell_id: "1" }],
+    ["ExitPlanMode", { plan: "x" }],
+    ["SomeFutureTool", {}],
+  ])("a tool the gate does not judge is denied to the architect and to its workers: %s", (tool, input) => {
+    const { wt } = ticketed();
+    const out = at(wt, tool, input);
+    expect(verdict(out)).toBe("deny");
+    expect(out.stdout).toContain("not a tool the gate judges");
+    expect(verdict(at(wt, tool, input, LEAD, "builder"))).toBe("deny");
+  });
+
+  // Regression (#47 planning): a worker's report and loading a deferred tool
+  // are a seat's plumbing, judged as such and allowed, never denied as unknown.
+  test.each([
+    ["SubagentHandback", { message: "report" }],
+    ["ToolSearch", { query: "select:SendMessage", max_results: 1 }],
+  ])("%s is allowed in words to the architect and to its workers", (tool, input) => {
+    const { wt } = ticketed();
+    expect(verdict(at(wt, tool, input))).toBe("allow");
+    for (const role of ["reviewer", "test-writer", "builder"]) {
+      expect(verdict(at(wt, tool, input, LEAD, role)), role).toBe("allow");
+    }
+  });
+
+  // Final review M3: a background resume is recorded, and its stop releases the gates.
+  test("an architect's continued worker that resumes in the background is recorded until SubagentStop", () => {
+    const { wt } = ticketed();
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: "a0000000000000002", message: "fix it" },
+      tool_response: { success: true, message: "Resuming agent a0000000000000002", resumedAgentId: "a0000000000000002" } }), wt);
+    expect(backgroundWorkers(readGuardLog(wt)).map((w) => w.worker)).toEqual(["a0000000000000002"]);
+    expect(readGuardLog(wt).at(-1)?.detail).toMatchObject({ kind: "worker-resumed", pid: expect.any(Number), pidStarted: expect.any(String) });
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a0000000000000002", agent_type: "builder" }), wt);
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
+  });
+
+  // Regression (re-review U4, F3): the hold must not fail open on the answer's shape.
+  test.each([
+    ["the shape seen live", { success: true, message: "Resuming agent a0000000000000003", resumedAgentId: "a0000000000000003" }],
+    ["'Resuming agent a1' without an id", { success: true, message: "Resuming agent a1" }],
+    ["what looks like a reply", { success: true, content: "Done: all four tests now fail for the right reason." }],
+    ["a reply in content blocks", { success: true, content: [{ type: "text", text: "reply" }] }],
+    ["an unknown shape", { success: true, status: "queued" }],
+  ])("every successful send is held, whatever its answer: %s", (_name, response) => {
+    const { wt } = ticketed();
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: "a0000000000000003", message: "fix it" }, tool_response: response }), wt);
+    expect(backgroundWorkers(readGuardLog(wt)).map((w) => w.worker)).toEqual(["a0000000000000003"]);
+  });
+
+  test("a send that did not go through is recorded, and holds nothing", () => {
+    const { wt } = ticketed();
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUseFailure", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: "a0000000000000003", message: "fix it" }, error: "no such agent" }), wt);
+    expect(readGuardLog(wt).some((e) => e.detail?.["kind"] === "worker-send-failed")).toBe(true);
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
+  });
+
+  // Regression (re-review U2): a stop that lands before the resume record still releases the gates.
+  test("a worker's stop recorded before its resume record cancels the resume", () => {
+    const { wt } = ticketed();
+    const worker = "a0000000000000004";
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a0000000000000009", agent_type: "builder" }), wt);
+    // The architect's continuation is allowed (marked), the worker stops, then the resume lands.
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_CONTINUING, worker } });
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: worker, agent_type: "builder" }), wt);
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: worker, message: "fix it" }, tool_response: { success: true, resumedAgentId: worker } }), wt);
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
+    // A later continuation of the same worker blocks again.
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_CONTINUING, worker } });
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: worker, message: "again" }, tool_response: { success: true, resumedAgentId: worker } }), wt);
+    expect(backgroundWorkers(readGuardLog(wt)).map((w) => w.worker)).toEqual([worker]);
+  });
+
+  test("NotebookEdit is judged as an edit, not waved through", () => {
+    const { wt } = ticketed();
+    expect(verdict(at(wt, "NotebookEdit", { notebook_path: join(wt, "src/x.ipynb"), new_source: "" }))).toBe("deny");
+  });
+
+  test("outside a ticket worktree an allowed call is left to the host's own permissions", () => {
+    const dir = project({ "src/a.ts": "" });
+    expect(hook(dir, "Read", { file_path: join(dir, "src/a.ts") })).toEqual({ decision: "allow" });
+  });
+
+  test("a top-level session in a ticket worktree is only read-only", () => {
+    const { wt } = ticketed();
+    vi.stubEnv("CLAUDE_PROJECT_DIR", wt);
+    expect(hook(wt, "Write", { file_path: join(wt, "docs/tn/TN-7.md"), content: "x" }).decision).toBe("deny");
+    expect(hook(wt, "Bash", { command: "bounded lead status" }).decision).toBe("deny");
+    expect(hook(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }).decision).toBe("allow");
+  });
+});
+
+describe("the lead's architect launch and reply (ADR 2026-066)", () => {
+  const BRIEF = "Ticket #7: Invoices";
+  const pendingAt = (main: string, wt: string): void => writePendingLaunch(main, { issue: 7, worktree: wt, brief: BRIEF, model: "opus", createdAt: "t" });
+  const setup = () => {
+    const main = project();
+    const wt = join(main, ".bounded/worktrees/7");
+    mkdirSync(join(wt, ".bounded"), { recursive: true });
+    writeFileSync(join(wt, TICKET_MARKER_RELATIVE), JSON.stringify({ issue: 7, branch: "ticket/7", main, owns: [] }));
+    vi.stubEnv("CLAUDE_PROJECT_DIR", main);
+    return { main, wt };
+  };
+  const event = (main: string, name: string, fields: Readonly<Record<string, unknown>>) =>
+    runHook(LEAD, JSON.stringify({ cwd: main, hook_event_name: name, ...fields }), main);
+
+  test("an architect launch needs a pending ticket; it is rewritten to exactly that ticket's brief, in a background worktree", () => {
+    const { main, wt } = setup();
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t1" }).reason).toContain("run bounded lead start <issue> first");
+    pendingAt(main, wt);
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go", cwd: "/elsewhere" }, LEAD, { tool_use_id: "t1" }).reason).toContain("'cwd' is not allowed");
+    const launch = hook(main, "Agent", { subagent_type: "architect", prompt: "go", run_in_background: false }, LEAD, { tool_use_id: "t1" });
+    expect(launch).toEqual({ decision: "rewrite", input: {
+      subagent_type: "architect", description: "Architect for ticket #7", prompt: BRIEF, isolation: "worktree", run_in_background: true, model: "opus",
+    } });
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "again" }, LEAD, { tool_use_id: "t2" }).reason).toContain("already under way");
+  });
+
+  test("WorktreeCreate binds the launched agent to the ticket's existing worktree; nothing else gets a worktree", () => {
+    const { main, wt } = setup();
+    expect(event(main, "WorktreeCreate", { name: "agent-a1234567890abcdef" })).toMatchObject({ stdout: "", exit: 1 });
+    pendingAt(main, wt);
+    hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t1" });
+    expect(event(main, "WorktreeCreate", { name: "feature-x" })).toMatchObject({ exit: 1 });
+    expect(event(main, "WorktreeCreate", { name: "agent-a1234567890abcdef" })).toEqual({ stdout: `${wt}\n`, stderr: "", exit: 0 });
+    expect(readArchitectState(wt)).toMatchObject({ agent: "a1234567890abcdef", state: "running", turn: 1 });
+    expect(readPendingLaunch(main)).toBeUndefined();
+    // Only that agent's stop ends the seat.
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a9999999999999999", agent_type: "builder" }), wt);
+    expect(readArchitectState(wt)?.state).toBe("running");
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a1234567890abcdef", agent_type: "architect" }), wt);
+    expect(readArchitectState(wt)?.state).toBe("ended");
+  });
+
+  test("WorktreeRemove removes nothing: a ticket's worktree stays until merge", () => {
+    const { main, wt } = setup();
+    expect(event(main, "WorktreeRemove", { worktree_path: wt })).toEqual({ stdout: "", stderr: "", exit: 0 });
+    expect(existsSync(wt)).toBe(true);
+  });
+
+  test("a launch that failed releases its claim", () => {
+    const { main, wt } = setup();
+    pendingAt(main, wt);
+    hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t1" });
+    event(main, "PostToolUseFailure", { tool_name: "Agent", tool_use_id: "t1", tool_input: { subagent_type: "architect" } });
+    expect(readPendingLaunch(main)?.claimedBy).toBeUndefined();
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t3" }).decision).toBe("rewrite");
+  });
+
+  // Regression (re-review U1): verified live, a new session cannot SendMessage
+  // an agent of a session that has gone; such a seat is relaunched instead.
+  test("a seat whose session has gone is never continued; the refusal names the relaunch", () => {
+    const { main, wt } = setup();
+    const agent = "a1234567890abcdef";
+    recordArchitectRunning(wt, agent, { pid: 999_999, pidStarted: "long ago", sessionBound: true });
+    writePendingReply(main, { issue: 7, worktree: wt, agent, message: "Go on.", createdAt: "t" });
+    expect(hook(main, "SendMessage", { to: agent, message: "x" }).reason).toContain("relaunch it with bounded lead start 7");
+    recordArchitectEnded(wt, agent);
+    expect(hook(main, "SendMessage", { to: agent, message: "x" }).reason).toContain("relaunch it with bounded lead start 7");
+    expect(readArchitectState(wt)).toMatchObject({ state: "ended", turn: 1 });
+  });
+
+  test("the escape hatch is the user's: the lead's bounded lead release is refused", () => {
+    const { main } = setup();
+    expect(hook(main, "Bash", { command: "bounded lead release 7 --force" }).reason).toContain("the user's own escape hatch");
+  });
+
+  // Regression (final review M2): a claim that never bound wedged the launch.
+  test("a launch claim whose claimant has gone can be claimed again", () => {
+    const { main, wt } = setup();
+    pendingAt(main, wt);
+    writePendingLaunch(main, { ...readPendingLaunch(main)!, claimedBy: "t1", claimedAt: new Date().toISOString(), claimant: { pid: 999_999, pidStarted: "long ago" } });
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t2" }).decision).toBe("rewrite");
+    expect(readPendingLaunch(main)?.claimedBy).toBe("t2");
+  });
+
+  test("SendMessage continues only the architect a reply was prepared for, carrying exactly that reply", () => {
+    const { main, wt } = setup();
+    const agent = "a1234567890abcdef";
+    expect(hook(main, "SendMessage", { to: agent, message: "yes" }).reason).toContain("no reply is waiting");
+    writeArchitectEnded(wt, agent);
+    writePendingReply(main, { issue: 7, worktree: wt, agent, message: "Euros.", createdAt: "t" });
+    expect(hook(main, "SendMessage", { to: "a9999999999999999", message: "Euros." }).reason).toContain("no reply is waiting for a9999999999999999");
+    expect(hook(main, "SendMessage", { to: agent, message: "anything" })).toEqual({ decision: "rewrite", input: { to: agent, message: "Euros." } });
+    expect(readArchitectState(wt)).toMatchObject({ state: "running", turn: 2 });
+    expect(readPendingReply(main, 7)).toBeUndefined();
+    // A continuation that did not go through ends the turn again.
+    event(main, "PostToolUse", { tool_name: "SendMessage", tool_input: { to: agent, message: "Euros." }, tool_response: { success: false } });
+    expect(readArchitectState(wt)?.state).toBe("ended");
+  });
+});
+
+function writeArchitectEnded(wt: string, agent: string): void {
+  recordArchitectRunning(wt, agent, { pid: process.pid, pidStarted: systemProcesses.startTime(process.pid) ?? "unknown", sessionBound: true });
+  recordArchitectEnded(wt, agent);
+}
 
 describe("children: stand down only for a proven bound definition", () => {
   const child = (agent_type: string): Readonly<Record<string, unknown>> => ({ agent_id: "a-1", agent_type });

@@ -6,6 +6,6 @@
     "rootDir": ".",
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src/**/*.ts", "hosts/**/*.ts", "packs/**/*.ts"],
+  "include": ["src/**/*.ts", "hosts/**/*.ts", "packs/**/*.ts", "trackers/**/*.ts"],
   "exclude": ["**/*.test.ts", "packs/*/reference", "packs/ts/scripts/testdata"]
 }

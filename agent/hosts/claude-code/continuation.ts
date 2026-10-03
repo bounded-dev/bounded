@@ -27,12 +27,12 @@
 //     status other than completed;
 //   · the after-call hook itself erroring on that launch, so its outcome can
 //     never be known;
-//   · a launch with no recorded outcome made by an earlier architect whose
-//     END the lead's own after-call hook recorded after that launch (it
+//   · a launch with no recorded outcome made before an architect turn whose
+//     END the seat's SubagentStop hook recorded in the worktree's guard log (it
 //     finished, failed or was interrupted; lead-state.ts). A different id is
-//     never evidence by itself: two architects running at once differ too.
-//     That case cannot arise anyway: no architect may start another
-//     (phase-gate.ts), and the lead runs one architect at a time.
+//     never evidence by itself. A ticket worktree runs one architect turn at
+//     a time (architect-seat.ts) and no architect may start another
+//     (phase-gate.ts), so the recorded end is the end of the launch's maker.
 //     Within one architect a launch with no outcome is still running, which
 //     is why two parallel launches of one role are refused.
 // A background launch (`async_launched`) is a running worker of the role
@@ -212,15 +212,16 @@ function unresolvedLaunch(role: string, events: readonly LoggedGuardEvent[]): { 
 
 /**
  * May `caller` relaunch `role` whose last launch has no recorded outcome?
- * Only when that launch was made by an EARLIER architect whose end the lead's
- * hook recorded after it (lead-state.ts). Different ids are not evidence: two
- * architects running at once have different ids too. The lead runs one
- * architect at a time and no architect starts another, so an architect's end
- * recorded after the stuck launch is the end of the architect that made it.
+ * Only when an architect turn's end is recorded after that launch
+ * (lead-state.ts). A ticket worktree runs one architect turn at a time
+ * (architect-seat.ts) and no architect starts another, so an end recorded
+ * after the stuck launch is the end of the process that made it — even when
+ * the next turn continues the same session, and so carries the same caller.
+ * Different ids are never evidence by themselves.
  */
-export function earlierCallerEnded(role: string, caller: string | undefined, events: readonly LoggedGuardEvent[]): boolean {
+export function earlierCallerEnded(role: string, _caller: string | undefined, events: readonly LoggedGuardEvent[]): boolean {
   const stuck = unresolvedLaunch(role, events);
-  if (stuck === undefined || stuck.caller === caller) return false;
+  if (stuck === undefined) return false;
   const agent = stuck.caller.startsWith("agent:") ? stuck.caller.slice("agent:".length) : undefined;
   return architectEndedSince(events, stuck.index, agent);
 }

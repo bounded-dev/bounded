@@ -28,16 +28,16 @@ describe("decideLead — the lead's decision table", () => {
     ["an unscoped search", { kind: "read", tool: "grep", input: {} }, false, "unscoped"],
     ["a lookup", { kind: "lookup", tool: "web_search" }, true],
     ["watching a child", { kind: "observe", tool: "wait" }, true],
-    ["preparing a run", { kind: "prepare" }, true],
+    ["a lead command", { kind: "lead-command", command: "start" }, true],
     ["a shape the host refused", { kind: "refused", reason: "subagent chain hides individual commissions" }, false, "chain hides"],
     ["an edit", { kind: "other", tool: "edit" }, false, "outside the read-only lead toolset"],
     ["a scout", commission("scout"), true],
-    ["a builder", commission("builder"), false, "only scout and architect"],
-    ["a delegate", commission("delegate"), false, "only scout and architect"],
-    ["no role", commission(undefined), false, "only scout and architect"],
+    ["a builder", commission("builder"), false, "only the scout"],
+    ["a delegate", commission("delegate"), false, "only the scout"],
+    ["no role", commission(undefined), false, "only the scout"],
     ["an empty task", commission("scout", "  "), false, "needs a task"],
     ["a missing task", { kind: "commission", role: "scout", task: undefined }, false, "needs a task"],
-    ["an architect before any run is prepared", commission("architect"), false, "prepare the ticket's run boundary"],
+    ["an architect", commission("architect"), false, "only through `bounded lead start <issue>`"],
   ];
   for (const [name, action, allow, why] of cases) test(name, () => {
     const decision = decideLead(action, project());
@@ -48,16 +48,16 @@ describe("decideLead — the lead's decision table", () => {
     }
   });
 
-  test("the architect becomes commissionable once the run is prepared, and not after delivery", () => {
+  test("an architect is never commissioned by the lead, even with a prepared run (ADR 2026-066)", () => {
     const dir = project({ ".bounded/active-ticket": "3\n", [LOG]: logLines(prepared("3")) });
-    expect(decideLead(commission("architect"), dir).allow).toBe(true);
+    expect(decideLead(commission("architect"), dir).allow).toBe(false);
     writeFileSync(join(dir, LOG), logLines(prepared("3"), runStart, delivered));
     expect(decideLead(commission("architect"), dir).allow).toBe(false);
   });
 
-  test("a preparation for another ticket does not count", () => {
-    const dir = project({ ".bounded/active-ticket": "3\n", [LOG]: logLines(prepared("2")) });
-    expect(decideLead(commission("architect"), dir).allow).toBe(false);
+  test("setup stops once a ticket has been started in its own worktree", () => {
+    const dir = project({ ".bounded/lead/tickets/4.json": "{}\n" });
+    expect(decideLead({ kind: "setup" }, dir)).toMatchObject({ allow: false });
   });
 
   test("setup only before the first run", () => {
@@ -76,7 +76,7 @@ describe("decideScout — reads only", () => {
     [{ kind: "lookup", tool: "web_fetch" } as SeatAction, false],
     [{ kind: "other", tool: "bash" } as SeatAction, false],
     [commission("scout"), false],
-    [{ kind: "prepare" } as SeatAction, false],
+    [{ kind: "lead-command", command: "status" } as SeatAction, false],
     [{ kind: "setup" } as SeatAction, false],
   ])("%j → %s", (action, allow) => {
     const decision = decideScout(action, project());
@@ -107,7 +107,7 @@ describe("reads through links", () => {
 });
 
 describe("seatMayHold — what each seat is shown", () => {
-  test("the lead sees reads, lookups, commissions and preparation; the scout only reads and reports", () => {
+  test("the lead sees reads, lookups, commissions and its commands; the scout only reads and reports", () => {
     const dir = project();
     const read: SeatAction = { kind: "read", tool: "read", input: {} };
     expect(seatMayHold("lead", read, dir)).toBe(true);
@@ -115,7 +115,8 @@ describe("seatMayHold — what each seat is shown", () => {
     expect(seatMayHold("lead", { kind: "other", tool: "write" }, dir)).toBe(false);
     expect(seatMayHold("lead", { kind: "setup" }, dir)).toBe(true);
     expect(seatMayHold("scout", read, dir)).toBe(true);
-    expect(seatMayHold("scout", { kind: "prepare" }, dir)).toBe(false);
+    expect(seatMayHold("lead", { kind: "lead-command", command: "merge" }, dir)).toBe(true);
+    expect(seatMayHold("scout", { kind: "lead-command", command: "merge" }, dir)).toBe(false);
   });
 });
 
@@ -128,6 +129,8 @@ describe("resolveSessionRole — one seat resolution for both hosts", () => {
     ["unknown binding in a project fails closed", { boundSeat: "delegate", projectLocal: true }, { kind: "scout", bound: false }],
     ["project main session is the lead", { projectLocal: true }, { kind: "lead" }],
     ["unbound project child is held read-only", { projectLocal: true, child: true }, { kind: "scout", bound: false }],
+    ["a ticket worktree's own session is read-only unless launched as its architect", { projectLocal: true, ticketWorktree: true }, { kind: "scout", bound: false }],
+    ["the launched architect of a ticket worktree", { projectLocal: true, ticketWorktree: true, boundSeat: "architect" }, { kind: "role", role: "architect", bound: true }],
     ["a child bound elsewhere stands down", { projectLocal: true, child: true, judgedElsewhere: true }, { kind: "none" }],
     ["ambient role outside a project", { ambientRole: () => "architect" }, { kind: "role", role: "architect", bound: false }],
     ["ambient stands down for a bound child", { ambientRole: () => "architect", judgedElsewhere: true }, { kind: "none" }],

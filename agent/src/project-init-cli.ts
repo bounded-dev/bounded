@@ -6,6 +6,7 @@ import { stdin, stdout } from "node:process";
 import { applyInit, defaultSelection, describeInit, planInit, surfaceSelection } from "./project-init.ts";
 import type { SurfaceReport } from "./product-surfaces.ts";
 import { SETUP_COMMAND } from "./setup-state.ts";
+import { trackerConfigAtInit } from "../trackers/index.ts";
 
 async function main(args: string[]): Promise<void> {
   let target = process.cwd();
@@ -14,6 +15,8 @@ async function main(args: string[]): Promise<void> {
   const surfaces: string[] = [];
   const without: string[] = [];
   let digest = "";
+  let project: string | undefined;
+  let createStatuses = false;
   let interactive = false;
   let fullJson = false;
   for (let i = 0; i < args.length; i++) {
@@ -24,7 +27,8 @@ async function main(args: string[]): Promise<void> {
     }
     if (arg === "--interactive") { interactive = true; continue; }
     if (arg === "--json") { fullJson = true; continue; }
-    if (["--cwd", "--host", "--pack", "--surface", "--without", "--apply"].includes(arg)) {
+    if (arg === "--create-statuses") { createStatuses = true; continue; }
+    if (["--cwd", "--host", "--pack", "--surface", "--without", "--apply", "--project"].includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith("--")) throw new Error(`${arg} needs a value`);
       if (arg === "--cwd") target = resolve(value);
@@ -33,6 +37,7 @@ async function main(args: string[]): Promise<void> {
       if (arg === "--surface") surfaces.push(value);
       if (arg === "--without") without.push(value);
       if (arg === "--apply") digest = value;
+      if (arg === "--project") project = value;
       continue;
     }
     throw new Error(`Unknown option '${arg}'`);
@@ -55,7 +60,8 @@ async function main(args: string[]): Promise<void> {
       console.log(JSON.stringify(view("plan", plan, fullJson), null, 2));
       const answer = (await rl.question("Apply this exact plan? Type its digest: ")).trim();
       if (answer !== plan.digest) throw new Error("Digest did not match; nothing written");
-      console.log(JSON.stringify(view("applied", await applyInit(target, host, packs, answer), fullJson), null, 2));
+      const options = { trackerConfig: trackerConfigAtInit(target, { ...(project !== undefined ? { project } : {}), createStatuses }) };
+      console.log(JSON.stringify(view("applied", await applyInit(target, host, packs, answer, options), fullJson), null, 2));
     } finally { rl.close(); }
     return;
   }
@@ -80,7 +86,13 @@ async function main(args: string[]): Promise<void> {
   }
   // No --pack selects every installed capability: the whole stack.
   if (!packs.length) packs.push(...defaultSelection());
-  const plan = digest ? await applyInit(target, host, packs, digest) : await planInit(target, host, packs);
+  // GitHub is the required tracker (ADR 2026-066): planning needs nothing
+  // from it, but nothing is applied without an authenticated gh, a GitHub
+  // repository here and a board with the statuses.
+  const plan = digest
+    ? await applyInit(target, host, packs, digest,
+      { trackerConfig: trackerConfigAtInit(target, { ...(project !== undefined ? { project } : {}), createStatuses }) })
+    : await planInit(target, host, packs);
   const conflicts = (report ?? []).filter((surface) => surface.declined === true);
   console.log(JSON.stringify({
     ...view(digest ? "applied" : "plan", plan, fullJson),

@@ -6,7 +6,7 @@
 // does, builds the distribution into it, installs it under node_modules, and
 // initializes the default stack from there.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -140,10 +140,15 @@ describe("the npm distribution", () => {
     mkdirSync(target);
     // Through the bin under node_modules: node there cannot type-strip, so
     // every pack script init runs must come from dist/.
+    // Planning needs no tracker (ADR 2026-066); the fake gh records that nothing asked it.
+    const ghState = join(temp, "gh-state.json");
+    writeFileSync(ghState, "{}\n");
     const out = execFileSync(join(installed, "scripts", "bounded"), ["init", "--host", "claude-code", "--cwd", target], {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, BOUNDED_GH: join(import.meta.dirname, "support", "fake-gh.mjs"), FAKE_GH_STATE: ghState },
     });
     const plan = JSON.parse(out) as { action: string; packs: string[]; paths: string[] };
+    expect(JSON.parse(readFileSync(ghState, "utf8")).calls).toBeUndefined();
     expect(plan.action).toBe("plan");
     expect(plan.packs).toEqual(["ts", "ts-hexagonal", "ts-trpc", "ts-mcp", "ts-lambda", "ts-web", "ts-desktop", "ts-drizzle-postgres"]);
     // project-package's output: the manifest and the lockfile it pins.

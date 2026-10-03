@@ -1,6 +1,8 @@
 # 2026-048: Team lead as the project entry
 
-**Status:** accepted
+**Status:** accepted; how the lead starts an architect is superseded by
+[2026-066](2026-066-lead-on-main-ticket-worktrees.md): each ticket's architect
+runs as its own worktree's session, and the lead never commissions one.
 
 ## Decision
 

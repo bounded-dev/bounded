@@ -78,7 +78,8 @@ export function installProjectPi(target: string, harnessRoot: string): void {
     const content = source.replace(ROLE_EXTENSION, (_match, roleFile: string) => {
       const roleExtension = join(extensionDir, "path-gate", roleFile);
       if (!existsSync(roleExtension)) throw new Error(`pi project install missing role extension: ${roleExtension}`);
-      return `subagentOnlyExtensions: ${localPath(project, roleExtension)}`;
+      // pi-subagents resolves a relative loader from the definition's own directory.
+      return `subagentOnlyExtensions: ${localPath(join(project, ".pi", "agents"), roleExtension)}`;
     });
     if (content.includes("~/.pi/agent/")) {
       throw new Error(`pi project install cannot render global path in ${name}`);

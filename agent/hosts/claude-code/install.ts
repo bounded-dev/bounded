@@ -37,7 +37,7 @@ import {
 import { join, resolve } from "node:path";
 import { isMainModule } from "../../src/is-main-module.ts";
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
-import { defaultHarnessRoot, GENERATED_MARKER, hookCommandFor, isGenerated, renderAllAgents } from "./render-agents.ts";
+import { COMMISSION_MATCHER, defaultHarnessRoot, GENERATED_MARKER, hookCommandFor, isGenerated, renderAllAgents } from "./render-agents.ts";
 
 export const AGENTS_DIR = join(".claude", "agents");
 export const SETTINGS_FILE = join(".claude", "settings.json");
@@ -63,19 +63,20 @@ export type Merge =
   | { readonly ok: false; readonly reason: string };
 
 /**
- * Add the ambient hook and run pipeline roles in the foreground. Claude Code's
- * interactive fork mode otherwise forces Agent calls into the background, so
- * the architect cannot await a reviewer before freezing the design. Preserve
- * unrelated settings and refuse conflicting env values. Keep agent teams off
- * so a named nested Agent call stays an ordinary subagent.
+ * Add the ambient hook. Background tasks stay available: the lead runs each
+ * ticket's architect as a background subagent (ADR 2026-066); the hook keeps
+ * every worker commission in the foreground itself, so an architect still
+ * awaits its reviewer. A setting that disables background tasks is refused,
+ * since it would serialize the architects. Preserve unrelated settings. Keep
+ * agent teams off so a named nested Agent call stays an ordinary subagent.
  */
 export function mergeAmbientHook(settings: Json, command: string): Merge {
   const envRaw = settings["env"];
   if (envRaw !== undefined && !isRecord(envRaw)) return { ok: false, reason: "'env' is not an object" };
   const env: Json = envRaw ?? {};
   const foreground = env[FOREGROUND_AGENTS_ENV];
-  if (foreground !== undefined && foreground !== "1") {
-    return { ok: false, reason: `'env.${FOREGROUND_AGENTS_ENV}' conflicts with the developer-stage workflow` };
+  if (foreground !== undefined && foreground !== "0") {
+    return { ok: false, reason: `'env.${FOREGROUND_AGENTS_ENV}' would run every architect in the foreground, one at a time` };
   }
   const teams = env[AGENT_TEAMS_ENV];
   if (teams !== undefined && teams !== "0") {
@@ -94,13 +95,13 @@ export function mergeAmbientHook(settings: Json, command: string): Merge {
     merged[event] = [...list, { matcher, hooks: [{ type: "command", command }] }];
     added = true;
   }
-  if (!added && foreground === "1" && teams === "0") return { ok: true, value: settings, changed: false };
+  if (!added && teams === "0") return { ok: true, value: settings, changed: false };
   return {
     ok: true,
     changed: true,
     value: {
       ...settings,
-      env: { ...env, [FOREGROUND_AGENTS_ENV]: "1", [AGENT_TEAMS_ENV]: "0" },
+      env: { ...env, [AGENT_TEAMS_ENV]: "0" },
       hooks: merged,
     },
   };
@@ -108,14 +109,17 @@ export function mergeAmbientHook(settings: Json, command: string): Merge {
 
 /**
  * The events the project-wide hook runs on. Before every call it decides;
- * after an Agent call it only records — that is how the lead's architect is
- * known to have ended (or not), so a second architect is never started while
- * one runs (lead-hook.ts).
+ * after an Agent or SendMessage call it only records. WorktreeCreate binds the
+ * lead's architect launch to its ticket's worktree, and SubagentStop records
+ * the architect's end (architect-seat.ts).
  */
 export const AMBIENT_HOOK_EVENTS: readonly (readonly [string, string])[] = [
   ["PreToolUse", ""],
-  ["PostToolUse", "Agent|Task"],
-  ["PostToolUseFailure", "Agent|Task"],
+  ["PostToolUse", COMMISSION_MATCHER],
+  ["PostToolUseFailure", COMMISSION_MATCHER],
+  ["WorktreeCreate", ""],
+  ["WorktreeRemove", ""],
+  ["SubagentStop", ""],
 ];
 
 function isOurHook(entry: unknown): boolean {

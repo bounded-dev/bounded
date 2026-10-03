@@ -12,7 +12,7 @@
 // be unit-tested without spawning pi.
 
 import { logGuardEvent, RUN_START_GUARD } from "./guard-log.ts";
-import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { resolvedProjectPath } from "./setup-state.ts";
 
@@ -32,6 +32,7 @@ import {
 } from "./pack-contrib.ts";
 import type { KnownModel } from "./model-tier.ts";
 import { designNotePath, resolveTicketDesign, ticketWriteScope } from "./ticket-design.ts";
+import { readTicketMarker } from "./ticket-worktree.ts";
 import { createHash } from "node:crypto";
 import { hostPathArgument, piReadVariant, type PathHost } from "./host-paths.ts";
 
@@ -482,8 +483,19 @@ function hostedInput(role: Role, ev: GateInput):
  * is passed as `"unreadable"`, which decide() treats fail-closed. Exported so
  * every host builds the same context (the Claude Code bash policy included).
  */
+/** Whether the filesystem under `cwd` folds case: its `.bounded` directory
+ *  answers to `.BOUNDED` too. */
+export function foldsCase(cwd: string): boolean {
+  return existsSync(join(cwd, ".bounded")) && existsSync(join(cwd, ".BOUNDED"));
+}
+
 export function pathGateCtx(role: Role, cwd: string, harnessRoot?: string): Ctx {
+  const marker = readTicketMarker(cwd);
   return {
+    // A ticket worktree confines every role to the ticket's owned paths (ADR 2026-066).
+    ...(marker !== undefined ? {
+      ownedPaths: { ticket: marker.issue, paths: marker.owns ?? [], caseInsensitive: foldsCase(cwd) },
+    } : {}),
     cwd,
     ...(harnessRoot !== undefined ? { harnessRoot } : {}),
     ...(role === "architect" ? { ticketScope: ticketWriteScope(cwd) } : {}),

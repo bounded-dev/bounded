@@ -30,6 +30,13 @@ export function deny(reason: string): string {
   );
 }
 
+/** Allow explicitly, the input unchanged. A ticket's seats run in `dontAsk`
+ *  and grant no permission of their own (architect-seat.ts), so every call
+ *  their gate allows is allowed here, in words. */
+export function allow(): string {
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }) + "\n";
+}
+
 /** Allow, with the tool input rewritten. Other fields of the original input
  *  (`description`, `timeout`) are kept: `updatedInput` REPLACES the input. */
 export function allowWith(updatedInput: Readonly<Record<string, unknown>>): string {

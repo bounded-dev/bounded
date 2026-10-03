@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { logGuardEvent, readGuardLog, type LoggedGuardEvent } from "../../src/guard-log.ts";
+import { ARCHITECT_ENDED, LEAD_GUARD } from "../../src/lead-state.ts";
 import { makeTempProject as makeProject, type TempProject } from "../../test/support/temp-project.ts";
 import {
   CLAUDE_COMMISSIONS,
@@ -62,19 +63,14 @@ function hook(dir: string, event: string, tool: string, input: unknown, extra: R
   }
 }
 
-/** What the lead's project-wide hook records after its architect's Agent call
- *  completes (lead-hook.ts recordLeadArchitectOutcome). */
-function leadSawArchitectEnd(dir: string, agentId: string): void {
-  vi.stubEnv("BOUNDED_GUARD_LOG", undefined);
-  try {
-    runHook(["--project-local"], JSON.stringify({
-      session_id: "s1", cwd: dir, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: `t-${agentId}`,
-      tool_input: { subagent_type: "architect", prompt: "deliver" },
-      tool_response: { status: "completed", agentId, agentType: "architect" },
-    }), dir);
-  } finally {
-    vi.unstubAllEnvs();
-  }
+/** What the seat's SubagentStop hook records when an architect turn in this
+ *  worktree ends (src/architect-seat.ts); `agentId` stands for an end that names
+ *  the architect it was. */
+function architectEnded(dir: string, agentId?: string): void {
+  logGuardEvent(dir, {
+    guard: LEAD_GUARD, verdict: "pass", summary: "architect turn 1 finished",
+    detail: { kind: ARCHITECT_ENDED, launch: "turn-1", ...(agentId !== undefined ? { agent: agentId } : {}) },
+  });
 }
 
 const launch = (dir: string, role: string): Outcome => hook(dir, "PreToolUse", "Agent", { subagent_type: role, prompt: "do it" });
@@ -103,7 +99,9 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     finished(dir, "test-writer", W1);
     const r = send(dir, { to: W1, message: "red bounced: fix the spurious passes", summary: "bounce", type: "message", recipient: W1, content: "red bounced: fix the spurious passes" });
     expect(r.decision).toBe("allow");
-    expect(phase(dir).at(-1)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "test-writer", run: W1 } });
+    expect(phase(dir).at(-2)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "test-writer", run: W1 } });
+    // Marked before the send, so a stop that lands before the resume record still counts.
+    expect(phase(dir).at(-1)).toMatchObject({ detail: { kind: "worker-continuing", worker: W1 } });
   });
 
   test("SendMessage is allowed when Claude Code's 'content' is only a preview of the message", () => {
@@ -115,7 +113,7 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     finished(dir, "builder", W1);
     const r = send(dir, { to: W1, message, summary: "Builder: run full suite now tests exist", type: "message", recipient: W1, content: `${message.slice(0, 49)}\u2026` });
     expect(r.decision).toBe("allow");
-    expect(phase(dir).at(-1)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "builder", run: W1 } });
+    expect(phase(dir).at(-2)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "builder", run: W1 } });
   });
 
   test("the worker id comes only from the architect's own PostToolUse record", () => {
@@ -210,7 +208,7 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     expect(launch(dir, "builder").decision).toBe("deny");
   });
 
-  test("a launch left without an outcome by an earlier architect may be relaunched by its successor, never by itself", () => {
+  test("a launch left without an outcome may be relaunched once an architect turn's end is recorded after it", () => {
     const dir = readyProject();
     const first = { agent_id: "a0000000000000aaa", agent_type: "architect" };
     const next = { agent_id: "a0000000000000bbb", agent_type: "architect" };
@@ -219,18 +217,29 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first).decision).toBe("deny");
     // A different id alone is not evidence: the first architect may still run.
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("deny");
-    // The lead's own after-call hook records that the first architect ended.
-    leadSawArchitectEnd(dir, "a0000000000000aaa");
+    // The seat's SubagentStop hook records that the first architect ended.
+    architectEnded(dir, "a0000000000000aaa");
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("allow");
     // And the successor's own launch is again unresolved to itself.
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("deny");
+  });
+
+  // A ticket worktree's architect is a top-level session: the next turn
+  // continues the same session, so it carries the same caller (ADR 2026-066).
+  test("the same session, continued after its turn ended, may relaunch the worker the dead turn left", () => {
+    const dir = readyProject();
+    const session = { session_id: "s-architect" };
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, session).decision).toBe("allow");
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, session).decision).toBe("deny");
+    architectEnded(dir);
+    expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, session).decision).toBe("allow");
   });
 
   test("an end recorded for a DIFFERENT architect licenses nothing", () => {
     const dir = readyProject();
     const first = { agent_id: "a0000000000000aaa", agent_type: "architect" };
     hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first);
-    leadSawArchitectEnd(dir, "a0000000000000ccc");
+    architectEnded(dir, "a0000000000000ccc");
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, { agent_id: "a0000000000000bbb", agent_type: "architect" }).decision).toBe("deny");
   });
 

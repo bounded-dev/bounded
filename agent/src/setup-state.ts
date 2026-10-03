@@ -98,6 +98,9 @@ export function beforeFirstRun(project: string): boolean {
   try {
     const state = join(project, ".bounded");
     if (existsSync(join(state, "active-ticket")) || existsSync(join(state, "contract-checksums.json"))) return false;
+    // A ticket the lead started in its own worktree (ADR 2026-066).
+    const started = join(state, "lead", "tickets");
+    if (existsSync(started) && readdirSync(started).some((name) => name.endsWith(".json"))) return false;
     const tickets = join(state, "tickets");
     if (existsSync(tickets) && readdirSync(tickets, { withFileTypes: true }).some((entry) =>
       entry.isDirectory() && existsSync(join(tickets, entry.name, "contract-checksums.json")))) return false;

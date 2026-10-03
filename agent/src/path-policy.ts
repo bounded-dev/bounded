@@ -76,6 +76,30 @@ export interface Ctx {
    * protected is unknown.
    */
   readonly writeProtection?: WriteProtection | "unreadable";
+  /**
+   * In a ticket's own worktree (ADR 2026-066): the ticket's number, the paths
+   * it alone may change, and whether the filesystem folds case. Every role
+   * there writes only under those paths (test-side and generated files
+   * included only there), and the architect its own TN and scratch. Absent
+   * outside a ticket worktree.
+   */
+  readonly ownedPaths?: { readonly ticket: number; readonly paths: readonly string[]; readonly caseInsensitive?: boolean };
+}
+
+/** Why a write in a ticket worktree falls outside the ticket's owned paths,
+ *  or null when it does not. Case is ignored only where the filesystem
+ *  ignores it (ADR 2026-057): elsewhere `Contexts/` is another directory. */
+export function ownedPathRefusal(role: Role, path: string, owned: NonNullable<Ctx["ownedPaths"]>): string | null {
+  const fold = (text: string): string => (owned.caseInsensitive === true ? text.toLowerCase() : text);
+  const target = fold(path);
+  const under = owned.paths.some((p) => {
+    const base = fold(p.replace(/\/+$/, ""));
+    return target === base || target.startsWith(`${base}/`);
+  });
+  if (under) return null;
+  if (role === "architect" && (target === fold(`docs/tn/TN-${owned.ticket}.md`) || target.startsWith("scratch/"))) return null;
+  const list = owned.paths.length > 0 ? owned.paths.join(", ") : "nothing";
+  return `ticket #${owned.ticket} owns only ${list} — a change elsewhere needs the ticket's owned paths widened, which only a new ticket can do; route → team lead`;
 }
 
 /** Filesystem facts a host supplies for content search (see Ctx.pathFacts). */
@@ -1207,6 +1231,10 @@ export function decide(
     }
     const refusal = writeRefusal(role, t, layout, ctx.writeProtection);
     if (refusal !== null) return block(`path-gate: ${role} may not write '${t}': ${refusal}`);
+    if (ctx.ownedPaths !== undefined) {
+      const outside = ownedPathRefusal(role, t, ctx.ownedPaths);
+      if (outside !== null) return block(`path-gate: ${role} may not write '${t}': ${outside}`);
+    }
     return gitBlocked() ?? ALLOW;
   }
 

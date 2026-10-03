@@ -25,6 +25,9 @@ export interface SessionFacts {
   readonly projectLocal: boolean;
   /** The host marks the session as one commissioned by another. */
   readonly child: boolean;
+  /** The session runs in a ticket's own worktree (ADR 2026-066), where the
+   *  only seat with work to do is that ticket's launched architect. */
+  readonly ticketWorktree?: boolean;
   /** Another hook, bound to a known seat, is proven to judge these calls. */
   readonly judgedElsewhere: boolean;
   /** The legacy ambient role, read only when nothing above decides. */
@@ -43,7 +46,9 @@ export function resolveSessionRole(facts: SessionFacts): SessionSeat {
       : { kind: "none", note: `'${facts.boundSeat}' is not a pipeline role or the scout; gate inactive` };
   }
   if (facts.judgedElsewhere) return { kind: "none" };
-  if (facts.projectLocal) return facts.child ? { kind: "scout", bound: false } : { kind: "lead" };
+  // The lead belongs in the main worktree. In a ticket worktree, a session
+  // the start command did not launch as the architect is only read-only.
+  if (facts.projectLocal) return facts.child || facts.ticketWorktree === true ? { kind: "scout", bound: false } : { kind: "lead" };
   const role = facts.ambientRole();
   return role === undefined ? { kind: "none" } : { kind: "role", role, bound: false };
 }

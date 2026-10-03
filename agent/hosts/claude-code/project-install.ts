@@ -58,7 +58,7 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
   // Rendering reads role briefs from the project-local copy. No generated
   // definition refers to the installer checkout.
   const rendered = Object.fromEntries(
-    PIPELINE_ROLES.map((role) => [role, renderAgent(role, { harnessRoot, hookCommand: `${hookCommand} --role ${role}` })]),
+    PIPELINE_ROLES.map((role) => [role, renderAgent(role, { harnessRoot, hookCommand: `${hookCommand} --role ${role}`, permissionMode: "dontAsk" })]),
   ) as Record<(typeof PIPELINE_ROLES)[number], string>;
   // The scout's own hook binds it to the read-only scout policy, so the
   // project-wide hook can prove the child is judged and stand down.
@@ -107,9 +107,11 @@ export function installProjectClaude(target: string, harnessRoot: string): void 
   const leadInstructions = [
     "# Bounded project entry",
     "",
-    "The main user-facing session starts each request as the read-only team lead. Load the team-lead skill automatically; the user never has to name a role or describe the workflow. Use the scout agent for read-only investigation. Keep user interaction in the main session. Subagents follow their own installed role definitions.",
+    "In the main worktree, the main user-facing session starts each request as the read-only team lead. Load the team-lead skill automatically; the user never has to name a role or describe the workflow. Use the scout agent for read-only investigation. Keep user interaction in the main session. Subagents follow their own installed role definitions.",
     "",
-    "Prepare each run with `bash .bounded/harness/scripts/bounded lead prepare`. Use `--new` when the user's request is a new work item after the prior one was delivered; omit it for a follow-up to the current item. For a new tracked issue, use `--new <ticket>`; otherwise let the command allocate a local number. Decide this from the request and project state; the user need not know the mechanics. Then delegate delivery to the architect as an ordinary unnamed foreground subagent. The architect runs the developer-stage skill and commissions its own reviewer, test-writer, and builder. Let each role's installed definition bind its tools and hook. Never implement the work as the lead.",
+    "Tickets are GitHub issues, and the lead works only through `bash .bounded/harness/scripts/bounded lead <command>`: `ticket create`, `queue`, `start`, `status`, `reply` and `merge`. `bounded lead start <issue>` gives the ticket its own worktree under `.bounded/worktrees/` and then says how to launch its architect: a background Agent call with subagent_type architect, which the hook binds to that worktree. Continue an architect only after `bounded lead reply`, with SendMessage. Never implement the work as the lead.",
+    "",
+    "The architect subagent runs in its ticket's worktree: it runs the developer-stage skill and commissions its own reviewer, test-writer, and builder there. A session opened directly in a ticket worktree is read-only.",
     "",
     `Before the first run, and whenever the entry reports that dependencies are not ready, run exactly \`${SETUP_COMMAND}\`. Until setup completes, the session can only read project files. Gate discovery is available through \`bash .bounded/harness/scripts/bounded gates --list\`.`,
     "",

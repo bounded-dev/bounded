@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { deliveryState } from "./change-run-status.ts";
 import { guardLogPath, RUN_START_GUARD } from "./guard-log.ts";
 import { readActiveTicketFile } from "./ticket-design.ts";
+import { ownerState, systemProcesses, type ProcessProbe } from "./process-lock.ts";
 
 const INSTALLATION_RELATIVE = ".bounded/installation.json";
 const HARNESS_COPY_RELATIVE = ".bounded/harness";
@@ -19,39 +20,106 @@ export const LEAD_SEAT = "team-lead";
 /** The read-only investigator the lead may commission. */
 export const SCOUT_SEAT = "scout";
 
-// ── One architect at a time ────────────────────────────────────────────────
+// ── One architect per worktree ─────────────────────────────────────────────
 //
-// The lead runs at most one architect at once, project-wide: two architects
-// would each commission workers, and the cold-relaunch rule (phase-gate.ts) is
-// per role, not per architect. A host adapter records each architect the lead
-// launches (with the host's id for that launch) and its end; "running" is a
-// launch with no recorded end. Only evidence clears one: the host reporting
-// the launch over (completed, failed, interrupted), or the USER releasing it
-// with `bounded lead release` after a session died with no end recorded — a
-// command the lead itself is never allowed to run.
+// Each ticket has its own worktree and at most one architect, the host's own
+// subagent, bound to it when the lead launches it after `bounded lead start`
+// and continued after `bounded lead reply` (architect-seat.ts, ADR 2026-066).
+// The host adapter records each turn's end in the worktree's guard log. The
+// cold-relaunch rule (phase-gate.ts) reads that end: a worker launch left
+// without an outcome by a turn that has since ended can never be continued.
 
-/** Detail kind: the lead launched an architect (`launch` = the host's id). */
-export const ARCHITECT_LAUNCHED = "architect-launched";
-/** Detail kind: that architect ended (`launch`), or all were released (`all`). */
+/** Detail kinds of the background-worker hold (ADR 2026-066). With background
+ *  tasks on, a worker continued with the host's continuation may run on after
+ *  the call returns, so no gate runs in its ticket worktree while one does.
+ *  `worker-continuing` is logged before the continuation is sent, so a stop
+ *  that lands before the resume record still cancels it; `worker-send-failed`
+ *  says a continuation did not go through; `seat-released` is the user's
+ *  `bounded lead release`, which clears every hold. */
+export const WORKER_CONTINUING = "worker-continuing";
+export const WORKER_RESUMED = "worker-resumed";
+export const WORKER_SEND_FAILED = "worker-send-failed";
+export const SUBAGENT_STOPPED = "subagent-stopped";
+export const SEAT_RELEASED = "seat-released";
+
+export interface BackgroundWorker {
+  readonly worker: string;
+  readonly since: string;
+  /** The session could not be recognised: the hold stays until the worker's
+   *  stop is recorded or the user releases the seat. */
+  readonly unrecognised?: true;
+}
+
+type Logged = { readonly guard: string; readonly detail?: unknown; readonly ts?: string };
+
+/**
+ * The workers still holding the gates. Read in log order, which is time
+ * order. A hold starts with a successful continuation's resume record and ends
+ * only with that worker's recorded stop, its session gone stale, or the user's
+ * release. Nothing else ends it: not the architect's end, and not age.
+ *
+ * Between a continuation's mark (before the send) and its resume record
+ * (after it), a stop is ambiguous:
+ * - If the worker was idle when the mark was written, the stop can only
+ *   answer this send, so it ends the hold and cancels the resume record still
+ *   to come.
+ * - If the worker was already held, the stop may end the turn before this
+ *   send, so it ends nothing. Only a stop recorded after this send's resume
+ *   record ends the hold.
+ * A failed send drops its mark.
+ */
+export function backgroundWorkers(events: readonly Logged[], probe: ProcessProbe = systemProcesses): readonly BackgroundWorker[] {
+  const running = new Map<string, { since: string; pid?: number; pidStarted?: string }>();
+  // Continuations marked but not yet resolved by a resume record or a failure.
+  const continuing = new Map<string, { wasHeld: boolean; answered: boolean }>();
+  for (const e of events) {
+    const d = typeof e.detail === "object" && e.detail !== null ? (e.detail as Detail) : {};
+    const kind = d["kind"];
+    if (kind === SEAT_RELEASED) {
+      running.clear();
+      continuing.clear();
+      continue;
+    }
+    const worker = typeof d["worker"] === "string" ? d["worker"] : undefined;
+    if (kind === WORKER_CONTINUING && worker !== undefined) {
+      continuing.set(worker, { wasHeld: running.has(worker) || continuing.get(worker)?.wasHeld === true, answered: false });
+    }
+    if (kind === WORKER_SEND_FAILED && worker !== undefined) continuing.delete(worker);
+    if (kind === WORKER_RESUMED && worker !== undefined) {
+      if (continuing.get(worker)?.answered !== true) {
+        running.set(worker, {
+          since: e.ts ?? "",
+          ...(typeof d["pid"] === "number" ? { pid: d["pid"] } : {}),
+          ...(typeof d["pidStarted"] === "string" ? { pidStarted: d["pidStarted"] } : {}),
+        });
+      }
+      continuing.delete(worker);
+    }
+    if (kind === SUBAGENT_STOPPED && typeof d["agent"] === "string") {
+      const agent = d["agent"];
+      const pending = continuing.get(agent);
+      if (pending === undefined) running.delete(agent);
+      else if (!pending.wasHeld) {
+        running.delete(agent);
+        pending.answered = true;
+      }
+    }
+  }
+  const out: BackgroundWorker[] = [];
+  for (const [worker, r] of running) {
+    const session = r.pid === undefined ? "unknown" : ownerState({ pid: r.pid, started: r.pidStarted ?? "unknown" }, probe);
+    if (session === "stale") continue;
+    out.push(session === "unknown" ? { worker, since: r.since, unrecognised: true } : { worker, since: r.since });
+  }
+  return out;
+}
+
+/** Detail kind: an architect turn in this worktree ended (`launch` names it). */
 export const ARCHITECT_ENDED = "architect-ended";
 
 type Detail = Readonly<Record<string, unknown>>;
 const leadDetail = (e: { readonly guard: string; readonly detail?: unknown }): Detail =>
   e.guard === LEAD_GUARD && typeof e.detail === "object" && e.detail !== null ? (e.detail as Detail) : {};
-
-/** The launch ids of architects the lead started whose end is not recorded. */
-export function runningArchitects(events: readonly { readonly guard: string; readonly detail?: unknown }[]): readonly string[] {
-  const running = new Set<string>();
-  for (const e of events) {
-    const d = leadDetail(e);
-    if (d["kind"] === ARCHITECT_LAUNCHED && typeof d["launch"] === "string") running.add(d["launch"]);
-    if (d["kind"] === ARCHITECT_ENDED) {
-      if (d["all"] === true) running.clear();
-      else if (typeof d["launch"] === "string") running.delete(d["launch"]);
-    }
-  }
-  return [...running];
-}
 
 /** Is an architect's end recorded after event `index` — and, when the end
  *  names the architect's agent id, is it `agent`? */

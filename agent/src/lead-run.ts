@@ -1,6 +1,6 @@
-// The lead's run boundary (ADR 2026-048): select one ticket for this worktree
-// and open, resume or change its run. Every host reaches this through the
-// same argument parser, so the accepted shapes cannot drift between them.
+// A ticket's run boundary (ADR 2026-048): select one ticket for a worktree and
+// open, resume or change its run. `bounded lead start` prepares each ticket's
+// run in that ticket's own worktree (ADR 2026-066).
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
@@ -9,31 +9,6 @@ import { fileURLToPath } from "node:url";
 import { logGuardEvent } from "./guard-log.ts";
 import { hasRunStart, isLeadOwnEntry, isProjectLocalHarness, LEAD_GUARD, readRunLog } from "./lead-state.ts";
 import { ACTIVE_TICKET_RELATIVE, readActiveTicketFile, TICKET_NUMBER } from "./ticket-design.ts";
-
-/** The one spelling of the command, shared by the CLI, the hosts and the docs. */
-export const LEAD_PREPARE_USAGE = "bounded lead prepare [--new] [ticket-number]";
-
-export interface LeadPrepareRequest {
-  /** Start a new work item rather than continuing the active one. */
-  readonly fresh: boolean;
-  /** A tracker issue number; absent allocates the next local number. */
-  readonly ticket?: string;
-}
-
-export type LeadPrepareArgs =
-  | ({ readonly ok: true } & LeadPrepareRequest)
-  | { readonly ok: false; readonly reason: string };
-
-/** `[--new] [ticket-number]`, and nothing else. */
-export function parseLeadPrepareArgs(args: readonly string[]): LeadPrepareArgs {
-  const fresh = args[0] === "--new";
-  const rest = fresh ? args.slice(1) : args;
-  const ticket = rest[0];
-  if (rest.length > 1 || (ticket !== undefined && !TICKET_NUMBER.test(ticket))) {
-    return { ok: false, reason: `usage: ${LEAD_PREPARE_USAGE}` };
-  }
-  return { ok: true, fresh, ...(ticket !== undefined ? { ticket } : {}) };
-}
 
 export type LeadPrepareResult =
   | { readonly ok: true; readonly kind: "first" | "change" | "resume"; readonly ticket: string; readonly summary: string }
