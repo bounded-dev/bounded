@@ -47,7 +47,7 @@
 //     test files the TypeScript parser cannot attribute. Cases whose text
 //     changed in any way are listed as notes for the reviewer to read.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 // Repository scripts have no package of their own: the compiler comes from the
@@ -284,7 +284,10 @@ function runAtRed(repo: string, red: string, pkg: string, files: readonly string
   const report = join(scratch, "report.json");
   git(repo, "worktree", "add", "--detach", "--quiet", tree, red);
   try {
-    symlinkSync(realpathSync(installed), join(tree, pkg, "node_modules"), "dir");
+    // A red commit that tracks node_modules itself fails the scope check; the
+    // run still uses what the commit provides rather than failing to link.
+    const linked = join(tree, pkg, "node_modules");
+    if (lstatSync(linked, { throwIfNoEntry: false }) === undefined) symlinkSync(realpathSync(installed), linked, "dir");
     const scoped = files.map((f) => relative(pkg, f));
     print(`red: running npm test at ${red.slice(0, 12)} on ${scoped.length} file(s)`);
     const run = spawnSync("npm", ["test", "--silent", "--", "--reporter=json", `--outputFile=${report}`, ...scoped], {
