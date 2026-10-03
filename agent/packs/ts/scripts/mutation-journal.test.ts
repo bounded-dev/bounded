@@ -1,11 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "vitest";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import { gates } from "../gates.ts";
+import { writeJournal } from "./mutation-journal.ts";
 import { runMutationScore } from "./mutation-score.ts";
 
 // Issue #48: a mutation-score run killed mid-mutant left `!==` in the user's
@@ -182,7 +183,9 @@ describe("a mutant left by a killed measurement", () => {
     let call = 0;
     await runMutationScore(dir, {
       minimumSample: 1,
-      maxMutants: 1,
+      // A different sample from the killed run's (1 mutant), so this run
+      // cannot continue that one's progress and starts with a baseline.
+      maxMutants: 2,
       runSuite: async (cwd) => {
         if (call++ === 0) dirtyAtBaseline.push(dirtyFiles(cwd));
         return { ok: true, note: "green" };
@@ -206,6 +209,107 @@ describe("a mutant left by a killed measurement", () => {
     expect(result.verdict).toBe("block");
     expect(result.summary).toContain(mutated);
     expect(readFileSync(join(dir, mutated!), "utf8")).toBe(edited);
+  });
+});
+
+describe("a killed measurement's progress, and who may hold the tree", () => {
+  test("a SIGKILLed run's verdicts survive the restore: the next run over the same tree continues without a baseline", async () => {
+    const dir = proj();
+    await killOutright(await measureUntilFirstMutant(dir));
+    expect(dirtyFiles(dir)).toHaveLength(1);
+
+    const seen: { dirty: string[]; journalPid: unknown }[] = [];
+    const result = await runMutationScore(dir, {
+      minimumSample: 1,
+      maxMutants: 1,
+      runSuite: async (cwd) => {
+        const journal = join(cwd, ".bounded/mutation-score/journal.json");
+        seen.push({ dirty: dirtyFiles(cwd), journalPid: existsSync(journal) ? JSON.parse(readFileSync(journal, "utf8")).pid : undefined });
+        return { ok: false, note: "1 failed" };
+      },
+    });
+
+    // One suite run: the killed run's baseline stands, its one mutant is judged now.
+    expect(seen).toHaveLength(1);
+    // The run's own mutant, under its own journal: the leftover was put back first.
+    expect(seen[0]!.journalPid).toBe(process.pid);
+    expect(result.complete).toBe(true);
+    expect(dirtyFiles(dir)).toEqual([]);
+  });
+
+  test("a journal written on another machine blocks every gate, naming the journal to delete and why", async () => {
+    const dir = proj();
+    writeJournal(dir, { file: "contexts/pm/src/money.ts", mutation: "=== → !==", original: Buffer.from(MONEY_TS), mutated: Buffer.from(MONEY_TS + "//\n") });
+    const path = join(dir, ".bounded/mutation-score/journal.json");
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, "utf8")), host: "another-machine" }));
+
+    const result = await checkDrift().run(dir, {});
+
+    expect(result.code).toBe(1);
+    expect(result.summary).toContain(".bounded/mutation-score/journal.json");
+    expect(result.summary).toContain("another-machine");
+    expect(result.summary).toMatch(/delete/);
+  });
+
+  test("in one process (pi runs gates in-process), a restore that failed does not leave a journal that blocks the process forever", async () => {
+    const dir = proj();
+    let mutated = "";
+    await expect(runMutationScore(dir, {
+      minimumSample: 1,
+      maxMutants: 1,
+      runSuite: async (cwd) => {
+        const [file] = dirtyFiles(cwd);
+        if (file === undefined) return { ok: true, note: "green" };
+        mutated = file;
+        chmodSync(join(cwd, file), 0o444); // the restore's write will fail
+        return { ok: false, note: "1 failed" };
+      },
+    })).rejects.toThrow();
+    expect(mutated).not.toBe("");
+    chmodSync(join(dir, mutated), 0o644);
+    expect(dirtyFiles(dir)).toEqual([mutated]);
+
+    const result = await checkDrift().run(dir, {});
+
+    expect(result.summary).not.toContain("right now");
+    expect(dirtyFiles(dir)).toEqual([]);
+  });
+
+  // No journal exists while the first is at its baseline: only a lock held for
+  // the measurement's whole life keeps a second one out.
+  test("two measurements of one project never run at once: the second refuses and touches nothing", async () => {
+    const dir = proj();
+    let releaseFirst: () => void = () => {};
+    let atBaseline: () => void = () => {};
+    const reachedBaseline = new Promise<void>((resolve) => { atBaseline = resolve; });
+    let firstCalls = 0;
+    const first = runMutationScore(dir, {
+      minimumSample: 1,
+      maxMutants: 1,
+      runSuite: async () => {
+        if (firstCalls++ > 0) return { ok: false, note: "1 failed" };
+        atBaseline();
+        await new Promise<void>((resolve) => { releaseFirst = resolve; });
+        return { ok: true, note: "green" };
+      },
+    });
+    await reachedBaseline;
+    const held = dirtyFiles(dir);
+
+    let secondCalls = 0;
+    const second = await runMutationScore(dir, {
+      minimumSample: 1,
+      maxMutants: 1,
+      runSuite: async () => { secondCalls++; return { ok: true, note: "green" }; },
+    });
+
+    expect(second.code).toBe(1);
+    expect(second.summary).toContain("mutation-score");
+    expect(secondCalls).toBe(0);
+    expect(dirtyFiles(dir)).toEqual(held);
+    releaseFirst();
+    expect((await first).complete).toBe(true);
+    expect(dirtyFiles(dir)).toEqual([]);
   });
 });
 

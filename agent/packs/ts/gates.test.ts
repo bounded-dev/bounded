@@ -7,7 +7,7 @@ import { paramName, toolFlags, toolParams } from "../../hosts/pi/extensions/lib/
 import { isGateCommand } from "../../src/gate-command.ts";
 import { ARTIFACT_GATE_TOOLS } from "../../src/path-policy.ts";
 import { makeTempProject, type TempProject } from "../../test/support/temp-project.ts";
-import { gates, mutationBudgetMs } from "./gates.ts";
+import { deadlineForBudgetMs, gates, mutationBudgetMs } from "./gates.ts";
 import { parseFindings } from "./scripts/sign-off.ts";
 
 // The registry is the one place a gate's public face lives (ADR 2026-034):
@@ -114,6 +114,13 @@ describe("mutation-score's time budget", () => {
     expect(mutationBudgetMs(120_000)).toBe(102_000);
     expect(mutationBudgetMs(60_000)).toBe(45_000);
     expect(mutationBudgetMs(10_000)).toBe(0);
+  });
+
+  test("the deadline a budget error asks for buys at least that budget", () => {
+    for (const budget of [1, 20_000, 85_000, 120_000, 500_000]) {
+      expect(mutationBudgetMs(deadlineForBudgetMs(budget))!).toBeGreaterThanOrEqual(budget);
+      expect(mutationBudgetMs(deadlineForBudgetMs(budget) - 1)!).toBeLessThan(budget);
+    }
   });
 });
 

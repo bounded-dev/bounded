@@ -187,6 +187,11 @@ export function mutationBudgetMs(deadlineMs: number | undefined): number | undef
   return Math.max(0, deadlineMs - Math.max(Math.ceil(deadlineMs * 0.15), 15_000));
 }
 
+/** The shortest host deadline whose budget is at least `budgetMs`. */
+export function deadlineForBudgetMs(budgetMs: number): number {
+  return Math.max(Math.ceil(budgetMs / 0.85), budgetMs + 15_000);
+}
+
 // --- the registry ------------------------------------------------------------------
 
 export const gates: readonly GateCommand[] = ([
@@ -372,7 +377,8 @@ export const gates: readonly GateCommand[] = ([
     promptGuidelines: [
       "A survivor is not automatically a defect — it is a question. Read the line it names and decide whether the rule it broke is one the spec actually requires.",
       "The measurement costs one full suite run per mutant (at least 40), so run it once, late, on a green suite — not between builder bounces.",
-      "PARTIAL means the call ran out of time, not that anything failed: call it again with the same flags until it reports a score. The verdicts so far are kept while the tree is unchanged.",
+      "PARTIAL means the call ran out of time after making progress, not that anything failed: call it again with the same flags until it reports a score. The verdicts so far are kept while the tree is unchanged.",
+      "An ERROR saying the time budget cannot fit the next step is not PARTIAL: calling again unchanged judges nothing. Give the command the timeout it names, or pass a smaller --timeout-ms.",
       "A gate that blocks because a mutation-score mutant is still in a file is not the builder's to fix: it names the file and what to compare it with.",
       "Findings from it belong in sign_off: 'the suite does not hold down X' is exactly the kind of thing only you can see, and the gates cannot.",
     ],
@@ -389,6 +395,9 @@ export const gates: readonly GateCommand[] = ([
         ...(maxMutants.value !== undefined ? { maxMutants: maxMutants.value } : {}),
         ...(timeoutMs.value !== undefined ? { timeoutMs: timeoutMs.value } : {}),
         ...(budgetMs !== undefined ? { budgetMs } : {}),
+        budgetRemedy: (neededMs) =>
+          `give this command a timeout of at least ${Math.ceil(deadlineForBudgetMs(neededMs) / 1000)}s ` +
+          "(the measurement keeps a margin of it for releasing what it starts), or pass a smaller --timeout-ms",
       });
       return {
         ...toGateResult("mutation-score", r, {

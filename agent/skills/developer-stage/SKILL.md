@@ -277,8 +277,10 @@ removes it at the end of the run.
      and dismissed. Leaving one unmentioned is the same silence a green with an
      empty sign-off would be. The sample is at least 40 mutants, spread over
      the whole tree, and the score is printed beside its sample size and site
-     count. A call that runs out of its host's time reports **PARTIAL**: call it
-     again with the same flags until it prints a score. Every gate first puts
+     count. A call that runs out of its host's time after making progress
+     reports **PARTIAL**: call it again with the same flags until it prints a
+     score. An ERROR that the budget cannot fit the next step needs a longer
+     command timeout or a smaller `--timeout-ms`, not another identical call. Every gate first puts
      back a mutant a killed measurement left; when it cannot do so safely it
      blocks and names the file, which is yours to settle, not the builder's.
 

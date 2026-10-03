@@ -633,6 +633,65 @@ describe("runMutationScore within a time budget", () => {
     expect(second.score).toBe(100);
   });
 
+  test("a budget that cannot fit the baseline and one mutant is an error naming the time needed, and starts nothing", async () => {
+    const dir = proj();
+    let prepared = 0;
+    let ran = 0;
+    const result = await runMutationScore(dir, {
+      minimumSample: 6,
+      timeoutMs: 10_000,
+      budgetMs: 15_000,
+      now: clock(10_000).now,
+      policy: {
+        refusals: [],
+        env: { set: {}, unset: [] },
+        prepares: [{ name: "db", prepare: async () => { prepared++; return { description: "started a database", env: {}, release: () => {} }; } }],
+      },
+      runSuite: async () => { ran++; return { ok: true, note: "green" }; },
+    });
+
+    expect(result.code).not.toBe(0);
+    expect(result.complete).toBe(false);
+    expect(prepared).toBe(0);
+    expect(ran).toBe(0);
+    const text = result.lines.join("\n");
+    expect(text).toContain("20s");
+    expect(text).toContain("--timeout-ms");
+    expect(text).not.toMatch(/run mutation-score again/i);
+    expect(readGuardLog(dir).filter((e) => e.guard === "mutation-score").at(-1)?.verdict).toBe("error");
+    expect(dirtyFiles(dir)).toEqual([]);
+  });
+
+  test("a call whose baseline used up its time is PARTIAL, says so, and the next call starts with mutants", async () => {
+    const dir = proj();
+    const slow = clock(20_000);
+    let calls = 0;
+    const first = await runMutationScore(dir, {
+      minimumSample: 6,
+      timeoutMs: 10_000,
+      budgetMs: 25_000,
+      now: slow.now,
+      runSuite: async () => { calls++; slow.advance(); return { ok: true, note: "green" }; },
+    });
+    expect(calls).toBe(1);
+    expect(first.code).toBe(0);
+    expect(first.complete).toBe(false);
+    const text = first.lines.join("\n");
+    expect(text).toMatch(/baseline/);
+    expect(text).toMatch(/run mutation-score again/i);
+    expect(text).not.toMatch(/judged nothing/);
+
+    const fast = clock(1_000);
+    const second = await runMutationScore(dir, {
+      minimumSample: 6,
+      timeoutMs: 10_000,
+      budgetMs: 25_000,
+      now: fast.now,
+      runSuite: async () => { fast.advance(); return { ok: false, note: "1 failed" }; },
+    });
+    expect(second.outcomes.length).toBeGreaterThan(0);
+  });
+
   test("a measurement leaves no signal listener and no journal behind", async () => {
     const dir = proj();
     const before = { int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") };

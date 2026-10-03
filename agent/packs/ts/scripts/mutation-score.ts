@@ -168,7 +168,15 @@ import type { SourceFile } from "ts-morph";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
 import { runTests, spawnRunner, testFiles } from "./run-tests.ts";
 import { configDriftBlock } from "./project-config.ts";
-import { clearJournal, MUTATION_STATE_DIR, PROGRESS_FILE, restoreLeftoverMutant, writeAtomically, writeJournal } from "./mutation-journal.ts";
+import {
+  acquireMeasurementLock,
+  clearJournal,
+  MUTATION_STATE_DIR,
+  PROGRESS_FILE,
+  restoreLeftoverMutant,
+  writeAtomically,
+  writeJournal,
+} from "./mutation-journal.ts";
 
 const GUARD = "mutation-score";
 
@@ -488,6 +496,10 @@ export interface MutationScoreOptions {
   readonly budgetMs?: number;
   /** The clock the budget is measured on. Default `Date.now`. */
   readonly now?: () => number;
+  /** What to raise when the budget cannot fit the next step, given the time
+   *  that step needs: the host-facing part of the error (the registry turns
+   *  it into the command timeout to ask for). */
+  readonly budgetRemedy?: (neededMs: number) => string;
   /** Suite runner. Default {@link bunSuiteRunner}. */
   readonly runSuite?: SuiteRunner;
   /** The phase test policies the whole measurement runs under. Default: the
@@ -665,271 +677,316 @@ export async function runMutationScore(
   // --- preconditions ---
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return misuse(`'${cwd}' is not a directory`);
   if (!existsSync(join(cwd, "package.json"))) return misuse(`no package.json in '${cwd}' — not a project root`);
-  // What an earlier, killed run left comes out before anything is read: the
-  // sites, the baseline and the fingerprint must all see the user's tree.
-  const leftover = restoreLeftoverMutant(cwd);
-  if (leftover.status === "refused") return stopped(1, leftover.reason, [`mutation-score: BLOCK — ${leftover.reason}`]);
-  if (leftover.status === "restored") head.push(`mutation-score: ${leftover.line}`);
-  // Every mutant runs the suite, which loads the project's config as code: it
-  // must be what the composed packs generate (ADR 2026-054). Checked before
-  // anything else is read, any source mutated or any suite spawned.
-  const configBlock = configDriftBlock(GUARD, cwd);
-  if (configBlock !== undefined) return stopped(1, configBlock.summary, configBlock.lines);
-  let layout: MutableLayout;
-  let roots: string[];
+  // One measurement of a project at a time, for its whole life: two would
+  // share one journal, one tree and one progress file.
+  const lock = acquireMeasurementLock(cwd);
+  if (!lock.ok) {
+    log("block", lock.reason, { kind: "locked" });
+    return stopped(1, lock.reason, [`mutation-score: BLOCK — ${lock.reason}`]);
+  }
+  const releaseLock = lock.release;
   try {
-    roots = expandSourceRoots(cwd, sourceRoots(cwd));
-    layout = { testSuffixes: testFileSuffixes(cwd), isGenerated: pathGlobMatcher(generatedFileGlobs(cwd)) };
-  } catch (error) {
-    return misuse(error instanceof Error ? error.message : String(error));
-  }
-  if (roots.length === 0) return misuse(`no source root in '${cwd}' — nothing to mutate`);
-
-  // --- collect sites ---
-  const originals = new Map<string, Buffer>();
-  const allSites: MutantSite[] = [];
-  const mutatedFiles: string[] = [];
-  for (const rel of roots.flatMap((root) => tsFilesUnder(cwd, join(cwd, root)))) {
-    const abs = join(cwd, rel);
-    const bytes = readFileSync(abs);
-    const source = bytes.toString("utf8");
-    if (!isMutableSourceFile(rel, source, layout)) continue;
-    const found = mutantSites(source, rel);
-    if (found.length === 0) continue;
-    originals.set(rel, bytes);
-    mutatedFiles.push(rel);
-    allSites.push(...found);
+    return await measureLocked();
+  } finally {
+    releaseLock();
   }
 
-  if (allSites.length === 0) {
-    const summary = "no mutable parse/guard sites under the source roots — nothing to measure";
-    log("pass", summary, { sites: 0, sample: 0, mutants: 0, complete: true });
-    return { code: 0, lines: [...head, `mutation-score: ${summary}`], summary, sites: 0, sample: 0, complete: true, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
-  }
-
-  // --- the sample ---
-  const minimum = Math.min(allSites.length, minimumSample);
-  if (options.maxMutants !== undefined && options.maxMutants < minimum) {
-    const every = minimum === allSites.length ? ` (every site, as there are fewer than ${minimumSample})` : "";
-    return misuse(
-      `--max-mutants ${options.maxMutants} is below the minimum sample of ${minimum}${every}: a smaller sample makes the score ` +
-        "meaningless. Leave it out to take the minimum, or raise it",
-      { sites: allSites.length },
-    );
-  }
-  const mutants = selectMutants(allSites, Math.min(allSites.length, options.maxMutants ?? minimumSample));
-  const sample = mutants.length;
-  const counts = { sites: allSites.length, sample };
-
-  // The green policies, once for the whole measurement: a refusal (no
-  // container runtime for a project that needs one) stops it, and a service
-  // they prepare backs the baseline and every mutant, never the developer's
-  // own database.
-  const policy = options.policy ?? (options.runSuite === undefined ? phaseRun(cwd, "green") : NO_POLICY);
-  if (policy.refusals.length > 0) {
-    const summary = policy.refusals.join("; ");
-    log("block", summary, { reason: "test-policy" });
-    return stopped(1, summary, policy.refusals.map((r) => `mutation-score: BLOCK — ${r}`), counts);
-  }
-
-  // --- progress from earlier calls over this same tree ---
-  const fingerprint = sampleFingerprint(cwd, roots, mutants, timeoutMs);
-  const saved = readProgress(cwd, fingerprint, sample);
-  if (saved === undefined) clearProgress(cwd);
-  const verdicts = new Map(saved ?? []);
-  const judgedBefore = verdicts.size;
-
-  const classify = "infrastructure" in policy ? policy.infrastructure : undefined;
-  type Measured = "budget" | "done" | string | { readonly infrastructure: readonly string[] };
-  const measured = await withPreparedServices(policy, async (env): Promise<Measured> => {
-    // --- baseline: a score against a red suite is meaningless. Saved
-    // progress proves this exact tree was green, so a continuation skips it.
-    if (saved === undefined) {
-      if (!fits()) return "budget";
-      const baseline = await runSuite(cwd, timeoutMs, env, classify);
-      if (baseline.infrastructure !== undefined) return { infrastructure: baseline.infrastructure };
-      if (!baseline.ok) {
-        return `the suite is not green before mutation (${baseline.note}) — ` +
-          "every mutant would 'die' for a reason that has nothing to do with it";
-      }
-      writeProgress(cwd, fingerprint, verdicts);
-    }
-
-    // --- the loop: one mutant at a time ---
-    let inFlight: { readonly abs: string; readonly site: MutantSite; readonly original: Buffer } | undefined;
-    // Ctrl-C or a host's SIGTERM: put the file back before dying of it. Any
-    // other listener (the prepared services') runs in the same emit; each
-    // removes itself, so the re-raised signal meets the default action.
-    const onSignal = (signal: NodeJS.Signals): void => {
-      process.off("SIGINT", onSignal);
-      process.off("SIGTERM", onSignal);
-      let restored = false;
-      if (inFlight !== undefined) {
-        try {
-          writeFileSync(inFlight.abs, inFlight.original);
-          restored = readFileSync(inFlight.abs).equals(inFlight.original);
-          if (restored) clearJournal(cwd);
-        } catch {
-          restored = false;
-        }
-      }
-      const where = inFlight === undefined
-        ? "between mutants"
-        : `with a mutant in ${inFlight.site.file} (${inFlight.site.label}), ${restored ? "restored" : "NOT restored — the next gate run restores it from the journal"}`;
-      log("error", `interrupted by ${signal} ${where}`, {
-        kind: "interrupted",
-        signal,
-        judged: verdicts.size,
-        sample,
-        ...(inFlight !== undefined ? { file: inFlight.site.file, mutation: inFlight.site.label, restored } : {}),
-      });
-      process.kill(process.pid, signal);
-    };
-    process.on("SIGINT", onSignal);
-    process.on("SIGTERM", onSignal);
+  async function measureLocked(): Promise<MutationScoreResult> {
+    // What an earlier, killed run left comes out before anything is read: the
+    // sites, the baseline and the fingerprint must all see the user's tree.
+    const leftover = restoreLeftoverMutant(cwd);
+    if (leftover.status === "refused") return stopped(1, leftover.reason, [`mutation-score: BLOCK — ${leftover.reason}`]);
+    if (leftover.status === "restored") head.push(`mutation-score: ${leftover.line}`);
+    // Every mutant runs the suite, which loads the project's config as code: it
+    // must be what the composed packs generate (ADR 2026-054). Checked before
+    // anything else is read, any source mutated or any suite spawned.
+    const configBlock = configDriftBlock(GUARD, cwd);
+    if (configBlock !== undefined) return stopped(1, configBlock.summary, configBlock.lines);
+    let layout: MutableLayout;
+    let roots: string[];
     try {
-      for (const [index, site] of mutants.entries()) {
-        if (verdicts.has(index)) continue;
-        if (!fits()) return "budget";
-        const abs = join(cwd, site.file);
-        const original = originals.get(site.file)!;
-        const text = original.toString("utf8");
-        const mutated = Buffer.from(text.slice(0, site.start) + site.replacement + text.slice(site.end));
-        writeJournal(cwd, { file: site.file, mutation: site.label, original, mutated });
-        inFlight = { abs, site, original };
-        writeFileSync(abs, mutated);
-
-        let outcome: SuiteOutcome;
-        try {
-          outcome = await runSuite(cwd, timeoutMs, env, classify);
-        } finally {
-          writeFileSync(abs, original);
-          // Verify, do not trust: this is the user's repository.
-          if (!readFileSync(abs).equals(original)) {
-            inFlight = undefined;
-            throw new MutationScoreError(
-              `mutation-score: failed to restore ${site.file} after a mutant — the target may be left modified`,
-            );
-          }
-          inFlight = undefined;
-          clearJournal(cwd);
-        }
-
-        // A mutant "killed" by the machine says nothing about the suite.
-        if (outcome.infrastructure !== undefined) return { infrastructure: outcome.infrastructure };
-        const verdict: MutantVerdict = outcome.timedOut === true ? "timeout" : outcome.ok ? "survived" : "killed";
-        verdicts.set(index, { verdict, note: outcome.note });
-        writeProgress(cwd, fingerprint, verdicts);
-      }
-      return "done";
-    } finally {
-      process.off("SIGINT", onSignal);
-      process.off("SIGTERM", onSignal);
+      roots = expandSourceRoots(cwd, sourceRoots(cwd));
+      layout = { testSuffixes: testFileSuffixes(cwd), isGenerated: pathGlobMatcher(generatedFileGlobs(cwd)) };
+    } catch (error) {
+      return misuse(error instanceof Error ? error.message : String(error));
     }
-  });
-  if (!measured.ok) {
-    log("block", measured.reason, { reason: "test-policy" });
-    return stopped(1, measured.reason, [`mutation-score: BLOCK — ${measured.reason}`], counts);
-  }
-  for (const line of measured.lines) head.push(`mutation-score: ${line}`);
-  if (typeof measured.value === "object") {
-    const causes = measured.value.infrastructure;
-    const summary = "the suite failed because of the machine, not the code";
-    log("block", summary, { reason: "infrastructure", causes });
-    return stopped(1, summary, [`mutation-score: BLOCK — ${summary}; no mutant was judged`, ...causes.map((c) => `  ${c}`)], counts);
-  }
-  if (measured.value !== "done" && measured.value !== "budget") {
-    clearProgress(cwd);
-    return misuse(measured.value, counts);
-  }
+    if (roots.length === 0) return misuse(`no source root in '${cwd}' — nothing to mutate`);
 
-  // --- report ---
-  const outcomes: MutantOutcome[] = [];
-  for (const [index, site] of mutants.entries()) {
-    const v = verdicts.get(index);
-    if (v !== undefined) outcomes.push({ site, verdict: v.verdict, note: v.note });
-  }
-  const survivors = outcomes.filter((o) => o.verdict === "survived");
-  const timedOut = outcomes.filter((o) => o.verdict === "timeout").length;
-  const killed = outcomes.length - survivors.length;
-  const lines = [...head, ...outcomes.map(reportLine)];
-  const base = {
-    sites: allSites.length,
-    sample,
-    outcomes,
-    killed,
-    survived: survivors.length,
-    timedOut,
-  };
-  const detail = {
-    sites: allSites.length,
-    sample,
-    mutants: outcomes.length,
-    killed,
-    survived: survivors.length,
-    timedOut,
-    minimumSample,
-    ...(options.maxMutants !== undefined ? { maxMutants: options.maxMutants } : {}),
-    timeoutMs,
-    ...(options.budgetMs !== undefined ? { budgetMs: options.budgetMs } : {}),
-    files: mutatedFiles,
-  };
+    // --- collect sites ---
+    const originals = new Map<string, Buffer>();
+    const allSites: MutantSite[] = [];
+    const mutatedFiles: string[] = [];
+    for (const rel of roots.flatMap((root) => tsFilesUnder(cwd, join(cwd, root)))) {
+      const abs = join(cwd, rel);
+      const bytes = readFileSync(abs);
+      const source = bytes.toString("utf8");
+      if (!isMutableSourceFile(rel, source, layout)) continue;
+      const found = mutantSites(source, rel);
+      if (found.length === 0) continue;
+      originals.set(rel, bytes);
+      mutatedFiles.push(rel);
+      allSites.push(...found);
+    }
 
-  if (outcomes.length < sample) {
-    const summary = `PARTIAL — ${outcomes.length} of ${sampleWords(sample, allSites.length)} judged; no score yet`;
-    lines.push("");
-    lines.push(
-      `mutation-score: ${summary}: this call's time budget (${seconds(options.budgetMs ?? 0)}) has no room for the next ` +
-        `mutant's ${seconds(timeoutMs)} timeout.`,
-    );
-    lines.push(
-      "mutation-score: run mutation-score again with the same flags to continue: the verdicts so far are kept while " +
-        "the tree is unchanged, and any change starts the sample over.",
-    );
-    if (outcomes.length === judgedBefore) {
-      lines.push(
-        `mutation-score: this call judged nothing: its budget is shorter than one suite run's timeout. Give the call a ` +
-          "longer timeout, or pass a shorter --timeout-ms.",
+    if (allSites.length === 0) {
+      const summary = "no mutable parse/guard sites under the source roots — nothing to measure";
+      log("pass", summary, { sites: 0, sample: 0, mutants: 0, complete: true });
+      return { code: 0, lines: [...head, `mutation-score: ${summary}`], summary, sites: 0, sample: 0, complete: true, outcomes: [], killed: 0, survived: 0, timedOut: 0 };
+    }
+
+    // --- the sample ---
+    const minimum = Math.min(allSites.length, minimumSample);
+    if (options.maxMutants !== undefined && options.maxMutants < minimum) {
+      const every = minimum === allSites.length ? ` (every site, as there are fewer than ${minimumSample})` : "";
+      return misuse(
+        `--max-mutants ${options.maxMutants} is below the minimum sample of ${minimum}${every}: a smaller sample makes the score ` +
+          "meaningless. Leave it out to take the minimum, or raise it",
+        { sites: allSites.length },
       );
     }
-    log("pass", summary, { ...detail, complete: false, judgedThisCall: outcomes.length - judgedBefore });
-    return { code: 0, lines, summary, complete: false, ...base };
-  }
+    const mutants = selectMutants(allSites, Math.min(allSites.length, options.maxMutants ?? minimumSample));
+    const sample = mutants.length;
+    const counts = { sites: allSites.length, sample };
 
-  clearProgress(cwd);
-  const score = Math.round((killed / outcomes.length) * 100);
-  const timeoutNote = timedOut > 0 ? ` (${timedOut} by timeout)` : "";
-  const headline =
-    `${sampleWords(sample, allSites.length)} · ${killed} killed${timeoutNote} · ` +
-    `${survivors.length} survived · score ${score}%`;
-
-  lines.push("");
-  lines.push(`mutation-score: ${headline}`);
-  if (survivors.length === 0) {
-    lines.push("mutation-score: no survivors — every mutated parse/guard site broke a test.");
-  } else {
-    lines.push(
-      "mutation-score: survivors — each one is a finding: shipped parse/guard logic changed, suite still green.",
-    );
-    for (const survivor of survivors) {
-      lines.push(`mutation-score:   ${survivor.site.file}:${survivor.site.line} ${survivor.site.label}`);
+    // The green policies, once for the whole measurement: a refusal (no
+    // container runtime for a project that needs one) stops it, and a service
+    // they prepare backs the baseline and every mutant, never the developer's
+    // own database.
+    const policy = options.policy ?? (options.runSuite === undefined ? phaseRun(cwd, "green") : NO_POLICY);
+    if (policy.refusals.length > 0) {
+      const summary = policy.refusals.join("; ");
+      log("block", summary, { reason: "test-policy" });
+      return stopped(1, summary, policy.refusals.map((r) => `mutation-score: BLOCK — ${r}`), counts);
     }
+
+    // --- progress from earlier calls over this same tree ---
+    const fingerprint = sampleFingerprint(cwd, roots, mutants, timeoutMs);
+    const saved = readProgress(cwd, fingerprint, sample);
+    if (saved === undefined) clearProgress(cwd);
+    const verdicts = new Map(saved ?? []);
+    const judgedBefore = verdicts.size;
+
+    // --- the budget, before anything starts: a call that cannot fit the
+    // baseline (when it needs one) and one mutant would make no progress at
+    // all, so it is an error, and no service is started for it.
+    const remedy = (neededMs: number): string =>
+      options.budgetRemedy?.(neededMs) ?? "give the call more time, or pass a smaller --timeout-ms";
+    if (options.budgetMs !== undefined) {
+      const neededMs = (saved === undefined ? 2 : 1) * timeoutMs;
+      const leftMs = options.budgetMs - (now() - started);
+      if (leftMs < neededMs) {
+        const step = saved === undefined ? "the baseline and one mutant" : "one mutant";
+        return misuse(
+          `this call's time budget (${seconds(Math.max(0, leftMs))}) cannot fit ${step}, which needs ${seconds(neededMs)} ` +
+            `at --timeout-ms ${timeoutMs}: ${remedy(neededMs)}. Calling again unchanged would judge nothing`,
+          counts,
+        );
+      }
+    }
+    let baselineRan = false;
+
+    const classify = "infrastructure" in policy ? policy.infrastructure : undefined;
+    type Measured = "budget" | "done" | string | { readonly infrastructure: readonly string[] };
+    const measured = await withPreparedServices(policy, async (env): Promise<Measured> => {
+      // --- baseline: a score against a red suite is meaningless. Saved
+      // progress proves this exact tree was green, so a continuation skips it.
+      if (saved === undefined) {
+        if (!fits()) return "budget";
+        baselineRan = true;
+        const baseline = await runSuite(cwd, timeoutMs, env, classify);
+        if (baseline.infrastructure !== undefined) return { infrastructure: baseline.infrastructure };
+        if (!baseline.ok) {
+          return `the suite is not green before mutation (${baseline.note}) — ` +
+            "every mutant would 'die' for a reason that has nothing to do with it";
+        }
+        writeProgress(cwd, fingerprint, verdicts);
+      }
+
+      // --- the loop: one mutant at a time ---
+      let inFlight: { readonly abs: string; readonly site: MutantSite; readonly original: Buffer } | undefined;
+      // Ctrl-C or a host's SIGTERM: put the file back before dying of it. Any
+      // other listener (the prepared services') runs in the same emit; each
+      // removes itself, so the re-raised signal meets the default action.
+      const onSignal = (signal: NodeJS.Signals): void => {
+        process.off("SIGINT", onSignal);
+        process.off("SIGTERM", onSignal);
+        let restored = false;
+        if (inFlight !== undefined) {
+          try {
+            writeFileSync(inFlight.abs, inFlight.original);
+            restored = readFileSync(inFlight.abs).equals(inFlight.original);
+            if (restored) clearJournal(cwd);
+          } catch {
+            restored = false;
+          }
+        }
+        const where = inFlight === undefined
+          ? "between mutants"
+          : `with a mutant in ${inFlight.site.file} (${inFlight.site.label}), ${restored ? "restored" : "NOT restored — the next gate run restores it from the journal"}`;
+        log("error", `interrupted by ${signal} ${where}`, {
+          kind: "interrupted",
+          signal,
+          judged: verdicts.size,
+          sample,
+          ...(inFlight !== undefined ? { file: inFlight.site.file, mutation: inFlight.site.label, restored } : {}),
+        });
+        releaseLock();
+        process.kill(process.pid, signal);
+      };
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
+      try {
+        for (const [index, site] of mutants.entries()) {
+          if (verdicts.has(index)) continue;
+          if (!fits()) return "budget";
+          const abs = join(cwd, site.file);
+          const original = originals.get(site.file)!;
+          const text = original.toString("utf8");
+          const mutated = Buffer.from(text.slice(0, site.start) + site.replacement + text.slice(site.end));
+          writeJournal(cwd, { file: site.file, mutation: site.label, original, mutated });
+          inFlight = { abs, site, original };
+          writeFileSync(abs, mutated);
+
+          let outcome: SuiteOutcome;
+          try {
+            outcome = await runSuite(cwd, timeoutMs, env, classify);
+          } finally {
+            writeFileSync(abs, original);
+            // Verify, do not trust: this is the user's repository.
+            if (!readFileSync(abs).equals(original)) {
+              inFlight = undefined;
+              throw new MutationScoreError(
+                `mutation-score: failed to restore ${site.file} after a mutant — the target may be left modified`,
+              );
+            }
+            inFlight = undefined;
+            clearJournal(cwd);
+          }
+
+          // A mutant "killed" by the machine says nothing about the suite.
+          if (outcome.infrastructure !== undefined) return { infrastructure: outcome.infrastructure };
+          const verdict: MutantVerdict = outcome.timedOut === true ? "timeout" : outcome.ok ? "survived" : "killed";
+          verdicts.set(index, { verdict, note: outcome.note });
+          writeProgress(cwd, fingerprint, verdicts);
+        }
+        return "done";
+      } finally {
+        process.off("SIGINT", onSignal);
+        process.off("SIGTERM", onSignal);
+      }
+    });
+    if (!measured.ok) {
+      log("block", measured.reason, { reason: "test-policy" });
+      return stopped(1, measured.reason, [`mutation-score: BLOCK — ${measured.reason}`], counts);
+    }
+    for (const line of measured.lines) head.push(`mutation-score: ${line}`);
+    if (typeof measured.value === "object") {
+      const causes = measured.value.infrastructure;
+      const summary = "the suite failed because of the machine, not the code";
+      log("block", summary, { reason: "infrastructure", causes });
+      return stopped(1, summary, [`mutation-score: BLOCK — ${summary}; no mutant was judged`, ...causes.map((c) => `  ${c}`)], counts);
+    }
+    if (measured.value !== "done" && measured.value !== "budget") {
+      clearProgress(cwd);
+      return misuse(measured.value, counts);
+    }
+
+    if (measured.value === "budget" && !baselineRan && verdicts.size === judgedBefore) {
+      const neededMs = (saved === undefined ? 2 : 1) * timeoutMs;
+      return misuse(
+        `starting what the run needs used this call's time budget (${seconds(options.budgetMs ?? 0)}) before ` +
+          `${saved === undefined ? "the baseline" : "a mutant"} could start (${seconds(neededMs)} needed at --timeout-ms ` +
+          `${timeoutMs}): ${remedy(neededMs + (now() - started))}. Calling again unchanged would judge nothing`,
+        counts,
+      );
+    }
+
+    // --- report ---
+    const outcomes: MutantOutcome[] = [];
+    for (const [index, site] of mutants.entries()) {
+      const v = verdicts.get(index);
+      if (v !== undefined) outcomes.push({ site, verdict: v.verdict, note: v.note });
+    }
+    const survivors = outcomes.filter((o) => o.verdict === "survived");
+    const timedOut = outcomes.filter((o) => o.verdict === "timeout").length;
+    const killed = outcomes.length - survivors.length;
+    const lines = [...head, ...outcomes.map(reportLine)];
+    const base = {
+      sites: allSites.length,
+      sample,
+      outcomes,
+      killed,
+      survived: survivors.length,
+      timedOut,
+    };
+    const detail = {
+      sites: allSites.length,
+      sample,
+      mutants: outcomes.length,
+      killed,
+      survived: survivors.length,
+      timedOut,
+      minimumSample,
+      ...(options.maxMutants !== undefined ? { maxMutants: options.maxMutants } : {}),
+      timeoutMs,
+      ...(options.budgetMs !== undefined ? { budgetMs: options.budgetMs } : {}),
+      files: mutatedFiles,
+    };
+
+    if (outcomes.length < sample) {
+      const summary = `PARTIAL — ${outcomes.length} of ${sampleWords(sample, allSites.length)} judged; no score yet`;
+      lines.push("");
+      const judgedNow = outcomes.length - judgedBefore;
+      lines.push(
+        judgedNow === 0
+          ? `mutation-score: ${summary}: this call's baseline (the unmutated suite, green) used its time budget ` +
+              `(${seconds(options.budgetMs ?? 0)}); the next call skips the baseline and starts on the mutants.`
+          : `mutation-score: ${summary}: this call judged ${judgedNow}, and its time budget ` +
+              `(${seconds(options.budgetMs ?? 0)}) has no room for the next mutant's ${seconds(timeoutMs)} timeout.`,
+      );
+      lines.push(
+        "mutation-score: run mutation-score again with the same flags to continue: the verdicts so far are kept while " +
+          "the tree is unchanged, and any change starts the sample over.",
+      );
+      log("pass", summary, { ...detail, complete: false, judgedThisCall: outcomes.length - judgedBefore });
+      return { code: 0, lines, summary, complete: false, ...base };
+    }
+
+    clearProgress(cwd);
+    const score = Math.round((killed / outcomes.length) * 100);
+    const timeoutNote = timedOut > 0 ? ` (${timedOut} by timeout)` : "";
+    const headline =
+      `${sampleWords(sample, allSites.length)} · ${killed} killed${timeoutNote} · ` +
+      `${survivors.length} survived · score ${score}%`;
+
+    lines.push("");
+    lines.push(`mutation-score: ${headline}`);
+    if (survivors.length === 0) {
+      lines.push("mutation-score: no survivors — every mutated parse/guard site broke a test.");
+    } else {
+      lines.push(
+        "mutation-score: survivors — each one is a finding: shipped parse/guard logic changed, suite still green.",
+      );
+      for (const survivor of survivors) {
+        lines.push(`mutation-score:   ${survivor.site.file}:${survivor.site.line} ${survivor.site.label}`);
+      }
+    }
+    lines.push("mutation-score: measurement only — no threshold is enforced (TN-26-002).");
+
+    log("pass", headline, {
+      ...detail,
+      complete: true,
+      score,
+      survivors: survivors.map((s) => ({
+        file: s.site.file,
+        line: s.site.line,
+        operator: s.site.operator,
+        mutation: s.site.label,
+      })),
+    });
+
+    return { code: 0, lines, summary: headline, complete: true, score, ...base };
   }
-  lines.push("mutation-score: measurement only — no threshold is enforced (TN-26-002).");
-
-  log("pass", headline, {
-    ...detail,
-    complete: true,
-    score,
-    survivors: survivors.map((s) => ({
-      file: s.site.file,
-      line: s.site.line,
-      operator: s.site.operator,
-      mutation: s.site.label,
-    })),
-  });
-
-  return { code: 0, lines, summary: headline, complete: true, score, ...base };
 }
 
 // --- CLI ------------------------------------------------------------------------

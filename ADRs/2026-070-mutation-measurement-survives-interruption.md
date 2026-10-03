@@ -16,8 +16,13 @@
   pid-and-host test as the orphaned throwaway database), and the file holds
   exactly the recorded mutant. While the owner lives, the gate blocks and
   touches nothing. A file that matches neither hash also blocks and is left
-  alone: only a person can merge an edit made over a mutant. A restore also
-  drops the killed run's saved progress. Restores and refusals are guard
+  alone: only a person can merge an edit made over a mutant. A journal
+  written on another host cannot be judged, so it blocks with a message
+  naming the journal to delete and why. Within one process (pi runs gates
+  in-process) the owner counts as running only while it holds a measurement
+  of that project, so a journal left by a failed restore does not block the
+  process for its whole life. A killed run's saved verdicts are kept; the
+  fingerprint decides whether they still apply. Restores and refusals are guard
   events under `mutation-score` (`detail.kind`: `leftover-restored`,
   `leftover-refused`).
 - **Signals.** For the length of its loop, the measurement handles SIGINT and
@@ -25,6 +30,10 @@
   logs `interrupted`, removes its listeners and re-raises the signal. The
   prepared-service listener (`withPreparedServices`) runs in the same emit.
   SIGKILL is the journal's case.
+- **One measurement per project at a time.** The measurement holds
+  `.bounded/mutation-score/lock.json` for its whole life, created
+  exclusively. A lock whose holder is gone is taken over; a live holder, or
+  one on another host, refuses the second run, which touches nothing.
 - **A minimum sample of 40, taken systematically.** The sample is at least
   40 mutants, or every site when there are fewer. `--max-mutants` raises it.
   Asking for fewer is misuse (exit 2). Sites are taken at evenly spaced
@@ -39,7 +48,10 @@
   as Claude Code itself reads them). The measurement's budget is that deadline less the larger of 15%
   and 15 s. A mutant, or the baseline, starts only when its full timeout
   still fits. Otherwise the call stops cleanly and reports PARTIAL with no
-  score.
+  score. A call whose budget cannot fit the baseline (when it needs one) and
+  one mutant would make no progress, so it is an error naming the time
+  needed and the command timeout to ask for, checked before any service
+  starts.
 - **Continuation.** Verdicts are saved after every mutant. They are keyed by
   a fingerprint of the sample, the per-mutant timeout, every file under the
   source roots and every test-side file. The next call over an unchanged tree

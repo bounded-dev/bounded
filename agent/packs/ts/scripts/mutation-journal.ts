@@ -29,9 +29,21 @@
 //   anything else               refuse, touching nothing: the file was edited
 //                               over the mutant, and only a person can merge
 //
-// A leftover journal means the run that wrote it never finished cleanly, so
-// the verdicts it saved for a later call to continue from are dropped with
-// it: the next measurement starts its sample over, baseline first.
+// The verdicts a killed run saved stay: they were each reached over the
+// unmutated tree, and the next measurement's fingerprint decides whether the
+// tree is still the one they were reached on.
+//
+// "Still running" is decided per process: another process on this host by the
+// liveness test below; this very process (pi runs gates in-process) by
+// whether it holds a measurement of this project right now, so a journal a
+// failed restore left behind in a long-lived process is recovered by the next
+// gate rather than blocking every gate for the life of that process. A
+// journal from another host cannot be judged at all; the refusal says so and
+// names the file to delete.
+//
+// One measurement per project at a time: the measurement holds
+// .bounded/mutation-score/lock.json for its whole life (acquireMeasurementLock),
+// so two runs never share one journal, one tree or one progress file.
 //
 // Every restore and refusal is a guard event under `mutation-score`, with
 // `detail.kind` saying which. A SIGINT or SIGTERM is handled in place by
@@ -39,9 +51,9 @@
 // a power cut).
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { logGuardEvent } from "../../../src/guard-log.ts";
 
 /** Where the measurement keeps its state, relative to the project. */
@@ -50,6 +62,8 @@ export const JOURNAL_FILE = `${MUTATION_STATE_DIR}/journal.json`;
 export const ORIGINAL_FILE = `${MUTATION_STATE_DIR}/original`;
 /** The verdicts a measurement keeps between calls (mutation-score.ts). */
 export const PROGRESS_FILE = `${MUTATION_STATE_DIR}/progress.json`;
+/** Held by the one measurement of a project that may run. */
+export const LOCK_FILE = `${MUTATION_STATE_DIR}/lock.json`;
 
 /** The guard every restore, refusal and interruption is logged under. */
 export const MUTATION_GUARD = "mutation-score";
@@ -117,20 +131,115 @@ export interface RestoreDeps {
   readonly host: string;
 }
 
-/** The same liveness test the orphaned throwaway database uses
- *  (ts-drizzle-postgres/scripts/app-database.ts): signal 0, and EPERM means
- *  the process exists under another user. */
-const DEFAULT_DEPS: RestoreDeps = {
-  alive: (pid) => {
+/** Is process `pid` alive on this host? The same liveness test the orphaned
+ *  throwaway database uses (ts-drizzle-postgres/scripts/app-database.ts):
+ *  signal 0, and EPERM means the process exists under another user. */
+export function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+const DEFAULT_DEPS: RestoreDeps = { alive: processAlive, host: hostname() };
+
+/** Projects this process is measuring right now, by real path. */
+const measuringHere = new Set<string>();
+
+function projectKey(cwd: string): string {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    return resolve(cwd);
+  }
+}
+
+/** Is the process that wrote `owner` (on this host) measuring `cwd` now? */
+function ownerRunning(cwd: string, owner: { readonly pid: number }, deps: RestoreDeps): boolean {
+  return owner.pid === process.pid ? measuringHere.has(projectKey(cwd)) : deps.alive(owner.pid);
+}
+
+// --- the measurement's lock ----------------------------------------------------
+
+interface LockRecord {
+  readonly pid: number;
+  readonly host: string;
+  readonly startedAt: string;
+}
+
+function parseLock(text: string): LockRecord | undefined {
+  try {
+    const raw: unknown = JSON.parse(text);
+    if (typeof raw !== "object" || raw === null) return undefined;
+    const l: Record<string, unknown> = { ...raw };
+    if (typeof l["pid"] !== "number" || !Number.isInteger(l["pid"]) || typeof l["host"] !== "string" || typeof l["startedAt"] !== "string") return undefined;
+    return { pid: l["pid"], host: l["host"], startedAt: l["startedAt"] };
+  } catch {
+    return undefined;
+  }
+}
+
+export type MeasurementLock =
+  | { readonly ok: true; readonly release: () => void }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Take the project's measurement lock for the measurement's whole life, or
+ * say who holds it. Created exclusively; a lock whose holder is gone (a
+ * killed run) is taken over. `release` is idempotent and synchronous (it also
+ * runs from a signal handler).
+ */
+export function acquireMeasurementLock(cwd: string, deps: RestoreDeps = DEFAULT_DEPS): MeasurementLock {
+  const path = join(cwd, LOCK_FILE);
+  mkdirSync(join(cwd, MUTATION_STATE_DIR), { recursive: true });
+  const record: LockRecord = { pid: process.pid, host: deps.host, startedAt: new Date().toISOString() };
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      process.kill(pid, 0);
-      return true;
+      writeFileSync(path, `${JSON.stringify(record)}\n`, { flag: "wx" });
+      const key = projectKey(cwd);
+      measuringHere.add(key);
+      let held = true;
+      return {
+        ok: true,
+        release: () => {
+          if (!held) return;
+          held = false;
+          measuringHere.delete(key);
+          rmSync(path, { force: true });
+        },
+      };
     } catch (error) {
-      return (error as NodeJS.ErrnoException).code === "EPERM";
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        return { ok: false, reason: `mutation-score could not take ${LOCK_FILE}: ${error instanceof Error ? error.message : String(error)}` };
+      }
     }
-  },
-  host: hostname(),
-};
+    let holder: LockRecord | undefined;
+    try {
+      holder = parseLock(readFileSync(path, "utf8"));
+    } catch {
+      holder = undefined; // removed between the two calls: try again
+    }
+    if (holder !== undefined && holder.host !== deps.host) {
+      return {
+        ok: false,
+        reason: `${LOCK_FILE} was written by a mutation-score run on another machine (${holder.host}, process ${holder.pid}) ` +
+          "that shares this project directory, and this machine cannot tell whether it is still measuring. If nothing " +
+          `measures this project there, delete ${LOCK_FILE} and run this again`,
+      };
+    }
+    if (holder !== undefined && ownerRunning(cwd, holder, deps)) {
+      return {
+        ok: false,
+        reason: `another mutation-score run (process ${holder.pid}, started ${holder.startedAt}) is measuring this project; ` +
+          "one measurement runs at a time: wait for it to finish, then run this again",
+      };
+    }
+    rmSync(path, { force: true }); // a killed run's lock, or an unreadable one
+  }
+  return { ok: false, reason: `mutation-score could not take ${LOCK_FILE}: another run keeps taking it` };
+}
 
 function parseJournal(text: string): MutationJournal | undefined {
   let raw: unknown;
@@ -177,10 +286,20 @@ export function restoreLeftoverMutant(cwd: string, deps: RestoreDeps = DEFAULT_D
   if (journal === undefined) return refuse(handOff(`mutation-score left ${JOURNAL_FILE}, and it cannot be read`));
   const { file, mutation } = journal;
 
-  if (journal.host !== deps.host || deps.alive(journal.pid)) {
-    const owner = journal.host === deps.host ? `process ${journal.pid}` : `process ${journal.pid} on ${journal.host}`;
+  if (journal.host !== deps.host) {
     return refuse(
-      `a mutation-score run (${owner}) has a mutant in ${file} right now (${mutation}); wait for it to finish, ` +
+      handOff(
+        `${JOURNAL_FILE} was written by a mutation-score run on another machine (${journal.host}, process ` +
+          `${journal.pid}) that shares this project directory, and this machine cannot tell whether that run is ` +
+          `still measuring; it recorded a mutant in ${file} (${mutation}). If nothing measures this project there, ` +
+          "settle the file by hand",
+      ),
+      { file, mutation, pid: journal.pid, host: journal.host },
+    );
+  }
+  if (ownerRunning(cwd, journal, deps)) {
+    return refuse(
+      `a mutation-score run (process ${journal.pid}) has a mutant in ${file} right now (${mutation}); wait for it to finish, ` +
         "or stop it (it restores the file when interrupted), then run this again",
       { file, mutation, pid: journal.pid, host: journal.host },
     );
@@ -195,7 +314,6 @@ export function restoreLeftoverMutant(cwd: string, deps: RestoreDeps = DEFAULT_D
   }
   if (current !== undefined && sha256(current) === journal.originalSha256) {
     clearJournal(cwd);
-    rmSync(join(cwd, PROGRESS_FILE), { force: true });
     return { status: "clean", file };
   }
   if (current === undefined || sha256(current) !== journal.mutatedSha256) {
@@ -224,7 +342,6 @@ export function restoreLeftoverMutant(cwd: string, deps: RestoreDeps = DEFAULT_D
     return refuse(handOff(`${file} did not read back as its original after restoring a mutation-score mutant (${mutation})`), { file, mutation });
   }
   clearJournal(cwd);
-  rmSync(join(cwd, PROGRESS_FILE), { force: true });
   const line =
     `restored ${file}: an interrupted mutation-score run (process ${journal.pid}, started ${journal.startedAt}) ` +
     `left a mutant in it (${mutation})`;

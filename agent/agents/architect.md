@@ -542,9 +542,12 @@ isn't, and it is the same rule as a green with an empty sign-off.
 The sample is at least 40 mutants (every site when there are fewer), spread
 evenly over the tree; `--max-mutants` can raise it, never lower it, and the
 report gives the sample size and the site count beside the score. A call that
-runs out of time stops between mutants and reports **PARTIAL** with no score:
-call it again with the same flags, as many times as it takes, and it continues
-where it stopped while the tree is unchanged. If any gate blocks because a
+runs out of time after making progress stops between mutants and reports
+**PARTIAL** with no score: call it again with the same flags, as many times as
+it takes, and it continues where it stopped while the tree is unchanged. An
+**ERROR** saying the time budget cannot fit the next step is different:
+calling again unchanged judges nothing, so give the command the timeout the
+message names, or pass a smaller `--timeout-ms`. If any gate blocks because a
 mutation-score run left a mutant in a file, that is not the builder's to fix:
 either a measurement is still running (wait for it), or one was killed and the
 file was edited since, and the message says which. In the second case compare
