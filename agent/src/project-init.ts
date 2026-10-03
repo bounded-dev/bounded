@@ -582,6 +582,8 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[],
     ...(exampleWorkspaces(packs).length > 0
       ? ["A ticket that needs an app declares it in a `workspaces:` block, one `<directory>: <kind>` per line."]
       : []),
+    "A later ticket that must change a contract an earlier, delivered ticket owns takes it over: it lists the path under `contracts:`",
+    "and also under `takes:` as `  - <path> from TN-<earlier-ticket>`. The earlier ticket's note is left as written; it no longer owns that contract.",
     "A dependent ticket needs a reviewed, frozen TN before its design is published.",
     "The team lead selects the ticket for this worktree before the architect starts; existing direct launchers may set `BOUNDED_TICKET` explicitly.",
     "Change `status: draft` to `status: active` when the reviewed design is agreed;",

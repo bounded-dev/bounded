@@ -22,9 +22,18 @@ export function changeRunRoute(target: RouteTarget, active: string | undefined):
   return `${wait}change it in ${run} on ticket #${target.ticket}; ${NEVER_EDIT}`;
 }
 
-/** The refusal for a contract another ticket owns. */
+/** The refusal for a contract another ticket owns. When the owner has a
+ *  frozen design and a ticket is active, that ticket may instead take the
+ *  contract over in its own note (ADR 2026-071). */
 export function foreignContractRefusal(path: string, owner: RouteTarget, active: string | undefined): string {
-  return `contract ${path} belongs to ticket #${owner.ticket}: ${changeRunRoute(owner, active)}`;
+  const route = `contract ${path} belongs to ticket #${owner.ticket}: ${changeRunRoute(owner, active)}`;
+  return owner.frozen && active !== undefined ? `${route}. ${takeAlternative(path, owner.ticket)}` : route;
+}
+
+/** How the active ticket takes over a delivered ticket's contract. */
+function takeAlternative(path: string, owner: string): string {
+  return "If this ticket's design must change it, take it over in this ticket's own note instead: " +
+    `list it with its other contracts and add \`- ${path} from TN-${owner}\` under \`takes:\``;
 }
 
 /** The refusal for a contract several tickets claim when no single frozen

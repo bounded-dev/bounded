@@ -135,9 +135,14 @@ describe("ticket-numbered design", () => {
 // not settle it, the refusal names every claimant. It never suggests editing
 // a design note: a delivered ticket's note is its frozen record.
 describe("a contract another ticket owns names its owner and the change run", () => {
+  // A delivered (frozen) owner may instead be taken from (ADR 2026-071).
   const route = (path: string, owner: string, run = "change run", active = true): string =>
     `contract ${path} belongs to ticket #${owner}: ${active ? "after the active ticket is delivered, " : ""}` +
-    `change it in a ${run} on ticket #${owner}; never edit another ticket's design note`;
+    `change it in a ${run} on ticket #${owner}; never edit another ticket's design note` +
+    (run === "change run" && active
+      ? ". If this ticket's design must change it, take it over in this ticket's own note instead: " +
+        `list it with its other contracts and add \`- ${path} from TN-${owner}\` under \`takes:\``
+      : "");
   const contested = (path: string, a: string, b: string): string =>
     `contract ${path} is claimed by ticket #${a} and ticket #${b}, and no single frozen design settles which owns it: ` +
     "return it to the team lead to decide; never edit another ticket's design note";
@@ -544,6 +549,9 @@ describe("a later ticket takes a delivered ticket's contract", () => {
     const root = project();
     writeNote(root, 24, { contracts: [t24, t24b] });
     writeNote(root, 25, { contracts: [t24, t25], takes: [`${t24} from TN-24`] });
+    // The host's path gate reads the contract layout from the composed packs,
+    // so compose the layout pack that declares where contracts live.
+    writeProjectPacks(root, ["ts", "ts-hexagonal"]);
     return root;
   }
 
@@ -577,7 +585,7 @@ describe("a later ticket takes a delivered ticket's contract", () => {
     const ctx = { ...layoutCtx(root), ticketScope: ticketWriteScope(root) };
     const refused = decide("architect", "write", { path: t24 }, ctx);
     expect(refused.allow).toBe(false);
-    expect(refused.reason).toMatch(/TN-25/);
+    expect((refused as { reason?: string }).reason).toMatch(/TN-25/);
     expect(decide("architect", "write", { path: t24b }, ctx).allow).toBe(true);
   });
 
@@ -634,6 +642,15 @@ describe("a later ticket takes a delivered ticket's contract", () => {
     writeNote(root, 26, { contracts: [t24], takes: [`${t24} from TN-24`] });
     vi.stubEnv("BOUNDED_TICKET", "26");
     expect(() => activeTicketDesign(root)).toThrow(/TN-25/);
+  });
+
+  test("a third ticket's path gate names the taker, not the giver whose freeze still holds it", () => {
+    const root = taken();
+    mkdirSync(join(root, ".bounded/tickets/24"), { recursive: true });
+    writeFileSync(join(root, ".bounded/tickets/24/contract-checksums.json"), JSON.stringify({ files: { [t24]: "0" } }));
+    writeNote(root, 26, { contracts: [c("t26")] });
+    vi.stubEnv("BOUNDED_TICKET", "26");
+    expect(ticketWriteScope(root)?.foreign?.[t24]).toMatch(/belongs to ticket #25/);
   });
 
   test("a third ticket takes from the current owner", () => {

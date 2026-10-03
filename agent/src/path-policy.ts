@@ -1190,6 +1190,11 @@ export function decide(
       const unknown = suffixes.length === 0 && scope.error !== undefined && inSourceRoot(t, layout.sourceRoots) !== false;
       if (unknown || suffixes.some((suffix) => lower.endsWith(suffix))) {
         if (scope.error) return block(`path-gate: ${scope.error}`);
+        const taker = scope.released !== undefined && Object.hasOwn(scope.released, t) ? scope.released[t] : undefined;
+        if (taker !== undefined) {
+          // A later ticket took it (ADR 2026-071); listing it again would not help.
+          return block(`path-gate: contract '${t}' is not owned by ticket #${scope.ticket}: ${taker} took it`);
+        }
         if (!scope.contracts.includes(t)) {
           const foreign = scope.foreign !== undefined && Object.hasOwn(scope.foreign, t) ? scope.foreign[t] : undefined;
           if (foreign !== undefined) return block(`path-gate: ${foreign}`);

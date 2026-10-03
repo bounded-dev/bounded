@@ -13,15 +13,29 @@ export interface TicketDesign {
   readonly ticket: string;
   readonly note: string;
   readonly status: "draft" | "active" | "ratified" | "superseded";
+  /** The contracts this ticket owns: those its note lists, minus any a later
+   *  ticket has taken from it (ADR 2026-071). */
   readonly contracts: readonly string[];
   /** The apps the note declares (TN-26-012 §9): `<dir>` → workspace kind.
    *  Shape-checked here; packs interpret it. Empty when absent. */
   readonly workspaces: Readonly<Record<string, string>>;
+  /** The delivered contracts this ticket takes over, each with the ticket
+   *  number it takes it from (ADR 2026-071). Empty when there is no `takes:`. */
+  readonly taken: readonly ContractTake[];
+}
+
+/** One `takes:` entry: `  - <path> from TN-<from>`. */
+export interface ContractTake {
+  readonly path: string;
+  readonly from: string;
 }
 
 export interface TicketWriteScope {
   readonly ticket?: string;
   readonly contracts: readonly string[];
+  /** Contracts this ticket's note lists that a later ticket took, each mapped
+   *  to the taking ticket's note (ADR 2026-071). Absent when none. */
+  readonly released?: Readonly<Record<string, string>>;
   /** Filename suffixes the composed packs contribute for contract files
    *  (ADR 2026-052). Empty when none is composed or the composition is
    *  unreadable — the latter always carries `error`. */
@@ -49,6 +63,8 @@ const NOTE_NAME = /^TN-([1-9][0-9]*)\.md$/;
  *  sit under (a source root, ADR 2026-056) and the filename suffix that makes
  *  it a contract (ADR 2026-052) come from the composed packs. */
 const CONTRACT_PATH = /^(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+$/;
+/** One `takes:` entry (ADR 2026-071): `  - <path> from TN-<n>`. */
+const TAKE_LINE = /^  - ([^\s]+) from TN-([1-9][0-9]*)$/;
 /** One `workspaces:` entry (TN-26-012 §9): `  <dir>: <kind>`. */
 const WORKSPACE_LINE = /^  ([a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*): ([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/;
 
@@ -169,11 +185,50 @@ function contractList(lines: readonly string[]): string[] | undefined {
   return contracts;
 }
 
+/**
+ * The `takes:` list (ADR 2026-071): one `takes:` line with nothing after the
+ * colon, then `  - <path> from TN-<n>` entries up to the first unindented
+ * line. Absent, or bare, is no takes. A malformed block is a string naming
+ * what is wrong.
+ */
+function takesList(lines: readonly string[]): ContractTake[] | string {
+  const starts = lines.filter((line) => /^takes\s*:/.test(line));
+  if (starts.length === 0) return [];
+  if (starts.length > 1 || starts[0] !== "takes:") {
+    return "needs one block-form 'takes:' line with nothing after the colon";
+  }
+  const takes: ContractTake[] = [];
+  for (const line of lines.slice(lines.indexOf("takes:") + 1)) {
+    if (!/^\s/.test(line)) break;
+    const entry = TAKE_LINE.exec(line);
+    if (entry === null) return `has an invalid takes: entry '${line.trim()}' — each is '  - <path> from TN-<n>'`;
+    if (takes.some((take) => take.path === entry[1])) return `takes '${entry[1]}' twice`;
+    takes.push({ path: entry[1]!, from: entry[2]! });
+  }
+  return takes;
+}
+
+/** The ticket abandoned with `bounded change-run --force` carries this marker
+ *  until a later run of it delivers (ADR 2026-071). */
+function abandonedMarker(ticket: string): string {
+  return `.bounded/tickets/${ticket}/abandoned`;
+}
+
+function isAbandoned(root: string, ticket: string): boolean {
+  return existsSync(join(root, abandonedMarker(ticket)));
+}
+
+/** The active note as written: every contract it lists, and its takes. */
+interface ListedDesign extends TicketDesign {
+  readonly listed: readonly string[];
+}
+
 /** Parse the ACTIVE ticket's own note strictly. `freeze` also requires every
  * owned contract to exist as a regular in-project file and refuses a
  * superseded note; the write scope parses a draft that may name contracts
- * not created yet. */
-function parseActiveNote(root: string, ticket: string, freeze: boolean): TicketDesign {
+ * not created yet. `contracts` here is still every listed contract; the
+ * ownership pass subtracts those another ticket took. */
+function parseActiveNote(root: string, ticket: string, freeze: boolean): ListedDesign {
   const note = `${TN_DIR}/TN-${ticket}.md`;
   const body = readFileSync(join(root, note), "utf8");
   const fm = frontMatter(body);
@@ -208,7 +263,18 @@ function parseActiveNote(root: string, ticket: string, freeze: boolean): TicketD
   }
   const workspaces = workspaceMap(fm.lines);
   if (typeof workspaces === "string") throw new Error(`${note} ${workspaces}`);
-  return { ticket, note, status: status as TicketDesign["status"], contracts: contracts.sort(), workspaces };
+  const taken = takesList(fm.lines);
+  if (typeof taken === "string") throw new Error(`${note} ${taken}`);
+  for (const take of taken) {
+    if (take.from === ticket) throw new Error(`${note} takes '${take.path}' from itself; cite the ticket that owns it`);
+    if (!contracts.includes(take.path)) {
+      throw new Error(`${note} takes '${take.path}' but does not list it under contracts: — list it there too`);
+    }
+  }
+  const sorted = contracts.sort();
+  return {
+    ticket, note, status: status as TicketDesign["status"], contracts: sorted, listed: sorted, workspaces, taken,
+  };
 }
 
 /**
@@ -238,20 +304,108 @@ export function workspaceMap(lines: readonly string[]): Readonly<Record<string, 
   return map;
 }
 
+/** A note that takes part in contract ownership: what it lists and takes. */
+interface Claimant {
+  readonly ticket: string;
+  readonly note: string;
+  readonly contracts: readonly string[];
+  readonly takes: readonly ContractTake[];
+}
+
+type Siblings = { readonly claimants: readonly Claimant[] } | { readonly error: string };
+
 /**
  * Another ticket's note matters to this ticket only through the contracts it
- * claims. Its own hygiene (issue line, status, successor link) is checked when
- * THAT ticket is active, so a stale neighbour never blocks this one — unless it
- * cannot be read at all, in which case ownership cannot be proven.
- *
- * A claim alone does not decide ownership: a note can list anything. The
- * ticket whose frozen design holds the contract owns it. Among several
- * claimants with no single such freeze, nobody can be named as the owner, so
- * the refusal names them all.
+ * claims and takes. Its own hygiene (issue line, status, successor link) is
+ * checked when THAT ticket is active, so a stale neighbour never blocks this
+ * one — unless it cannot be read at all: then ownership cannot be proven
+ * (`check`), or the note releases nothing (`ignore`). A superseded note, and
+ * the note of an abandoned ticket, is no claimant: it neither claims nor
+ * releases (ADR 2026-071).
  */
-type SiblingClaims =
-  | { readonly ok: true; readonly foreign: Readonly<Record<string, string>> }
-  | { readonly ok: false; readonly error: string };
+function readSiblings(root: string, active: string, mode: "check" | "ignore"): Siblings {
+  let entries: string[];
+  try {
+    entries = readdirSync(join(root, TN_DIR));
+  } catch {
+    return { claimants: [] };
+  }
+  const claimants: Claimant[] = [];
+  for (const entry of entries.sort()) {
+    const other = NOTE_NAME.exec(entry)?.[1];
+    if (!other || other === active) continue;
+    const note = `${TN_DIR}/${entry}`;
+    const unreadable = (what: string): Siblings | undefined => mode === "ignore" ? undefined : {
+      error: `${what}, so ticket #${active}'s contract ownership cannot be checked — ` +
+        `ask the team lead to repair ${note} (it belongs to ticket #${other}, not #${active})`,
+    };
+    let body: string;
+    try {
+      body = readFileSync(join(root, note), "utf8");
+    } catch {
+      const refused = unreadable(`cannot read ${note}`);
+      if (refused) return refused;
+      continue;
+    }
+    const fm = frontMatter(body);
+    if (!fm) {
+      const refused = unreadable(`${note} has no readable TN front matter`);
+      if (refused) return refused;
+      continue;
+    }
+    const status = fm.lines.find((line) => line.startsWith("status:"))?.slice(7).trim();
+    if (status === "superseded" || isAbandoned(root, other)) continue;
+    const contracts = contractList(fm.lines);
+    if (!contracts) {
+      const refused = unreadable(`${note} has an unreadable contracts: list`);
+      if (refused) return refused;
+      continue;
+    }
+    const takes = takesList(fm.lines);
+    if (typeof takes === "string") {
+      const refused = unreadable(`${note} has an unreadable takes: list`);
+      if (refused) return refused;
+      continue;
+    }
+    claimants.push({ ticket: other, note, contracts, takes });
+  }
+  return { claimants };
+}
+
+const takesFrom = (claimant: Claimant, path: string, giver: string): boolean =>
+  claimant.takes.some((take) => take.path === path && take.from === giver);
+
+/** Each of the active note's takes must cite a note that may give it: one
+ *  that exists, is agreed (active or ratified), lists the contract, belongs to
+ *  no abandoned ticket, and has not already given it to another ticket. */
+function takeRefusal(root: string, active: ListedDesign, claimants: readonly Claimant[]): string | undefined {
+  for (const take of active.taken) {
+    const giver = `${TN_DIR}/TN-${take.from}.md`;
+    const what = `${active.note} takes '${take.path}' from ${giver}`;
+    let body: string;
+    try {
+      body = readFileSync(join(root, giver), "utf8");
+    } catch {
+      return `${what}, which does not exist or cannot be read; cite the note of the ticket that owns it`;
+    }
+    const fm = frontMatter(body);
+    if (!fm) return `${what}, which has no readable TN front matter`;
+    const status = fm.lines.find((line) => line.startsWith("status:"))?.slice(7).trim();
+    if (status !== "active" && status !== "ratified") {
+      return `${what}, which is ${status ? status : "missing its status"}; ` +
+        "a take cites the active or ratified note of a delivered ticket";
+    }
+    if (!(contractList(fm.lines) ?? []).includes(take.path)) {
+      return `${what}, but ${giver} does not list it; cite the note of the ticket that owns it`;
+    }
+    if (isAbandoned(root, take.from)) {
+      return `${what}, but ticket #${take.from} was abandoned (${abandonedMarker(take.from)}), so it cannot be taken from`;
+    }
+    const holder = claimants.find((claimant) => takesFrom(claimant, take.path, take.from));
+    if (holder) return `${what}, but ${holder.note} took it from ${giver}; take it from ${holder.note}`;
+  }
+  return undefined;
+}
 
 /** A ticket's frozen manifest; a ticket is frozen when it exists. */
 function manifestPath(ticket: string): string {
@@ -281,9 +435,14 @@ function frozenTickets(root: string): string[] {
   }
 }
 
-/** The refusal for `path` among `claimants` (never empty), seen from `active`;
- *  undefined when the active ticket's own freeze makes it the owner. */
-function ownershipRefusal(root: string, path: string, claimants: readonly string[], active: string): string | undefined {
+/**
+ * The refusal for `path` among the claimants a take has not released (never
+ * empty), seen from `active`; undefined when `active` owns it. A claim alone
+ * does not decide ownership, since a note can list anything: the ticket whose
+ * frozen design holds the contract owns it. Among several claimants with no
+ * single such freeze, nobody can be named, so the refusal names them all.
+ */
+function ownershipRefusal(root: string, path: string, claimants: readonly string[], active: string | undefined): string | undefined {
   const sorted = [...claimants].sort((a, b) => Number(a) - Number(b));
   const froze = sorted.filter((t) => frozeContract(root, t, path));
   const owner = froze.length === 1 ? froze[0] : froze.length === 0 && sorted.length === 1 ? sorted[0] : undefined;
@@ -292,57 +451,76 @@ function ownershipRefusal(root: string, path: string, claimants: readonly string
   return foreignContractRefusal(path, { ticket: owner, frozen: isFrozen(root, owner) }, active);
 }
 
-function siblingClaims(root: string, ticket: string, contracts: readonly string[]): SiblingClaims {
-  let entries: string[];
-  try {
-    entries = readdirSync(join(root, TN_DIR));
-  } catch {
-    return { ok: true, foreign: {} };
-  }
-  const claims = new Map<string, string[]>();
-  for (const entry of entries.sort()) {
-    // The claimant is named by the note's file: its issue line is that
-    // ticket's own hygiene, checked when it is active.
-    const named = NOTE_NAME.exec(entry)?.[1];
-    if (!named || named === ticket) continue;
-    const note = `${TN_DIR}/${entry}`;
-    const repair = `ask the team lead to repair ${note} (it belongs to ticket #${named}, not #${ticket})`;
-    let body: string;
-    try {
-      body = readFileSync(join(root, note), "utf8");
-    } catch {
-      return { ok: false, error: `cannot read ${note}, so ticket #${ticket}'s contract ownership cannot be checked — ${repair}` };
-    }
-    const fm = frontMatter(body);
-    if (!fm) {
-      return { ok: false, error: `${note} has no readable TN front matter, so ticket #${ticket}'s contract ownership cannot be checked — ${repair}` };
-    }
-    const status = fm.lines.find((line) => line.startsWith("status:"))?.slice(7).trim();
-    if (status === "superseded") continue;
-    const claimed = contractList(fm.lines);
-    if (!claimed) {
-      return { ok: false, error: `${note} has an unreadable contracts: list, so ticket #${ticket}'s contract ownership cannot be checked — ${repair}` };
-    }
-    for (const path of new Set(claimed)) claims.set(path, [...(claims.get(path) ?? []), named]);
-  }
-  for (const path of contracts) {
-    const others = claims.get(path);
-    if (others === undefined) continue;
-    const refusal = ownershipRefusal(root, path, [ticket, ...others], ticket);
-    if (refusal !== undefined) return { ok: false, error: refusal };
-  }
-  const foreign: Record<string, string> = {};
-  for (const [path, others] of claims) {
-    if (contracts.includes(path)) continue;
-    // Never undefined: the active ticket is not among these claimants.
-    foreign[path] = ownershipRefusal(root, path, others, ticket) ?? contestedContractRefusal(path, others);
-  }
-  return { ok: true, foreign };
+/** The claimants of `path` that no other claimant has taken it from. */
+function unreleasedOf(path: string, claimants: readonly Claimant[]): Claimant[] {
+  return claimants.filter((giver) =>
+    !claimants.some((claimant) => claimant !== giver && takesFrom(claimant, path, giver.ticket)));
 }
 
-function siblingConflict(root: string, active: TicketDesign): string | undefined {
-  const claims = siblingClaims(root, active.ticket, active.contracts);
-  return claims.ok ? undefined : claims.error;
+type Ownership =
+  | {
+    readonly released: ReadonlyMap<string, string>;
+    /** Contracts only other tickets claim: path → the refusal naming their owner. */
+    readonly foreign: Readonly<Record<string, string>>;
+  }
+  | { readonly error: string };
+
+/**
+ * Who owns each contract the active note lists, from the TN files and the
+ * frozen manifests. The claimants are the notes that list it; a claimant is
+ * released when another claimant takes it from that note (ADR 2026-071).
+ * Among the unreleased claimants the active ticket must be the owner: the only
+ * one, or the one whose frozen design holds it. `released` maps each contract
+ * taken from the active ticket to the note that took it, and `foreign` names
+ * the owner of every contract only other tickets claim. `ignore` mode checks
+ * nothing and only reports what was released.
+ */
+function resolveOwnership(root: string, active: ListedDesign, mode: "check" | "ignore"): Ownership {
+  const siblings = readSiblings(root, active.ticket, mode);
+  if ("error" in siblings) return siblings;
+  if (mode === "check") {
+    const refused = takeRefusal(root, active, siblings.claimants);
+    if (refused) return { error: refused };
+  }
+  const self: Claimant = { ticket: active.ticket, note: active.note, contracts: active.listed, takes: active.taken };
+  const released = new Map<string, string>();
+  for (const path of active.listed) {
+    const claimants = [self, ...siblings.claimants].filter((claimant) => claimant.contracts.includes(path));
+    const taker = claimants.find((claimant) => claimant !== self && takesFrom(claimant, path, self.ticket));
+    if (taker) released.set(path, taker.note);
+    if (mode === "ignore") continue;
+    const unreleased = unreleasedOf(path, claimants);
+    if (unreleased.length === 0) {
+      const notes = claimants.map((claimant) => claimant.note).sort();
+      return { error: `no ticket owns ${path}: ${notes.join(" and ")} take it from each other` };
+    }
+    if (taker || unreleased.length === 1) continue;
+    const refusal = ownershipRefusal(root, path, unreleased.map((claimant) => claimant.ticket), active.ticket);
+    if (refusal !== undefined) return { error: refusal };
+  }
+  return { released, foreign: mode === "ignore" ? {} : foreignClaims(root, active.ticket, active.listed, siblings.claimants) };
+}
+
+/** Each contract only other tickets claim, mapped to the refusal naming its owner. */
+function foreignClaims(
+  root: string, active: string, listed: readonly string[], claimants: readonly Claimant[],
+): Readonly<Record<string, string>> {
+  const paths = [...new Set(claimants.flatMap((claimant) => claimant.contracts))].filter((path) => !listed.includes(path));
+  const foreign: Record<string, string> = {};
+  for (const path of paths.sort()) {
+    const listing = claimants.filter((claimant) => claimant.contracts.includes(path));
+    const unreleased = unreleasedOf(path, listing);
+    const tickets = (unreleased.length ? unreleased : listing).map((claimant) => claimant.ticket);
+    // Never undefined: the active ticket is not among these claimants.
+    foreign[path] = ownershipRefusal(root, path, tickets, active) ?? contestedContractRefusal(path, tickets);
+  }
+  return foreign;
+}
+
+/** The active design as it is owned: the released contracts subtracted. */
+function owned(design: ListedDesign, released: ReadonlyMap<string, string>): TicketDesign {
+  const { listed, ...rest } = design;
+  return { ...rest, contracts: listed.filter((path) => !released.has(path)) };
 }
 
 export interface TicketDesignOptions {
@@ -372,9 +550,15 @@ export function resolveTicketDesign(root: string, options: TicketDesignOptions =
   const note = `${TN_DIR}/TN-${ticket}.md`;
   if (!existsSync(join(root, note))) return { kind: "unwritten", ticket, note };
   try {
-    const design = parseActiveNote(root, ticket, true);
-    const conflict = options.siblings === "ignore" ? undefined : siblingConflict(root, design);
-    return conflict ? { kind: "refused", ticket, reason: conflict } : { kind: "ready", design };
+    const listed = parseActiveNote(root, ticket, true);
+    const ownership = resolveOwnership(root, listed, options.siblings ?? "check");
+    if ("error" in ownership) return { kind: "refused", ticket, reason: ownership.error };
+    const design = owned(listed, ownership.released);
+    if (!design.contracts.length) {
+      const takers = [...new Set(ownership.released.values())].sort().join(", ");
+      return { kind: "refused", ticket, reason: `${note} owns no contracts: ${takers} took every one it lists` };
+    }
+    return { kind: "ready", design };
   } catch (error) {
     return { kind: "refused", ticket, reason: error instanceof Error ? error.message : String(error) };
   }
@@ -417,14 +601,22 @@ export function ticketWriteScope(root: string): TicketWriteScope | undefined {
   const { ticket } = selection;
   if (!existsSync(join(root, `${TN_DIR}/TN-${ticket}.md`))) {
     // Unwritten: nothing to conflict with, but a refusal can still name owners.
-    const claims = siblingClaims(root, ticket, []);
-    return { ticket, contracts: [], contractSuffixes: suffixes, ...frozen, ...(claims.ok ? { foreign: claims.foreign } : {}) };
+    const siblings = readSiblings(root, ticket, "check");
+    return {
+      ticket, contracts: [], contractSuffixes: suffixes, ...frozen,
+      ...("claimants" in siblings ? { foreign: foreignClaims(root, ticket, [], siblings.claimants) } : {}),
+    };
   }
   try {
     const active = parseActiveNote(root, ticket, false);
-    const claims = siblingClaims(root, ticket, active.contracts);
-    if (!claims.ok) return { ticket, contracts: [], contractSuffixes: suffixes, ...frozen, error: claims.error };
-    return { ticket, contracts: active.contracts, contractSuffixes: suffixes, ...frozen, foreign: claims.foreign };
+    const ownership = resolveOwnership(root, active, "check");
+    if ("error" in ownership) return { ticket, contracts: [], contractSuffixes: suffixes, ...frozen, error: ownership.error };
+    return {
+      ticket,
+      contracts: owned(active, ownership.released).contracts,
+      ...(ownership.released.size ? { released: Object.fromEntries(ownership.released) } : {}),
+      contractSuffixes: suffixes, ...frozen, foreign: ownership.foreign,
+    };
   } catch (error) {
     return { ticket, contracts: [], contractSuffixes: suffixes, ...frozen, error: error instanceof Error ? error.message : String(error) };
   }
