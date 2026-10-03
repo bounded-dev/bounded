@@ -59,10 +59,11 @@ export type SpillVerdict =
 
 /** How a saved output is named in every refusal. */
 export const SAVED_OUTPUT = "a saved tool output";
-/** The largest preview size label accepted ("first 2KB" is 2000 characters). */
-const MAX_PREVIEW_CHARS = 10_000;
-/** The bytes read from a saved file: enough for MAX_PREVIEW_CHARS characters and one more. */
-const HEAD_BYTES = (MAX_PREVIEW_CHARS + 1) * 4;
+/** The one preview label measured on real saved outputs, and its size in characters. */
+const PREVIEW_LABEL = "2KB";
+const PREVIEW_CHARS = 2000;
+/** The bytes read from a saved file: enough for PREVIEW_CHARS characters and one more. */
+const HEAD_BYTES = (PREVIEW_CHARS + 1) * 4;
 const PREVIEW_END = "\n...\n</persisted-output>";
 /** The only tool a saved output may be re-read with. */
 const READ_TOOL = "Read";
@@ -183,15 +184,13 @@ export function completeUtf8(bytes: Uint8Array): number {
 
 /**
  * Whether `preview` is the whole preview Claude Code writes for a file whose
- * start is `head`, under a "first <n>KB" label: the file's first n×1000
- * characters (all of a shorter file), or that cut back to a line break in its
+ * start is `head`. Only the measured "first 2KB" label is accepted: the file's
+ * first 2000 characters (all of a shorter file), or that cut back to a line break in its
  * second half. A non-empty file is required: an empty one proves nothing.
  */
 export function isWholePreview(preview: string, label: string, head: FileHead): boolean {
-  const size = /^(\d+)KB$/.exec(label);
-  if (size === null) return false;
-  const limit = Number(size[1]) * 1000;
-  if (limit === 0 || limit > MAX_PREVIEW_CHARS) return false;
+  if (label !== PREVIEW_LABEL) return false;
+  const limit = PREVIEW_CHARS;
   // Claude Code drops the output's leading line breaks before it cuts.
   const text = head.text.replace(/^\n+/, "");
   if (text === "" || preview === "" || !text.startsWith(preview)) return false;
@@ -207,9 +206,15 @@ const SAVED_OUTPUT_PATH = /(?<![^\s'"`(=:,[{])\/[^\s'"`\\]*?\/tool-results(?=[/\
 /** Rewrite every saved-output path outside the project to SAVED_OUTPUT, so
  *  no refusal or guard-log line names one (registered on the guard log). */
 export function redactSavedOutputs(cwd: string, text: string): string {
-  if (!text.includes("/tool-results")) return text;
-  return text.replace(SAVED_OUTPUT_PATH, (path) => (path.startsWith(`${cwd}/`) ? path : SAVED_OUTPUT));
+  if (!text.includes("tool-results")) return text;
+  return text
+    .replace(SAVED_OUTPUT_PATH, (path) => (path.startsWith(`${cwd}/`) ? path : SAVED_OUTPUT))
+    .replace(SAVED_OUTPUT_NAME, (path) => (path.startsWith(`${cwd}/`) ? path : SAVED_OUTPUT));
 }
+
+/** Any path, whatever its prefix (`~`, `../`, none), whose last two segments
+ *  are a `tool-results` directory and a saved output's file name. */
+const SAVED_OUTPUT_NAME = /(?<![^\s'"`(=:,[{])(?:[^\s'"`\\]*\/)?tool-results\/[A-Za-z0-9_-]+\.txt(?![^\s'"`\\),\]}])/g;
 
 type Rec = Readonly<Record<string, unknown>>;
 const isRecord = (value: unknown): value is Rec => typeof value === "object" && value !== null && !Array.isArray(value);

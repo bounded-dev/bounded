@@ -472,6 +472,24 @@ describe("helpers", () => {
     expect(redactSavedOutputs(cwd, "cat /home/u/s/tool-results/abc.txt | x")).toBe("cat a saved tool output | x");
     expect(redactSavedOutputs(cwd, "path=/home/u/s/tool-results")).toBe("path=a saved tool output");
     expect(redactSavedOutputs(cwd, "read /work/proj/fixtures/tool-results/a.txt")).toBe("read /work/proj/fixtures/tool-results/a.txt");
-    expect(redactSavedOutputs(cwd, "read fixtures/tool-results/a.txt")).toBe("read fixtures/tool-results/a.txt");
+    // Third review: a saved output's name is redacted whatever the path's prefix.
+    expect(redactSavedOutputs(cwd, "read fixtures/tool-results/a.txt")).toBe("read a saved tool output");
+    expect(redactSavedOutputs(cwd, "cat ~/.claude/projects/p/s/tool-results/abc.txt")).toBe("cat a saved tool output");
+    expect(redactSavedOutputs(cwd, "read '../s/tool-results/b-1_x.txt'")).toBe("read 'a saved tool output'");
+    expect(redactSavedOutputs(cwd, "grep x tool-results/abc.txt")).toBe("grep x a saved tool output");
+    expect(redactSavedOutputs(cwd, "read fixtures/tool-results/notes.md")).toBe("read fixtures/tool-results/notes.md");
+  });
+
+  test("only the measured preview label, first 2KB, is accepted", () => {
+    const dir = project();
+    const P = projectsDir();
+    const own = spillFile(P, "own.txt");
+    for (const label of ["1KB", "3KB", "2 KB", "2000 chars"]) {
+      const text = `<persisted-output>\nOutput too large (3KB). Full output saved to: ${own}\n\nPreview (first ${label}):\nx`;
+      agentTranscript(P, "a1", [toolUse("u1"), toolResult("u1", text)]);
+      expect(read(dir, P, own, SCOUT, scout("a1")).decision, label).toBe("deny");
+    }
+    agentTranscript(P, "a1", owned("u1", own));
+    expect(read(dir, P, own, SCOUT, scout("a1"))).toEqual({ decision: "allow" });
   });
 });

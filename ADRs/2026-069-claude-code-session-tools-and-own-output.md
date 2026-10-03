@@ -33,10 +33,11 @@ saves a too-large tool result to, because that file is outside the project.
     `<persisted-output>` and then
     `Output too large (…). Full output saved to: <path>` for the requested
     path, and whose `tool_use_id` names an earlier `tool_use` in the same
-    transcript. A `Preview (first <n>KB):` line must follow, and the preview
+    transcript. A `Preview (first 2KB):` line must follow (the one label
+    measured; any other is refused), and the preview
     must be exactly the whole preview Claude Code writes for that file. That
     format was measured on 134 real saved outputs from one developer
-    machine, and all 134 pass the rule: the file's first n×1000 characters, with leading line breaks
+    machine, and all 134 pass the rule: the file's first 2000 characters, with leading line breaks
     dropped, cut back to the last line break when one falls in the second
     half, then `\n...\n</persisted-output>`. For a shorter file it is the
     whole file. So for a "first 2KB" preview, between 1000 and 2000
@@ -53,9 +54,12 @@ saves a too-large tool result to, because that file is outside the project.
     The guard log has one redaction socket that a host adapter fills
     (`addGuardLogRedactor` in `src/guard-log.ts`). Claude Code's
     `redactSavedOutputs` is registered there, and it is applied to every
-    answer of the path-gate hook. Any path with a `tool-results` directory
-    outside the project becomes "a saved tool output", in file tools,
-    searches and Bash commands alike. So other seats cannot learn the names.
+    answer of the path-gate hook. Two kinds of path become "a saved tool
+    output", in file tools, searches and Bash commands alike: any absolute
+    path with a `tool-results` directory outside the project, and any path
+    ending in `tool-results/<name>.txt`, whatever its prefix (`~`, `../`,
+    none), unless it is an absolute path inside the project. So other seats
+    cannot learn the names.
   - Not "any file of the session": every subagent writes to one shared
     `tool-results/` directory, so that would let a blind test-writer read a
     parallel builder's output (2026-034's blindness).
