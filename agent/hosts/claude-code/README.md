@@ -129,17 +129,23 @@ capabilities and still needs a live run before its behavior can be claimed.
   `--findings-file` are refused anywhere in a `bounded gates` argv: the host
   supplies the role, and findings are passed inline. Gate names are
   hyphenated (`bounded gates red-gate`); the pi spelling (`red_gate`) is accepted.
-- **The bound role and the host reach the gate process.** An allowed
-  `bounded gates …` is answered with `permissionDecision: "allow"` and an
-  `updatedInput` whose command is `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role>
-  <original command>`; the rest of the tool input is kept. `sessionRole()`
+- **The bound role, the host and the call's deadline reach the gate
+  process.** An allowed `bounded gates …` is answered with
+  `permissionDecision: "allow"` and an `updatedInput` whose command is
+  `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role>
+  BOUNDED_COMMAND_TIMEOUT_MS=<ms> <original command>`; the rest of the tool
+  input, the call's own `timeout` included, is kept. The deadline is that
+  `timeout` (Claude Code's 2-minute default when the call names none, capped
+  at its 10-minute maximum): Claude Code kills the command past it, so a gate
+  that can split its work across calls (`mutation-score`) stops before it
+  (ADR 2026-069). `sessionRole()`
   reads the role variable before the `.bounded/dev-stage-role` file, so a gate
   that scopes its output by role (`typecheck`) sees the role the definition
   bound, whatever file the project holds; and the CLI records `host
   claude-code` in the guard log rather than `host none`, which is what a
   `bounded gates` with no `BOUNDED_HOST` records. The policy has already refused every
   construct that could make the prefix anything but an env assignment, and a
-  prefix the model types itself — either variable — is refused. `git`,
+  prefix the model types itself — any of the variables — is refused. `git`,
   `sleep` and `rm` are allowed silently — nothing in them reads a role.
 - **Role binding by which definition loads.** `.claude/agents/<role>.md`
   carries the hook with `--role <role>` in its own `hooks:`; those fire only
