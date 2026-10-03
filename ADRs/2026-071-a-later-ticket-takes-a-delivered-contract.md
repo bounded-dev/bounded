@@ -22,12 +22,16 @@ only once. Any other shape is refused on the active note. On another ticket's
 note it refuses ownership checks with the usual repair message, or, where only
 the active ticket's own design is read, releases nothing.
 
-**Ownership is resolved from the TN files alone.** For each contract, the
-claimants are the notes that list it. A claimant is *released* when another
-claimant takes the contract from it. Exactly one unreleased claimant must
-remain, or the gates refuse: two owners keep today's "both own" refusal, now
-with a hint naming `takes:`, and a contract taken back and forth has no owner
-("no ticket owns <path>: <a> and <b> take it from each other"). Chains work: a
+**A take releases a claim before ownership is decided.** For each contract,
+the claimants are the notes that list it. A claimant is *released* when
+another claimant takes the contract from it. Among the unreleased claimants
+the existing rule decides: the only one owns it, or the one whose frozen
+design holds it; otherwise the gates refuse and name every claimant. A refusal
+naming a frozen owner offers the take alongside the change run on that owner.
+A contract taken back and forth has no owner ("no ticket owns <path>: <a> and
+<b> take it from each other"). The giver's frozen manifest still holds the
+contract, but a released giver is no claimant, so the taker is named as the
+owner to every other ticket. Chains work: a
 third ticket takes from the current owner. A take must cite a note that exists,
 is not the active ticket's, has status `active` or `ratified`, lists the
 contract, belongs to no abandoned ticket, and has not already given the
@@ -71,8 +75,9 @@ owned by delivered ticket #1. The ownership gate refused eight writes ("TN-2
 and TN-1 both own …"), and editing TN-1 was refused because only ticket #2's TN
 may be written. The rule the change carried was specified but never enforced.
 
-Resolving ownership from the notes keeps it deterministic, readable with no run
-state beyond the abandonment marker, and identical in every worktree. The gate
+Declaring the take in the taker's note keeps the transfer deterministic,
+readable with no run state beyond the frozen manifests and the abandonment
+marker, and identical in every worktree. The gate
 checks that the cited note is an agreed note of another ticket that lists the
 contract. That the ticket was *delivered* is guaranteed by the lead's
 lifecycle, not by the gate: a worktree runs one ticket at a time and switches

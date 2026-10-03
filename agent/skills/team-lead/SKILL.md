@@ -133,9 +133,7 @@ This worktree runs one ticket at a time: a new ticket starts only after the
 active one's final delivery. Run dependent tickets in dependency order. If the
 user wants tickets to proceed concurrently, each needs its own worktree and
 its own lead session, which the user sets up; concurrent tickets must not edit
-the same contract. A later ticket that must change a delivered ticket's
-contract takes it through its own TN's `takes:` list (ADR 2026-071), never by
-editing the earlier ticket's note.
+the same contract.
 
 ## Change a contract another ticket owns
 
@@ -157,6 +155,12 @@ Never ask them to edit files to get past it. A refusal that says a contract
 with the user, in product terms, which part of the product it belongs to,
 then follow the same order. Never move a contract by editing either
 ticket's note.
+
+When the change is the active ticket's own work, its architect can instead
+take the delivered contract over in that ticket's own note, through its
+`takes:` list (ADR 2026-071); the refusal names this too. The gates then treat
+the active ticket as the owner and leave the earlier ticket's note as it was
+delivered, so no change run on the earlier ticket is needed.
 
 ## Release a dependency
 
