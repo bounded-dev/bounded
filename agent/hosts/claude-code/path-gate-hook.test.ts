@@ -280,6 +280,15 @@ describe("path-gate-hook — Bash, by role", () => {
     }
   });
 
+  // The deadline is the host's to state: a model that typed a long one could
+  // have the measurement outlive the call and be killed mid-mutant.
+  test("a model-typed BOUNDED_COMMAND_TIMEOUT_MS prefix is refused", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Bash", { command: "BOUNDED_COMMAND_TIMEOUT_MS=1 bounded gates typecheck" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("an env assignment prefix");
+  });
+
   test("a model-supplied --role is refused; the host supplies the role", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Bash", { command: "bounded gates typecheck --role architect" }));

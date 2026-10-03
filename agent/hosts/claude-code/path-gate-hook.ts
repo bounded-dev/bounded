@@ -8,9 +8,11 @@
 // with `permissionDecision: "deny"` means "refuse, and tell the model why",
 // and an allowed `bounded gates …` comes back as `permissionDecision: "allow"` with
 // `updatedInput` rewriting the command to `BOUNDED_HOST=claude-code
-// BOUNDED_DEV_STAGE_ROLE=<role> …` — the one place the bound role and the host
-// cross into the gate's own process, where `sessionRole()` reads the role
-// before any role file and the CLI records which host ran it.
+// BOUNDED_DEV_STAGE_ROLE=<role> BOUNDED_COMMAND_TIMEOUT_MS=<ms> …` — the one
+// place the bound role, the host and the call's deadline cross into the
+// gate's own process, where `sessionRole()` reads the role before any role
+// file, the CLI records which host ran it, and a gate that splits its work
+// across calls (mutation-score) keeps each call inside the deadline.
 // It is the analogue of pi's `tool_call` hook (hosts/pi/extensions/path-gate.ts), and
 // like that hook it is thin wiring: the whole decision is the shared cores —
 // decide() through evaluatePathGate(), checkSubagentCall() for a spawn, and
@@ -69,7 +71,7 @@ import {
   recordRunStart,
   sessionRole,
 } from "../../src/path-gate.ts";
-import { CONSTRAINTS, declareHost, HOST_ENV, recordHostDeclaration } from "../../src/host.ts";
+import { COMMAND_TIMEOUT_ENV, CONSTRAINTS, declareHost, HOST_ENV, recordHostDeclaration } from "../../src/host.ts";
 import { forbiddenWhy, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
 import { CONTINUATION_CHECKED } from "../../src/phase-gate.ts";
 import {
@@ -209,10 +211,24 @@ export function errorOpenRead(
  *  the bound role reaches the `bounded gates` process the shell starts. */
 const ROLE_ENV = "BOUNDED_DEV_STAGE_ROLE";
 
+/** Claude Code's Bash tool: the timeout a call gets when it names none, and
+ *  the most it may name. Past it, Claude Code kills the command. */
+export const BASH_DEFAULT_TIMEOUT_MS = 120_000;
+export const BASH_MAX_TIMEOUT_MS = 600_000;
+
+/** How long Claude Code lets this Bash call run: its own `timeout` when it
+ *  names a usable one (capped at the maximum), else the default. */
+export function bashDeadlineMs(timeout: unknown): number {
+  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return BASH_DEFAULT_TIMEOUT_MS;
+  return Math.min(Math.floor(timeout), BASH_MAX_TIMEOUT_MS);
+}
+
 /** The env prefix an allowed `bounded gates` call is given: the host, so the CLI
- *  records `claude-code` rather than `none`, and the bound role. */
-export function gateEnvPrefix(role: Role): string {
-  return `${HOST_ENV}=claude-code ${ROLE_ENV}=${role}`;
+ *  records `claude-code` rather than `none`; the bound role; and the call's
+ *  deadline, so a gate that can split its work stops before it is killed.
+ *  The call's timeout itself is left as the model set it. */
+export function gateEnvPrefix(role: Role, deadlineMs: number = BASH_DEFAULT_TIMEOUT_MS): string {
+  return `${HOST_ENV}=claude-code ${ROLE_ENV}=${role} ${COMMAND_TIMEOUT_ENV}=${deadlineMs}`;
 }
 
 /** A subagent bound by its definition holds every constraint: `tools:` is the
@@ -497,11 +513,12 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
       // prefix mean anything but an env assignment. git, sleep and rm pass
       // through untouched — nothing in them reads a role.
       if (decision.carrier === "bounded gates") {
+        const envPrefix = gateEnvPrefix(role, bashDeadlineMs(payload.toolInput["timeout"]));
         allowed = allowWith({
           ...payload.toolInput,
           command: projectLocal
-            ? `${gateEnvPrefix(role)} ${localGateCommand(command, harnessRoot)}`
-            : `${gateEnvPrefix(role)} ${command}`,
+            ? `${envPrefix} ${localGateCommand(command, harnessRoot)}`
+            : `${envPrefix} ${command}`,
         });
       }
       continue;

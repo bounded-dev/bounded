@@ -51,6 +51,21 @@ export function hostFromEnv(value: string | undefined): HostName | undefined {
   return value === "pi" || value === "claude-code" ? value : undefined;
 }
 
+/** Env a host adapter sets on a gate process it launches: how long, in
+ *  milliseconds, the host lets this command run before it kills it. A gate
+ *  that can split its work across calls (the mutation measurement) keeps
+ *  each call inside it. Unset means the host gives no deadline. */
+export const COMMAND_TIMEOUT_ENV = "BOUNDED_COMMAND_TIMEOUT_MS";
+
+/** The host's command deadline in ms, or undefined when none is set or the
+ *  value is not a positive integer: a deadline nobody can read is none. */
+export function commandTimeoutMs(env: Readonly<Record<string, string | undefined>>): number | undefined {
+  const raw = env[COMMAND_TIMEOUT_ENV];
+  if (raw === undefined || !/^\d+$/.test(raw)) return undefined;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
 /** Build a declaration; `unenforced` is derived so the two lists can never disagree. */
 export function declareHost(host: HostName, enforced: readonly Constraint[]): HostDeclaration {
   const held = new Set(enforced);
