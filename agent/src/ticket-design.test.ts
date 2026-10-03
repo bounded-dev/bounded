@@ -514,3 +514,181 @@ describe("the workspaces: front matter (TN-26-012 §9)", () => {
     if (state.kind === "refused") expect(state.reason).toContain(why);
   });
 });
+
+describe("a later ticket takes a delivered ticket's contract", () => {
+  const c = (name: string): string => `contexts/notes/src/${name}.contract.ts`;
+  const t24 = c("t24");
+  const t24b = c("t24b");
+  const t25 = c("t25");
+
+  /** Write TN-<n> with its `contracts:` and optional `takes:` lists, and create
+   *  every listed contract file. */
+  function writeNote(root: string, n: number, options: {
+    contracts: string[]; takes?: string[]; status?: string; body?: string;
+  }): void {
+    const takes = options.takes === undefined ? "" : `takes:\n${options.takes.map((t) => `  - ${t}\n`).join("")}`;
+    writeFileSync(join(root, `docs/tn/TN-${n}.md`),
+      `---\nissue: ${n}\nstatus: ${options.status ?? "active"}\ncontracts:\n` +
+      `${options.contracts.map((p) => `  - ${p}\n`).join("")}${takes}---\n\n${options.body ?? `# Ticket ${n}\n`}`);
+    for (const path of options.contracts) writeFileSync(join(root, path), "export interface X {}\n");
+  }
+
+  function abandon(root: string, n: number): void {
+    mkdirSync(join(root, `.bounded/tickets/${n}`), { recursive: true });
+    writeFileSync(join(root, `.bounded/tickets/${n}/abandoned`),
+      '{"archive":"guard-log-x.jsonl","at":"2026-10-03T00:00:00Z"}\n');
+  }
+
+  /** TN-24 lists t24 and t24b; TN-25 lists t24 and t25 and takes t24 from TN-24. */
+  function taken(): string {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24, t24b] });
+    writeNote(root, 25, { contracts: [t24, t25], takes: [`${t24} from TN-24`] });
+    return root;
+  }
+
+  test("the taker owns a contract it takes, and may write it", () => {
+    const root = taken();
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(activeTicketDesign(root)?.contracts).toEqual([t24, t25].sort());
+    expect(ticketWriteScope(root)?.error).toBeUndefined();
+    expect(decide("architect", "write", { path: t24 }, { ...layoutCtx(root), ticketScope: ticketWriteScope(root) }).allow)
+      .toBe(true);
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: t24 }, cwd: root })).toBeUndefined();
+  });
+
+  test("the taker's review and freeze cover the taken contract", () => {
+    const root = taken();
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(runRecordDesignReview(root, []).code).toBe(0);
+    expect(runChecksumGate(root, true).code).toBe(0);
+    expect(Object.keys(computeManifest(root).files)).toContain(t24);
+    const reviewed = readReviewed(root);
+    if (!reviewed.ok) throw new Error(reviewed.error);
+    expect(Object.keys(reviewed.reviewed)).toContain(t24);
+  });
+
+  test("the giving note is left as written and no longer owns the contract", () => {
+    const root = taken();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(activeTicketDesign(root)?.contracts).toEqual([t24b]);
+    expect(resolveTicketDesign(root, { siblings: "ignore" })).toMatchObject({ kind: "ready", design: { contracts: [t24b] } });
+    expect(Object.keys(computeManifest(root).files)).toEqual([t24b]);
+    const ctx = { ...layoutCtx(root), ticketScope: ticketWriteScope(root) };
+    const refused = decide("architect", "write", { path: t24 }, ctx);
+    expect(refused.allow).toBe(false);
+    expect(refused.reason).toMatch(/TN-25/);
+    expect(decide("architect", "write", { path: t24b }, ctx).allow).toBe(true);
+  });
+
+  test("a take must name a contract listed under contracts:", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24] });
+    writeNote(root, 25, { contracts: [t25], takes: [`${t24} from TN-24`] });
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(() => activeTicketDesign(root)).toThrow(/takes .*t24\.contract\.ts.*contracts:/);
+  });
+
+  test("a take must cite a note that lists the contract", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24] });
+    writeNote(root, 26, { contracts: [c("t26")] });
+    writeNote(root, 25, { contracts: [t24, t25], takes: [`${t24} from TN-26`] });
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(() => activeTicketDesign(root)).toThrow(/TN-26\.md does not list/);
+    writeNote(root, 25, { contracts: [t24, t25], takes: [`${t24} from TN-99`] });
+    expect(() => activeTicketDesign(root)).toThrow(/TN-99\.md/);
+  });
+
+  test("a take cannot cite a draft note", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24], status: "draft" });
+    writeNote(root, 25, { contracts: [t24, t25], takes: [`${t24} from TN-24`] });
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(() => activeTicketDesign(root)).toThrow(/draft/);
+  });
+
+  test("a ticket abandoned with --force cannot be taken from", () => {
+    const root = taken();
+    abandon(root, 24);
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(() => activeTicketDesign(root)).toThrow(/TN-24.*abandoned/);
+    expect(ticketWriteScope(root)?.error).toMatch(/abandoned/);
+    rmSync(join(root, ".bounded/tickets/24/abandoned"));
+    expect(activeTicketDesign(root)?.contracts).toContain(t24);
+  });
+
+  test("without a take the overlap still refuses, and says how to transfer", () => {
+    const root = project();
+    // Ticket #24 was delivered: its frozen design holds the contract.
+    mkdirSync(join(root, ".bounded/tickets/24"), { recursive: true });
+    writeFileSync(join(root, ".bounded/tickets/24/contract-checksums.json"), JSON.stringify({ files: { [t24]: "0" } }));
+    writeNote(root, 25, { contracts: [t24, t25] });
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(() => activeTicketDesign(root)).toThrow(/t24\.contract\.ts belongs to ticket #24/);
+    expect(() => activeTicketDesign(root)).toThrow(/takes:/);
+  });
+
+  test("two tickets cannot take the same contract from one owner", () => {
+    const root = taken();
+    writeNote(root, 26, { contracts: [t24], takes: [`${t24} from TN-24`] });
+    vi.stubEnv("BOUNDED_TICKET", "26");
+    expect(() => activeTicketDesign(root)).toThrow(/TN-25/);
+  });
+
+  test("a third ticket takes from the current owner", () => {
+    const root = taken();
+    writeNote(root, 26, { contracts: [t24], takes: [`${t24} from TN-25`] });
+    vi.stubEnv("BOUNDED_TICKET", "26");
+    expect(activeTicketDesign(root)?.contracts).toContain(t24);
+  });
+
+  test("a contract cannot go back to an earlier owner", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24], takes: [`${t24} from TN-25`] });
+    writeNote(root, 25, { contracts: [t24], takes: [`${t24} from TN-24`] });
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(() => activeTicketDesign(root)).toThrow(
+      /no ticket owns contexts\/notes\/src\/t24\.contract\.ts: docs\/tn\/TN-24\.md and docs\/tn\/TN-25\.md take it from each other/);
+  });
+
+  test("an abandoned take neither claims nor releases", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24, t24b] });
+    writeNote(root, 25, { contracts: [t24], takes: [`${t24} from TN-24`] });
+    abandon(root, 25);
+    // The abandoned run's take does not orphan the giver's contract.
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(activeTicketDesign(root)?.contracts).toEqual([t24, t24b]);
+    expect(resolveTicketDesign(root, { siblings: "ignore" })).toMatchObject({ kind: "ready", design: { contracts: [t24, t24b] } });
+    // Another ticket may still take it from the giver.
+    writeNote(root, 26, { contracts: [t24], takes: [`${t24} from TN-24`] });
+    vi.stubEnv("BOUNDED_TICKET", "26");
+    expect(activeTicketDesign(root)?.contracts).toContain(t24);
+    rmSync(join(root, ".bounded/tickets/25/abandoned"));
+    expect(() => activeTicketDesign(root)).toThrow(/TN-25/);
+  });
+
+  test("a superseded taker's take lapses", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24] });
+    writeNote(root, 26, { contracts: [c("t26")] });
+    writeNote(root, 25, {
+      contracts: [t24], takes: [`${t24} from TN-24`], status: "superseded", body: "Superseded by [TN-26](TN-26.md).\n",
+    });
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(activeTicketDesign(root)?.contracts).toContain(t24);
+  });
+
+  test("a sibling's malformed takes: refuses in check mode", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24] });
+    writeNote(root, 25, { contracts: [t24, t25], takes: [`${t24} from 24`] });
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(() => activeTicketDesign(root)).toThrow(
+      /^docs\/tn\/TN-25\.md has an unreadable takes: list.*ask the team lead to repair docs\/tn\/TN-25\.md/);
+    expect(resolveTicketDesign(root, { siblings: "ignore" }).kind).toBe("ready");
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(() => activeTicketDesign(root)).toThrow(/TN-25\.md has an invalid takes: entry/);
+  });
+});

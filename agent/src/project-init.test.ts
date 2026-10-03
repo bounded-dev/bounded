@@ -255,6 +255,15 @@ describe("project-local initialization", () => {
     expect(plan.createdFiles["apps/README.md"]).toBeDefined();
   });
 
+  test("the TN README tells a later ticket how to take a delivered contract", async () => {
+    const target = empty();
+    const plan = await planInit(target, "claude-code", ["ts-web"]);
+    await applyInit(target, "claude-code", ["ts-web"], plan.digest);
+    const readme = readFileSync(join(target, "docs/tn/README.md"), "utf8");
+    expect(readme).toContain("takes:");
+    expect(readme).toContain("from TN-");
+  });
+
   test.each(["pi", "claude-code"])("plans and installs only the %s host and selected packs", async (host) => {
     const target = empty();
     const plan = await planInit(target, host, ["ts-web"]);
