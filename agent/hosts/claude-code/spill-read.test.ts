@@ -81,10 +81,10 @@ function mainTranscript(P: string, records: readonly Rec[]): void {
 function agentTranscript(P: string, agent: string, records: readonly Rec[]): void {
   writeFileSync(join(P, SID, "subagents", `agent-${agent}.jsonl`), lines(records));
 }
-function spillFile(P: string, name: string, sid = SID): string {
+function spillFile(P: string, name: string, sid = SID, body = "x"): string {
   mkdirSync(results(P, sid), { recursive: true });
   const path = spill(P, name, sid);
-  writeFileSync(path, "saved output body\n");
+  writeFileSync(path, body);
   return path;
 }
 
@@ -249,6 +249,8 @@ describe("ownership is proven from the caller's own transcript", () => {
       cwd: dir, hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: own }, session_id: SID, ...scout("a1"),
     }), dir);
     expect(out.stdout).toContain("\"deny\"");
+    expect(out.stdout).toContain("outside project root");
+    noError(dir);
     // The caller's transcript is missing.
     const missing = read(dir, P, own, SCOUT, scout("a1"));
     expect(missing.decision).toBe("deny");
@@ -259,6 +261,82 @@ describe("ownership is proven from the caller's own transcript", () => {
     expect(broken.decision).toBe("deny");
     expect(broken.reason).toContain("saved output");
     noError(dir);
+  });
+});
+
+// Final review of #47.
+describe("ownership is bound to the saved file's own content", () => {
+  const SECRET = "the builder's saved output, which no other seat has seen\n";
+
+  test("a seat's own tool printing the header is not ownership", () => {
+    const dir = project();
+    const P = projectsDir();
+    const b = spillFile(P, "b.txt", SID, SECRET);
+    agentTranscript(P, "b1", owned("u1", b, "string", SECRET));
+    // The test-writer wrote a file that starts with the header, then searched
+    // it: its own tool's result now prints the header, under its own call.
+    agentTranscript(P, "t1", [
+      { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "w1", name: "Write", input: { file_path: "x", content: persistedText(b, "anything") } }] } },
+      toolUse("g1"),
+      toolResult("g1", persistedText(b, "anything")),
+    ]);
+    const r = read(dir, P, b, TEST_WRITER, testWriter("t1"));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("saved output");
+  });
+
+  test("a preview that is not the file's own content is not ownership", () => {
+    const dir = project();
+    const P = projectsDir();
+    const own = spillFile(P, "own.txt", SID, SECRET);
+    agentTranscript(P, "a1", owned("u1", own, "string", "something else"));
+    expect(read(dir, P, own, SCOUT, scout("a1")).decision).toBe("deny");
+    // The genuine preview is the file's first bytes; a long file's preview is cut short.
+    agentTranscript(P, "a1", owned("u1", own, "string", SECRET));
+    expect(read(dir, P, own, SCOUT, scout("a1"))).toEqual({ decision: "allow" });
+    const long = spillFile(P, "long.txt", SID, "y".repeat(5000));
+    agentTranscript(P, "a1", owned("u2", long, "string", `${"y".repeat(2048)}\n...\n</persisted-output>`));
+    expect(read(dir, P, long, SCOUT, scout("a1"))).toEqual({ decision: "allow" });
+  });
+
+  test("a refusal and its guard-log line do not name another seat's saved file", () => {
+    const dir = project();
+    const P = projectsDir();
+    const b = spillFile(P, "bsecretname.txt", SID, SECRET);
+    agentTranscript(P, "b1", owned("u1", b, "string", SECRET));
+    agentTranscript(P, "t1", []);
+    const other = spillFile(P, "osecretname.txt", "0ther-5e55-10n");
+    for (const path of [b, other]) {
+      const r = read(dir, P, path, TEST_WRITER, testWriter("t1"));
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain("a saved tool output");
+    }
+    const noTranscript = runHook(TEST_WRITER, JSON.stringify({
+      cwd: dir, hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: b }, session_id: SID, ...testWriter("t1"),
+    }), dir);
+    expect(noTranscript.stdout).toContain("\"deny\"");
+    const said = JSON.stringify(readGuardLog(dir)) + noTranscript.stdout + read(dir, P, b, SCOUT, scout("t1")).reason;
+    expect(said).not.toContain("secretname");
+  });
+
+  test("a final line still being written is ignored; any other bad line refuses", () => {
+    const dir = project();
+    const P = projectsDir();
+    const own = spillFile(P, "own.txt");
+    writeFileSync(join(P, SID, "subagents", "agent-a1.jsonl"), `${lines(owned("u1", own))}{"type":"assist`);
+    expect(read(dir, P, own, SCOUT, scout("a1"))).toEqual({ decision: "allow" });
+    writeFileSync(join(P, SID, "subagents", "agent-a1.jsonl"), `${lines(owned("u1", own))}{"type":"assist\n`);
+    expect(read(dir, P, own, SCOUT, scout("a1")).decision).toBe("deny");
+  });
+
+  test("a role seat with no agent_id is not judged against the main transcript", () => {
+    const dir = project();
+    const P = projectsDir();
+    const own = spillFile(P, "own.txt");
+    mainTranscript(P, owned("u1", own));
+    const r = read(dir, P, own, BUILDER);
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("saved output");
   });
 });
 

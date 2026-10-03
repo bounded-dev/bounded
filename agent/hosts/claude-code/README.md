@@ -216,8 +216,10 @@ capabilities and still needs a live run before its behavior can be claimed.
   layout is undocumented: a session directory, a transcript per subagent, and
   a `<persisted-output>` header on the tool result. Anything not recognised
   exactly is refused, so a layout change closes these reads rather than
-  opening them. Ownership is proven by a tool result's text prefix matched
-  to an earlier call of the same agent, not by anything Claude Code signs.
+  opening them. Ownership is proven by a tool result's header, matched to an
+  earlier call of the same agent, and a preview that reproduces the saved
+  file's first bytes, not by anything Claude Code signs. Refusals and the
+  guard log never name a saved output's file.
 - **Lexical paths, as in pi.** The gate normalises paths without resolving
   symlinks. No role can create one (no `ln`, no shell), so the surface is the
   same as pi's.

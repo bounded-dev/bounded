@@ -154,6 +154,7 @@ describe("read refusals name the seat", () => {
     try {
       writeFileSync(join(outside, "x"), "x");
       symlinkSync(outside, join(dir, "lnk"));
+      symlinkSync(dir, join(dir, "src/root"));
       const read = (path: string): SeatAction => ({ kind: "read", tool: "read", input: { path } });
       for (const [decideSeat, seat] of [[decideScout, "scout"], [decideLead, "team-lead"]] as const) {
         const asWritten = decideSeat(read("/etc/hosts"), dir);
@@ -166,6 +167,14 @@ describe("read refusals name the seat", () => {
         const whyResolved = resolved.allow ? "" : resolved.reason;
         expect(whyResolved.startsWith(`${seat}: `), whyResolved).toBe(true);
         expect(whyResolved).not.toContain("architect");
+        // Final review: a link out of the project is refused before the second
+        // decide() runs. A link to the project root reaches it: as written the
+        // search is scoped, resolved it searches the root.
+        const root = decideSeat({ kind: "read", tool: "grep", input: { path: "src/root" } }, dir);
+        expect(root.allow).toBe(false);
+        const whyRoot = root.allow ? "" : root.reason;
+        expect(whyRoot.startsWith(`${seat}: may not search '.'`), whyRoot).toBe(true);
+        expect(whyRoot).not.toContain("architect");
       }
     } finally {
       rmSync(outside, { recursive: true, force: true });

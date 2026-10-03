@@ -33,8 +33,14 @@ saves a too-large tool result to, because that file is outside the project.
     `<persisted-output>` and then
     `Output too large (…). Full output saved to: <path>` for the requested
     path, and whose `tool_use_id` names an earlier `tool_use` in the same
-    transcript. Nothing after those two lines counts, so a preview cannot
-    claim another file. A mere mention is not ownership.
+    transcript. A `Preview (first …):` line must follow, and the preview
+    must begin with the saved file's own first 1024 bytes (all of a shorter
+    file). A seat's own tool can print the header lines, but not another
+    seat's output it has never seen. A mere mention is not ownership.
+  - A role seat's call with no agent id is refused: its own transcript cannot
+    be told apart from the main one.
+  - No refusal or guard-log line names a saved output's file, so other seats
+    cannot learn those names.
   - Not "any file of the session": every subagent writes to one shared
     `tool-results/` directory, so that would let a blind test-writer read a
     parallel builder's output (2026-034's blindness).
@@ -46,7 +52,8 @@ saves a too-large tool result to, because that file is outside the project.
     allowed in words. Elsewhere it is left to Claude Code's own permissions.
 - **Fail closed.** The transcript layout is Claude Code's and undocumented.
   A missing `transcript_path` or `session_id`, a `transcript_path` not named
-  `<session_id>.jsonl`, an unreadable transcript or any unparseable line, a
+  `<session_id>.jsonl`, an unreadable transcript or any unparseable line
+  (apart from a final one with no newline yet, still being written), a
   path that is not a plain file directly in `tool-results/` once resolved,
   or no matching record: refused, as before.
 - **Refusals name the refused seat.** A read-only seat borrows the
@@ -56,6 +63,7 @@ saves a too-large tool result to, because that file is outside the project.
 ## Consequences
 
 A layout change in Claude Code turns these reads back into refusals, not into
-an opening. Ownership rests on a tool result's text prefix, which the caller's
-own call wrote. Pi is unchanged: its scout reports through
+an opening. Ownership rests on a tool result's text prefix and the file's own
+first bytes, not on anything Claude Code signs: a seat that can predict another
+seat's output exactly could still claim it. Pi is unchanged: its scout reports through
 `contact_supervisor`, and it has no saved-output directory.

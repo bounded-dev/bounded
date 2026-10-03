@@ -97,7 +97,7 @@ import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-ti
 import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
 import { BASH_TOOL, CLAUDE_SESSION_TOOLS, claudeTaskModel, mapToolCall, unplainAgentField } from "./tool-map.ts";
-import { spillRead } from "./spill-read.ts";
+import { foreignSpillRead, spillRead } from "./spill-read.ts";
 import { resolveSessionRole } from "../../src/session-role.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
@@ -345,17 +345,22 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     });
     // A seat re-reading its own saved tool output (spill-read.ts), judged the
     // same for every seat and before its own dispatch: the content came from
-    // the caller's own already-gated call. Anything it does not own goes on.
+    // the caller's own already-gated call. Any other saved output is refused
+    // in words that do not name it; everything else goes on.
     if (seat.kind !== "none") {
+      const who = seat.kind === "role" ? seat.role : seat.kind;
       const spill = spillRead(payload.toolName, payload.toolInput, {
         ...(payload.transcriptPath !== undefined ? { transcriptPath: payload.transcriptPath } : {}),
         ...(payload.sessionId !== undefined ? { sessionId: payload.sessionId } : {}),
         ...(payload.agentId !== undefined ? { agentId: payload.agentId } : {}),
+        topLevelSeat: seat.kind !== "role",
       });
       if (spill !== undefined) {
         if (spill.allow) return { stdout: inTicketSeat(flags, payload, projectDir) ? allow() : "", stderr: "" };
-        return { stdout: refuseSpill(seat.kind === "role" ? seat.role : seat.kind, spill.reason, payload, cwd), stderr: "" };
+        return { stdout: refuseSpill(who, spill.reason, payload, cwd), stderr: "" };
       }
+      const foreign = foreignSpillRead(payload.toolName, payload.toolInput, cwd);
+      if (foreign !== undefined) return { stdout: refuseSpill(who, foreign, payload, cwd), stderr: "" };
     }
     switch (seat.kind) {
       case "lead":

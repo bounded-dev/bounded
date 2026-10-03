@@ -570,6 +570,18 @@ describe("the read-only seats' session tools", () => {
     expect(r.reason).toContain("bounded lead reply");
   });
 
+  // Final review: a malformed SendMessage is answered with the way forward too.
+  test("lead: a SendMessage with no usable recipient also says the way forward", () => {
+    const dir = project();
+    for (const input of [{ message: "report?" }, { to: "", message: "report?" }, { to: "a01", message: { x: 1 } }]) {
+      const r = hook(dir, "SendMessage", input);
+      expect(r.decision, JSON.stringify(input)).toBe("deny");
+      expect(r.reason?.startsWith("team-lead: "), r.reason).toBe(true);
+      expect(r.reason).toContain("fresh scout");
+      expect(r.reason).toContain("bounded lead reply");
+    }
+  });
+
   test("--role scout: SendMessage is refused in seat-neutral words", () => {
     const dir = project();
     const r = hook(dir, "SendMessage", { to: "a0123456789abcdef", message: "report?" }, SCOUT, SCOUT_CHILD);

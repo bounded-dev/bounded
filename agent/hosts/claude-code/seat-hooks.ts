@@ -168,6 +168,11 @@ export function onSubagentStop(rec: Readonly<Record<string, unknown>>): void {
   });
 }
 
+/** What the lead does instead of a SendMessage that continues nothing. */
+const LEAD_SEND_WAY_FORWARD =
+  "a scout is not continued (commission a fresh scout), and an architect is continued once a reply is prepared " +
+  "with bounded lead reply <issue> <message>";
+
 /**
  * The lead's SendMessage: allowed only as the one pending reply, to the
  * architect it was prepared for, carrying exactly that reply. The seat is
@@ -179,12 +184,9 @@ export function leadReplySend(payload: HookPayload, main: string): string {
     return deny(reason);
   };
   const target = sendTarget(payload.toolInput);
-  if (!target.ok) return refuse(`team-lead: ${target.reason}`);
+  if (!target.ok) return refuse(`team-lead: ${target.reason}; ${LEAD_SEND_WAY_FORWARD}`);
   const pending = pendingReplyFor(main, target.to);
-  if (pending === undefined) {
-    return refuse(`team-lead: no reply is waiting for ${target.to}; a scout is not continued (commission a fresh scout), ` +
-      "and an architect is continued once a reply is prepared with bounded lead reply <issue> <message>");
-  }
+  if (pending === undefined) return refuse(`team-lead: no reply is waiting for ${target.to}; ${LEAD_SEND_WAY_FORWARD}`);
   // Only a stopped seat whose session still runs continues; one whose session
   // has gone is relaunched by `bounded lead start` (ADR 2026-066).
   if (!seatContinuable(pending.worktree, pending.agent)) {
