@@ -10,8 +10,8 @@
 // launch: recordArchitectSeatLife below.
 
 import {
-  claimPendingLaunch, clearPendingLaunch, clearPendingReply, readArchitectState, readPendingLaunch, readPendingReply,
-  recordArchitectEnded, recordArchitectRunning, writePendingLaunch,
+  claimPendingLaunch, clearPendingLaunch, clearPendingReply, pendingReplyFor, readPendingLaunch, recordArchitectEnded,
+  recordArchitectRunning, releaseLaunchClaim, seatContinuable,
 } from "../../../../src/architect-seat.ts";
 import { systemProcesses } from "../../../../src/process-lock.ts";
 import { readTicketMarker } from "../../../../src/ticket-worktree.ts";
@@ -30,7 +30,7 @@ export function leadArchitectCall(input: Input, toolCallId: string, main: string
   if (input["agent"] === "architect" && (action === undefined || action === "launch" || action === "run")) {
     const extra = extraField(input, LAUNCH_FIELDS);
     if (extra !== undefined) return { handled: true, refuse: `team-lead: an architect launch carries only its role, worktree and background running ('${extra}' is not allowed)` };
-    const claimed = claimPendingLaunch(main, toolCallId);
+    const claimed = claimPendingLaunch(main, toolCallId, { pid: process.pid, pidStarted: systemProcesses.startTime(process.pid) ?? "unknown" });
     if ("error" in claimed) return { handled: true, refuse: `team-lead: ${claimed.error}` };
     for (const key of Object.keys(input)) delete input[key];
     Object.assign(input, {
@@ -42,13 +42,14 @@ export function leadArchitectCall(input: Input, toolCallId: string, main: string
   if (action === "resume") {
     const extra = extraField(input, RESUME_FIELDS);
     if (extra !== undefined) return { handled: true, refuse: `team-lead: an architect continuation carries only its id and the reply ('${extra}' is not allowed)` };
-    const pending = readPendingReply(main);
-    if (pending === undefined || pending.agent !== input["id"]) {
+    const pending = typeof input["id"] === "string" ? pendingReplyFor(main, input["id"]) : undefined;
+    if (pending === undefined) {
       return { handled: true, refuse: "team-lead: only a reply prepared with bounded lead reply <issue> <message> continues an architect" };
     }
-    if (readArchitectState(pending.worktree)?.state === "running") return { handled: true, refuse: `team-lead: #${pending.issue}'s architect is still running` };
+    // A stopped seat, or one whose session ended without a stop (lost), continues.
+    if (!seatContinuable(pending.worktree, pending.agent)) return { handled: true, refuse: `team-lead: #${pending.issue}'s architect is still running` };
     input["message"] = pending.message;
-    clearPendingReply(main);
+    clearPendingReply(main, pending.issue);
     return { handled: true };
   }
   return { handled: false };
@@ -57,11 +58,7 @@ export function leadArchitectCall(input: Input, toolCallId: string, main: string
 /** A lead architect launch that failed releases its claim, so the lead can launch again. */
 export function afterLeadArchitectCall(input: Input, toolCallId: string, isError: boolean, main: string): void {
   if (!isError || input["agent"] !== "architect") return;
-  const pending = readPendingLaunch(main);
-  if (pending?.claimedBy === toolCallId) {
-    const { claimedBy: _released, ...open } = pending;
-    writePendingLaunch(main, open);
-  }
+  if (readPendingLaunch(main)?.claimedBy === toolCallId) releaseLaunchClaim(main);
 }
 
 /** The architect child's own life, recorded in its ticket worktree by its loader. */

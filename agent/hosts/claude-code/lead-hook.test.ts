@@ -317,16 +317,36 @@ describe("the lead's architect launch and reply (ADR 2026-066)", () => {
     expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t3" }).decision).toBe("rewrite");
   });
 
+  // Regression (final review M1): a seat whose session ended without a stop
+  // record could never be continued.
+  test("a lost seat — recorded running, its session gone — is continued by its prepared reply", () => {
+    const { main, wt } = setup();
+    const agent = "a1234567890abcdef";
+    recordArchitectRunning(wt, agent, { pid: 999_999, pidStarted: "long ago" });
+    writePendingReply(main, { issue: 7, worktree: wt, agent, message: "Go on.", createdAt: "t" });
+    expect(hook(main, "SendMessage", { to: agent, message: "x" })).toEqual({ decision: "rewrite", input: { to: agent, message: "Go on." } });
+    expect(readArchitectState(wt)).toMatchObject({ state: "running", turn: 2 });
+  });
+
+  // Regression (final review M2): a claim that never bound wedged the launch.
+  test("a launch claim whose claimant has gone can be claimed again", () => {
+    const { main, wt } = setup();
+    pendingAt(main, wt);
+    writePendingLaunch(main, { ...readPendingLaunch(main)!, claimedBy: "t1", claimedAt: new Date().toISOString(), claimant: { pid: 999_999, pidStarted: "long ago" } });
+    expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t2" }).decision).toBe("rewrite");
+    expect(readPendingLaunch(main)?.claimedBy).toBe("t2");
+  });
+
   test("SendMessage continues only the architect a reply was prepared for, carrying exactly that reply", () => {
     const { main, wt } = setup();
     const agent = "a1234567890abcdef";
     expect(hook(main, "SendMessage", { to: agent, message: "yes" }).reason).toContain("no reply is waiting");
     writeArchitectEnded(wt, agent);
     writePendingReply(main, { issue: 7, worktree: wt, agent, message: "Euros.", createdAt: "t" });
-    expect(hook(main, "SendMessage", { to: "a9999999999999999", message: "Euros." }).reason).toContain("not a9999999999999999");
+    expect(hook(main, "SendMessage", { to: "a9999999999999999", message: "Euros." }).reason).toContain("no reply is waiting for a9999999999999999");
     expect(hook(main, "SendMessage", { to: agent, message: "anything" })).toEqual({ decision: "rewrite", input: { to: agent, message: "Euros." } });
     expect(readArchitectState(wt)).toMatchObject({ state: "running", turn: 2 });
-    expect(readPendingReply(main)).toBeUndefined();
+    expect(readPendingReply(main, 7)).toBeUndefined();
     // A continuation that did not go through ends the turn again.
     event(main, "PostToolUse", { tool_name: "SendMessage", tool_input: { to: agent, message: "Euros." }, tool_response: { success: false } });
     expect(readArchitectState(wt)?.state).toBe("ended");

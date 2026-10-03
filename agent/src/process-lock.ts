@@ -47,10 +47,11 @@ export type OwnerState = "alive" | "stale" | "unknown";
 
 /** Whether the recorded owner still runs: the same pid, started at the same time. */
 export function ownerState(owner: LockOwner, probe: ProcessProbe = systemProcesses): OwnerState {
+  // An owner recorded without its start time can never be told apart.
+  if (owner.started === "unknown") return "unknown";
   const now = probe.startTime(owner.pid);
   if (now === null) return "unknown";
   if (now === undefined) return "stale";
-  if (owner.started === "unknown") return "unknown";
   return now === owner.started ? "alive" : "stale";
 }
 

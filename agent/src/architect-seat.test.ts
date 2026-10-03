@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
-  architectStatus, claimPendingLaunch, flagLike, readArchitectState, readPendingLaunch, recordArchitectEnded, recordArchitectRunning,
-  writePendingLaunch,
+  architectStatus, claimPendingLaunch, claimStale, flagLike, LAUNCH_CLAIM_MAX_AGE_MS, pendingReplyFor, readArchitectState,
+  readPendingLaunch, recordArchitectEnded, recordArchitectRunning, releaseLaunchClaim, seatContinuable, writePendingLaunch,
+  writePendingReply,
 } from "./architect-seat.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { ARCHITECT_ENDED } from "./lead-state.ts";
@@ -34,12 +35,41 @@ const dead: ProcessProbe = { startTime: () => undefined };
 
 describe("the pending launch", () => {
   test("one launch call claims it; another is refused; with none pending, nothing launches", () => {
-    expect(claimPendingLaunch(main, "t1")).toEqual({ error: expect.stringContaining("run bounded lead start <issue> first") });
+    const me = { pid: 10, pidStarted: "t" };
+    expect(claimPendingLaunch(main, "t1", me, { probe: live })).toEqual({ error: expect.stringContaining("run bounded lead start <issue> first") });
     writePendingLaunch(main, { issue: 7, worktree: wt, brief: "b", createdAt: "t" });
-    expect(claimPendingLaunch(main, "t1")).toMatchObject({ issue: 7, claimedBy: "t1" });
-    expect(claimPendingLaunch(main, "t1")).toMatchObject({ claimedBy: "t1" });
-    expect(claimPendingLaunch(main, "t2")).toEqual({ error: expect.stringContaining("already under way") });
+    expect(claimPendingLaunch(main, "t1", me, { probe: live })).toMatchObject({ issue: 7, claimedBy: "t1", claimant: me });
+    expect(claimPendingLaunch(main, "t1", me, { probe: live })).toMatchObject({ claimedBy: "t1" });
+    expect(claimPendingLaunch(main, "t2", me, { probe: live })).toEqual({ error: expect.stringContaining("already under way") });
     expect(readPendingLaunch(main)?.claimedBy).toBe("t1");
+  });
+
+  // Regression (final review M2): a claim that never bound wedged the board.
+  test("a claim whose claimant has gone, or that is older than the limit, is stale and is taken over", () => {
+    const me = { pid: 10, pidStarted: "t" };
+    writePendingLaunch(main, { issue: 7, worktree: wt, brief: "b", createdAt: "t" });
+    claimPendingLaunch(main, "t1", me, { probe: live });
+    expect(claimStale(readPendingLaunch(main)!, live)).toBe(false);
+    expect(claimStale(readPendingLaunch(main)!, dead)).toBe(true);
+    expect(claimStale(readPendingLaunch(main)!, live, Date.now() + LAUNCH_CLAIM_MAX_AGE_MS + 1)).toBe(true);
+    expect(claimPendingLaunch(main, "t2", me, { probe: dead })).toMatchObject({ claimedBy: "t2" });
+    releaseLaunchClaim(main);
+    expect(readPendingLaunch(main)).toMatchObject({ issue: 7 });
+    expect(readPendingLaunch(main)?.claimedBy).toBeUndefined();
+  });
+
+  // Regression (final review M1).
+  test("each ticket keeps its own pending reply; a stopped or lost seat is continuable, a running one is not", () => {
+    writePendingReply(main, { issue: 7, worktree: wt, agent: "a1", message: "m7", createdAt: "t" });
+    writePendingReply(main, { issue: 8, worktree: join(main, "w8"), agent: "a2", message: "m8", createdAt: "t" });
+    expect(pendingReplyFor(main, "a1")?.message).toBe("m7");
+    expect(pendingReplyFor(main, "a2")?.message).toBe("m8");
+    recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t" });
+    expect(seatContinuable(wt, "a1", live)).toBe(false);
+    expect(seatContinuable(wt, "a1", dead)).toBe(true);
+    recordArchitectEnded(wt, "a1");
+    expect(seatContinuable(wt, "a1", live)).toBe(true);
+    expect(seatContinuable(wt, "a2", live)).toBe(false);
   });
 });
 

@@ -17,7 +17,7 @@
 // message. A seat recorded as running whose host session has gone (by pid and
 // start time, process-lock.ts) is reported as lost, never as running.
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { logGuardEvent } from "./guard-log.ts";
 import { ARCHITECT_ENDED, LEAD_GUARD } from "./lead-state.ts";
@@ -26,7 +26,9 @@ import { ownerState, systemProcesses, type ProcessProbe } from "./process-lock.t
 export const ARCHITECT_DIR_RELATIVE = ".bounded/architect";
 const STATE = "state.json";
 const PENDING_LAUNCH_RELATIVE = ".bounded/lead/pending-launch.json";
-const PENDING_REPLY_RELATIVE = ".bounded/lead/pending-reply.json";
+const PENDING_REPLIES_RELATIVE = ".bounded/lead/pending-replies";
+/** A claim on the pending launch that has not bound by then is stale. */
+export const LAUNCH_CLAIM_MAX_AGE_MS = 15 * 60 * 1000;
 
 /** A host adapter's half (hosts/<host>/architect-seat.ts): how the lead
  *  commissions and continues an architect, the host's name for a model, and
@@ -51,6 +53,10 @@ export interface PendingLaunch {
   readonly createdAt: string;
   /** The host's id for the launch call that claimed it, once claimed. */
   readonly claimedBy?: string;
+  /** When, and by which host process, it was claimed: a claim whose
+   *  claimant has gone, or that never bound in time, is stale. */
+  readonly claimedAt?: string;
+  readonly claimant?: { readonly pid: number; readonly pidStarted: string };
 }
 
 export interface PendingReply {
@@ -111,29 +117,76 @@ export function clearPendingLaunch(main: string): void {
   rmSync(join(main, PENDING_LAUNCH_RELATIVE), { force: true });
 }
 
-/** Mark the pending launch as taken by one launch call; a second call is refused. */
-export function claimPendingLaunch(main: string, by: string): PendingLaunch | { readonly error: string } {
+/** Whether a claim on the pending launch can no longer bind: its claimant
+ *  is gone, or it is older than LAUNCH_CLAIM_MAX_AGE_MS. */
+export function claimStale(pending: PendingLaunch, probe: ProcessProbe = systemProcesses, now: number = Date.now()): boolean {
+  if (pending.claimedBy === undefined) return false;
+  if (pending.claimant !== undefined &&
+      ownerState({ pid: pending.claimant.pid, started: pending.claimant.pidStarted }, probe) === "stale") return true;
+  const at = pending.claimedAt === undefined ? Number.NaN : Date.parse(pending.claimedAt);
+  return !Number.isFinite(at) || now - at > LAUNCH_CLAIM_MAX_AGE_MS;
+}
+
+/** Release a claim on the pending launch, so the lead can launch again. */
+export function releaseLaunchClaim(main: string): void {
+  const pending = readPendingLaunch(main);
+  if (pending?.claimedBy === undefined) return;
+  const { claimedBy: _by, claimedAt: _at, claimant: _who, ...open } = pending;
+  writePendingLaunch(main, open);
+}
+
+/** Mark the pending launch as taken by one launch call; a second call is
+ *  refused while the first claim can still bind. */
+export function claimPendingLaunch(
+  main: string, by: string, claimant: { readonly pid: number; readonly pidStarted: string },
+  options: { readonly probe?: ProcessProbe; readonly now?: number } = {},
+): PendingLaunch | { readonly error: string } {
   const pending = readPendingLaunch(main);
   if (pending === undefined) return { error: "no ticket is waiting for its architect — run bounded lead start <issue> first" };
-  if (pending.claimedBy !== undefined && pending.claimedBy !== by) {
+  if (pending.claimedBy !== undefined && pending.claimedBy !== by && !claimStale(pending, options.probe, options.now)) {
     return { error: `ticket #${pending.issue}'s architect launch is already under way; one architect per start` };
   }
-  const claimed = { ...pending, claimedBy: by };
+  const claimed = { ...pending, claimedBy: by, claimedAt: new Date(options.now ?? Date.now()).toISOString(), claimant };
   writePendingLaunch(main, claimed);
   return claimed;
 }
 
-export function readPendingReply(main: string): PendingReply | undefined {
-  const raw = readJson<PendingReply>(join(main, PENDING_REPLY_RELATIVE));
+const replyPath = (main: string, issue: number): string => join(main, PENDING_REPLIES_RELATIVE, `${issue}.json`);
+
+/** Each ticket's pending reply, by issue: one ticket's never blocks another's. */
+export function readPendingReply(main: string, issue: number): PendingReply | undefined {
+  const raw = readJson<PendingReply>(replyPath(main, issue));
   return raw !== undefined && typeof raw.agent === "string" && typeof raw.message === "string" ? raw : undefined;
 }
 
-export function writePendingReply(main: string, reply: PendingReply): void {
-  writeJson(join(main, PENDING_REPLY_RELATIVE), reply);
+/** The pending reply prepared for the architect `agent`, if any. */
+export function pendingReplyFor(main: string, agent: string): PendingReply | undefined {
+  const dir = join(main, PENDING_REPLIES_RELATIVE);
+  if (!existsSync(dir)) return undefined;
+  for (const name of readdirSync(dir)) {
+    const match = /^([1-9][0-9]*)\.json$/.exec(name);
+    const reply = match === null ? undefined : readPendingReply(main, Number(match[1]));
+    if (reply?.agent === agent) return reply;
+  }
+  return undefined;
 }
 
-export function clearPendingReply(main: string): void {
-  rmSync(join(main, PENDING_REPLY_RELATIVE), { force: true });
+export function writePendingReply(main: string, reply: PendingReply): void {
+  writeJson(replyPath(main, reply.issue), reply);
+}
+
+export function clearPendingReply(main: string, issue: number): void {
+  rmSync(replyPath(main, issue), { force: true });
+}
+
+/**
+ * Whether `agent`'s seat may be continued now: it is the worktree's recorded
+ * architect and it is not running. A seat whose session ended without a
+ * recorded stop (lost) is continuable like one that stopped.
+ */
+export function seatContinuable(worktree: string, agent: string, probe: ProcessProbe = systemProcesses): boolean {
+  const status = architectStatus(worktree, probe);
+  return (status.kind === "ended" || status.kind === "lost") && status.agent === agent;
 }
 
 // ── The seat's life (ticket worktree) ───────────────────────────────────────

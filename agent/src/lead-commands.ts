@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { applyBoardOps, boardReady, quarantinedOps, releaseQuarantine, type BoardOp } from "./board-sync.ts";
 import {
-  architectStatus, flagLike, readPendingLaunch, readPendingReply, writePendingLaunch, writePendingReply, type ArchitectHost,
+  architectStatus, claimStale, flagLike, readPendingLaunch, releaseLaunchClaim, writePendingLaunch, writePendingReply, type ArchitectHost,
 } from "./architect-seat.ts";
 import { clearDeliverySnapshot, readDeliverySnapshot, worktreeSnapshot } from "./delivery-snapshot.ts";
 import { acquireLock, systemProcesses, type ProcessProbe } from "./process-lock.ts";
@@ -429,6 +429,11 @@ async function start(main: string, issueNumber: number, deps: LeadDeps, tracker:
   if (record?.phase !== "starting" && record !== undefined) {
     if (pending?.issue === issueNumber) {
       const host = await deps.host(main);
+      if (pending.claimedBy !== undefined && !claimStale(pending, deps.processes ?? systemProcesses)) {
+        return refused(`#${issueNumber}'s architect launch is under way; wait for it to bind, or for its claim to go stale`);
+      }
+      // A claim that never bound (its session gone, or too old) is released here.
+      releaseLaunchClaim(main);
       return done(`#${issueNumber} is waiting for its architect. ${host.launchInstruction(pending)}`);
     }
     return refused(`#${issueNumber} already has a worktree and an architect; continue it with reply`);
@@ -539,9 +544,11 @@ async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<L
     const pending = readPendingLaunch(main);
     switch (architect.kind) {
       case "none":
-        lines.push(pending?.issue === ticket.issue
-          ? `  architect: waiting to be launched — ${(await deps.host(main)).launchInstruction(pending)}`
-          : "  architect: never launched");
+        lines.push(pending?.issue !== ticket.issue ? "  architect: never launched"
+          : pending.claimedBy !== undefined && claimStale(pending, deps.processes ?? systemProcesses)
+            ? `  architect: its launch never bound to the worktree; run bounded lead start ${ticket.issue} to launch it again`
+            : pending.claimedBy !== undefined ? "  architect: launch under way"
+            : `  architect: waiting to be launched — ${(await deps.host(main)).launchInstruction(pending)}`);
         break;
       case "running": lines.push(`  architect: running turn ${architect.turn} since ${architect.since}`); break;
       case "ended": lines.push(`  architect: turn ${architect.turn} stopped and reported to you; continue it with bounded lead reply ${ticket.issue} <message>`); break;
@@ -569,8 +576,6 @@ async function reply(main: string, issueNumber: number, message: string, deps: L
   if (architect.kind === "running") return refused(`#${issueNumber}'s architect is still running; one architect turn runs per worktree`);
   const unsafe = host.preflight(ticket.worktree);
   if (unsafe !== undefined) return refused(`#${issueNumber}'s architect was not continued, because its gate would not hold: ${unsafe}`);
-  const other = readPendingReply(main);
-  if (other !== undefined && other.issue !== issueNumber) return refused(`a reply to #${other.issue} is waiting to be sent; send it first`);
   // A reply to a delivered ticket reopens it: the architect may change the
   // tree, so the delivery no longer stands until deliver passes again.
   const reopen = issue.status === "Awaiting Merge";

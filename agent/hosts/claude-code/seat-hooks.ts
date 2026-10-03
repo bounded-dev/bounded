@@ -11,8 +11,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-  claimPendingLaunch, clearPendingLaunch, clearPendingReply, readArchitectState, readPendingLaunch, readPendingReply,
-  recordArchitectEnded, recordArchitectRunning, writePendingLaunch,
+  claimPendingLaunch, clearPendingLaunch, clearPendingReply, pendingReplyFor, readPendingLaunch, recordArchitectEnded,
+  recordArchitectRunning, releaseLaunchClaim, seatContinuable,
 } from "../../src/architect-seat.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
 import { LEAD_GUARD } from "../../src/lead-state.ts";
@@ -39,18 +39,40 @@ export function ticketRootOf(cwd: string | undefined): string | undefined {
   }
 }
 
-/** The Claude Code process this hook runs for (its nearest `claude`
- *  ancestor), with its start time: a seat whose session died is never running. */
-export function sessionProcess(): { readonly pid: number; readonly pidStarted: string } {
+/** Whether a process (its executable and command line) is Claude Code: the
+ *  native build (`claude`, or `…/claude/versions/<version>`) or the npm build
+ *  (node running `@anthropic-ai/claude-code` or a `claude` script). */
+export function isClaudeProcess(comm: string, args: string): boolean {
+  const exe = comm.trim();
+  if (/(^|\/)claude$/.test(exe) || /\/claude\/versions\/[^/]+$/.test(exe)) return true;
+  return /(^|\/)node$/.test(exe) && /(@anthropic-ai\/claude-code|(^|[\s/])claude(\s|$))/.test(args);
+}
+
+/**
+ * The Claude Code process this hook runs for (its nearest Claude Code
+ * ancestor), with its start time, so a seat whose session died is never
+ * reported running. When none is found the start time is "unknown": the seat
+ * is then never judged lost, rather than tied to this short-lived hook.
+ */
+export function sessionProcess(
+  read: (pid: number) => { readonly ppid: number; readonly comm: string; readonly args: string } | undefined = psRow,
+): { readonly pid: number; readonly pidStarted: string } {
   let pid = process.ppid;
-  for (let depth = 0; depth < 8 && pid > 1; depth++) {
-    const run = spawnSync("ps", ["-o", "ppid=,comm=", "-p", String(pid)], { encoding: "utf8" });
-    const match = /^\s*(\d+)\s+(.*)$/.exec((run.stdout ?? "").trim());
-    if (match === null) break;
-    if (/(^|\/)claude$/.test(match[2]!.trim())) return { pid, pidStarted: systemProcesses.startTime(pid) ?? "unknown" };
-    pid = Number(match[1]);
+  for (let depth = 0; depth < 12 && pid > 1; depth++) {
+    const row = read(pid);
+    if (row === undefined) break;
+    if (isClaudeProcess(row.comm, row.args)) return { pid, pidStarted: systemProcesses.startTime(pid) ?? "unknown" };
+    pid = row.ppid;
   }
-  return { pid: process.ppid, pidStarted: systemProcesses.startTime(process.ppid) ?? "unknown" };
+  return { pid: 0, pidStarted: "unknown" };
+}
+
+function psRow(pid: number): { readonly ppid: number; readonly comm: string; readonly args: string } | undefined {
+  const comm = spawnSync("ps", ["-o", "ppid=,comm=", "-p", String(pid)], { encoding: "utf8" });
+  const match = /^\s*(\d+)\s+(.*)$/.exec((comm.stdout ?? "").trim());
+  if (match === null) return undefined;
+  const args = spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8" });
+  return { ppid: Number(match[1]), comm: match[2]!, args: (args.stdout ?? "").trim() };
 }
 
 /** The fields the lead's architect launch may carry; the hook supplies the rest. */
@@ -69,7 +91,7 @@ export function leadArchitectLaunch(payload: HookPayload, main: string): string 
   const extra = Object.keys(payload.toolInput).find((key) => payload.toolInput[key] !== undefined && !LAUNCH_FIELDS.has(key));
   if (extra !== undefined) return refuse(`team-lead: an architect launch carries only its role, worktree isolation and background running ('${extra}' is not allowed)`);
   if (payload.toolUseId === undefined) return refuse("team-lead: this host gave the architect launch no call id, so it cannot be bound to its ticket");
-  const claimed = claimPendingLaunch(main, payload.toolUseId);
+  const claimed = claimPendingLaunch(main, payload.toolUseId, sessionProcess());
   if ("error" in claimed) return refuse(`team-lead: ${claimed.error}`);
   logGuardEvent(main, {
     guard: LEAD_GUARD, verdict: "pass", summary: `team-lead: launching #${claimed.issue}'s architect`,
@@ -115,11 +137,7 @@ export function onWorktreeCreate(rec: Readonly<Record<string, unknown>>, main: s
 /** The lead's Agent call for its architect failed before binding: release the claim. */
 export function afterLeadArchitectCall(payload: HookPayload, main: string): void {
   if (payload.event !== "PostToolUseFailure") return;
-  const pending = readPendingLaunch(main);
-  if (pending?.claimedBy !== undefined && pending.claimedBy === payload.toolUseId) {
-    const { claimedBy: _released, ...open } = pending;
-    writePendingLaunch(main, open);
-  }
+  if (readPendingLaunch(main)?.claimedBy === payload.toolUseId) releaseLaunchClaim(main);
 }
 
 /** SubagentStop: the architect bound to the stopping agent's worktree has ended. */
@@ -142,15 +160,16 @@ export function leadReplySend(payload: HookPayload, main: string): string {
   };
   const target = sendTarget(payload.toolInput);
   if (!target.ok) return refuse(`team-lead: ${target.reason}`);
-  const pending = readPendingReply(main);
-  if (pending === undefined) return refuse("team-lead: no reply is waiting; prepare one with bounded lead reply <issue> <message>");
-  if (pending.agent !== target.to) return refuse(`team-lead: the waiting reply is for #${pending.issue}'s architect ${pending.agent}, not ${target.to}`);
-  const state = readArchitectState(pending.worktree);
-  if (state?.agent !== pending.agent || state.state === "running") {
-    return refuse(`team-lead: #${pending.issue}'s architect is not waiting for a reply`);
+  const pending = pendingReplyFor(main, target.to);
+  if (pending === undefined) {
+    return refuse(`team-lead: no reply is waiting for ${target.to}; prepare one with bounded lead reply <issue> <message>`);
+  }
+  // A stopped seat, or one whose session ended without a stop (lost), continues.
+  if (!seatContinuable(pending.worktree, pending.agent)) {
+    return refuse(`team-lead: #${pending.issue}'s architect is still running; one architect turn runs per worktree`);
   }
   recordArchitectRunning(pending.worktree, pending.agent, sessionProcess());
-  clearPendingReply(main);
+  clearPendingReply(main, pending.issue);
   return allowWith({ to: pending.agent, message: pending.message });
 }
 

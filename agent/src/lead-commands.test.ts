@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   clearPendingLaunch, readArchitectState, readPendingLaunch, readPendingReply, recordArchitectEnded, recordArchitectRunning,
-  type ArchitectHost,
+  writePendingLaunch, type ArchitectHost,
 } from "./architect-seat.ts";
 import {
   gitCommandLine, LEAD_COMMANDS, parseLeadArgs, runLeadCommand, type LeadDeps, type LeadRequest,
@@ -225,7 +225,7 @@ describe("the board transitions", () => {
     const reply = await lead(["reply", String(n), "Euros."]);
     expect(reply.ok, reply.text).toBe(true);
     expect(reply.text).toContain(`SEND to ${agent}`);
-    expect(readPendingReply(main)).toMatchObject({ issue: n, agent, message: "Euros." });
+    expect(readPendingReply(main, n)).toMatchObject({ issue: n, agent, message: "Euros." });
     expect((await lead(["reply", "99", "x"])).text).toContain("#99 is not started");
   });
 
@@ -343,7 +343,37 @@ describe("review fixes (ADR 2026-066)", () => {
     const n = await started("A", ["contexts/a/"]);
     expect(parseLeadArgs(["reply", String(n), "--dangerously-skip-permissions"]).ok).toBe(false);
     expect((await runLeadCommand(main, { command: "reply", issue: n, message: "-p x" }, deps())).text).toContain("may not begin with '-'");
-    expect(readPendingReply(main)).toBeUndefined();
+    expect(readPendingReply(main, n)).toBeUndefined();
+  });
+
+  // Regression (final review M1): one ticket's waiting reply blocked every
+  // other ticket's; a lost seat could not be replied to.
+  test("replies to two tickets wait side by side; a lost seat takes a reply", async () => {
+    const a = await started("A", ["contexts/a/"]);
+    const b = await started("B", ["contexts/b/"]);
+    for (const n of [a, b]) recordArchitectEnded(ticketWorktreePath(main, n), readArchitectState(ticketWorktreePath(main, n))!.agent);
+    expect((await lead(["reply", String(a), "one"])).ok).toBe(true);
+    expect((await lead(["reply", String(b), "two"])).ok).toBe(true);
+    expect(readPendingReply(main, a)?.message).toBe("one");
+    expect(readPendingReply(main, b)?.message).toBe("two");
+    const wt = ticketWorktreePath(main, a);
+    recordArchitectRunning(wt, "a00000000000dead1", { pid: 999_999, pidStarted: "long ago" });
+    expect((await lead(["status"])).text).toContain("ended with its session");
+    expect((await lead(["reply", String(a), "after a lost session"])).ok).toBe(true);
+  });
+
+  // Regression (final review M2): a claimed launch that never bound wedged the ticket.
+  test("start, run again on a ticket whose launch claim never bound, releases the stale claim and says how to launch", async () => {
+    const n = await create("A", ["contexts/a/"]);
+    await lead(["queue", String(n)]);
+    await lead(["start", String(n)]);
+    writePendingLaunch(main, { ...readPendingLaunch(main)!, claimedBy: "t1", claimedAt: new Date().toISOString(), claimant: { pid: process.pid, pidStarted: "t" } });
+    expect((await lead(["status"])).text).toContain("launch under way");
+    expect((await lead(["start", String(n)])).text).toContain("launch is under way");
+    writePendingLaunch(main, { ...readPendingLaunch(main)!, claimant: { pid: 999_999, pidStarted: "long ago" } });
+    expect((await lead(["status"])).text).toContain(`never bound to the worktree; run bounded lead start ${n}`);
+    expect((await lead(["start", String(n)])).text).toContain(`LAUNCH #${n}`);
+    expect(readPendingLaunch(main)?.claimedBy).toBeUndefined();
   });
 
   test("one lead command at a time: a live holder refuses the next; a dead one's lock is cleared", async () => {
