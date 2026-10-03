@@ -67,7 +67,11 @@ abandoned ticket's takes lapse, so it releases nothing and an abandoned take
 cannot orphan the giver's contract. It stays a claimant of the contracts its
 frozen design holds, so those cannot be claimed again without a take and every
 other ticket is still told who owns them; where the giver's freeze holds the
-same contract, the two are contested and the lead decides. A superseded note
+same contract, the two are contested and the lead decides. The marker refuses
+only a *new* take: one the taker's own frozen design does not yet hold. A take
+already frozen survives the abandonment of the giver's later change run, since
+that run never delivered anything that undoes it. A refusal naming an
+abandoned owner offers only a run on that owner, never a take. A superseded note
 is skipped as before, so its takes lapse and the
 contract returns to its giver; a successor that needs it takes it from that
 owner.

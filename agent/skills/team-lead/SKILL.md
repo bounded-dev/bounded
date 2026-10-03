@@ -162,6 +162,10 @@ take the delivered contract over in that ticket's own note, through its
 the active ticket as the owner and leave the earlier ticket's note as it was
 delivered, so no change run on the earlier ticket is needed.
 
+A ticket whose last run was abandoned keeps the contracts its frozen design
+holds. When a refusal names an abandoned ticket as a claimant or owner, no ticket can take the contract from it: prepare a run on that ticket and deliver it, or have that ticket's architect, in such a run, drop the contract from its own note.
+Either way, follow the order above.
+
 ## Release a dependency
 
 A dependent ticket needs the producer's reviewed, frozen Technical Note, even

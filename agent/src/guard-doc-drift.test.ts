@@ -129,6 +129,14 @@ describe("a contract another ticket owns is changed by a change run on that tick
   test("the architect is told the change waits for the active ticket's delivery", () => {
     expect(architectText).toContain("after the active ticket is delivered");
   });
+  // ADR 2026-071: an abandoned ticket stays a claimant of what its freeze
+  // holds and cannot be taken from, so the lead needs the way out.
+  test("the lead knows how to settle a contract an abandoned ticket still claims", () => {
+    expect(lead).toContain(
+      "When a refusal names an abandoned ticket as a claimant or owner, no ticket can take the contract from it: " +
+      "prepare a run on that ticket and deliver it, or have that ticket's architect, in such a run, " +
+      "drop the contract from its own note.");
+  });
   test("the lead explains decisions in product terms", () => {
     expect(lead).toContain("Explain decisions to the user in product terms, not harness mechanics.");
   });
