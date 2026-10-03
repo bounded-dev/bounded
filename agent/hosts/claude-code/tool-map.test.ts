@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
+import { BASH_TOOL, claudeSeatActions, claudeTaskModel, mapToolCall } from "./tool-map.ts";
 
 // ADR 2026-034: the Claude Code hook judges the SAME pi-shaped call the pi
 // extension would. These fixtures are the tool_input shapes the Claude Code
@@ -136,4 +136,16 @@ describe("Agent model passthrough and claudeTaskModel — ADR 2026-022 on this h
       expect(claudeTaskModel(pattern)).toBeUndefined();
     },
   );
+});
+
+// #47: Claude Code's conversation tools, as the read-only seats' actions.
+describe("claudeSeatActions: the session tools", () => {
+  test("claudeSeatActions: SubagentHandback is a report to the commissioning seat", () => {
+    expect(claudeSeatActions({ tool_name: "SubagentHandback", tool_input: { message: "r" } }, CWD))
+      .toEqual([{ kind: "observe", tool: "SubagentHandback" }]);
+  });
+  test("claudeSeatActions: ToolSearch is a lookup", () => {
+    expect(claudeSeatActions({ tool_name: "ToolSearch", tool_input: { query: "select:WebFetch" } }, CWD))
+      .toEqual([{ kind: "lookup", tool: "ToolSearch" }]);
+  });
 });

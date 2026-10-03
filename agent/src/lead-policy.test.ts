@@ -144,3 +144,40 @@ describe("resolveSessionRole — one seat resolution for both hosts", () => {
     expect(resolveSessionRole({ ...base, boundSeat: "delegate" })).toMatchObject({ kind: "none", note: expect.stringContaining("delegate") });
   });
 });
+
+// #47: a read-only seat borrows the architect's read zone, but its refusal
+// names the seat that was refused, not the architect.
+describe("read refusals name the seat", () => {
+  test("a read-only seat's read refusal names the seat, not the architect", () => {
+    const dir = project({ "src/a.ts": "" });
+    const outside = mkdtempSync(join(tmpdir(), "lead-outside-"));
+    try {
+      writeFileSync(join(outside, "x"), "x");
+      symlinkSync(outside, join(dir, "lnk"));
+      symlinkSync(dir, join(dir, "src/root"));
+      const read = (path: string): SeatAction => ({ kind: "read", tool: "read", input: { path } });
+      for (const [decideSeat, seat] of [[decideScout, "scout"], [decideLead, "team-lead"]] as const) {
+        const asWritten = decideSeat(read("/etc/hosts"), dir);
+        expect(asWritten.allow).toBe(false);
+        const why = asWritten.allow ? "" : asWritten.reason;
+        expect(why.startsWith(`${seat}: may not read '/etc/hosts'`), why).toBe(true);
+        expect(why).not.toContain("architect");
+        const resolved = decideSeat(read("lnk/x"), dir);
+        expect(resolved.allow).toBe(false);
+        const whyResolved = resolved.allow ? "" : resolved.reason;
+        expect(whyResolved.startsWith(`${seat}: `), whyResolved).toBe(true);
+        expect(whyResolved).not.toContain("architect");
+        // Final review: a link out of the project is refused before the second
+        // decide() runs. A link to the project root reaches it: as written the
+        // search is scoped, resolved it searches the root.
+        const root = decideSeat({ kind: "read", tool: "grep", input: { path: "src/root" } }, dir);
+        expect(root.allow).toBe(false);
+        const whyRoot = root.allow ? "" : root.reason;
+        expect(whyRoot.startsWith(`${seat}: may not search '.'`), whyRoot).toBe(true);
+        expect(whyRoot).not.toContain("architect");
+      }
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});

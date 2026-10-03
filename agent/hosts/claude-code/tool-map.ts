@@ -216,8 +216,23 @@ export function claudeTaskModel(pattern: string): string | undefined {
 import type { SeatAction } from "../../src/lead-policy.ts";
 import { searchPatternContained } from "../../src/setup-state.ts";
 
+/**
+ * Claude Code's conversation tools: they act on the conversation, never on the
+ * project or the outside world. `SubagentHandback` returns a subagent's report
+ * to the seat that commissioned it; `ToolSearch` loads a deferred tool's
+ * schema, and the loaded tool is still judged when it is called (ADR 2026-069).
+ */
+export const CLAUDE_SESSION_TOOLS: ReadonlySet<string> = new Set(["SubagentHandback", "ToolSearch"]);
+
 /** Tools that look something up without reading or changing the project. */
-export const CLAUDE_LOOKUP_TOOLS: ReadonlySet<string> = new Set(["WebSearch", "WebFetch", "Skill"]);
+export const CLAUDE_LOOKUP_TOOLS: ReadonlySet<string> = new Set(["WebSearch", "WebFetch", "Skill", "ToolSearch"]);
+
+/** Why a read-only seat's SendMessage is refused, in words true for the lead
+ *  and the scout alike. The lead's own SendMessage continues an architect
+ *  through a prepared reply (seat-hooks.ts) and never reaches this mapping. */
+export const SEND_MESSAGE_REFUSAL =
+  "SendMessage continues no seat here: a scout is not continued (the lead commissions a fresh scout), " +
+  "and an architect is continued with `bounded lead reply <issue> <message>`";
 
 /**
  * The only fields a commission may carry. Any other Agent-call field (name,
@@ -260,6 +275,10 @@ export function claudeSeatActions(call: ClaudeToolCall, cwd: string): readonly S
       }
       return [{ kind: "commission", role, task: input["prompt"] }];
     }
+    case "SubagentHandback":
+      return [{ kind: "observe", tool: call.tool_name }];
+    case "SendMessage":
+      return [{ kind: "refused", reason: SEND_MESSAGE_REFUSAL }];
     default:
       return [CLAUDE_LOOKUP_TOOLS.has(call.tool_name)
         ? { kind: "lookup", tool: call.tool_name }
