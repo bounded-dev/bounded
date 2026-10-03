@@ -79,8 +79,8 @@ capabilities and still needs a live run before its behavior can be claimed.
   role is licensed only by positive evidence: a failed continuation of its
   current worker, a launch that failed or reported a terminal non-completed
   status, an after-call hook that errored on the launch, or a launch with no
-  recorded outcome made before an architect turn whose end the launch wrapper
-  recorded in the ticket worktree's guard log (a different agent id alone is
+  recorded outcome made before an architect turn whose end the seat's
+  SubagentStop hook recorded in the ticket worktree's guard log (a different agent id alone is
   never evidence). No architect may commission another, and each ticket
   worktree runs one architect turn at a time (ADR 2026-066). A
   launch still running — including a background one, recorded from its

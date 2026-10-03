@@ -28,7 +28,7 @@
 //   · the after-call hook itself erroring on that launch, so its outcome can
 //     never be known;
 //   · a launch with no recorded outcome made before an architect turn whose
-//     END the launch wrapper recorded in the worktree's guard log (it
+//     END the seat's SubagentStop hook recorded in the worktree's guard log (it
 //     finished, failed or was interrupted; lead-state.ts). A different id is
 //     never evidence by itself. A ticket worktree runs one architect turn at
 //     a time (architect-seat.ts) and no architect may start another

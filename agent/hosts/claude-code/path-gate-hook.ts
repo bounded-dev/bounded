@@ -27,10 +27,10 @@
 //
 // `--role scout` binds the read-only scout (lead-hook.ts). Project-local, with
 // no --role, the main session is the read-only team lead; the role file
-// cannot silently promote it. In a ticket worktree (ADR 2026-066) the
-// top-level session is the architect only when `bounded lead start` launched
-// it with the seat in its environment (launchedSeat below); any other
-// top-level session there is read-only. Outside an initialized project,
+// cannot silently promote it. In a ticket worktree (ADR 2026-066) a
+// subagent's call is a ticket seat: this project-wide hook judges it as the
+// role its generated definition proves (and that definition's own hook stands
+// down), while a session opened directly there is read-only. Outside an initialized project,
 // `.bounded/dev-stage-role` remains the legacy ambient fallback; no role
 // there means the gate is inactive. The seat itself is decided by the shared
 // resolveSessionRole (src/session-role.ts), which pi uses too.
@@ -357,7 +357,7 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
         // WebFetch, Skill, ...) is refused outright: an empty verdict on an
         // unjudged call is not a permission.
         if (inTicketSeat(flags, payload, projectDir) && !gateJudges(payload, cwd)) {
-          const reason = `path-gate: '${payload.toolName}' is not a tool the gate judges, so a launched ${seat.role} session may not use it`;
+          const reason = `path-gate: '${payload.toolName}' is not a tool the gate judges, so a ${seat.role} in a ticket seat may not use it`;
           logGuardEvent(cwd, { guard: "path-gate", verdict: "block", summary: reason, detail: { host: "claude-code", role: seat.role, tool: payload.toolName } });
           return { stdout: deny(reason), stderr: "" };
         }

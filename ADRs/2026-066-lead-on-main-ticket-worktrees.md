@@ -113,6 +113,19 @@ routes to the user. Any lead command refuses in the same way.
   definition's `tools:` list is the strip.
 - **Locks are taken over atomically.** A stale lock is claimed by rename, and
   an owner whose liveness cannot be told is never stale.
+- **Seats survive their sessions, and claims expire.** A seat whose session
+  ended without a recorded stop (lost) is continued by its prepared reply.
+  Pending replies are kept per ticket. A launch claim records its claimant
+  and time; one whose claimant has gone, or older than 15 minutes, can be
+  claimed again, and `start` on the waiting ticket releases it.
+- **No gate runs on a changing tree.** A worker resumed in the background is
+  recorded until SubagentStop records its stop; meanwhile no gate (and so no
+  freeze or delivery) runs in its ticket worktree.
+- **One judge per seat call.** In a ticket seat the project-wide hook judges
+  every call as the role its generated definition proves, and the
+  definition's own hook stands down, so no permission rule stands in for the
+  gate. A routed call whose worktree hook crashes is refused. WorktreeRemove
+  never removes a ticket's worktree; only `merge` does.
 - **A failing board update cannot block the board.** After three failures
   with the tracker answering it is quarantined; `bounded lead board
   <retry|discard>` deals with it, and pending updates are claimed by rename.
@@ -125,15 +138,21 @@ user's own subscription and the user can watch them. The risky part was
 proved first, live, with restricted runs (Claude Code 2.1.287 and 2.1.288,
 pi 0.87.1, pi-subagents 0.52.1):
 
-- **Claude Code.** Two background architect subagents with worktree isolation
-  ran at once through this checkout's real hook (`test/claude-seat-live.test.ts`,
-  opt-in). WorktreeCreate bound each to its ticket's existing worktree; each
-  call carried that worktree as its `cwd` and was judged there (its guard log,
-  not the main worktree's); a write outside was refused; SubagentStop recorded
-  each end; SendMessage resumed a stopped one in its worktree. The subagent's
-  own definition hooks load only in a trusted project, and a worktree is
-  trusted with its repository; in an untrusted folder every call that needs
-  permission is refused.
+- **Claude Code** (`test/claude-seat-live.test.ts`, opt-in; it needs a
+  trusted repository, since Claude Code loads project subagent definitions
+  and their permission mode only there, and a worktree is trusted with its
+  repository). In a scratch project with a copied harness and the installer's
+  own settings, the lead launched two background architects. WorktreeCreate
+  bound each to its ticket's existing worktree; the real bootstrap entry
+  routed each call to that worktree's harness, which judged it there (host
+  records in the worktree's guard log, none in the main worktree's); a write
+  outside was refused; both were seen running while they worked, and the
+  second started before the first ended; SubagentStop recorded each end; the
+  worktree whose architect wrote nothing was kept. A second run pins that,
+  with background tasks on, a worker continued with SendMessage resumes in
+  the background ("Resuming agent ...") rather than answering inline. A
+  separate probe showed the lead's SendMessage resuming a stopped background
+  subagent in its worktree.
 - **pi.** From a headless lead, two async architect children with ticket
   directories as `cwd` started together, each discovered its directory's own
   architect definition and loader (resolved from the definition's directory),

@@ -31,7 +31,7 @@ export interface GateCall {
 
 /**
  * The tools Claude Code gives a subagent whatever the build and however the
- * session was launched. A generated definition may name only these
+ * session was started. A generated definition may name only these
  * (render-agents.test.ts): a `tools:` entry the host does not provide is a
  * capability the brief promises and the role does not have.
  *
@@ -39,7 +39,7 @@ export interface GateCall {
  * their own `find` and `grep` and remove the Glob and Grep tools from the
  * session, telling the model "Glob is not available in this session — find
  * files with `find` via the Bash tool instead". A session gets them back only
- * when it is launched naming them in `--tools` or `--allowedTools`; a
+ * when it is started naming them in `--tools` or `--allowedTools`; a
  * subagent's `tools:` line does not opt in. The 2026-10-01 dogfood architect
  * listed Glob and was refused it twice. SendMessage continues a finished
  * subagent (continuation.ts), verified with background tasks and agent teams

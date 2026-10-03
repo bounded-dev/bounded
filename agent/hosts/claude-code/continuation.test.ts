@@ -63,8 +63,8 @@ function hook(dir: string, event: string, tool: string, input: unknown, extra: R
   }
 }
 
-/** What the launch wrapper records when an architect turn in this worktree
- *  ends (src/architect-launch.ts); `agentId` stands for an end that names
+/** What the seat's SubagentStop hook records when an architect turn in this
+ *  worktree ends (src/architect-seat.ts); `agentId` stands for an end that names
  *  the architect it was. */
 function architectEnded(dir: string, agentId?: string): void {
   logGuardEvent(dir, {
@@ -215,7 +215,7 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, first).decision).toBe("deny");
     // A different id alone is not evidence: the first architect may still run.
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("deny");
-    // The launch wrapper records that the first architect ended.
+    // The seat's SubagentStop hook records that the first architect ended.
     architectEnded(dir, "a0000000000000aaa");
     expect(hook(dir, "PreToolUse", "Agent", { subagent_type: "builder", prompt: "x" }, next).decision).toBe("allow");
     // And the successor's own launch is again unresolved to itself.
