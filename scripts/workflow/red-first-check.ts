@@ -4,7 +4,7 @@
 //
 // The development lifecycle (docs/harness-workflow.md, ADR 2026-068) has the
 // builder commit failing tests alone, then implement. Given that red commit
-// and the branch it sits on (default HEAD), this checks three things:
+// and the branch it sits on (default HEAD), this checks four things:
 //
 //   1. scope      the red commit adds or modifies only test files (*.test.ts,
 //                 *.test.tsx) and test fixtures (anything under a testdata/,
@@ -21,13 +21,27 @@
 //                 cases it added or changed) is deleted, skipped, emptied, or
 //                 left with fewer assertions. A file renamed after the red
 //                 commit is followed through git's rename detection.
+//   4. head       the same test command, run at the branch head in a
+//                 temporary worktree on those files (at their head paths),
+//                 collects every red case, runs it, sees it pass, and sees it
+//                 make at least one assertion. The run uses the package's own
+//                 vitest configuration plus a setup file that records each
+//                 case's assertion count (vitest's expect.getState()). So a
+//                 file renamed out of the runner's reach or excluded in its
+//                 configuration, ctx.skip(), an early return or assertions
+//                 behind a false condition all fail. Titles written with
+//                 each-placeholders (%s, $name) or as templates or expressions
+//                 match any reported title in that position.
 //
 // Exit status: 0 all checks pass, 1 a check failed, 2 usage or environment
 // error (no such commit, red commit not on the branch, test run produced no
 // report).
 //
-// How test cases are compared, and the limits of that comparison. Files are
-// parsed with the TypeScript compiler; nothing is executed. A case is a call
+// How test cases are compared (check 3), and the limits of that comparison.
+// Files are parsed with the TypeScript compiler; nothing is executed. It
+// COUNTS assertions and never reads them: expect(1).toBe(1) counts the same
+// as the assertion it replaced, and the head run (check 4) only shows that
+// some assertion ran. Whoever reviews must read every "changed" note. A case is a call
 // to test(...) or it(...), with any modifier chain (test.skip, it.each(...),
 // test.skipIf(c)), identified by its file, the titles of the describe/suite
 // blocks around it and its own title, as written in the source (a template
@@ -42,12 +56,14 @@
 //     count: assertions inside helper functions it calls are invisible, so
 //     moving assertions into a helper reads as removing them.
 //   · Not detected: a changed matcher or expected value (toBe(3) becoming
-//     toBeDefined()), a case moved to another file or retitled (reported as
-//     deleted), cases generated in loops or from helper-defined suites, and
-//     test files the TypeScript parser cannot attribute. Cases whose text
+//     toBeDefined()), a replaced or tautological assertion, an assertion
+//     skipped on one path while another still runs, a case moved to another
+//     file or retitled (reported as deleted), cases generated in loops or
+//     from helper-defined suites. Concurrent tests share vitest's assertion
+//     counter, so their counts in check 4 are approximate. Cases whose text
 //     changed in any way are listed as notes for the reviewer to read.
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 // Repository scripts have no package of their own: the compiler comes from the
@@ -110,7 +126,10 @@ function calleeChain(callee: ts.Expression): { root: string; modifiers: string[]
 function titleOf(node: ts.Expression | undefined, file: ts.SourceFile): string {
   if (node === undefined) return "";
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  return node.getText(file);
+  if (ts.isTemplateExpression(node)) return node.getText(file);
+  // Any other expression (a constant, a call) is written as a template of it,
+  // so the head run matches it to whatever title it produced.
+  return `\`\${${node.getText(file)}}\``;
 }
 
 function callbackOf(call: ts.CallExpression): ts.ArrowFunction | ts.FunctionExpression | undefined {
@@ -276,32 +295,123 @@ interface VitestReport {
   testResults?: { name: string; status: string; message?: string; assertionResults?: { ancestorTitles: string[]; title: string; status: string }[] }[];
 }
 
-function runAtRed(repo: string, red: string, pkg: string, files: readonly string[], print: (line: string) => void): { failures: string[]; notes: string[] } {
+type FileResult = NonNullable<VitestReport["testResults"]>[number];
+/** One case's run-time record from the counting setup file: its titles and how many assertions it made. */
+interface Counted { readonly file: string; readonly titles: readonly string[]; readonly assertions: number }
+
+const CONFIG_NAMES = ["vitest.config.ts", "vitest.config.mts", "vitest.config.js", "vitest.config.mjs"];
+
+// Loaded by the head run's configuration: after each case, records its titles
+// and the assertions it made (vitest's own per-test count, which expect.assertions uses).
+const COUNTING_SETUP = `import { afterEach, expect } from "vitest";
+import { appendFileSync } from "node:fs";
+afterEach((context) => {
+  const titles = [];
+  for (let task = context.task; task !== undefined && task !== context.task.file; task = task.suite) titles.unshift(task.name);
+  appendFileSync(process.env.RED_FIRST_COUNTS, JSON.stringify({ file: context.task.file.filepath, titles, assertions: expect.getState().assertionCalls }) + "\\n");
+});
+`;
+
+/**
+ * Run the package's test command at a commit, in a temporary worktree, scoped
+ * to the given repository-relative files. With counting, the run's
+ * configuration is the package's own plus a setup file that records each
+ * case's assertions. Returns the run's results by repository-relative path.
+ */
+function runTests(repo: string, commit: string, pkg: string, files: readonly string[], counting: boolean):
+  { results: Map<string, FileResult>; counts: Counted[] } {
   const installed = join(repo, pkg, "node_modules");
   if (!existsSync(installed)) throw new UsageError(`${relative(repo, installed)} is missing: run npm ci in ${pkg}/ first`);
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), "red-first-check-")));
   const tree = join(scratch, "tree");
   const report = join(scratch, "report.json");
-  git(repo, "worktree", "add", "--detach", "--quiet", tree, red);
+  const countsFile = join(scratch, "counts.jsonl");
+  git(repo, "worktree", "add", "--detach", "--quiet", tree, commit);
   try {
+    const packageDir = join(tree, pkg);
     // A red commit that tracks node_modules itself fails the scope check; the
     // run still uses what the commit provides rather than failing to link.
-    const linked = join(tree, pkg, "node_modules");
+    const linked = join(packageDir, "node_modules");
     if (lstatSync(linked, { throwIfNoEntry: false }) === undefined) symlinkSync(realpathSync(installed), linked, "dir");
+    const extra: string[] = ["--passWithNoTests"];
+    if (counting) {
+      writeFileSync(join(packageDir, "red-first-check.setup.mjs"), COUNTING_SETUP);
+      const own = CONFIG_NAMES.find((name) => existsSync(join(packageDir, name)));
+      const config = join(packageDir, "red-first-check.vitest.config.mjs");
+      writeFileSync(config, own === undefined
+        ? 'export default { test: { setupFiles: ["./red-first-check.setup.mjs"] } };\n'
+        : `import { mergeConfig } from "vitest/config";\nimport own from "./${own}";\n` +
+          'export default mergeConfig(own, { test: { setupFiles: ["./red-first-check.setup.mjs"] } });\n');
+      extra.push(`--config=${config}`);
+    }
     const scoped = files.map((f) => relative(pkg, f));
-    print(`red: running npm test at ${red.slice(0, 12)} on ${scoped.length} file(s)`);
-    const run = spawnSync("npm", ["test", "--silent", "--", "--reporter=json", `--outputFile=${report}`, ...scoped], {
-      cwd: join(tree, pkg), encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, CI: "1" },
+    const run = spawnSync("npm", ["test", "--silent", "--", "--reporter=json", `--outputFile=${report}`, ...extra, ...scoped], {
+      cwd: packageDir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, CI: "1", RED_FIRST_COUNTS: countsFile },
     });
     if (!existsSync(report)) {
       throw new UsageError(`the test command wrote no report (exit ${run.status}):\n${(run.stderr || run.stdout).trim().slice(-2000)}`);
     }
-    const results = (JSON.parse(readFileSync(report, "utf8")) as VitestReport).testResults ?? [];
+    const results = new Map<string, FileResult>();
+    for (const result of (JSON.parse(readFileSync(report, "utf8")) as VitestReport).testResults ?? []) {
+      results.set(relative(tree, resolve(result.name)), result);
+    }
+    const counts = !existsSync(countsFile) ? [] : readFileSync(countsFile, "utf8").split("\n").filter((l) => l !== "")
+      .map((line) => JSON.parse(line) as Counted).map((c) => ({ ...c, file: relative(tree, resolve(c.file)) }));
+    return { results, counts };
+  } finally {
+    spawnSync("git", ["worktree", "remove", "--force", tree], { cwd: repo });
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/** A title as written becomes a pattern for the titles the runner reports (each/template placeholders match anything). */
+function titlePattern(title: string): RegExp {
+  const source = title.startsWith("`") && title.endsWith("`") && title.length >= 2 ? title.slice(1, -1) : title;
+  const parts = source.split(/(%[sdifjoOc#]|\$\{[^}]*\}|\$[\w.]+)/);
+  return new RegExp(`^${parts.map((part, i) => (i % 2 === 1 ? ".*" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))).join("")}$`, "s");
+}
+
+function matchesTitles(patterns: readonly RegExp[], titles: readonly string[]): boolean {
+  return patterns.length === titles.length && patterns.every((p, i) => p.test(titles[i] ?? ""));
+}
+
+/** At the head, every red case must be collected, executed, passing, and must make at least one assertion. */
+function checkAtHead(repo: string, head: string, pkg: string, owned: ReadonlyMap<string, { cases: TestCase[] }>, print: (line: string) => void): string[] {
+  const files = [...owned.keys()];
+  if (files.length === 0) return [];
+  print(`head: running npm test at ${head.slice(0, 12)} on ${files.length} file(s)`);
+  const { results, counts } = runTests(repo, head, pkg, files, true);
+  const failures: string[] = [];
+  for (const [file, { cases }] of owned) {
+    const result = results.get(file);
+    if (result === undefined) {
+      failures.push(`${file}: the test command does not collect it at the head, so none of its ${cases.length} red case(s) runs`);
+      continue;
+    }
+    const reported = result.assertionResults ?? [];
+    for (const c of cases) {
+      const patterns = c.titles.map(titlePattern);
+      const runs = reported.filter((r) => matchesTitles(patterns, [...r.ancestorTitles, r.title]));
+      if (runs.length === 0) { failures.push(`${file}: "${c.id}" was not run at the head`); continue; }
+      const statuses = [...new Set(runs.map((r) => r.status).filter((s) => s !== "passed"))];
+      if (statuses.length > 0) { failures.push(`${file}: "${c.id}" ${statuses.join(", ")} at the head`); continue; }
+      const made = counts.filter((n) => n.file === file && matchesTitles(patterns, n.titles));
+      if (made.length === 0 || made.some((n) => n.assertions === 0)) {
+        failures.push(`${file}: "${c.id}" passed with no assertions at the head`);
+      }
+    }
+  }
+  return failures;
+}
+
+function runAtRed(repo: string, red: string, pkg: string, files: readonly string[], print: (line: string) => void): { failures: string[]; notes: string[] } {
+  print(`red: running npm test at ${red.slice(0, 12)} on ${files.length} file(s)`);
+  const { results } = runTests(repo, red, pkg, files, false);
+  {
     const failures: string[] = [];
     const notes: string[] = [];
     for (const file of files) {
-      const absolute = join(tree, file);
-      const result = results.find((r) => resolve(r.name) === absolute);
+      const result = results.get(file);
       if (result === undefined) { failures.push(`${file}: the test command did not collect it at the red commit`); continue; }
       const cases = result.assertionResults ?? [];
       const passed = cases.filter((c) => c.status === "passed").length;
@@ -319,9 +429,6 @@ function runAtRed(repo: string, red: string, pkg: string, files: readonly string
       }
     }
     return { failures, notes };
-  } finally {
-    spawnSync("git", ["worktree", "remove", "--force", tree], { cwd: repo });
-    rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -382,10 +489,14 @@ function run(args: readonly string[], print: (line: string) => void): number {
 
   // 3. preserved
   let owned = 0;
+  const atHead = new Map<string, { cases: TestCase[] }>();
   for (const file of testFiles) {
     const cases = redCases(show(repo, `${red}^`, file), show(repo, red, file) ?? "", file);
     owned += cases.length;
     const at = headPathOf(repo, red, head, file);
+    if (at !== undefined && cases.length > 0 && file.startsWith(`${pkg}/`)) {
+      atHead.set(at, { cases: [...(atHead.get(at)?.cases ?? []), ...cases] });
+    }
     const source = at === undefined ? undefined : show(repo, head, at);
     const headCases = source === undefined ? undefined : extractTestCases(source, at);
     for (const w of compareCases(cases, headCases)) failures.push(`preserved: ${file}: "${w.id}" ${w.kind} (${w.detail})`);
@@ -396,6 +507,9 @@ function run(args: readonly string[], print: (line: string) => void): number {
     }
   }
   print(`preserved: ${owned} test case(s) from the red commit compared at ${head.slice(0, 12)}`);
+
+  // 4. head
+  failures.push(...checkAtHead(repo, head, pkg, atHead, print).map((f) => `head: ${f}`));
 
   for (const note of notes) print(`note: ${note}`);
   for (const failure of failures) print(`FAIL ${failure}`);

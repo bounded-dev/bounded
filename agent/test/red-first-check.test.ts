@@ -349,7 +349,7 @@ describe("the check, end to end", () => {
     test("a case that fails at the head fails", () => {
       const { repo } = fixtureRepo();
       const red = commit(repo, "red", { "pkg/test/add.test.ts": RED_TEST });
-      commit(repo, "half green", { "pkg/src/add.ts": STUB.replace("return 0;", "return a === 5 || b === 5 ? 5 : 3;") });
+      commit(repo, "half green", { "pkg/src/add.ts": STUB.replace("return 0;", "return b === 0 ? 0 : a + b;") });
       const result = check(repo, red);
       expect(result.code).toBe(1);
       expect(result.out).toMatch(/head: .*"adds zero".*failed/);
