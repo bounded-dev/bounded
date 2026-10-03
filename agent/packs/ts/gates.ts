@@ -45,10 +45,13 @@ const PATTERN_FLAG: FlagSpec = {
 
 /** The findings flags of the two recording gates. The tool parameter carries
  *  the full item schema — what the model reads — while the CLI takes any JSON
- *  and lets the gate's own validation say what is wrong with it. */
+ *  and lets the gate's own validation say what is wrong with it; its help
+ *  shows one finding, so the shape is in front of whoever types the call. */
 function findingsFlags(schema: {
   readonly description: string;
   readonly evidence: string;
+  readonly exampleSummary: string;
+  readonly exampleEvidence: string;
 }): readonly FlagSpec[] {
   return [
     {
@@ -57,6 +60,7 @@ function findingsFlags(schema: {
       param: "findings",
       required: true,
       description: "The findings as a JSON array. Pass [] to record that you found nothing.",
+      example: JSON.stringify([{ severity: "concern", summary: schema.exampleSummary, evidence: schema.exampleEvidence }]),
       jsonSchema: {
         type: "array",
         items: {
@@ -275,6 +279,8 @@ export const gates: readonly GateCommand[] = [
     flags: findingsFlags({
       description: "What you saw. Pass [] to record that you found nothing.",
       evidence: "Where to look — a path, a symbol, a test name.",
+      exampleSummary: "No test asserts the boundary at exactly 0",
+      exampleEvidence: "contexts/billing/src/domain/amount/amount.ts:12",
     }),
     promptGuidelines: [
       "Call this after green_gate passes and before telling the user the work is done.",
@@ -405,6 +411,8 @@ export const gates: readonly GateCommand[] = [
     flags: findingsFlags({
       description: "What you found. Pass [] to record that you found nothing.",
       evidence: "Where to look — a path, a symbol, an exported operation.",
+      exampleSummary: "Two readers could disagree on whether an empty title is valid",
+      exampleEvidence: "contexts/notes/src/domain/note/note.contract.ts",
     }),
     promptGuidelines: [
       "Call this once, at the end of the review, with everything you found — it is the only output of the role, and you are not re-run to re-check.",

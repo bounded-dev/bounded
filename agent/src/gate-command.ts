@@ -39,6 +39,10 @@ export interface FlagSpec {
    *  with its descriptions. Host-agnostic — a host converts it to whatever
    *  schema type its tool API takes. */
   readonly jsonSchema?: Readonly<Record<string, unknown>>;
+  /** An example value, as the JSON text a person would type: a host's help
+   *  prints it under the flag, so the shape a gate accepts is shown where
+   *  the flag is offered. Data the pack supplies; the core never reads it. */
+  readonly example?: string;
 }
 
 /** Parsed flags, by name. A boolean is `true` when given; a repeatable flag is
@@ -76,7 +80,8 @@ function isFlagSpec(x: unknown): x is FlagSpec {
     (f["param"] === undefined || typeof f["param"] === "string") &&
     (f["cliOnly"] === undefined || f["cliOnly"] === true) &&
     (f["required"] === undefined || f["required"] === true) &&
-    (f["jsonSchema"] === undefined || (typeof f["jsonSchema"] === "object" && f["jsonSchema"] !== null))
+    (f["jsonSchema"] === undefined || (typeof f["jsonSchema"] === "object" && f["jsonSchema"] !== null)) &&
+    (f["example"] === undefined || typeof f["example"] === "string")
   );
 }
 

@@ -47,26 +47,33 @@ export interface Finding {
 
 const SEVERITIES: readonly string[] = ["blocker", "concern", "note"];
 
+/** The shape of one finding, appended to every payload error: an error that
+ *  names only the failing field sends the caller back to guess the rest
+ *  (issue #48: two malformed payloads in a row before one passed). */
+export const FINDING_SHAPE =
+  '— each finding is {"severity": "blocker | concern | note", "summary": "…", "evidence": "…"}';
+
 /** Validate the payload. Pure: no I/O, no logging. A malformed payload is
  *  misuse (exit 2), not a refusal — the architect gets to try again. */
 export function parseFindings(raw: unknown): { ok: true; findings: Finding[] } | { ok: false; error: string } {
+  const fail = (error: string): { ok: false; error: string } => ({ ok: false, error: `${error} ${FINDING_SHAPE}` });
   if (!Array.isArray(raw)) {
-    return { ok: false, error: "findings must be an array — pass [] to record that you found nothing" };
+    return fail("findings must be an array — pass [] to record that you found nothing");
   }
   const findings: Finding[] = [];
   for (const [i, item] of raw.entries()) {
     if (typeof item !== "object" || item === null) {
-      return { ok: false, error: `findings[${i}] must be an object with 'severity' and 'summary'` };
+      return fail(`findings[${i}] must be an object with 'severity' and 'summary'`);
     }
     const { severity, summary, evidence } = item as Record<string, unknown>;
     if (typeof severity !== "string" || !SEVERITIES.includes(severity)) {
-      return { ok: false, error: `findings[${i}].severity must be one of ${SEVERITIES.join(" | ")}` };
+      return fail(`findings[${i}].severity must be one of ${SEVERITIES.join(" | ")}`);
     }
     if (typeof summary !== "string" || summary.trim() === "") {
-      return { ok: false, error: `findings[${i}].summary must be a non-empty line saying what is wrong` };
+      return fail(`findings[${i}].summary must be a non-empty line saying what is wrong`);
     }
     if (evidence !== undefined && typeof evidence !== "string") {
-      return { ok: false, error: `findings[${i}].evidence must be a string (a path, a symbol, a test name)` };
+      return fail(`findings[${i}].evidence must be a string (a path, a symbol, a test name)`);
     }
     findings.push(
       evidence === undefined
