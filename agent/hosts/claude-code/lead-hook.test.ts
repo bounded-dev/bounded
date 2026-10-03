@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
+import { backgroundWorkers } from "../../src/lead-state.ts";
 import type { TempProject } from "../../test/support/temp-project.ts";
 import { LOG, logLines, makeLeadProject, prepared } from "../../test/support/lead-project.ts";
 import { runHook } from "./path-gate-hook.ts";
@@ -261,6 +262,17 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
     for (const role of ["reviewer", "test-writer", "builder"]) {
       expect(verdict(at(wt, tool, input, LEAD, role)), role).toBe("allow");
     }
+  });
+
+  // Final review M3: a background resume is recorded, and its stop releases the gates.
+  test("an architect's continued worker that resumes in the background is recorded until SubagentStop", () => {
+    const { wt } = ticketed();
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: "a0000000000000002", message: "fix it" },
+      tool_response: { success: true, message: "Resuming agent a0000000000000002", resumedAgentId: "a0000000000000002" } }), wt);
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual(["a0000000000000002"]);
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a0000000000000002", agent_type: "builder" }), wt);
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
   });
 
   test("NotebookEdit is judged as an edit, not waved through", () => {

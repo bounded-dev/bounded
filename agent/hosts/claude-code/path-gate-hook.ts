@@ -64,6 +64,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logGuardEvent, readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
+import { WORKER_RESUMED } from "../../src/lead-state.ts";
 import { isMainModule } from "../../src/is-main-module.ts";
 import {
   asRole,
@@ -433,7 +434,19 @@ function recordCommissionOutcome(
     return;
   }
   if (payload.toolName !== SEND_MESSAGE_TOOL) return;
-  if (payload.event === "PostToolUse" && sendSucceeded(response)) return;
+  if (payload.event === "PostToolUse" && sendSucceeded(response)) {
+    // With background tasks on, Claude Code resumes the worker in the
+    // background and answers "Resuming agent …" (verified live, 2.1.288):
+    // the worker runs on, and no gate may run until its stop is recorded.
+    const resumed = (response as Readonly<Record<string, unknown>>)["resumedAgentId"];
+    if (typeof resumed === "string") {
+      logGuardEvent(cwd, {
+        guard: "phase-gate", verdict: "pass", summary: `worker ${resumed} resumed in the background`,
+        detail: { kind: WORKER_RESUMED, role, worker: resumed },
+      });
+    }
+    return;
+  }
   const target = sendTarget(payload.toolInput);
   if (!target.ok) return;
   const events = readGuardLog(cwd);

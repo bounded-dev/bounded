@@ -19,7 +19,8 @@ import { systemProcesses } from "./process-lock.ts";
 import { join } from "node:path";
 import type { GateMilestone } from "./gate-command.ts";
 import type { GateResult } from "./gate-result.ts";
-import { logGuardEvent } from "./guard-log.ts";
+import { logGuardEvent, readGuardLog } from "./guard-log.ts";
+import { backgroundWorkers } from "./lead-state.ts";
 import { readTicketMarker } from "./ticket-worktree.ts";
 import { clearDeliverySnapshot, recordDeliverySnapshot } from "./delivery-snapshot.ts";
 import {
@@ -282,6 +283,17 @@ export async function runGateWithBoard(
 ): Promise<GateResult> {
   const marker = readTicketMarker(cwd);
   if (marker === undefined) return run();
+  // A worker resumed in the background may still be writing: no gate judges
+  // or freezes a tree that is still changing (ADR 2026-066).
+  const busy = backgroundWorkers(readGuardLog(cwd));
+  if (busy.length > 0) {
+    return {
+      code: 2, verdict: "error",
+      summary: `${gate.name} did not run: worker ${busy.join(", ")} is still running in the background`,
+      lines: [`${gate.name}: worker ${busy.join(", ")} is still running in the background; wait for it to stop, then run ${gate.name} again`, `${gate.name}: route → architect`],
+      detail: { route: "architect", workers: busy },
+    };
+  }
   let tracker: Tracker;
   try {
     tracker = open(cwd);

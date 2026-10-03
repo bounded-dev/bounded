@@ -1,127 +1,200 @@
-// Opt-in, live: two ticket architects as the lead's background Claude Code
-// subagents (ADR 2026-066), through this checkout's real hook. Skipped unless
-// BOUNDED_CLAUDE_LIVE=1 (it costs a few short model calls).
+// Opt-in, live: ticket architects as the lead's background Claude Code
+// subagents (ADR 2026-066), through this checkout's real hook entry. Skipped
+// unless BOUNDED_CLAUDE_LIVE=1 and BOUNDED_LIVE_REPO is set (it costs a few
+// short model calls).
 //
-// A scratch main worktree holds two marked ticket worktrees and the project
-// hook on every seat event. The lead launches two architects in the
-// background. Each launch is bound by WorktreeCreate to its ticket's existing
-// worktree, each architect's calls are judged against its own worktree, its
-// write outside is refused, both run at once, and SubagentStop records each
-// end. (The second ticket's pending launch is written by a test-only hook
-// after the first launch, standing in for the lead's `bounded lead start`.)
-//
-// Claude Code loads a subagent definition's own hooks only in a trusted
-// project, and trust follows a worktree's repository. So the scratch main
-// worktree is made a worktree of BOUNDED_LIVE_REPO, a repository the user has
-// trusted (this harness checkout, say); in an untrusted folder the
-// architect's calls are simply all refused, which proves nothing either way.
+// Claude Code loads a project's subagent definitions and their permission
+// mode only in a trusted project, and trust follows a worktree's repository.
+// So each scratch project is made a worktree of BOUNDED_LIVE_REPO, a
+// repository the user has trusted (this harness checkout, say).
 //
 //   BOUNDED_CLAUDE_LIVE=1 BOUNDED_LIVE_REPO=<trusted repo> npx vitest run test/claude-seat-live.test.ts
+//
+// 1. The seat. A scratch main worktree with a copied harness, the installer's
+//    own settings, and two marked ticket worktrees, each with its own harness
+//    copy. The lead launches two architects in the background. Each launch is
+//    bound by WorktreeCreate to its ticket's existing worktree; each call is
+//    routed by the real bootstrap entry to that worktree's harness and judged
+//    there; a write outside is refused; both run at once and are seen running
+//    while they work; SubagentStop records each end; the ticket whose
+//    architect wrote nothing keeps its worktree. (The second ticket's pending
+//    launch is written by a test-only hook after the lead's next call, standing
+//    in for the lead's `bounded lead start`.)
+// 2. A worker's continuation. With background tasks on, an architect
+//    commissions a reviewer in the foreground and continues it with
+//    SendMessage. Claude Code 2.1.288 resumes the worker in the BACKGROUND:
+//    the SendMessage result is "Resuming agent ..." with its id, not the
+//    reply. That is why the hook records such a resume and no gate runs in a
+//    ticket worktree until the worker's stop is recorded (board-sync.ts).
+//    This test pins the host behaviour the safeguard depends on.
 
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { readArchitectState, writePendingLaunch } from "../src/architect-seat.ts";
+import { architectStatus, readArchitectState, writePendingLaunch } from "../src/architect-seat.ts";
 import { readGuardLog } from "../src/guard-log.ts";
+import { mergeAmbientHook } from "../hosts/claude-code/install.ts";
 
 const AGENT_ROOT = join(import.meta.dirname, "..");
-const HOOK = `node ${join(AGENT_ROOT, "hosts", "claude-code", "path-gate-hook.ts")} --project-local --harness-root ${AGENT_ROOT}`;
+const REPO = process.env["BOUNDED_LIVE_REPO"];
+const LIVE = process.env["BOUNDED_CLAUDE_LIVE"] === "1" && REPO !== undefined;
+const ENTRY = 'node "${CLAUDE_PROJECT_DIR}/.bounded/harness/hosts/claude-code/bootstrap-hook.ts" --project-local';
 
 const write = (path: string, text: string): void => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
 };
 
-const brief = (n: number, main: string): string =>
-  `Ticket #${n}. Do exactly these, once each, without retrying, then report each result verbatim: ` +
-  `1) Use Write with file_path ${join(main, ".bounded/worktrees", String(n), "docs/tn", `TN-${n}.md`)} containing "ticket ${n}". ` +
-  `2) Use Write to create the file ${join(main, `outside-${n}.txt`)} containing "x". ` +
-  "3) Run the Bash command: sleep 20";
-
-function architectDefinition(): string {
-  return ["---", "name: architect", "description: Ticket architect (live test).", "tools: Read, Write, Bash",
-    "permissionMode: dontAsk", "hooks:", "  PreToolUse:", '    - matcher: ""', "      hooks:", "        - type: command",
-    `          command: ${JSON.stringify(`${HOOK} --role architect`)}`, "---", "", "Do exactly what you are asked.", ""].join("\n");
+/** A project-local installation, as init and setup leave it: the harness
+ *  copy (with its dependencies) and the marks that say setup is done. */
+function installHarness(dir: string): void {
+  const harness = join(dir, ".bounded", "harness");
+  const skip = (path: string): boolean => /(^|\/)(node_modules|testdata|reference)(\/|$)/.test(path) || /\.test\.tsx?$/.test(path);
+  for (const tree of ["src", "trackers", join("hosts", "claude-code"), join("packs", "ts")]) {
+    cpSync(join(AGENT_ROOT, tree), join(harness, tree), { recursive: true, filter: (source) => !skip(source.slice(AGENT_ROOT.length)) });
+  }
+  symlinkSync(join(AGENT_ROOT, "node_modules"), join(harness, "node_modules"));
+  write(join(dir, ".bounded/installation.json"), '{"host":"claude-code"}\n');
+  write(join(dir, ".bounded/composed-packs.json"), '["ts"]\n');
+  write(join(dir, ".bounded/setup-complete"), "complete\n");
+  mkdirSync(join(dir, "node_modules/.bun"), { recursive: true });
 }
 
-const REPO = process.env["BOUNDED_LIVE_REPO"];
+function definition(role: string, tools: string, body: string): string {
+  return ["---", `name: ${role}`, `description: ${role} (live test).`, `tools: ${tools}`, "permissionMode: dontAsk", "hooks:",
+    "  PreToolUse:", '    - matcher: ""', "      hooks:", "        - type: command", `          command: ${JSON.stringify(`${ENTRY} --role ${role}`)}`,
+    "---", "", body, ""].join("\n");
+}
 
-describe.skipIf(process.env["BOUNDED_CLAUDE_LIVE"] !== "1" || REPO === undefined)("two architects as background subagents, live", () => {
-  test("bound to their worktrees, judged there, refused outside, running at once, ended by SubagentStop", () => {
-    const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-seat-live-")));
-    const main = join(scratch, "main");
-    const tag = scratch.split("-").at(-1)!;
-    const branches: string[] = [];
+/** A scratch worktree of the trusted repository, and how to remove it. */
+function scratchProject(): { main: string; cleanup: (extra: readonly string[]) => void; branch: (n: number) => string } {
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-seat-live-")));
+  const main = join(scratch, "main");
+  const tag = scratch.split("-").at(-1)!;
+  const branches: string[] = [];
+  execFileSync("git", ["-C", REPO!, "worktree", "add", "-q", "--detach", main, "HEAD"]);
+  return {
+    main,
+    branch: (n) => { branches.push(`seat-live-${tag}-${n}`); return branches.at(-1)!; },
+    cleanup: (worktrees) => {
+      if (process.env["BOUNDED_LIVE_KEEP"] !== undefined) return;
+      for (const wt of worktrees) spawnSync("git", ["-C", REPO!, "worktree", "remove", "--force", wt]);
+      spawnSync("git", ["-C", REPO!, "worktree", "remove", "--force", main]);
+      for (const b of branches) spawnSync("git", ["-C", REPO!, "branch", "-D", b]);
+      rmSync(scratch, { recursive: true, force: true });
+    },
+  };
+}
+
+function claudeEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const name of ["CLAUDE_PROJECT_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "BOUNDED_GUARD_LOG", "VITEST"]) delete env[name];
+  return env;
+}
+
+describe.skipIf(!LIVE)("ticket architects as background subagents, live", () => {
+  test("bound, routed by the real entry, judged in their worktrees, refused outside, running at once, ended, worktrees kept", async () => {
+    const { main, cleanup, branch } = scratchProject();
+    const worktrees = new Map<number, string>();
     try {
-      execFileSync("git", ["-C", REPO!, "worktree", "add", "-q", "--detach", main, "HEAD"]);
-      const installation = (dir: string): void => {
-        write(join(dir, ".bounded/installation.json"), "{}\n");
-        write(join(dir, ".bounded/harness/.keep"), "");
-        write(join(dir, ".bounded/composed-packs.json"), '["ts"]\n');
-        write(join(dir, ".claude/agents/architect.md"), architectDefinition());
-      };
-      installation(main);
-      const worktrees = new Map<number, string>();
+      installHarness(main);
+      write(join(main, ".claude/agents/architect.md"), definition("architect", "Read, Write, Bash", "Do exactly what you are asked."));
       for (const n of [7, 8]) {
         const wt = join(main, ".bounded/worktrees", String(n));
-        branches.push(`seat-live-${tag}-${n}`);
-        execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", branches.at(-1)!, wt, "HEAD"]);
-        installation(wt);
+        execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", branch(n), wt, "HEAD"]);
+        installHarness(wt);
+        write(join(wt, ".claude/agents/architect.md"), definition("architect", "Read, Write, Bash", "Do exactly what you are asked."));
         write(join(wt, ".bounded/ticket-worktree.json"), JSON.stringify({ issue: n, branch: `ticket/${n}`, main, owns: [] }));
-        write(join(wt, "docs/tn/README.md"), "# TNs\n");
         write(join(wt, ".bounded/active-ticket"), `${n}\n`);
-        write(join(wt, ".bounded/guard-log.jsonl"), JSON.stringify({ ts: "t", guard: "team-lead", verdict: "pass", summary: "prepared", detail: { kind: "run-prepared", ticket: String(n), boundary: "first" } }) + "\n");
         worktrees.set(n, wt);
       }
-      writePendingLaunch(main, { issue: 7, worktree: worktrees.get(7)!, brief: brief(7, main), createdAt: "t" });
+      const wt7 = worktrees.get(7)!;
+      const wt8 = worktrees.get(8)!;
+      const brief = (n: number, steps: string) => `Ticket #${n}. Do exactly these, once each, without retrying, then report each result verbatim: ${steps}`;
+      const outside = (n: number) => `Use Write with file_path ${join(main, `outside-${n}.txt`)} containing "x".`;
+      writePendingLaunch(main, {
+        issue: 7, worktree: wt7, createdAt: "t",
+        brief: brief(7, `1) Use Write with file_path ${join(wt7, "docs/tn/TN-7.md")} containing "ticket 7". 2) ${outside(7)} 3) Use Read on README.md, then on AGENTS.md, then on LICENSE.`),
+      });
+      // Ticket 8's architect writes nothing at all: its worktree must survive.
       write(join(main, "next-pending.mjs"), [
         'import { existsSync, writeFileSync } from "node:fs";',
         `const path = ${JSON.stringify(join(main, ".bounded/lead/pending-launch.json"))};`,
-        `if (!existsSync(path) && !existsSync(${JSON.stringify(join(worktrees.get(8)!, ".bounded/architect/state.json"))})) {`,
-        `  writeFileSync(path, ${JSON.stringify(JSON.stringify({ issue: 8, worktree: worktrees.get(8)!, brief: brief(8, main), createdAt: "t" }))});`,
+        `if (!existsSync(path) && !existsSync(${JSON.stringify(join(wt8, ".bounded/architect/state.json"))})) {`,
+        `  writeFileSync(path, ${JSON.stringify(JSON.stringify({ issue: 8, worktree: wt8, createdAt: "t", brief: brief(8, `1) ${outside(8)} 2) Use Read on README.md, then on AGENTS.md, then on LICENSE.`) }))});`,
         "}",
       ].join("\n"));
-      const entry = (command: string, matcher = "") => [{ matcher, hooks: [{ type: "command", command }] }];
-      write(join(main, ".claude/settings.json"), JSON.stringify({
-        env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
-        hooks: {
-          PreToolUse: entry(HOOK),
-          PostToolUse: [...entry(HOOK, "Agent|Task|SendMessage"), ...entry(`node ${join(main, "next-pending.mjs")}`, "Agent")],
-          PostToolUseFailure: entry(HOOK, "Agent|Task|SendMessage"),
-          WorktreeCreate: entry(HOOK),
-          SubagentStop: entry(HOOK),
-        },
-      }, null, 2));
-      const env: Record<string, string | undefined> = { ...process.env };
-      for (const name of ["CLAUDE_PROJECT_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "BOUNDED_GUARD_LOG"]) delete env[name];
-      const run = spawnSync("claude", [
-        "-p", "--model", "haiku", "--max-budget-usd", "3", "--setting-sources", "project", "--output-format", "text", "--",
-        "Call the Agent tool with subagent_type architect, isolation worktree and run_in_background true, prompt 'go'. " +
-        "Then call the Agent tool again exactly the same way. Then wait until both have finished and report both results verbatim. Do not retry anything.",
-      ], { cwd: main, env, encoding: "utf8", timeout: 420_000, stdio: ["ignore", "pipe", "pipe"] });
+      const merged = mergeAmbientHook({}, ENTRY);
+      if (!merged.ok) throw new Error(merged.reason);
+      const hooks = { ...(merged.value["hooks"] as Record<string, unknown[]>) };
+      hooks["PostToolUse"] = [...hooks["PostToolUse"]!, { matcher: "Read", hooks: [{ type: "command", command: `node ${join(main, "next-pending.mjs")}` }] }];
+      write(join(main, ".claude/settings.json"), JSON.stringify({ ...merged.value, hooks }, null, 2));
 
-      if (process.env["BOUNDED_LIVE_KEEP"] !== undefined) writeFileSync(process.env["BOUNDED_LIVE_KEEP"], `${main}\n${run.stdout}\n${run.stderr}`);
+      const seenRunning = new Set<number>();
+      const lead = spawn("claude", [
+        "-p", "--model", "haiku", "--max-budget-usd", "3", "--setting-sources", "project", "--output-format", "text", "--",
+        "Make exactly one tool call per message, in this order. 1) Call the Agent tool with subagent_type architect, isolation worktree " +
+        "and run_in_background true, prompt 'go'. 2) Read the file README.md. 3) Call the Agent tool again exactly as in step 1. " +
+        "Then wait until both architects have finished and report both results verbatim. Do not retry anything.",
+      ], { cwd: main, env: claudeEnv(), stdio: ["ignore", "pipe", "pipe"] });
+      let output = "";
+      lead.stdout.on("data", (chunk) => { output += String(chunk); });
+      const poll = setInterval(() => {
+        for (const [n, wt] of worktrees) if (architectStatus(wt).kind === "running") seenRunning.add(n);
+      }, 1000);
+      await new Promise<void>((done) => { lead.on("exit", () => done()); setTimeout(() => { lead.kill(); done(); }, 420_000); });
+      clearInterval(poll);
+      if (process.env["BOUNDED_LIVE_KEEP"] !== undefined) writeFileSync(process.env["BOUNDED_LIVE_KEEP"], `${main}\n${output}`);
+
       const seats = [7, 8].map((n) => ({ n, wt: worktrees.get(n)!, state: readArchitectState(worktrees.get(n)!) }));
       for (const { n, wt, state } of seats) {
         expect(state, `#${n} was bound`).toMatchObject({ state: "ended", turn: 1 });
-        expect(readFileSync(join(wt, `docs/tn/TN-${n}.md`), "utf8")).toContain(`ticket ${n}`);
-        // Refused outside: by the gate, judged against this worktree, or before it by Claude Code's own isolation.
+        expect(seenRunning.has(n), `#${n} was seen running while it worked`).toBe(true);
         expect(existsSync(join(main, `outside-${n}.txt`))).toBe(false);
-        expect(readGuardLog(wt).some((e) => e.guard === "host"), `#${n}'s calls were judged in its worktree`).toBe(true);
+        // Routed by the real entry: its calls were judged in its own worktree.
+        expect(readGuardLog(wt).some((e) => e.guard === "host"), `#${n} judged in its worktree`).toBe(true);
+        expect(existsSync(wt), `#${n}'s worktree was kept`).toBe(true);
       }
+      expect(readFileSync(join(wt7, "docs/tn/TN-7.md"), "utf8")).toContain("ticket 7");
       expect(readGuardLog(main).some((e) => e.guard === "host")).toBe(false);
       expect(seats[0]!.state!.agent).not.toBe(seats[1]!.state!.agent);
-      // Both ran at once: the second started before the first ended.
       expect(Date.parse(seats[1]!.state!.startedAt)).toBeLessThan(Date.parse(seats[0]!.state!.endedAt!));
     } finally {
-      if (process.env["BOUNDED_LIVE_KEEP"] === undefined) {
-        for (const n of [7, 8]) spawnSync("git", ["-C", REPO!, "worktree", "remove", "--force", join(main, ".bounded/worktrees", String(n))]);
-        spawnSync("git", ["-C", REPO!, "worktree", "remove", "--force", main]);
-        for (const branch of branches) spawnSync("git", ["-C", REPO!, "branch", "-D", branch]);
-        rmSync(scratch, { recursive: true, force: true });
-      }
+      cleanup([...worktrees.values()]);
     }
   }, 480_000);
+
+  test("with background tasks on, a worker continued with SendMessage resumes in the background", () => {
+    const { main, cleanup } = scratchProject();
+    try {
+      const plain = (role: string, tools: string, body: string) => ["---", `name: ${role}`, `description: ${role} (live test).`, `tools: ${tools}`, "---", "", body, ""].join("\n");
+      write(join(main, ".claude/agents/architect.md"), plain("architect", "Agent, SendMessage", "Do exactly what you are asked."));
+      write(join(main, ".claude/agents/reviewer.md"), plain("reviewer", "Read", "Answer exactly what you are asked, in one word."));
+      write(join(main, "log-send.mjs"), [
+        'import { appendFileSync, readFileSync } from "node:fs";',
+        `appendFileSync(${JSON.stringify(join(main, "send.jsonl"))}, readFileSync(0, "utf8").replace(/\\n/g, " ") + "\\n");`,
+      ].join("\n"));
+      write(join(main, ".claude/settings.json"), JSON.stringify({
+        env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
+        hooks: { PostToolUse: [{ matcher: "SendMessage", hooks: [{ type: "command", command: `node ${join(main, "log-send.mjs")}` }] }] },
+      }));
+      spawnSync("claude", [
+        "-p", "--model", "haiku", "--max-budget-usd", "2", "--setting-sources", "project", "--allowedTools", "Agent", "SendMessage", "--output-format", "text", "--",
+        "Call the Agent tool once with subagent_type architect, run_in_background true and this prompt: " +
+        "'1) Call the Agent tool with subagent_type reviewer, run_in_background false, prompt: Reply with exactly READY. " +
+        "2) Then call SendMessage with to set to that reviewer's agent id and message: say PONG. 3) Report the SendMessage result verbatim.' " +
+        "Wait until it finishes and report its result verbatim.",
+      ], { cwd: main, env: claudeEnv(), encoding: "utf8", timeout: 300_000, stdio: ["ignore", "pipe", "pipe"] });
+      const sends = existsSync(join(main, "send.jsonl")) ? readFileSync(join(main, "send.jsonl"), "utf8").trim().split("\n") : [];
+      expect(sends.length, "the architect continued its reviewer").toBeGreaterThan(0);
+      const responses = sends.map((line) => (JSON.parse(line) as { tool_response?: Record<string, unknown> }).tool_response ?? {});
+      // Not inline: the result names the resumed worker, and carries no reply.
+      expect(responses.some((r) => r["success"] === true && typeof r["resumedAgentId"] === "string")).toBe(true);
+      expect(responses.some((r) => /PONG/i.test(JSON.stringify(r)))).toBe(false);
+    } finally {
+      cleanup([]);
+    }
+  }, 360_000);
 });

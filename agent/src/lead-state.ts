@@ -28,6 +28,24 @@ export const SCOUT_SEAT = "scout";
 // cold-relaunch rule (phase-gate.ts) reads that end: a worker launch left
 // without an outcome by a turn that has since ended can never be continued.
 
+/** Detail kinds: a worker resumed in the background, and a subagent stopped
+ *  (ADR 2026-066). With background tasks on, a worker continued with the
+ *  host's continuation may run on after the call returns; no gate runs in
+ *  its ticket worktree until its stop is recorded. */
+export const WORKER_RESUMED = "worker-resumed";
+export const SUBAGENT_STOPPED = "subagent-stopped";
+
+/** The workers recorded as resumed in the background and not yet stopped. */
+export function backgroundWorkers(events: readonly { readonly guard: string; readonly detail?: unknown }[]): readonly string[] {
+  const running = new Set<string>();
+  for (const e of events) {
+    const d = typeof e.detail === "object" && e.detail !== null ? (e.detail as Detail) : {};
+    if (d["kind"] === WORKER_RESUMED && typeof d["worker"] === "string") running.add(d["worker"]);
+    if (d["kind"] === SUBAGENT_STOPPED && typeof d["agent"] === "string") running.delete(d["agent"]);
+  }
+  return [...running];
+}
+
 /** Detail kind: an architect turn in this worktree ended (`launch` names it). */
 export const ARCHITECT_ENDED = "architect-ended";
 

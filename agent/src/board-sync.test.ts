@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { applyBoardOps, boardOpsFor, boardPending, pendingOps, quarantinedOps, routeOf, runGateWithBoard } from "./board-sync.ts";
 import type { GateResult } from "./gate-result.ts";
-import { readGuardLog } from "./guard-log.ts";
+import { logGuardEvent, readGuardLog } from "./guard-log.ts";
+import { SUBAGENT_STOPPED, WORKER_RESUMED } from "./lead-state.ts";
 import { TICKET_MARKER_RELATIVE } from "./ticket-worktree.ts";
 import { FakeTracker } from "../test/support/fake-tracker.ts";
 
@@ -90,6 +91,19 @@ describe("boardOpsFor — the transitions", () => {
 });
 
 describe("runGateWithBoard", () => {
+  // Final review M3: with background tasks on, a continued worker resumes in
+  // the background (verified live); no gate may judge or freeze meanwhile.
+  test("no gate runs while a worker resumed in the background has no recorded stop", async () => {
+    logGuardEvent(dir, { guard: "phase-gate", verdict: "pass", summary: "resumed", detail: { kind: WORKER_RESUMED, role: "architect", worker: "a0000000000000001" } });
+    const { ran, out } = run({ name: "design-gate", milestone: "design-frozen" }, pass());
+    const result = await out;
+    expect(ran).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ code: 2, detail: { route: "architect", workers: ["a0000000000000001"] } });
+    expect(tracker.issues.get(7)!.status).toBe("In Design");
+    logGuardEvent(dir, { guard: "phase-gate", verdict: "pass", summary: "stopped", detail: { kind: SUBAGENT_STOPPED, agent: "a0000000000000001" } });
+    expect((await run({ name: "design-gate", milestone: "design-frozen" }, pass()).out).code).toBe(0);
+  });
+
   test("a delivered pass records the delivered tree; a later refusal of that gate drops it", async () => {
     writeFileSync(join(dir, "a.ts"), "export const a = 1;\n");
     await run({ name: "deliver", milestone: "delivered" }, pass("delivered")).out;

@@ -15,7 +15,7 @@ import {
   recordArchitectRunning, releaseLaunchClaim, seatContinuable,
 } from "../../src/architect-seat.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
-import { LEAD_GUARD } from "../../src/lead-state.ts";
+import { LEAD_GUARD, SUBAGENT_STOPPED } from "../../src/lead-state.ts";
 import { systemProcesses } from "../../src/process-lock.ts";
 import { readTicketMarker, TICKET_MARKER_RELATIVE, ticketWorktreeDirs } from "../../src/ticket-worktree.ts";
 import { sendTarget } from "./continuation.ts";
@@ -160,7 +160,12 @@ export function onSubagentStop(rec: Readonly<Record<string, unknown>>): void {
   const agent = typeof rec["agent_id"] === "string" ? rec["agent_id"] : undefined;
   const root = ticketRootOf(typeof rec["cwd"] === "string" ? rec["cwd"] : undefined);
   if (agent === undefined || root === undefined) return;
-  recordArchitectEnded(root, agent);
+  if (recordArchitectEnded(root, agent)) return;
+  // A worker's stop: one resumed in the background no longer holds the gates.
+  logGuardEvent(root, {
+    guard: "phase-gate", verdict: "pass", summary: `subagent ${agent} stopped`,
+    detail: { kind: SUBAGENT_STOPPED, agent, ...(typeof rec["agent_type"] === "string" ? { role: rec["agent_type"] } : {}) },
+  });
 }
 
 /**
