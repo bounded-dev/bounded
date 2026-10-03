@@ -118,6 +118,7 @@ export const AMBIENT_HOOK_EVENTS: readonly (readonly [string, string])[] = [
   ["PostToolUse", COMMISSION_MATCHER],
   ["PostToolUseFailure", COMMISSION_MATCHER],
   ["WorktreeCreate", ""],
+  ["WorktreeRemove", ""],
   ["SubagentStop", ""],
 ];
 

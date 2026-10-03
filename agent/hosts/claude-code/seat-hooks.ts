@@ -140,6 +140,21 @@ export function afterLeadArchitectCall(payload: HookPayload, main: string): void
   if (readPendingLaunch(main)?.claimedBy === payload.toolUseId) releaseLaunchClaim(main);
 }
 
+/**
+ * WorktreeRemove: Claude Code may remove an isolation worktree when its
+ * subagent finishes. A ticket's worktree belongs to the ticket until `merge`
+ * removes it, so this hook removes nothing; answering it is enough to keep
+ * Claude Code's own removal from running.
+ */
+export function onWorktreeRemove(rec: Readonly<Record<string, unknown>>, main: string): { readonly stdout: string; readonly stderr: string; readonly exit: number } {
+  const path = [rec["worktree_path"], rec["path"], rec["cwd"]].find((v): v is string => typeof v === "string");
+  logGuardEvent(main, {
+    guard: LEAD_GUARD, verdict: "pass", summary: `team-lead: kept ${path ?? "a worktree"}; only bounded lead merge removes a ticket's worktree`,
+    detail: { host: "claude-code", kind: "worktree-kept" },
+  });
+  return { stdout: "", stderr: "", exit: 0 };
+}
+
 /** SubagentStop: the architect bound to the stopping agent's worktree has ended. */
 export function onSubagentStop(rec: Readonly<Record<string, unknown>>): void {
   const agent = typeof rec["agent_id"] === "string" ? rec["agent_id"] : undefined;

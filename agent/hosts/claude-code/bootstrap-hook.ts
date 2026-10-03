@@ -116,10 +116,18 @@ function routeToTicketWorktree(): boolean {
       input: raw, encoding: "utf8", cwd: worktree, env: { ...process.env, CLAUDE_PROJECT_DIR: worktree },
     })
     : undefined;
-  if (routed !== undefined && routed.error === undefined && routed.status !== null) {
+  const isPre = payload?.["hook_event_name"] === "PreToolUse";
+  // An answer, or an explicit block (exit 2), passes back as is. A crash of
+  // the worktree's hook never passes a call: it becomes a refusal.
+  if (routed !== undefined && routed.error === undefined && (routed.status === 0 || routed.status === 2 || !isPre)) {
     if (routed.stdout) process.stdout.write(routed.stdout);
     if (routed.stderr) process.stderr.write(routed.stderr);
-    process.exitCode = routed.status;
+    process.exitCode = isPre ? (routed.status ?? 0) : 0;
+    return true;
+  }
+  if (isPre && routed !== undefined) {
+    const why = routed.error?.message ?? (routed.stderr?.trim() || `exit ${String(routed.status)}`);
+    deny(`team-lead: the ticket worktree's hook failed (${why.slice(-300)}), so this call is refused`, "ticket-route-crashed");
     return true;
   }
   if (payload?.["hook_event_name"] === "PreToolUse") {

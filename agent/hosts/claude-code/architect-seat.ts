@@ -34,7 +34,7 @@ export const MANAGED_SETTINGS_PATHS: readonly string[] = [
 /** The project hook entry, as the installer writes it (project-install.ts). */
 const PROJECT_HOOK = "hosts/claude-code/bootstrap-hook.ts";
 /** The hook events the seat depends on, each of which must run the project hook. */
-export const SEAT_HOOK_EVENTS: readonly string[] = ["PreToolUse", "WorktreeCreate", "SubagentStop"];
+export const SEAT_HOOK_EVENTS: readonly string[] = ["PreToolUse", "WorktreeCreate", "WorktreeRemove", "SubagentStop"];
 
 const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -87,6 +87,15 @@ export function claudeGateProblem(worktree: string, managed: readonly string[] =
   const settings = readSettings(marker.main);
   if (typeof settings === "string") return settings;
   if (settings["disableAllHooks"] === true) return "the project's settings switch hooks off";
+  // Local settings load beside the project's and can switch every hook off.
+  for (const dir of [marker.main, worktree]) {
+    try {
+      const local: unknown = JSON.parse(readFileSync(join(dir, ".claude", "settings.local.json"), "utf8"));
+      if (isRecord(local) && local["disableAllHooks"] === true) return `${dir}/.claude/settings.local.json switches hooks off`;
+    } catch {
+      // absent or unreadable local settings switch nothing off
+    }
+  }
   const missing = SEAT_HOOK_EVENTS.find((event) => !registered(settings, event));
   if (missing !== undefined) return `the project's settings do not run the project hook on ${missing}`;
   for (const role of ["architect", "reviewer", "test-writer", "builder"]) {

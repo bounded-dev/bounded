@@ -61,6 +61,7 @@ describe("install — fresh project", () => {
         PostToolUse: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         PostToolUseFailure: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         WorktreeCreate: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        WorktreeRemove: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         SubagentStop: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
       },
     });
@@ -100,6 +101,7 @@ describe("install — an existing settings.json", () => {
         PostToolUse: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         PostToolUseFailure: [{ matcher: "Agent|Task|SendMessage", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         WorktreeCreate: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
+        WorktreeRemove: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
         SubagentStop: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }],
       },
       model: "opus",

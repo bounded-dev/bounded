@@ -102,7 +102,7 @@ import { claudeProjectRead } from "./project-read.ts";
 import { allow, allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { boundDefinitionInForce, evaluateLead, evaluateScout } from "./lead-hook.ts";
 import { readTicketMarker } from "../../src/ticket-worktree.ts";
-import { afterLeadArchitectCall, afterLeadReply, onSubagentStop, onWorktreeCreate, ticketRootOf } from "./seat-hooks.ts";
+import { afterLeadArchitectCall, afterLeadReply, onSubagentStop, onWorktreeCreate, onWorktreeRemove, ticketRootOf } from "./seat-hooks.ts";
 
 /** What one hook run says back to Claude Code. Exit is 0 unless an event's
  *  answer is a refusal by exit code (WorktreeCreate). */
@@ -275,6 +275,7 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     const event = nonEmpty(rec["hook_event_name"]);
     const projectWide = flags.projectLocal && flags.role === undefined;
     if (event === "WorktreeCreate") return projectWide ? onWorktreeCreate(rec, leadProject) : { stdout: "", stderr: "" };
+    if (event === "WorktreeRemove") return projectWide ? onWorktreeRemove(rec, leadProject) : { stdout: "", stderr: "" };
     if (event === "SubagentStop") {
       if (projectWide) onSubagentStop(rec);
       return { stdout: "", stderr: "" };
@@ -284,7 +285,14 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     // A call made in a ticket worktree is judged against that worktree: its
     // marker, its owned paths, its guard log and its definitions.
     const projectDir = ticketRootOf(payload.cwd) ?? leadProject;
-    const boundSeat = flags.role;
+    // In a ticket seat (a subagent's call in a ticket worktree) the project
+    // hook judges every call itself, as the role its generated definition
+    // proves, so no permission rule can ever stand in for the gate. A role
+    // definition's own hook stands down there, so each call is judged — and
+    // each commission recorded — exactly once.
+    const ticketSeat = flags.projectLocal && payload.agentId !== undefined && readTicketMarker(projectDir) !== undefined;
+    if (ticketSeat && flags.role !== undefined) return { stdout: "", stderr: "" };
+    const boundSeat = flags.role ?? (ticketSeat && boundDefinitionInForce(projectDir, payload.agentType) ? payload.agentType : undefined);
     // A bound role's definition also registers this hook after Agent and
     // SendMessage calls: that is how a started worker's agent id reaches the
     // guard log, and how a failed continuation licenses a relaunch

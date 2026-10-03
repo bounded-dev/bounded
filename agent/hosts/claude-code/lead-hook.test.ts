@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
@@ -191,12 +191,18 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
       mkdirSync(join(wt, rel, ".."), { recursive: true });
       writeFileSync(join(wt, rel), text);
     }
+    for (const role of ["architect", "reviewer", "test-writer", "builder"]) {
+      mkdirSync(join(wt, ".claude/agents"), { recursive: true });
+      writeFileSync(join(wt, `.claude/agents/${role}.md`), ["---", `name: ${role}`, "tools: Read", "permissionMode: dontAsk", "hooks:",
+        "  PreToolUse:", '    - matcher: ""', "      hooks:", "        - type: command",
+        `          command: "node x/bootstrap-hook.ts --project-local --role ${role}"`, "---", "", "body"].join("\n"));
+    }
     vi.stubEnv("CLAUDE_PROJECT_DIR", main);
     return { main, wt };
   };
-  const ARCHITECT = [...LEAD, "--role", "architect"];
   const child = (role: string) => ({ agent_id: AGENT, agent_type: role });
-  const at = (wt: string, tool: string, input: Readonly<Record<string, unknown>>, flags = ARCHITECT, role = "architect") =>
+  /** A seat's call as the project-wide hook sees it: the hook that judges in a ticket seat. */
+  const at = (wt: string, tool: string, input: Readonly<Record<string, unknown>>, flags: readonly string[] = LEAD, role = "architect") =>
     runHook(flags, JSON.stringify({ cwd: wt, hook_event_name: "PreToolUse", tool_name: tool, tool_input: input, ...child(role) }), wt);
   const verdict = (out: { stdout: string }): string =>
     out.stdout === "" ? "none" : (JSON.parse(out.stdout) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision;
@@ -210,10 +216,20 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
     expect(readGuardLog(main).some((e) => e.guard === "host")).toBe(false);
   });
 
-  test("a worker it commissions is allowed in words by its own bound hook, in the same worktree", () => {
+  // Final review: the project hook must not stand down on a definition's text.
+  test("in a ticket seat the project hook judges; a role definition's own hook stands down; an undefined type is read-only", () => {
     const { wt } = ticketed();
-    expect(verdict(at(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }, [...LEAD, "--role", "reviewer"], "reviewer"))).toBe("allow");
-    expect(verdict(at(wt, "Write", { file_path: join(wt, "x.md"), content: "" }, [...LEAD, "--role", "reviewer"], "reviewer"))).toBe("deny");
+    const write = { file_path: join(wt, "docs/tn/TN-7.md"), content: "x" };
+    expect(verdict(at(wt, "Write", write, [...LEAD, "--role", "architect"]))).toBe("none");
+    expect(verdict(at(wt, "Write", write))).toBe("allow");
+    expect(verdict(at(wt, "Write", write, LEAD, "general-purpose"))).toBe("deny");
+    expect(verdict(at(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }, LEAD, "general-purpose"))).toBe("none");
+  });
+
+  test("a worker it commissions is judged by the project hook as its defined role, in the same worktree", () => {
+    const { wt } = ticketed();
+    expect(verdict(at(wt, "Read", { file_path: join(wt, "docs/tn/README.md") }, LEAD, "reviewer"))).toBe("allow");
+    expect(verdict(at(wt, "Write", { file_path: join(wt, "x.md"), content: "" }, LEAD, "reviewer"))).toBe("deny");
   });
 
   test.each([
@@ -231,7 +247,7 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
     const out = at(wt, tool, input);
     expect(verdict(out)).toBe("deny");
     expect(out.stdout).toContain("not a tool the gate judges");
-    expect(verdict(at(wt, tool, input, [...LEAD, "--role", "builder"], "builder"))).toBe("deny");
+    expect(verdict(at(wt, tool, input, LEAD, "builder"))).toBe("deny");
   });
 
   // Regression (#47 planning): a worker's report and loading a deferred tool
@@ -243,7 +259,7 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
     const { wt } = ticketed();
     expect(verdict(at(wt, tool, input))).toBe("allow");
     for (const role of ["reviewer", "test-writer", "builder"]) {
-      expect(verdict(at(wt, tool, input, [...LEAD, "--role", role], role)), role).toBe("allow");
+      expect(verdict(at(wt, tool, input, LEAD, role)), role).toBe("allow");
     }
   });
 
@@ -306,6 +322,12 @@ describe("the lead's architect launch and reply (ADR 2026-066)", () => {
     expect(readArchitectState(wt)?.state).toBe("running");
     runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a1234567890abcdef", agent_type: "architect" }), wt);
     expect(readArchitectState(wt)?.state).toBe("ended");
+  });
+
+  test("WorktreeRemove removes nothing: a ticket's worktree stays until merge", () => {
+    const { main, wt } = setup();
+    expect(event(main, "WorktreeRemove", { worktree_path: wt })).toEqual({ stdout: "", stderr: "", exit: 0 });
+    expect(existsSync(wt)).toBe(true);
   });
 
   test("a launch that failed releases its claim", () => {

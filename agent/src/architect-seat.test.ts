@@ -119,14 +119,18 @@ describe("the hosts' instructions and preflights", () => {
     mkdirSync(join(wt, ".bounded/harness/hosts/claude-code"), { recursive: true });
     writeFileSync(join(wt, ".bounded/harness/hosts/claude-code/bootstrap-hook.ts"), "");
     for (const role of ["architect", "reviewer", "test-writer", "builder"]) definition(role);
-    settings(["PreToolUse", "WorktreeCreate", "SubagentStop"]);
+    settings(["PreToolUse", "WorktreeCreate", "WorktreeRemove", "SubagentStop"]);
     expect(claudeGateProblem(wt, [])).toBeUndefined();
-    settings(["PreToolUse", "WorktreeCreate"]);
+    settings(["PreToolUse", "WorktreeCreate", "WorktreeRemove"]);
     expect(claudeGateProblem(wt, [])).toContain("on SubagentStop");
-    settings(["PreToolUse", "WorktreeCreate", "SubagentStop"]);
+    settings(["PreToolUse", "WorktreeCreate", "WorktreeRemove", "SubagentStop"]);
     definition("builder", "");
     expect(claudeGateProblem(wt, [])).toContain("builder definition does not run in dontAsk");
     definition("builder");
+    // Final review: local settings can switch every hook off too.
+    writeFileSync(join(main, ".claude/settings.local.json"), JSON.stringify({ disableAllHooks: true }));
+    expect(claudeGateProblem(wt, [])).toContain("settings.local.json switches hooks off");
+    rmSync(join(main, ".claude/settings.local.json"));
     writeFileSync(join(main, "managed.json"), JSON.stringify({ disableAllHooks: true }));
     expect(claudeGateProblem(wt, [join(main, "managed.json")])).toContain("switch project hooks off");
   });
