@@ -315,6 +315,21 @@ describe("review fixes (ADR 2026-066)", () => {
     return n;
   };
 
+  // Regression (re-review N2): a worker resumed in the background could still change the tree being merged.
+  test("merge refuses while a background worker of the ticket is held, naming it", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    const wt = ticketWorktreePath(main, n);
+    deliver(n, "contexts/a/a.ts");
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_RESUMED, worker: "a0000000000000w01", pid: process.pid, pidStarted: "t" } });
+    const out = await lead(["merge", String(n)]);
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain("worker a0000000000000w01");
+    expect(check).not.toHaveBeenCalled();
+    expect(issue(n).status).toBe("Awaiting Merge");
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: SUBAGENT_STOPPED, agent: "a0000000000000w01" } });
+    expect((await lead(["merge", String(n)])).text).not.toContain("worker a0000000000000w01");
+  });
+
   test("merge refuses a worktree that changed after delivery — a new file, an edit, or only a staged change", async () => {
     const n = await started("A", ["contexts/a/"]);
     const wt = ticketWorktreePath(main, n);
