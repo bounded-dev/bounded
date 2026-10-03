@@ -269,29 +269,41 @@ describe("isMutableSourceFile", () => {
 // --- selection ------------------------------------------------------------------
 
 describe("selectMutants", () => {
-  const all = [...mutantSites(MONEY_TS, "contexts/pm/src/money.ts"), ...mutantSites(TIER_TS, "contexts/pm/src/tier.ts")];
+  /** `files` files of `perFile` sites each, in (file, offset) order. */
+  const synthetic = (counts: readonly number[]): MutantSite[] =>
+    counts.flatMap((count, f) => Array.from({ length: count }, (_, i) => ({
+      file: `contexts/pm/src/f${String(f).padStart(2, "0")}.ts`,
+      line: i + 1,
+      start: i * 10,
+      end: i * 10 + 1,
+      replacement: "<=",
+      operator: "comparison" as const,
+      label: "< → <=",
+    })));
 
-  test("deals round-robin across files so one file cannot eat the budget", () => {
-    expect(labels(selectMutants(all, 4))).toEqual([
-      "contexts/pm/src/money.ts:2 if (c) → if (!(c))",
-      "contexts/pm/src/tier.ts:2 if (c) → if (!(c))",
-      "contexts/pm/src/money.ts:2 !== → ===",
-      "contexts/pm/src/tier.ts:2 >= → >",
-    ]);
+  test("selection is spread over the whole tree, not the first files in path order", () => {
+    const sites = synthetic(Array(10).fill(4));
+    const picked = selectMutants(sites, 5);
+    expect(picked).toHaveLength(5);
+    const lastFive = new Set(sites.slice(20).map((s) => s.file));
+    expect(picked.some((s) => lastFive.has(s.file))).toBe(true);
   });
 
-  test("is deterministic and a prefix-stable function of the cap", () => {
-    expect(labels(selectMutants(all, 6))).toEqual(labels(selectMutants(all, 6)));
-    expect(labels(selectMutants(all, 6)).slice(0, 4)).toEqual(labels(selectMutants(all, 4)));
+  test("selection is proportional to where the sites are", () => {
+    const sites = synthetic([30, 10]);
+    const picked = selectMutants(sites, 8);
+    expect(picked.filter((s) => s.file.endsWith("f00.ts"))).toHaveLength(6);
+    expect(picked.filter((s) => s.file.endsWith("f01.ts"))).toHaveLength(2);
+    const order = picked.map((s) => sites.indexOf(s));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(selectMutants(sites, 8)).toEqual(picked);
   });
 
-  test("drains the longer file once the shorter one runs out, and honours the cap", () => {
-    expect(selectMutants(all, 99)).toHaveLength(all.length);
+  test("takes every site when the sample is not smaller than the tree, and none for an empty sample", () => {
+    const all = [...mutantSites(MONEY_TS, "contexts/pm/src/money.ts"), ...mutantSites(TIER_TS, "contexts/pm/src/tier.ts")];
+    expect(selectMutants(all, 99)).toEqual(all);
+    expect(selectMutants(all, all.length)).toEqual(all);
     expect(selectMutants(all, 0)).toEqual([]);
-    expect(labels(selectMutants(all, 10)).slice(8)).toEqual([
-      "contexts/pm/src/money.ts:5 < → <=",
-      "contexts/pm/src/money.ts:5 || → &&",
-    ]);
   });
 });
 
@@ -301,6 +313,7 @@ describe("runMutationScore", () => {
   test("scores kills and survivors, and reports each survivor as a finding", async () => {
     const dir = proj();
     const result = await runMutationScore(dir, {
+      minimumSample: 1,
       maxMutants: 4,
       runSuite: indexedRunner({ survive: new Set([2]) }),
     });
@@ -313,13 +326,13 @@ describe("runMutationScore", () => {
     expect(result.score).toBe(75);
     expect(result.lines).toEqual([
       "KILLED   contexts/pm/src/money.ts:2 if (c) → if (!(c))",
-      "SURVIVED contexts/pm/src/tier.ts:2 if (c) → if (!(c))",
-      "KILLED   contexts/pm/src/money.ts:2 !== → ===",
+      "SURVIVED contexts/pm/src/money.ts:5 if (c) → if (!(c))",
+      "KILLED   contexts/pm/src/money.ts:5 > → >=",
       "KILLED   contexts/pm/src/tier.ts:2 >= → >",
       "",
-      "mutation-score: 4 mutants of 12 sites · 3 killed · 1 survived · score 75%",
+      "mutation-score: 4 mutants (sample) of 12 sites · 3 killed · 1 survived · score 75%",
       "mutation-score: survivors — each one is a finding: shipped parse/guard logic changed, suite still green.",
-      "mutation-score:   contexts/pm/src/tier.ts:2 if (c) → if (!(c))",
+      "mutation-score:   contexts/pm/src/money.ts:5 if (c) → if (!(c))",
       "mutation-score: measurement only — no threshold is enforced (TN-26-002).",
     ]);
   });
@@ -329,7 +342,7 @@ describe("runMutationScore", () => {
     const before = MUTABLE.map((rel) => readFileSync(join(dir, rel)));
     const log: RunnerLog = { dirtyPerCall: [] };
 
-    await runMutationScore(dir, { maxMutants: 6, runSuite: indexedRunner({}, log) });
+    await runMutationScore(dir, { minimumSample: 1, maxMutants: 6, runSuite: indexedRunner({}, log) });
 
     expect(log.dirtyPerCall[0]).toEqual([]); // baseline: pristine tree
     expect(log.dirtyPerCall.slice(1).map((d) => d.length)).toEqual([1, 1, 1, 1, 1, 1]);
@@ -341,7 +354,7 @@ describe("runMutationScore", () => {
     const before = MUTABLE.map((rel) => readFileSync(join(dir, rel)));
 
     await expect(
-      runMutationScore(dir, { maxMutants: 4, runSuite: indexedRunner({ throwAt: 2 }) }),
+      runMutationScore(dir, { minimumSample: 1, maxMutants: 4, runSuite: indexedRunner({ throwAt: 2 }) }),
     ).rejects.toThrow("runner exploded");
 
     MUTABLE.forEach((rel, i) => expect(readFileSync(join(dir, rel)).equals(before[i]!)).toBe(true));
@@ -351,6 +364,7 @@ describe("runMutationScore", () => {
   test("a timed-out suite counts as killed and says so on its line", async () => {
     const dir = proj();
     const result = await runMutationScore(dir, {
+      minimumSample: 1,
       maxMutants: 2,
       runSuite: indexedRunner({ timeout: new Set([1]) }),
     });
@@ -359,24 +373,59 @@ describe("runMutationScore", () => {
     expect(result.killed).toBe(2);
     expect(result.survived).toBe(0);
     expect(result.lines[0]).toBe("TIMEOUT  contexts/pm/src/money.ts:2 if (c) → if (!(c)) (counted as killed)");
-    expect(result.lines).toContain("mutation-score: 2 mutants of 12 sites · 2 killed (1 by timeout) · 0 survived · score 100%");
+    expect(result.lines).toContain("mutation-score: 2 mutants (sample) of 12 sites · 2 killed (1 by timeout) · 0 survived · score 100%");
   });
 
   test("two runs over the same tree pick the same mutants", async () => {
     const dir = proj();
-    const once = await runMutationScore(dir, { maxMutants: 5, runSuite: indexedRunner() });
-    const twice = await runMutationScore(dir, { maxMutants: 5, runSuite: indexedRunner() });
+    const once = await runMutationScore(dir, { minimumSample: 1, maxMutants: 5, runSuite: indexedRunner() });
+    const twice = await runMutationScore(dir, { minimumSample: 1, maxMutants: 5, runSuite: indexedRunner() });
     expect(labels(twice.outcomes.map((o) => o.site))).toEqual(labels(once.outcomes.map((o) => o.site)));
+  });
+
+  test("a sample below the minimum is refused before anything runs", async () => {
+    const dir = proj();
+    let ran = false;
+    const result = await runMutationScore(dir, {
+      maxMutants: 4,
+      runSuite: async () => { ran = true; return { ok: true, note: "green" }; },
+    });
+
+    expect(result.code).toBe(2);
+    // Fewer sites than the minimum of 40: the minimum is every site, 12.
+    expect(result.lines.some((l) => /minimum sample of 12\b/.test(l)), result.lines.join("\n")).toBe(true);
+    expect(ran).toBe(false);
+    expect(dirtyFiles(dir)).toEqual([]);
+    expect(readGuardLog(dir).filter((e) => e.guard === "mutation-score").at(-1)?.verdict).toBe("error");
+  });
+
+  test("without --max-mutants the sample is the minimum", async () => {
+    const dir = proj();
+    const result = await runMutationScore(dir, { minimumSample: 6, runSuite: indexedRunner() });
+
+    expect(result.code).toBe(0);
+    expect(result.outcomes).toHaveLength(6);
+  });
+
+  test("the result and the guard event put the sample size and site count beside the score", async () => {
+    const dir = proj();
+    const result = await runMutationScore(dir, { minimumSample: 4, maxMutants: 4, runSuite: indexedRunner() });
+
+    expect(result.summary).toContain("score");
+    expect(result.summary).toContain("4");
+    expect(result.summary).toContain("of 12 sites");
+    const events = readGuardLog(dir).filter((e) => e.guard === "mutation-score");
+    expect(events.at(-1)?.detail).toMatchObject({ sample: 4, sites: FIXTURE_SITES, complete: true });
   });
 
   test("logs one mutation-score guard event carrying the summary and the survivors", async () => {
     const dir = proj();
-    await runMutationScore(dir, { maxMutants: 4, runSuite: indexedRunner({ survive: new Set([2]) }) });
+    await runMutationScore(dir, { minimumSample: 1, maxMutants: 4, runSuite: indexedRunner({ survive: new Set([2]) }) });
 
     const events = readGuardLog(dir).filter((e) => e.guard === "mutation-score");
     expect(events).toHaveLength(1);
     expect(events[0]!.verdict).toBe("pass");
-    expect(events[0]!.summary).toBe("4 mutants of 12 sites · 3 killed · 1 survived · score 75%");
+    expect(events[0]!.summary).toBe("4 mutants (sample) of 12 sites · 3 killed · 1 survived · score 75%");
     expect(events[0]!.detail).toMatchObject({
       sites: FIXTURE_SITES,
       mutants: 4,
@@ -384,7 +433,7 @@ describe("runMutationScore", () => {
       survived: 1,
       score: 75,
       files: ["contexts/pm/src/money.ts", "contexts/pm/src/tier.ts"],
-      survivors: [{ file: "contexts/pm/src/tier.ts", line: 2, operator: "if-negation" }],
+      survivors: [{ file: "contexts/pm/src/money.ts", line: 5, operator: "if-negation" }],
     });
   });
 
@@ -401,6 +450,7 @@ describe("runMutationScore", () => {
   test("refuses to score against a suite that is not already green", async () => {
     const dir = proj();
     const result = await runMutationScore(dir, {
+      minimumSample: 1,
       maxMutants: 2,
       runSuite: indexedRunner({ baselineOk: false }),
     });
@@ -416,6 +466,7 @@ describe("runMutationScore", () => {
     const events: string[] = [];
     const urls = new Set<string | undefined>();
     const result = await runMutationScore(dir, {
+      minimumSample: 1,
       maxMutants: 3,
       policy: {
         refusals: [],
@@ -444,6 +495,7 @@ describe("runMutationScore", () => {
     let classifierPassed = false;
     const infrastructure = () => ({ causes: ["x > (unnamed): the registry could not be reached"], all: true });
     const result = await runMutationScore(dir, {
+      minimumSample: 1,
       maxMutants: 3,
       policy: { refusals: [], env: { set: {}, unset: [] }, prepares: [], infrastructure },
       runSuite: async (_cwd, _timeout, _env, classify) => {
@@ -514,6 +566,91 @@ describe("runMutationScore", () => {
   });
 });
 
+// --- the time budget and continuation (issue #48) -------------------------------
+//
+// A host kills a command that outlives its limit, and a measurement killed
+// mid-run judged nothing. So a run stops between mutants when the next one's
+// full timeout no longer fits its budget, keeps the verdicts it has, and the
+// next run over the same tree carries on from there.
+
+describe("runMutationScore within a time budget", () => {
+  /** A clock the suite runner moves: every suite run takes `stepMs`. */
+  function clock(stepMs: number): { readonly now: () => number; readonly advance: () => void } {
+    let t = 0;
+    return { now: () => t, advance: () => { t += stepMs; } };
+  }
+
+  /** A first call that cannot finish its 6-mutant sample in its budget. */
+  async function partial(dir: string) {
+    const c = clock(10_000);
+    let calls = 0;
+    const result = await runMutationScore(dir, {
+      minimumSample: 6,
+      timeoutMs: 10_000,
+      budgetMs: 35_000,
+      now: c.now,
+      runSuite: async () => {
+        c.advance();
+        return calls++ === 0 ? { ok: true, note: "green" } : { ok: false, note: "1 failed" };
+      },
+    });
+    return { result, calls };
+  }
+
+  test("a run that would outlast its budget stops between mutants, keeps its verdicts, and reports PARTIAL with no score", async () => {
+    const dir = proj();
+    const { result } = await partial(dir);
+
+    expect(result.code).toBe(0);
+    expect(result.complete).toBe(false);
+    expect(result.score).toBeUndefined();
+    expect(result.outcomes.length).toBeGreaterThan(0);
+    expect(result.outcomes.length).toBeLessThan(6);
+    const text = result.lines.join("\n");
+    expect(text).toContain("PARTIAL");
+    expect(text).toMatch(/run mutation-score again/i);
+    expect(dirtyFiles(dir)).toEqual([]);
+  });
+
+  test("the next run over the same tree continues the sample without re-running the baseline", async () => {
+    const dir = proj();
+    const { result: first } = await partial(dir);
+    expect(first.complete).toBe(false);
+
+    let calls = 0;
+    const second = await runMutationScore(dir, {
+      minimumSample: 6,
+      timeoutMs: 10_000,
+      now: clock(10_000).now,
+      // A baseline run here would be read as a red suite and refused.
+      runSuite: async () => { calls++; return { ok: false, note: "1 failed" }; },
+    });
+
+    expect(calls).toBe(6 - first.outcomes.length);
+    expect(second.code).toBe(0);
+    expect(second.complete).toBe(true);
+    expect(second.outcomes).toHaveLength(6);
+    expect(second.score).toBe(100);
+  });
+
+  test("a change to the tree between runs starts the sample over", async () => {
+    const dir = proj();
+    const { result: first } = await partial(dir);
+    expect(first.complete).toBe(false);
+    writeFileSync(join(dir, "contexts/pm/src/tier.ts"), TIER_TS + "// a comment added between runs\n");
+
+    let calls = 0;
+    const second = await runMutationScore(dir, {
+      minimumSample: 6,
+      timeoutMs: 10_000,
+      runSuite: async () => (calls++ === 0 ? { ok: true, note: "green" } : { ok: false, note: "1 failed" }),
+    });
+
+    expect(calls).toBe(1 + 6);
+    expect(second.complete).toBe(true);
+  });
+});
+
 // --- CLI ------------------------------------------------------------------------
 
 describe("parseCliArgs", () => {
@@ -564,6 +701,7 @@ import { parseAmount } from "./money.ts";
 test("accepts a number", () => expect(parseAmount(5)).toEqual({ ok: true, value: 5 }));
 test("rejects a string", () => expect(parseAmount("x").ok).toBe(false));
 test("rejects negatives", () => expect(parseAmount(-1).ok).toBe(false));
+test("accepts zero", () => expect(parseAmount(0)).toEqual({ ok: true, value: 0 }));
 `;
 
 describe.skipIf(!HAS_BUN)("runMutationScore, end to end", () => {
@@ -583,7 +721,7 @@ describe.skipIf(!HAS_BUN)("runMutationScore, end to end", () => {
       writeFileSync(join(dir, rel), content);
     }
 
-    const result = await runMutationScore(dir, { maxMutants: 3 });
+    const result = await runMutationScore(dir, { minimumSample: 1, maxMutants: 3 });
 
     expect(result.code, result.lines.join("\n")).toBe(0);
     expect(result.outcomes.map((o) => o.site.file)).toEqual(Array(3).fill("contexts/pm/src/domain/money/money.ts"));

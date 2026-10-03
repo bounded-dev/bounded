@@ -73,3 +73,23 @@ describe("the store-test policy (ts-drizzle-postgres, ADR 2026-064)", () => {
     expect(storeTestPolicy.name).toBe("store-tests-need-a-container-runtime");
   });
 });
+
+describe("the builder's run (the build phase, issue #48)", () => {
+  const A: PhaseTestDecision = { action: "run", unsetEnv: [], exclude: { files: ["contexts/a/src/a.store.test.ts"], reason: "no container runtime" } };
+  const B: PhaseTestDecision = { action: "run", unsetEnv: [], exclude: { files: ["apps/web/src/composition-root.test.ts"], reason: "no migrations yet" } };
+  const decisions = [{ name: "first-policy", decision: A }, { name: "second-policy", decision: B }];
+
+  test("exclusions are merged at build and are a refusal at red and green", () => {
+    const build = combineDecisions("build", decisions);
+    expect(build.refusals).toEqual([]);
+    expect(build.exclusions.files).toEqual(["contexts/a/src/a.store.test.ts", "apps/web/src/composition-root.test.ts"]);
+    expect(build.exclusions.reasons).toEqual(["no container runtime", "no migrations yet"]);
+    for (const phase of ["red", "green"] as const) {
+      const run = combineDecisions(phase, decisions);
+      expect(run.refusals, phase).toHaveLength(2);
+      expect(run.refusals[0], phase).toContain("first-policy");
+      expect(run.refusals[1], phase).toContain("second-policy");
+      expect(run.exclusions.files, phase).toEqual([]);
+    }
+  });
+});

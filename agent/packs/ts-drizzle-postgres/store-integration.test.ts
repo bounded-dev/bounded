@@ -357,3 +357,62 @@ describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight o
     expect(await leftovers()).toBe("");
   });
 });
+
+// The builder's run_tests (the build phase, issue #48): the same database and
+// preflight green uses where it can, and the files left out, with the reason,
+// where it cannot. Pure: the probe and the services are injected.
+describe("the store-test policy at build", () => {
+  const STORE = "contexts/pm/src/adapters/out/drizzle/notes/notes.store.test.ts";
+  const SMOKE = "apps/web/src/server/composition-root.test.ts";
+  const up = (): ContainerRuntimeProbe => ({ available: true, endpoint: "unix:///var/run/docker.sock" });
+  const down = (): ContainerRuntimeProbe => ({ available: false, reason: "no container runtime found: DOCKER_HOST is unset" });
+
+  function services(order: string[]) {
+    return {
+      startDatabase: async () => {
+        order.push("database");
+        return { description: "started a throwaway database", env: { DATABASE_URL: "postgres://throwaway" }, release: () => {} };
+      },
+      preflight: async () => {
+        order.push("preflight");
+        return { description: "preflight passed", env: {}, release: () => {} };
+      },
+      classifier: () => () => undefined,
+    };
+  }
+
+  test("at build with a runtime and migrations, the run gets green's database and preflight", async () => {
+    const order: string[] = [];
+    const { startDatabase, preflight, classifier } = services(order);
+    const decision = storeTestPhaseDecision("build", [STORE], up, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: [] });
+    expect(decision.action).toBe("run");
+    if (decision.action !== "run") return;
+    expect(decision.exclude).toBeUndefined();
+    expect(decision.prepare).toBeDefined();
+    const service = await decision.prepare!({ set: {}, unset: [] });
+    expect(order).toEqual(["preflight", "database"]);
+    expect(service.env["DATABASE_URL"]).toBe("postgres://throwaway");
+  });
+
+  test("at build without a runtime, store and smoke tests are excluded with the runtime's reason, never refused", () => {
+    const { startDatabase, preflight, classifier } = services([]);
+    const decision = storeTestPhaseDecision("build", [STORE], down, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: [] });
+    expect(decision.action).toBe("run");
+    if (decision.action !== "run") return;
+    expect(decision.exclude?.files).toEqual([STORE, SMOKE]);
+    expect(decision.exclude?.reason).toContain("no container runtime found: DOCKER_HOST is unset");
+    expect(decision.exclude?.reason).toMatch(/green runs them/);
+    expect(decision.prepare).toBeUndefined();
+  });
+
+  test("at build before migrations exist, the same files are excluded and the reason names generate_artifacts", () => {
+    const { startDatabase, preflight, classifier } = services([]);
+    const decision = storeTestPhaseDecision("build", [STORE], up, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: ["contexts/pm"] });
+    expect(decision.action).toBe("run");
+    if (decision.action !== "run") return;
+    expect(decision.exclude?.files).toEqual([STORE, SMOKE]);
+    expect(decision.exclude?.reason).toContain("contexts/pm");
+    expect(decision.exclude?.reason).toContain("generate_artifacts");
+    expect(decision.prepare).toBeUndefined();
+  });
+});

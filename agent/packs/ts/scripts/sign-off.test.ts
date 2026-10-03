@@ -29,6 +29,19 @@ describe("parseFindings", () => {
     expect(parseFindings([{ severity: "urgent", summary: "x" }])).toMatchObject({ ok: false });
   });
 
+  // Issue #48: two malformed payloads in a row, each error naming only the
+  // field that failed. Every error now shows the whole shape.
+  test("every payload error shows the shape of a finding", () => {
+    for (const raw of [["x"], [{ severity: "high", summary: "s" }], [{ severity: "note" }]]) {
+      const r = parseFindings(raw);
+      expect(r.ok, JSON.stringify(raw)).toBe(false);
+      if (r.ok) continue;
+      expect(r.error).toContain('"severity"');
+      expect(r.error).toContain("blocker | concern | note");
+      expect(r.error).toContain('"summary"');
+    }
+  });
+
   test("rejects a non-array and says what to pass instead", () => {
     const r = parseFindings(undefined);
     expect(r).toMatchObject({ ok: false });

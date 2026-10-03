@@ -573,3 +573,69 @@ describe("runTestsGate", () => {
     expect(readGuardLog(dir)[0]).toMatchObject({ guard: "run_tests", verdict: "error" });
   });
 });
+
+// --- the builder's run under the build phase's policies (issue #48) ---------------
+
+describe("runTestsGate under a build policy", () => {
+  interface Recorded { readonly args: string[]; readonly env: NodeJS.ProcessEnv | undefined }
+  /** Plays bun (a passing report) and records what each run was given. */
+  function recording(calls: Recorded[]): CommandRunner {
+    const play = bunRunner(PASSING, 0);
+    return async (command, args, cwd, signal, env) => {
+      calls.push({ args: [...args], env });
+      return play(command, args, cwd, signal, env);
+    };
+  }
+  const STORE_TEST = "contexts/pm/src/adapters/out/drizzle/notes/notes.store.test.ts";
+  const DOMAIN_TEST = "contexts/pm/src/domain/note.test.ts";
+  const twoTests = () => project({ [STORE_TEST]: "export {};\n", [DOMAIN_TEST]: "export {};\n" });
+
+  test("run_tests leaves out the files a build policy excludes and says why", async () => {
+    const dir = twoTests();
+    const calls: Recorded[] = [];
+    const r = await runTestsGate(dir, {
+      run: recording(calls),
+      policy: { refusals: [], env: { set: {}, unset: [] }, prepares: [], exclusions: { files: [STORE_TEST], reasons: ["no runtime"] } },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.args).toContain(`./${DOMAIN_TEST}`);
+    expect(calls[0]!.args.some((a) => a.includes("notes.store.test.ts"))).toBe(false);
+    expect(r.lines.join("\n")).toContain("no runtime");
+    const event = readGuardLog(dir).find((e) => e.guard === "run_tests");
+    expect(event?.detail?.["excluded"]).toEqual([STORE_TEST]);
+  });
+
+  test("run_tests runs inside the service a build policy prepares", async () => {
+    const dir = twoTests();
+    const calls: Recorded[] = [];
+    let released = 0;
+    const r = await runTestsGate(dir, {
+      run: recording(calls),
+      policy: {
+        refusals: [],
+        env: { set: {}, unset: [] },
+        prepares: [{ name: "db", prepare: async () => ({ description: "started a throwaway database", env: { DATABASE_URL: "postgres://x" }, release: () => { released++; } }) }],
+      },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.env?.["DATABASE_URL"]).toBe("postgres://x");
+    expect(released).toBe(1);
+    expect(r.lines.join("\n")).toContain("started a throwaway database");
+  });
+
+  test("a service that cannot start blocks run_tests with the reason and runs nothing", async () => {
+    const dir = twoTests();
+    const calls: Recorded[] = [];
+    const r = await runTestsGate(dir, {
+      run: recording(calls),
+      policy: {
+        refusals: [],
+        env: { set: {}, unset: [] },
+        prepares: [{ name: "db", prepare: async () => { throw new Error("migrations did not apply"); } }],
+      },
+    });
+    expect(r.code).toBe(2);
+    expect(r.lines.join("\n")).toContain("migrations did not apply");
+    expect(calls).toEqual([]);
+  });
+});
