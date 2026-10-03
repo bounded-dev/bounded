@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { deliveryState } from "./change-run-status.ts";
 import { guardLogPath, RUN_START_GUARD } from "./guard-log.ts";
 import { readActiveTicketFile } from "./ticket-design.ts";
+import { ownerState, systemProcesses, type ProcessProbe } from "./process-lock.ts";
 
 const INSTALLATION_RELATIVE = ".bounded/installation.json";
 const HARNESS_COPY_RELATIVE = ".bounded/harness";
@@ -28,22 +29,77 @@ export const SCOUT_SEAT = "scout";
 // cold-relaunch rule (phase-gate.ts) reads that end: a worker launch left
 // without an outcome by a turn that has since ended can never be continued.
 
-/** Detail kinds: a worker resumed in the background, and a subagent stopped
- *  (ADR 2026-066). With background tasks on, a worker continued with the
- *  host's continuation may run on after the call returns; no gate runs in
- *  its ticket worktree until its stop is recorded. */
+/** Detail kinds of the background-worker block (ADR 2026-066). With background
+ *  tasks on, a worker continued with the host's continuation may run on after
+ *  the call returns, so no gate runs in its ticket worktree while one does.
+ *  `worker-continuing` is logged before the continuation is sent, so a stop
+ *  that lands before the resume record still cancels it; `seat-released` is
+ *  the user's `bounded lead release`, which clears every block. */
+export const WORKER_CONTINUING = "worker-continuing";
 export const WORKER_RESUMED = "worker-resumed";
 export const SUBAGENT_STOPPED = "subagent-stopped";
+export const SEAT_RELEASED = "seat-released";
 
-/** The workers recorded as resumed in the background and not yet stopped. */
-export function backgroundWorkers(events: readonly { readonly guard: string; readonly detail?: unknown }[]): readonly string[] {
-  const running = new Set<string>();
+/** A resumed worker whose session could not be recognised blocks only this long. */
+export const UNRECOGNISED_WORKER_MAX_AGE_MS = 60 * 60 * 1000;
+
+export interface BackgroundWorker {
+  readonly worker: string;
+  readonly since: string;
+  /** The session could not be recognised; the block ends at the age limit. */
+  readonly unrecognised?: true;
+}
+
+type Logged = { readonly guard: string; readonly detail?: unknown; readonly ts?: string };
+
+/**
+ * The workers still holding the gates: resumed in the background, with no
+ * stop recorded after their continuation was sent, whose session still runs,
+ * and no architect end or user release recorded since. In log order, which is
+ * time order: a stop recorded after the `worker-continuing` mark cancels the
+ * resume even when the resume record lands after the stop.
+ */
+export function backgroundWorkers(events: readonly Logged[], probe: ProcessProbe = systemProcesses, now: number = Date.now()): readonly BackgroundWorker[] {
+  const running = new Map<string, { since: string; pid?: number; pidStarted?: string }>();
+  // A continuation marked but not yet recorded as resumed: whether the
+  // worker's stop has already landed. Only such a stop cancels the resume, so
+  // a stop from an earlier run never does.
+  const continuing = new Map<string, boolean>();
   for (const e of events) {
     const d = typeof e.detail === "object" && e.detail !== null ? (e.detail as Detail) : {};
-    if (d["kind"] === WORKER_RESUMED && typeof d["worker"] === "string") running.add(d["worker"]);
-    if (d["kind"] === SUBAGENT_STOPPED && typeof d["agent"] === "string") running.delete(d["agent"]);
+    const kind = d["kind"];
+    if (kind === SEAT_RELEASED || (e.guard === LEAD_GUARD && kind === ARCHITECT_ENDED)) {
+      running.clear();
+      continuing.clear();
+      continue;
+    }
+    const worker = typeof d["worker"] === "string" ? d["worker"] : undefined;
+    if (kind === WORKER_CONTINUING && worker !== undefined) continuing.set(worker, false);
+    if (kind === WORKER_RESUMED && worker !== undefined) {
+      if (continuing.get(worker) !== true) {
+        running.set(worker, {
+          since: e.ts ?? "",
+          ...(typeof d["pid"] === "number" ? { pid: d["pid"] } : {}),
+          ...(typeof d["pidStarted"] === "string" ? { pidStarted: d["pidStarted"] } : {}),
+        });
+      }
+      continuing.delete(worker);
+    }
+    if (kind === SUBAGENT_STOPPED && typeof d["agent"] === "string") {
+      running.delete(d["agent"]);
+      if (continuing.has(d["agent"])) continuing.set(d["agent"], true);
+    }
   }
-  return [...running];
+  const out: BackgroundWorker[] = [];
+  for (const [worker, r] of running) {
+    const session = r.pid === undefined ? "unknown" : ownerState({ pid: r.pid, started: r.pidStarted ?? "unknown" }, probe);
+    if (session === "stale") continue;
+    if (session === "unknown") {
+      if (!(now - Date.parse(r.since) < UNRECOGNISED_WORKER_MAX_AGE_MS)) continue;
+      out.push({ worker, since: r.since, unrecognised: true });
+    } else out.push({ worker, since: r.since });
+  }
+  return out;
 }
 
 /** Detail kind: an architect turn in this worktree ended (`launch` names it). */

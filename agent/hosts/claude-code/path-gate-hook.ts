@@ -64,7 +64,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logGuardEvent, readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
-import { WORKER_RESUMED } from "../../src/lead-state.ts";
+import { WORKER_CONTINUING, WORKER_RESUMED } from "../../src/lead-state.ts";
 import { isMainModule } from "../../src/is-main-module.ts";
 import {
   asRole,
@@ -103,7 +103,20 @@ import { claudeProjectRead } from "./project-read.ts";
 import { allow, allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
 import { boundDefinitionInForce, evaluateLead, evaluateScout } from "./lead-hook.ts";
 import { readTicketMarker } from "../../src/ticket-worktree.ts";
-import { afterLeadArchitectCall, afterLeadReply, onSubagentStop, onWorktreeCreate, onWorktreeRemove, ticketRootOf } from "./seat-hooks.ts";
+import {
+  afterLeadArchitectCall, afterLeadReply, onSubagentStop, onWorktreeCreate, onWorktreeRemove, sessionProcess, ticketRootOf,
+} from "./seat-hooks.ts";
+
+/** Whether a successful SendMessage answer carries the worker's reply inline:
+ *  some reply text, and no sign of a background resume. */
+export function inlineReply(response: Readonly<Record<string, unknown>>): boolean {
+  if (response["resumedAgentId"] !== undefined) return false;
+  const content = response["content"];
+  const text = typeof content === "string" ? content
+    : Array.isArray(content) ? content.map((c) => (typeof c === "object" && c !== null ? String((c as Record<string, unknown>)["text"] ?? "") : "")).join("")
+    : typeof response["result"] === "string" ? response["result"] : "";
+  return text.trim() !== "";
+}
 
 /** What one hook run says back to Claude Code. Exit is 0 unless an event's
  *  answer is a refusal by exit code (WorktreeCreate). */
@@ -438,12 +451,21 @@ function recordCommissionOutcome(
     // With background tasks on, Claude Code resumes the worker in the
     // background and answers "Resuming agent …" (verified live, 2.1.288):
     // the worker runs on, and no gate may run until its stop is recorded.
-    const resumed = (response as Readonly<Record<string, unknown>>)["resumedAgentId"];
-    if (typeof resumed === "string") {
-      logGuardEvent(cwd, {
-        guard: "phase-gate", verdict: "pass", summary: `worker ${resumed} resumed in the background`,
-        detail: { kind: WORKER_RESUMED, role, worker: resumed },
-      });
+    // Any successful send that does not carry the worker's reply inline is
+    // recorded so, whatever shape the answer takes; the block ends with the
+    // worker's recorded stop, its session's end, the architect's end, or the
+    // user's `bounded lead release`.
+    const r = response as Readonly<Record<string, unknown>>;
+    if (!inlineReply(r)) {
+      const target = sendTarget(payload.toolInput);
+      const worker = typeof r["resumedAgentId"] === "string" ? r["resumedAgentId"] : target.ok ? target.to : undefined;
+      if (worker !== undefined) {
+        const session = sessionProcess();
+        logGuardEvent(cwd, {
+          guard: "phase-gate", verdict: "pass", summary: `worker ${worker} may still be running in the background`,
+          detail: { kind: WORKER_RESUMED, role, worker, pid: session.pid, pidStarted: session.pidStarted },
+        });
+      }
     }
     return;
   }
@@ -559,7 +581,14 @@ function evaluateContinuation(role: Role, payload: Payload, cwd: string, harness
     host: "claude-code",
     commissions: CLAUDE_COMMISSIONS,
   });
-  return blocked === undefined ? "" : deny(blocked.reason);
+  if (blocked !== undefined) return deny(blocked.reason);
+  // Marked before the send, so a stop that is recorded before the resume is
+  // recorded still releases the gates (lead-state.ts).
+  logGuardEvent(cwd, {
+    guard: "phase-gate", verdict: "pass", summary: `continuing worker ${target.to}`,
+    detail: { kind: WORKER_CONTINUING, role, worker: target.to },
+  });
+  return "";
 }
 
 function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, harnessRoot: string, projectLocal: boolean): string {

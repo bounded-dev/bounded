@@ -99,7 +99,9 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     finished(dir, "test-writer", W1);
     const r = send(dir, { to: W1, message: "red bounced: fix the spurious passes", summary: "bounce", type: "message", recipient: W1, content: "red bounced: fix the spurious passes" });
     expect(r.decision).toBe("allow");
-    expect(phase(dir).at(-1)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "test-writer", run: W1 } });
+    expect(phase(dir).at(-2)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "test-writer", run: W1 } });
+    // Marked before the send, so a stop that lands before the resume record still counts.
+    expect(phase(dir).at(-1)).toMatchObject({ detail: { kind: "worker-continuing", worker: W1 } });
   });
 
   test("SendMessage is allowed when Claude Code's 'content' is only a preview of the message", () => {
@@ -111,7 +113,7 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     finished(dir, "builder", W1);
     const r = send(dir, { to: W1, message, summary: "Builder: run full suite now tests exist", type: "message", recipient: W1, content: `${message.slice(0, 49)}\u2026` });
     expect(r.decision).toBe("allow");
-    expect(phase(dir).at(-1)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "builder", run: W1 } });
+    expect(phase(dir).at(-2)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "builder", run: W1 } });
   });
 
   test("the worker id comes only from the architect's own PostToolUse record", () => {

@@ -5,8 +5,10 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   clearPendingLaunch, readArchitectState, readPendingLaunch, readPendingReply, recordArchitectEnded, recordArchitectRunning,
-  writePendingLaunch, type ArchitectHost,
+  writePendingLaunch, writePendingReply, type ArchitectHost,
 } from "./architect-seat.ts";
+import { logGuardEvent, readGuardLog } from "./guard-log.ts";
+import { backgroundWorkers, SEAT_RELEASED, WORKER_RESUMED } from "./lead-state.ts";
 import {
   gitCommandLine, LEAD_COMMANDS, parseLeadArgs, runLeadCommand, type LeadDeps, type LeadRequest,
 } from "./lead-commands.ts";
@@ -90,7 +92,7 @@ const issue = (n: number) => tracker.issues.get(n)!;
 /** What the host adapter does when it binds the lead's architect launch for `n`. */
 const bind = (n: number, agent = `a${String(n).padStart(16, "0")}`): string => {
   expect(readPendingLaunch(main)?.issue).toBe(n);
-  recordArchitectRunning(ticketWorktreePath(main, n), agent, { pid: process.pid, pidStarted: "t" });
+  recordArchitectRunning(ticketWorktreePath(main, n), agent, { pid: process.pid, pidStarted: "t", sessionBound: true });
   clearPendingLaunch(main);
   return agent;
 };
@@ -108,7 +110,8 @@ const deliver = (n: number, rel = `contexts/t${n}.ts`): void => {
 
 describe("parseLeadArgs — one parser for every host", () => {
   test("every command's usage is a shape the parser knows", () => {
-    expect(LEAD_COMMANDS.map((c) => c.name)).toEqual(["ticket create", "queue", "start", "status", "reply", "merge", "board"]);
+    expect(LEAD_COMMANDS.map((c) => c.name)).toEqual(["ticket create", "queue", "start", "status", "reply", "merge", "board", "release"]);
+    expect(LEAD_COMMANDS.filter((c) => c.userOnly === true).map((c) => c.name)).toEqual(["release"]);
   });
   test.each([
     [["status"], { command: "status" }],
@@ -166,7 +169,7 @@ describe("the board transitions", () => {
     expect(git(main, "status", "--porcelain")).toBe("");
     expect((await lead(["start", String(n)])).text).toContain(`is waiting for its architect. LAUNCH #${n}`);
     bind(n);
-    expect((await lead(["start", String(n)])).text).toContain("already has a worktree and an architect");
+    expect((await lead(["start", String(n)])).text).toContain("is still running");
   });
 
   test("one pending launch at a time: another ticket starts only once the waiting one is bound", async () => {
@@ -346,9 +349,9 @@ describe("review fixes (ADR 2026-066)", () => {
     expect(readPendingReply(main, n)).toBeUndefined();
   });
 
-  // Regression (final review M1): one ticket's waiting reply blocked every
-  // other ticket's; a lost seat could not be replied to.
-  test("replies to two tickets wait side by side; a lost seat takes a reply", async () => {
+  // Regression (final review M1; re-review U1): one ticket's waiting reply
+  // blocked every other ticket's; a lost seat is relaunched, never continued.
+  test("replies to two tickets wait side by side; a lost seat is relaunched into its worktree", async () => {
     const a = await started("A", ["contexts/a/"]);
     const b = await started("B", ["contexts/b/"]);
     for (const n of [a, b]) recordArchitectEnded(ticketWorktreePath(main, n), readArchitectState(ticketWorktreePath(main, n))!.agent);
@@ -357,9 +360,91 @@ describe("review fixes (ADR 2026-066)", () => {
     expect(readPendingReply(main, a)?.message).toBe("one");
     expect(readPendingReply(main, b)?.message).toBe("two");
     const wt = ticketWorktreePath(main, a);
-    recordArchitectRunning(wt, "a00000000000dead1", { pid: 999_999, pidStarted: "long ago" });
-    expect((await lead(["status"])).text).toContain("ended with its session");
-    expect((await lead(["reply", String(a), "after a lost session"])).ok).toBe(true);
+    recordArchitectRunning(wt, "a00000000000dead1", { pid: 999_999, pidStarted: "long ago", sessionBound: true });
+    expect((await lead(["status"])).text).toContain(`ended with its session; relaunch it with bounded lead start ${a}`);
+    expect((await lead(["reply", String(a), "after a lost session"])).text).toContain(`relaunch it with bounded lead start ${a}`);
+    const relaunch = await lead(["start", String(a)]);
+    expect(relaunch.text).toContain(`relaunched in its existing worktree. LAUNCH #${a}`);
+    expect(readPendingLaunch(main)).toMatchObject({ issue: a, worktree: wt, brief: expect.stringContaining("Resuming: this ticket's earlier architect stopped") });
+    expect(git(wt, "rev-parse", "--abbrev-ref", "HEAD")).toBe(`ticket/${a}`);
+    bind(a, "a00000000000live2");
+    expect(readArchitectState(wt)).toMatchObject({ agent: "a00000000000live2", state: "running", turn: 3 });
+  });
+
+  test("a seat that stopped in a session that has since gone is relaunched by start", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    const wt = ticketWorktreePath(main, n);
+    recordArchitectRunning(wt, "a00000000000dead1", { pid: 999_999, pidStarted: "long ago", sessionBound: true });
+    recordArchitectEnded(wt, "a00000000000dead1");
+    expect((await lead(["status"])).text).toContain("its session has ended; relaunch it");
+    expect((await lead(["start", String(n)])).text).toContain("relaunched in its existing worktree");
+  });
+
+  // Regression (re-review U3): an unrecognised session does not hold a seat as running forever.
+  test("status names a seat whose session cannot be recognised, and the escape hatch", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    const unknown: LeadDeps = { ...deps(), processes: { startTime: (pid) => (pid === process.pid ? "t" : null) } };
+    recordArchitectRunning(ticketWorktreePath(main, n), "a00000000000what1", { pid: 999_999, pidStarted: "t", sessionBound: true });
+    const text = (await runLeadCommand(main, { command: "status" }, unknown)).text;
+    expect(text).toContain("could not be recognised; it counts as running for at most six hours");
+    expect(text).toContain(`the user (not the lead) can clear its seat with bounded lead release ${n}`);
+  });
+
+  // Regression (re-review R1 and the escape hatch).
+  test("a background worker holds the gates until its session goes; status shows the hold", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    const wt = ticketWorktreePath(main, n);
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_RESUMED, worker: "a0000000000000w01", pid: process.pid, pidStarted: "t" } });
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_RESUMED, worker: "a0000000000000w02", pid: 999_999, pidStarted: "long ago" } });
+    const text = (await lead(["status"])).text;
+    expect(text).toContain("gates held: worker a0000000000000w01");
+    expect(text).not.toContain("a0000000000000w02");
+    expect(text).toContain(`bounded lead release ${n}`);
+    // The architect's recorded end releases its workers too.
+    recordArchitectEnded(wt, readArchitectState(wt)!.agent);
+    expect((await lead(["status"])).text).not.toContain("gates held");
+  });
+
+  test("release: refused while anything recorded still runs, unless forced; then every piece of seat state is cleared and logged", async () => {
+    expect((await lead(["release", "9"])).text).toContain("#9 is not started");
+    const n = await started("A", ["contexts/a/"]);
+    const wt = ticketWorktreePath(main, n);
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_RESUMED, worker: "a0000000000000w01", pid: process.pid, pidStarted: "t" } });
+    writePendingReply(main, { issue: n, worktree: wt, agent: "a1", message: "m", createdAt: "t" });
+    const refusedOut = await lead(["release", String(n)]);
+    expect(refusedOut.ok).toBe(false);
+    expect(refusedOut.text).toContain("its architect (turn 1), worker a0000000000000w01");
+    expect(refusedOut.text).toContain(`bounded lead release ${n} --force`);
+    expect(readArchitectState(wt)).toBeDefined();
+    const out = await lead(["release", String(n), "--force"]);
+    expect(out.ok, out.text).toBe(true);
+    expect(readArchitectState(wt)).toBeUndefined();
+    expect(readPendingReply(main, n)).toBeUndefined();
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
+    expect(readGuardLog(wt).at(-1)).toMatchObject({ detail: { kind: SEAT_RELEASED, issue: n, force: true } });
+    expect(readGuardLog(main).at(-1)).toMatchObject({ detail: { kind: SEAT_RELEASED, issue: n, force: true, seat: "running", workers: ["a0000000000000w01"] } });
+    // From released back to running: start relaunches into the same worktree.
+    expect((await lead(["start", String(n)])).text).toContain(`LAUNCH #${n}`);
+    bind(n);
+    expect(readArchitectState(wt)?.state).toBe("running");
+  });
+
+  test("release without force once the recorded processes are gone clears a stale launch claim", async () => {
+    const n = await create("A", ["contexts/a/"]);
+    await lead(["queue", String(n)]);
+    await lead(["start", String(n)]);
+    writePendingLaunch(main, { ...readPendingLaunch(main)!, claimedBy: "t1", claimedAt: new Date().toISOString(), claimant: { pid: process.pid, pidStarted: "t" } });
+    expect((await lead(["release", String(n)])).text).toContain("an architect launch under way");
+    writePendingLaunch(main, { ...readPendingLaunch(main)!, claimant: { pid: 999_999, pidStarted: "long ago" } });
+    expect((await lead(["release", String(n)])).ok).toBe(true);
+    expect(readPendingLaunch(main)).toBeUndefined();
+  });
+
+  test("release is parsed only as release <issue> [--force]", () => {
+    expect(parseLeadArgs(["release", "#4"])).toEqual({ ok: true, request: { command: "release", issue: 4, force: false } });
+    expect(parseLeadArgs(["release", "4", "--force"])).toEqual({ ok: true, request: { command: "release", issue: 4, force: true } });
+    expect(parseLeadArgs(["release", "4", "--forced"]).ok).toBe(false);
+    expect(parseLeadArgs(["release"]).ok).toBe(false);
   });
 
   // Regression (final review M2): a claimed launch that never bound wedged the ticket.

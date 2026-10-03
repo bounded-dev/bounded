@@ -285,7 +285,7 @@ export async function runGateWithBoard(
   if (marker === undefined) return run();
   // A worker resumed in the background may still be writing: no gate judges
   // or freezes a tree that is still changing (ADR 2026-066).
-  const busy = backgroundWorkers(readGuardLog(cwd));
+  const busy = backgroundWorkers(readGuardLog(cwd)).map((w) => w.worker);
   if (busy.length > 0) {
     return {
       code: 2, verdict: "error",

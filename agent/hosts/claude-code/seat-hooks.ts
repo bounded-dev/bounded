@@ -12,7 +12,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   claimPendingLaunch, clearPendingLaunch, clearPendingReply, pendingReplyFor, readPendingLaunch, recordArchitectEnded,
-  recordArchitectRunning, releaseLaunchClaim, seatContinuable,
+  architectStatus, recordArchitectRunning, releaseLaunchClaim, seatContinuable, seatNeedsRelaunch,
 } from "../../src/architect-seat.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
 import { LEAD_GUARD, SUBAGENT_STOPPED } from "../../src/lead-state.ts";
@@ -125,7 +125,7 @@ export function onWorktreeCreate(rec: Readonly<Record<string, unknown>>, main: s
   if (pending?.claimedBy === undefined) return fail("no architect launch is under way; run bounded lead start <issue> first");
   const marker = readTicketMarker(pending.worktree);
   if (marker?.issue !== pending.issue) return fail(`ticket #${pending.issue}'s worktree is not marked as its own`);
-  recordArchitectRunning(pending.worktree, agent, sessionProcess());
+  recordArchitectRunning(pending.worktree, agent, { ...sessionProcess(), sessionBound: true });
   clearPendingLaunch(main);
   logGuardEvent(main, {
     guard: LEAD_GUARD, verdict: "pass", summary: `team-lead: #${pending.issue}'s architect is ${agent}, in its worktree`,
@@ -184,11 +184,14 @@ export function leadReplySend(payload: HookPayload, main: string): string {
   if (pending === undefined) {
     return refuse(`team-lead: no reply is waiting for ${target.to}; prepare one with bounded lead reply <issue> <message>`);
   }
-  // A stopped seat, or one whose session ended without a stop (lost), continues.
+  // Only a stopped seat whose session still runs continues; one whose session
+  // has gone is relaunched by `bounded lead start` (ADR 2026-066).
   if (!seatContinuable(pending.worktree, pending.agent)) {
-    return refuse(`team-lead: #${pending.issue}'s architect is still running; one architect turn runs per worktree`);
+    return refuse(seatNeedsRelaunch(architectStatus(pending.worktree))
+      ? `team-lead: #${pending.issue}'s architect ran in a session that has ended and cannot be continued; relaunch it with bounded lead start ${pending.issue}`
+      : `team-lead: #${pending.issue}'s architect is still running; one architect turn runs per worktree`);
   }
-  recordArchitectRunning(pending.worktree, pending.agent, sessionProcess());
+  recordArchitectRunning(pending.worktree, pending.agent, { ...sessionProcess(), sessionBound: true });
   clearPendingReply(main, pending.issue);
   return allowWith({ to: pending.agent, message: pending.message });
 }

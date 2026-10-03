@@ -2,10 +2,12 @@ import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readGuardLog } from "../../src/guard-log.ts";
-import { backgroundWorkers } from "../../src/lead-state.ts";
+import { backgroundWorkers, WORKER_CONTINUING } from "../../src/lead-state.ts";
+import { logGuardEvent } from "../../src/guard-log.ts";
+import { systemProcesses } from "../../src/process-lock.ts";
 import type { TempProject } from "../../test/support/temp-project.ts";
 import { LOG, logLines, makeLeadProject, prepared } from "../../test/support/lead-project.ts";
-import { runHook } from "./path-gate-hook.ts";
+import { inlineReply, runHook } from "./path-gate-hook.ts";
 import { boundDefinitionInForce, leadCommand } from "./lead-hook.ts";
 import {
   readArchitectState, readPendingLaunch, readPendingReply, recordArchitectEnded, recordArchitectRunning, writePendingLaunch, writePendingReply,
@@ -270,9 +272,43 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
     runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
       tool_input: { to: "a0000000000000002", message: "fix it" },
       tool_response: { success: true, message: "Resuming agent a0000000000000002", resumedAgentId: "a0000000000000002" } }), wt);
-    expect(backgroundWorkers(readGuardLog(wt))).toEqual(["a0000000000000002"]);
+    expect(backgroundWorkers(readGuardLog(wt)).map((w) => w.worker)).toEqual(["a0000000000000002"]);
+    expect(readGuardLog(wt).at(-1)?.detail).toMatchObject({ kind: "worker-resumed", pid: expect.any(Number), pidStarted: expect.any(String) });
     runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a0000000000000002", agent_type: "builder" }), wt);
     expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
+  });
+
+  // Regression (re-review U4): the block must not fail open if the answer's shape changes.
+  test("any successful send without the worker's reply inline is recorded as a background resume", () => {
+    const { wt } = ticketed();
+    const post = (response: Readonly<Record<string, unknown>>) =>
+      runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+        tool_input: { to: "a0000000000000003", message: "fix it" }, tool_response: response }), wt);
+    post({ success: true, content: "Done: all four tests now fail for the right reason." });
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
+    post({ success: true, status: "queued" });
+    expect(backgroundWorkers(readGuardLog(wt)).map((w) => w.worker)).toEqual(["a0000000000000003"]);
+    expect(inlineReply({ success: true, content: [{ type: "text", text: "reply" }] })).toBe(true);
+    expect(inlineReply({ success: true, content: "x", resumedAgentId: "a1" })).toBe(false);
+    expect(inlineReply({ success: true, message: "Resuming agent a1" })).toBe(false);
+  });
+
+  // Regression (re-review U2): a stop that lands before the resume record still releases the gates.
+  test("a worker's stop recorded before its resume record cancels the resume", () => {
+    const { wt } = ticketed();
+    const worker = "a0000000000000004";
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: "a0000000000000009", agent_type: "builder" }), wt);
+    // The architect's continuation is allowed (marked), the worker stops, then the resume lands.
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_CONTINUING, worker } });
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "SubagentStop", agent_id: worker, agent_type: "builder" }), wt);
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: worker, message: "fix it" }, tool_response: { success: true, resumedAgentId: worker } }), wt);
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
+    // A later continuation of the same worker blocks again.
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_CONTINUING, worker } });
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: worker, message: "again" }, tool_response: { success: true, resumedAgentId: worker } }), wt);
+    expect(backgroundWorkers(readGuardLog(wt)).map((w) => w.worker)).toEqual([worker]);
   });
 
   test("NotebookEdit is judged as an edit, not waved through", () => {
@@ -351,15 +387,22 @@ describe("the lead's architect launch and reply (ADR 2026-066)", () => {
     expect(hook(main, "Agent", { subagent_type: "architect", prompt: "go" }, LEAD, { tool_use_id: "t3" }).decision).toBe("rewrite");
   });
 
-  // Regression (final review M1): a seat whose session ended without a stop
-  // record could never be continued.
-  test("a lost seat — recorded running, its session gone — is continued by its prepared reply", () => {
+  // Regression (re-review U1): verified live, a new session cannot SendMessage
+  // an agent of a session that has gone; such a seat is relaunched instead.
+  test("a seat whose session has gone is never continued; the refusal names the relaunch", () => {
     const { main, wt } = setup();
     const agent = "a1234567890abcdef";
-    recordArchitectRunning(wt, agent, { pid: 999_999, pidStarted: "long ago" });
+    recordArchitectRunning(wt, agent, { pid: 999_999, pidStarted: "long ago", sessionBound: true });
     writePendingReply(main, { issue: 7, worktree: wt, agent, message: "Go on.", createdAt: "t" });
-    expect(hook(main, "SendMessage", { to: agent, message: "x" })).toEqual({ decision: "rewrite", input: { to: agent, message: "Go on." } });
-    expect(readArchitectState(wt)).toMatchObject({ state: "running", turn: 2 });
+    expect(hook(main, "SendMessage", { to: agent, message: "x" }).reason).toContain("relaunch it with bounded lead start 7");
+    recordArchitectEnded(wt, agent);
+    expect(hook(main, "SendMessage", { to: agent, message: "x" }).reason).toContain("relaunch it with bounded lead start 7");
+    expect(readArchitectState(wt)).toMatchObject({ state: "ended", turn: 1 });
+  });
+
+  test("the escape hatch is the user's: the lead's bounded lead release is refused", () => {
+    const { main } = setup();
+    expect(hook(main, "Bash", { command: "bounded lead release 7 --force" }).reason).toContain("the user's own escape hatch");
   });
 
   // Regression (final review M2): a claim that never bound wedged the launch.
@@ -388,7 +431,7 @@ describe("the lead's architect launch and reply (ADR 2026-066)", () => {
 });
 
 function writeArchitectEnded(wt: string, agent: string): void {
-  recordArchitectRunning(wt, agent, { pid: process.pid, pidStarted: "t" });
+  recordArchitectRunning(wt, agent, { pid: process.pid, pidStarted: systemProcesses.startTime(process.pid) ?? "unknown", sessionBound: true });
   recordArchitectEnded(wt, agent);
 }
 

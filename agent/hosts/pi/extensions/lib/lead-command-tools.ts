@@ -55,7 +55,8 @@ export function leadToolArgv(command: string, params: Params): string[] {
 }
 
 export function registerLeadCommandTools(pi: ExtensionAPI, leadSession: (cwd: string) => boolean): void {
-  for (const spec of LEAD_COMMANDS) {
+  // The user's own commands (release) are never the lead's tools.
+  for (const spec of LEAD_COMMANDS.filter((c) => c.userOnly !== true)) {
     const shape = SHAPES[spec.name];
     const name = LEAD_COMMAND_TOOLS[spec.name];
     if (shape === undefined || name === undefined) throw new Error(`lead command '${spec.name}' has no pi tool`);

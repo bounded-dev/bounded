@@ -11,7 +11,7 @@
 
 import {
   claimPendingLaunch, clearPendingLaunch, clearPendingReply, pendingReplyFor, readPendingLaunch, recordArchitectEnded,
-  recordArchitectRunning, releaseLaunchClaim, seatContinuable,
+  architectStatus, recordArchitectRunning, releaseLaunchClaim, seatContinuable, seatNeedsRelaunch,
 } from "../../../../src/architect-seat.ts";
 import { systemProcesses } from "../../../../src/process-lock.ts";
 import { readTicketMarker } from "../../../../src/ticket-worktree.ts";
@@ -46,8 +46,13 @@ export function leadArchitectCall(input: Input, toolCallId: string, main: string
     if (pending === undefined) {
       return { handled: true, refuse: "team-lead: only a reply prepared with bounded lead reply <issue> <message> continues an architect" };
     }
-    // A stopped seat, or one whose session ended without a stop (lost), continues.
-    if (!seatContinuable(pending.worktree, pending.agent)) return { handled: true, refuse: `team-lead: #${pending.issue}'s architect is still running` };
+    // A stopped seat continues; one lost with its process is relaunched by
+    // `bounded lead start` (ADR 2026-066).
+    if (!seatContinuable(pending.worktree, pending.agent)) {
+      return { handled: true, refuse: seatNeedsRelaunch(architectStatus(pending.worktree))
+        ? `team-lead: #${pending.issue}'s architect was lost with its process; relaunch it with bounded lead start ${pending.issue}`
+        : `team-lead: #${pending.issue}'s architect is still running` };
+    }
     input["message"] = pending.message;
     clearPendingReply(main, pending.issue);
     return { handled: true };

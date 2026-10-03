@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   architectStatus, claimPendingLaunch, claimStale, flagLike, LAUNCH_CLAIM_MAX_AGE_MS, pendingReplyFor, readArchitectState,
   readPendingLaunch, recordArchitectEnded, recordArchitectRunning, releaseLaunchClaim, seatContinuable, writePendingLaunch,
-  writePendingReply,
+  writePendingReply, clearArchitectState, seatNeedsRelaunch, UNRECOGNISED_SEAT_MAX_AGE_MS,
 } from "./architect-seat.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { ARCHITECT_ENDED } from "./lead-state.ts";
@@ -59,16 +59,18 @@ describe("the pending launch", () => {
   });
 
   // Regression (final review M1).
-  test("each ticket keeps its own pending reply; a stopped or lost seat is continuable, a running one is not", () => {
+  test("each ticket keeps its own pending reply; only a stopped seat whose session still runs is continuable", () => {
     writePendingReply(main, { issue: 7, worktree: wt, agent: "a1", message: "m7", createdAt: "t" });
     writePendingReply(main, { issue: 8, worktree: join(main, "w8"), agent: "a2", message: "m8", createdAt: "t" });
     expect(pendingReplyFor(main, "a1")?.message).toBe("m7");
     expect(pendingReplyFor(main, "a2")?.message).toBe("m8");
-    recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t" });
+    recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t", sessionBound: true });
     expect(seatContinuable(wt, "a1", live)).toBe(false);
-    expect(seatContinuable(wt, "a1", dead)).toBe(true);
+    // Regression (U1): a lost seat cannot be continued from another session.
+    expect(seatContinuable(wt, "a1", dead)).toBe(false);
     recordArchitectEnded(wt, "a1");
     expect(seatContinuable(wt, "a1", live)).toBe(true);
+    expect(seatContinuable(wt, "a1", dead)).toBe(false);
     expect(seatContinuable(wt, "a2", live)).toBe(false);
   });
 });
@@ -80,17 +82,50 @@ describe("the seat's life", () => {
     expect(architectStatus(wt, live)).toMatchObject({ kind: "running", turn: 1, agent: "a1" });
     expect(recordArchitectEnded(wt, "a2")).toBe(false);
     expect(recordArchitectEnded(wt, "a1")).toBe(true);
-    expect(architectStatus(wt, live)).toEqual({ kind: "ended", turn: 1, agent: "a1" });
+    expect(architectStatus(wt, live)).toEqual({ kind: "ended", turn: 1, agent: "a1", sessionGone: false });
     expect(readGuardLog(wt).at(-1)).toMatchObject({ detail: { kind: ARCHITECT_ENDED, agent: "a1" } });
     recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t" });
     expect(readArchitectState(wt)).toMatchObject({ turn: 2, state: "running" });
   });
 
   test("a seat whose host session is gone is lost, never running", () => {
-    recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t" });
-    expect(architectStatus(wt, dead)).toEqual({ kind: "lost", turn: 1, agent: "a1" });
+    recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t", sessionBound: true });
+    expect(architectStatus(wt, dead)).toEqual({ kind: "lost", turn: 1, agent: "a1", why: "session-gone" });
+    expect(seatNeedsRelaunch(architectStatus(wt, dead))).toBe(true);
     expect(architectStatus(wt, { startTime: () => "a later process" }).kind).toBe("lost");
-    expect(architectStatus(wt, { startTime: () => null }).kind).toBe("running");
+    recordArchitectEnded(wt, "a1");
+    expect(architectStatus(wt, dead)).toMatchObject({ kind: "ended", sessionGone: true });
+    expect(seatNeedsRelaunch(architectStatus(wt, dead))).toBe(true);
+    expect(seatNeedsRelaunch(architectStatus(wt, live))).toBe(false);
+  });
+
+  test("where the recorded process is the subagent's own (pi), a stopped seat stays continuable after it exits", () => {
+    recordArchitectRunning(wt, "run-1", { pid: 10, pidStarted: "t" });
+    recordArchitectEnded(wt, "run-1");
+    expect(architectStatus(wt, dead)).toMatchObject({ kind: "ended", sessionGone: false });
+    expect(seatContinuable(wt, "run-1", dead)).toBe(true);
+  });
+
+  // Regression (U3): a seat whose session cannot be recognised does not stay running forever.
+  test("an unrecognised session counts as running only until the age limit", () => {
+    const unknown: ProcessProbe = { startTime: () => null };
+    recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t", sessionBound: true });
+    const since = Date.parse(readArchitectState(wt)!.startedAt);
+    expect(architectStatus(wt, unknown, since + 1000)).toMatchObject({ kind: "running", unrecognised: true });
+    expect(architectStatus(wt, live, since + 1000)).not.toHaveProperty("unrecognised");
+    const late = since + UNRECOGNISED_SEAT_MAX_AGE_MS + 1;
+    expect(architectStatus(wt, unknown, late)).toEqual({ kind: "lost", turn: 1, agent: "a1", why: "unrecognised-expired" });
+    expect(seatNeedsRelaunch(architectStatus(wt, unknown, late))).toBe(true);
+    recordArchitectEnded(wt, "a1");
+    expect(architectStatus(wt, unknown, late)).toMatchObject({ kind: "ended", sessionGone: true });
+    expect(architectStatus(wt, unknown, since + 1000)).toMatchObject({ kind: "ended", sessionGone: false });
+  });
+
+  test("clearing the seat leaves no architect", () => {
+    recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t" });
+    clearArchitectState(wt);
+    expect(architectStatus(wt, live)).toEqual({ kind: "none" });
+    expect(seatNeedsRelaunch(architectStatus(wt, live))).toBe(true);
   });
 
   test("a message that reads as an option", () => {

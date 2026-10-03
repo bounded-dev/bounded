@@ -70,13 +70,13 @@ describe("the lead's continuation", () => {
     expect(readPendingReply(main, 7)).toBeUndefined();
   });
 
-  // Regression (final review M1, M2).
-  test("a lost seat is continued; a claim whose launch never started its child can be claimed again", () => {
+  // Regression (final review M2; re-review U1).
+  test("a lost seat is relaunched, not resumed; a claim whose launch never started its child can be claimed again", () => {
     recordArchitectRunning(wt, "run-1", { pid: 999_999, pidStarted: "long ago" });
     writePendingReply(main, { issue: 7, worktree: wt, agent: "run-1", message: "Go on.", createdAt: "t" });
     const input: Record<string, unknown> = { action: "resume", id: "run-1", message: "x" };
-    expect(leadArchitectCall(input, "c1", main)).toEqual({ handled: true });
-    expect(input["message"]).toBe("Go on.");
+    expect(leadArchitectCall(input, "c1", main)).toEqual({ handled: true, refuse: expect.stringContaining("relaunch it with bounded lead start 7") });
+    expect(input["message"]).toBe("x");
     pending();
     writePendingLaunch(main, { ...readPendingLaunch(main)!, claimedBy: "c1", claimedAt: new Date(Date.now() - 16 * 60_000).toISOString(), claimant: { pid: process.pid, pidStarted: "t" } });
     expect(leadArchitectCall({ agent: "architect", task: "go" }, "c2", main)).toEqual({ handled: true });

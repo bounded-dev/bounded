@@ -22,14 +22,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { applyBoardOps, boardReady, quarantinedOps, releaseQuarantine, type BoardOp } from "./board-sync.ts";
 import {
-  architectStatus, claimStale, flagLike, readPendingLaunch, releaseLaunchClaim, writePendingLaunch, writePendingReply, type ArchitectHost,
+  architectStatus, claimStale, clearArchitectState, clearPendingLaunch, clearPendingReply, flagLike, readPendingLaunch, releaseLaunchClaim,
+  seatNeedsRelaunch, writePendingLaunch, writePendingReply, type ArchitectHost,
 } from "./architect-seat.ts";
 import { clearDeliverySnapshot, readDeliverySnapshot, worktreeSnapshot } from "./delivery-snapshot.ts";
 import { acquireLock, systemProcesses, type ProcessProbe } from "./process-lock.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
-import { logGuardEvent } from "./guard-log.ts";
+import { logGuardEvent, readGuardLog } from "./guard-log.ts";
 import { prepareLeadRun } from "./lead-run.ts";
-import { isProjectLocalHarness, LEAD_GUARD, preparedTicket, readRunLog } from "./lead-state.ts";
+import { backgroundWorkers, isProjectLocalHarness, LEAD_GUARD, preparedTicket, readRunLog, SEAT_RELEASED } from "./lead-state.ts";
 import { planModelTier } from "./model-tier.ts";
 import { contributionsByPack } from "./pack-contrib.ts";
 import { readProjectPacks } from "./project-composition.ts";
@@ -56,6 +57,8 @@ export const PROJECT_CHECK_SOCKET = "projectCheckCommands";
 
 export interface LeadCommandSpec {
   readonly name: string;
+  /** Run only by the user from a terminal; no host gives the lead this command. */
+  readonly userOnly?: true;
   /** The one spelling of the command, shared by the CLI, the hosts and the skill. */
   readonly usage: string;
   readonly summary: string;
@@ -73,6 +76,10 @@ export const LEAD_COMMANDS: readonly LeadCommandSpec[] = [
   { name: "reply", usage: "bounded lead reply <issue> <message>", summary: "Continue a ticket's finished architect turn with the user's answer." },
   { name: "merge", usage: "bounded lead merge <issue>", summary: "Merge a delivered ticket into local main, run the project's check, push main and close the ticket; it moves to Done." },
   { name: "board", usage: "bounded lead board <retry|discard>", summary: "Try again, or set aside for good, the board updates that kept failing and were quarantined; status lists them." },
+  {
+    name: "release", usage: "bounded lead release <issue> [--force]", userOnly: true,
+    summary: "For the user, never the lead: clear all of a stuck ticket's seat state — its architect seat, background-worker blocks, launch claim and pending reply — once its recorded processes are gone, or with --force.",
+  },
 ];
 
 export type LeadRequest =
@@ -80,7 +87,8 @@ export type LeadRequest =
   | { readonly command: "queue" | "start" | "merge"; readonly issue: number }
   | { readonly command: "status" }
   | { readonly command: "reply"; readonly issue: number; readonly message: string }
-  | { readonly command: "board"; readonly action: "retry" | "discard" };
+  | { readonly command: "board"; readonly action: "retry" | "discard" }
+  | { readonly command: "release"; readonly issue: number; readonly force: boolean };
 
 export type ParsedLead = { readonly ok: true; readonly request: LeadRequest } | { readonly ok: false; readonly reason: string };
 
@@ -120,6 +128,11 @@ export function parseLeadArgs(args: readonly string[]): ParsedLead {
   if (first === "queue" || first === "start" || first === "merge") {
     const issue = rest.length === 1 ? parseIssueRef(rest[0]!) : undefined;
     return issue === undefined ? { ok: false, reason: usageOf(first) } : { ok: true, request: { command: first, issue } };
+  }
+  if (first === "release") {
+    const force = rest.length === 2 && rest[1] === "--force";
+    const issue = rest.length === 1 || force ? parseIssueRef(rest[0]!) : undefined;
+    return issue === undefined ? { ok: false, reason: usageOf("release") } : { ok: true, request: { command: "release", issue, force } };
   }
   if (first === "board") {
     const action = rest[0];
@@ -284,6 +297,8 @@ export async function runLeadCommand(main: string, request: LeadRequest, deps: L
 }
 
 async function runLocked(main: string, request: LeadRequest, deps: LeadDeps): Promise<LeadOutcome> {
+  // The escape hatch needs nothing else to work: not even the tracker.
+  if (request.command === "release") return release(main, request.issue, request.force, deps);
   let tracker: Tracker;
   try {
     tracker = deps.tracker(main);
@@ -317,6 +332,8 @@ async function dispatch(main: string, request: LeadRequest, deps: LeadDeps, trac
     case "reply": return reply(main, request.issue, request.message, deps, tracker);
     case "merge": return merge(main, request.issue, deps, tracker);
     case "board": return boardQuarantine(main, request.action, tracker);
+    case "release": return release(main, request.issue, request.force, deps);
+
   }
 }
 
@@ -354,6 +371,42 @@ function boardQuarantine(main: string, action: "retry" | "discard", tracker: Tra
   return done(action === "retry"
     ? `retried ${count} quarantined board update(s)${left.length > 0 ? `; ${left.length} failed again and are quarantined` : ""}`
     : `discarded ${count} quarantined board update(s); the board may need fixing by hand`);
+}
+
+/**
+ * The user's escape hatch: clear all of a ticket's seat state — the
+ * architect seat, background-worker blocks, a launch claim and a pending
+ * reply — once its recorded processes are gone, or with `force`. Then
+ * `bounded lead start` relaunches its architect into the same worktree.
+ */
+function release(main: string, issueNumber: number, force: boolean, deps: LeadDeps): LeadOutcome {
+  const ticket = readStartedTicket(main, issueNumber);
+  if (ticket === undefined) return refused(`#${issueNumber} is not started`);
+  const probe = deps.processes ?? systemProcesses;
+  const seat = architectStatus(ticket.worktree, probe);
+  const workers = backgroundWorkers(readGuardLog(ticket.worktree), probe);
+  const pending = readPendingLaunch(main);
+  const claimLive = pending?.issue === issueNumber && pending.claimedBy !== undefined && !claimStale(pending, probe);
+  if (!force && (seat.kind === "running" || workers.length > 0 || claimLive)) {
+    const what = [
+      ...(seat.kind === "running" ? [`its architect (turn ${seat.turn})`] : []),
+      ...workers.map((w) => `worker ${w.worker}`),
+      ...(claimLive ? ["an architect launch under way"] : []),
+    ];
+    return refused(`#${issueNumber} still has ${what.join(", ")} recorded as running in a live session; if you are sure it is stuck, run bounded lead release ${issueNumber} --force`);
+  }
+  clearArchitectState(ticket.worktree);
+  logGuardEvent(ticket.worktree, {
+    guard: LEAD_GUARD, verdict: "pass", summary: `seat released by the user${force ? " (forced)" : ""}`,
+    detail: { kind: SEAT_RELEASED, issue: issueNumber, force },
+  });
+  if (pending?.issue === issueNumber) clearPendingLaunch(main);
+  clearPendingReply(main, issueNumber);
+  logGuardEvent(main, {
+    guard: LEAD_GUARD, verdict: "pass", summary: `team-lead: the user released #${issueNumber}'s seat${force ? " (forced)" : ""}`,
+    detail: { kind: SEAT_RELEASED, issue: issueNumber, force, seat: seat.kind, workers: workers.map((w) => w.worker) },
+  });
+  return done(`#${issueNumber}'s seat is released; the lead relaunches its architect with bounded lead start ${issueNumber}`);
 }
 
 /** Whether the worktree still holds exactly what its deliver gate passed on. */
@@ -436,7 +489,26 @@ async function start(main: string, issueNumber: number, deps: LeadDeps, tracker:
       releaseLaunchClaim(main);
       return done(`#${issueNumber} is waiting for its architect. ${host.launchInstruction(pending)}`);
     }
-    return refused(`#${issueNumber} already has a worktree and an architect; continue it with reply`);
+    // A seat whose session has gone cannot be continued (a host continues a
+    // subagent only in the session that started it): launch a fresh architect
+    // into the same worktree, ticket and branch.
+    const seat = architectStatus(worktree, deps.processes ?? systemProcesses);
+    if (seatNeedsRelaunch(seat)) {
+      const host = await deps.host(main);
+      const unsafe = host.preflight(worktree);
+      if (unsafe !== undefined) return refused(`#${issueNumber}'s architect was not relaunched, because its gate would not hold: ${unsafe}`);
+      const model = architectModel(main, host);
+      if ("error" in model) return refused(model.error);
+      const launch = {
+        issue: issueNumber, worktree, createdAt: new Date().toISOString(), ...model,
+        brief: `${openingBrief(issue, worktree, main)}\n\nResuming: this ticket's earlier architect stopped with its session. Its worktree, design note and guard log hold the work so far; read them, then carry on from there.`,
+      };
+      writePendingLaunch(main, launch);
+      return done(`#${issueNumber}'s architect will be relaunched in its existing worktree. ${host.launchInstruction(launch)}`);
+    }
+    return refused(seat.kind === "running"
+      ? `#${issueNumber}'s architect is still running; check it with bounded lead status`
+      : `#${issueNumber}'s architect has stopped; continue it with bounded lead reply ${issueNumber} <message>`);
   }
   // Resuming: the record says a start began, or the board and the worktree
   // show one that left no record.
@@ -550,9 +622,30 @@ async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<L
             : pending.claimedBy !== undefined ? "  architect: launch under way"
             : `  architect: waiting to be launched — ${(await deps.host(main)).launchInstruction(pending)}`);
         break;
-      case "running": lines.push(`  architect: running turn ${architect.turn} since ${architect.since}`); break;
-      case "ended": lines.push(`  architect: turn ${architect.turn} stopped and reported to you; continue it with bounded lead reply ${ticket.issue} <message>`); break;
-      case "lost": lines.push(`  architect: turn ${architect.turn} ended with its session; continue it with bounded lead reply ${ticket.issue} <message>`); break;
+      case "running":
+        lines.push(`  architect: running turn ${architect.turn} since ${architect.since}` +
+          (architect.unrecognised === true ? " (its session could not be recognised; it counts as running for at most six hours)" : ""));
+        break;
+      case "ended":
+        lines.push(architect.sessionGone
+          ? `  architect: turn ${architect.turn} stopped, and its session has ended; relaunch it with bounded lead start ${ticket.issue}`
+          : `  architect: turn ${architect.turn} stopped and reported to you; continue it with bounded lead reply ${ticket.issue} <message>`);
+        break;
+      case "lost":
+        lines.push(architect.why === "session-gone"
+          ? `  architect: turn ${architect.turn} ended with its session; relaunch it with bounded lead start ${ticket.issue}`
+          : `  architect: turn ${architect.turn}'s session could never be recognised and it has run past the age limit; relaunch it with bounded lead start ${ticket.issue}`);
+        break;
+    }
+    for (const w of backgroundWorkers(readGuardLog(ticket.worktree), deps.processes ?? systemProcesses)) {
+      lines.push(`  gates held: worker ${w.worker} resumed in the background at ${w.since} and has no recorded stop` +
+        (w.unrecognised === true ? " (its session could not be recognised; the hold ends after an hour)" : ""));
+    }
+    if (architect.kind === "lost" || (architect.kind === "ended" && architect.sessionGone) ||
+        (architect.kind === "running" && architect.unrecognised === true) ||
+        backgroundWorkers(readGuardLog(ticket.worktree), deps.processes ?? systemProcesses).length > 0 ||
+        (pending?.issue === ticket.issue && pending.claimedBy !== undefined)) {
+      lines.push(`  if it stays stuck, the user (not the lead) can clear its seat with bounded lead release ${ticket.issue}`);
     }
   }
   return done(`started tickets:\n${lines.join("\n")}`);
@@ -574,6 +667,9 @@ async function reply(main: string, issueNumber: number, message: string, deps: L
   const architect = architectStatus(ticket.worktree, deps.processes ?? systemProcesses);
   if (architect.kind === "none") return refused(`#${issueNumber}'s architect was never launched; launch it as bounded lead start ${issueNumber} says`);
   if (architect.kind === "running") return refused(`#${issueNumber}'s architect is still running; one architect turn runs per worktree`);
+  if (seatNeedsRelaunch(architect)) {
+    return refused(`#${issueNumber}'s architect ran in a session that has ended, and cannot be continued; relaunch it with bounded lead start ${issueNumber}`);
+  }
   const unsafe = host.preflight(ticket.worktree);
   if (unsafe !== undefined) return refused(`#${issueNumber}'s architect was not continued, because its gate would not hold: ${unsafe}`);
   // A reply to a delivered ticket reopens it: the architect may change the

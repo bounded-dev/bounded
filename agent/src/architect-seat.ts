@@ -78,14 +78,25 @@ export interface ArchitectState {
   readonly pidStarted: string;
   readonly startedAt: string;
   readonly endedAt?: string;
+  /** The host continues this subagent only within the session at `pid` (Claude
+   *  Code, verified live): once that session has gone, a stopped seat is
+   *  relaunched, not continued. Unset where the recorded process is the
+   *  subagent's own and ends with each turn (pi). */
+  readonly sessionBound?: true;
 }
 
 export type ArchitectStatus =
   | { readonly kind: "none" }
-  | { readonly kind: "running"; readonly turn: number; readonly since: string; readonly agent: string }
-  | { readonly kind: "ended"; readonly turn: number; readonly agent: string }
-  /** Recorded as running, but its host session is gone. */
-  | { readonly kind: "lost"; readonly turn: number; readonly agent: string };
+  | { readonly kind: "running"; readonly turn: number; readonly since: string; readonly agent: string; readonly unrecognised?: true }
+  | { readonly kind: "ended"; readonly turn: number; readonly agent: string; readonly sessionGone: boolean }
+  /** Recorded as running, but its host session is gone, or its session could
+   *  never be recognised and the age limit has passed. */
+  | { readonly kind: "lost"; readonly turn: number; readonly agent: string; readonly why: "session-gone" | "unrecognised-expired" };
+
+/** Clear everything a ticket's seat holds in its worktree (`bounded lead release`). */
+export function clearArchitectState(worktree: string): void {
+  rmSync(join(worktree, ARCHITECT_DIR_RELATIVE, STATE), { force: true });
+}
 
 function readJson<T>(path: string): T | undefined {
   try {
@@ -181,12 +192,20 @@ export function clearPendingReply(main: string, issue: number): void {
 
 /**
  * Whether `agent`'s seat may be continued now: it is the worktree's recorded
- * architect and it is not running. A seat whose session ended without a
- * recorded stop (lost) is continuable like one that stopped.
+ * architect, it stopped, and the host session it ran in still runs. A host
+ * continues a subagent only within the session that started it (verified
+ * live on Claude Code: another session's SendMessage finds no transcript), so
+ * a seat whose session has gone is relaunched by `bounded lead start` instead.
  */
 export function seatContinuable(worktree: string, agent: string, probe: ProcessProbe = systemProcesses): boolean {
   const status = architectStatus(worktree, probe);
-  return (status.kind === "ended" || status.kind === "lost") && status.agent === agent;
+  return status.kind === "ended" && !status.sessionGone && status.agent === agent;
+}
+
+/** Whether the seat needs a fresh architect: none ever bound, its session
+ *  is gone (lost), or it stopped in a session that has since gone. */
+export function seatNeedsRelaunch(status: ArchitectStatus): boolean {
+  return status.kind === "none" || status.kind === "lost" || (status.kind === "ended" && status.sessionGone);
 }
 
 // ── The seat's life (ticket worktree) ───────────────────────────────────────
@@ -198,12 +217,12 @@ export function readArchitectState(worktree: string): ArchitectState | undefined
 
 /** The host bound a launch, or a continuation, to this worktree's architect. */
 export function recordArchitectRunning(
-  worktree: string, agent: string, host: { readonly pid: number; readonly pidStarted: string },
+  worktree: string, agent: string, host: { readonly pid: number; readonly pidStarted: string; readonly sessionBound?: boolean },
 ): ArchitectState {
   const previous = readArchitectState(worktree);
   const state: ArchitectState = {
     agent, turn: (previous?.turn ?? 0) + 1, state: "running", pid: host.pid, pidStarted: host.pidStarted,
-    startedAt: new Date().toISOString(),
+    startedAt: new Date().toISOString(), ...(host.sessionBound === true ? { sessionBound: true as const } : {}),
   };
   writeJson(join(worktree, ARCHITECT_DIR_RELATIVE, STATE), state);
   return state;
@@ -221,13 +240,19 @@ export function recordArchitectEnded(worktree: string, agent: string): boolean {
   return true;
 }
 
-export function architectStatus(worktree: string, probe: ProcessProbe = systemProcesses): ArchitectStatus {
+/** A seat whose session could not be recognised (start time unknown) counts as
+ *  running only this long; then it is lost, as an unbound launch claim goes stale. */
+export const UNRECOGNISED_SEAT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+export function architectStatus(worktree: string, probe: ProcessProbe = systemProcesses, now: number = Date.now()): ArchitectStatus {
   const state = readArchitectState(worktree);
   if (state === undefined) return { kind: "none" };
-  if (state.state === "ended") return { kind: "ended", turn: state.turn, agent: state.agent };
-  return ownerState({ pid: state.pid, started: state.pidStarted }, probe) === "stale"
-    ? { kind: "lost", turn: state.turn, agent: state.agent }
-    : { kind: "running", turn: state.turn, since: state.startedAt, agent: state.agent };
+  const session = ownerState({ pid: state.pid, started: state.pidStarted }, probe);
+  const expired = session === "unknown" && !(now - Date.parse(state.startedAt) < UNRECOGNISED_SEAT_MAX_AGE_MS);
+  if (state.state === "ended") return { kind: "ended", turn: state.turn, agent: state.agent, sessionGone: state.sessionBound === true && (session === "stale" || expired) };
+  if (session === "stale") return { kind: "lost", turn: state.turn, agent: state.agent, why: "session-gone" };
+  if (expired) return { kind: "lost", turn: state.turn, agent: state.agent, why: "unrecognised-expired" };
+  return { kind: "running", turn: state.turn, since: state.startedAt, agent: state.agent, ...(session === "unknown" ? { unrecognised: true } : {}) };
 }
 
 /** A message that a host's tool could read as an option, or that hides one. */

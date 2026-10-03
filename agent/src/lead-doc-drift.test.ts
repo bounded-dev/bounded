@@ -49,7 +49,7 @@ describe("lead commands in the docs match the code", () => {
     const text = flat(doc);
     expect(text).toContain(SETUP_COMMAND);
     expect(text).toContain("bounded lead start <issue>");
-    expect(text).not.toMatch(/bounded lead (prepare|release)/);
+    expect(text).not.toMatch(/bounded lead prepare/);
   });
 
   // Re-planning before the first ticket (ADR 2026-065) is the lead's too.
