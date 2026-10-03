@@ -29,54 +29,64 @@ export const SCOUT_SEAT = "scout";
 // cold-relaunch rule (phase-gate.ts) reads that end: a worker launch left
 // without an outcome by a turn that has since ended can never be continued.
 
-/** Detail kinds of the background-worker block (ADR 2026-066). With background
+/** Detail kinds of the background-worker hold (ADR 2026-066). With background
  *  tasks on, a worker continued with the host's continuation may run on after
  *  the call returns, so no gate runs in its ticket worktree while one does.
  *  `worker-continuing` is logged before the continuation is sent, so a stop
- *  that lands before the resume record still cancels it; `seat-released` is
- *  the user's `bounded lead release`, which clears every block. */
+ *  that lands before the resume record still cancels it; `worker-send-failed`
+ *  says a continuation did not go through; `seat-released` is the user's
+ *  `bounded lead release`, which clears every hold. */
 export const WORKER_CONTINUING = "worker-continuing";
 export const WORKER_RESUMED = "worker-resumed";
+export const WORKER_SEND_FAILED = "worker-send-failed";
 export const SUBAGENT_STOPPED = "subagent-stopped";
 export const SEAT_RELEASED = "seat-released";
-
-/** A resumed worker whose session could not be recognised blocks only this long. */
-export const UNRECOGNISED_WORKER_MAX_AGE_MS = 60 * 60 * 1000;
 
 export interface BackgroundWorker {
   readonly worker: string;
   readonly since: string;
-  /** The session could not be recognised; the block ends at the age limit. */
+  /** The session could not be recognised: the hold stays until the worker's
+   *  stop is recorded or the user releases the seat. */
   readonly unrecognised?: true;
 }
 
 type Logged = { readonly guard: string; readonly detail?: unknown; readonly ts?: string };
 
 /**
- * The workers still holding the gates: resumed in the background, with no
- * stop recorded after their continuation was sent, whose session still runs,
- * and no architect end or user release recorded since. In log order, which is
- * time order: a stop recorded after the `worker-continuing` mark cancels the
- * resume even when the resume record lands after the stop.
+ * The workers still holding the gates. Read in log order, which is time
+ * order. A hold starts with a successful continuation's resume record and ends
+ * only with that worker's recorded stop, its session gone stale, or the user's
+ * release. Nothing else ends it: not the architect's end, and not age.
+ *
+ * Between a continuation's mark (before the send) and its resume record
+ * (after it), a stop is ambiguous:
+ * - If the worker was idle when the mark was written, the stop can only
+ *   answer this send, so it ends the hold and cancels the resume record still
+ *   to come.
+ * - If the worker was already held, the stop may end the turn before this
+ *   send, so it ends nothing. Only a stop recorded after this send's resume
+ *   record ends the hold.
+ * A failed send drops its mark.
  */
-export function backgroundWorkers(events: readonly Logged[], probe: ProcessProbe = systemProcesses, now: number = Date.now()): readonly BackgroundWorker[] {
+export function backgroundWorkers(events: readonly Logged[], probe: ProcessProbe = systemProcesses): readonly BackgroundWorker[] {
   const running = new Map<string, { since: string; pid?: number; pidStarted?: string }>();
-  // A continuation marked but not yet recorded as resumed: whether the
-  // worker's stop has already landed. Only such a stop cancels the resume, so
-  // a stop from an earlier run never does.
-  const continuing = new Map<string, boolean>();
+  // Continuations marked but not yet resolved by a resume record or a failure.
+  const continuing = new Map<string, { wasHeld: boolean; answered: boolean }>();
   for (const e of events) {
     const d = typeof e.detail === "object" && e.detail !== null ? (e.detail as Detail) : {};
     const kind = d["kind"];
-    if (kind === SEAT_RELEASED || (e.guard === LEAD_GUARD && kind === ARCHITECT_ENDED)) {
+    if (kind === SEAT_RELEASED) {
       running.clear();
       continuing.clear();
       continue;
     }
     const worker = typeof d["worker"] === "string" ? d["worker"] : undefined;
-    if (kind === WORKER_CONTINUING && worker !== undefined) continuing.set(worker, false);
+    if (kind === WORKER_CONTINUING && worker !== undefined) {
+      continuing.set(worker, { wasHeld: running.has(worker) || continuing.get(worker)?.wasHeld === true, answered: false });
+    }
+    if (kind === WORKER_SEND_FAILED && worker !== undefined) continuing.delete(worker);
     if (kind === WORKER_RESUMED && worker !== undefined) {
-      if (continuing.get(worker) !== true) {
+      if (continuing.get(worker)?.answered !== true) {
         running.set(worker, {
           since: e.ts ?? "",
           ...(typeof d["pid"] === "number" ? { pid: d["pid"] } : {}),
@@ -86,18 +96,20 @@ export function backgroundWorkers(events: readonly Logged[], probe: ProcessProbe
       continuing.delete(worker);
     }
     if (kind === SUBAGENT_STOPPED && typeof d["agent"] === "string") {
-      running.delete(d["agent"]);
-      if (continuing.has(d["agent"])) continuing.set(d["agent"], true);
+      const agent = d["agent"];
+      const pending = continuing.get(agent);
+      if (pending === undefined) running.delete(agent);
+      else if (!pending.wasHeld) {
+        running.delete(agent);
+        pending.answered = true;
+      }
     }
   }
   const out: BackgroundWorker[] = [];
   for (const [worker, r] of running) {
     const session = r.pid === undefined ? "unknown" : ownerState({ pid: r.pid, started: r.pidStarted ?? "unknown" }, probe);
     if (session === "stale") continue;
-    if (session === "unknown") {
-      if (!(now - Date.parse(r.since) < UNRECOGNISED_WORKER_MAX_AGE_MS)) continue;
-      out.push({ worker, since: r.since, unrecognised: true });
-    } else out.push({ worker, since: r.since });
+    out.push(session === "unknown" ? { worker, since: r.since, unrecognised: true } : { worker, since: r.since });
   }
   return out;
 }

@@ -8,7 +8,7 @@ import {
   writePendingLaunch, writePendingReply, type ArchitectHost,
 } from "./architect-seat.ts";
 import { logGuardEvent, readGuardLog } from "./guard-log.ts";
-import { backgroundWorkers, SEAT_RELEASED, WORKER_RESUMED } from "./lead-state.ts";
+import { backgroundWorkers, SEAT_RELEASED, SUBAGENT_STOPPED, WORKER_RESUMED } from "./lead-state.ts";
 import {
   gitCommandLine, LEAD_COMMANDS, parseLeadArgs, runLeadCommand, type LeadDeps, type LeadRequest,
 } from "./lead-commands.ts";
@@ -386,7 +386,7 @@ describe("review fixes (ADR 2026-066)", () => {
     const unknown: LeadDeps = { ...deps(), processes: { startTime: (pid) => (pid === process.pid ? "t" : null) } };
     recordArchitectRunning(ticketWorktreePath(main, n), "a00000000000what1", { pid: 999_999, pidStarted: "t", sessionBound: true });
     const text = (await runLeadCommand(main, { command: "status" }, unknown)).text;
-    expect(text).toContain("could not be recognised; it counts as running for at most six hours");
+    expect(text).toContain("could not be recognised, so it counts as running until its stop is recorded or the user releases it");
     expect(text).toContain(`the user (not the lead) can clear its seat with bounded lead release ${n}`);
   });
 
@@ -400,9 +400,15 @@ describe("review fixes (ADR 2026-066)", () => {
     expect(text).toContain("gates held: worker a0000000000000w01");
     expect(text).not.toContain("a0000000000000w02");
     expect(text).toContain(`bounded lead release ${n}`);
-    // The architect's recorded end releases its workers too.
+    // Regression (re-review F1): the architect's end does not release a worker still running.
     recordArchitectEnded(wt, readArchitectState(wt)!.agent);
+    expect((await lead(["status"])).text).toContain("gates held: worker a0000000000000w01");
+    const refusedOut = await lead(["release", String(n)]);
+    expect(refusedOut.ok).toBe(false);
+    expect(refusedOut.text).toContain("worker a0000000000000w01");
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: SUBAGENT_STOPPED, agent: "a0000000000000w01" } });
     expect((await lead(["status"])).text).not.toContain("gates held");
+    expect((await lead(["release", String(n)])).ok).toBe(true);
   });
 
   test("release: refused while anything recorded still runs, unless forced; then every piece of seat state is cleared and logged", async () => {

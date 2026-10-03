@@ -7,7 +7,7 @@ import { logGuardEvent } from "../../src/guard-log.ts";
 import { systemProcesses } from "../../src/process-lock.ts";
 import type { TempProject } from "../../test/support/temp-project.ts";
 import { LOG, logLines, makeLeadProject, prepared } from "../../test/support/lead-project.ts";
-import { inlineReply, runHook } from "./path-gate-hook.ts";
+import { runHook } from "./path-gate-hook.ts";
 import { boundDefinitionInForce, leadCommand } from "./lead-hook.ts";
 import {
   readArchitectState, readPendingLaunch, readPendingReply, recordArchitectEnded, recordArchitectRunning, writePendingLaunch, writePendingReply,
@@ -278,19 +278,26 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
     expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
   });
 
-  // Regression (re-review U4): the block must not fail open if the answer's shape changes.
-  test("any successful send without the worker's reply inline is recorded as a background resume", () => {
+  // Regression (re-review U4, F3): the hold must not fail open on the answer's shape.
+  test.each([
+    ["the shape seen live", { success: true, message: "Resuming agent a0000000000000003", resumedAgentId: "a0000000000000003" }],
+    ["'Resuming agent a1' without an id", { success: true, message: "Resuming agent a1" }],
+    ["what looks like a reply", { success: true, content: "Done: all four tests now fail for the right reason." }],
+    ["a reply in content blocks", { success: true, content: [{ type: "text", text: "reply" }] }],
+    ["an unknown shape", { success: true, status: "queued" }],
+  ])("every successful send is held, whatever its answer: %s", (_name, response) => {
     const { wt } = ticketed();
-    const post = (response: Readonly<Record<string, unknown>>) =>
-      runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
-        tool_input: { to: "a0000000000000003", message: "fix it" }, tool_response: response }), wt);
-    post({ success: true, content: "Done: all four tests now fail for the right reason." });
-    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
-    post({ success: true, status: "queued" });
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUse", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: "a0000000000000003", message: "fix it" }, tool_response: response }), wt);
     expect(backgroundWorkers(readGuardLog(wt)).map((w) => w.worker)).toEqual(["a0000000000000003"]);
-    expect(inlineReply({ success: true, content: [{ type: "text", text: "reply" }] })).toBe(true);
-    expect(inlineReply({ success: true, content: "x", resumedAgentId: "a1" })).toBe(false);
-    expect(inlineReply({ success: true, message: "Resuming agent a1" })).toBe(false);
+  });
+
+  test("a send that did not go through is recorded, and holds nothing", () => {
+    const { wt } = ticketed();
+    runHook(LEAD, JSON.stringify({ cwd: wt, hook_event_name: "PostToolUseFailure", tool_name: "SendMessage", ...child("architect"),
+      tool_input: { to: "a0000000000000003", message: "fix it" }, error: "no such agent" }), wt);
+    expect(readGuardLog(wt).some((e) => e.detail?.["kind"] === "worker-send-failed")).toBe(true);
+    expect(backgroundWorkers(readGuardLog(wt))).toEqual([]);
   });
 
   // Regression (re-review U2): a stop that lands before the resume record still releases the gates.

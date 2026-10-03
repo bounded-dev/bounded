@@ -64,7 +64,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logGuardEvent, readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
-import { WORKER_CONTINUING, WORKER_RESUMED } from "../../src/lead-state.ts";
+import { WORKER_CONTINUING, WORKER_RESUMED, WORKER_SEND_FAILED } from "../../src/lead-state.ts";
 import { isMainModule } from "../../src/is-main-module.ts";
 import {
   asRole,
@@ -106,17 +106,6 @@ import { readTicketMarker } from "../../src/ticket-worktree.ts";
 import {
   afterLeadArchitectCall, afterLeadReply, onSubagentStop, onWorktreeCreate, onWorktreeRemove, sessionProcess, ticketRootOf,
 } from "./seat-hooks.ts";
-
-/** Whether a successful SendMessage answer carries the worker's reply inline:
- *  some reply text, and no sign of a background resume. */
-export function inlineReply(response: Readonly<Record<string, unknown>>): boolean {
-  if (response["resumedAgentId"] !== undefined) return false;
-  const content = response["content"];
-  const text = typeof content === "string" ? content
-    : Array.isArray(content) ? content.map((c) => (typeof c === "object" && c !== null ? String((c as Record<string, unknown>)["text"] ?? "") : "")).join("")
-    : typeof response["result"] === "string" ? response["result"] : "";
-  return text.trim() !== "";
-}
 
 /** What one hook run says back to Claude Code. Exit is 0 unless an event's
  *  answer is a refusal by exit code (WorktreeCreate). */
@@ -451,26 +440,29 @@ function recordCommissionOutcome(
     // With background tasks on, Claude Code resumes the worker in the
     // background and answers "Resuming agent …" (verified live, 2.1.288):
     // the worker runs on, and no gate may run until its stop is recorded.
-    // Any successful send that does not carry the worker's reply inline is
-    // recorded so, whatever shape the answer takes; the block ends with the
-    // worker's recorded stop, its session's end, the architect's end, or the
-    // user's `bounded lead release`.
+    // No inline reply has ever been seen there, so EVERY successful send is
+    // recorded so, whatever its answer says. The hold ends only with the
+    // worker's recorded stop, its session gone, or the user's
+    // `bounded lead release` (lead-state.ts).
     const r = response as Readonly<Record<string, unknown>>;
-    if (!inlineReply(r)) {
-      const target = sendTarget(payload.toolInput);
-      const worker = typeof r["resumedAgentId"] === "string" ? r["resumedAgentId"] : target.ok ? target.to : undefined;
-      if (worker !== undefined) {
-        const session = sessionProcess();
-        logGuardEvent(cwd, {
-          guard: "phase-gate", verdict: "pass", summary: `worker ${worker} may still be running in the background`,
-          detail: { kind: WORKER_RESUMED, role, worker, pid: session.pid, pidStarted: session.pidStarted },
-        });
-      }
+    const target = sendTarget(payload.toolInput);
+    const worker = target.ok ? target.to : typeof r["resumedAgentId"] === "string" ? r["resumedAgentId"] : undefined;
+    if (worker !== undefined) {
+      const session = sessionProcess();
+      logGuardEvent(cwd, {
+        guard: "phase-gate", verdict: "pass", summary: `worker ${worker} may still be running in the background`,
+        detail: { kind: WORKER_RESUMED, role, worker, pid: session.pid, pidStarted: session.pidStarted },
+      });
     }
     return;
   }
   const target = sendTarget(payload.toolInput);
   if (!target.ok) return;
+  // The continuation did not go through: its mark resolves to nothing.
+  logGuardEvent(cwd, {
+    guard: "phase-gate", verdict: "pass", summary: `continuing worker ${target.to} failed`,
+    detail: { kind: WORKER_SEND_FAILED, role, worker: target.to },
+  });
   const events = readGuardLog(cwd);
   const workerOf = workerRole(target.to, events);
   // Only a failed send to the role's CURRENT worker says that role cannot be

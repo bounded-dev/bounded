@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   architectStatus, claimPendingLaunch, claimStale, flagLike, LAUNCH_CLAIM_MAX_AGE_MS, pendingReplyFor, readArchitectState,
   readPendingLaunch, recordArchitectEnded, recordArchitectRunning, releaseLaunchClaim, seatContinuable, writePendingLaunch,
-  writePendingReply, clearArchitectState, seatNeedsRelaunch, UNRECOGNISED_SEAT_MAX_AGE_MS,
+  writePendingReply, clearArchitectState, seatNeedsRelaunch,
 } from "./architect-seat.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { ARCHITECT_ENDED } from "./lead-state.ts";
@@ -90,7 +90,7 @@ describe("the seat's life", () => {
 
   test("a seat whose host session is gone is lost, never running", () => {
     recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t", sessionBound: true });
-    expect(architectStatus(wt, dead)).toEqual({ kind: "lost", turn: 1, agent: "a1", why: "session-gone" });
+    expect(architectStatus(wt, dead)).toEqual({ kind: "lost", turn: 1, agent: "a1" });
     expect(seatNeedsRelaunch(architectStatus(wt, dead))).toBe(true);
     expect(architectStatus(wt, { startTime: () => "a later process" }).kind).toBe("lost");
     recordArchitectEnded(wt, "a1");
@@ -106,19 +106,15 @@ describe("the seat's life", () => {
     expect(seatContinuable(wt, "run-1", dead)).toBe(true);
   });
 
-  // Regression (U3): a seat whose session cannot be recognised does not stay running forever.
-  test("an unrecognised session counts as running only until the age limit", () => {
+  // Regression (re-review F2): an age fallback took long work for lost.
+  test("an unrecognised session is never taken for gone: the seat runs until its stop or the user's release", () => {
     const unknown: ProcessProbe = { startTime: () => null };
     recordArchitectRunning(wt, "a1", { pid: 10, pidStarted: "t", sessionBound: true });
-    const since = Date.parse(readArchitectState(wt)!.startedAt);
-    expect(architectStatus(wt, unknown, since + 1000)).toMatchObject({ kind: "running", unrecognised: true });
-    expect(architectStatus(wt, live, since + 1000)).not.toHaveProperty("unrecognised");
-    const late = since + UNRECOGNISED_SEAT_MAX_AGE_MS + 1;
-    expect(architectStatus(wt, unknown, late)).toEqual({ kind: "lost", turn: 1, agent: "a1", why: "unrecognised-expired" });
-    expect(seatNeedsRelaunch(architectStatus(wt, unknown, late))).toBe(true);
+    expect(architectStatus(wt, unknown)).toMatchObject({ kind: "running", unrecognised: true });
+    expect(architectStatus(wt, live)).not.toHaveProperty("unrecognised");
+    expect(seatNeedsRelaunch(architectStatus(wt, unknown))).toBe(false);
     recordArchitectEnded(wt, "a1");
-    expect(architectStatus(wt, unknown, late)).toMatchObject({ kind: "ended", sessionGone: true });
-    expect(architectStatus(wt, unknown, since + 1000)).toMatchObject({ kind: "ended", sessionGone: false });
+    expect(architectStatus(wt, unknown)).toMatchObject({ kind: "ended", sessionGone: false });
   });
 
   test("clearing the seat leaves no architect", () => {

@@ -624,7 +624,7 @@ async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<L
         break;
       case "running":
         lines.push(`  architect: running turn ${architect.turn} since ${architect.since}` +
-          (architect.unrecognised === true ? " (its session could not be recognised; it counts as running for at most six hours)" : ""));
+          (architect.unrecognised === true ? " (its session could not be recognised, so it counts as running until its stop is recorded or the user releases it)" : ""));
         break;
       case "ended":
         lines.push(architect.sessionGone
@@ -632,14 +632,12 @@ async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<L
           : `  architect: turn ${architect.turn} stopped and reported to you; continue it with bounded lead reply ${ticket.issue} <message>`);
         break;
       case "lost":
-        lines.push(architect.why === "session-gone"
-          ? `  architect: turn ${architect.turn} ended with its session; relaunch it with bounded lead start ${ticket.issue}`
-          : `  architect: turn ${architect.turn}'s session could never be recognised and it has run past the age limit; relaunch it with bounded lead start ${ticket.issue}`);
+        lines.push(`  architect: turn ${architect.turn} ended with its session; relaunch it with bounded lead start ${ticket.issue}`);
         break;
     }
     for (const w of backgroundWorkers(readGuardLog(ticket.worktree), deps.processes ?? systemProcesses)) {
       lines.push(`  gates held: worker ${w.worker} resumed in the background at ${w.since} and has no recorded stop` +
-        (w.unrecognised === true ? " (its session could not be recognised; the hold ends after an hour)" : ""));
+        (w.unrecognised === true ? " (its session could not be recognised, so the hold stays until its stop is recorded or the user releases it)" : ""));
     }
     if (architect.kind === "lost" || (architect.kind === "ended" && architect.sessionGone) ||
         (architect.kind === "running" && architect.unrecognised === true) ||

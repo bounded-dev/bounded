@@ -89,9 +89,8 @@ export type ArchitectStatus =
   | { readonly kind: "none" }
   | { readonly kind: "running"; readonly turn: number; readonly since: string; readonly agent: string; readonly unrecognised?: true }
   | { readonly kind: "ended"; readonly turn: number; readonly agent: string; readonly sessionGone: boolean }
-  /** Recorded as running, but its host session is gone, or its session could
-   *  never be recognised and the age limit has passed. */
-  | { readonly kind: "lost"; readonly turn: number; readonly agent: string; readonly why: "session-gone" | "unrecognised-expired" };
+  /** Recorded as running, but its host session is gone. */
+  | { readonly kind: "lost"; readonly turn: number; readonly agent: string };
 
 /** Clear everything a ticket's seat holds in its worktree (`bounded lead release`). */
 export function clearArchitectState(worktree: string): void {
@@ -240,18 +239,17 @@ export function recordArchitectEnded(worktree: string, agent: string): boolean {
   return true;
 }
 
-/** A seat whose session could not be recognised (start time unknown) counts as
- *  running only this long; then it is lost, as an unbound launch claim goes stale. */
-export const UNRECOGNISED_SEAT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-
-export function architectStatus(worktree: string, probe: ProcessProbe = systemProcesses, now: number = Date.now()): ArchitectStatus {
+/**
+ * The seat's state now. A session that cannot be recognised (start time
+ * unknown) is never taken for gone: such a seat stays running until its stop
+ * is recorded or the user releases it, and `status` says so.
+ */
+export function architectStatus(worktree: string, probe: ProcessProbe = systemProcesses): ArchitectStatus {
   const state = readArchitectState(worktree);
   if (state === undefined) return { kind: "none" };
   const session = ownerState({ pid: state.pid, started: state.pidStarted }, probe);
-  const expired = session === "unknown" && !(now - Date.parse(state.startedAt) < UNRECOGNISED_SEAT_MAX_AGE_MS);
-  if (state.state === "ended") return { kind: "ended", turn: state.turn, agent: state.agent, sessionGone: state.sessionBound === true && (session === "stale" || expired) };
-  if (session === "stale") return { kind: "lost", turn: state.turn, agent: state.agent, why: "session-gone" };
-  if (expired) return { kind: "lost", turn: state.turn, agent: state.agent, why: "unrecognised-expired" };
+  if (state.state === "ended") return { kind: "ended", turn: state.turn, agent: state.agent, sessionGone: state.sessionBound === true && session === "stale" };
+  if (session === "stale") return { kind: "lost", turn: state.turn, agent: state.agent };
   return { kind: "running", turn: state.turn, since: state.startedAt, agent: state.agent, ...(session === "unknown" ? { unrecognised: true } : {}) };
 }
 
