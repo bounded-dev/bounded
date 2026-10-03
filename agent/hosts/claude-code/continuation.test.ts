@@ -106,6 +106,18 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     expect(phase(dir).at(-1)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "test-writer", run: W1 } });
   });
 
+  test("SendMessage is allowed when Claude Code's 'content' is only a preview of the message", () => {
+    // What a hook receives on Claude Code 2.1.288: the host adds type and
+    // recipient, and fills content with the message cut to 50 characters.
+    const message = "CONTRACT-DISPUTE acknowledged: the adapter-law candidate list is a generator defect. Run the tests now.";
+    const dir = readyProject();
+    launch(dir, "builder");
+    finished(dir, "builder", W1);
+    const r = send(dir, { to: W1, message, summary: "Builder: run full suite now tests exist", type: "message", recipient: W1, content: `${message.slice(0, 49)}\u2026` });
+    expect(r.decision).toBe("allow");
+    expect(phase(dir).at(-1)).toMatchObject({ verdict: "pass", detail: { kind: "resume", target: "builder", run: W1 } });
+  });
+
   test("the worker id comes only from the architect's own PostToolUse record", () => {
     const dir = readyProject();
     launch(dir, "test-writer");
@@ -128,7 +140,7 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
     ["an idle subscription", { to: W1, message: "hi", notify_when_idle: true }],
     ["an empty bounce", { to: W1, message: "  " }],
     ["a recipient that differs from to", { to: W1, message: "hi", recipient: "main" }],
-    ["content that differs from message", { to: W1, message: "hi", content: "something else" }],
+    ["a non-message type", { to: W1, message: "hi", type: "shutdown_request", recipient: W1 }],
   ])("SendMessage to %s is refused", (_label, input) => {
     const dir = readyProject();
     launch(dir, "test-writer");

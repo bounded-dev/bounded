@@ -67,9 +67,13 @@ export const CONTINUE_WORKER_FIELD = "continueWorker";
  *  like a name is never addressed: a peer called like a worker cannot catch it. */
 const WORKER_ID = /^a[0-9a-f]{8,64}(?:-[0-9a-f]{1,64}){0,4}$/;
 
-/** The SendMessage fields a continuation may carry. Claude Code mirrors `to`
- *  as `recipient` and `message` as `content`, and adds `type: "message"`;
- *  every other field (notify_when_idle, …) is refused by default. */
+/** The SendMessage fields a continuation may carry. Before hooks see the
+ *  input, Claude Code adds `type: "message"`, copies `to` into `recipient`,
+ *  and puts a preview of `message` into `content`: on 2.1.288 the message cut
+ *  to 50 characters, so `content` is not the message itself. The message
+ *  text is no policy input, so `content` is accepted whatever it holds;
+ *  `recipient` must still name the worker. Every other field
+ *  (notify_when_idle, …) is refused by default. */
 const SEND_FIELDS: ReadonlySet<string> = new Set(["to", "message", "summary", "type", "recipient", "content"]);
 
 export type SendTarget =
@@ -92,9 +96,6 @@ export function sendTarget(input: Readonly<Record<string, unknown>>): SendTarget
   }
   if (input["recipient"] !== undefined && input["recipient"] !== to) {
     return { ok: false, reason: "'recipient' must match 'to'" };
-  }
-  if (input["content"] !== undefined && input["content"] !== message) {
-    return { ok: false, reason: "'content' must match 'message'" };
   }
   if (input["type"] !== undefined && input["type"] !== "message") {
     return { ok: false, reason: "only a plain message continues a worker" };
