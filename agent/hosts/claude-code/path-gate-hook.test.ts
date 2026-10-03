@@ -51,10 +51,14 @@ interface HookOutput {
   };
 }
 
-function run(dir: string, stdin: string, flags: readonly string[] = []): Run {
+function run(dir: string, stdin: string, flags: readonly string[] = [], extraEnv: Readonly<Record<string, string>> = {}): Run {
   const env = { ...process.env };
   delete env["BOUNDED_GUARD_LOG"];
   delete env["BOUNDED_DEV_STAGE_ROLE"];
+  // Claude Code's own Bash timeout settings, when this suite runs inside it.
+  delete env["BASH_DEFAULT_TIMEOUT_MS"];
+  delete env["BASH_MAX_TIMEOUT_MS"];
+  Object.assign(env, extraEnv);
   const r = spawnSync(process.execPath, [HOOK, ...flags], { cwd: dir, input: stdin, encoding: "utf8", env });
   let decision: Run["decision"] = "allow";
   let reason = "";
@@ -282,6 +286,23 @@ describe("path-gate-hook — Bash, by role", () => {
 
   // The deadline is the host's to state: a model that typed a long one could
   // have the measurement outlive the call and be killed mid-mutant.
+  // Claude Code reads its Bash default and maximum from BASH_DEFAULT_TIMEOUT_MS
+  // and BASH_MAX_TIMEOUT_MS; the deadline handed to the gate must be the one
+  // Claude Code will actually enforce.
+  test("the deadline follows Claude Code's own BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS when they are set", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    const deadline = (input: Record<string, unknown>, env: Record<string, string> = {}): string => {
+      const r = run(dir, payload(dir, "Bash", { command: "bounded gates run-tests", ...input }), [], env);
+      expect(r.decision).toBe("allow");
+      return /BOUNDED_COMMAND_TIMEOUT_MS=(\d+) /.exec(String(r.updatedInput?.["command"]))?.[1] ?? "none";
+    };
+    expect(deadline({}, { BASH_DEFAULT_TIMEOUT_MS: "300000" })).toBe("300000");
+    expect(deadline({ timeout: 800000 })).toBe("600000");
+    expect(deadline({ timeout: 800000 }, { BASH_MAX_TIMEOUT_MS: "900000" })).toBe("800000");
+    expect(deadline({}, { BASH_DEFAULT_TIMEOUT_MS: "900000", BASH_MAX_TIMEOUT_MS: "700000" })).toBe("700000");
+    expect(deadline({}, { BASH_DEFAULT_TIMEOUT_MS: "abc" })).toBe("120000");
+  });
+
   test("a model-typed BOUNDED_COMMAND_TIMEOUT_MS prefix is refused", () => {
     const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Bash", { command: "BOUNDED_COMMAND_TIMEOUT_MS=1 bounded gates typecheck" }));

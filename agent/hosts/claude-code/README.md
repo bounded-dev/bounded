@@ -135,8 +135,9 @@ capabilities and still needs a live run before its behavior can be claimed.
   `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role>
   BOUNDED_COMMAND_TIMEOUT_MS=<ms> <original command>`; the rest of the tool
   input, the call's own `timeout` included, is kept. The deadline is that
-  `timeout` (Claude Code's 2-minute default when the call names none, capped
-  at its 10-minute maximum): Claude Code kills the command past it, so a gate
+  `timeout` (Claude Code's default when the call names none, capped at its
+  maximum: 2 and 10 minutes, or `BASH_DEFAULT_TIMEOUT_MS` and
+  `BASH_MAX_TIMEOUT_MS` when Claude Code's environment sets them): Claude Code kills the command past it, so a gate
   that can split its work across calls (`mutation-score`) stops before it
   (ADR 2026-070). `sessionRole()`
   reads the role variable before the `.bounded/dev-stage-role` file, so a gate

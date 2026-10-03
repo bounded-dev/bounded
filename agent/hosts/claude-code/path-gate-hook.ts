@@ -212,15 +212,25 @@ export function errorOpenRead(
 const ROLE_ENV = "BOUNDED_DEV_STAGE_ROLE";
 
 /** Claude Code's Bash tool: the timeout a call gets when it names none, and
- *  the most it may name. Past it, Claude Code kills the command. */
+ *  the most it may name. Past it, Claude Code kills the command. Claude Code
+ *  reads both from its environment when set (`BASH_DEFAULT_TIMEOUT_MS`,
+ *  `BASH_MAX_TIMEOUT_MS`), and the hook runs in that environment. */
 export const BASH_DEFAULT_TIMEOUT_MS = 120_000;
 export const BASH_MAX_TIMEOUT_MS = 600_000;
 
+function positiveMs(raw: string | undefined): number | undefined {
+  if (raw === undefined || !/^\d+$/.test(raw.trim())) return undefined;
+  const value = Number(raw.trim());
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
 /** How long Claude Code lets this Bash call run: its own `timeout` when it
- *  names a usable one (capped at the maximum), else the default. */
-export function bashDeadlineMs(timeout: unknown): number {
-  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return BASH_DEFAULT_TIMEOUT_MS;
-  return Math.min(Math.floor(timeout), BASH_MAX_TIMEOUT_MS);
+ *  names a usable one, else the default, never past the maximum. */
+export function bashDeadlineMs(timeout: unknown, env: Readonly<Record<string, string | undefined>> = process.env): number {
+  const max = positiveMs(env["BASH_MAX_TIMEOUT_MS"]) ?? BASH_MAX_TIMEOUT_MS;
+  const fallback = positiveMs(env["BASH_DEFAULT_TIMEOUT_MS"]) ?? BASH_DEFAULT_TIMEOUT_MS;
+  const asked = typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : fallback;
+  return Math.min(asked, max);
 }
 
 /** The env prefix an allowed `bounded gates` call is given: the host, so the CLI
