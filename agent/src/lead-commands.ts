@@ -689,6 +689,11 @@ async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker:
   if (ticket.phase === "starting") return refused(`#${issueNumber}'s start did not finish; run bounded lead start ${issueNumber} first`);
   const architect = architectStatus(ticket.worktree, deps.processes ?? systemProcesses);
   if (architect.kind === "running") return refused(`#${issueNumber}'s architect is still running`);
+  // A worker resumed in the background may still change the tree being merged.
+  const held = backgroundWorkers(readGuardLog(ticket.worktree), deps.processes ?? systemProcesses);
+  if (held.length > 0) {
+    return refused(`#${issueNumber} still has ${held.map((w) => `worker ${w.worker}`).join(", ")} running in the background; merge waits for its stop`);
+  }
   const issue = tracker.viewIssue(issueNumber);
   if (issue.status !== "Awaiting Merge") return refused(`#${issueNumber} is ${issue.status ?? "not on the board"}; only a ticket whose deliver gate passed merges`);
   const log = readRunLog(ticket.worktree);
