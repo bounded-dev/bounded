@@ -67,8 +67,8 @@ function lambdaFile(feature: FeatureContractModel): string[] {
   ];
 }
 
-function lawsFile(feature: FeatureContractModel): string[] {
-  const prelude = lawPrelude(feature);
+function lawsFile(feature: FeatureContractModel, facts: ProjectFacts): string[] {
+  const prelude = lawPrelude(feature, facts);
   const input = feature.input;
   const name = lambdaFactory(feature);
   const expected = input !== undefined || feature.inPort.returns.result ? `{ ok: true, value: ${prelude.mapped} }` : prelude.mapped;
@@ -163,7 +163,7 @@ export function emitLambdaAdapters(facts: ProjectFacts): EmittedFile[] {
       if (factories.has(name)) throw new Error(`${feature.contractPath}: ${name} is also ${factories.get(name)}'s — rename one feature`);
       factories.set(name, feature.contractPath);
       out.push(file(`${dir}/${feature.area}/${feature.feature}.lambda.ts`, lambdaFile(feature)));
-      out.push(file(`${dir}/${feature.area}/${feature.feature}.lambda.laws.test.ts`, lawsFile(feature)));
+      out.push(file(`${dir}/${feature.area}/${feature.feature}.lambda.laws.test.ts`, lawsFile(feature, facts)));
     }
     out.push(file(`${dir}/index.ts`, features.map((f) => `export { ${lambdaFactory(f)} } from "./${f.area}/${f.feature}.lambda.ts";`)));
   }

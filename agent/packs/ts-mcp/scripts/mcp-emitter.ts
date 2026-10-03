@@ -118,8 +118,8 @@ function serverFile(context: string, features: readonly FeatureContractModel[]):
   ];
 }
 
-function lawsFile(feature: FeatureContractModel): string[] {
-  const prelude = lawPrelude(feature);
+function lawsFile(feature: FeatureContractModel, facts: ProjectFacts): string[] {
+  const prelude = lawPrelude(feature, facts);
   const input = feature.input;
   const register = registerFunction(feature);
   const returns = feature.inPort.returns;
@@ -244,7 +244,7 @@ export function emitMcpAdapters(facts: ProjectFacts): EmittedFile[] {
       if (names.has(name)) throw new Error(`${feature.contractPath}: tool name '${name}' is also ${names.get(name)}'s — rename one feature`);
       names.set(name, feature.contractPath);
       out.push(file(`${dir}/${feature.area}/${feature.feature}.tool.ts`, toolFile(feature)));
-      out.push(file(`${dir}/${feature.area}/${feature.feature}.tool.laws.test.ts`, lawsFile(feature)));
+      out.push(file(`${dir}/${feature.area}/${feature.feature}.tool.laws.test.ts`, lawsFile(feature, facts)));
     }
     out.push(file(`${dir}/server.ts`, serverFile(context, features)));
     out.push(file(`${dir}/index.ts`, [`export { ${contextServerFactory(context)} } from "./server.ts";`]));

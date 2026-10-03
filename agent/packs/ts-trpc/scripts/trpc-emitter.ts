@@ -122,8 +122,8 @@ function contextRouterFile(context: string, areas: readonly string[]): string[] 
   ];
 }
 
-function lawsFile(feature: FeatureContractModel): string[] {
-  const prelude = lawPrelude(feature);
+function lawsFile(feature: FeatureContractModel, facts: ProjectFacts): string[] {
+  const prelude = lawPrelude(feature, facts);
   const input = feature.input;
   const name = procedureName(feature.feature);
   const expected = input !== undefined || feature.inPort.returns.result ? `{ ok: true, value: ${prelude.mapped} }` : prelude.mapped;
@@ -232,7 +232,7 @@ export function emitTrpcAdapters(facts: ProjectFacts): EmittedFile[] {
       out.push(file(`${dir}/${area}/${area}.router.ts`, areaRouterFile(area, inArea)));
       for (const feature of inArea) {
         out.push(file(`${dir}/${area}/${feature.feature}.procedure.ts`, procedureFile(feature)));
-        out.push(file(`${dir}/${area}/${feature.feature}.procedure.laws.test.ts`, lawsFile(feature)));
+        out.push(file(`${dir}/${area}/${feature.feature}.procedure.laws.test.ts`, lawsFile(feature, facts)));
       }
     }
     out.push(file(`${dir}/router.ts`, contextRouterFile(context, areas)));

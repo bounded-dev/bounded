@@ -19,6 +19,7 @@
 
 import type { ProjectFacts } from "../../ts/pack.ts";
 import type { FeatureContractModel, ReturnModel } from "../../ts/scripts/feature-model.ts";
+import { acceptsExamplesOf, isDomainConceptPath, parseDomainConcept } from "../../ts/scripts/domain-concept.ts";
 import { camelCase } from "../../ts/scripts/naming.ts";
 import { parseFeatureContract } from "../../ts-hexagonal/pack.ts";
 
@@ -176,7 +177,10 @@ export const inAdapterDir = (context: string, technology: string): string => `co
 // `toJSON` data. A law file exercises the adapter factory with a fake in port,
 // so it needs no store, no database and no transport. Valid input is found,
 // not invented: an identifier is generated, any other value object takes the
-// first candidate its own `parse` accepts.
+// first candidate its own `parse` accepts — its contract's `@accepts`
+// examples first, then fixed placeholders. The examples are what make a
+// constrained value object (a currency code, say) reachable at all; the
+// value-object-documented lint requires two on every value object.
 
 /** The code both halves of a law file share, for one feature. */
 export interface LawPrelude {
@@ -196,7 +200,28 @@ const CANDIDATES = { string: "STRINGS", number: "NUMBERS", boolean: "BOOLEANS" }
 const REFUSED = { string: "BAD_STRINGS", number: "BAD_NUMBERS", boolean: "BAD_BOOLEANS" } as const;
 const WRONG_WIRE = { string: "0", number: '"0"', boolean: '"0"' } as const;
 
-export function lawPrelude(feature: FeatureContractModel): LawPrelude {
+/**
+ * The `@accepts` examples of each concept the feature's input names, read
+ * from its domain contract in the feature's own context with the domain
+ * parser. A concept with no examples, or no contract there, is absent: its
+ * laws try the placeholders alone.
+ */
+export function inputAcceptsExamples(facts: ProjectFacts, feature: FeatureContractModel): ReadonlyMap<string, readonly string[]> {
+  const out = new Map<string, readonly string[]>();
+  const wanted = new Set(feature.input?.fields.map((f) => f.concept) ?? []);
+  if (wanted.size === 0) return out;
+  const domain = `contexts/${feature.context}/src/domain/`;
+  for (const contract of facts.workspaces.flatMap((workspace) => workspace.contracts)) {
+    if (!contract.path.startsWith(domain) || !isDomainConceptPath(contract.path)) continue;
+    const model = parseDomainConcept(contract.path, contract.source);
+    if (!wanted.has(model.name)) continue;
+    const examples = acceptsExamplesOf(contract.path, contract.source, model.name);
+    if (examples.length > 0) out.set(model.name, examples);
+  }
+  return out;
+}
+
+export function lawPrelude(feature: FeatureContractModel, facts: ProjectFacts): LawPrelude {
   const returns = feature.inPort.returns;
   const one = "fakeConcept()";
   const value = returns.shape === "void" ? "undefined" : returns.shape === "array" ? `[${one}, ${one}]` : one;
@@ -218,6 +243,11 @@ export function lawPrelude(feature: FeatureContractModel): LawPrelude {
   const input = feature.input;
   if (input === undefined) return { imports: [], applicationValues: [], declarations, returned, mapped };
   const concepts = [...new Set(input.fields.map((f) => f.concept))].sort(byCodePoint);
+  const accepts = inputAcceptsExamples(facts, feature);
+  const candidates = (concept: string, wireType: keyof typeof CANDIDATES): string => {
+    const examples = accepts.get(concept);
+    return examples === undefined ? CANDIDATES[wireType] : `[${examples.join(", ")}, ...${CANDIDATES[wireType]}]`;
+  };
   declarations.push(
     "",
     'const STRINGS: readonly unknown[] = ["Example", "example", "a", "0", "1", "user@example.com", "2024-01-01", "https://example.com"];',
@@ -244,7 +274,7 @@ export function lawPrelude(feature: FeatureContractModel): LawPrelude {
     "}",
     "",
     "const validInput = (): Record<string, unknown> => ({",
-    ...input.fields.map((f) => `  ${f.name}: validRaw(${JSON.stringify(f.concept)}, ${f.concept}, ${CANDIDATES[f.wireType]}),`),
+    ...input.fields.map((f) => `  ${f.name}: validRaw(${JSON.stringify(f.concept)}, ${f.concept}, ${candidates(f.concept, f.wireType)}),`),
     "});",
     "",
     `const WIRE_INVALID = { ${input.fields.map((f) => `${f.name}: ${WRONG_WIRE[f.wireType]}`).join(", ")} };`,

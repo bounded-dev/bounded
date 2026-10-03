@@ -130,6 +130,61 @@ describe.skipIf(!hasBun)("the generated adapter laws under bun test", () => {
     expect(output).toMatch(/\b0 fail\b/);
   }, 60_000);
 
+  describe("a constrained value object finds its valid input in its @accepts examples", () => {
+    // ProjectName made to behave like a currency code: three upper-case
+    // letters, so no fixed placeholder ("Example", "0", …) parses. Its
+    // contract documents two examples, as the value-object-documented lint
+    // requires of every value object.
+    const PROJECT_NAME_CONTRACT = "/domain/projects/project-name.contract.ts";
+    const currencyFacts = (examples: readonly string[]) => exampleFacts({
+      contracts: exampleContracts().map((contract) => contract.path.endsWith(PROJECT_NAME_CONTRACT)
+        ? {
+          ...contract,
+          source: contract.source.replace("export interface ProjectName {",
+            `/**\n * An ISO 4217 currency code: three upper-case letters.\n${examples.map((e) => ` * @accepts ${e}\n`).join("")} */\nexport interface ProjectName {`),
+        }
+        : contract),
+    });
+    const currencyFixture = (files: readonly EmittedFile[]): string => {
+      const dir = fixture(files);
+      const name = join(dir, EXAMPLE_CONTEXT, "src/domain/projects/project-name.ts");
+      const from = 'z.string().trim().min(1, "Project name is required")';
+      expect(readFileSync(name, "utf8")).toContain(from);
+      writeFileSync(name, readFileSync(name, "utf8").replace(from, 'z.string().regex(/^[A-Z]{3}$/, "Currency code is three upper-case letters")'));
+      return dir;
+    };
+    const emitFrom = (examples: readonly string[]): EmittedFile[] => {
+      const facts = currencyFacts(examples);
+      return [...emitTrpcAdapters(facts), ...emitMcpAdapters(facts), ...emitLambdaAdapters(facts)];
+    };
+
+    test("without examples no placeholder parses, and the laws say so (the bug this guards)", () => {
+      const { status, output } = bunTest(currencyFixture(emitFrom([])));
+      expect(status).not.toBe(0);
+      expect(output).toMatch(/adapter law: no candidate value parses as ProjectName/);
+    }, 60_000);
+
+    test("with examples every law passes, the domain-invalid law included", () => {
+      const files = emitFrom(['"GBP"', '"EUR"']);
+      const law = files.find((f) => f.path.endsWith("trpc/projects/create-project.procedure.laws.test.ts"))!;
+      expect(law.content).toContain('name: validRaw("ProjectName", ProjectName, ["GBP", "EUR", ...STRINGS]),');
+      const { status, output } = bunTest(currencyFixture(files));
+      expect(output).toMatch(/\b0 fail\b/);
+      expect(output).toMatch(/\b23 pass\b/);
+      // The domain-invalid law ran rather than skipping: the domain refuses
+      // the placeholders' bad values, built on the "GBP" valid input.
+      expect(output).not.toMatch(/adapter law skipped|\b\d+ skip\b/);
+      expect(status, output).toBe(0);
+    }, 60_000);
+
+    test("and the domain-invalid law still fails an adapter that lets invalid input through", () => {
+      const files = mutate(emitFrom(['"GBP"', '"EUR"']), "trpc/projects/create-project.procedure.ts", "    if (!command.ok) return command;\n", "");
+      const { status, output } = bunTest(currencyFixture(files));
+      expect(status).not.toBe(0);
+      expect(output).toMatch(/\(fail\) createProjectProcedure — adapter laws > returns the command's failure for a domain-invalid input/);
+    }, 60_000);
+  });
+
   test("fail against adapters that break each law", () => {
     let files = emitted();
     // tRPC: invalid input reaches the in port.
