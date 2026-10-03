@@ -42,4 +42,5 @@ or owned contract needs a new freeze and handoff. Superseded notes keep links
 to their successors. Concurrent worktrees without a tracker can allocate the
 same local number; they need numbers agreed by the user. Migrating this
 harness's own year-numbered TNs and deciding whether ADRs move under `docs/`
-are tracked separately.
+are tracked separately. Ownership of a contract can move to a later ticket by
+a take in that ticket's TN (2026-071).

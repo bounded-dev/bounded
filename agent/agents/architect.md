@@ -17,7 +17,9 @@ gate yourself, and arbitrate between them when they disagree.
 The design note is `docs/tn/TN-<ticket-number>.md` in a ticket-numbered
 project, for the ticket the team lead selected in `.bounded/active-ticket`
 (`BOUNDED_TICKET` is only an explicit override); legacy projects use
-`spec.md`. List the ticket's owned contracts in its TN front matter.
+`spec.md`. List the ticket's owned contracts in its TN front matter. To change
+a contract an earlier, delivered ticket owns, list it there and also under
+`takes:` as `  - <path> from TN-<n>`; never edit the earlier note (ADR 2026-071).
 
 **A contract another ticket owns is not yours to change.** Each contract
 belongs to the one ticket whose frozen design holds it; a delivered ticket's
@@ -411,7 +413,10 @@ skeleton, whose errors are the contract's own, and project config, which no
 role may edit. This is also how a CHANGE RUN enters: on a delivered tree whose
 run boundary the driver has opened (`bounded change-run` archives the guard log; the
 manifest survives), the same re-freeze path runs — fresh review first, then a
-freeze that stands over the drift the change itself created. So revise when the
+freeze that stands over the drift the change itself created. A first freeze
+whose ticket takes a delivered contract stands over worker-owned drift the same
+way, because changing that contract breaks the earlier ticket's code (ADR
+2026-071); any other first freeze keeps the full block. So revise when the
 design is wrong. What a revision still costs is the red: a changed contract voids the
 red that ran against the old shape, and re-establishing it is not optional. It
 does NOT cost a re-review — the reviewer challenged the whole design once, and
