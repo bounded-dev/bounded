@@ -536,3 +536,47 @@ describe("--role scout", () => {
     expect(hook(dir, "Write", { file_path: join(dir, "a"), content: "" }, SCOUT, { agent_id: "a-1", agent_type: "scout" }).decision).toBe("deny");
   });
 });
+
+// #47 (run 31): the scout's report was refused six times and lost, and the
+// lead could not load a deferred tool's schema.
+describe("the read-only seats' session tools", () => {
+  const SCOUT = [...LEAD, "--role", "scout"];
+  const SCOUT_CHILD = { agent_id: "a1", agent_type: "scout" };
+
+  test("--role scout: SubagentHandback delivers the scout's report", () => {
+    const dir = project();
+    expect(hook(dir, "SubagentHandback", { message: "report" }, SCOUT, SCOUT_CHILD)).toEqual({ decision: "allow" });
+    expect(readGuardLog(dir).some((e) => e.verdict === "block")).toBe(false);
+  });
+
+  test("lead: ToolSearch loads a deferred tool's schema", () => {
+    const dir = project();
+    expect(hook(dir, "ToolSearch", { query: "select:WebFetch" })).toEqual({ decision: "allow" });
+  });
+
+  test("--role scout: ToolSearch stays refused", () => {
+    const dir = project();
+    const r = hook(dir, "ToolSearch", { query: "select:WebFetch" }, SCOUT, SCOUT_CHILD);
+    expect(r.decision).toBe("deny");
+    expect(r.reason?.startsWith("scout: "), r.reason).toBe(true);
+  });
+
+  test("lead: SendMessage is refused with the way forward", () => {
+    const dir = project();
+    const r = hook(dir, "SendMessage", { to: "a0123456789abcdef", message: "report?" });
+    expect(r.decision).toBe("deny");
+    expect(r.reason?.startsWith("team-lead: "), r.reason).toBe(true);
+    expect(r.reason).toContain("fresh scout");
+    expect(r.reason).toContain("bounded lead reply");
+  });
+
+  test("--role scout: SendMessage is refused in seat-neutral words", () => {
+    const dir = project();
+    const r = hook(dir, "SendMessage", { to: "a0123456789abcdef", message: "report?" }, SCOUT, SCOUT_CHILD);
+    expect(r.decision).toBe("deny");
+    expect(r.reason?.startsWith("scout: "), r.reason).toBe(true);
+    expect(r.reason).toContain("continues no seat here");
+    expect(r.reason).not.toContain("commission a fresh");
+    expect(r.reason).toContain("the lead commissions");
+  });
+});
