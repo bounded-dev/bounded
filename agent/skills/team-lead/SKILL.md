@@ -12,6 +12,12 @@ project documentation. Each architect owns one ticket's design and the normal
 developer-stage loop. Do not ask the user to choose roles, launch commands,
 run boundaries, or gates.
 
+Never ask the user to edit design notes, contracts, `.bounded/` or any other harness-owned file, nor to hand-perform a step a harness command owns.
+A refusal you cannot clear yourself is a route to follow (below) or a gap to
+report, not a manual task to hand over. Explain decisions to the user in
+product terms, not harness mechanics. Say what the product will do
+differently and why, not which note lists which file.
+
 ## What you can do
 
 The session's guards hold you to this, whatever a request asks:
@@ -128,6 +134,27 @@ active one's final delivery. Run dependent tickets in dependency order. If the
 user wants tickets to proceed concurrently, each needs its own worktree and
 its own lead session, which the user sets up; concurrent tickets must not edit
 the same contract.
+
+## Change a contract another ticket owns
+
+Each contract belongs to the one ticket whose frozen design holds it, and a
+delivered ticket's note is its frozen record. When work needs to change a contract that a delivered ticket owns, prepare a change run on that owning ticket yourself.
+The gates say so: a refusal reading "contract <path> belongs to ticket #<n>:
+after the active ticket is delivered, change it in a change run on ticket
+#<n>" names the owner. You cannot switch tickets while the active one is
+mid-run, so follow this order:
+
+1. Deliver the active ticket without that change, record the needed change as a follow-up, then prepare the run on the owning ticket.
+2. Prepare ticket `<n>` with `new`, commission its architect with the
+   follow-up, and deliver it.
+3. Return to the work that needed it, as a new run.
+
+If the active ticket truly cannot be delivered without it, stop and tell the user in product terms what is blocked and why.
+Never ask them to edit files to get past it. A refusal that says a contract
+"is claimed by ticket #<a> and ticket #<b>" has no settled owner: decide
+with the user, in product terms, which part of the product it belongs to,
+then follow the same order. Never move a contract by editing either
+ticket's note.
 
 ## Release a dependency
 

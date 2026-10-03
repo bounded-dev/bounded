@@ -74,7 +74,10 @@ describe("ticket-numbered design", () => {
     expect(activeTicketDesign(root)?.note).toBe("docs/tn/TN-24.md");
     writeFileSync(join(root, "docs/tn/TN-25.md"),
       "---\r\nissue: 25\r\nstatus: active\r\ncontracts:\r\n  - contexts/notes/src/t24.contract.ts\r\n---\r\n");
-    expect(() => activeTicketDesign(root)).toThrow(/both own contexts\/notes\/src\/t24.contract.ts/);
+    // Neither ticket froze it, so neither can be named its owner (review M2).
+    expect(() => activeTicketDesign(root)).toThrow(
+      "contract contexts/notes/src/t24.contract.ts is claimed by ticket #24 and ticket #25, and no single frozen " +
+      "design settles which owns it: return it to the team lead to decide; never edit another ticket's design note");
     writeFileSync(join(root, "docs/tn/TN-25.md"),
       "---\nissue: 25\nstatus: superseded\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n---\n\nSuperseded by [TN-24](TN-24.md).\n");
     expect(activeTicketDesign(root)?.ticket).toBe("24");
@@ -90,7 +93,10 @@ describe("ticket-numbered design", () => {
     expect(decide("architect", "write", { path: "contexts/notes/src/t25.contract.ts" }, ctx).allow).toBe(false);
     expect(decide("architect", "write", { path: "contexts/notes/src/T24.contract.ts" }, ctx).allow).toBe(false);
     expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason)
-      .toBe("path-gate: contract 'contexts/notes/src/t25.contract.ts' is not owned by ticket #24; " +
+      .toBe("path-gate: contract contexts/notes/src/t25.contract.ts belongs to ticket #25: " +
+        "after the active ticket is delivered, change it in a run on ticket #25; never edit another ticket's design note");
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/fresh.contract.ts" }, cwd: root })?.reason)
+      .toBe("path-gate: contract 'contexts/notes/src/fresh.contract.ts' is not owned by ticket #24; " +
         "list it under `contracts:` in the front matter of docs/tn/TN-24.md, then write it");
     expect(decide("architect", "write", { path: "docs/tn/TN-25.md" }, ctx).allow).toBe(false);
     expect(decide("architect", "write", { path: "spec.md" }, ctx).allow).toBe(false);
@@ -120,6 +126,145 @@ describe("ticket-numbered design", () => {
     writeFileSync(join(root, "docs/tn/TN-24.md"),
       "---\nissue: 24\nstatus: active\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n---\n\n# Revised ticket\n");
     expect(runChecksumGate(root, false).code).toBe(1);
+  });
+});
+
+// A contract another ticket owns is changed by a run on THAT ticket, once the
+// active ticket is delivered (the lead cannot switch tickets mid-run). The
+// owner is the ticket whose frozen design holds the contract; when that does
+// not settle it, the refusal names every claimant. It never suggests editing
+// a design note: a delivered ticket's note is its frozen record.
+describe("a contract another ticket owns names its owner and the change run", () => {
+  const route = (path: string, owner: string, run = "change run", active = true): string =>
+    `contract ${path} belongs to ticket #${owner}: ${active ? "after the active ticket is delivered, " : ""}` +
+    `change it in a ${run} on ticket #${owner}; never edit another ticket's design note`;
+  const contested = (path: string, a: string, b: string): string =>
+    `contract ${path} is claimed by ticket #${a} and ticket #${b}, and no single frozen design settles which owns it: ` +
+    "return it to the team lead to decide; never edit another ticket's design note";
+  const refusal = (decision: ReturnType<typeof decide>): string => (decision.allow ? "" : decision.reason);
+  const gate = (root: string, path: string, toolName = "write"): string | undefined =>
+    evaluatePathGate({ role: "architect", toolName, input: { path }, cwd: root })?.reason;
+  /** Freeze `ticket`'s design for real: its manifest holds its contracts. */
+  const freeze = (root: string, ticket: string): void => {
+    vi.stubEnv("BOUNDED_TICKET", ticket);
+    expect(runRecordDesignReview(root, []).code).toBe(0);
+    expect(runChecksumGate(root, true).code).toBe(0);
+  };
+  /** A frozen manifest written directly, for states the gates would refuse to reach. */
+  const manifest = (root: string, ticket: string, paths: readonly string[]): void => {
+    mkdirSync(join(root, `.bounded/tickets/${ticket}`), { recursive: true });
+    writeFileSync(join(root, `.bounded/tickets/${ticket}/contract-checksums.json`),
+      JSON.stringify({ files: Object.fromEntries(paths.map((path) => [path, "0"])) }));
+  };
+  const T24 = "contexts/notes/src/t24.contract.ts";
+  const T25 = "contexts/notes/src/t25.contract.ts";
+  const SHARED = "contexts/notes/src/shared.contract.ts";
+  const claimT24 = "---\nissue: 25\nstatus: draft\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n  - contexts/notes/src/t25.contract.ts\n---\n";
+
+  // Ticket #24 froze the contract, so it is #24's; #25 is told to wait for its
+  // own delivery, then change it in a change run on #24.
+  test("two tickets claiming one contract: the design refusal names the other ticket", () => {
+    const root = project();
+    freeze(root, "24");
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    writeFileSync(join(root, "docs/tn/TN-25.md"), claimT24);
+    const state = resolveTicketDesign(root);
+    expect(state).toEqual({ kind: "refused", ticket: "25", reason: route(T24, "24") });
+    expect(ticketWriteScope(root)!.error).toBe(route(T24, "24"));
+    const reason = gate(root, T25);
+    expect(reason).toBe(`path-gate: ${route(T24, "24")}`);
+    for (const text of [state.kind === "refused" ? state.reason : "", reason ?? ""]) {
+      expect(text).not.toMatch(/both own|list it under|contracts:|front matter|TN-\d+\.md/);
+    }
+  });
+
+  test("review repro: two tickets claiming a contract neither froze are both named", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    writeFileSync(join(root, "docs/tn/TN-25.md"), claimT24);
+    // Before the fix: "belongs to ticket #24", though nothing makes it #24's.
+    expect(resolveTicketDesign(root)).toEqual({ kind: "refused", ticket: "25", reason: contested(T24, "24", "25") });
+    expect(ticketWriteScope(root)!.error).toBe(contested(T24, "24", "25"));
+    expect(gate(root, T25)).toBe(`path-gate: ${contested(T24, "24", "25")}`);
+  });
+
+  test("review repro: an unfrozen claim never takes a contract from the ticket that froze it", () => {
+    const root = project();
+    freeze(root, "24");
+    writeFileSync(join(root, "docs/tn/TN-25.md"), claimT24);
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    // Before the fix: "contract ... belongs to ticket #25", the wrong owner.
+    expect(resolveTicketDesign(root)).toMatchObject({ kind: "ready", design: { ticket: "24" } });
+    expect(ticketWriteScope(root)).toMatchObject({ ticket: "24", contracts: [T24] });
+    expect(ticketWriteScope(root)!.error).toBeUndefined();
+  });
+
+  test("two frozen designs holding one contract: the refusal names both", () => {
+    const root = project();
+    manifest(root, "24", [T24]);
+    manifest(root, "25", [T24, T25]);
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    writeFileSync(join(root, "docs/tn/TN-25.md"), claimT24);
+    expect(resolveTicketDesign(root)).toEqual({ kind: "refused", ticket: "25", reason: contested(T24, "24", "25") });
+  });
+
+  test("the path gate names the owning ticket of a contract the active note does not list", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    const unfrozen = gate(root, T25, "edit");
+    expect(unfrozen).toBe(`path-gate: ${route(T25, "25", "run")}`);
+    expect(unfrozen).not.toMatch(/list it under|front matter/);
+    freeze(root, "25");
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(gate(root, T25, "edit")).toBe(`path-gate: ${route(T25, "25")}`);
+  });
+
+  test("the owner is read from the other ticket's note, for a contract not created yet", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeFileSync(join(root, "docs/tn/TN-25.md"),
+      "---\nissue: 26\nstatus: draft\ncontracts:\n  - contexts/notes/src/shared.contract.ts\n---\n");
+    const ctx = { ...layoutCtx(root), ticketScope: ticketWriteScope(root) };
+    expect(refusal(decide("architect", "write", { path: SHARED }, ctx)))
+      .toBe(`path-gate: ${route(SHARED, "25", "run")}`);
+  });
+
+  test("two other tickets claiming one contract: the path gate names both", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    for (const n of ["25", "26"]) {
+      writeFileSync(join(root, `docs/tn/TN-${n}.md`),
+        `---\nissue: ${n}\nstatus: draft\ncontracts:\n  - contexts/notes/src/shared.contract.ts\n---\n`);
+    }
+    expect(gate(root, SHARED)).toBe(`path-gate: ${contested(SHARED, "25", "26")}`);
+    manifest(root, "26", [SHARED]);
+    expect(gate(root, SHARED)).toBe(`path-gate: ${route(SHARED, "26")}`);
+  });
+
+  test("a superseded note owns nothing", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeFileSync(join(root, "docs/tn/TN-25.md"),
+      "---\nissue: 25\nstatus: superseded\ncontracts:\n  - contexts/notes/src/t25.contract.ts\n---\n\nSuperseded by [TN-24](TN-24.md).\n");
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason)
+      .toBe("path-gate: contract 'contexts/notes/src/t25.contract.ts' is not owned by ticket #24; " +
+        "list it under `contracts:` in the front matter of docs/tn/TN-24.md, then write it");
+  });
+
+  test("writing another ticket's design note is refused with the same route", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "docs/tn/TN-25.md" }, cwd: root })?.reason)
+      .toBe("path-gate: architect may write only ticket #24's TN; docs/tn/TN-25.md belongs to ticket #25: " +
+        "after the active ticket is delivered, change it in a run on ticket #25; never edit another ticket's design note");
+  });
+
+  test("with no ticket selected, another ticket's note is refused without naming an active ticket", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", undefined);
+    expect(gate(root, "docs/tn/TN-25.md"))
+      .toBe("path-gate: no ticket is selected; docs/tn/TN-25.md belongs to ticket #25: " +
+        "change it in a run on ticket #25; never edit another ticket's design note");
   });
 });
 
@@ -181,7 +326,12 @@ describe("design resolution tolerates legitimate states and scopes refusals", ()
     vi.stubEnv("BOUNDED_TICKET", "26");
     expect(resolveTicketDesign(root)).toEqual({ kind: "unwritten", ticket: "26", note: "docs/tn/TN-26.md" });
     expect(designNotePath(root)).toBe("docs/tn/TN-26.md");
-    expect(ticketWriteScope(root)).toEqual({ ticket: "26", contracts: [], contractSuffixes: [".contract.ts"] });
+    const scope = ticketWriteScope(root)!;
+    expect(scope).toMatchObject({ ticket: "26", contracts: [], contractSuffixes: [".contract.ts"], frozenTickets: [] });
+    expect(scope.error).toBeUndefined();
+    // Other tickets' contracts, so a refusal can name their owner.
+    expect(Object.keys(scope.foreign ?? {})).toEqual(["contexts/notes/src/t24.contract.ts", "contexts/notes/src/t25.contract.ts"]);
+    expect(scope.foreign?.["contexts/notes/src/t25.contract.ts"]).toContain("belongs to ticket #25");
     expect(() => activeTicketDesign(root)).toThrow("ticket #26 needs docs/tn/TN-26.md before design review or freeze");
     // A scout may help before the note exists; a worker may not.
     expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "scout", task: "look" }, cwd: root }))
