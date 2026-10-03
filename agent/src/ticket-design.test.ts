@@ -141,7 +141,7 @@ describe("a contract another ticket owns names its owner and the change run", ()
     `change it in a ${run} on ticket #${owner}; never edit another ticket's design note` +
     (run === "change run" && active
       ? ". If this ticket's design must change it, take it over in this ticket's own note instead: " +
-        `list it with its other contracts and add \`- ${path} from TN-${owner}\` under \`takes:\``
+        `list it with its other contracts and add the line \`  - ${path} from TN-${owner}\` under \`takes:\``
       : "");
   const contested = (path: string, a: string, b: string): string =>
     `contract ${path} is claimed by ticket #${a} and ticket #${b}, and no single frozen design settles which owns it: ` +
@@ -644,6 +644,20 @@ describe("a later ticket takes a delivered ticket's contract", () => {
     expect(() => activeTicketDesign(root)).toThrow(/TN-25/);
   });
 
+  test("the refusal's take line is one the takes: grammar accepts", () => {
+    const root = project();
+    mkdirSync(join(root, ".bounded/tickets/24"), { recursive: true });
+    writeFileSync(join(root, ".bounded/tickets/24/contract-checksums.json"), JSON.stringify({ files: { [t24]: "0" } }));
+    writeNote(root, 25, { contracts: [t24, t25] });
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    const refusal = resolveTicketDesign(root);
+    const line = refusal.kind === "refused" ? /add the line `([^`]+)` under `takes:`/.exec(refusal.reason)?.[1] : undefined;
+    expect(line).toBe(`  - ${t24} from TN-24`);
+    writeFileSync(join(root, "docs/tn/TN-25.md"),
+      `---\nissue: 25\nstatus: active\ncontracts:\n  - ${t24}\n  - ${t25}\ntakes:\n${line}\n---\n`);
+    expect(activeTicketDesign(root)?.contracts).toEqual([t24, t25]);
+  });
+
   test("a third ticket's path gate names the taker, not the giver whose freeze still holds it", () => {
     const root = taken();
     mkdirSync(join(root, ".bounded/tickets/24"), { recursive: true });
@@ -674,7 +688,8 @@ describe("a later ticket takes a delivered ticket's contract", () => {
     writeNote(root, 24, { contracts: [t24, t24b] });
     writeNote(root, 25, { contracts: [t24], takes: [`${t24} from TN-24`] });
     abandon(root, 25);
-    // The abandoned run's take does not orphan the giver's contract.
+    // The abandoned run's take does not orphan the giver's contract. Ticket
+    // #25 never froze, so it claims nothing and #24 is the single owner.
     vi.stubEnv("BOUNDED_TICKET", "24");
     expect(activeTicketDesign(root)?.contracts).toEqual([t24, t24b]);
     expect(resolveTicketDesign(root, { siblings: "ignore" })).toMatchObject({ kind: "ready", design: { contracts: [t24, t24b] } });
@@ -684,6 +699,35 @@ describe("a later ticket takes a delivered ticket's contract", () => {
     expect(activeTicketDesign(root)?.contracts).toContain(t24);
     rmSync(join(root, ".bounded/tickets/25/abandoned"));
     expect(() => activeTicketDesign(root)).toThrow(/TN-25/);
+  });
+
+  test("review repro: an abandoned ticket keeps the contracts its freeze holds", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24] });
+    mkdirSync(join(root, ".bounded/tickets/24"), { recursive: true });
+    writeFileSync(join(root, ".bounded/tickets/24/contract-checksums.json"), JSON.stringify({ files: { [t24]: "0" } }));
+    abandon(root, 24);
+    writeNote(root, 25, { contracts: [t24, t25] });
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    expect(() => activeTicketDesign(root)).toThrow(/belongs to ticket #24/);
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(activeTicketDesign(root)?.contracts).toEqual([t24]);
+    writeNote(root, 26, { contracts: [c("t26")] });
+    vi.stubEnv("BOUNDED_TICKET", "26");
+    expect(ticketWriteScope(root)?.foreign?.[t24]).toMatch(/belongs to ticket #24/);
+  });
+
+  test("an abandoned taker whose freeze holds the contract leaves it contested with the giver", () => {
+    const root = project();
+    writeNote(root, 24, { contracts: [t24, t24b] });
+    writeNote(root, 25, { contracts: [t24], takes: [`${t24} from TN-24`] });
+    for (const n of [24, 25]) {
+      mkdirSync(join(root, `.bounded/tickets/${n}`), { recursive: true });
+      writeFileSync(join(root, `.bounded/tickets/${n}/contract-checksums.json`), JSON.stringify({ files: { [t24]: "0" } }));
+    }
+    abandon(root, 25);
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(() => activeTicketDesign(root)).toThrow(/t24\.contract\.ts is claimed by ticket #24 and ticket #25/);
   });
 
   test("a superseded taker's take lapses", () => {

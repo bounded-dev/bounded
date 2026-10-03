@@ -319,9 +319,9 @@ type Siblings = { readonly claimants: readonly Claimant[] } | { readonly error: 
  * claims and takes. Its own hygiene (issue line, status, successor link) is
  * checked when THAT ticket is active, so a stale neighbour never blocks this
  * one — unless it cannot be read at all: then ownership cannot be proven
- * (`check`), or the note releases nothing (`ignore`). A superseded note, and
- * the note of an abandoned ticket, is no claimant: it neither claims nor
- * releases (ADR 2026-071).
+ * (`check`), or the note releases nothing (`ignore`). A superseded note is no
+ * claimant. An abandoned ticket's takes lapse, so it releases nothing, but it
+ * still claims the contracts its frozen design holds (ADR 2026-071).
  */
 function readSiblings(root: string, active: string, mode: "check" | "ignore"): Siblings {
   let entries: string[];
@@ -354,11 +354,19 @@ function readSiblings(root: string, active: string, mode: "check" | "ignore"): S
       continue;
     }
     const status = fm.lines.find((line) => line.startsWith("status:"))?.slice(7).trim();
-    if (status === "superseded" || isAbandoned(root, other)) continue;
+    if (status === "superseded") continue;
     const contracts = contractList(fm.lines);
     if (!contracts) {
       const refused = unreadable(`${note} has an unreadable contracts: list`);
       if (refused) return refused;
+      continue;
+    }
+    if (isAbandoned(root, other)) {
+      // An abandoned ticket's takes lapse, so it releases nothing; it still
+      // claims what its frozen design holds, so that cannot be claimed again
+      // without a take, and nobody else is told it owns it.
+      const kept = contracts.filter((path) => frozeContract(root, other, path));
+      if (kept.length) claimants.push({ ticket: other, note, contracts: kept, takes: [] });
       continue;
     }
     const takes = takesList(fm.lines);
