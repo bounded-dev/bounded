@@ -74,7 +74,9 @@ describe("ticket-numbered design", () => {
     expect(activeTicketDesign(root)?.note).toBe("docs/tn/TN-24.md");
     writeFileSync(join(root, "docs/tn/TN-25.md"),
       "---\r\nissue: 25\r\nstatus: active\r\ncontracts:\r\n  - contexts/notes/src/t24.contract.ts\r\n---\r\n");
-    expect(() => activeTicketDesign(root)).toThrow(/both own contexts\/notes\/src\/t24.contract.ts/);
+    expect(() => activeTicketDesign(root)).toThrow(
+      "contract contexts/notes/src/t24.contract.ts belongs to ticket #25: " +
+      "change it in a change run on ticket #25; never edit another ticket's design note");
     writeFileSync(join(root, "docs/tn/TN-25.md"),
       "---\nissue: 25\nstatus: superseded\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n---\n\nSuperseded by [TN-24](TN-24.md).\n");
     expect(activeTicketDesign(root)?.ticket).toBe("24");
@@ -90,7 +92,10 @@ describe("ticket-numbered design", () => {
     expect(decide("architect", "write", { path: "contexts/notes/src/t25.contract.ts" }, ctx).allow).toBe(false);
     expect(decide("architect", "write", { path: "contexts/notes/src/T24.contract.ts" }, ctx).allow).toBe(false);
     expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason)
-      .toBe("path-gate: contract 'contexts/notes/src/t25.contract.ts' is not owned by ticket #24; " +
+      .toBe("path-gate: contract contexts/notes/src/t25.contract.ts belongs to ticket #25: " +
+        "change it in a change run on ticket #25; never edit another ticket's design note");
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/fresh.contract.ts" }, cwd: root })?.reason)
+      .toBe("path-gate: contract 'contexts/notes/src/fresh.contract.ts' is not owned by ticket #24; " +
         "list it under `contracts:` in the front matter of docs/tn/TN-24.md, then write it");
     expect(decide("architect", "write", { path: "docs/tn/TN-25.md" }, ctx).allow).toBe(false);
     expect(decide("architect", "write", { path: "spec.md" }, ctx).allow).toBe(false);
@@ -120,6 +125,67 @@ describe("ticket-numbered design", () => {
     writeFileSync(join(root, "docs/tn/TN-24.md"),
       "---\nissue: 24\nstatus: active\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n---\n\n# Revised ticket\n");
     expect(runChecksumGate(root, false).code).toBe(1);
+  });
+});
+
+// A contract another ticket owns is changed by a change run on THAT ticket.
+// The refusal names the owner and the route, and never suggests editing a
+// design note: a delivered ticket's note is its frozen record.
+describe("a contract another ticket owns names its owner and the change run", () => {
+  const route = (path: string, owner: string): string =>
+    `contract ${path} belongs to ticket #${owner}: change it in a change run on ticket #${owner}; ` +
+    "never edit another ticket's design note";
+  const refusal = (decision: ReturnType<typeof decide>): string => (decision.allow ? "" : decision.reason);
+
+  test("two tickets claiming one contract: the design refusal names the other ticket", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "25");
+    writeFileSync(join(root, "docs/tn/TN-25.md"),
+      "---\nissue: 25\nstatus: draft\ncontracts:\n  - contexts/notes/src/t24.contract.ts\n  - contexts/notes/src/t25.contract.ts\n---\n");
+    const state = resolveTicketDesign(root);
+    expect(state).toEqual({ kind: "refused", ticket: "25", reason: route("contexts/notes/src/t24.contract.ts", "24") });
+    expect(ticketWriteScope(root)!.error).toBe(route("contexts/notes/src/t24.contract.ts", "24"));
+    const reason = evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason;
+    expect(reason).toBe(`path-gate: ${route("contexts/notes/src/t24.contract.ts", "24")}`);
+    for (const text of [state.kind === "refused" ? state.reason : "", reason ?? ""]) {
+      expect(text).not.toMatch(/both own|list it under|contracts:|front matter|TN-\d+\.md/);
+    }
+  });
+
+  test("the path gate names the owning ticket of a contract the active note does not list", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    const reason = evaluatePathGate({ role: "architect", toolName: "edit", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason;
+    expect(reason).toBe(`path-gate: ${route("contexts/notes/src/t25.contract.ts", "25")}`);
+    expect(reason).not.toMatch(/list it under|front matter/);
+  });
+
+  test("the owner is read from the other ticket's note, for a contract not created yet", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeFileSync(join(root, "docs/tn/TN-25.md"),
+      "---\nissue: 25\nstatus: draft\ncontracts:\n  - contexts/notes/src/shared.contract.ts\n---\n");
+    const ctx = { ...layoutCtx(root), ticketScope: ticketWriteScope(root) };
+    expect(refusal(decide("architect", "write", { path: "contexts/notes/src/shared.contract.ts" }, ctx)))
+      .toBe(`path-gate: ${route("contexts/notes/src/shared.contract.ts", "25")}`);
+  });
+
+  test("a superseded note owns nothing", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    writeFileSync(join(root, "docs/tn/TN-25.md"),
+      "---\nissue: 25\nstatus: superseded\ncontracts:\n  - contexts/notes/src/t25.contract.ts\n---\n\nSuperseded by [TN-24](TN-24.md).\n");
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "contexts/notes/src/t25.contract.ts" }, cwd: root })?.reason)
+      .toBe("path-gate: contract 'contexts/notes/src/t25.contract.ts' is not owned by ticket #24; " +
+        "list it under `contracts:` in the front matter of docs/tn/TN-24.md, then write it");
+  });
+
+  test("writing another ticket's design note is refused with the same route", () => {
+    const root = project();
+    vi.stubEnv("BOUNDED_TICKET", "24");
+    expect(evaluatePathGate({ role: "architect", toolName: "write", input: { path: "docs/tn/TN-25.md" }, cwd: root })?.reason)
+      .toBe("path-gate: architect may write only ticket #24's TN; docs/tn/TN-25.md belongs to ticket #25: " +
+        "change it in a change run on ticket #25; never edit another ticket's design note");
   });
 });
 

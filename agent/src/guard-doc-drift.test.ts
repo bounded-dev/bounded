@@ -97,6 +97,34 @@ describe("the team lead is told to get the user's go-ahead before applying a re-
   });
 });
 
+// A later ticket that needs a contract a delivered ticket owns was once routed
+// to the user as "edit both notes' contracts: lists": that rewrites a frozen
+// record and asks the user for harness mechanics. The gates refuse the edit and
+// name the change run; the lead and the architect must be told the same route.
+describe("a contract another ticket owns is changed by a change run on that ticket, never by the user", () => {
+  const lead = readFileSync(join(import.meta.dirname, "..", "skills", "team-lead", "SKILL.md"), "utf8").replace(/\s+/g, " ");
+  const architectText = architect.replace(/\s+/g, " ");
+  test("the lead never hands the user harness-owned files or steps", () => {
+    expect(lead).toContain(
+      "Never ask the user to edit design notes, contracts, `.bounded/` or any other harness-owned file, " +
+      "nor to hand-perform a step a harness command owns.");
+  });
+  test("the lead prepares the change run on the owning ticket itself", () => {
+    expect(lead).toContain(
+      "When work needs to change a contract that a delivered ticket owns, prepare a change run on that " +
+      "owning ticket yourself.");
+  });
+  test("the lead explains decisions in product terms", () => {
+    expect(lead).toContain("Explain decisions to the user in product terms, not harness mechanics.");
+  });
+  test("the architect returns another ticket's contract to the lead and never edits its note", () => {
+    expect(architectText).toContain("never edit another ticket's design note");
+    expect(architectText).toContain(
+      "return it to the team lead, who prepares a change run on the ticket that owns it");
+    expect(architectText).toContain("Never ask the user to edit design notes, contracts or `.bounded/`");
+  });
+});
+
 describe("the obligations and orderings are named too", () => {
   test("test-writer is told about reachability, boundaries, and collection-time throws", () => {
     expect(testWriter).toMatch(/boundaries/);
