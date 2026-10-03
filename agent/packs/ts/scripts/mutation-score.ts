@@ -3,7 +3,7 @@
 //
 //   node mutation-score.ts [targetDir] [--max-mutants N] [--timeout-ms N]
 //
-// Crash safety, the sample and the time budget are ADR 2026-069 (issue #48).
+// Crash safety, the sample and the time budget are ADR 2026-070 (issue #48).
 //
 // THIS IS A MEASUREMENT, NOT A GATE. It always exits 0 when the measurement
 // ran, whatever the score — nothing here blocks a phase transition. A

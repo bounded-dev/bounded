@@ -21,7 +21,7 @@
 // Every entry is wrapped (`afterLeftoverRestore`): before a gate runs, whatever
 // mutant a killed mutation-score run left in the tree is put back from its
 // journal, or the gate refuses to judge a tree that may still hold one
-// (ADR 2026-069). The registry is the one entry both hosts call, so no host
+// (ADR 2026-070). The registry is the one entry both hosts call, so no host
 // can run a ts gate without it.
 
 import { readFileSync } from "node:fs";

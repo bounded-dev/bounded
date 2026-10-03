@@ -138,7 +138,7 @@ capabilities and still needs a live run before its behavior can be claimed.
   `timeout` (Claude Code's 2-minute default when the call names none, capped
   at its 10-minute maximum): Claude Code kills the command past it, so a gate
   that can split its work across calls (`mutation-score`) stops before it
-  (ADR 2026-069). `sessionRole()`
+  (ADR 2026-070). `sessionRole()`
   reads the role variable before the `.bounded/dev-stage-role` file, so a gate
   that scopes its output by role (`typecheck`) sees the role the definition
   bound, whatever file the project holds; and the CLI records `host

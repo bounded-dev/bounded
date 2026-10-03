@@ -1,4 +1,4 @@
-// The mutation measurement's restore journal (ADR 2026-069, issue #48).
+// The mutation measurement's restore journal (ADR 2026-070, issue #48).
 //
 // mutation-score edits the user's source one mutant at a time. Its restore
 // cannot run when the process is killed outright: in a dogfood run a host's

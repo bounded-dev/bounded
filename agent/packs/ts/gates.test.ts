@@ -106,7 +106,7 @@ describe("the registry is well-formed", () => {
 });
 
 // mutation-score's budget is the host's command deadline less a margin for
-// releasing what it started (ADR 2026-069): the larger of 15% and 15 s.
+// releasing what it started (ADR 2026-070): the larger of 15% and 15 s.
 describe("mutation-score's time budget", () => {
   test("is the host's deadline less the larger of 15% and 15 s, and none without a deadline", () => {
     expect(mutationBudgetMs(undefined)).toBeUndefined();

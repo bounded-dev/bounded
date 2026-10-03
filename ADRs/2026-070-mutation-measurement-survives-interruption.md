@@ -1,4 +1,4 @@
-# 2026-069: The mutation measurement survives interruption, samples enough, and fits its host's time
+# 2026-070: The mutation measurement survives interruption, samples enough, and fits its host's time
 
 **Status:** accepted
 
