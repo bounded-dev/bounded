@@ -99,3 +99,4 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-065](2026-065-spec-first-init-by-product-surface.md) | Initialization reads the spec and selects by product surface | accepted |
 | [2026-067](2026-067-generated-composition-roots.md) | Composition roots are generated, their dependencies grouped by area | accepted |
 | [2026-068](2026-068-harness-development-lifecycle.md) | A development lifecycle for harness work | accepted |
+| [2026-070](2026-070-mutation-measurement-survives-interruption.md) | The mutation measurement survives interruption, samples enough, and fits its host's time | accepted |

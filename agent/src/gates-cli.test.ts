@@ -87,6 +87,33 @@ describe("usage (exit 64) and help (exit 0)", () => {
     expect(r.stdout).toMatch(/--findings-file <string>/);
   });
 
+  // Issue #48: the architect sent findings in two wrong shapes before one
+  // passed, because the help never showed one.
+  test("sign-off and record-design-review help show an example finding", () => {
+    for (const gate of ["sign-off", "record-design-review"]) {
+      const r = run([gate, "--help"], dir);
+      expect(r.status, gate).toBe(0);
+      const line = r.stdout.split("\n").find((l) => l.includes('"severity"'));
+      expect(line, gate).toBeDefined();
+      expect(line, gate).toContain('"summary"');
+      expect(line, gate).toContain('"evidence"');
+      const example: unknown = JSON.parse(line!.replace(/^\s*example:\s*/, ""));
+      expect(Array.isArray(example), gate).toBe(true);
+    }
+  });
+
+  // ...and was offered --findings-file, which the host's policy then refused.
+  test("under a named host, help leaves out the flags the host refuses", () => {
+    const env = { ...process.env, BOUNDED_HOST: "claude-code" };
+    const signOff = spawnSync(process.execPath, [CLI, "sign-off", "--help"], { cwd: dir, encoding: "utf8", env });
+    expect(signOff.status).toBe(0);
+    expect(signOff.stdout).toMatch(/--findings <json>/);
+    expect(signOff.stdout).not.toContain("--findings-file");
+    const typecheck = spawnSync(process.execPath, [CLI, "typecheck", "--help"], { cwd: dir, encoding: "utf8", env });
+    expect(typecheck.status).toBe(0);
+    expect(typecheck.stdout).not.toContain("--role");
+  });
+
   test("--list anywhere in argv lists, and runs no gate", () => {
     const r = run(["typecheck", "--list"], dir);
     expect(r.status).toBe(0);

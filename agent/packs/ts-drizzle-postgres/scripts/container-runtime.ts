@@ -4,6 +4,11 @@
 //   probeContainerRuntime  is a Docker-API runtime answering right now?
 //   drizzleStoreTests      which test files in the project need one?
 //   storeTestDecision      run, skip with a logged reason (red), or refuse (green)
+//   storeTestPhaseDecision the same in the ts pack's policy shape, plus the
+//                          builder's run_tests (build): green's database and
+//                          preflight where they can start, and the store and
+//                          app smoke tests left out, with the reason, where
+//                          they cannot (no runtime, no migration yet)
 //
 // The probe is deterministic for a given environment and filesystem: it
 // tries a fixed, ordered list of endpoints and asks each one the Docker API's
@@ -16,11 +21,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { PhaseTestDecision, PhaseTestPolicy, PreparedTestService, TestEnvChange, TestFailure } from "../../ts/pack.ts";
+import type { PhaseTestDecision, PhaseTestPolicy, PreparedTestService, TestEnvChange, TestFailure, TestPhase } from "../../ts/pack.ts";
 import { startAppDatabase } from "./app-database.ts";
 import { DRIZZLE, DRIZZLE_PREFIX, POSTGRES_IMAGE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./emit.ts";
 import { preflightAllStoreTests, storeTestInfrastructureFailure } from "./testcontainers-preflight.ts";
-import { CONTEXTS_DIR, drizzleContexts } from "./check-db.ts";
+import { CONTEXTS_DIR, drizzleContexts, MIGRATIONS_DIR } from "./check-db.ts";
+import { appSmokeTests } from "../../ts-hexagonal/scripts/obligations.ts";
 
 export type ContainerRuntimeProbe =
   | { readonly available: true; readonly endpoint: string }
@@ -241,6 +247,72 @@ export async function startInOrder(
   };
 }
 
+/** What the build phase needs to know beyond green's inputs: the app smoke
+ *  tests (they read DATABASE_URL), and the Drizzle contexts with no committed
+ *  migration yet (store tests and the app database apply migrations). */
+export interface BuildPhaseFacts {
+  readonly smokeTests: readonly string[];
+  readonly missingMigrations: readonly string[];
+}
+
+/** Drizzle contexts (project-relative dirs) whose migrations folder holds no
+ *  migration yet: `generate_artifacts` writes them from the builder's schema. */
+export function contextsWithoutMigrations(root: string): string[] {
+  return drizzleContexts(root)
+    .filter((context) => {
+      const dir = join(context.path, MIGRATIONS_DIR);
+      return !existsSync(dir) || !statSync(dir).isDirectory() || !readdirSync(dir).some((name) => name.endsWith(".sql"));
+    })
+    .map((context) => context.dir);
+}
+
+/**
+ * The builder's run (`build`, issue #48): what green will run, where it can
+ * run. With no store test and no persistence, nothing to decide. Before every
+ * context has a migration, or without a container runtime, the store tests
+ * and the app smoke tests are left out with the reason (green runs them, so
+ * the builder is not told a failure is theirs that is the machine's or a
+ * missing generation step's). Otherwise the run starts green's preflight and
+ * database; a start that fails blocks the run with its reason.
+ */
+function buildDecision(
+  storeTests: readonly string[],
+  probe: () => ContainerRuntimeProbe,
+  persists: boolean,
+  facts: BuildPhaseFacts,
+  startDatabase?: (endpoint: string) => Promise<PreparedTestService>,
+  preflight?: (endpoint: string, env: TestEnvChange) => Promise<PreparedTestService>,
+  infrastructureFailure?: (endpoint: string) => (failure: TestFailure) => string | undefined,
+): PhaseTestDecision {
+  if (storeTests.length === 0 && !persists) return { action: "run", unsetEnv: STORE_TEST_ENV };
+  const files = [...storeTests, ...(persists ? facts.smokeTests : [])];
+  const leaveOut = (why: string): PhaseTestDecision => ({
+    action: "run",
+    unsetEnv: STORE_TEST_ENV,
+    ...(files.length > 0 ? { exclude: { files, reason: `${files.length} test file(s) that need Postgres are left out of this run: ${why}. They are not skipped: green runs them (ADR 2026-064)` } } : {}),
+  });
+  if (facts.missingMigrations.length > 0) {
+    return leaveOut(
+      `${facts.missingMigrations.join(", ")} ${facts.missingMigrations.length === 1 ? "has" : "have"} no migration yet; ` +
+        "the architect's generate_artifacts writes them from your schema",
+    );
+  }
+  const probed = probe();
+  if (!probed.available) return leaveOut(probed.reason);
+  const endpoint = probed.endpoint;
+  const steps: ((env: TestEnvChange) => Promise<PreparedTestService>)[] = [];
+  if (storeTests.length > 0 && preflight !== undefined) steps.push((env) => preflight(endpoint, env));
+  if (persists && startDatabase !== undefined) steps.push(() => startDatabase(endpoint));
+  const classified = storeTests.length > 0 && infrastructureFailure !== undefined ? { infrastructureFailure: infrastructureFailure(endpoint) } : {};
+  if (steps.length === 0) return { action: "run", unsetEnv: STORE_TEST_ENV, ...classified };
+  return {
+    action: "run",
+    unsetEnv: STORE_TEST_ENV,
+    ...classified,
+    prepare: (env) => (steps.length === 1 ? steps[0]!(env) : startInOrder(steps, env)),
+  };
+}
+
 /**
  * ADR 2026-064 in the ts pack's `phaseTestPolicies` shape. The runtime is
  * probed only when the tree has store tests, or at green when it persists
@@ -253,14 +325,16 @@ export async function startInOrder(
  * by the code (`infrastructureFailure`).
  */
 export function storeTestPhaseDecision(
-  phase: "red" | "green",
+  phase: TestPhase,
   storeTests: readonly string[],
   probe: () => ContainerRuntimeProbe,
   persists = false,
   startDatabase?: (endpoint: string) => Promise<PreparedTestService>,
   preflight?: (endpoint: string, env: TestEnvChange) => Promise<PreparedTestService>,
   infrastructureFailure?: (endpoint: string) => (failure: TestFailure) => string | undefined,
+  build: BuildPhaseFacts = { smokeTests: [], missingMigrations: [] },
 ): PhaseTestDecision {
+  if (phase === "build") return buildDecision(storeTests, probe, persists, build, startDatabase, preflight, infrastructureFailure);
   const needsRuntime = storeTests.length > 0 || (phase === "green" && persists);
   const probed = needsRuntime ? probe() : { available: true as const, endpoint: "(not probed)" };
   const decision = storeTestDecision(phase, storeTests, probed);
@@ -285,20 +359,26 @@ export const storeTestPolicy: PhaseTestPolicy = {
   name: "store-tests-need-a-container-runtime",
   description:
     "Drizzle store tests run against real Postgres: without a container runtime the red gate skips them with the " +
-    "reason logged, and the green gate refuses (ADR 2026-064). At green, store tests' Testcontainers first start and " +
+    "reason logged, and the green gate refuses (ADR 2026-064). The builder's run_tests gets what green gets where " +
+    "it can start, and otherwise leaves the store and app smoke tests out with the reason (no runtime, or no " +
+    "migration generated yet). At green, store tests' Testcontainers first start and " +
     "stop one container (a preflight that refuses with the machine's cause), a Drizzle tree gets one throwaway, " +
     "migrated Postgres as DATABASE_URL for the run (the app smoke tests), and a store test failed by the machine " +
     "routes to the orchestrator, not a role.",
   decide: ({ project, phase }) => {
     const storeTests = drizzleStoreTests(project);
+    const persists = phase !== "red" && drizzleContexts(project).length > 0;
     return storeTestPhaseDecision(
       phase,
       storeTests,
       () => probeContainerRuntime(),
-      phase === "green" && drizzleContexts(project).length > 0,
+      persists,
       (endpoint) => startAppDatabase(project, endpoint),
       (endpoint, env) => preflightAllStoreTests(project, storeTests, endpoint, env),
       (endpoint) => storeTestInfrastructureFailure(storeTests, { image: POSTGRES_IMAGE, endpoint }),
+      phase === "build"
+        ? { smokeTests: appSmokeTests(project), missingMigrations: contextsWithoutMigrations(project) }
+        : undefined,
     );
   },
 };

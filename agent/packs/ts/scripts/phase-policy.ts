@@ -4,6 +4,10 @@
 //
 //   red     every policy's `env` is set and its `unsetEnv` removed; a skipped
 //           result is accepted exactly when a skipping policy claims it
+//   build   the builder's run_tests: a `run` may leave test files out
+//           (`exclude`), merged across policies with every reason, so the
+//           builder sees what green will route to it instead of a failure
+//           that is the machine's; anywhere else an exclusion is a refusal
 //   green   any refusal refuses the run; otherwise every policy's `unsetEnv`
 //           is removed, so a variable leaked into the gate's environment
 //           cannot skip anything
@@ -32,6 +36,15 @@ export interface PhaseRun {
   readonly prepares: readonly { readonly name: string; readonly prepare: (env: TestEnvChange) => Promise<PreparedTestService> }[];
   /** Which of these failures a policy recognises as the machine's. */
   readonly infrastructure: (failures: readonly TestFailure[]) => InfrastructureVerdict;
+  /** Test files to leave out of the run (build only), and why, one reason
+   *  per excluding policy. */
+  readonly exclusions: PhaseExclusions;
+}
+
+export interface PhaseExclusions {
+  /** Project-relative test files, deduplicated, in policy order. */
+  readonly files: readonly string[];
+  readonly reasons: readonly string[];
 }
 
 export interface InfrastructureVerdict {
@@ -42,8 +55,9 @@ export interface InfrastructureVerdict {
   readonly all: boolean;
 }
 
-/** Combine decisions. Pure. A skip at green, or a refusal at red, is a policy
- *  defect and is treated as the strictest reading: a refusal. */
+/** Combine decisions. Pure. A skip at green, a refusal at red, or an
+ *  exclusion anywhere but build is a policy defect and is treated as the
+ *  strictest reading: a refusal. */
 export function combineDecisions(phase: TestPhase, decisions: readonly { readonly name: string; readonly decision: PhaseTestDecision }[]): PhaseRun {
   const refusals: string[] = [];
   const skips: string[] = [];
@@ -52,7 +66,17 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
   const claims: ((name: string) => boolean)[] = [];
   const prepares: { name: string; prepare: (env: TestEnvChange) => Promise<PreparedTestService> }[] = [];
   const classifiers: ((failure: TestFailure) => string | undefined)[] = [];
+  const excluded = new Set<string>();
+  const exclusionReasons: string[] = [];
   for (const { name, decision } of decisions) {
+    if (decision.action === "run" && decision.exclude !== undefined) {
+      if (phase !== "build") {
+        refusals.push(`${name} asked to leave test files out at ${phase}: ${decision.exclude.reason}`);
+        continue;
+      }
+      for (const file of decision.exclude.files) excluded.add(file);
+      exclusionReasons.push(decision.exclude.reason);
+    }
     if (decision.action === "run" && decision.prepare !== undefined) prepares.push({ name, prepare: decision.prepare });
     if (decision.action === "run" && decision.infrastructureFailure !== undefined) classifiers.push(decision.infrastructureFailure);
     for (const variable of decision.unsetEnv) unset.add(variable);
@@ -71,6 +95,7 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
     env: { set, unset: [...unset].sort() },
     skippedOnPurpose: (resultName) => claims.some((claim) => claim(resultName)),
     prepares,
+    exclusions: { files: [...excluded], reasons: exclusionReasons },
     infrastructure: (failures) => {
       const causes = new Set<string>();
       let claimed = 0;

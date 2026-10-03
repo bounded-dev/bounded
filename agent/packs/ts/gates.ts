@@ -17,6 +17,12 @@
 // what `bounded gates --list`, a usage message and a tool roster need, and loading
 // every gate's machinery (eslint, ts-morph, …) to print a table cost a second
 // per invocation. A gate's cost is paid when it runs.
+//
+// Every entry is wrapped (`afterLeftoverRestore`): before a gate runs, whatever
+// mutant a killed mutation-score run left in the tree is put back from its
+// journal, or the gate refuses to judge a tree that may still hold one
+// (ADR 2026-070). The registry is the one entry both hosts call, so no host
+// can run a ts gate without it.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -31,6 +37,8 @@ import {
 } from "../../src/gate-command.ts";
 import { gateError, guardVerdictOf, toGateResult, type GateResult } from "../../src/gate-result.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
+import { commandTimeoutMs } from "../../src/host.ts";
+import { restoreLeftoverMutant } from "./scripts/mutation-journal.ts";
 
 // --- shared pieces ----------------------------------------------------------------
 
@@ -45,10 +53,13 @@ const PATTERN_FLAG: FlagSpec = {
 
 /** The findings flags of the two recording gates. The tool parameter carries
  *  the full item schema — what the model reads — while the CLI takes any JSON
- *  and lets the gate's own validation say what is wrong with it. */
+ *  and lets the gate's own validation say what is wrong with it; its help
+ *  shows one finding, so the shape is in front of whoever types the call. */
 function findingsFlags(schema: {
   readonly description: string;
   readonly evidence: string;
+  readonly exampleSummary: string;
+  readonly exampleEvidence: string;
 }): readonly FlagSpec[] {
   return [
     {
@@ -57,6 +68,7 @@ function findingsFlags(schema: {
       param: "findings",
       required: true,
       description: "The findings as a JSON array. Pass [] to record that you found nothing.",
+      example: JSON.stringify([{ severity: "concern", summary: schema.exampleSummary, evidence: schema.exampleEvidence }]),
       jsonSchema: {
         type: "array",
         items: {
@@ -141,9 +153,48 @@ const patternsOf = (args: GateArgs): readonly string[] | undefined => {
   return patterns.length > 0 ? patterns : undefined;
 };
 
+/** Run `gate` only over a tree without a mutation-score mutant in it: a
+ *  leftover from a killed run is restored first (and the gate's lines say
+ *  so); one that cannot be restored safely blocks the gate, which touches
+ *  nothing and is logged under its own name. */
+function afterLeftoverRestore(gate: GateCommand): GateCommand {
+  return {
+    ...gate,
+    async run(cwd, args) {
+      const leftover = restoreLeftoverMutant(cwd);
+      if (leftover.status === "refused") {
+        const result: GateResult = {
+          code: 1,
+          verdict: "block",
+          summary: leftover.reason,
+          lines: [`${gate.name}: BLOCK — ${leftover.reason}`],
+          detail: { reason: "mutation-leftover" },
+        };
+        logGuardEvent(cwd, { guard: gate.name, verdict: "block", summary: result.summary, detail: result.detail });
+        return result;
+      }
+      const result = await gate.run(cwd, args);
+      if (leftover.status !== "restored") return result;
+      return { ...result, lines: [`mutation-score: ${leftover.line}`, ...result.lines] };
+    },
+  };
+}
+
+/** The share of the host's command deadline mutation-score leaves unused, to
+ *  release what it started and report: the larger of 15% and 15 s. */
+export function mutationBudgetMs(deadlineMs: number | undefined): number | undefined {
+  if (deadlineMs === undefined) return undefined;
+  return Math.max(0, deadlineMs - Math.max(Math.ceil(deadlineMs * 0.15), 15_000));
+}
+
+/** The shortest host deadline whose budget is at least `budgetMs`. */
+export function deadlineForBudgetMs(budgetMs: number): number {
+  return Math.max(Math.ceil(budgetMs / 0.85), budgetMs + 15_000);
+}
+
 // --- the registry ------------------------------------------------------------------
 
-export const gates: readonly GateCommand[] = [
+export const gates: readonly GateCommand[] = ([
   {
     name: "handoff-publish",
     description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. In a ticket-numbered TN project, the active ticket (recorded by lead prepare; BOUNDED_TICKET overrides) must match --producer; the receipt includes that TN and its owned contracts.",
@@ -275,6 +326,8 @@ export const gates: readonly GateCommand[] = [
     flags: findingsFlags({
       description: "What you saw. Pass [] to record that you found nothing.",
       evidence: "Where to look — a path, a symbol, a test name.",
+      exampleSummary: "No test asserts the boundary at exactly 0",
+      exampleEvidence: "contexts/billing/src/domain/amount/amount.ts:12",
     }),
     promptGuidelines: [
       "Call this after green_gate passes and before telling the user the work is done.",
@@ -305,14 +358,14 @@ export const gates: readonly GateCommand[] = [
     tool: "mutation_score",
     promptSnippet: "Measure the suite's mutation score: which edits to the source does nobody notice?",
     description:
-      "Measure how much of the delivered logic the suite actually holds down: mutate the builder's source under the source roots one site at a time (comparison flips, &&/|| swaps, if-negation, dropped early-return guards), run the suite against each mutant, and report which were KILLED and which SURVIVED. ADVISORY — it never blocks: exit 0 means the measurement ran, whatever the score. Each surviving mutant names a file, a line and an edit the suite did not notice, which is where an untested rule lives. Run it after green_gate and before sign_off, and put what survived in your findings.",
+      "Measure how much of the delivered logic the suite actually holds down: mutate the builder's source under the source roots one site at a time (comparison flips, &&/|| swaps, if-negation, dropped early-return guards), run the suite against each mutant, and report which were KILLED and which SURVIVED. The sample is at least 40 mutants (every site when there are fewer), spread evenly over the tree, and the report puts the sample size and the site count beside the score. ADVISORY — it never blocks: exit 0 means the measurement ran, whatever the score. A call that runs out of time stops between mutants and reports PARTIAL with no score: call it again with the same flags and it continues where it stopped. Each surviving mutant names a file, a line and an edit the suite did not notice, which is where an untested rule lives. Run it after green_gate and before sign_off, and put what survived in your findings.",
     flags: [
       {
         name: "max-mutants",
         kind: "number",
         param: "maxMutants",
         description:
-          "Cap on mutants run (default 40). Each one costs a full suite run, so raise it only on a fast suite.",
+          "The sample size (default and minimum 40, or every site when there are fewer; a smaller value is refused). Each mutant costs a full suite run, so raise it only on a fast suite.",
       },
       {
         name: "timeout-ms",
@@ -323,7 +376,10 @@ export const gates: readonly GateCommand[] = [
     ],
     promptGuidelines: [
       "A survivor is not automatically a defect — it is a question. Read the line it names and decide whether the rule it broke is one the spec actually requires.",
-      "The measurement costs one full suite run per mutant (40 by default), so run it once, late, on a green suite — not between builder bounces.",
+      "The measurement costs one full suite run per mutant (at least 40), so run it once, late, on a green suite — not between builder bounces.",
+      "PARTIAL means the call ran out of time after making progress, not that anything failed: call it again with the same flags until it reports a score. The verdicts so far are kept while the tree is unchanged.",
+      "An ERROR saying the time budget cannot fit the next step is not PARTIAL: calling again unchanged judges nothing. Give the command the timeout it names, or pass a smaller --timeout-ms.",
+      "A gate that blocks because a mutation-score mutant is still in a file is not the builder's to fix: it names the file and what to compare it with.",
       "Findings from it belong in sign_off: 'the suite does not hold down X' is exactly the kind of thing only you can see, and the gates cannot.",
     ],
     async run(cwd, args) {
@@ -331,18 +387,31 @@ export const gates: readonly GateCommand[] = [
       if (!maxMutants.ok) return maxMutants.result;
       const timeoutMs = positiveInteger("mutation-score", cwd, args, "timeout-ms");
       if (!timeoutMs.ok) return timeoutMs.result;
+      // The host says how long this command may run (Claude Code: the Bash
+      // call's timeout); the measurement stops between mutants before it.
+      const budgetMs = mutationBudgetMs(commandTimeoutMs(process.env));
       const { runMutationScore } = await import("./scripts/mutation-score.ts");
       const r = await runMutationScore(cwd, {
         ...(maxMutants.value !== undefined ? { maxMutants: maxMutants.value } : {}),
         ...(timeoutMs.value !== undefined ? { timeoutMs: timeoutMs.value } : {}),
+        ...(budgetMs !== undefined ? { budgetMs } : {}),
+        budgetRemedy: (neededMs) =>
+          `give this command a timeout of at least ${Math.ceil(deadlineForBudgetMs(neededMs) / 1000)}s ` +
+          "(the measurement keeps a margin of it for releasing what it starts), or pass a smaller --timeout-ms",
       });
-      return toGateResult("mutation-score", r, {
-        sites: r.sites,
-        killed: r.killed,
-        survived: r.survived,
-        timedOut: r.timedOut,
-        score: r.score ?? null,
-      });
+      return {
+        ...toGateResult("mutation-score", r, {
+          sites: r.sites,
+          sample: r.sample,
+          complete: r.complete,
+          judged: r.outcomes.length,
+          killed: r.killed,
+          survived: r.survived,
+          timedOut: r.timedOut,
+          score: r.score ?? null,
+        }),
+        summary: r.summary,
+      };
     },
   },
   {
@@ -386,10 +455,11 @@ export const gates: readonly GateCommand[] = [
     tool: "run_tests",
     promptSnippet: "Run the test suite and see sanitized pass/fail results (no test source).",
     description:
-      "Run the project's suite with `bun test` and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes.",
+      "Run the project's suite with `bun test` and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes. It starts what the green gate would start for the run (a throwaway database), and where that cannot start yet (no container runtime, no migration generated) it leaves out the tests that need it and says why before the results.",
     flags: [],
     promptGuidelines: [
       "Use run_tests to check whether your implementation satisfies the suite; it never reveals test source.",
+      "Tests it says it left out are not yours to fix and not a reason to stop: green runs them. Report the line to the architect if the work depends on them.",
     ],
     async run(cwd) {
       const { runTestsGate } = await import("./scripts/run-tests.ts");
@@ -405,6 +475,8 @@ export const gates: readonly GateCommand[] = [
     flags: findingsFlags({
       description: "What you found. Pass [] to record that you found nothing.",
       evidence: "Where to look — a path, a symbol, an exported operation.",
+      exampleSummary: "Two readers could disagree on whether an empty title is valid",
+      exampleEvidence: "contexts/notes/src/domain/note/note.contract.ts",
     }),
     promptGuidelines: [
       "Call this once, at the end of the review, with everything you found — it is the only output of the role, and you are not re-run to re-check.",
@@ -460,4 +532,4 @@ export const gates: readonly GateCommand[] = [
       return toGateResult("scaffold", runScaffold(cwd));
     },
   },
-];
+] satisfies readonly GateCommand[]).map(afterLeftoverRestore);

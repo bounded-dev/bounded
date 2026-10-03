@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { readGuardLog } from "./guard-log.ts";
 import {
+  COMMAND_TIMEOUT_ENV,
+  commandTimeoutMs,
   CONSTRAINTS,
   HOST_GUARD,
   NO_HOST,
@@ -86,5 +88,18 @@ describe("recordHostDeclaration", () => {
     expect(lastHostDeclaration(cwd)).toBeUndefined();
     recordHostDeclaration(cwd, declareHost("claude-code", ["path-gate", "phase-gate"]));
     expect(lastHostDeclaration(cwd)).toEqual(declareHost("claude-code", ["path-gate", "phase-gate"]));
+  });
+});
+
+// The time a host gives a command before killing it (issue #48): a gate that
+// can split its work across calls keeps each call inside it.
+describe("the host's command deadline", () => {
+  test("commandTimeoutMs reads a positive integer and ignores anything else", () => {
+    expect(COMMAND_TIMEOUT_ENV).toBe("BOUNDED_COMMAND_TIMEOUT_MS");
+    expect(commandTimeoutMs({ BOUNDED_COMMAND_TIMEOUT_MS: "600000" })).toBe(600_000);
+    for (const value of ["abc", "-5", "", "0", "1.5"]) {
+      expect(commandTimeoutMs({ BOUNDED_COMMAND_TIMEOUT_MS: value }), value).toBeUndefined();
+    }
+    expect(commandTimeoutMs({})).toBeUndefined();
   });
 });

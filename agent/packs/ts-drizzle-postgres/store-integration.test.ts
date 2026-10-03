@@ -23,7 +23,7 @@ import {
 } from "./scripts/container-runtime.ts";
 import { APP_DATABASE_ENV, dockerCli, startAppDatabase } from "./scripts/app-database.ts";
 import {
-  DEFAULT_PREFLIGHT_DEPS, PREFLIGHT_LABEL_KEY, PREFLIGHT_LABEL_VALUE, preflightTargets, preflightTestcontainers, testcontainersResolution,
+  DEFAULT_PREFLIGHT_DEPS, PREFLIGHT_LABEL_KEY, PREFLIGHT_LABEL_VALUE, PREFLIGHT_RUN_LABEL, preflightTargets, preflightTestcontainers, testcontainersResolution,
 } from "./scripts/testcontainers-preflight.ts";
 import { combineDecisions, withPreparedServices } from "../ts/scripts/phase-policy.ts";
 import { emitDrizzlePersistence, POSTGRES_IMAGE, RED_PHASE_TOKEN, STORE_TESTS_PHASE_ENV, STORE_TESTS_SKIP_ENV } from "./scripts/emit.ts";
@@ -287,8 +287,42 @@ if (preflightSkip !== undefined) console.warn(`store-integration: skipping the T
 
 describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight on a real runtime", () => {
   const endpoint = runtime.available ? runtime.endpoint : "";
-  const leftovers = async (): Promise<string> =>
-    (await dockerCli(["ps", "--all", "--quiet", "--filter", `label=${PREFLIGHT_LABEL_KEY}=${PREFLIGHT_LABEL_VALUE}`], endpoint)).stdout.trim();
+  // This file's own preflight runs: every run label the preflight draws while
+  // these tests run. Another session's suite on the same runtime (a parallel
+  // worktree) has preflight containers of its own, briefly; they carry the
+  // shared role label but never one of these run labels (#46).
+  const runs = new Set<string>();
+  const drawRun = DEFAULT_PREFLIGHT_DEPS.suffix;
+  beforeAll(() => {
+    (DEFAULT_PREFLIGHT_DEPS as { suffix: () => string }).suffix = () => {
+      const run = drawRun();
+      runs.add(run);
+      return run;
+    };
+  });
+  afterAll(() => {
+    (DEFAULT_PREFLIGHT_DEPS as { suffix: () => string }).suffix = drawRun;
+  });
+  /** IDs of containers left by this file's own preflight runs. */
+  const leftovers = async (): Promise<string> => {
+    const listed = await dockerCli(["ps", "--all", "--filter", `label=${PREFLIGHT_LABEL_KEY}=${PREFLIGHT_LABEL_VALUE}`, "--format", `{{.ID}}\t{{.Label "${PREFLIGHT_RUN_LABEL}"}}`], endpoint);
+    return listed.stdout.split("\n")
+      .map((line) => line.trim().split("\t"))
+      .filter(([id, run]) => id !== undefined && id !== "" && run !== undefined && runs.has(run))
+      .map(([id]) => id)
+      .join("\n");
+  };
+
+  test("another session's preflight container is not this file's leftover (#46)", { timeout: 300_000 }, async () => {
+    const foreign = await dockerCli(["create", "--label", `${PREFLIGHT_LABEL_KEY}=${PREFLIGHT_LABEL_VALUE}`, "--label", `${PREFLIGHT_RUN_LABEL}=another-session`, POSTGRES_IMAGE], endpoint);
+    const id = foreign.stdout.trim();
+    try {
+      expect(id).not.toBe("");
+      expect(await leftovers()).toBe("");
+    } finally {
+      await dockerCli(["rm", "--force", id], endpoint);
+    }
+  });
   /** A Docker config naming a credential helper nobody has installed. */
   const brokenDockerConfig = (): string => {
     const config = mkdtempSync(join(tmpdir(), "docker-config-"));
@@ -355,5 +389,64 @@ describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight o
     expect(prepared.ok).toBe(false);
     if (!prepared.ok) expect(prepared.reason).toContain("docker-credential-bounded-absent-helper is not on PATH: remove the line or install the helper");
     expect(await leftovers()).toBe("");
+  });
+});
+
+// The builder's run_tests (the build phase, issue #48): the same database and
+// preflight green uses where it can, and the files left out, with the reason,
+// where it cannot. Pure: the probe and the services are injected.
+describe("the store-test policy at build", () => {
+  const STORE = "contexts/pm/src/adapters/out/drizzle/notes/notes.store.test.ts";
+  const SMOKE = "apps/web/src/server/composition-root.test.ts";
+  const up = (): ContainerRuntimeProbe => ({ available: true, endpoint: "unix:///var/run/docker.sock" });
+  const down = (): ContainerRuntimeProbe => ({ available: false, reason: "no container runtime found: DOCKER_HOST is unset" });
+
+  function services(order: string[]) {
+    return {
+      startDatabase: async () => {
+        order.push("database");
+        return { description: "started a throwaway database", env: { DATABASE_URL: "postgres://throwaway" }, release: () => {} };
+      },
+      preflight: async () => {
+        order.push("preflight");
+        return { description: "preflight passed", env: {}, release: () => {} };
+      },
+      classifier: () => () => undefined,
+    };
+  }
+
+  test("at build with a runtime and migrations, the run gets green's database and preflight", async () => {
+    const order: string[] = [];
+    const { startDatabase, preflight, classifier } = services(order);
+    const decision = storeTestPhaseDecision("build", [STORE], up, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: [] });
+    expect(decision.action).toBe("run");
+    if (decision.action !== "run") return;
+    expect(decision.exclude).toBeUndefined();
+    expect(decision.prepare).toBeDefined();
+    const service = await decision.prepare!({ set: {}, unset: [] });
+    expect(order).toEqual(["preflight", "database"]);
+    expect(service.env["DATABASE_URL"]).toBe("postgres://throwaway");
+  });
+
+  test("at build without a runtime, store and smoke tests are excluded with the runtime's reason, never refused", () => {
+    const { startDatabase, preflight, classifier } = services([]);
+    const decision = storeTestPhaseDecision("build", [STORE], down, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: [] });
+    expect(decision.action).toBe("run");
+    if (decision.action !== "run") return;
+    expect(decision.exclude?.files).toEqual([STORE, SMOKE]);
+    expect(decision.exclude?.reason).toContain("no container runtime found: DOCKER_HOST is unset");
+    expect(decision.exclude?.reason).toMatch(/green runs them/);
+    expect(decision.prepare).toBeUndefined();
+  });
+
+  test("at build before migrations exist, the same files are excluded and the reason names generate_artifacts", () => {
+    const { startDatabase, preflight, classifier } = services([]);
+    const decision = storeTestPhaseDecision("build", [STORE], up, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: ["contexts/pm"] });
+    expect(decision.action).toBe("run");
+    if (decision.action !== "run") return;
+    expect(decision.exclude?.files).toEqual([STORE, SMOKE]);
+    expect(decision.exclude?.reason).toContain("contexts/pm");
+    expect(decision.exclude?.reason).toContain("generate_artifacts");
+    expect(decision.prepare).toBeUndefined();
   });
 });

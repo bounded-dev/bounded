@@ -160,12 +160,19 @@ packs' pins. If you need a package that is not there, that is a
 
 - **You are blind to test SOURCE, not to failures.** `run_tests` returns test
   names, statuses and error messages, never the test code. Debug from that.
-- **Store tests need a container runtime.** Tests of Postgres stores
+- **Store tests and app smoke tests need Postgres.** Tests of Postgres stores
   (`adapters/out/drizzle/**/*.store.test.ts`) start a real Postgres through
-  Docker. Where none is running, `run_tests` reports them skipped with the
-  reason. They are not optional: the architect's green gate refuses while
-  store tests exist and no container runtime answers. Say so in your report
-  rather than treating a skip as a pass.
+  Docker, and each app's smoke test (`composition-root.test.ts`) reads the
+  database the gate starts. `run_tests` starts the same throwaway database the
+  green gate does. Where it cannot — no container runtime answers, or a
+  context has no migration yet because the architect's `generate_artifacts`
+  has not run since your schema changed — it leaves those test files out and
+  prints why before the results. They are not optional: green runs them.
+  Left-out tests are not a reason to report BLOCKED; say in your report which
+  were left out and why.
+- **A gate that blocks on a mutation-score mutant is not yours to fix.** If
+  any gate says a mutation-score run left a mutant in a file, stop and report
+  the line to the architect; do not edit that file.
 - **Typecheck before you run the suite.** A type error makes every failure
   downstream of it uninterpretable. Then read the failure set as *evidence
   about your reading of the spec*, not as a list of patches.

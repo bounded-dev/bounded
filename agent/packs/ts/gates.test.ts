@@ -7,7 +7,8 @@ import { paramName, toolFlags, toolParams } from "../../hosts/pi/extensions/lib/
 import { isGateCommand } from "../../src/gate-command.ts";
 import { ARTIFACT_GATE_TOOLS } from "../../src/path-policy.ts";
 import { makeTempProject, type TempProject } from "../../test/support/temp-project.ts";
-import { gates } from "./gates.ts";
+import { deadlineForBudgetMs, gates, mutationBudgetMs } from "./gates.ts";
+import { parseFindings } from "./scripts/sign-off.ts";
 
 // The registry is the one place a gate's public face lives (ADR 2026-034):
 // `bounded gates` reads it for its command line and the pi extensions read it for
@@ -86,6 +87,39 @@ describe("the registry is well-formed", () => {
       for (const flag of toolFlags(gate)) {
         if (flag.kind === "json") expect(flag.jsonSchema, `${gate.name} --${flag.name}`).toBeDefined();
       }
+    }
+  });
+
+  // The help shows a json flag's example (issue #48): it must be a payload
+  // the gate accepts, or the help teaches the wrong shape.
+  test("every json flag's example is valid JSON, and a findings example passes parseFindings", () => {
+    for (const gate of gates) {
+      for (const flag of toolFlags(gate)) {
+        if (flag.kind !== "json") continue;
+        const where = `${gate.name} --${flag.name}`;
+        expect(flag.example, where).toBeDefined();
+        const example: unknown = JSON.parse(flag.example!);
+        if (flag.name === "findings") expect(parseFindings(example).ok, where).toBe(true);
+      }
+    }
+  });
+});
+
+// mutation-score's budget is the host's command deadline less a margin for
+// releasing what it started (ADR 2026-070): the larger of 15% and 15 s.
+describe("mutation-score's time budget", () => {
+  test("is the host's deadline less the larger of 15% and 15 s, and none without a deadline", () => {
+    expect(mutationBudgetMs(undefined)).toBeUndefined();
+    expect(mutationBudgetMs(600_000)).toBe(510_000);
+    expect(mutationBudgetMs(120_000)).toBe(102_000);
+    expect(mutationBudgetMs(60_000)).toBe(45_000);
+    expect(mutationBudgetMs(10_000)).toBe(0);
+  });
+
+  test("the deadline a budget error asks for buys at least that budget", () => {
+    for (const budget of [1, 20_000, 85_000, 120_000, 500_000]) {
+      expect(mutationBudgetMs(deadlineForBudgetMs(budget))!).toBeGreaterThanOrEqual(budget);
+      expect(mutationBudgetMs(deadlineForBudgetMs(budget) - 1)!).toBeLessThan(budget);
     }
   });
 });

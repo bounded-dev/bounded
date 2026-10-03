@@ -24,14 +24,15 @@
 // commands this role may run instead, because a refused command costs a turn
 // and a vague refusal costs several.
 //
-// An allowed `bounded gates` call is also where the bound role and the host cross
-// into the CLI process: the hook rewrites the command with a
-// `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role>` prefix (`updatedInput`).
+// An allowed `bounded gates` call is also where the bound role, the host and
+// the call's deadline cross into the CLI process: the hook rewrites the command
+// with a `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role>
+// BOUNDED_COMMAND_TIMEOUT_MS=<ms>` prefix (`updatedInput`).
 // `sessionRole()` reads the role before the role file, so a role-scoped gate
 // view (typecheck) sees the role the definition bound rather than whatever
 // file the project holds, and the CLI records which host ran it. This module
 // only refuses the model's own attempts at the same thing — an env prefix it
-// typed, of either name, a `--role` it passed — and reports the carrier, so
+// typed, of any of those names, a `--role` it passed — and reports the carrier, so
 // the hook knows which allow to decorate. Pure: no fs, no process, no
 // logging. The hook logs.
 

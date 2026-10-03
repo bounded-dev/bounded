@@ -35,7 +35,7 @@ import {
 } from "./gate-command.ts";
 import { gateEnvelope, gateError, gateExitCode, verdictLine, type GateResult } from "./gate-result.ts";
 import { logGuardEvent } from "./guard-log.ts";
-import { HOST_ENV, NO_HOST, hostFromEnv, recordHostDeclaration } from "./host.ts";
+import { HOST_ENV, NO_HOST, hostFromEnv, recordHostDeclaration, type HostName } from "./host.ts";
 import { isMainModule } from "./is-main-module.ts";
 import { asRole } from "./path-gate.ts";
 import { targetCwd } from "./target-cwd.ts";
@@ -135,16 +135,34 @@ export function usage(gates: readonly GateCommand[]): string {
   ].join("\n");
 }
 
-/** One gate's usage: the whole description and its flags. */
-export function gateUsage(gate: GateCommand): string {
-  const flags = [...gate.flags, ...GLOBAL_FLAGS.filter((f) => f.name === "json")];
+/** What a gate's usage depends on beyond the gate: the host that named
+ *  itself to this process, if any (`BOUNDED_HOST`). */
+export interface UsageContext {
+  readonly host?: HostName | undefined;
+}
+
+/**
+ * One gate's usage: the whole description and its flags, each followed by
+ * its example when it has one. Under a named host the command-line-only
+ * flags are left out: a host runs a gate the way its tool does, and its
+ * adapter refuses them (the Claude Code bash policy does), so offering them
+ * there only costs a refused call. A bare shell lists every flag.
+ */
+export function gateUsage(gate: GateCommand, context: UsageContext = {}): string {
+  const offered = context.host === undefined ? gate.flags : gate.flags.filter((f) => f.cliOnly !== true);
+  const flags = [...offered, ...GLOBAL_FLAGS.filter((f) => f.name === "json")];
+  const width = Math.max(0, ...flags.map((f) => flagUsage(f).length));
+  const lines = flags.flatMap((f) => {
+    const line = `  ${flagUsage(f).padEnd(width)}  ${f.description}`;
+    return f.example === undefined ? [line] : [line, `  ${" ".repeat(width)}  example: ${f.example}`];
+  });
   return [
-    `usage: ${PROGRAM} ${gate.name} [cwd] [--json]${gate.flags.length > 0 ? " [flags]" : ""}`,
+    `usage: ${PROGRAM} ${gate.name} [cwd] [--json]${offered.length > 0 ? " [flags]" : ""}`,
     "",
     gate.description,
     "",
     "flags:",
-    ...table(flags.map((f) => [flagUsage(f), f.description])),
+    ...lines,
     "",
   ].join("\n");
 }
@@ -228,19 +246,20 @@ export async function main(
     return USAGE_EXIT;
   }
 
+  const usageContext: UsageContext = { host: hostFromEnv(process.env[HOST_ENV]) };
   const parsed = parseGateArgs([...gate.flags, ...GLOBAL_FLAGS], rest);
   if (!parsed.ok) {
-    io.err(`${PROGRAM} ${gate.name}: ${parsed.error}\n\n${gateUsage(gate)}`);
+    io.err(`${PROGRAM} ${gate.name}: ${parsed.error}\n\n${gateUsage(gate, usageContext)}`);
     return USAGE_EXIT;
   }
   json = json || parsed.args["json"] === true;
   help = help || parsed.args["help"] === true;
   if (help) {
-    io.out(gateUsage(gate));
+    io.out(gateUsage(gate, usageContext));
     return 0;
   }
   if (parsed.positionals.length > 1) {
-    io.err(`${PROGRAM} ${gate.name}: expected at most one positional (the project directory), got ${parsed.positionals.length}\n\n${gateUsage(gate)}`);
+    io.err(`${PROGRAM} ${gate.name}: expected at most one positional (the project directory), got ${parsed.positionals.length}\n\n${gateUsage(gate, usageContext)}`);
     return USAGE_EXIT;
   }
   const cwd = targetCwd(sessionCwd, parsed.positionals[0]);

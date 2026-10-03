@@ -194,7 +194,10 @@ removes it at the end of the run.
      faking side effects against each feature's out ports;
    - the builder fills the skeletons and writes mappers (each app's
      composition root is generated), blind to test source, debugging through the sanitized
-     `run_tests` tool.
+     `run_tests` tool. That run starts the throwaway database green would;
+     without a container runtime, or before `generate_artifacts` has written a
+     context's migrations, it leaves the store and app smoke tests out and
+     says why, and green runs them.
 
    **Point each worker at the worked example (TN-26-008).**
    `packs/ts-hexagonal/reference/` in the harness is one complete context with
@@ -272,7 +275,14 @@ removes it at the end of the run.
      test still passes. Carry each survivor into your `sign_off` findings with
      your reading of it, a coverage hole or an equivalent mutant you inspected
      and dismissed. Leaving one unmentioned is the same silence a green with an
-     empty sign-off would be.
+     empty sign-off would be. The sample is at least 40 mutants, spread over
+     the whole tree, and the score is printed beside its sample size and site
+     count. A call that runs out of its host's time after making progress
+     reports **PARTIAL**: call it again with the same flags until it prints a
+     score. An ERROR that the budget cannot fit the next step needs a longer
+     command timeout or a smaller `--timeout-ms`, not another identical call. Every gate first puts
+     back a mutant a killed measurement left; when it cannot do so safely it
+     blocks and names the file, which is yours to settle, not the builder's.
 
 5. **DELIVER** — after sign-off, run `deliver`. Its steps, in order, each
    print one line: strip the red-phase scaffolding (each context's

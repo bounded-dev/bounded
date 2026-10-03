@@ -51,10 +51,14 @@ interface HookOutput {
   };
 }
 
-function run(dir: string, stdin: string, flags: readonly string[] = []): Run {
+function run(dir: string, stdin: string, flags: readonly string[] = [], extraEnv: Readonly<Record<string, string>> = {}): Run {
   const env = { ...process.env };
   delete env["BOUNDED_GUARD_LOG"];
   delete env["BOUNDED_DEV_STAGE_ROLE"];
+  // Claude Code's own Bash timeout settings, when this suite runs inside it.
+  delete env["BASH_DEFAULT_TIMEOUT_MS"];
+  delete env["BASH_MAX_TIMEOUT_MS"];
+  Object.assign(env, extraEnv);
   const r = spawnSync(process.execPath, [HOOK, ...flags], { cwd: dir, input: stdin, encoding: "utf8", env });
   let decision: Run["decision"] = "allow";
   let reason = "";
@@ -109,8 +113,11 @@ function payload(dir: string, tool_name: string, tool_input: unknown, extra: Rea
   });
 }
 
-/** The prefix an allowed `bounded gates` call is given (F3): the host, then the role. */
-const prefix = (role: string): string => `${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=${role}`;
+/** The prefix an allowed `bounded gates` call is given (F3): the host, the
+ *  role, then the call's deadline (Claude Code's 2-minute default when the
+ *  call names no timeout, issue #48). */
+const prefix = (role: string, timeoutMs = 120_000): string =>
+  `${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=${role} BOUNDED_COMMAND_TIMEOUT_MS=${timeoutMs}`;
 
 /** The log minus the host declaration the hook writes as the role binds
  *  (ADR 2026-034) — these tests are about the gate's own lines. */
@@ -243,8 +250,23 @@ describe("path-gate-hook — Bash, by role", () => {
     const r = run(dir, payload(dir, "Bash", { command: "bounded gates typecheck", description: "typecheck", timeout: 60000 }));
     expect(r.status).toBe(0);
     expect(r.decision).toBe("allow");
-    expect(r.updatedInput).toEqual({ command: "BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=builder bounded gates typecheck", description: "typecheck", timeout: 60000 });
+    expect(r.updatedInput).toEqual({ command: "BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=builder BOUNDED_COMMAND_TIMEOUT_MS=60000 bounded gates typecheck", description: "typecheck", timeout: 60000 });
     expect(gateEvents(dir)).toEqual([]);
+  });
+
+  // Issue #48: Claude Code killed a mutation-score call at its 10-minute
+  // limit. The gate can only stay inside a deadline it is told.
+  test("an allowed gate call carries the call's deadline to the gate", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    const long = run(dir, payload(dir, "Bash", { command: "bounded gates run-tests", timeout: 600000 }));
+    expect(long.decision).toBe("allow");
+    const command = String(long.updatedInput?.["command"]);
+    expect(command).toMatch(/BOUNDED_COMMAND_TIMEOUT_MS=600000 .*bounded gates run-tests$/);
+    expect(command.indexOf("BOUNDED_COMMAND_TIMEOUT_MS=600000")).toBeLessThan(command.indexOf("bounded gates"));
+    expect(long.updatedInput?.["timeout"]).toBe(600000);
+    const plain = run(dir, payload(dir, "Bash", { command: "bounded gates run-tests" }));
+    expect(String(plain.updatedInput?.["command"])).toContain("BOUNDED_COMMAND_TIMEOUT_MS=120000 ");
+    expect(plain.updatedInput?.["timeout"]).toBeUndefined();
   });
 
   test("the env prefix carries the BOUND role, not the file's", () => {
@@ -260,6 +282,32 @@ describe("path-gate-hook — Bash, by role", () => {
       expect(r.decision).toBe("deny");
       expect(r.reason).toContain("an env assignment prefix");
     }
+  });
+
+  // The deadline is the host's to state: a model that typed a long one could
+  // have the measurement outlive the call and be killed mid-mutant.
+  // Claude Code reads its Bash default and maximum from BASH_DEFAULT_TIMEOUT_MS
+  // and BASH_MAX_TIMEOUT_MS; the deadline handed to the gate must be the one
+  // Claude Code will actually enforce.
+  test("the deadline follows Claude Code's own BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS when they are set", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    const deadline = (input: Record<string, unknown>, env: Record<string, string> = {}): string => {
+      const r = run(dir, payload(dir, "Bash", { command: "bounded gates run-tests", ...input }), [], env);
+      expect(r.decision).toBe("allow");
+      return /BOUNDED_COMMAND_TIMEOUT_MS=(\d+) /.exec(String(r.updatedInput?.["command"]))?.[1] ?? "none";
+    };
+    expect(deadline({}, { BASH_DEFAULT_TIMEOUT_MS: "300000" })).toBe("300000");
+    expect(deadline({ timeout: 800000 })).toBe("600000");
+    expect(deadline({ timeout: 800000 }, { BASH_MAX_TIMEOUT_MS: "900000" })).toBe("800000");
+    expect(deadline({}, { BASH_DEFAULT_TIMEOUT_MS: "900000", BASH_MAX_TIMEOUT_MS: "700000" })).toBe("700000");
+    expect(deadline({}, { BASH_DEFAULT_TIMEOUT_MS: "abc" })).toBe("120000");
+  });
+
+  test("a model-typed BOUNDED_COMMAND_TIMEOUT_MS prefix is refused", () => {
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Bash", { command: "BOUNDED_COMMAND_TIMEOUT_MS=1 bounded gates typecheck" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("an env assignment prefix");
   });
 
   test("a model-supplied --role is refused; the host supplies the role", () => {

@@ -68,3 +68,20 @@ Mutation score refuses a run the machine failed rather than count mutants
 killed. Known limit: deliver's check runs `bun run check` as text, so it
 gets the preflight but not the backstop. The core learns no technology: the
 patterns are the pack's (`testcontainers-preflight.ts`).
+
+**Amendment — the builder's run (issue #48).** The builder's `run_tests` had
+no database, so the app smoke tests failed on every builder run and the
+builder reported BLOCKED over the machine's gap. A third phase, `build`,
+joins red and green in `phaseTestPolicies`, and `run_tests` applies it. A run
+decision may now carry `exclude` (project-relative test files and a reason).
+It is allowed only at build; at red or green it is a policy defect, read as a
+refusal. `run_tests` starts what the policies prepare, prints each
+exclusion's reason before the results, and logs the excluded files. A service
+that cannot start is an error with its reason, and nothing runs. At build the
+Postgres pack does what green does where it can: the Testcontainers preflight
+for store tests, then the throwaway migrated database as `DATABASE_URL`.
+Without a container runtime, or while a Drizzle context has no committed
+migration yet, it leaves the store tests and the app smoke tests out, naming
+the cause and that green runs them. Exclusion is by file list, never through
+the store-test skip variable, so no generated file changes. The app smoke
+test file name is ts-hexagonal's, imported across the declared pack edge.

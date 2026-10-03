@@ -3,6 +3,7 @@ import { PIPELINE_ROLES } from "../../src/path-gate.ts";
 import { ARTIFACT_GATE_TOOLS, GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
 import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
 import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-policy.ts";
+import { discoverGates } from "../../src/gates-cli.ts";
 
 // ADR 2026-034: in Claude Code, Bash is the carrier for `bounded gates`, and the
 // hook narrows it to exactly the gates in the role's ROLE_TOOLS. Anything else
@@ -268,6 +269,26 @@ describe("an allow names its carrier, so the hook knows which to decorate", () =
   test("a host-only flag is refused by name", () => {
     const d = decideBash("builder", "bounded gates typecheck --role architect", CTX);
     if (!d.allow) expect(d.reason).toBe("path-gate: builder may not pass '--role' to bounded gates: the host supplies the role and findings are passed inline");
+  });
+  // `bounded gates <gate> --help` leaves out the command-line-only flags under a
+  // named host because this policy refuses them (issue #48). The two lists
+  // must not drift: a cliOnly flag this policy let through would be hidden
+  // from the help for no reason, and one it refused that the help showed is
+  // the refused call the issue reported.
+  test("every cliOnly flag of the registry is refused for every role that holds its gate", async () => {
+    const gates = await discoverGates();
+    let checked = 0;
+    for (const gate of gates) {
+      for (const flag of gate.flags.filter((f) => f.cliOnly === true)) {
+        for (const role of PIPELINE_ROLES.filter((r) => gate.tool !== undefined && cliGates(r).includes(gate.tool))) {
+          const d = decideBash(role, `bounded gates ${gate.name} --${flag.name} x`, CTX);
+          expect(d.allow, `${role}: ${gate.name} --${flag.name}`).toBe(false);
+          if (!d.allow) expect(d.reason).toContain(`--${flag.name}`);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
 
