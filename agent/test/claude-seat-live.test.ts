@@ -27,6 +27,17 @@
 //    reply. That is why the hook records such a resume and no gate runs in a
 //    ticket worktree until the worker's stop is recorded (board-sync.ts).
 //    This test pins the host behaviour the safeguard depends on.
+// 3. The block's release (re-review U2). The same continuation, with the
+//    architect in a marked ticket worktree and the real project hook on
+//    PostToolUse(SendMessage) and SubagentStop: the hook records the
+//    background resume, SubagentStop fires for the resumed worker with its
+//    agent_id and the worktree as cwd, and the gates are free again.
+//    (PreToolUse is left off, so no run need be prepared for the phase gate;
+//    a test WorktreeCreate hook stands in for the lead's binding.)
+// 4. A seat outlives its session only on disk (re-review U1). A new session
+//    cannot continue an agent a finished session started: SendMessage finds
+//    no transcript. So a seat whose session has gone is relaunched into its
+//    worktree by `bounded lead start`, never continued.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -35,6 +46,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { architectStatus, readArchitectState, writePendingLaunch } from "../src/architect-seat.ts";
 import { readGuardLog } from "../src/guard-log.ts";
+import { backgroundWorkers, SUBAGENT_STOPPED, WORKER_RESUMED } from "../src/lead-state.ts";
 import { mergeAmbientHook } from "../hosts/claude-code/install.ts";
 
 const AGENT_ROOT = join(import.meta.dirname, "..");
@@ -197,4 +209,99 @@ describe.skipIf(!LIVE)("ticket architects as background subagents, live", () => 
       cleanup([]);
     }
   }, 360_000);
+
+  test("the project hook records the background resume, and the resumed worker's SubagentStop (its agent_id, the worktree as cwd) frees the gates", () => {
+    const { main, cleanup, branch } = scratchProject();
+    const wt = join(main, ".bounded/worktrees/7");
+    try {
+      installHarness(main);
+      execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", branch(7), wt, "HEAD"]);
+      installHarness(wt);
+      write(join(wt, ".bounded/ticket-worktree.json"), JSON.stringify({ issue: 7, branch: "ticket/7", main, owns: [] }));
+      write(join(wt, ".bounded/active-ticket"), "7\n");
+      // Definitions the project hook proves (their own PreToolUse hook is a no-op here).
+      const proven = (role: string, tools: string, body: string) => ["---", `name: ${role}`, `description: ${role} (live test).`, `tools: ${tools}`,
+        "hooks:", "  PreToolUse:", '    - matcher: ""', "      hooks:", "        - type: command", `          command: "true --role ${role}"`, "---", "", body, ""].join("\n");
+      for (const dir of [main, wt]) {
+        write(join(dir, ".claude/agents/architect.md"), proven("architect", "Agent, SendMessage", "Do exactly what you are asked."));
+        write(join(dir, ".claude/agents/reviewer.md"), proven("reviewer", "Read", "Answer exactly what you are asked, in one word."));
+      }
+      const raw = join(main, "events.jsonl");
+      write(join(main, "log-event.mjs"), [
+        'import { appendFileSync, readFileSync } from "node:fs";',
+        `appendFileSync(${JSON.stringify(raw)}, readFileSync(0, "utf8").replace(/\\n/g, " ") + "\\n");`,
+      ].join("\n"));
+      write(join(main, "wt-create.mjs"), `process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(${JSON.stringify(`${wt}\n`)}));`);
+      const run = (command: string) => ({ type: "command", command });
+      write(join(main, ".claude/settings.json"), JSON.stringify({
+        env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
+        hooks: {
+          WorktreeCreate: [{ hooks: [run(`node ${join(main, "wt-create.mjs")}`)] }],
+          WorktreeRemove: [{ hooks: [run("true")] }],
+          PostToolUse: [{ matcher: "SendMessage", hooks: [run(`node ${join(main, "log-event.mjs")}`), run(ENTRY)] }],
+          SubagentStop: [{ hooks: [run(`node ${join(main, "log-event.mjs")}`), run(ENTRY)] }],
+        },
+      }));
+      spawnSync("claude", [
+        "-p", "--model", "haiku", "--max-budget-usd", "2", "--setting-sources", "project", "--allowedTools", "Agent", "SendMessage", "Read",
+        "--output-format", "text", "--",
+        "Call the Agent tool once with subagent_type architect, isolation worktree, run_in_background false and this prompt: " +
+        "'1) Call the Agent tool with subagent_type reviewer, run_in_background false, prompt: Reply with exactly READY. " +
+        "2) Then call SendMessage with to set to that reviewer's agent id and message: say PONG. " +
+        "3) Wait until the reviewer has answered PONG, then report its answer verbatim.' " +
+        "Wait until it finishes, and until every agent it started has finished, then report its result verbatim.",
+      ], { cwd: main, env: claudeEnv(), encoding: "utf8", timeout: 420_000, stdio: ["ignore", "pipe", "pipe"] });
+      const events = existsSync(raw) ? readFileSync(raw, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>) : [];
+      const send = events.find((e) => e["hook_event_name"] === "PostToolUse" && typeof (e["tool_response"] as Record<string, unknown> | undefined)?.["resumedAgentId"] === "string");
+      expect(send, "the architect's continuation resumed its reviewer in the background").toBeDefined();
+      const worker = (send!["tool_response"] as Record<string, unknown>)["resumedAgentId"] as string;
+      const stops = events.filter((e) => e["hook_event_name"] === "SubagentStop" && e["agent_id"] === worker);
+      // The commissioned run's stop, and the background-resumed run's stop after the send.
+      expect(stops.length, "SubagentStop fired for the resumed worker").toBeGreaterThanOrEqual(1);
+      expect(events.indexOf(stops.at(-1)!)).toBeGreaterThan(events.indexOf(send!));
+      expect(realpathSync(String(stops.at(-1)!["cwd"]))).toBe(realpathSync(wt));
+      const log = readGuardLog(wt);
+      const kinds = log.map((e) => (e.detail as Record<string, unknown> | undefined)?.["kind"]);
+      expect(kinds).toContain(WORKER_RESUMED);
+      expect(log.filter((e) => (e.detail as Record<string, unknown> | undefined)?.["kind"] === SUBAGENT_STOPPED)
+        .map((e) => (e.detail as Record<string, unknown>)["agent"])).toContain(worker);
+      expect(kinds.lastIndexOf(SUBAGENT_STOPPED)).toBeGreaterThan(kinds.indexOf(WORKER_RESUMED));
+      expect(backgroundWorkers(log), "the gates are free again").toEqual([]);
+    } finally {
+      cleanup([wt]);
+    }
+  }, 480_000);
+
+  test("a new session cannot continue an agent that a finished session started", () => {
+    const { main, cleanup } = scratchProject();
+    try {
+      write(join(main, ".claude/agents/probe.md"), ["---", "name: probe", "description: probe (live test).", "tools: Read", "---", "", "Answer in one word.", ""].join("\n"));
+      const raw = join(main, "events.jsonl");
+      write(join(main, "log-event.mjs"), [
+        'import { appendFileSync, readFileSync } from "node:fs";',
+        `appendFileSync(${JSON.stringify(raw)}, readFileSync(0, "utf8").replace(/\\n/g, " ") + "\\n");`,
+      ].join("\n"));
+      const log = { type: "command", command: `node ${join(main, "log-event.mjs")}` };
+      write(join(main, ".claude/settings.json"), JSON.stringify({
+        env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
+        hooks: { SubagentStop: [{ hooks: [log] }], PostToolUse: [{ matcher: "SendMessage", hooks: [log] }], PostToolUseFailure: [{ matcher: "SendMessage", hooks: [log] }] },
+      }));
+      const claude = (tools: string[], prompt: string) => spawnSync("claude", [
+        "-p", "--model", "haiku", "--max-budget-usd", "1", "--setting-sources", "project", "--allowedTools", ...tools, "--output-format", "text", "--", prompt,
+      ], { cwd: main, env: claudeEnv(), encoding: "utf8", timeout: 240_000, stdio: ["ignore", "pipe", "pipe"] });
+      const events = () => existsSync(raw) ? readFileSync(raw, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>) : [];
+      claude(["Agent"], "Call the Agent tool once with subagent_type probe, run_in_background true, prompt: Reply READY. Wait for it to finish, then stop.");
+      const agent = events().find((e) => e["hook_event_name"] === "SubagentStop" && e["agent_type"] === "probe")?.["agent_id"];
+      expect(typeof agent, "the first session's agent ran and stopped").toBe("string");
+      claude(["SendMessage", "ToolSearch"], `Use the SendMessage tool (load it with ToolSearch if needed) with to set to ${String(agent)} and message: say PONG. Report the tool result verbatim. Do not retry.`);
+      const sends = events().filter((e) => e["tool_name"] === "SendMessage");
+      expect(sends.length, "the second session tried the continuation").toBeGreaterThan(0);
+      expect(sends.some((e) => e["hook_event_name"] === "PostToolUse" && (e["tool_response"] as Record<string, unknown> | undefined)?.["success"] === true)).toBe(false);
+      // Claude Code 2.1.288: "Agent … could not be resumed: No transcript found for agent ID".
+      expect(JSON.stringify(sends)).toMatch(/could not be resumed|No transcript/);
+      expect(events().filter((e) => e["hook_event_name"] === "SubagentStop" && e["agent_id"] === agent)).toHaveLength(1);
+    } finally {
+      cleanup([]);
+    }
+  }, 600_000);
 });

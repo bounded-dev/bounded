@@ -46,7 +46,9 @@ records the seat's start and end there. `reply` leaves one pending reply,
 and the adapter lets the lead continue only that architect, with exactly
 that reply. Each worktree runs one architect turn at a time, which replaces
 #33's project-wide one-architect lock; a seat whose host session has gone is
-reported lost, never running. The cold-relaunch rule reads each recorded end.
+reported lost, never running, and `start` relaunches a fresh architect into
+the same worktree, ticket and branch. The cold-relaunch rule reads each
+recorded end.
 
 - **Claude Code:** the lead calls the Agent tool with `subagent_type:
   "architect"`. The lead hook claims the pending launch and rewrites the call
@@ -113,14 +115,37 @@ routes to the user. Any lead command refuses in the same way.
   definition's `tools:` list is the strip.
 - **Locks are taken over atomically.** A stale lock is claimed by rename, and
   an owner whose liveness cannot be told is never stale.
-- **Seats survive their sessions, and claims expire.** A seat whose session
-  ended without a recorded stop (lost) is continued by its prepared reply.
-  Pending replies are kept per ticket. A launch claim records its claimant
-  and time; one whose claimant has gone, or older than 15 minutes, can be
-  claimed again, and `start` on the waiting ticket releases it.
-- **No gate runs on a changing tree.** A worker resumed in the background is
-  recorded until SubagentStop records its stop; meanwhile no gate (and so no
-  freeze or delivery) runs in its ticket worktree.
+- **A seat outlives its session only on disk, and claims expire.** Claude
+  Code continues a subagent only in the session that started it (shown live,
+  below), so its seats are recorded as bound to that session. A seat whose
+  session has gone, whether lost while running or stopped before, is never
+  continued: `reply` refuses it and `start` writes a fresh pending launch into
+  the existing worktree, the brief plus a note that it is resuming. On pi the
+  recorded process is the child's own, which ends with each turn, so a
+  stopped seat stays continuable there. Pending replies are kept per ticket.
+  A launch claim records its claimant and time; one whose claimant has gone,
+  or older than 15 minutes, can be claimed again, and `start` on the waiting
+  ticket releases it.
+- **Nothing counts as running forever.** A seat whose session's start time
+  cannot be read counts as running for at most six hours, and is then lost;
+  `status` says so.
+- **No gate runs on a changing tree, and the hold always ends.** Any
+  successful SendMessage that does not carry the worker's reply inline
+  (whatever shape its answer takes) is recorded as a worker resumed in the
+  background, with the session's pid and start time. Until the hold ends no
+  gate (and so no freeze or delivery) runs in that ticket worktree. It ends
+  when SubagentStop records the worker's stop, when its session has gone,
+  when the architect's end is recorded, or when the user releases the seat; a
+  hold whose session cannot be recognised lasts at most an hour. The
+  continuation is marked before it is sent, so a stop recorded before the
+  resume record still ends the hold. `status` lists every hold.
+- **One escape hatch, for the user only.** `bounded lead release <issue>
+  [--force]` clears all of a ticket's seat state: the architect seat,
+  background-worker holds, a launch claim and the pending reply. It does so
+  once their recorded processes are gone, or with `--force`, and logs the
+  release in the worktree and in main. The lead hook refuses it and pi
+  registers no tool for it. `status` names it whenever a ticket looks stuck,
+  and `start` then relaunches the architect.
 - **One judge per seat call.** In a ticket seat the project-wide hook judges
   every call as the role its generated definition proves, and the
   definition's own hook stands down, so no permission rule stands in for the
@@ -152,7 +177,15 @@ pi 0.87.1, pi-subagents 0.52.1):
   with background tasks on, a worker continued with SendMessage resumes in
   the background ("Resuming agent ...") rather than answering inline. A
   separate probe showed the lead's SendMessage resuming a stopped background
-  subagent in its worktree.
+  subagent in its worktree. A third run (2.1.288), with the architect in a
+  marked ticket worktree and the real project hook installed on SendMessage
+  and SubagentStop, showed the hold released. The hook recorded the
+  background resume with the session's pid and start time. SubagentStop then
+  fired for the resumed worker with its `agent_id` and the worktree as `cwd`,
+  the hook recorded the stop, and no hold remained. A fourth run showed a new
+  session's SendMessage to an agent a finished session started fail: "could
+  not be resumed: No transcript found for agent ID". That is why a seat
+  whose session has gone is relaunched.
 - **pi.** From a headless lead, two async architect children with ticket
   directories as `cwd` started together, each discovered its directory's own
   architect definition and loader (resolved from the definition's directory),
