@@ -436,12 +436,14 @@ export function emittedFileProblem(file: EmittedFile, emitter: string): string |
 // Some test levels need something from the machine that the others do not:
 // store tests need a container runtime. The rule for WHEN such tests may be
 // skipped is the owning pack's (ts-drizzle-postgres knows what a store test
-// is); the red and green gates are the consumers and apply every composed
-// policy to the test process they spawn. The ts pack cannot import a pack
-// that depends on it, so the rule reaches the gates through this socket.
+// is); the red and green gates and the builder's run_tests (`build`) are the
+// consumers and apply every composed policy to the test process they spawn.
+// The ts pack cannot import a pack that depends on it, so the rule reaches
+// the gates through this socket.
 
-/** Which gate is asking. */
-export type TestPhase = "red" | "green";
+/** Which run is asking: the red gate, the builder's run_tests, or the green
+ *  gate (and the mutation measurement, which runs under green's rules). */
+export type TestPhase = "red" | "build" | "green";
 
 export interface PhaseTestContext {
   /** The project the gate judges (the live tree; red's shadow mirrors it). */
@@ -483,10 +485,14 @@ export type PhaseTestDecision =
    *  green asks it about every failure: a returned cause means the machine,
    *  not the code, failed that test. Only when every failure is claimed does
    *  the gate route to the orchestrator; otherwise the claimed causes ride
-   *  along as a note. It must be conservative: unsure means unclaimed. */
+   *  along as a note. It must be conservative: unsure means unclaimed.
+   *  With `exclude` (build only), the run leaves those project-relative test
+   *  files out and prints `reason`; at red or green an exclusion is a policy
+   *  defect, read as a refusal. */
   | {
       readonly action: "run";
       readonly unsetEnv: readonly string[];
+      readonly exclude?: { readonly files: readonly string[]; readonly reason: string };
       /** Gets the run's environment change so far (the policies' set and
        *  unset, earlier services' env included), as the test process will
        *  see it. */
@@ -517,8 +523,9 @@ export const phaseTestPolicies = tsSockets.define<PhaseTestPolicy>({
   id: "phaseTestPolicies",
   description:
     "Per-phase rules, contributed by packs that depend on ts, for test levels that need something from the " +
-    "machine (a container runtime for store tests): the red gate may skip such tests with a logged reason, and " +
-    "the green gate refuses rather than skip them.",
+    "machine (a container runtime for store tests): the red gate may skip such tests with a logged reason, " +
+    "the builder's run_tests may leave them out with the reason printed, and the green gate refuses rather than " +
+    "skip them.",
   validate: (policy, contributor) => {
     if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(policy.name)) return `${contributor} contributed a phase test policy named '${policy.name}'`;
     if (policy.description.trim() === "") return `${contributor}'s '${policy.name}' policy has no description`;

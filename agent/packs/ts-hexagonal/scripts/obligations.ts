@@ -21,6 +21,8 @@
 // root is generated (ADR 2026-067), but what it constructs is the builder's, so
 // red cannot ask for it.
 
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ObligationGap, ObligationInput, TestObligation } from "../../ts/pack.ts";
 import type { FeatureContractModel } from "../../ts/scripts/feature-model.ts";
 import { adapterClassPrefix } from "../../ts/scripts/naming.ts";
@@ -29,7 +31,34 @@ import ts from "typescript";
 import { contextModels } from "./context-model.ts";
 
 const COMPOSITION_ROOT = "composition-root.ts";
-const SMOKE_TEST = "composition-root.test.ts";
+/** An app's smoke test, next to its composition root. Exported for the packs
+ *  whose services the apps need at run time (ts-drizzle-postgres: a database). */
+export const SMOKE_TEST = "composition-root.test.ts";
+/** Where the app workspaces live (`apps/<name>`). */
+const APPS_DIR = "apps";
+
+/** Every app smoke test under `root`, project-relative and sorted: each
+ *  `composition-root.test.ts` under `apps/` (dependency directories
+ *  skipped). Pure apart from reading the directory tree. */
+export function appSmokeTests(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const path = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(join(dir, entry.name), path);
+      else if (entry.isFile() && entry.name === SMOKE_TEST) out.push(path);
+    }
+  };
+  walk(join(root, APPS_DIR), APPS_DIR);
+  return out.sort();
+}
 
 function featureGaps(input: ObligationInput, root: string, feature: FeatureContractModel): ObligationGap[] {
   const gaps: ObligationGap[] = [];

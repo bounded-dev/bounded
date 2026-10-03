@@ -446,10 +446,11 @@ export const gates: readonly GateCommand[] = ([
     tool: "run_tests",
     promptSnippet: "Run the test suite and see sanitized pass/fail results (no test source).",
     description:
-      "Run the project's suite with `bun test` and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes.",
+      "Run the project's suite with `bun test` and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes. It starts what the green gate would start for the run (a throwaway database), and where that cannot start yet (no container runtime, no migration generated) it leaves out the tests that need it and says why before the results.",
     flags: [],
     promptGuidelines: [
       "Use run_tests to check whether your implementation satisfies the suite; it never reveals test source.",
+      "Tests it says it left out are not yours to fix and not a reason to stop: green runs them. Report the line to the architect if the work depends on them.",
     ],
     async run(cwd) {
       const { runTestsGate } = await import("./scripts/run-tests.ts");

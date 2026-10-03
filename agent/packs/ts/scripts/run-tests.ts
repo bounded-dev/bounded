@@ -28,6 +28,7 @@ import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { hasTestFileSuffix, testFileSuffixes } from "../../../src/pack-contrib.ts";
 import { configDriftBlock, configDriftReason } from "./project-config.ts";
+import { phaseRun, type PhaseRun, withPreparedServices } from "./phase-policy.ts";
 import { bunVersionProblem } from "./project-package.ts";
 
 /** Captured output of one command invocation. */
@@ -65,6 +66,18 @@ export interface RunTestsOptions {
   /** The composed test-side suffixes, when `cwd` cannot say itself (red's
    *  shadow). Default: the project's own. */
   readonly testSuffixes?: readonly string[];
+  /** Project-relative test files to leave out of the run (the build phase's
+   *  exclusions). Their text still feeds the sanitizer's forbidden lines. */
+  readonly exclude?: readonly string[];
+}
+
+/** What the builder's run (`runTestsGate`) applies: the build phase's
+ *  composed policies, or an injected stand-in. */
+export type BuildPolicy = Pick<PhaseRun, "refusals" | "env" | "prepares"> & Partial<Pick<PhaseRun, "exclusions">>;
+
+export interface RunTestsGateOptions extends RunTestsOptions {
+  /** Default: the project's composed policies at `build`. */
+  readonly policy?: BuildPolicy;
 }
 
 /**
@@ -364,7 +377,14 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
         suffixes = [];
       }
     }
-    const runnable = options.command === undefined && options.args === undefined ? runnableTestPaths(files, suffixes) : undefined;
+    const excluded = new Set(options.exclude ?? []);
+    const included = excluded.size === 0 ? files : files.filter((f) => !excluded.has(f.path));
+    // An exclusion needs an explicit file list: with no composed suffix, the
+    // list is every file bun would collect, minus the excluded ones.
+    const runnable = options.command !== undefined || options.args !== undefined
+      ? undefined
+      : runnableTestPaths(included, suffixes) ??
+        (excluded.size === 0 ? undefined : included.filter((f) => BUN_TEST_FILE.test(f.path)).map((f) => `./${f.path}`));
     if (runnable !== undefined && runnable.length === 0) {
       return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: NO_TEST_FILES };
     }
@@ -520,15 +540,56 @@ function priorFailureSets(cwd: string): string[][] {
   }
 }
 
+/** A run with no policy: the project's composition could not be read. */
+const NO_BUILD_POLICY: BuildPolicy = { refusals: [], env: { set: {}, unset: [] }, prepares: [] };
+
+/** The build phase's composed policies for `cwd`; none when the project has
+ *  no readable composition (runTests then runs plainly, as it always has). */
+function buildPolicy(cwd: string): BuildPolicy {
+  try {
+    return phaseRun(cwd, "build");
+  } catch {
+    return NO_BUILD_POLICY;
+  }
+}
+
 /**
  * Run the suite as a gate: the sanitized run, the convergence nudge drawn
  * from this project's prior runs, and one guard event. BLOCK is a failing
- * suite; ERROR is a suite that could not even produce a report.
+ * suite; ERROR is a suite that could not even produce a report, or could not
+ * be given what it needs.
+ *
+ * It runs under the build phase's test policies (ADR 2026-064, issue #48):
+ * a service they prepare (green's throwaway database) is started for the run
+ * and released after it, and a test file they leave out is not run, with the
+ * reason printed before the results and the files logged. A service that
+ * cannot start is the machine's failure, not the builder's: ERROR with the
+ * reason, and nothing runs.
  */
-export async function runTestsGate(cwd: string, options: RunTestsOptions = {}): Promise<GateResult> {
+export async function runTestsGate(cwd: string, options: RunTestsGateOptions = {}): Promise<GateResult> {
   const configBlock = configDriftBlock(RUN_TESTS_GUARD, cwd);
   if (configBlock !== undefined) return configBlock;
-  const result = await runTests(cwd, options);
+  const policy = options.policy ?? buildPolicy(cwd);
+  const excluded = policy.exclusions?.files ?? [];
+  const exclusionLines = (policy.exclusions?.reasons ?? []).map((reason) => `run_tests: ${reason}`);
+  const cannotRun = (reason: string): GateResult => {
+    const summary = "suite could not run";
+    logGuardEvent(cwd, { guard: RUN_TESTS_GUARD, verdict: "error", summary, detail: { names: [], reason } });
+    return {
+      code: 2,
+      verdict: "error",
+      summary,
+      lines: [`run_tests: suite could not run (BLOCKED): ${reason}`],
+      detail: { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, blocked: true, stuck: false, names: [], reason },
+    };
+  };
+  if (policy.refusals.length > 0) return cannotRun(policy.refusals.join("; "));
+  const prepared = await withPreparedServices(policy, (env) =>
+    runTests(cwd, { ...options, env: { set: { ...options.env?.set, ...env.set }, unset: [...(options.env?.unset ?? []), ...env.unset] }, exclude: [...(options.exclude ?? []), ...excluded] }),
+  );
+  if (!prepared.ok) return cannotRun(prepared.reason);
+  const result = prepared.value;
+  const preamble = [...prepared.lines.map((line) => `run_tests: ${line}`), ...exclusionLines];
   const names = failureNames(result);
   // The guard log is the only run history that survives between tool calls,
   // and it is already written on every run — so convergence is measured
@@ -550,14 +611,19 @@ export async function runTestsGate(cwd: string, options: RunTestsOptions = {}): 
     guard: RUN_TESTS_GUARD,
     verdict,
     summary,
-    detail: { names, ...(unhandled ? { unhandled: true } : {}), ...(nudge !== undefined ? { stuck: true } : {}) },
+    detail: {
+      names,
+      ...(unhandled ? { unhandled: true } : {}),
+      ...(nudge !== undefined ? { stuck: true } : {}),
+      ...(excluded.length > 0 ? { excluded } : {}),
+    },
   });
   const text = nudge === undefined ? formatRunTests(result) : `${formatRunTests(result)}\n\n${nudge}`;
   return {
     code,
     verdict,
     summary,
-    lines: text.split("\n"),
+    lines: [...preamble, ...(preamble.length > 0 ? [""] : []), ...text.split("\n")],
     detail: {
       ok: result.ok,
       total: result.total,
@@ -567,6 +633,7 @@ export async function runTestsGate(cwd: string, options: RunTestsOptions = {}): 
       blocked,
       stuck: nudge !== undefined,
       names,
+      ...(excluded.length > 0 ? { excluded } : {}),
     },
   };
 }
