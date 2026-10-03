@@ -19,9 +19,11 @@ import {
   byCodePoint,
   byContext,
   conceptVariable,
-  depsFunctionHead,
   featuresExposedVia,
   fits,
+  groupedPath,
+  groupedType,
+  groupsOf,
   importLine,
   indent,
   inAdapterDir,
@@ -104,15 +106,17 @@ function toolFile(feature: FeatureContractModel): string[] {
 }
 
 function serverFile(context: string, features: readonly FeatureContractModel[]): string[] {
+  // Grouped by area, as the tRPC router nests (ADR 2026-066).
+  const groups = groupsOf(features);
   return [
     `import { McpServer } from "${SDK_SERVER}";`,
     importLine([], features.map((f) => f.inPort.name), applicationImport(features[0]!)),
     ...features.map((f) => `import { ${registerFunction(f)} } from "./${f.area}/${f.feature}.tool.ts";`),
     "",
     "// The whole context's MCP surface. The transport (stdio, HTTP) is the app's choice.",
-    depsFunctionHead(contextServerFactory(context), features.map((f) => [portVariable(f), f.inPort.name] as const)),
+    ...groupedType(`export function ${contextServerFactory(context)}(deps: `, groups, ") {"),
     `  const server = new McpServer({ name: ${JSON.stringify(context)}, version: "0.1.0" });`,
-    ...features.map((f) => `  ${registerFunction(f)}(server, deps.${portVariable(f)});`),
+    ...features.map((f) => `  ${registerFunction(f)}(server, ${groupedPath(f)});`),
     "  return server;",
     "}",
   ];

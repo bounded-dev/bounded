@@ -299,6 +299,22 @@ describe("runDeliver: generated files and skeletons", () => {
     expect(blockEvent(dir)).toMatchObject({ step: "generated", route: "orchestrator" });
   });
 
+  test("BLOCK when an app's generated composition root is edited (ADR 2026-066)", async () => {
+    const root = "apps/web/src/server/composition-root.ts";
+    const dir = proj({ packs: ["ts", "ts-hexagonal", "ts-trpc", "ts-web"] });
+    // Declare the fixture's web app, then emit again as the design gate would.
+    write(dir, { "docs/tn/TN-1.md": readFileSync(join(FIXTURE, "design", "docs", "tn", "TN-1.md.txt"), "utf8") });
+    writeEmittedFiles(dir, emitProject(projectFactsOf(dir, "red"), generatedFileGlobs(dir)));
+    const generated = readFileSync(join(dir, root), "utf8");
+    expect(generated).toContain("      create: new CreateNoteHandler(new InMemoryCreateNoteStore(db)),\n");
+    // A builder's "improvement": a second database for one store.
+    writeFileSync(join(dir, root), generated.replace("new InMemoryCreateNoteStore(db)", "new InMemoryCreateNoteStore(new InMemoryDatabase())"));
+    const r = await deliver(dir);
+    expect(r.code).toBe(1);
+    expect(text(r.lines)).toContain(`1 generated file is not what the design produces (${root})`);
+    expect(blockEvent(dir)).toMatchObject({ step: "generated", route: "orchestrator" });
+  });
+
   test("a missing generated file blocks too", async () => {
     const laws = "contexts/notebook/src/domain/notes/note-text.laws.test.ts";
     const dir = proj();

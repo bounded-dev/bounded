@@ -65,6 +65,11 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
   const MCP = { id: "mcp", direction: "in", featureRole: "tool", description: "MCP tools.", pins: { dependencies: { "@modelcontextprotocol/sdk": "1.20.0" } } };
   const MEMORY = { id: "in-memory", direction: "out", storage: true, database: "value", description: "In-memory stores." };
   const CONSOLE = { id: "console", direction: "out", storage: false, description: "Console stand-ins." };
+  const DB = {
+    id: "db", direction: "out", storage: true, database: "type", description: "A database.",
+    appPins: { bun: { dependencies: { orm: "1.0.0" } } },
+    connect: { env: "DATABASE_URL", runtimes: { bun: { function: "connect", from: "orm/bun" } } },
+  };
 
   test("reads, normalises and sorts the composed technologies", () => {
     const dir = packsDir({ hex: { adapterTechnologies: [MEMORY, CONSOLE] }, mcp: { adapterTechnologies: [MCP] }, other: {} });
@@ -109,6 +114,17 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     ["an appPins runtime that is not kebab-case", [{ ...MEMORY, appPins: { Bun: {} } }], /runtime 'Bun' must be kebab-case/],
     ["a range app pin", [{ ...MEMORY, appPins: { node: { dependencies: { pg: "^8" } } } }], /appPins\.node pins\.dependencies entry 'pg'/],
     ["an app pin section typo", [{ ...MEMORY, appPins: { node: { deps: {} } } }], /only dependencies and devDependencies/],
+    ["connect on a technology without storage", [{ ...CONSOLE, connect: { env: "URL", runtimes: { bun: { function: "f", from: "x" } } } }],
+      /not a storage technology and cannot declare connect/],
+    ["a connect env that is not an environment variable", [{ ...DB, connect: { ...DB.connect, env: "database-url" } }], /connect\.env must be/],
+    ["a connect with no runtimes", [{ ...DB, connect: { env: "DATABASE_URL", runtimes: {} } }], /at least one app runtime/],
+    ["a connect field typo", [{ ...DB, connect: { ...DB.connect, url: "x" } }], /connect has an unknown field 'url'/],
+    ["a connect driver that is not a function name", [{ ...DB, connect: { env: "DATABASE_URL", runtimes: { bun: { function: "a b", from: "orm/bun" } } } }],
+      /connect\.runtimes\.bun needs a function name/],
+    ["a connect module that is not bare", [{ ...DB, connect: { env: "DATABASE_URL", runtimes: { bun: { function: "connect", from: "./orm" } } } }],
+      /bare module specifier/],
+    ["a connect module whose package the runtime's appPins lack", [{ ...DB, connect: { env: "DATABASE_URL", runtimes: { node: { function: "connect", from: "orm/node" } } } }],
+      /imports from 'orm\/node', but appPins\.node\.dependencies does not pin 'orm'/],
     ["one script from two technologies", [
       { ...MEMORY, workspaceScripts: { "db:up": "a" } }, { ...CONSOLE, workspaceScripts: { "db:up": "a" } },
     ], /workspace script 'db:up' is already contributed by 'in-memory'/],
@@ -135,6 +151,19 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     expect(Object.keys(read!.appPins!)).toEqual(["bun", "node"]);
     const [plain] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [MEMORY] } }));
     expect(plain).not.toHaveProperty("appPins");
+  });
+
+  test("connect is read with its runtimes sorted; absent when not declared (ADR 2026-066)", () => {
+    const both = { ...DB, appPins: { node: { dependencies: { orm: "1.0.0" } }, bun: { dependencies: { orm: "1.0.0" } } },
+      connect: { env: "DATABASE_URL", runtimes: { node: { function: "connect", from: "orm/node" }, bun: { function: "connect", from: "orm/bun" } } } };
+    const [read] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [both] } }));
+    expect(read!.connect).toEqual({
+      env: "DATABASE_URL",
+      runtimes: { bun: { function: "connect", from: "orm/bun" }, node: { function: "connect", from: "orm/node" } },
+    });
+    expect(Object.keys(read!.connect!.runtimes)).toEqual(["bun", "node"]);
+    const [plain] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [MEMORY] } }));
+    expect(plain).not.toHaveProperty("connect");
   });
 
   test("one id contributed by two packs is refused", () => {

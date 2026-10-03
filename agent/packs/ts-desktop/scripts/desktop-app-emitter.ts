@@ -1,8 +1,9 @@
 // The desktop app's seed files (ADR 2026-061, TN-26-012 §1), emitted for
-// every workspace a TN declares with kind `desktop`. All are skeletons:
-// written once, then the builder's.
+// every workspace a TN declares with kind `desktop`. The composition root is
+// generated (ADR 2026-066); the rest are skeletons: written once, then the
+// builder's.
 //
-//   src/main/composition-root.ts   composeApp(): <Context>Router, wired by the builder
+//   src/main/composition-root.ts   composeApp(): <Context>Router, generated
 //   src/main/main.ts               the Electron main process: the router in-process, one window
 //   src/renderer/index.html        the page the window loads
 //   src/renderer/main.tsx          its React root
@@ -44,7 +45,7 @@ export function emitDesktopApps(facts: ProjectFacts): EmittedFile[] {
     const context = hostedTrpcContext(facts, app);
     const src = app.sourceRoot;
     out.push(
-      routerCompositionRoot(`${src}/main/composition-root.ts`, facts.scope, context),
+      routerCompositionRoot(facts, app, `${src}/main/composition-root.ts`, context),
       skeleton(`${src}/main/main.ts`, mainProcess(firstInputlessQuery(facts, context))),
       skeleton(`${src}/renderer/index.html`, [
         "<!doctype html>",
@@ -70,6 +71,6 @@ export const desktopAppEmitter: Emitter = {
   name: "desktop-app",
   description:
     "The seed files of every desktop app a TN declares: an Electron main process calling the context's tRPC router " +
-    "in-process, its React renderer, and the composeApp() skeleton.",
+    "in-process, its React renderer, and the generated composeApp().",
   emit: emitDesktopApps,
 };

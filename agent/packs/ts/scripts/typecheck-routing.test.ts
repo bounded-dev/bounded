@@ -147,6 +147,18 @@ describe("routing a monorepo's diagnostics by file suffix", () => {
     for (const [path, owner] of cases) expect(ownerOf(path), path).toBe(owner);
   });
 
+  test("with the app packs composed, every app's composition root is generated: nobody's (ADR 2026-066)", () => {
+    const apps = mkdtempSync(join(tmpdir(), "routing-apps-"));
+    writeProjectPacks(apps, ["ts", "ts-hexagonal", "ts-trpc", "ts-mcp", "ts-lambda", "ts-web", "ts-desktop"]);
+    const appOwnerOf = projectOwnerOf(apps);
+    rmSync(apps, { recursive: true, force: true });
+    for (const root of ["apps/web/src/server", "apps/desktop/src/main", "apps/mcp/src", "apps/lambdas/src"]) {
+      expect(appOwnerOf(`${root}/composition-root.ts`), root).toBe(null);
+      expect(appOwnerOf(`${root}/composition-root.test.ts`), root).toBe("test-writer");
+    }
+    expect(appOwnerOf("apps/web/src/server/main.ts")).toBe("builder");
+  });
+
   test("a root matches in any case; a test suffix in another case is nobody's (ambiguous to case-sensitive tools)", () => {
     expect(ownerOf("Contexts/pm/src/x.ts")).toBe("builder");
     expect(ownerOf("contexts/pm/src/X.TEST.TS")).toBe(null);

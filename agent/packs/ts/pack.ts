@@ -644,7 +644,22 @@ export interface AdapterTechnology {
    *  sorted. Present only when the contrib entry declares it. A script name
    *  belongs to one technology across the composition. */
   readonly workspaceScripts?: Readonly<Record<string, string>>;
+  /** Storage technologies only: how a generated composition root connects
+   *  to the technology's database (ADR 2026-066). `env` names the variable
+   *  the connection URL is read from, once per compose function; each app
+   *  runtime names a function and the module it is imported from, called
+   *  with that URL, whose result every store of the technology receives
+   *  (`drizzle` from `drizzle-orm/bun-sql` on Bun). The module's package
+   *  must be pinned in that runtime's `appPins`. Absent: the database is a
+   *  value constructed with no arguments (`new InMemoryDatabase()`). */
+  readonly connect?: AppConnection;
   readonly description: string;
+}
+
+/** A storage technology's connection, per app runtime (ADR 2026-066). */
+export interface AppConnection {
+  readonly env: string;
+  readonly runtimes: Readonly<Record<string, { readonly function: string; readonly from: string }>>;
 }
 
 const SCRIPT_NAME = /^[a-z][a-z0-9]*(?:[:-][a-z0-9]+)*$/;
@@ -701,6 +716,37 @@ function checkedAppPins(value: unknown, where: string): Record<string, Pins> {
   return out;
 }
 
+const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
+const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const MODULE_SPECIFIER = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
+
+/** The package a bare module specifier resolves from: `drizzle-orm/bun-sql` → `drizzle-orm`. */
+export const packageOfSpecifier = (specifier: string): string =>
+  specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
+
+function checkedConnect(value: unknown, appPins: Readonly<Record<string, Pins>> | undefined, where: string): AppConnection {
+  const entry = strictObject(value, ["env", "runtimes"], `${where} connect`);
+  if (typeof entry.env !== "string" || !ENV_NAME.test(entry.env)) {
+    throw new Error(`${where} connect.env must be an upper-case environment variable name`);
+  }
+  const runtimes = strictObject(entry.runtimes, Object.keys(entry.runtimes ?? {}), `${where} connect.runtimes`);
+  if (Object.keys(runtimes).length === 0) throw new Error(`${where} connect.runtimes must name at least one app runtime`);
+  const out: Record<string, { function: string; from: string }> = {};
+  for (const runtime of Object.keys(runtimes).sort()) {
+    const named = `${where} connect.runtimes.${runtime}`;
+    if (!KEBAB.test(runtime)) throw new Error(`${named}: the runtime must be kebab-case`);
+    const spec = strictObject(runtimes[runtime], ["function", "from"], named);
+    if (typeof spec.function !== "string" || !IDENTIFIER.test(spec.function)) throw new Error(`${named} needs a function name`);
+    if (typeof spec.from !== "string" || !MODULE_SPECIFIER.test(spec.from)) throw new Error(`${named} needs a bare module specifier in from`);
+    const pkg = packageOfSpecifier(spec.from);
+    if (appPins?.[runtime]?.dependencies[pkg] === undefined) {
+      throw new Error(`${named} imports from '${spec.from}', but appPins.${runtime}.dependencies does not pin '${pkg}'`);
+    }
+    out[runtime] = { function: spec.function, from: spec.from };
+  }
+  return { env: entry.env, runtimes: out };
+}
+
 function strictObject(value: unknown, keys: readonly string[], where: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${where} must be an object`);
   const unknownKey = Object.keys(value).find((key) => !keys.includes(key));
@@ -711,7 +757,7 @@ function strictObject(value: unknown, keys: readonly string[], where: string): R
 /**
  * The composed packs' `adapterTechnologies`, sorted by id. Each contrib.json
  * entry is `{ id, direction, description, featureRole?, storage?, database?,
- * pins?, appPins?, workspaceScripts? }`: an in adapter declares `featureRole` and no
+ * pins?, appPins?, workspaceScripts?, connect? }`: an in adapter declares `featureRole` and no
  * `storage`; an out adapter declares `storage` and no `featureRole`; a
  * storage technology declares `database: "value" | "type"`. Unknown
  * fields, a duplicate id across the composition, a pin that is not exact, and
@@ -726,7 +772,7 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
     if (!Array.isArray(value)) throw new Error(`Selected pack '${pack}' adapterTechnologies must be an array`);
     for (const raw of value) {
       const where = `Selected pack '${pack}' adapterTechnologies entry`;
-      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "database", "pins", "appPins", "workspaceScripts"], where);
+      const entry = strictObject(raw, ["id", "direction", "description", "featureRole", "storage", "database", "pins", "appPins", "workspaceScripts", "connect"], where);
       const { id, direction, description, featureRole, storage } = entry;
       if (typeof id !== "string" || !KEBAB.test(id)) throw new Error(`${where} needs a kebab-case id`);
       const named = `${where} '${id}'`;
@@ -754,6 +800,11 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
         if (owner !== undefined) throw new Error(`${named} workspace script '${name}' is already contributed by '${owner}'`);
         scriptOwners.set(name, id);
       }
+      if (entry.connect !== undefined && !(direction === "out" && storage === true)) {
+        throw new Error(`${named} is not a storage technology and cannot declare connect`);
+      }
+      const appPins = entry.appPins === undefined ? undefined : checkedAppPins(entry.appPins, named);
+      const connect = entry.connect === undefined ? undefined : checkedConnect(entry.connect, appPins, named);
       ids.add(id);
       out.push({
         pack, id, direction, description,
@@ -761,8 +812,9 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
         storage: direction === "out" && storage === true,
         ...(direction === "out" && storage === true ? { database: entry.database as "value" | "type" } : {}),
         pins: checkedPins(entry.pins, named),
-        ...(entry.appPins === undefined ? {} : { appPins: checkedAppPins(entry.appPins, named) }),
+        ...(appPins === undefined ? {} : { appPins }),
         ...(scripts === undefined ? {} : { workspaceScripts: scripts }),
+        ...(connect === undefined ? {} : { connect }),
       });
     }
   }

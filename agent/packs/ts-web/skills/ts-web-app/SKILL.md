@@ -24,12 +24,12 @@ workspaces:
 
 It hosts exactly one context: the one whose features are tagged
 `@exposedVia trpc`. The design gate seeds it from the design (skeletons,
-yours to fill in):
+yours to fill in, except the generated composition root):
 
 | File | What it is |
 |---|---|
 | `apps/web/src/server/main.ts` | `Bun.serve`: the client page at `/` (an HTML import), the router at `/trpc/*` |
-| `apps/web/src/server/composition-root.ts` | `composeApp()`: the one place handlers get their stores |
+| `apps/web/src/server/composition-root.ts` | generated, write-protected (ADR 2026-066): `composeApp()`, the one place handlers get their stores |
 | `apps/web/src/client/index.html` | the page, titled after the context |
 | `apps/web/src/client/main.tsx` | a React root with `createTRPCClient<ProjectManagementRouter>` |
 

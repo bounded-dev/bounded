@@ -21,11 +21,11 @@ const emitted = emitWebApps(exampleFacts());
 const content = (path: string): string => emitted.find((f) => f.path === `${APP}/${path}`)!.content;
 
 describe("the web app of the worked example", () => {
-  test("seeds four skeleton files", () => {
+  test("generates the composition root and seeds three skeleton files", () => {
     expect(emitted.map((f) => [f.path, f.mode])).toEqual([
       [`${APP}/client/index.html`, "skeleton"],
       [`${APP}/client/main.tsx`, "skeleton"],
-      [`${APP}/server/composition-root.ts`, "skeleton"],
+      [`${APP}/server/composition-root.ts`, "generated"],
       [`${APP}/server/main.ts`, "skeleton"],
     ]);
     for (const file of emitted) expect(emittedFileProblem(file, webAppEmitter.name)).toBeUndefined();
@@ -79,16 +79,25 @@ describe("the web app of the worked example", () => {
     expect(main).not.toContain("useEffect");
   });
 
-  test("the composition root is composeApp(), typed by the hosted router", () => {
-    expect(readExample(`${APP}/server/composition-root.ts`)).toContain("export function composeApp() {");
-    expect(content("server/composition-root.ts")).toBe([
-      'import type { ProjectManagementRouter } from "@example/project-management/adapters/trpc";',
-      "",
-      "// The one place that decides which adapter backs which port.",
+  test("the composition root is composeApp(), typed by the hosted router, its handlers grouped by area", () => {
+    // The reference copy's composition root is the generated one: the
+    // example's, with the router's namespaces as its shape (ADR 2026-066).
+    expect(content("server/composition-root.ts")).toBe(readExample(`${APP}/server/composition-root.ts`));
+    expect(content("server/composition-root.ts")).toContain([
       "export function composeApp(): ProjectManagementRouter {",
-      '  throw new Error("Not implemented: composeApp");',
-      "}",
+      "  const db = new InMemoryDatabase();",
       "",
+      "  return createProjectManagementRouter({",
+      "    notes: {",
+      "      create: new CreateNoteHandler(new InMemoryCreateNoteStore(db)),",
+      "      list: new ListNotesHandler(new InMemoryListNotesStore(db)),",
+      "    },",
+      "    projects: {",
+      "      create: new CreateProjectHandler(new InMemoryCreateProjectStore(db)),",
+      "      list: new ListProjectsHandler(new InMemoryListProjectsStore(db)),",
+      "    },",
+      "  });",
+      "}",
     ].join("\n"));
   });
 

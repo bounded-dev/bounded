@@ -5,8 +5,9 @@
 
 import type { EmittedFile, ProjectFacts, WorkspaceFacts } from "../../ts/pack.ts";
 import { camelCase, routeKey } from "../../ts/scripts/naming.ts";
+import { compositionRoot } from "../../ts-hexagonal/scripts/composition-root.ts";
 import { byContext, featuresExposedVia } from "./in-adapter-kit.ts";
-import { contextRouterType, TRPC } from "./trpc-emitter.ts";
+import { contextRouterFactory, contextRouterType, TRPC } from "./trpc-emitter.ts";
 
 /** The one context a router-hosting app serves, or a refusal naming the fix. */
 export function hostedTrpcContext(facts: ProjectFacts, app: WorkspaceFacts): string {
@@ -36,7 +37,6 @@ export function firstInputlessQuery(facts: ProjectFacts, context: string): strin
   return feature === undefined ? undefined : `${camelCase(feature.area)}.${routeKey(feature.area, feature.feature)}`;
 }
 
-/** `composeApp(): <Router>` — the router-hosting composition root skeleton. */
 /** A React page's mount: find the root element, refusing a page without one.
  *  No non-null assertion, so an app skeleton passes the builder's own lint. */
 export const MOUNT: readonly string[] = [
@@ -44,19 +44,23 @@ export const MOUNT: readonly string[] = [
   'if (root === null) throw new Error("index.html has no #root element");',
 ];
 
-export function routerCompositionRoot(path: string, scope: string, context: string): EmittedFile {
-  const router = contextRouterType(context);
-  return {
+/**
+ * `composeApp(): <Router>` — the router-hosting app's generated composition
+ * root (ADR 2026-066): every feature the context exposes via tRPC, its
+ * handler built with its out ports, passed to `create<Context>Router` in the
+ * grouped shape.
+ */
+export function routerCompositionRoot(facts: ProjectFacts, app: WorkspaceFacts, path: string, context: string): EmittedFile {
+  const from = `${facts.scope}/${context}/adapters/trpc`;
+  return compositionRoot(facts, {
+    app,
     path,
-    mode: "skeleton",
-    content: [
-      `import type { ${router} } from "${scope}/${context}/adapters/trpc";`,
-      "",
-      "// The one place that decides which adapter backs which port.",
-      `export function composeApp(): ${router} {`,
-      '  throw new Error("Not implemented: composeApp");',
-      "}",
-      "",
-    ].join("\n"),
-  };
+    imports: [{ from, values: [contextRouterFactory(context)], types: [contextRouterType(context)] }],
+    functions: [{
+      name: "composeApp",
+      returns: contextRouterType(context),
+      factory: contextRouterFactory(context),
+      features: featuresExposedVia(facts, TRPC).filter((f) => f.context === context),
+    }],
+  });
 }

@@ -19,7 +19,9 @@
       }
     }
   ],
+  "//generatedFileGlobs": "The MCP in adapter, and the MCP app's composition root (ADR 2026-066), are generated from the design.",
   "generatedFileGlobs": [
+    "apps/*/src/composition-root.ts",
     "contexts/*/src/adapters/in/mcp/**"
   ],
   "workspaceTemplates": {
@@ -27,7 +29,7 @@
       "root": "apps",
       "manifest": "templates/mcp/package.json",
       "runtime": "bun",
-      "description": "An MCP server app: src/main.ts connects the composed server to a stdio transport; src/composition-root.ts wires the context's handlers and adapters."
+      "description": "An MCP server app: src/main.ts connects the composed server to a stdio transport; src/composition-root.ts, generated, wires the context's handlers and adapters."
     }
   },
   "projectInitScripts": [

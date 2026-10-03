@@ -53,10 +53,10 @@ describe("the shapes the example does not show", () => {
       'import { CreateNoteCommand, type CreateNote } from "@example/project-management/application";',
       "",
       "// Driving adapter: each invocation calls the in port once.",
-      "export const createCreateNoteLambda = (createNote: CreateNote) => async (event: unknown) => {",
+      "export const createCreateNoteLambda = (deps: { notes: { create: CreateNote } }) => async (event: unknown) => {",
       "  const command = CreateNoteCommand.parse(event);",
       "  if (!command.ok) return command;",
-      "  const result = await createNote.execute(command.value);",
+      "  const result = await deps.notes.create.execute(command.value);",
       "  return result.ok ? { ok: true as const, value: result.value.toJSON() } : result;",
       "};",
       "",
@@ -66,8 +66,8 @@ describe("the shapes the example does not show", () => {
   test("an input-less feature returning concepts maps them", () => {
     const contracts = withContract(EXPORT, (s) => s.replace("execute(): Promise<void>;", "execute(): Promise<Project[]>;"));
     expect(handler(contracts, "export-projects")).toContain(
-      "export const createExportProjectsLambda = (exportProjects: ExportProjects) => async () => {\n" +
-      "  return (await exportProjects.execute()).map((project) => project.toJSON());\n};\n",
+      "export const createExportProjectsLambda = (deps: { projects: { export: ExportProjects } }) => async () => {\n" +
+      "  return (await deps.projects.export.execute()).map((project) => project.toJSON());\n};\n",
     );
   });
 });

@@ -19,15 +19,16 @@ import {
   byContext,
   featuresExposedVia,
   fits,
+  groupedPath,
   importLine,
   indent,
   inAdapterDir,
   lawHeader,
   lawPrelude,
   plainOfCall,
-  portVariable,
   resultOfCommand,
 } from "./in-adapter-kit.ts";
+import { camelCase, routeKey } from "../../ts/scripts/naming.ts";
 
 export const LAMBDA = "lambda";
 
@@ -36,12 +37,20 @@ export const lambdaFactory = (feature: FeatureContractModel): string => `create$
 
 const file = (path: string, lines: readonly string[]): EmittedFile => ({ path, content: `${lines.join("\n")}\n`, mode: "generated" });
 
+/** The grouped dependency object holding one in port (ADR 2026-066):
+ *  `{ projects: { export: port } }`. */
+export function groupedArgument(feature: FeatureContractModel, value: string): string {
+  return `{ ${camelCase(feature.area)}: { ${routeKey(feature.area, feature.feature)}: ${value} } }`;
+}
+
 function lambdaFile(feature: FeatureContractModel): string[] {
-  const port = portVariable(feature);
+  // The factory takes the grouped shape every in adapter takes (ADR 2026-066),
+  // holding its one in port, so a composition root builds one shape everywhere.
+  const port = groupedPath(feature);
   const input = feature.input;
   const returns = feature.inPort.returns;
   const plainVoid = input === undefined && !returns.result && returns.shape === "void";
-  const outer = `(${port}: ${feature.inPort.name}) =>`;
+  const outer = `(deps: ${groupedArgument(feature, feature.inPort.name)}) =>`;
   const inner = `async (${input === undefined ? "" : "event: unknown"})${plainVoid ? ": Promise<void>" : ""} => {`;
   let body: string[];
   if (input !== undefined) {
@@ -140,7 +149,7 @@ function lawsFile(feature: FeatureContractModel, facts: ProjectFacts): string[] 
     "",
     "function lambda(returns: unknown) {",
     "  const { port, calls } = fakePort(returns);",
-    `  const handler = ${name}(port);`,
+    `  const handler = ${name}(${groupedArgument(feature, "port")});`,
     input === undefined
       ? "  return { calls, call: (): Promise<unknown> => handler() };"
       : "  return { calls, call: (event?: unknown): Promise<unknown> => handler(event) };",

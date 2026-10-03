@@ -33,10 +33,11 @@ The root `docker-compose.yml`, `.env.example`, `scripts/check-db.ts` and
 ## Builder: stores and mappers
 
 - A store implements exactly its feature's store port. Its constructor stays
-  `(private readonly db: DrizzleDatabase)`: the composition root passes one
-  shared database, and it picks the driver (`drizzle-orm/bun-sql` for Bun
-  apps, `drizzle-orm/node-postgres` with `pg` for Lambdas and the desktop
-  app's main process). Each app's manifest already pins its driver. A store
+  `(private readonly db: DrizzleDatabase)`: the generated composition root
+  passes one shared database, connected with the driver for the app's
+  runtime (`drizzle-orm/bun-sql` for Bun apps, `drizzle-orm/node-postgres`
+  with `pg` for Lambdas and the desktop app's main process; this pack's
+  `connect`, ADR 2026-066). Each app's manifest already pins its driver. A store
   never imports a driver, and nothing outside `adapters/out/drizzle/` imports
   Drizzle.
 - Query with Drizzle's query builder over the table objects in `schema/`
@@ -101,7 +102,8 @@ the store tests and logs why; every other level still runs. Green refuses
 while store tests exist and no container runtime answers: it never passes by
 skipping them.
 
-The apps' composition roots connect to `process.env.DATABASE_URL`. At green,
+The apps' generated composition roots connect to `process.env.DATABASE_URL`,
+and refuse to start without it. At green,
 with a runtime, the gate starts one throwaway Postgres (the pinned image),
 applies every context's migrations to it, sets its URL as `DATABASE_URL` for
 the whole run (over any inherited value, so a developer database is never

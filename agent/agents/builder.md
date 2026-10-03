@@ -57,8 +57,8 @@ shapes, not the domain.
 |---|---|---|
 | Contract | `*.contract.ts` | read only; the architect's |
 | Test side | `*.test.ts`, `*.test.tsx`, `*.spec.ts`, `*.spec.tsx`, `*.test-support.ts` | may see the NAME, never the content |
-| Generated | `domain/index.ts`, `domain/shared/result.ts`, `domain/shared/errors.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle `drizzle-database.ts`, `schema/<context>.schema.ts` and `migrations/`, every `*.laws.test.ts` | read freely; no role edits them, you included |
-| Skeleton, then yours | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, `<feature>.<role>.ts` out adapters, `<tech>-database.ts` for in-memory, `schema/<area>.ts`, each app's `composition-root.ts` | you fill these in |
+| Generated | `domain/index.ts`, `domain/shared/result.ts`, `domain/shared/errors.ts`, `application/index.ts`, `<feature>.command.ts`, everything under `adapters/in/`, every `adapters/out/<tech>/index.ts`, the Drizzle `drizzle-database.ts`, `schema/<context>.schema.ts` and `migrations/`, every `*.laws.test.ts`, each app's `composition-root.ts` | read freely; no role edits them, you included |
+| Skeleton, then yours | `<concept>.ts`, `<feature>.handler.ts`, `<feature>.store.ts`, `<feature>.<role>.ts` out adapters, `<tech>-database.ts` for in-memory, `schema/<area>.ts`, an app's entry files (`main.ts`, `main.tsx`, `<feature>.ts`) | you fill these in |
 | Yours from scratch | `<concept>.mapper.ts` in an out adapter's area folder | you create these |
 
 The design gate writes each skeleton once, with every declaration in place and
@@ -108,19 +108,23 @@ packs' pins. If you need a package that is not there, that is a
   throws when a stored row does not parse, because that is corrupt data.
 - **Other out adapter** (`@implementedBy <tech>` on its port):
   `<Tech><Port>` in `adapters/out/<tech>/<area>/<feature>.<role>.ts`.
-- **Composition root** `apps/<app>/src/**/composition-root.ts`: the only place
-  that constructs handlers, stores and in-adapter factories. It creates one
-  database object and passes it to every store. With Postgres composed it
-  connects to `process.env.DATABASE_URL` (the project's `persistence.md`):
-  never a hard-coded URL, never a fallback to another database. At green the
-  gate sets `DATABASE_URL` to a throwaway, migrated Postgres for the app smoke
-  tests; in development it comes from the root `.env`. Its skeleton fixes the
-  function names, which the app's smoke test calls: a `web` or `desktop` app
-  exports `composeApp()` returning the context's tRPC router, an `mcp` app
+- **Composition root** `apps/<app>/src/**/composition-root.ts`: generated,
+  not yours. It is the only place that constructs handlers, stores, other
+  out adapters and in-adapter factories, and you do not wire it. For every
+  feature the app exposes it builds `new <InPort>Handler(…)` with the
+  feature's out ports in contract order. A store comes from the project's
+  storage technology, an other out port from its `@implementedBy`
+  technology. One database is shared by every store; with Postgres composed
+  it connects to `process.env.DATABASE_URL`. The handlers are passed grouped
+  by area, the way the router nests them: `{ notes: { create, list } }`.
+  What you make work is what it constructs: the handlers, stores, adapters
+  and `InMemoryDatabase`. Their constructors are fixed by their skeletons.
+  If the composition root is wrong, the contract or the composition is
+  wrong: raise `CONTRACT-DISPUTE`. A `web` or `desktop` app exports
+  `composeApp()` returning the context's tRPC router, an `mcp` app
   `composeApp()` returning the context's MCP server, and a `lambdas` app one
-  `compose<InPort>()` per Lambda (`composeExportProjects()`) returning its
-  handler.
-  Entry files (`main.ts`, `export-projects.ts`, …) only host what it returns.
+  `compose<InPort>()` per Lambda (`composeExportProjects()`). Entry files
+  (`main.ts`, `export-projects.ts`, …) only host what it returns.
 
 ## Your tools, and how to find things
 
@@ -281,7 +285,7 @@ The gates run only the test-side files, by path.
 procedures, routers and the one `initTRPC` of a context are generated into
 `adapters/in/trpc/`, so a runtime import of `@trpc/server` anywhere else is
 refused (`import type` is fine). An app hosts the generated router: its
-composition root builds it with `create<Context>Router({ … })` from
+generated composition root builds it with `create<Context>Router({ … })` from
 `@<scope>/<context>/adapters/trpc`, and its server entry serves it through
 `@trpc/server/adapters/fetch`, the one subpath allowed.
 

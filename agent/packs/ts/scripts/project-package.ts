@@ -25,8 +25,8 @@
 //     `@implementedBy` tags and store ports in its application contracts;
 //     in ids sorted, then out), and those technologies' pins and
 //     `workspaceScripts`. Nothing on disk but the contracts decides it. Any other workspace depends on every context as
-//     `workspace:*`: the design, not the builder's imports, decides the
-//     edges, so a composition root the builder writes can never change the
+//     `workspace:*`: the design, not any file's imports, decides the
+//     edges, so no composition root can change the
 //     config under a running gate. It also takes, for its template's
 //     `runtime`, the `appPins` of every technology a context's design uses
 //     (the driver its composition root constructs; Bun's isolated install
@@ -480,7 +480,10 @@ function addPins(target: Record<string, string>, added: Readonly<Record<string, 
   }
 }
 
-const TAG_LINE = /^\s*\*\s*@(exposedVia|implementedBy)((?:\s+[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+)\s*$/;
+// A tag line inside a doc block (` * @implementedBy console`), or a one-line
+// doc block holding only the tag (`/** @implementedBy console */`, as the
+// worked example's ProjectExporter has it).
+const TAG_LINE = /^\s*(?:\/\*\*|\*)\s*@(exposedVia|implementedBy)((?:\s+[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+)\s*(?:\*\/)?\s*$/;
 const STORE_PORT = /^\s*export\s+interface\s+[A-Z][A-Za-z0-9]*Store\b/m;
 
 /** Every design contract file under `dir` (project-relative), sorted. */

@@ -49,9 +49,13 @@ and what comes back is plain `toJSON` data. Nobody writes tests under
 
 ## What the builder writes
 
-Only the apps: a composition root per app (`composeApp()`, or one
-`compose<Feature>()` per Lambda) that constructs handlers with their stores
-and passes them to the generated factory. The gates enforce:
+Not the composition roots: each app's (`composeApp()`, or one
+`compose<Feature>()` per Lambda) is generated too (ADR 2026-066). It builds
+every handler with its stores and passes them to the generated factory,
+grouped by area as the router nests them:
+`createProjectManagementRouter({ notes: { create, list }, projects: { … } })`.
+The builder writes the handlers, stores and app entry files. The gates
+enforce:
 
 - `bounded-ts-trpc/raw-framework-entry` — no `initTRPC` outside the
   generated adapter; serve the router through `@trpc/server/adapters/fetch`.

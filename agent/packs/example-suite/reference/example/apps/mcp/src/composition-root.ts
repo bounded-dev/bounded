@@ -1,17 +1,20 @@
-import { CreateProjectHandler, ListProjectsHandler } from "@example/project-management/application";
-import { createProjectManagementMcpServer } from "@example/project-management/adapters/mcp";
+// Generated from the design (ADR 2026-066); do not edit: the design gate regenerates it.
+// The one place that decides which adapter backs which port.
 import {
   InMemoryCreateProjectStore,
   InMemoryDatabase,
   InMemoryListProjectsStore,
 } from "@example/project-management/adapters/in-memory";
+import { createProjectManagementMcpServer } from "@example/project-management/adapters/mcp";
+import { CreateProjectHandler, ListProjectsHandler } from "@example/project-management/application";
 
-// The one place that decides which adapter backs which port.
-export function composeApp() {
+export function composeApp(): ReturnType<typeof createProjectManagementMcpServer> {
   const db = new InMemoryDatabase();
 
   return createProjectManagementMcpServer({
-    createProject: new CreateProjectHandler(new InMemoryCreateProjectStore(db)),
-    listProjects: new ListProjectsHandler(new InMemoryListProjectsStore(db)),
+    projects: {
+      create: new CreateProjectHandler(new InMemoryCreateProjectStore(db)),
+      list: new ListProjectsHandler(new InMemoryListProjectsStore(db)),
+    },
   });
 }

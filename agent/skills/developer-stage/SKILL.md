@@ -63,8 +63,8 @@ one of four kinds, and the path gate enforces who writes which:
 |---|---|---|
 | Contract | `*.contract.ts` | you |
 | Test side | `*.test.ts`, `*.test.tsx`, `*.test-support.ts` | the test-writer |
-| Generated | barrels, `domain/shared/result.ts`, `<feature>.command.ts`, all of `adapters/in/`, out-adapter barrels, Drizzle config, schema namespace and migrations, `*.laws.test.ts` | generators only; nobody edits them |
-| Everything else | skeletons (`<concept>.ts`, `<feature>.handler.ts`, stores, out adapters, composition roots) and mappers | the builder |
+| Generated | barrels, `domain/shared/result.ts`, `<feature>.command.ts`, all of `adapters/in/`, out-adapter barrels, Drizzle config, schema namespace and migrations, `*.laws.test.ts`, each app's composition root | generators only; nobody edits them |
+| Everything else | skeletons (`<concept>.ts`, `<feature>.handler.ts`, stores, out adapters, app entry files) and mappers | the builder |
 
 Blindness is by file name, not by folder. The builder may list and find test
 file names but never read one or search its content; the test-writer mirrors
@@ -192,8 +192,8 @@ removes it at the end of the run.
    - the test-writer writes the colocated test files (`*.test.ts`,
      `*.test-support.ts`) at every level, blind to implementation files,
      faking side effects against each feature's out ports;
-   - the builder fills the skeletons, writes mappers and wires each app's
-     composition root, blind to test source, debugging through the sanitized
+   - the builder fills the skeletons and writes mappers (each app's
+     composition root is generated), blind to test source, debugging through the sanitized
      `run_tests` tool.
 
    **Point each worker at the worked example (TN-26-008).**

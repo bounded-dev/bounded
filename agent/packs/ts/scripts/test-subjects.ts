@@ -330,6 +330,46 @@ function barrelExports(text: string, path: string): { names: Map<string, string>
   return { names, all };
 }
 
+/**
+ * The imported values a module constructs with `new` (`new CreateNoteHandler(…)`),
+ * as `{ spec, name }`, or undefined when it does not parse. A generated module
+ * that constructs authored classes is wiring (a generated composition root,
+ * ADR 2026-066): using it runs them, so it reaches what it constructs.
+ */
+function constructedImports(text: string, path: string): { spec: string; name: string }[] | undefined {
+  let ast: TSESTree.Program;
+  try {
+    ast = parseForESLint(text, { filePath: path, range: true }).ast as TSESTree.Program;
+  } catch {
+    return undefined;
+  }
+  const imported = new Map<string, { spec: string; name: string }>();
+  for (const statement of ast.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue;
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type") {
+        imported.set(specifier.local.name, { spec: statement.source.value, name: exportedName(specifier.imported) });
+      }
+    }
+  }
+  const out: { spec: string; name: string }[] = [];
+  const visit = (node: unknown): void => {
+    if (node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    const n = node as { type?: unknown; callee?: { type?: unknown; name?: unknown } };
+    if (n.type === "NewExpression" && n.callee?.type === "Identifier" && typeof n.callee.name === "string") {
+      const found = imported.get(n.callee.name);
+      if (found !== undefined) out.push(found);
+    }
+    for (const [key, child] of Object.entries(node)) if (key !== "parent" && key !== "range" && key !== "loc") visit(child);
+  };
+  visit(ast.body);
+  return out;
+}
+
 const MAX_DEPTH = 8;
 
 /**
@@ -417,7 +457,13 @@ export function subjectResolver(cwd: string, packsDir?: string): SubjectResolver
       return "generated";
     }
     const barrel = barrelExports(text, path);
-    if (barrel === undefined) return "generated";
+    if (barrel === undefined) {
+      // Generated wiring that constructs authored classes reaches them.
+      const constructed = constructedImports(text, path);
+      if (constructed === undefined) return "generated";
+      const kinds = constructed.map((c) => classify(path, c.spec, c.name, depth + 1)).filter((k) => k !== "none" && k !== "generated");
+      return kinds.length === 0 ? "generated" : combineKinds(kinds);
+    }
     // A whole barrel may reach anything.
     if (name === "*" || name === "default") return "unknown";
     const from = barrel.names.get(name);

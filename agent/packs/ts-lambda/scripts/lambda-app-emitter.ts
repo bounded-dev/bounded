@@ -1,9 +1,8 @@
 // The Lambda app's seed files (ADR 2026-061, TN-26-012 §1), emitted for every
-// workspace a TN declares with kind `lambdas`. All are skeletons: written
-// once, then the builder's.
+// workspace a TN declares with kind `lambdas`.
 //
-//   src/composition-root.ts   one compose<Feature>() per Lambda, wired by the builder
-//   src/<feature>.ts          one entry per Lambda: `export const handler = compose<Feature>();`
+//   src/composition-root.ts   generated (ADR 2026-066): one compose<Feature>() per Lambda, its handler and adapters
+//   src/<feature>.ts          skeleton, one entry per Lambda: `export const handler = compose<Feature>();`
 //
 // A Lambda app hosts every feature tagged `@exposedVia lambda`, from every
 // context. Each entry is marked `entry`, so the template's build script
@@ -13,6 +12,7 @@
 
 import type { EmittedFile, Emitter, ProjectFacts } from "../../ts/pack.ts";
 import { pascalCase } from "../../ts/scripts/naming.ts";
+import { compositionRoot } from "../../ts-hexagonal/scripts/composition-root.ts";
 import { byCodePoint, featuresExposedVia } from "./in-adapter-kit.ts";
 import { LAMBDA, lambdaFactory } from "./lambda-emitter.ts";
 
@@ -37,24 +37,18 @@ export function emitLambdaApps(facts: ProjectFacts): EmittedFile[] {
       }
       entries.set(feature.feature, feature.contractPath);
     }
-    const byImport = new Map<string, string[]>();
-    for (const feature of features) {
-      const from = `${facts.scope}/${feature.context}/adapters/lambda`;
-      byImport.set(from, [...(byImport.get(from) ?? []), lambdaFactory(feature)]);
-    }
-    const imports = [...byImport].sort(([a], [b]) => byCodePoint(a, b))
-      .map(([from, names]) => `import type { ${[...names].sort(byCodePoint).join(", ")} } from "${from}";`);
-    out.push(skeleton(`${app.sourceRoot}/composition-root.ts`, [
-      ...imports,
-      "",
-      "// The one place that decides which adapter backs which port. One function per Lambda.",
-      ...features.flatMap((feature, i) => [
-        ...(i === 0 ? [] : [""]),
-        `export function ${composeFunction(feature.feature)}(): ReturnType<typeof ${lambdaFactory(feature)}> {`,
-        `  throw new Error("Not implemented: ${composeFunction(feature.feature)}");`,
-        "}",
-      ]),
-    ]));
+    // One function per Lambda, each building only its own feature's handler.
+    out.push(compositionRoot(facts, {
+      app,
+      path: `${app.sourceRoot}/composition-root.ts`,
+      imports: features.map((feature) => ({ from: `${facts.scope}/${feature.context}/adapters/lambda`, values: [lambdaFactory(feature)] })),
+      functions: features.map((feature) => ({
+        name: composeFunction(feature.feature),
+        returns: `ReturnType<typeof ${lambdaFactory(feature)}>`,
+        factory: lambdaFactory(feature),
+        features: [feature],
+      })),
+    }));
     for (const feature of features) {
       out.push(entry(`${app.sourceRoot}/${feature.feature}.ts`, [
         `import { ${composeFunction(feature.feature)} } from "./composition-root.ts";`,
@@ -71,6 +65,6 @@ export const lambdaAppEmitter: Emitter = {
   name: "lambda-app",
   description:
     "The seed files of every Lambda app a TN declares: one entry per feature tagged @exposedVia lambda, exporting the " +
-    "handler its compose<Feature>() builds, and the composition-root skeleton the builder wires.",
+    "handler its compose<Feature>() builds, and the generated composition root that builds them.",
   emit: emitLambdaApps,
 };

@@ -2,8 +2,12 @@
 // every pack so no pack's tests reach across an undeclared edge and no
 // shipped pack code imports it: the worked
 // example (reference/example, a copy of its project-management context and its
-// four apps, with the TN-26-012 §4 tags added to the feature contracts) as the
-// `ProjectFacts` a gate would hand the emitters.
+// four apps, with the TN-26-012 §4 tags added to the feature contracts, and
+// with its dependencies grouped by area in the routers, the MCP server, the
+// Lambda factory and the generated composition roots: the deliberate
+// departure of ADR 2026-066) as the `ProjectFacts` a gate would hand the
+// emitters. reference/net-worth holds the 2026-10-03 dogfood's contracts and
+// golden composition roots (composition-roots.test.ts).
 //
 // The copy is inline in the harness on purpose: a test never reads a path
 // outside the repository. When ts-hexagonal's reference context lands (WI-5),

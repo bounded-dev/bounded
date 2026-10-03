@@ -3,9 +3,9 @@ import { t } from "../trpc.ts";
 import { createProjectProcedure } from "./create-project.procedure.ts";
 import { listProjectsProcedure } from "./list-projects.procedure.ts";
 
-export function createProjectsRouter(deps: { createProject: CreateProject; listProjects: ListProjects }) {
+export function createProjectsRouter(deps: { create: CreateProject; list: ListProjects }) {
   return t.router({
-    create: createProjectProcedure(deps.createProject),
-    list: listProjectsProcedure(deps.listProjects),
+    create: createProjectProcedure(deps.create),
+    list: listProjectsProcedure(deps.list),
   });
 }

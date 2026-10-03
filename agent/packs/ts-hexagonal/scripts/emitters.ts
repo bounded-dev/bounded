@@ -391,7 +391,7 @@ const defaultPacksDir = (): string => join(dirname(fileURLToPath(import.meta.url
 export function workspaceSeedEmitter(packsDir = defaultPacksDir()): Emitter {
   return {
     name: "hexagonal-workspace-seeds",
-    description: "each workspace's template files (entry files, composition-root skeletons), with its scope and name filled in",
+    description: "each workspace's template files (entry files and other seeds), with its scope and name filled in",
     emit: (facts) => facts.workspaces.flatMap((workspace) => {
       const template = facts.workspaceTemplates.find((t) => t.kind === workspace.kind);
       if (template === undefined) throw new Error(`workspace '${workspace.dir}' is of kind '${workspace.kind}', which no composed pack templates`);

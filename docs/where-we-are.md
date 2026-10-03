@@ -16,8 +16,8 @@ below proved still holds and is what the rework keeps:
   per-feature out ports whose order fixes the handler's constructor.
 
 What is new is how much no agent writes: in adapters, command files, barrels,
-config and law suites are generated, so the builder fills skeletons and wires
-composition roots. The next run (`docs/dogfood/pm-notes-prompt.md`) measures
+config, law suites and app composition roots are generated, so the builder fills skeletons
+and writes mappers. The next run (`docs/dogfood/pm-notes-prompt.md`) measures
 how close a blind run lands to the example's structure; the structure
 comparer in `scripts/dogfood/` is the ruler. [HANDOVER.md](HANDOVER.md) has
 the details and the known gaps.

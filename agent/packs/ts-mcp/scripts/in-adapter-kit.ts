@@ -20,7 +20,7 @@
 import type { ProjectFacts } from "../../ts/pack.ts";
 import type { FeatureContractModel, ReturnModel } from "../../ts/scripts/feature-model.ts";
 import { acceptsExamplesOf, isDomainConceptPath, parseDomainConcept } from "../../ts/scripts/domain-concept.ts";
-import { camelCase } from "../../ts/scripts/naming.ts";
+import { camelCase, type DependencyGroup, dependencyGroups, routeKey } from "../../ts/scripts/naming.ts";
 import { parseFeatureContract } from "../../ts-hexagonal/pack.ts";
 
 // --- part 1: the feature contracts ------------------------------------------
@@ -68,6 +68,40 @@ export function depsFunctionHead(name: string, members: readonly (readonly [stri
   const line = `export function ${name}(deps: { ${members.map(([k, v]) => `${k}: ${v}`).join("; ")} }) {`;
   return fits(line) ? line : `export function ${name}(deps: {\n${members.map(([k, v]) => `  ${k}: ${v};`).join("\n")}\n}) {`;
 }
+
+/**
+ * The grouped dependency type (ADR 2026-066), `{ notes: { create: CreateNote } }`,
+ * between `head` and `tail`: on one line when it fits, else one area per
+ * line, an area that does not fit breaking one member per line.
+ */
+export function groupedType(head: string, groups: readonly DependencyGroup<FeatureContractModel>[], tail: string): string[] {
+  const area = (g: DependencyGroup<FeatureContractModel>): string =>
+    `{ ${g.members.map((m) => `${m.key}: ${m.item.inPort.name}`).join("; ")} }`;
+  const line = `${head}{ ${groups.map((g) => `${g.key}: ${area(g)}`).join("; ")} }${tail}`;
+  if (fits(line)) return [line];
+  return [
+    `${head}{`,
+    ...groups.flatMap((g) => fits(`  ${g.key}: ${area(g)};`)
+      ? [`  ${g.key}: ${area(g)};`]
+      : [`  ${g.key}: {`, ...g.members.map((m) => `    ${m.key}: ${m.item.inPort.name};`), "  };"]),
+    `}${tail}`,
+  ];
+}
+
+/** The grouped dependency groups of features (ADR 2026-066), naming the contract on a clash. */
+export function groupsOf(features: readonly FeatureContractModel[]): DependencyGroup<FeatureContractModel>[] {
+  try {
+    return dependencyGroups(features);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const clash = features.find((f) => message.includes(`'${f.feature}' share`));
+    throw new Error(clash === undefined ? message : `${clash.contractPath}: ${message}`);
+  }
+}
+
+/** Where a feature's in port sits in the grouped deps: `deps.notes.create`. */
+export const groupedPath = (feature: FeatureContractModel): string =>
+  `deps.${camelCase(feature.area)}.${routeKey(feature.area, feature.feature)}`;
 
 /** The context package's application export, e.g. `@example/project-management/application`. */
 export const applicationImport = (feature: FeatureContractModel): string =>
