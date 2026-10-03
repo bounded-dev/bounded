@@ -33,7 +33,7 @@ export function foreignContractRefusal(path: string, owner: RouteTarget, active:
 /** How the active ticket takes over a delivered ticket's contract. */
 function takeAlternative(path: string, owner: string): string {
   return "If this ticket's design must change it, take it over in this ticket's own note instead: " +
-    `list it with its other contracts and add \`- ${path} from TN-${owner}\` under \`takes:\``;
+    `list it with its other contracts and add the line \`  - ${path} from TN-${owner}\` under \`takes:\``;
 }
 
 /** The refusal for a contract several tickets claim when no single frozen

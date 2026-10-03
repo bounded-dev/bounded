@@ -35,7 +35,8 @@
 # boundary — that path needs the log intact. `--force` overrides when a run is
 # abandoned, and marks the ticket the abandoned log names with
 # `.bounded/tickets/<n>/abandoned`, so no later ticket takes a contract from it
-# (ADR 2026-071). A delivered boundary clears that ticket's marker.
+# (ADR 2026-071). A delivered boundary clears the marker of the ticket its log
+# names, and none when it names no ticket.
 set -euo pipefail
 
 FORCE=0
@@ -93,9 +94,11 @@ if [ -f "$LOG" ]; then
   fi
   if [ "$DELIVERY_STATE" = "delivered" ]; then
     # A ticket abandoned earlier and now delivered may be taken from again.
-    DELIVERED_TICKET="${RUN_TICKET:-${TICKET:-}}"
-    if [ -n "$DELIVERED_TICKET" ]; then
-      rm -f "$TARGET/.bounded/tickets/$DELIVERED_TICKET/abandoned"
+    # Never fall back to the selected ticket: it may not be the one delivered.
+    if [ -n "$RUN_TICKET" ]; then
+      rm -f "$TARGET/.bounded/tickets/$RUN_TICKET/abandoned"
+    else
+      echo "bounded change-run: the delivered run names no ticket, so no abandoned marker is cleared"
     fi
     # Snapshot the last delivered design before the run record rotates.
     bash "$(dirname "$0")/bounded" capture-baseline --cwd "$TARGET"

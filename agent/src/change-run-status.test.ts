@@ -145,8 +145,11 @@ describe("bounded change-run", () => {
 
     const selected = tree(summary + "\n");
     writeFileSync(join(selected, ".bounded/tickets/7/abandoned"), "{}\n");
-    await script("bounded-change-run", [selected], selected);
-    expect(existsSync(join(selected, ".bounded/tickets/7/abandoned"))).toBe(false);
+    // A log that names no ticket clears no marker: the selected ticket may not
+    // be the one that delivered (review minor; the same rule as --force).
+    const unnamed = await script("bounded-change-run", [selected], selected);
+    expect(existsSync(join(selected, ".bounded/tickets/7/abandoned"))).toBe(true);
+    expect(unnamed.stdout).toContain("the delivered run names no ticket, so no abandoned marker is cleared");
   });
 
   test("falls back to the active-ticket file, and BOUNDED_TICKET overrides it", async () => {

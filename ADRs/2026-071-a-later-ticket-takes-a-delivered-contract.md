@@ -61,10 +61,14 @@ writes `.bounded/tickets/<n>/abandoned` (JSON: the archived log's file name and
 the time) for the ticket the abandoned log names: the latest event whose
 `detail.ticket` is a ticket number. A log that names no ticket marks none; the
 script never falls back to the selected ticket, which may be the next one. A
-delivered boundary removes the delivered ticket's marker before capturing the
-baseline. A note whose ticket carries the marker is not a claimant at all: it
-neither claims nor releases, so an abandoned take cannot orphan the giver's
-contract. A superseded note is skipped as before, so its takes lapse and the
+delivered boundary removes the marker of the ticket its log names before
+capturing the baseline, and removes none when the log names no ticket. An
+abandoned ticket's takes lapse, so it releases nothing and an abandoned take
+cannot orphan the giver's contract. It stays a claimant of the contracts its
+frozen design holds, so those cannot be claimed again without a take and every
+other ticket is still told who owns them; where the giver's freeze holds the
+same contract, the two are contested and the lead decides. A superseded note
+is skipped as before, so its takes lapse and the
 contract returns to its giver; a successor that needs it takes it from that
 owner.
 
