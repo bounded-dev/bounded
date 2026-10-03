@@ -27,13 +27,15 @@
 //    reply. That is why the hook records such a resume and no gate runs in a
 //    ticket worktree until the worker's stop is recorded (board-sync.ts).
 //    This test pins the host behaviour the safeguard depends on.
-// 3. The block's release (re-review U2). The same continuation, with the
-//    architect in a marked ticket worktree and the real project hook on
-//    PostToolUse(SendMessage) and SubagentStop: the hook records the
-//    background resume, SubagentStop fires for the resumed worker with its
-//    agent_id and the worktree as cwd, and the gates are free again.
-//    (PreToolUse is left off, so no run need be prepared for the phase gate;
-//    a test WorktreeCreate hook stands in for the lead's binding.)
+// 3. The hold's life (re-review U2, F1, F4). The architect is bound by the
+//    real WorktreeCreate to a marked ticket worktree, with the real project
+//    hook on SendMessage, SubagentStop and WorktreeRemove. It continues a
+//    reviewer that sleeps before answering, sends it a second message at
+//    once, and ends at once. SubagentStop fires for the resumed reviewer with
+//    its agent_id and the worktree as cwd, after the architect's end. Replaying
+//    the guard log shows the hold never lapses from the first resume to the
+//    reviewer's last stop, then ends. (A small hook stands in for the phase
+//    gate's continuation mark, which needs a prepared run.)
 // 4. A seat outlives its session only on disk (re-review U1). A new session
 //    cannot continue an agent a finished session started: SendMessage finds
 //    no transcript. So a seat whose session has gone is relaunched into its
@@ -46,7 +48,8 @@ import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { architectStatus, readArchitectState, writePendingLaunch } from "../src/architect-seat.ts";
 import { readGuardLog } from "../src/guard-log.ts";
-import { backgroundWorkers, SUBAGENT_STOPPED, WORKER_RESUMED } from "../src/lead-state.ts";
+import type { ProcessProbe } from "../src/process-lock.ts";
+import { ARCHITECT_ENDED, backgroundWorkers, SUBAGENT_STOPPED, WORKER_RESUMED } from "../src/lead-state.ts";
 import { mergeAmbientHook } from "../hosts/claude-code/install.ts";
 
 const AGENT_ROOT = join(import.meta.dirname, "..");
@@ -210,7 +213,7 @@ describe.skipIf(!LIVE)("ticket architects as background subagents, live", () => 
     }
   }, 360_000);
 
-  test("the project hook records the background resume, and the resumed worker's SubagentStop (its agent_id, the worktree as cwd) frees the gates", () => {
+  test("a worker's hold outlives the architect and spans a second send; only the worker's own later stop ends it", async () => {
     const { main, cleanup, branch } = scratchProject();
     const wt = join(main, ".bounded/worktrees/7");
     try {
@@ -223,50 +226,100 @@ describe.skipIf(!LIVE)("ticket architects as background subagents, live", () => 
       const proven = (role: string, tools: string, body: string) => ["---", `name: ${role}`, `description: ${role} (live test).`, `tools: ${tools}`,
         "hooks:", "  PreToolUse:", '    - matcher: ""', "      hooks:", "        - type: command", `          command: "true --role ${role}"`, "---", "", body, ""].join("\n");
       for (const dir of [main, wt]) {
-        write(join(dir, ".claude/agents/architect.md"), proven("architect", "Agent, SendMessage", "Do exactly what you are asked."));
-        write(join(dir, ".claude/agents/reviewer.md"), proven("reviewer", "Read", "Answer exactly what you are asked, in one word."));
+        write(join(dir, ".claude/agents/architect.md"), proven("architect", "Agent, SendMessage", "Do exactly what you are asked, then stop at once."));
+        write(join(dir, ".claude/agents/reviewer.md"), proven("reviewer", "Bash", "Do exactly what each message asks, in order."));
       }
+      // The lead's claimed launch, as `bounded lead start` and the lead hook leave it:
+      // the real WorktreeCreate binds the architect, and its SubagentStop records its end.
+      writePendingLaunch(main, {
+        issue: 7, worktree: wt, brief: "live", createdAt: new Date().toISOString(),
+        claimedBy: "live", claimedAt: new Date().toISOString(), claimant: { pid: process.pid, pidStarted: "unknown" },
+      });
+      // The reviewer's slow work (Claude Code refuses a bare sleep).
+      write(join(wt, "slow.mjs"), 'await new Promise((r) => setTimeout(r, 30_000)); console.log("waited");\n');
       const raw = join(main, "events.jsonl");
       write(join(main, "log-event.mjs"), [
         'import { appendFileSync, readFileSync } from "node:fs";',
-        `appendFileSync(${JSON.stringify(raw)}, readFileSync(0, "utf8").replace(/\\n/g, " ") + "\\n");`,
+        `appendFileSync(${JSON.stringify(raw)}, JSON.stringify({ at: new Date().toISOString(), ...JSON.parse(readFileSync(0, "utf8")) }) + "\\n");`,
       ].join("\n"));
-      write(join(main, "wt-create.mjs"), `process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(${JSON.stringify(`${wt}\n`)}));`);
+      // Stands in for the phase gate's continuation check, which marks an allowed
+      // continuation before it is sent (it needs a prepared run, which this test has none of).
+      write(join(main, "mark.mjs"), [
+        'import { readFileSync } from "node:fs";',
+        `import { logGuardEvent } from ${JSON.stringify(join(wt, ".bounded/harness/src/guard-log.ts"))};`,
+        'const p = JSON.parse(readFileSync(0, "utf8"));',
+        'if (p.agent_id && typeof p.tool_input?.to === "string") logGuardEvent(p.cwd, { guard: "phase-gate", verdict: "pass", summary: "continuing (live stand-in)", detail: { kind: "worker-continuing", worker: p.tool_input.to } });',
+      ].join("\n"));
       const run = (command: string) => ({ type: "command", command });
+      const logged = (...more: object[]) => [run(`node ${join(main, "log-event.mjs")}`), ...more];
       write(join(main, ".claude/settings.json"), JSON.stringify({
         env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "0" },
         hooks: {
-          WorktreeCreate: [{ hooks: [run(`node ${join(main, "wt-create.mjs")}`)] }],
-          WorktreeRemove: [{ hooks: [run("true")] }],
-          PostToolUse: [{ matcher: "SendMessage", hooks: [run(`node ${join(main, "log-event.mjs")}`), run(ENTRY)] }],
-          SubagentStop: [{ hooks: [run(`node ${join(main, "log-event.mjs")}`), run(ENTRY)] }],
+          WorktreeCreate: [{ hooks: [run(ENTRY)] }],
+          WorktreeRemove: [{ hooks: [run(ENTRY)] }],
+          PreToolUse: [{ matcher: "SendMessage", hooks: logged(run(`node ${join(main, "mark.mjs")}`)) }],
+          PostToolUse: [{ matcher: "SendMessage", hooks: logged(run(ENTRY)) }],
+          PostToolUseFailure: [{ matcher: "SendMessage", hooks: logged(run(ENTRY)) }],
+          SubagentStop: [{ hooks: logged(run(ENTRY)) }],
         },
       }));
-      spawnSync("claude", [
-        "-p", "--model", "haiku", "--max-budget-usd", "2", "--setting-sources", "project", "--allowedTools", "Agent", "SendMessage", "Read",
-        "--output-format", "text", "--",
+      const samples: { at: number; held: readonly string[] }[] = [];
+      const poll = setInterval(() => samples.push({ at: Date.now(), held: backgroundWorkers(readGuardLog(wt)).map((w) => w.worker) }), 500);
+      const lead = spawn("claude", [
+        "-p", "--model", "haiku", "--max-budget-usd", "3", "--setting-sources", "project",
+        "--allowedTools", "Agent", "SendMessage", "Bash(node slow.mjs)", "--output-format", "text", "--",
         "Call the Agent tool once with subagent_type architect, isolation worktree, run_in_background false and this prompt: " +
-        "'1) Call the Agent tool with subagent_type reviewer, run_in_background false, prompt: Reply with exactly READY. " +
-        "2) Then call SendMessage with to set to that reviewer's agent id and message: say PONG. " +
-        "3) Wait until the reviewer has answered PONG, then report its answer verbatim.' " +
-        "Wait until it finishes, and until every agent it started has finished, then report its result verbatim.",
-      ], { cwd: main, env: claudeEnv(), encoding: "utf8", timeout: 420_000, stdio: ["ignore", "pipe", "pipe"] });
+        "'Make exactly one tool call per message. 1) Call the Agent tool with subagent_type reviewer, run_in_background false, prompt: Reply with exactly READY. " +
+        "2) Call SendMessage with to set to that reviewer's agent id and message: Run the Bash command node slow.mjs, then reply PONG1. " +
+        "3) At once call SendMessage again, to the same id, message: Then reply PONG2. " +
+        "4) Then stop immediately and report SENT. Do not wait for the reviewer.' " +
+        "When it returns, wait until every background agent has finished, then report everything verbatim.",
+      ], { cwd: main, env: claudeEnv(), stdio: ["ignore", "pipe", "pipe"] });
+      let output = "";
+      lead.stdout.on("data", (chunk) => { output += String(chunk); });
+      await new Promise<void>((done) => { lead.on("exit", () => done()); setTimeout(() => { lead.kill(); done(); }, 420_000); });
+      clearInterval(poll);
+
       const events = existsSync(raw) ? readFileSync(raw, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>) : [];
-      const send = events.find((e) => e["hook_event_name"] === "PostToolUse" && typeof (e["tool_response"] as Record<string, unknown> | undefined)?.["resumedAgentId"] === "string");
-      expect(send, "the architect's continuation resumed its reviewer in the background").toBeDefined();
-      const worker = (send!["tool_response"] as Record<string, unknown>)["resumedAgentId"] as string;
-      const stops = events.filter((e) => e["hook_event_name"] === "SubagentStop" && e["agent_id"] === worker);
-      // The commissioned run's stop, and the background-resumed run's stop after the send.
-      expect(stops.length, "SubagentStop fired for the resumed worker").toBeGreaterThanOrEqual(1);
-      expect(events.indexOf(stops.at(-1)!)).toBeGreaterThan(events.indexOf(send!));
-      expect(realpathSync(String(stops.at(-1)!["cwd"]))).toBe(realpathSync(wt));
       const log = readGuardLog(wt);
-      const kinds = log.map((e) => (e.detail as Record<string, unknown> | undefined)?.["kind"]);
-      expect(kinds).toContain(WORKER_RESUMED);
-      expect(log.filter((e) => (e.detail as Record<string, unknown> | undefined)?.["kind"] === SUBAGENT_STOPPED)
-        .map((e) => (e.detail as Record<string, unknown>)["agent"])).toContain(worker);
-      expect(kinds.lastIndexOf(SUBAGENT_STOPPED)).toBeGreaterThan(kinds.indexOf(WORKER_RESUMED));
-      expect(backgroundWorkers(log), "the gates are free again").toEqual([]);
+      const kindOf = (e: { detail?: unknown }) => (e.detail as Record<string, unknown> | undefined)?.["kind"];
+      const architect = readArchitectState(wt);
+      if (process.env["BOUNDED_LIVE_KEEP"] !== undefined) {
+        writeFileSync(process.env["BOUNDED_LIVE_KEEP"], JSON.stringify({ output, architect, events: events.map((e) => ({
+          at: e["at"], event: e["hook_event_name"], agent: e["agent_id"], type: e["agent_type"], cwd: e["cwd"],
+          to: (e["tool_input"] as Record<string, unknown> | undefined)?.["to"], response: e["tool_response"],
+        })), log: log.map((e) => ({ ts: e.ts, detail: e.detail })), samples: samples.filter((x, i) => i === 0 || x.held.join() !== samples[i - 1]!.held.join()) }, null, 2));
+      }
+      // The architect was bound, and its end recorded.
+      expect(architect, "the architect was bound and ended").toMatchObject({ state: "ended", turn: 1 });
+      const sends = events.filter((e) => e["hook_event_name"] === "PostToolUse" && e["agent_type"] === "architect");
+      expect(sends.length, "the architect sent twice").toBe(2);
+      const worker = String((sends[0]!["tool_input"] as Record<string, unknown>)["to"]);
+      const stops = events.filter((e) => e["hook_event_name"] === "SubagentStop" && e["agent_id"] === worker);
+      const architectStop = events.findIndex((e) => e["hook_event_name"] === "SubagentStop" && e["agent_id"] === architect!.agent);
+      // F1: the reviewer's last stop arrives after the architect's, with the worktree as cwd.
+      expect(events.indexOf(stops.at(-1)!), "the reviewer stopped after the architect").toBeGreaterThan(architectStop);
+      expect(events.indexOf(stops.at(-1)!)).toBeGreaterThan(events.indexOf(sends[1]!));
+      expect(realpathSync(String(stops.at(-1)!["cwd"]))).toBe(realpathSync(wt));
+      // Replaying the worktree's guard log: from the first resume record to the
+      // reviewer's last stop, through the architect's end and the second send,
+      // the hold never lapses; after that stop it is gone.
+      const firstResume = log.findIndex((e) => kindOf(e) === WORKER_RESUMED);
+      const lastStop = log.map((e) => kindOf(e) === SUBAGENT_STOPPED && (e.detail as Record<string, unknown>)["agent"] === worker).lastIndexOf(true);
+      expect(log.findIndex((e) => kindOf(e) === ARCHITECT_ENDED)).toBeGreaterThan(firstResume);
+      expect(log.findIndex((e) => kindOf(e) === ARCHITECT_ENDED)).toBeLessThan(lastStop);
+      // (The lead's session has exited since; replay it as it was then, running.)
+      const then: ProcessProbe = { startTime: (pid) => (pid === architect!.pid ? architect!.pidStarted : undefined) };
+      for (let i = firstResume; i < lastStop; i++) {
+        expect(backgroundWorkers(log.slice(0, i + 1), then).map((w) => w.worker), `held after event ${i} (${String(kindOf(log[i]!))})`).toContain(worker);
+      }
+      expect(backgroundWorkers(log, then)).toEqual([]);
+      // F4, as Claude Code 2.1.288 does it: a send to a worker still running is
+      // queued ("Message queued for delivery … at its next tool round"), and the
+      // worker's one stop comes after both sends.
+      expect(stops.filter((e) => events.indexOf(e) > events.indexOf(sends[0]!))).toHaveLength(1);
+      // While it ran, the live view agreed.
+      expect(samples.some((x) => x.held.includes(worker))).toBe(true);
     } finally {
       cleanup([wt]);
     }

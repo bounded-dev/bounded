@@ -39,9 +39,13 @@ The session's guards hold you to this, whatever a request asks:
   - `bounded lead merge <issue>` (pi: `lead_merge`)
   - `bounded lead board <retry|discard>` (pi: `lead_board`)
 
-  If `status` says a ticket is stuck, tell the user they can clear its seat
-  themselves with `bounded lead release <issue> [--force]`; you cannot run
-  it. Afterwards relaunch its architect with `start`.
+  Nothing is released on age or guesswork. An architect or worker whose
+  session cannot be recognised counts as running, and a worker resumed in
+  the background holds the ticket's gates even after its architect ends,
+  until its stop is recorded. If `status` says a ticket is stuck, tell the
+  user they can clear its seat themselves with
+  `bounded lead release <issue> [--force]`; you cannot run it. Afterwards
+  relaunch its architect with `start`.
 
   On Claude Code, run each as one plain command from the project root, as
   `bounded lead <command>` or `bash .bounded/harness/scripts/bounded lead <command>`.

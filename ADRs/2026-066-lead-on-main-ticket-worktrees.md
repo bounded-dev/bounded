@@ -126,19 +126,31 @@ routes to the user. Any lead command refuses in the same way.
   A launch claim records its claimant and time; one whose claimant has gone,
   or older than 15 minutes, can be claimed again, and `start` on the waiting
   ticket releases it.
-- **Nothing counts as running forever.** A seat whose session's start time
-  cannot be read counts as running for at most six hours, and is then lost;
-  `status` says so.
-- **No gate runs on a changing tree, and the hold always ends.** Any
-  successful SendMessage that does not carry the worker's reply inline
-  (whatever shape its answer takes) is recorded as a worker resumed in the
-  background, with the session's pid and start time. Until the hold ends no
-  gate (and so no freeze or delivery) runs in that ticket worktree. It ends
-  when SubagentStop records the worker's stop, when its session has gone,
-  when the architect's end is recorded, or when the user releases the seat; a
-  hold whose session cannot be recognised lasts at most an hour. The
-  continuation is marked before it is sent, so a stop recorded before the
-  resume record still ends the hold. `status` lists every hold.
+- **Doubt fails closed; the user's release is the way out.** Nothing is
+  taken for gone on age or guesswork. A seat whose session's start time
+  cannot be read stays running, and a hold whose session cannot be read
+  stays held, until a stop is recorded or the user releases them. `status`
+  says so and names the release command.
+- **No gate runs on a changing tree.** EVERY successful SendMessage in a
+  ticket seat is recorded as a worker resumed in the background, with the
+  session's pid and start time. With background tasks on, no inline reply
+  has been seen live, so no answer is trusted to carry one. Until the hold
+  ends no gate (and so no freeze or delivery) runs in that ticket worktree.
+  It ends only when SubagentStop records the worker's stop, when its session
+  is seen to have gone, or when the user releases the seat. The architect's
+  end does not end it, since a resumed worker outlives its architect (shown
+  live).
+- **Stops are read in order.** A continuation is marked before it is sent,
+  and a failed send drops its mark.
+  - If the worker was idle at the mark, a stop that lands before the resume
+    record can only answer this send, so it ends the hold.
+  - If the worker was already held, such a stop may end the turn before this
+    send, so only a stop after this send's resume record ends the hold.
+  - Claude Code queues a send to a running worker ("Message queued for
+    delivery … at its next tool round"), and the worker stops once, after
+    both sends (shown live).
+
+  `status` lists every hold.
 - **One escape hatch, for the user only.** `bounded lead release <issue>
   [--force]` clears all of a ticket's seat state: the architect seat,
   background-worker holds, a launch claim and the pending reply. It does so
@@ -177,12 +189,21 @@ pi 0.87.1, pi-subagents 0.52.1):
   with background tasks on, a worker continued with SendMessage resumes in
   the background ("Resuming agent ...") rather than answering inline. A
   separate probe showed the lead's SendMessage resuming a stopped background
-  subagent in its worktree. A third run (2.1.288), with the architect in a
-  marked ticket worktree and the real project hook installed on SendMessage
-  and SubagentStop, showed the hold released. The hook recorded the
-  background resume with the session's pid and start time. SubagentStop then
-  fired for the resumed worker with its `agent_id` and the worktree as `cwd`,
-  the hook recorded the stop, and no hold remained. A fourth run showed a new
+  subagent in its worktree. A third run (2.1.288) exercised the hold's life.
+  The architect was bound by the real WorktreeCreate to a marked ticket
+  worktree, with the real project hook on SendMessage and SubagentStop.
+  - It continued a reviewer whose answer takes 30 seconds; the answer was
+    "Resuming agent …", which the hook recorded with the session's pid and
+    start time.
+  - It sent the reviewer a second message at once; the answer was "Message
+    queued for delivery … at its next tool round", with no resumed id.
+  - Then it ended. Its end was recorded about 1.5 seconds after the second
+    send.
+  - The reviewer's one stop, with its `agent_id` and the worktree as `cwd`,
+    came about 16 seconds after the architect's end.
+
+  Replaying the worktree's guard log, the hold never lapsed from the first
+  resume to that stop, then ended. A fourth run showed a new
   session's SendMessage to an agent a finished session started fail: "could
   not be resumed: No transcript found for agent ID". That is why a seat
   whose session has gone is relaunched.
