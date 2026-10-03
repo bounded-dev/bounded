@@ -7,6 +7,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { contractFileSuffixes, hasContractSuffix, sourceRootOf, sourceRoots } from "./pack-contrib.ts";
+import { foreignContractRefusal } from "./ticket-route.ts";
 
 export interface TicketDesign {
   readonly ticket: string;
@@ -25,6 +26,9 @@ export interface TicketWriteScope {
    *  (ADR 2026-052). Empty when none is composed or the composition is
    *  unreadable — the latter always carries `error`. */
   readonly contractSuffixes: readonly string[];
+  /** Contracts other tickets' live notes own: path → owning ticket number.
+   *  Lets a refusal name the owner and the route to change it. */
+  readonly owners?: Readonly<Record<string, string>>;
   readonly error?: string;
 }
 
@@ -236,38 +240,54 @@ export function workspaceMap(lines: readonly string[]): Readonly<Record<string, 
  * THAT ticket is active, so a stale neighbour never blocks this one — unless it
  * cannot be read at all, in which case ownership cannot be proven.
  */
-function siblingConflict(root: string, active: TicketDesign): string | undefined {
+type SiblingClaims =
+  | { readonly ok: true; readonly owners: Readonly<Record<string, string>> }
+  | { readonly ok: false; readonly error: string };
+
+function siblingClaims(root: string, ticket: string, contracts: readonly string[]): SiblingClaims {
   let entries: string[];
   try {
     entries = readdirSync(join(root, TN_DIR));
   } catch {
-    return undefined;
+    return { ok: true, owners: {} };
   }
+  const owners: Record<string, string> = {};
   for (const entry of entries.sort()) {
-    const other = NOTE_NAME.exec(entry)?.[1];
-    if (!other || other === active.ticket) continue;
+    const named = NOTE_NAME.exec(entry)?.[1];
+    if (!named || named === ticket) continue;
     const note = `${TN_DIR}/${entry}`;
-    const repair = `ask the team lead to repair ${note} (it belongs to ticket #${other}, not #${active.ticket})`;
+    const repair = `ask the team lead to repair ${note} (it belongs to ticket #${named}, not #${ticket})`;
     let body: string;
     try {
       body = readFileSync(join(root, note), "utf8");
     } catch {
-      return `cannot read ${note}, so ticket #${active.ticket}'s contract ownership cannot be checked — ${repair}`;
+      return { ok: false, error: `cannot read ${note}, so ticket #${ticket}'s contract ownership cannot be checked — ${repair}` };
     }
     const fm = frontMatter(body);
     if (!fm) {
-      return `${note} has no readable TN front matter, so ticket #${active.ticket}'s contract ownership cannot be checked — ${repair}`;
+      return { ok: false, error: `${note} has no readable TN front matter, so ticket #${ticket}'s contract ownership cannot be checked — ${repair}` };
     }
     const status = fm.lines.find((line) => line.startsWith("status:"))?.slice(7).trim();
     if (status === "superseded") continue;
     const claimed = contractList(fm.lines);
     if (!claimed) {
-      return `${note} has an unreadable contracts: list, so ticket #${active.ticket}'s contract ownership cannot be checked — ${repair}`;
+      return { ok: false, error: `${note} has an unreadable contracts: list, so ticket #${ticket}'s contract ownership cannot be checked — ${repair}` };
     }
-    const overlap = active.contracts.filter((path) => claimed.includes(path));
-    if (overlap.length) return `${active.note} and ${note} both own ${overlap.join(", ")}`;
+    // The owner is the ticket the note declares; its file name when that
+    // line is not a ticket number (the note's own hygiene is checked when
+    // that ticket is active).
+    const issue = fm.lines.find((line) => line.startsWith("issue:"))?.slice(6).trim() ?? "";
+    const owner = TICKET_NUMBER.test(issue) && issue !== ticket ? issue : named;
+    const overlap = contracts.find((path) => claimed.includes(path));
+    if (overlap !== undefined) return { ok: false, error: foreignContractRefusal(overlap, owner) };
+    for (const path of claimed) owners[path] ??= owner;
   }
-  return undefined;
+  return { ok: true, owners };
+}
+
+function siblingConflict(root: string, active: TicketDesign): string | undefined {
+  const claims = siblingClaims(root, active.ticket, active.contracts);
+  return claims.ok ? undefined : claims.error;
 }
 
 export interface TicketDesignOptions {
@@ -339,12 +359,16 @@ export function ticketWriteScope(root: string): TicketWriteScope | undefined {
   const selection = selectTicket(root);
   if (!("ticket" in selection)) return { contracts: [], contractSuffixes: suffixes, error: selection.error };
   const { ticket } = selection;
-  if (!existsSync(join(root, `${TN_DIR}/TN-${ticket}.md`))) return { ticket, contracts: [], contractSuffixes: suffixes };
+  if (!existsSync(join(root, `${TN_DIR}/TN-${ticket}.md`))) {
+    // Unwritten: nothing to conflict with, but a refusal can still name owners.
+    const claims = siblingClaims(root, ticket, []);
+    return { ticket, contracts: [], contractSuffixes: suffixes, ...(claims.ok ? { owners: claims.owners } : {}) };
+  }
   try {
     const active = parseActiveNote(root, ticket, false);
-    const conflict = siblingConflict(root, active);
-    if (conflict) return { ticket, contracts: [], contractSuffixes: suffixes, error: conflict };
-    return { ticket, contracts: active.contracts, contractSuffixes: suffixes };
+    const claims = siblingClaims(root, ticket, active.contracts);
+    if (!claims.ok) return { ticket, contracts: [], contractSuffixes: suffixes, error: claims.error };
+    return { ticket, contracts: active.contracts, contractSuffixes: suffixes, owners: claims.owners };
   } catch (error) {
     return { ticket, contracts: [], contractSuffixes: suffixes, error: error instanceof Error ? error.message : String(error) };
   }

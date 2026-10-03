@@ -9,6 +9,7 @@
 
 import picomatch from "picomatch";
 import type { TicketWriteScope } from "./ticket-design.ts";
+import { changeRunRoute, foreignContractRefusal } from "./ticket-route.ts";
 import { pathGlobMatcher, sourceRootOf } from "./pack-contrib.ts";
 
 export type Role = "architect" | "test-writer" | "builder" | "reviewer";
@@ -1171,9 +1172,12 @@ export function decide(
   if (WRITE_TOOLS.has(tool)) {
     if (role === "architect" && ctx.ticketScope) {
       const scope = ctx.ticketScope;
-      if (/^docs\/tn\/TN-[1-9][0-9]*\.md$/i.test(t) &&
-        t.toLowerCase() !== `docs/tn/tn-${scope.ticket}.md`) {
-        return block(`path-gate: architect may write only ticket #${scope.ticket ?? "unselected"}'s TN`);
+      const otherNote = /^docs\/tn\/TN-([1-9][0-9]*)\.md$/i.exec(t);
+      if (otherNote && t.toLowerCase() !== `docs/tn/tn-${scope.ticket}.md`) {
+        return block(
+          `path-gate: architect may write only ticket #${scope.ticket ?? "unselected"}'s TN; ` +
+          `${t} belongs to ticket #${otherNote[1]}: ${changeRunRoute(otherNote[1]!)}`,
+        );
       }
       if (t.toLowerCase() === "spec.md") {
         return block("path-gate: ticket-numbered projects write their ticket TN, not root spec.md");
@@ -1187,6 +1191,8 @@ export function decide(
       if (unknown || suffixes.some((suffix) => lower.endsWith(suffix))) {
         if (scope.error) return block(`path-gate: ${scope.error}`);
         if (!scope.contracts.includes(t)) {
+          const owner = scope.owners !== undefined && Object.hasOwn(scope.owners, t) ? scope.owners[t] : undefined;
+          if (owner !== undefined) return block(`path-gate: ${foreignContractRefusal(t, owner)}`);
           return block(
             `path-gate: contract '${t}' is not owned by ticket #${scope.ticket}; ` +
             `list it under \`contracts:\` in the front matter of docs/tn/TN-${scope.ticket}.md, then write it`,

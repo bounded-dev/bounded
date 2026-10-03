@@ -247,7 +247,11 @@ describe("design resolution tolerates legitimate states and scopes refusals", ()
     vi.stubEnv("BOUNDED_TICKET", "26");
     expect(resolveTicketDesign(root)).toEqual({ kind: "unwritten", ticket: "26", note: "docs/tn/TN-26.md" });
     expect(designNotePath(root)).toBe("docs/tn/TN-26.md");
-    expect(ticketWriteScope(root)).toEqual({ ticket: "26", contracts: [], contractSuffixes: [".contract.ts"] });
+    expect(ticketWriteScope(root)).toEqual({
+      ticket: "26", contracts: [], contractSuffixes: [".contract.ts"],
+      // Other tickets' contracts, so a refusal can name their owner.
+      owners: { "contexts/notes/src/t24.contract.ts": "24", "contexts/notes/src/t25.contract.ts": "25" },
+    });
     expect(() => activeTicketDesign(root)).toThrow("ticket #26 needs docs/tn/TN-26.md before design review or freeze");
     // A scout may help before the note exists; a worker may not.
     expect(evaluatePathGate({ role: "architect", toolName: "subagent", commissions: PI_COMMISSIONS, input: { agent: "scout", task: "look" }, cwd: root }))
