@@ -220,3 +220,12 @@ describe("typecheck takes its role from the host", () => {
     expect(scoped.detail).toMatchObject({ scoped: true });
   });
 });
+
+// The leftover-restore wrapper (ADR 2026-070) keeps every field of the gate it
+// wraps: the board moves on the milestones (ADR 2026-066).
+describe("the wrapped gates keep their board milestones", () => {
+  test("design-gate, handoff-publish and deliver", () => {
+    const milestones = Object.fromEntries(gates.filter((g) => g.milestone !== undefined).map((g) => [g.name, g.milestone]));
+    expect(milestones).toEqual({ "design-gate": "design-frozen", "handoff-publish": "handoff-published", deliver: "delivered" });
+  });
+});
