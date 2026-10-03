@@ -30,25 +30,45 @@ its commands, and every host parses them with one parser (`lead-commands.ts`):
 refuses when the ticket owns a contract path that overlaps one owned by
 another started ticket. Otherwise it creates the ticket's worktree and branch
 (`.bounded/worktrees/<n>`, `ticket/<n>`), installs dependencies, prepares the
-run and launches the architect in that worktree. If any step fails, it
-removes the worktree and branch. `merge` fetches and refuses unless `main` is
+run and leaves one pending launch for the ticket's architect. If any step
+fails, it removes the worktree and branch. `merge` fetches and refuses unless `main` is
 level with `origin/main`. It commits the delivered work, merges with
 `--no-ff` and refuses on any conflict. It runs the packs' `projectCheckCommands`
 on `main` and undoes the merge if they fail. Only then does it push without
 force, close the issue and remove the worktree.
 
-The architect is the ticket worktree's own top-level host session, launched
-by a host-neutral wrapper (`architect-launch.ts`). Each turn is one run of
-the host's command line. `status` shows the turn's report, and `reply`
-continues the same session. Each worktree runs one architect turn at a time,
-which replaces #33's project-wide one-architect lock. The wrapper records the
-end of every turn in the worktree's guard log, where the cold-relaunch rule
-reads it. On Claude Code, the seat reaches the worktree's own settings hook
-through the session's environment. The hook accepts it only in a worktree
-that `start` marked. On pi, the architect's loader is passed with `-e`, and
-the project's extensions are trusted with `--approve`. Any other top-level
-session in a ticket worktree is read-only. The lead may no longer commission
-an architect as a subagent.
+The architect is the host's own standard subagent, run in the background in
+its ticket's worktree; the core never launches anything (`architect-seat.ts`).
+`start` leaves one pending launch, under the lead's lock, and says how the lead
+launches the architect next. The host adapter binds that launch to the
+pending ticket, routes the architect's calls to the ticket worktree, and
+records the seat's start and end there. `reply` leaves one pending reply,
+and the adapter lets the lead continue only that architect, with exactly
+that reply. Each worktree runs one architect turn at a time, which replaces
+#33's project-wide one-architect lock; a seat whose host session has gone is
+reported lost, never running. The cold-relaunch rule reads each recorded end.
+
+- **Claude Code:** the lead calls the Agent tool with `subagent_type:
+  "architect"`. The lead hook claims the pending launch and rewrites the call
+  to exactly the brief, the model, `isolation: "worktree"` and
+  `run_in_background: true`. WorktreeCreate, whose `name` carries the new
+  agent's id, answers with the ticket's existing worktree and binds the agent
+  to it. Every call the subagent and its workers make carries the worktree as
+  its `cwd`; the project hook routes it to the worktree's own harness, which
+  judges it with the worktree as the project. SubagentStop records the end;
+  SendMessage, rewritten to the prepared reply, continues it. Every role
+  definition runs in `dontAsk`, so only the gate's explicit allow grants a
+  call that needs permission. Background tasks stay on; the hook keeps every
+  worker commission in the foreground.
+- **pi:** the lead calls `subagent` with `agent: "architect"`; the gate claims
+  the pending launch and rewrites the call to the brief, `async: true` and the
+  ticket worktree as `cwd`. pi-subagents then discovers the worktree's own
+  architect definition and per-role loader, so the child pi process is bound
+  by the worktree's loader and loads the worktree's extensions. The loader
+  records the seat's start (releasing the pending launch) and its end;
+  `subagent` `resume`, rewritten to the prepared reply, continues it.
+
+A session opened directly in a ticket worktree is read-only.
 
 In a ticket worktree, each gate run posts its summary as a comment on the
 ticket. A refusal adds `blocked: <route>`, and that gate's next pass removes
@@ -63,16 +83,13 @@ routes to the user. Any lead command refuses in the same way.
   difference ("the worktree changed after delivery; rerun deliver") and checks
   that the committed tree is the recorded one. A `reply` to a ticket that is
   Awaiting Merge reopens it to Building and drops the record.
-- **The launch fails closed.** Before a launch, the host's preflight checks
-  that the worktree registers its gate hook (Claude Code: the project-wide
-  PreToolUse hook for every tool, with no setting or managed policy switching
-  hooks off; pi: the role loader and the project extension). The Claude Code
-  session loads only project settings and runs in `dontAsk` with nothing
-  pre-approved. The hook allows every call it judges as allowed in words, so
-  a session whose hook never ran cannot write, edit or run a shell command
-  that changes anything; an opt-in live test shows both that and its
-  control. A message that begins with `-` is refused, and the Claude Code
-  message follows `--`.
+- **The seat fails closed.** Before a launch or a reply, the host's preflight
+  checks the seat's gate (Claude Code: the project hook on PreToolUse,
+  WorktreeCreate and SubagentStop, every role definition in `dontAsk` with its
+  bound hook, and no managed policy switching hooks off; pi: the worktree's
+  own architect loader, resolved as pi-subagents resolves it, and its project
+  extension). A seat whose hook never ran cannot write, edit or run a shell
+  command that changes anything. A reply that begins with `-` is refused.
 - **One lead command at a time.** Every lead command holds a lock in the main
   worktree. `start` writes its record before anything else, so the ownership
   check always sees a parallel ticket. Locks and running architect turns are
@@ -89,9 +106,11 @@ routes to the user. Any lead command refuses in the same way.
   plus the ticket's own TN and the architect's scratch. Case is ignored only
   where the filesystem ignores it. A write elsewhere is refused and routed to
   the team lead.
-- **Only judged tools run in a launched session.** The hook denies any tool it
-  does not map and judge (MCP tools, WebFetch, Skill and the like), and the
-  Claude Code launch loads no MCP server (`--strict-mcp-config`).
+- **Only judged tools run in a ticket seat.** On Claude Code the hook denies
+  any tool it does not map and judge (MCP tools, WebFetch, Skill and the
+  like), apart from a subagent's report (`SubagentHandback`) and loading a
+  deferred tool (`ToolSearch`), which it judges as what they are. On pi, the
+  definition's `tools:` list is the strip.
 - **Locks are taken over atomically.** A stale lock is claimed by rename, and
   an owner whose liveness cannot be told is never stale.
 - **A failing board update cannot block the board.** After three failures
@@ -101,28 +120,30 @@ routes to the user. Any lead command refuses in the same way.
 ## Why
 
 The user asked for parallel tickets in which every step is controlled by
-commands and gates. That required the risky part to be proved first, on both
-hosts, on 2026-10-02 (Claude Code 2.1.287, pi 0.87.1) with restricted
-headless runs:
+commands and gates, run on each host's standard subagents so they use the
+user's own subscription and the user can watch them. The risky part was
+proved first, live, with restricted runs (Claude Code 2.1.287 and 2.1.288,
+pi 0.87.1, pi-subagents 0.52.1):
 
-- **Claude Code in-session isolation was rejected.** An Agent call with
-  `isolation: worktree` does move the subagent's `cwd`, and nested workers
-  inherit it. However, hooks still resolve to the lead's `CLAUDE_PROJECT_DIR`
-  and harness. A `WorktreeCreate` hook receives only a generated name, so it
-  cannot be tied to a ticket. With background tasks disabled, the lead blocks
-  until every architect finishes.
-- **A launched session works.** A `claude -p` in a git worktree used that
-  worktree's settings hook, `CLAUDE_PROJECT_DIR` and `cwd`. The launcher's
-  environment reached the hook. Frontmatter hooks fired, because the
-  worktree inherits the trust of its repository.
-- **A launched pi session works.** `pi -p --approve -e <loader>` in a
-  worktree loaded both the worktree's project extension and the role loader,
-  and both judged calls with the worktree's `cwd`. Nesting worktrees under
-  the main checkout keeps pi's ancestor-based trust for the architect's own
-  child workers.
-
-A launched session also lets tickets run in parallel while the lead keeps
-talking to the user.
+- **Claude Code.** Two background architect subagents with worktree isolation
+  ran at once through this checkout's real hook (`test/claude-seat-live.test.ts`,
+  opt-in). WorktreeCreate bound each to its ticket's existing worktree; each
+  call carried that worktree as its `cwd` and was judged there (its guard log,
+  not the main worktree's); a write outside was refused; SubagentStop recorded
+  each end; SendMessage resumed a stopped one in its worktree. The subagent's
+  own definition hooks load only in a trusted project, and a worktree is
+  trusted with its repository; in an untrusted folder every call that needs
+  permission is refused.
+- **pi.** From a headless lead, two async architect children with ticket
+  directories as `cwd` started together, each discovered its directory's own
+  architect definition and loader (resolved from the definition's directory),
+  had its writes inside allowed and outside refused, and recorded its start
+  and end with the run id the lead sees. `resume` of a finished run started a
+  new run in the same directory with a new run id, which the loader recorded.
+- **Not shown without a TUI.** Claude Code's agent view lists sessions, not
+  subagents, so the user talks to an architect through the lead. pi's fleet
+  view, which lets the user open and steer a running child, is a dogfood
+  entry.
 
 ## Consequences
 
@@ -130,15 +151,14 @@ talking to the user.
   run a mutating git command.
 - Each worktree installs its own dependencies, so `start` costs one lockfile
   install.
-- A headless turn cannot answer a permission prompt, so on Claude Code the
-  hook's explicit allow is the only permission a launched session has.
-  Claude Code still lets a session without its hook read files and run shell
-  commands it classifies as read-only; such a session can change nothing.
-- The launcher sits behind one seam (`ArchitectHost`, and the `launch`
-  dependency of the lead's commands), so running architects another way, for
-  example one visible subagent at a time, replaces that seam alone.
-- The architect talks to the user only through the lead's `status` and
-  `reply`.
+- On Claude Code the gate's explicit allow is the only permission a ticket
+  seat has. Claude Code still lets a seat without its hook read files and run
+  shell commands it classifies as read-only; such a seat can change nothing.
+- Launching, binding and routing live in the host adapters behind one seam
+  (`ArchitectHost`); the core keeps only the pending launch, the pending reply
+  and the seat's recorded life.
+- Background tasks stay on in a project installation; a setting that turns
+  them off is refused, since it would serialize the architects.
 - Projects initialized before this decision lack the tracker config. They need
   a re-init before the lead's commands run.
 - An end-to-end run of a real ticket on each host is a dogfood entry. This ADR

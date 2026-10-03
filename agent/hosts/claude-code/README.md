@@ -261,30 +261,40 @@ before the first ticket, and works through its commands (ADR 2026-066):
 `bounded lead ticket create ...` creates a GitHub issue with its sections,
 `bounded lead queue <issue>` queues it, and `bounded lead start <issue>`
 gives it its own worktree under `.bounded/worktrees/<issue>` and branch
-`ticket/<issue>`, sets it up, prepares its run and launches its architect
-there. `bounded lead status` shows every started ticket, `bounded lead reply
-<issue> <message>` continues an architect with the user's answer, and
+`ticket/<issue>`, sets it up and prepares its run, then leaves one pending
+launch. `bounded lead status` shows every started ticket, `bounded lead reply
+<issue> <message>` prepares the user's answer for an architect, and
 `bounded lead merge <issue>` merges a delivered ticket into `main`, runs the
-project's check, pushes and closes it. The lead never commissions an
-architect as a subagent and does not edit product files.
+project's check, pushes and closes it. The lead does not edit product files.
 
-The architect runs as the ticket worktree's own top-level Claude Code session
-(`claude -p`, one run per turn; `architect-launch.ts`), so its working
-directory, `CLAUDE_PROJECT_DIR`, hooks, path gate and `.bounded/` state are
-all the worktree's. It loads only the project's settings and runs in
-`dontAsk` mode with nothing pre-approved: the hook allows each call it judges
-as allowed explicitly, so a session whose hook never ran can change nothing.
-The launch refuses when the worktree does not register the hook, or when a
-managed policy switches hooks off. The launch puts the seat in the session's environment;
-the worktree's project-wide hook accepts it only in a worktree the start
-command marked, judges every call as the architect, and records its Agent
-and `SendMessage` outcomes. A top-level session in a ticket worktree that was
-not launched that way is read-only. The architect's nested reviewer,
-test-writer and builder are ordinary subagents bound by their generated
-definitions, as before; they inherit the worktree as their working
-directory. Project settings keep those calls in the foreground, and agent
-teams remain disabled. The Claude Code [subagent
-documentation](https://code.claude.com/docs/en/sub-agents) describes nested
+The architect is the lead session's own background subagent
+(`architect-seat.ts`, `seat-hooks.ts`). After `start`, the lead calls the
+Agent tool with `subagent_type: "architect"`; the lead hook claims the one
+pending launch and rewrites the call to carry exactly the ticket's brief, its
+model, `isolation: "worktree"` and `run_in_background: true`. Claude Code then
+fires WorktreeCreate, and the hook answers with the ticket's existing
+worktree and binds the new agent id to it. Every later call the architect or
+its workers make carries that worktree as its `cwd`; the project hook routes
+it to the worktree's own harness, which judges it with the worktree as the
+project: its marker and owned paths, its policy, its guard log. SubagentStop
+records the architect's end. After `bounded lead reply`, the lead continues
+it with SendMessage, which the hook allows only to that architect and
+rewrites to carry exactly the prepared reply. Several architects run at once,
+one per worktree.
+
+Every generated role definition runs in `dontAsk` permission mode, so a call
+that needs permission runs only when the gate explicitly allows it. In a
+ticket worktree the gate allows in words exactly the calls it judged and
+permitted, and denies every tool it does not judge (MCP tools, WebFetch,
+Skill and the rest), apart from a subagent's report (`SubagentHandback`) and
+loading a deferred tool (`ToolSearch`). `start` and `reply` refuse when the
+lead's settings do not run the project hook on PreToolUse, WorktreeCreate and
+SubagentStop, when a role definition is not in `dontAsk`, or when a managed
+policy switches hooks off. Background tasks stay on; the hook keeps every
+worker commission in the foreground. A session opened directly in a ticket
+worktree is read-only. The user talks to an architect through the lead:
+Claude Code's agent view lists sessions, not subagents. The Claude Code
+[subagent documentation](https://code.claude.com/docs/en/sub-agents) describes nested
 agent and definition hook behavior.
 
 The lead hook admits the project-local command

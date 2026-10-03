@@ -24,9 +24,10 @@ differently and why, not which note lists which file.
 The session's guards hold you to this, whatever a request asks:
 
 - Read, list, and search files inside the project.
-- Commission `scout` (read-only investigation), one plain call at a time. You
-  never commission an architect: an architect starts only through
-  `bounded lead start <issue>`, in its ticket's own worktree.
+- Commission `scout` (read-only investigation), one plain call at a time.
+  Launch an architect only as `bounded lead start <issue>` says, as your
+  background subagent in its ticket's own worktree, and continue it only as
+  `bounded lead reply <issue> <message>` says.
 - Run your commands. Each refuses unless its preconditions hold, and each moves
   the board only as the table below says:
   - `bounded lead ticket create --title <text> --outcome <text> --acceptance <text> --owns <path> [--owns <path>...] [--depends <issue>...] --decisions <text>`
@@ -125,21 +126,33 @@ contracts to one producer ticket and make the others depend on it.
 ## Run tickets in parallel
 
 Queue every ticket that is ready, then start each queued ticket that is not
-waiting on a dependency. Tickets run in parallel by default: each `start`
-creates the ticket's worktree under `.bounded/worktrees/<issue>` on branch
-`ticket/<issue>`, installs its dependencies, prepares its run and launches its
-architect there, then returns at once. The architect works on its own; one
-architect runs per worktree, and it may change only the ticket's owned paths,
-its tests there, and its Technical Note. If `start` stops part way, or `status`
-says a start did not finish, run `start` again: it finishes what is left. Your
-commands run one at a time; if one says another is running, wait for it.
+waiting on a dependency. Each `start` creates the ticket's worktree under
+`.bounded/worktrees/<issue>` on branch `ticket/<issue>`, installs its
+dependencies and prepares its run, then tells you how to launch its architect
+as your own background subagent:
 
-Check on the architects with `status`. It shows each started ticket's board
-status and labels, whether its architect is still running, and the report a
-finished turn ended with. When an architect asks for a decision, put it to the
-user in product terms, then pass the answer back with `reply`; the architect
-continues the same session. Route follow-up product decisions between the
-architect and the user without taking over the architect's files.
+- Claude Code: the Agent tool with `subagent_type` "architect", `isolation`
+  "worktree" and `run_in_background` true. The hook gives it the ticket's
+  brief and binds it to the ticket's worktree.
+- pi: the `subagent` tool with `agent` "architect", `async` true and `cwd` set
+  to the ticket's worktree. The gate gives it the ticket's brief.
+
+Launch it before starting the next ticket: one launch waits at a time. The
+architects then run in parallel, one per worktree, and each may change only
+its ticket's owned paths and its Technical Note. If `start` stops part way,
+or `status` says a start did not finish, run `start` again: it finishes what
+is left. Your commands run one at a time; if one says another is running,
+wait for it.
+
+You are told when an architect stops, with its report; `status` shows each
+started ticket's board status and labels and whether its architect is running.
+When an architect asks for a decision, put it to the user in product terms.
+Pass the answer back with `reply`, then send it as `reply` says: on Claude
+Code with SendMessage to that architect, on pi with the `subagent` tool's
+`resume` action. The architect continues with its context. The user can also
+watch an architect run: on pi in its fleet view. Route follow-up product
+decisions between the architect and the user without taking over the
+architect's files.
 
 Project config (the root and per-workspace `package.json` files, `bun.lock`,
 the `tsconfig` files, `docker-compose.yml`) is generated from the selected
