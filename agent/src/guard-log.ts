@@ -48,12 +48,35 @@ export function guardLogPath(cwd: string): string {
   return join(cwd, GUARD_LOG_RELATIVE);
 }
 
+/**
+ * Text a host must never write to the log, rewritten before every line is
+ * written: a host adapter registers what its own host must keep out (ADR
+ * 2026-069). The core names nothing it redacts.
+ */
+export type GuardLogRedactor = (cwd: string, text: string) => string;
+const redactors: GuardLogRedactor[] = [];
+
+export function addGuardLogRedactor(redactor: GuardLogRedactor): void {
+  if (!redactors.includes(redactor)) redactors.push(redactor);
+}
+
+/** Every string in a value, passed through the registered redactors. */
+function redacted(cwd: string, value: unknown): unknown {
+  if (typeof value === "string") return redactors.reduce((text, redact) => redact(cwd, text), value);
+  if (Array.isArray(value)) return value.map((item) => redacted(cwd, item));
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redacted(cwd, item)]));
+  }
+  return value;
+}
+
 export function logGuardEvent(cwd: string, event: GuardEvent): void {
   if (process.env["BOUNDED_GUARD_LOG"] === "off") return;
   try {
     const path = guardLogPath(cwd);
     mkdirSync(dirname(path), { recursive: true });
-    const line: LoggedGuardEvent = { ts: new Date().toISOString(), ...event };
+    const clean = redactors.length === 0 ? event : (redacted(cwd, event) as GuardEvent);
+    const line: LoggedGuardEvent = { ts: new Date().toISOString(), ...clean };
     appendFileSync(path, JSON.stringify(line) + "\n");
   } catch {
     // Logging must never break a gate.

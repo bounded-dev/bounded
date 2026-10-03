@@ -63,7 +63,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logGuardEvent, readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
+import { addGuardLogRedactor, logGuardEvent, readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
 import { LEAD_GUARD, LEAD_SEAT, SCOUT_SEAT, WORKER_CONTINUING, WORKER_RESUMED, WORKER_SEND_FAILED } from "../../src/lead-state.ts";
 import { isMainModule } from "../../src/is-main-module.ts";
 import {
@@ -97,7 +97,7 @@ import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-ti
 import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
 import { BASH_TOOL, CLAUDE_SESSION_TOOLS, claudeTaskModel, mapToolCall, unplainAgentField } from "./tool-map.ts";
-import { foreignSpillRead, spillRead } from "./spill-read.ts";
+import { foreignSpillRead, redactSavedOutputs, spillRead } from "./spill-read.ts";
 import { resolveSessionRole } from "../../src/session-role.ts";
 import { projectReadAllowed } from "../../src/setup-state.ts";
 import { claudeProjectRead } from "./project-read.ts";
@@ -271,6 +271,32 @@ const CLAUDE_CODE_AMBIENT = declareHost("claude-code", ["path-gate", "phase-gate
  * lands in the right guard log.
  */
 export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: string): HookOutcome {
+  // No refusal, like no guard-log line, names a saved tool output outside
+  // the project (spill-read.ts, ADR 2026-069): every answer passes here.
+  const out = judgeCall(argv, rawStdin, fallbackCwd);
+  let cwd = fallbackCwd;
+  try {
+    const rec: unknown = JSON.parse(rawStdin);
+    if (isRecord(rec)) cwd = nonEmpty(rec["cwd"]) ?? fallbackCwd;
+  } catch {
+    // an unreadable payload: the fallback directory stands
+  }
+  return { ...out, stdout: redactReason(out.stdout, cwd), stderr: redactSavedOutputs(cwd, out.stderr) };
+}
+
+/** A deny answer with its reason redacted; any other answer as it is. */
+function redactReason(stdout: string, cwd: string): string {
+  if (!stdout.includes("/tool-results")) return stdout;
+  const parsed = JSON.parse(stdout) as { hookSpecificOutput?: Record<string, unknown> };
+  const output = parsed.hookSpecificOutput;
+  const reason = output?.["permissionDecisionReason"];
+  if (output === undefined || typeof reason !== "string") return stdout;
+  return JSON.stringify({ ...parsed, hookSpecificOutput: { ...output, permissionDecisionReason: redactSavedOutputs(cwd, reason) } }) + "\n";
+}
+
+addGuardLogRedactor(redactSavedOutputs);
+
+function judgeCall(argv: readonly string[], rawStdin: string, fallbackCwd: string): HookOutcome {
   const flags = parseFlags(argv);
   let cwd = fallbackCwd;
   let toolName: string | undefined;

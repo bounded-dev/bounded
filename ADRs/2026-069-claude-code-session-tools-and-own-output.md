@@ -33,14 +33,29 @@ saves a too-large tool result to, because that file is outside the project.
     `<persisted-output>` and then
     `Output too large (…). Full output saved to: <path>` for the requested
     path, and whose `tool_use_id` names an earlier `tool_use` in the same
-    transcript. A `Preview (first …):` line must follow, and the preview
-    must begin with the saved file's own first 1024 bytes (all of a shorter
-    file). A seat's own tool can print the header lines, but not another
-    seat's output it has never seen. A mere mention is not ownership.
-  - A role seat's call with no agent id is refused: its own transcript cannot
-    be told apart from the main one.
-  - No refusal or guard-log line names a saved output's file, so other seats
-    cannot learn those names.
+    transcript. A `Preview (first <n>KB):` line must follow, and the preview
+    must be exactly the whole preview Claude Code writes for that file. That
+    format was measured on 134 real saved outputs from one developer
+    machine, and all 134 pass the rule: the file's first n×1000 characters, with leading line breaks
+    dropped, cut back to the last line break when one falls in the second
+    half, then `\n...\n</persisted-output>`. For a shorter file it is the
+    whole file. So for a "first 2KB" preview, between 1000 and 2000
+    characters of the file are bound, every one of them. An empty file
+    proves nothing. A seat's own tool can print the header lines, but not
+    another seat's output it has never seen. A mere mention is not
+    ownership.
+  - A call with no agent id is judged against the main transcript only for
+    the session's top-level seat (the lead, or a read-only seat). A role
+    seat's call with no agent id is refused. That is a known limit: such a
+    role cannot re-read its own saved output, because its own transcript
+    cannot be told apart from the main one.
+  - No refusal or guard-log line names a saved output outside the project.
+    The guard log has one redaction socket that a host adapter fills
+    (`addGuardLogRedactor` in `src/guard-log.ts`). Claude Code's
+    `redactSavedOutputs` is registered there, and it is applied to every
+    answer of the path-gate hook. Any path with a `tool-results` directory
+    outside the project becomes "a saved tool output", in file tools,
+    searches and Bash commands alike. So other seats cannot learn the names.
   - Not "any file of the session": every subagent writes to one shared
     `tool-results/` directory, so that would let a blind test-writer read a
     parallel builder's output (2026-034's blindness).
@@ -63,7 +78,11 @@ saves a too-large tool result to, because that file is outside the project.
 ## Consequences
 
 A layout change in Claude Code turns these reads back into refusals, not into
-an opening. Ownership rests on a tool result's text prefix and the file's own
-first bytes, not on anything Claude Code signs: a seat that can predict another
-seat's output exactly could still claim it. Pi is unchanged: its scout reports through
+an opening. A change to the preview format does the same: genuine reads are
+refused until the rule is re-measured. Ownership rests on text Claude Code
+writes, not on anything it signs. The residual risk is a seat that can predict
+the whole preview of another seat's output, its first 1000 to 2000
+characters, exactly: for example a deterministic command run on the same
+tree. That seat could write a matching tool result into its own transcript
+through its own tool and claim the file. Pi is unchanged: its scout reports through
 `contact_supervisor`, and it has no saved-output directory.

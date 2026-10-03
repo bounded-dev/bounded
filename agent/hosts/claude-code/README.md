@@ -217,9 +217,12 @@ capabilities and still needs a live run before its behavior can be claimed.
   a `<persisted-output>` header on the tool result. Anything not recognised
   exactly is refused, so a layout change closes these reads rather than
   opening them. Ownership is proven by a tool result's header, matched to an
-  earlier call of the same agent, and a preview that reproduces the saved
-  file's first bytes, not by anything Claude Code signs. Refusals and the
-  guard log never name a saved output's file.
+  earlier call of the same agent, and a preview that must be exactly the
+  whole preview Claude Code writes for that file (its first 1000 to 2000
+  characters), not by anything Claude Code signs. A seat that could predict
+  that whole preview of another seat's output could still claim it. Refusals
+  and the guard log never name a saved output outside the project. A role
+  seat's call with no agent id cannot re-read its own saved output.
 - **Lexical paths, as in pi.** The gate normalises paths without resolving
   symlinks. No role can create one (no `ln`, no shell), so the surface is the
   same as pi's.
