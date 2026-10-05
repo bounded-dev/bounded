@@ -116,6 +116,17 @@ describe("an engine that answers a ping but nothing else (issue #52)", () => {
     expect(Date.now() - started).toBeLessThan(3_000);
   });
 
+  // Final review of #52, minor 5: an error answer is an answer, not a hang.
+  test("an engine that answers its version with an error is reported as such, not as not responding", async () => {
+    const dir = home();
+    await dockerApi(join(dir, "err.sock"), 200, { status: 500 });
+    const probe = probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/err.sock` }, home: dir, timeoutMs: 300 });
+    expect(probe.available).toBe(false);
+    const reason = (probe as { reason: string }).reason;
+    expect(reason).toMatch(/answered a request for its version with an error \(500\)/);
+    expect(reason).not.toMatch(/not responding/);
+  });
+
   test("the child's timeout covers both requests", async () => {
     const dir = home();
     await dockerApi(join(dir, "slow.sock"), 200, { pingDelayMs: 250, delayMs: 250 });

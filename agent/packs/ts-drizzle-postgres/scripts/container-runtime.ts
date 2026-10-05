@@ -96,6 +96,8 @@ export function candidateEndpoints(env: NodeJS.ProcessEnv, home: string): string
 
 /** Printed by the probe's child when the ping answered and the version did not. */
 const NOT_RESPONDING = "NOT_RESPONDING";
+/** Printed, with the status, when the version request was answered with an error. */
+const VERSION_ERROR = "VERSION_ERROR";
 
 // Runs in a child process so the probe can stay synchronous for the gates.
 // Exit 0 when the endpoint answers `GET /_ping` and then `GET /version` with
@@ -118,7 +120,10 @@ function ask(path, onFail, then) {
   request.on("error", (error) => onFail(error.code || error.message));
 }
 ask("/_ping", (why) => { console.log(why); process.exit(1); }, () =>
-  ask("/version", () => { console.log("${NOT_RESPONDING}"); process.exit(1); }, () => process.exit(0)));
+  ask("/version", (why) => {
+    console.log(why.startsWith("answered ") ? "${VERSION_ERROR} " + why.slice(9) : "${NOT_RESPONDING}");
+    process.exit(1);
+  }, () => process.exit(0)));
 `;
 
 export interface ProbeOptions {
@@ -137,6 +142,7 @@ export function probeContainerRuntime(options: ProbeOptions = {}): ContainerRunt
   }
   const failures: string[] = [];
   const hung: string[] = [];
+  const erring: string[] = [];
   for (const endpoint of endpoints) {
     if (!/^(unix|tcp|http):\/\//.test(endpoint)) {
       failures.push(`${endpoint}: unsupported endpoint scheme`);
@@ -150,12 +156,19 @@ export function probeContainerRuntime(options: ProbeOptions = {}): ContainerRunt
     if (run.status === 0) return { available: true, endpoint };
     const said = (run.stdout ?? "").trim();
     if (said === NOT_RESPONDING) hung.push(endpoint);
+    else if (said.startsWith(`${VERSION_ERROR} `)) erring.push(`(${said.slice(VERSION_ERROR.length + 1)}) at ${endpoint}`);
     else failures.push(`${endpoint}: ${said || (run.error?.message ?? `exit ${run.status}`)}`);
   }
   if (hung.length > 0) {
     return {
       available: false,
       reason: `the container engine is not responding: it answered a ping but not a request for its version within ${timeoutMs / 1000} s (${hung.join(", ")})`,
+    };
+  }
+  if (erring.length > 0) {
+    return {
+      available: false,
+      reason: `the container engine is failing: it answered a ping, but answered a request for its version with an error ${erring.join("; ")}`,
     };
   }
   return { available: false, reason: `no container runtime is answering (${failures.join("; ")})` };
@@ -216,8 +229,8 @@ export function storeTestDecision(
 /** What the user does about an engine that is not available, in product
  *  terms (ADR 2026-072): start it, or restart it when it answers but hangs. */
 export function engineRemedy(probe: Extract<ContainerRuntimeProbe, { available: false }>): string {
-  return /not responding/.test(probe.reason)
-    ? "The container engine is running but not answering: restart it"
+  return /not responding|is failing/.test(probe.reason)
+    ? "The container engine is running but not answering properly: restart it"
     : "The container engine (Docker, or another Docker-API engine) isn't running: start it";
 }
 
