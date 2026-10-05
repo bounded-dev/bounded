@@ -4,11 +4,16 @@
 // against a scripted child, the policy decision, and the green gate's
 // routing of both to the orchestrator. The real-container cases live in
 // store-integration.test.ts.
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterAll, describe, expect, test } from "vitest";
+import { setTimeout as realSleep } from "node:timers/promises";
+import { afterAll, afterEach, describe, expect, test, vi } from "vitest";
 import { logGuardEvent } from "../../src/guard-log.ts";
+import { commandsIn } from "../../test/fixtures/user-steps.ts";
+import type { CommandResult } from "./scripts/app-database.ts";
 import type { PreparedTestService } from "../ts/pack.ts";
 import { runGreenGate } from "../ts/scripts/green-gate.ts";
 import { cannedGateEnv, type CannedCase, withEnv } from "../ts/scripts/junit-fixture.test-support.ts";
@@ -20,7 +25,7 @@ import { runScaffold } from "../ts/scripts/scaffold-project.ts";
 import { storeTestPhaseDecision } from "./scripts/container-runtime.ts";
 import { POSTGRES_IMAGE } from "./scripts/emit.ts";
 import {
-  preflightAllStoreTests, preflightTargets, SWEEP_GRACE_MS,
+  preflightAllStoreTests, preflightTargets, SWEEP_GRACE_MS, preflightChild, type ChildResult, type InfrastructureKind,
   classifyPreflightFailure, cleanCause, type ClassifyContext, type PreflightDeps, preflightRefusal, preflightTestcontainers,
   readDockerConfig, recogniseInfrastructure, storeTestInfrastructureFailure,
 } from "./scripts/testcontainers-preflight.ts";
@@ -371,6 +376,193 @@ describe("preflightTestcontainers (no Docker needed)", () => {
   test("an exit 0 without the last stage is not a pass", async () => {
     const { deps } = scriptedChild(['{"done":"runtime"}', '{"done":"pull"}'], 0);
     await expect(preflightTestcontainers("/p", "x.store.test.ts", "", deps)).rejects.toThrow(/could not start/);
+  });
+});
+
+// --- issue #52: no preparation outlives the host's call ------------------------
+//
+// A hung engine answered the probe's ping and then stalled every later stage:
+// over half an hour of silent waiting inside one host command. Each stage now
+// runs on a clock that fits what is left of the call, the pull's clock is a
+// stall clock re-armed by each line of Testcontainers' own pull progress, and
+// a stage whose minimum no longer fits is refused before it starts.
+
+/** A child runner (runChild's shape) playing `steps` on the (fake) clock:
+ *  each line at its time after the spawn, then an exit 0 at `exitAt`. A kill
+ *  records when it happened and ends the child with no status. */
+function timedRunner(steps: readonly { readonly at: number; readonly line: string }[], exitAt = Number.MAX_SAFE_INTEGER) {
+  let spawned!: () => void;
+  const ready = new Promise<void>((resolve) => { spawned = resolve; });
+  const seen: { killedAt?: number } = {};
+  const runner = (_command: string, _args: readonly string[], options: { onSpawn?: (child: ChildProcess) => void }): Promise<CommandResult> =>
+    new Promise((resolve) => {
+      const stdout = new EventEmitter();
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      const finish = (status: number | null): void => {
+        for (const timer of timers) clearTimeout(timer);
+        resolve({ status, stdout: "", stderr: "" });
+      };
+      options.onSpawn?.({ stdout, kill: () => { seen.killedAt = Date.now(); finish(null); return true; } } as unknown as ChildProcess);
+      for (const step of steps) timers.push(setTimeout(() => stdout.emit("data", Buffer.from(`${step.line}\n`)), step.at));
+      if (exitAt < Number.MAX_SAFE_INTEGER) timers.push(setTimeout(() => finish(0), exitAt));
+      spawned();
+    });
+  return { runner, ready, seen };
+}
+
+/** The preflight's deps with the real preflightChild over a timed runner, on
+ *  the fake clock. */
+function onFakeClock(steps: readonly { readonly at: number; readonly line: string }[], exitAt?: number) {
+  const timed = timedRunner(steps, exitAt);
+  const results: ChildResult[] = [];
+  const deps: PreflightDeps = {
+    ...scriptedChild([], 0).deps,
+    now: () => Date.now(),
+    sleep: async () => {},
+    child: async (env, cwd, onLine, timeoutFor) => {
+      const result = await preflightChild(env, cwd, onLine, timeoutFor, timed.runner);
+      results.push(result);
+      return result;
+    },
+  };
+  return { deps, results, ...timed };
+}
+
+/** Wait (on the real clock) for the injected runner to be spawned. */
+async function spawnedWithin(ready: Promise<void>, ms = 10_000): Promise<void> {
+  const timedOut = realSleep(ms).then(() => { throw new Error("the preflight never spawned its child through the injected runner"); });
+  await Promise.race([ready, timedOut]);
+}
+
+const PROGRESS = '{"progress":"pull"}';
+
+describe("the preflight's stage clocks (issue #52)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  test("preflightChild re-arms the pull clock on each progress line", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const steady = [{ at: 1_000, line: '{"done":"runtime"}' }];
+    for (let at = 31_000; at <= 181_000; at += 30_000) steady.push({ at, line: PROGRESS });
+    steady.push({ at: 190_000, line: '{"done":"pull"}' }, { at: 195_000, line: '{"done":"start"}' });
+    const ok = onFakeClock(steady, 196_000);
+    const service = preflightTestcontainers("/p", "x.store.test.ts", "", ok.deps);
+    service.catch(() => {});
+    await spawnedWithin(ok.ready);
+    await vi.advanceTimersByTimeAsync(200_000);
+    await expect(service).resolves.toMatchObject({ env: {} });
+    expect(ok.results).toHaveLength(1);
+    expect(ok.results[0]!.timedOut).toBe(false);
+
+    // No progress after the runtime: the pull's stall clock runs out at 60 s.
+    const stalled = onFakeClock([{ at: 1_000, line: '{"done":"runtime"}' }]);
+    const started = Date.now();
+    const refused = preflightTestcontainers("/p", "x.store.test.ts", "", stalled.deps);
+    refused.catch(() => {});
+    await spawnedWithin(stalled.ready);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await expect(refused).rejects.toThrow(/did not finish in time/);
+    expect(stalled.results[0]?.timedOut).toBe(true);
+    expect(stalled.seen.killedAt! - started).toBeGreaterThanOrEqual(60_000);
+    expect(stalled.seen.killedAt! - started).toBeLessThanOrEqual(62_000);
+  });
+
+  test("without a deadline a slow, steady pull is still bounded", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const forever = [{ at: 1_000, line: '{"done":"runtime"}' }];
+    for (let at = 31_000; at <= 2_500_000; at += 30_000) forever.push({ at, line: PROGRESS });
+    const slow = onFakeClock(forever);
+    const started = Date.now();
+    const refused = preflightTestcontainers("/p", "x.store.test.ts", "", { ...slow.deps, env: { PATH: "/usr/bin" } });
+    refused.catch(() => {});
+    await spawnedWithin(slow.ready);
+    for (let i = 0; i < 70 && slow.seen.killedAt === undefined; i++) await vi.advanceTimersByTimeAsync(30_000);
+    expect(slow.seen.killedAt).toBeDefined();
+    const pullRan = slow.seen.killedAt! - started - 1_000;
+    expect(pullRan).toBeGreaterThanOrEqual(1_800_000);
+    expect(pullRan).toBeLessThanOrEqual(1_830_000);
+    await expect(refused).rejects.toThrow(/did not finish in time/);
+  });
+
+  test("every stage clock fits the call's remaining budget", async () => {
+    let now = 0;
+    const seen: [number, number][] = [];
+    const deps: PreflightDeps = {
+      ...scriptedChild([], 0).deps,
+      now: () => now,
+      deadlineMs: 120_000,
+      child: async (_env, _cwd, onLine, timeoutFor) => {
+        seen.push([now, timeoutFor()]);
+        for (const line of DONE) {
+          now += 5_000;
+          onLine(line);
+          seen.push([now, timeoutFor()]);
+        }
+        return { status: 0, stdout: "", stderr: "", timedOut: false };
+      },
+    };
+    await preflightTestcontainers("/p", "x.store.test.ts", "", deps);
+    expect(seen.length).toBeGreaterThanOrEqual(4);
+    for (const [elapsed, budget] of seen) {
+      expect(budget, `at ${elapsed} ms`).toBeGreaterThan(0);
+      expect(budget, `at ${elapsed} ms`).toBeLessThanOrEqual(102_000 - elapsed);
+    }
+  });
+
+  test("a stage whose minimum no longer fits is refused before it starts", async () => {
+    let spawned = 0;
+    const deps: PreflightDeps = {
+      ...scriptedChild(DONE, 0).deps,
+      now: () => 95_000,
+      deadlineMs: 120_000,
+      child: async () => { spawned++; return { status: 0, stdout: "", stderr: "", timedOut: false }; },
+    };
+    await expect(preflightTestcontainers("/p", "x.store.test.ts", "", deps)).rejects.toThrow(/call the gate again with a longer command timeout/);
+    expect(spawned).toBe(0);
+  });
+});
+
+describe("the preflight's remedies are the user's, in product terms (issue #52)", () => {
+  test("a credential-helper failure during Testcontainers' own pull is still classified", async () => {
+    const { deps } = scriptedChild(['{"done":"runtime"}', JSON.stringify({
+      failed: "pull",
+      error: 'error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``',
+    })], 1);
+    mkdirSync(join(deps.home, ".docker"));
+    writeFileSync(join(deps.home, ".docker", "config.json"), JSON.stringify({ credsStore: "osxkeychain" }));
+    let error: unknown;
+    try {
+      await preflightTestcontainers("/p", "x.store.test.ts", "", { ...deps, env: { PATH: "/usr/bin" } });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toMatch(/registry login helper that isn't installed/);
+    expect(message).not.toContain("docker pull");
+    expect(commandsIn(`the user: ${message}`)).toEqual([]);
+    expect(error).toMatchObject({ route: "user" });
+  });
+
+  test("every remedy is in product terms with no docker command", () => {
+    const cases: readonly [string, "runtime" | "pull" | "start", boolean][] = [
+      ["Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT", "pull", false],
+      ["Error: Could not find a working container runtime strategy", "runtime", false],
+      ["connect ECONNREFUSED /var/run/docker.sock", "runtime", false],
+      ["Error: Failed to connect to Reaper", "start", false],
+      ["toomanyrequests: You have reached your pull rate limit", "pull", false],
+      ["", "pull", true],
+      ["", "start", true],
+      ["Error: (HTTP code 409) conflict", "start", false],
+    ];
+    const kinds = new Set<InfrastructureKind>();
+    for (const [text, stage, timedOut] of cases) {
+      const found = classifyPreflightFailure(text, stage, timedOut, CONTEXT);
+      kinds.add(found.kind);
+      expect(commandsIn(`the user: ${found.remedy}`), found.kind).toEqual([]);
+      expect(found.remedy, found.kind).not.toMatch(/\bdocker\s/i);
+      expect(found.remedy, found.kind).not.toMatch(/DOCKER_HOST|TESTCONTAINERS_|\.testcontainers\.properties/);
+    }
+    expect([...kinds].sort()).toEqual(["credential-helper", "no-runtime", "other", "pull", "reaper", "socket", "timeout"]);
   });
 });
 

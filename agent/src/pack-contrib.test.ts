@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import {
   contractGlobs, contractGlobsFor, contractGlobsOrUnreadable, pathLayoutFor, pathLayoutOrUnreadable,
   fileNameGlobs, generatedFileGlobs, generatedFileGlobsFor, generatedFileGlobsOrUnreadable, hasTestFileSuffix,
-  mergedContribution, pathGlobMatcher, projectCommandNames, projectConfigSources, projectDependencyDirs,
+  mergedContribution, pathGlobMatcher, projectCommandNames, projectConfigSources, projectConfigSyncCommand, projectDependencyDirs,
   projectIgnoreRules, sourceRootOf, sourceRoots, sourceRootsFor, sourceRootsOrUnreadable, specTechNouns,
   testFileSuffixes, testFileSuffixesFor, testFileSuffixesOrUnreadable,
 } from "./pack-contrib.ts";
@@ -135,6 +135,26 @@ describe("launcher commands and protected names come from the selected packs", (
     expect(projectCommandNames(["d"], ["gates"], dir)).toEqual([]);
     expect(() => projectCommandNames(["b"], ["gates"], dir)).toThrow(/no core subcommand/);
     expect(() => projectCommandNames(["a", "c"], [], dir)).toThrow(/unique/);
+  });
+  // Issue #52 (ADR 2026-072): the lead restores generated config in a ticket's
+  // worktree through the one project command a composed pack names for it.
+  test("projectConfigSyncCommand is a declared data socket", () => {
+    expect(projectConfigSyncCommand(["ts"])).toEqual({ pack: "ts", command: "sync-config" });
+    expect(projectCommandNames(["ts"], [])).toContain("sync-config");
+    const dir = packsDir({
+      one: '{"projectConfigSyncCommand":"restore","projectCommands":{"restore":"r.ts"}}',
+      two: '{"projectConfigSyncCommand":"again","projectCommands":{"again":"a.ts"}}',
+      none: '{"projectCommands":{"other":"o.ts"}}',
+      number: '{"projectConfigSyncCommand":3,"projectCommands":{"restore":"r.ts"}}',
+      empty: '{"projectConfigSyncCommand":"","projectCommands":{"restore":"r.ts"}}',
+      dangling: '{"projectConfigSyncCommand":"missing","projectCommands":{"restore":"r.ts"}}',
+    });
+    expect(projectConfigSyncCommand(["one", "none"], dir)).toEqual({ pack: "one", command: "restore" });
+    expect(() => projectConfigSyncCommand(["none"], dir)).toThrow(/no composed capability restores project config/);
+    expect(() => projectConfigSyncCommand(["one", "two"], dir)).toThrow(/more than one/);
+    for (const bad of ["number", "empty", "dangling"]) {
+      expect(() => projectConfigSyncCommand([bad], dir), bad).toThrow(new RegExp(`'${bad}'`));
+    }
   });
   test("dependency directory names are literal and config names are file-name globs", () => {
     const dir = packsDir({ ok: '{"projectDependencyDirs":["deps"],"names":["x*.json"]}', glob: '{"projectDependencyDirs":["dep*"]}', path: '{"names":["a/b"]}' });

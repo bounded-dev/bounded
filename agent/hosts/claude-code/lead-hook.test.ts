@@ -99,6 +99,14 @@ describe("lead Bash: only its commands, rewritten onto the project's harness", (
       expect(readGuardLog(dir).at(-1)).toMatchObject({ guard: "team-lead", verdict: "block" });
     });
 
+  // Issue #52: restoring a ticket's generated config is the lead's command,
+  // run once the user agrees, through the one parser.
+  test("`bounded lead sync-config 3` is admitted", () => {
+    const r = hook(project(), "Bash", { command: "bounded lead sync-config 3", description: "d" });
+    expect(r).toEqual({ decision: "rewrite", input: { command: q(CLI, "lead", "sync-config", "3"), description: "d" } });
+    expect(hook(project(), "Bash", { command: "bounded lead sync-config" }).decision).toBe("deny");
+  });
+
   test("before the first ticket the lead may re-plan with the user's own bounded init, unrewritten", () => {
     const dir = project();
     for (const command of [
@@ -410,6 +418,14 @@ describe("the lead's architect launch and reply (ADR 2026-066)", () => {
   test("the escape hatch is the user's: the lead's bounded lead release is refused", () => {
     const { main } = setup();
     expect(hook(main, "Bash", { command: "bounded lead release 7 --force" }).reason).toContain("the user's own escape hatch");
+  });
+
+  // Issue #52: the one command reserved for the user says why it is theirs.
+  test("the release refusal says why", () => {
+    const { main } = setup();
+    const reason = hook(main, "Bash", { command: "bounded lead release 7" }).reason ?? "";
+    expect(reason).toContain("bounded lead release");
+    expect(reason).toMatch(/cannot prove|cannot tell/);
   });
 
   // Regression (final review M2): a claim that never bound wedged the launch.

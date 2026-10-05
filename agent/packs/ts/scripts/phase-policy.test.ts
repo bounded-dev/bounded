@@ -37,6 +37,17 @@ describe("combining the composed phase test policies", () => {
     expect(skipAtGreen.refusals).toEqual([`store asked to skip tests at green: ${SKIP.reason}`]);
     expect(skipAtGreen.env.set).toEqual({});
   });
+
+  // Issue #52: a refusal only the user can clear (the container engine) says
+  // so; one refusal without the route keeps the gate's own route.
+  test("refusalRoute is user only when every refusal carries it", () => {
+    const userRefusal = { name: "engine", decision: { action: "refuse", reason: "the container engine isn't running: start it", unsetEnv: [], route: "user" } as PhaseTestDecision };
+    const plainRefusal = { name: "other", decision: { action: "refuse", reason: "a policy could not decide", unsetEnv: [] } as PhaseTestDecision };
+    expect(combineDecisions("green", [userRefusal]).refusalRoute).toBe("user");
+    expect(combineDecisions("green", [userRefusal, plainRefusal]).refusalRoute).toBeUndefined();
+    expect(combineDecisions("green", [plainRefusal]).refusalRoute).toBeUndefined();
+    expect(combineDecisions("green", []).refusalRoute).toBeUndefined();
+  });
 });
 
 describe("the store-test policy (ts-drizzle-postgres, ADR 2026-064)", () => {

@@ -438,6 +438,26 @@ describe("runDeliver: the project's own check runs under the green policies", ()
     expect(text(r.lines)).toMatch(/cannot run here: green needs a container runtime … Start Docker/);
     expect(bun.calls.some((c) => c.args[0] === "run")).toBe(false);
   });
+
+  // Issue #52: what only the user can clear (the container engine) is routed
+  // to the user, in the board's own wording, never to a role.
+  test("a policy refusal routed to the user prints the board's user wording", async () => {
+    const dir = proj();
+    const bun = fakeBun();
+    const r = await runDeliver(dir, {
+      surfaceCheckSource: surfaceStub(), run: bun.run,
+      policy: {
+        refusals: ["the container engine is not responding: restart it"], refusalRoute: "user",
+        env: { set: {}, unset: [] }, prepares: [],
+      },
+    });
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain("deliver: route → user");
+    expect(r.lines).not.toContain("deliver: route → orchestrator");
+    expect(bun.calls.some((c) => c.args[0] === "run")).toBe(false);
+    const blocked = readGuardLog(dir).filter((e) => e.guard === "deliver" && e.verdict === "block").at(-1);
+    expect(blocked?.detail).toMatchObject({ step: "check", route: "user" });
+  });
 });
 
 // --- misuse and config ---------------------------------------------------------------------

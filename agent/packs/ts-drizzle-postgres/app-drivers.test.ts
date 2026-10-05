@@ -138,6 +138,21 @@ describe("every app gets the Postgres driver its runtime needs", () => {
     }
   });
 
+  // Issue #52: every app's smoke test starts its own migrated Postgres
+  // through the generated app-test-database support, so the project's own
+  // check needs only a container engine. The app workspace pins what that
+  // support imports, for both runtimes.
+  test("apps of a persisting project pin what the support imports, for both runtimes", () => {
+    const tc = DRIZZLE.devDependencies["@testcontainers/postgresql"]!;
+    const testcontainers = DRIZZLE.devDependencies["testcontainers"]!;
+    for (const app of ["apps/web", "apps/mcp", "apps/lambdas", "apps/desktop"]) {
+      expect(deps(app, "devDependencies"), app).toMatchObject({ "@testcontainers/postgresql": tc, testcontainers });
+    }
+    for (const app of ["apps/web", "apps/mcp"]) {
+      expect(deps(app, "devDependencies"), app).toMatchObject({ pg: DRIZZLE.dependencies["pg"]!, "@types/pg": DRIZZLE.devDependencies["@types/pg"]! });
+    }
+  });
+
   test.skipIf(!HAS_BUN)("a composition root per app kind type-checks after a real install; an undeclared driver does not", { timeout: 600_000 }, () => {
     const files = new Map<string, string>();
     for (const [dir, manifest] of generated.manifests) files.set(manifestPath(dir), serializeManifest(manifest as Manifest));
