@@ -111,13 +111,57 @@ describe("appDatabaseProblem", () => {
   // bun:test, the generated support and the composition root (types from
   // anywhere), and a compose name appears only inside a test or a hook
   // callback, or a function declaration only those call directly.
+  // Third review of #52: only relative and workspace imports can reach the
+  // app's own code; third-party packages (an MCP client) are fine.
+  test("an MCP smoke test importing the SDK has no problem", () => {
+    const mcp = lines(
+      'import { expect, test } from "bun:test";',
+      'import { Client } from "@modelcontextprotocol/sdk/client/index.js";',
+      'import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";',
+      'import { useAppDatabase } from "./app-test-database.test-support.ts";',
+      'import { composeApp } from "./composition-root.ts";',
+      "",
+      "useAppDatabase();",
+      "",
+      'test("the MCP server lists its tools", async () => {',
+      "  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();",
+      "  await composeApp().connect(serverSide);",
+      '  const client = new Client({ name: "smoke", version: "1.0.0" });',
+      "  await client.connect(clientSide);",
+      "  expect((await client.listTools()).tools.length).toBeGreaterThan(0);",
+      "});",
+    );
+    expect(appDatabaseProblem("apps/mcp/src/composition-root.test.ts", mcp, "@demo")).toBeUndefined();
+    for (const reach of ['import { notes } from "@demo/notebook/application";', 'import "../server/main.ts";']) {
+      const source = mcp.replace('import { composeApp } from "./composition-root.ts";', `import { composeApp } from "./composition-root.ts";\n${reach}`);
+      expect(appDatabaseProblem("apps/mcp/src/composition-root.test.ts", source, "@demo"), reach).toMatch(/imports only/);
+    }
+  });
+
+  test("an alias, a namespace or a default import of the composition root is a compose name", () => {
+    const aliased = appDatabaseProblem(PATH, lines('import { expect, test } from "bun:test";',
+      'import { useAppDatabase } from "./app-test-database.test-support.ts";', 'import { composeWeb as make } from "./composition-root.ts";', "",
+      "useAppDatabase();", "const app = make();", 'test("x", () => { expect(app).toBeDefined(); });'));
+    expect(aliased).toContain("make");
+    for (const use of ["const app = root.composeWeb();", 'const app = root["composeWeb"]();', "const { composeWeb: build } = root;"]) {
+      const problem = appDatabaseProblem(PATH, lines('import { expect, test } from "bun:test";',
+        'import { useAppDatabase } from "./app-test-database.test-support.ts";', 'import * as root from "./composition-root.ts";', "",
+        "useAppDatabase();", use, 'test("x", () => { expect(1).toBe(1); });'));
+      expect(problem, use).toContain("root");
+    }
+    const byDefault = appDatabaseProblem(PATH, lines('import { expect, test } from "bun:test";',
+      'import { useAppDatabase } from "./app-test-database.test-support.ts";', 'import build from "./composition-root.ts";', "",
+      "useAppDatabase();", "const app = build();", 'test("x", () => { expect(app).toBeDefined(); });'));
+    expect(byDefault).toContain("build");
+  });
+
   test("imports with side effects, or from anywhere else, are a problem", () => {
     for (const extra of [
       'import "./setup.ts";',
       'import { helper } from "./helpers.ts";',
-      'import * as fs from "node:fs";',
+      'import { notes } from "@demo/notebook/application";',
     ]) {
-      const problem = appDatabaseProblem(PATH, lines(...IMPORTS, extra, "", "useAppDatabase();", "", ...TEST));
+      const problem = appDatabaseProblem(PATH, lines(...IMPORTS, extra, "", "useAppDatabase();", "", ...TEST), "@demo");
       expect(problem, extra).toMatch(/imports only/);
     }
     const typesOnly = appDatabaseProblem(PATH, lines(...IMPORTS, 'import type { Note } from "@demo/notebook/domain";', "",

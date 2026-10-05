@@ -145,8 +145,9 @@ name and by call site; a missing one blocks the red and names itself.
   then compose the app **only inside a test or a hook** (`beforeAll`,
   `beforeEach`) registered after it, or a function declaration only those
   call directly: never at module scope, in a `describe` body, in an arrow
-  bound to a name, or passed around. Import only `bun:test`, the support and
-  `./composition-root.ts` (types from anywhere). Green and
+  bound to a name, or passed around. Of the app's own code, import only the
+  support and `./composition-root.ts` (no other relative or workspace
+  import); third-party packages such as an MCP client, and types, are fine. Green and
   deliver check both before anything runs (ADR 2026-072). The smoke test
   reaches the database, whose `DATABASE_URL` the support sets,
   **through the composition root**: never set, read or

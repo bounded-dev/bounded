@@ -9,10 +9,13 @@
 //     `./app-test-database.test-support.ts`, so its hook is registered before
 //     any other. A call in dead code, in a function nobody calls, behind a
 //     short-circuit or inside a test is not one;
-//   · value imports (and side-effect, dynamic or required ones) only of
-//     bun:test, the generated support and the composition root; types from
-//     anywhere;
-//   · a `compose…` name only inside a callback passed to `test`/`it` or a
+//   · no value import (side-effect, dynamic or required ones included) that
+//     could reach the app's own code (a relative path or a workspace of the
+//     project) other than the generated support and the composition root;
+//     third-party packages, and types from anywhere, are fine;
+//   · a compose name (any `compose…`, and every local name bound to a value
+//     from the composition root: aliases, default and namespace imports)
+//     only inside a callback passed to `test`/`it` or a
 //     hook (registered after the support's, which comes first), or inside a
 //     top-level function declaration whose every reference is a direct call
 //     from such a place. Structural, so no call form (`.call`, `map(make)`,
@@ -70,14 +73,20 @@ function calleeRoot(callee: ts.Expression): string | undefined {
   return ts.isIdentifier(at) ? at.text : undefined;
 }
 
-/** What a smoke test may import with a value: the test runner, the generated
- *  support and its app's composition root. Types may come from anywhere. */
-const ALLOWED_MODULES = [/^bun:test$/, SUPPORT, /^\.\/composition-root(?:\.[cm]?[jt]s)?$/];
-const ALLOWED_IMPORTS = "a smoke test imports only bun:test, ./app-test-database.test-support.ts and ./composition-root.ts (types from anywhere)";
+const COMPOSITION_ROOT = /^\.\/composition-root(?:\.[cm]?[jt]s)?$/;
+const ALLOWED_IMPORTS = "of the app's own code, a smoke test imports only ./app-test-database.test-support.ts and " +
+  "./composition-root.ts (third-party packages, and types from anywhere, are fine)";
 
-/** The first module imported with a value (or for its side effects) that a
- *  smoke test may not import, including a dynamic import or require. */
-function disallowedImport(file: ts.SourceFile): string | undefined {
+/** Can an import reach the app's own code: a relative path, or one of the
+ *  project's workspaces (`<scope>/…`)? Third-party packages cannot. */
+const reachesTheApp = (spec: string, scope: string | undefined): boolean =>
+  spec.startsWith(".") || spec.startsWith("/") || (scope !== undefined && scope !== "" && (spec === scope || spec.startsWith(`${scope}/`)));
+
+/** The first module imported with a value (or for its side effects), or
+ *  dynamically, or required, that could reach the app's own code other than
+ *  through the generated support and the composition root. */
+function disallowedImport(file: ts.SourceFile, scope: string | undefined): string | undefined {
+  const allowed = (spec: string): boolean => !reachesTheApp(spec, scope) || SUPPORT.test(spec) || COMPOSITION_ROOT.test(spec);
   for (const statement of file.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const clause = statement.importClause;
@@ -85,7 +94,7 @@ function disallowedImport(file: ts.SourceFile): string | undefined {
       (clause.name === undefined && clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings) &&
         clause.namedBindings.elements.length > 0 && clause.namedBindings.elements.every((e) => e.isTypeOnly)));
     const spec = statement.moduleSpecifier.text;
-    if (!typesOnly && !ALLOWED_MODULES.some((allowed) => allowed.test(spec))) return spec;
+    if (!typesOnly && !allowed(spec)) return spec;
   }
   let found: string | undefined;
   const visit = (node: ts.Node): void => {
@@ -93,7 +102,8 @@ function disallowedImport(file: ts.SourceFile): string | undefined {
     if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         (ts.isIdentifier(node.expression) && node.expression.text === "require"))) {
       const arg = node.arguments[0];
-      found = arg !== undefined && ts.isStringLiteralLike(arg) ? arg.text : "a computed module";
+      if (arg === undefined || !ts.isStringLiteralLike(arg)) found = "a computed module";
+      else if (!allowed(arg.text)) found = arg.text;
     }
     ts.forEachChild(node, visit);
   };
@@ -128,7 +138,26 @@ const inTypePosition = (node: ts.Node): boolean => insideAny(node, (at) => ts.is
  * declaration whose every reference is a direct call from such a place.
  * Types (`ReturnType<typeof composeApp>`) do not count.
  */
+/** Every local name bound to a value from the composition root: named
+ *  (aliases included), default and namespace imports. */
+function compositionRootNames(file: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!COMPOSITION_ROOT.test(statement.moduleSpecifier.text)) continue;
+    const clause = statement.importClause;
+    if (clause === undefined || clause.isTypeOnly) continue;
+    if (clause.name !== undefined) names.add(clause.name.text);
+    const bindings = clause.namedBindings;
+    if (bindings === undefined) continue;
+    if (ts.isNamespaceImport(bindings)) names.add(bindings.name.text);
+    else for (const element of bindings.elements) if (!element.isTypeOnly) names.add(element.name.text);
+  }
+  return names;
+}
+
 function composeOutsideTests(file: ts.SourceFile): string | undefined {
+  const rootNames = compositionRootNames(file);
   const declarations = new Map<string, ts.FunctionDeclaration>();
   for (const statement of file.statements) {
     if (ts.isFunctionDeclaration(statement) && statement.name !== undefined && statement.body !== undefined) {
@@ -141,7 +170,7 @@ function composeOutsideTests(file: ts.SourceFile): string | undefined {
     if (ts.isImportDeclaration(node)) return;
     if (ts.isIdentifier(node)) {
       if (declarations.has(node.text) && !(ts.isFunctionDeclaration(node.parent) && node.parent.name === node)) references.push(node);
-      if (COMPOSE.test(node.text) && !inTypePosition(node)) composeNames.push(node);
+      if ((COMPOSE.test(node.text) || rootNames.has(node.text)) && !inTypePosition(node)) composeNames.push(node);
     }
     ts.forEachChild(node, visit);
   };
@@ -167,7 +196,7 @@ function composeOutsideTests(file: ts.SourceFile): string | undefined {
 
 /** Undefined when the smoke test starts its own database before it composes;
  *  otherwise the gap's wording. Pure. */
-export function appDatabaseProblem(path: string, source: string): string | undefined {
+export function appDatabaseProblem(path: string, source: string, scope?: string): string | undefined {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const local = supportBinding(file);
   if (local === undefined) {
@@ -180,7 +209,7 @@ export function appDatabaseProblem(path: string, source: string): string | undef
     return `${path} must call ${USE_APP_DATABASE}() as its first statement after the imports, so its database starts before ` +
       "anything else the file registers can compose the app";
   }
-  const imported = disallowedImport(file);
+  const imported = disallowedImport(file, scope);
   if (imported !== undefined) return `${path} imports ${imported}; ${ALLOWED_IMPORTS}`;
   const composed = composeOutsideTests(file);
   if (composed !== undefined) {
@@ -200,7 +229,7 @@ function appDatabaseGaps(input: ObligationInput): ObligationGap[] {
     const smoke = `${posix.dirname(`${app.dir}/${root}`)}/${SMOKE_TEST}`;
     const test = input.tests.find((t) => t.path === smoke);
     if (test === undefined) continue; // ts-hexagonal names a missing smoke test
-    const problem = appDatabaseProblem(smoke, test.source);
+    const problem = appDatabaseProblem(smoke, test.source, input.facts.scope);
     if (problem !== undefined) gaps.push({ level: "app", path: smoke, message: problem });
   }
   return gaps;
