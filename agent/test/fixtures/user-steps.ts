@@ -21,6 +21,12 @@
 //
 // A command that starts with one of the harness's reserved recovery commands
 // is allowed: those are the user's by design, and the harness says why.
+//
+// What it does NOT catch, by design of a heuristic: a tool it does not know
+// named in plain text (`make test`, `pnpm build` unbackticked), a path to a
+// program of a single token (`./run` with nothing after it, or a bare
+// `scripts/x.ts`), and a pronoun pointing back at the user from more than one
+// sentence away. The reviewers read briefs and refusals for those.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
