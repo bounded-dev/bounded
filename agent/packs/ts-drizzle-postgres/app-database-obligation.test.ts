@@ -99,9 +99,51 @@ describe("appDatabaseProblem", () => {
     const passed = appDatabaseProblem(PATH, lines(...IMPORTS, 'import { describe } from "bun:test";', "", "useAppDatabase();",
       "function body() { const app = composeWeb(); test(\"x\", () => { expect(app).toBeDefined(); }); }", 'describe("web", body);'));
     expect(passed).toContain("composeWeb");
-    // A helper only tests call stays fine.
-    expect(appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();", "const make = () => composeWeb();",
+    // A function declaration only tests call stays fine; an arrow bound to a
+    // name is a value that can travel, so it is refused (re-review of #52).
+    expect(appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();", "function make() { return composeWeb(); }",
       'test("x", () => { expect(make()).toBeDefined(); });'))).toBeUndefined();
+    expect(appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();", "const make = () => composeWeb();",
+      'test("x", () => { expect(make()).toBeDefined(); });'))).toContain("composeWeb");
+  });
+
+  // Re-review of #52: the check is structural. A smoke test imports only
+  // bun:test, the generated support and the composition root (types from
+  // anywhere), and a compose name appears only inside a test or a hook
+  // callback, or a function declaration only those call directly.
+  test("imports with side effects, or from anywhere else, are a problem", () => {
+    for (const extra of [
+      'import "./setup.ts";',
+      'import { helper } from "./helpers.ts";',
+      'import * as fs from "node:fs";',
+    ]) {
+      const problem = appDatabaseProblem(PATH, lines(...IMPORTS, extra, "", "useAppDatabase();", "", ...TEST));
+      expect(problem, extra).toMatch(/imports only/);
+    }
+    const typesOnly = appDatabaseProblem(PATH, lines(...IMPORTS, 'import type { Note } from "@demo/notebook/domain";', "",
+      "useAppDatabase();", "", "let last: Note | undefined;", ...TEST));
+    expect(typesOnly).toBeUndefined();
+    const dynamic = appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();", 'await import("./setup.ts");', "", ...TEST));
+    expect(dynamic).toMatch(/imports only/);
+  });
+
+  test("a compose name outside a test or a hook callback is a problem, however it is called", () => {
+    for (const evasion of [
+      "const app = composeWeb.call(undefined);",
+      "const apps = [1].map(composeWeb);",
+      "const app = Promise.resolve().then(() => composeWeb());",
+      "const make = composeWeb;",
+      "function make() { return composeWeb(); }\nconst apps = [1].map(make);",
+      "function make() { return composeWeb(); }\nconst app = make.call(undefined);",
+      'function make() { return composeWeb(); }\ntest("x", () => { expect([1].map(make)).toHaveLength(1); });',
+    ]) {
+      const problem = appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();", evasion, "", ...TEST));
+      expect(problem, evasion).toContain("composeWeb");
+    }
+    // Inside a hook registered after it, or nested inside a test, it is fine.
+    expect(appDatabaseProblem(PATH, lines(...IMPORTS, 'import { beforeEach } from "bun:test";', "", "useAppDatabase();",
+      "let app: ReturnType<typeof composeWeb>;", "beforeEach(() => { app = composeWeb(); });",
+      'test("x", async () => { await Promise.resolve().then(() => composeWeb()); expect(app).toBeDefined(); });'))).toBeUndefined();
   });
 
   test("compose at module scope is a problem", () => {

@@ -46,9 +46,11 @@ desktop declare it). The drizzle `appPins` give every app the dev
 dependencies the support imports, and `generatedFileGlobs` gains
 `apps/**/app-test-database.test-support.ts`. The `drizzle-app-database`
 obligation (green phase) requires `useAppDatabase()`, imported from the
-support, as the first statement after the imports, and no `compose…()` call
-reachable while the file loads (module scope, `describe` callbacks including
-`describe.each`, functions called on the spot, and named helpers those call); green
+support, as the first statement after the imports; value imports only of
+`bun:test`, the support and the composition root (types from anywhere); and
+a `compose…` name only inside a test or hook callback, or a function
+declaration only those call directly. The rule is structural, so no call
+form evades it; green
 and deliver check green obligations before anything runs, routed to the
 test-writer. The gates no longer start an application database
 (`startAppDatabase` is gone); the preflight covers store tests and persisting

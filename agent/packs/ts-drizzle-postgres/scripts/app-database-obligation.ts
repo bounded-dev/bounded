@@ -9,12 +9,15 @@
 //     `./app-test-database.test-support.ts`, so its hook is registered before
 //     any other. A call in dead code, in a function nobody calls, behind a
 //     short-circuit or inside a test is not one;
-//   · no `compose…()` call reachable while the file loads: at module scope,
-//     in a `describe` callback (`describe.each(…)(…)` included, or a named
-//     function passed as one), in a function called on the spot, or in a
-//     named function any of those calls, transitively. Inside a test or a
-//     hook (registered after the support's), or a function only they call,
-//     it runs after the support has set DATABASE_URL.
+//   · value imports (and side-effect, dynamic or required ones) only of
+//     bun:test, the generated support and the composition root; types from
+//     anywhere;
+//   · a `compose…` name only inside a callback passed to `test`/`it` or a
+//     hook (registered after the support's, which comes first), or inside a
+//     top-level function declaration whose every reference is a direct call
+//     from such a place. Structural, so no call form (`.call`, `map(make)`,
+//     a promise, an alias, a helper called at load) evades it: there, it runs
+//     after the support has set DATABASE_URL.
 //
 // Static, like ts-hexagonal's smokeTestProblem: an AST walk of the test's own
 // source. Green and deliver check it before the suite runs, so a smoke test
@@ -59,94 +62,107 @@ function calledFirst(file: ts.SourceFile, name: string): boolean {
   return isCallOf(file.statements.find((statement) => !ts.isImportDeclaration(statement)), name);
 }
 
-const unwrap = (node: ts.Node): ts.Node => {
-  let at = node;
-  while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
-  return at;
-};
-
-/** The identifier at the root of a callee: `describe` for `describe`,
- *  `describe.skip`, and `describe.each(table)`. */
+/** The identifier at the root of a callee: `test` for `test`, `test.skip`
+ *  and `test.each(table)`. */
 function calleeRoot(callee: ts.Expression): string | undefined {
   let at: ts.Expression = callee;
   while (ts.isCallExpression(at) || ts.isPropertyAccessExpression(at) || ts.isParenthesizedExpression(at)) at = at.expression;
   return ts.isIdentifier(at) ? at.text : undefined;
 }
 
-/** The function a name is bound to at the top level: a declaration, or a
- *  const initialised with an arrow or function expression. */
-function namedFunctions(file: ts.SourceFile): Map<string, ts.FunctionLikeDeclaration> {
-  const out = new Map<string, ts.FunctionLikeDeclaration>();
+/** What a smoke test may import with a value: the test runner, the generated
+ *  support and its app's composition root. Types may come from anywhere. */
+const ALLOWED_MODULES = [/^bun:test$/, SUPPORT, /^\.\/composition-root(?:\.[cm]?[jt]s)?$/];
+const ALLOWED_IMPORTS = "a smoke test imports only bun:test, ./app-test-database.test-support.ts and ./composition-root.ts (types from anywhere)";
+
+/** The first module imported with a value (or for its side effects) that a
+ *  smoke test may not import, including a dynamic import or require. */
+function disallowedImport(file: ts.SourceFile): string | undefined {
   for (const statement of file.statements) {
-    if (ts.isFunctionDeclaration(statement) && statement.name !== undefined) out.set(statement.name.text, statement);
-    if (ts.isVariableStatement(statement)) {
-      for (const d of statement.declarationList.declarations) {
-        if (ts.isIdentifier(d.name) && d.initializer !== undefined && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) {
-          out.set(d.name.text, d.initializer);
-        }
-      }
-    }
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const clause = statement.importClause;
+    const typesOnly = clause !== undefined && (clause.isTypeOnly ||
+      (clause.name === undefined && clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings) &&
+        clause.namedBindings.elements.length > 0 && clause.namedBindings.elements.every((e) => e.isTypeOnly)));
+    const spec = statement.moduleSpecifier.text;
+    if (!typesOnly && !ALLOWED_MODULES.some((allowed) => allowed.test(spec))) return spec;
   }
-  return out;
-}
-
-const enclosingFunction = (node: ts.Node): ts.FunctionLikeDeclaration | undefined => {
-  let at: ts.Node | undefined = node.parent;
-  while (at !== undefined && !ts.isFunctionLike(at)) at = at.parent;
-  return at as ts.FunctionLikeDeclaration | undefined;
-};
-
-/** The name of the first `compose…()` call reachable while the file loads. */
-function composedAtLoad(file: ts.SourceFile): string | undefined {
-  const named = namedFunctions(file);
-  const nameOf = new Map<ts.Node, string>([...named].map(([name, fn]) => [fn, name]));
-  const calls: ts.CallExpression[] = [];
-  const references: { name: string; at: ts.Node }[] = [];
+  let found: string | undefined;
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) calls.push(node);
-    if (ts.isIdentifier(node) && named.has(node.text) && !nameOf.has(node.parent) &&
-        !(ts.isVariableDeclaration(node.parent) && node.parent.name === node) &&
-        !(ts.isFunctionDeclaration(node.parent) && node.parent.name === node)) {
-      references.push({ name: node.text, at: node });
+    if (found !== undefined) return;
+    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === "require"))) {
+      const arg = node.arguments[0];
+      found = arg !== undefined && ts.isStringLiteralLike(arg) ? arg.text : "a computed module";
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
-  const memo = new Map<ts.Node, boolean>();
-  // Does code in this context (undefined: module scope) run while the file loads?
-  const loads = (fn: ts.FunctionLikeDeclaration | undefined): boolean => {
-    if (fn === undefined) return true;
-    const known = memo.get(fn);
-    if (known !== undefined) return known;
-    memo.set(fn, false); // a cycle adds nothing
-    let result = false;
-    let outer: ts.Node = fn;
-    while (ts.isParenthesizedExpression(outer.parent)) outer = outer.parent;
-    const call = outer.parent;
-    if (call !== undefined && ts.isCallExpression(call)) {
-      if (call.expression === outer) result = loads(enclosingFunction(call)); // called on the spot
-      else if (call.arguments.includes(outer as ts.Expression) && calleeRoot(call.expression) === "describe") result = loads(enclosingFunction(call));
+  return found;
+}
+
+/** Callbacks that run at test time: those passed to a test or a hook. */
+const RUNS_IN_A_TEST = new Set(["test", "it", "beforeAll", "beforeEach", "afterAll", "afterEach"]);
+
+function isTestCallback(fn: ts.Node): boolean {
+  let outer: ts.Node = fn;
+  while (ts.isParenthesizedExpression(outer.parent)) outer = outer.parent;
+  const call = outer.parent;
+  if (call === undefined || !ts.isCallExpression(call) || !call.arguments.includes(outer as ts.Expression)) return false;
+  const root = calleeRoot(call.expression);
+  return root !== undefined && RUNS_IN_A_TEST.has(root);
+}
+
+const insideAny = (node: ts.Node, holds: (ancestor: ts.Node) => boolean): boolean => {
+  for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) if (holds(at)) return true;
+  return false;
+};
+
+const inTypePosition = (node: ts.Node): boolean => insideAny(node, (at) => ts.isTypeNode(at));
+
+/**
+ * The first `compose…` name that appears outside a test or hook callback.
+ * Structural, so no call form evades it: a compose name may appear only
+ * inside a callback passed to `test`/`it` or a hook (registered after
+ * `useAppDatabase()`, which comes first), or inside a top-level function
+ * declaration whose every reference is a direct call from such a place.
+ * Types (`ReturnType<typeof composeApp>`) do not count.
+ */
+function composeOutsideTests(file: ts.SourceFile): string | undefined {
+  const declarations = new Map<string, ts.FunctionDeclaration>();
+  for (const statement of file.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name !== undefined && statement.body !== undefined) {
+      declarations.set(statement.name.text, statement);
     }
-    const name = nameOf.get(fn);
-    if (!result && name !== undefined) {
-      // Called, or passed to describe, from code that runs at load.
-      result = references.some(({ name: ref, at }) => {
-        if (ref !== name) return false;
-        const parent = at.parent;
-        if (!ts.isCallExpression(parent)) return false;
-        const runsHere = parent.expression === at || (parent.arguments.includes(at as ts.Expression) && calleeRoot(parent.expression) === "describe");
-        return runsHere && loads(enclosingFunction(parent));
-      });
-    }
-    memo.set(fn, result);
-    return result;
-  };
-  for (const call of calls) {
-    const callee = call.expression;
-    const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
-    if (name !== undefined && COMPOSE.test(name) && loads(enclosingFunction(call))) return name;
   }
-  return undefined;
+  const references: ts.Identifier[] = [];
+  const composeNames: ts.Node[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) return;
+    if (ts.isIdentifier(node)) {
+      if (declarations.has(node.text) && !(ts.isFunctionDeclaration(node.parent) && node.parent.name === node)) references.push(node);
+      if (COMPOSE.test(node.text) && !inTypePosition(node)) composeNames.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  // Allowed helpers, to a fixpoint: every reference a direct call from a
+  // test callback or another allowed helper.
+  const allowed = new Set<ts.Node>();
+  const inAllowed = (node: ts.Node): boolean => insideAny(node, (at) => (ts.isFunctionLike(at) && isTestCallback(at)) || allowed.has(at));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [name, fn] of declarations) {
+      if (allowed.has(fn)) continue;
+      const refs = references.filter((r) => r.text === name);
+      if (refs.length > 0 && refs.every((r) => ts.isCallExpression(r.parent) && r.parent.expression === r && inAllowed(r))) {
+        allowed.add(fn);
+        changed = true;
+      }
+    }
+  }
+  const outside = composeNames.find((node) => !inAllowed(node));
+  return outside === undefined ? undefined : (outside as ts.Identifier).text;
 }
 
 /** Undefined when the smoke test starts its own database before it composes;
@@ -164,10 +180,12 @@ export function appDatabaseProblem(path: string, source: string): string | undef
     return `${path} must call ${USE_APP_DATABASE}() as its first statement after the imports, so its database starts before ` +
       "anything else the file registers can compose the app";
   }
-  const composed = composedAtLoad(file);
+  const imported = disallowedImport(file);
+  if (imported !== undefined) return `${path} imports ${imported}; ${ALLOWED_IMPORTS}`;
+  const composed = composeOutsideTests(file);
   if (composed !== undefined) {
-    return `${path} calls ${composed}() while the file is collected; compose the app only inside a test or a hook, ` +
-      `after ${USE_APP_DATABASE}() has pointed DATABASE_URL at the app's own database`;
+    return `${path} names ${composed} outside a test or a hook; compose the app only inside a test or a hook callback ` +
+      `(or a function declaration only those call), after ${USE_APP_DATABASE}() has pointed DATABASE_URL at the app's own database`;
   }
   return undefined;
 }

@@ -143,8 +143,10 @@ name and by call site; a missing one blocks the red and names itself.
   root: import `useAppDatabase` from `./app-test-database.test-support.ts`
   and call `useAppDatabase()` as **the first statement after the imports**,
   then compose the app **only inside a test or a hook** (`beforeAll`,
-  `beforeEach`) registered after it, never at module scope, in a `describe`
-  body (`describe.each` included) or in a helper either of those calls. Green and
+  `beforeEach`) registered after it, or a function declaration only those
+  call directly: never at module scope, in a `describe` body, in an arrow
+  bound to a name, or passed around. Import only `bun:test`, the support and
+  `./composition-root.ts` (types from anywhere). Green and
   deliver check both before anything runs (ADR 2026-072). The smoke test
   reaches the database, whose `DATABASE_URL` the support sets,
   **through the composition root**: never set, read or
