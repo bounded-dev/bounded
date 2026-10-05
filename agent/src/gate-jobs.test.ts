@@ -178,8 +178,8 @@ describe("a long gate under a host deadline", () => {
   test("a tree changed after the job ended discards its result", async () => {
     deadline();
     expect((await call(["slow", "--ms", "1500"])).code).toBe(3);
-    appendFileSync(join(project, "src", "a.txt"), "changed\n");
     await until(() => runs().length === 1);
+    appendFileSync(join(project, "src", "a.txt"), "changed\n");
     expect((await call(["slow", "--ms", "1500"])).code).toBe(3);
     expect(jobEvents(project, "job-restarted").at(-1)?.detail).toMatchObject({ reason: "tree-changed" });
     expect((await poll(["slow", "--ms", "1500"])).code).toBe(0);
