@@ -3,8 +3,11 @@ import {
   gateCodeOf,
   gateEnvelope,
   gateExitCode,
+  gateRunning,
   gateVerdictOf,
   guardVerdictOf,
+  resultLabel,
+  resultVerdictLine,
   toGateResult,
   verdictLine,
   type GateResult,
@@ -92,5 +95,26 @@ describe("gateEnvelope", () => {
   test("is plain JSON: a round trip loses nothing", () => {
     const env = gateEnvelope("typecheck", base);
     expect(JSON.parse(JSON.stringify(env))).toEqual(env);
+  });
+});
+
+// RUNNING (ADR 2026-073): only the harness's background runner answers it,
+// through gateRunning; a runner's own 3 stays "the gate could not run".
+describe("RUNNING", () => {
+  test("only gateRunning builds RUNNING, and labels come from the result", () => {
+    const running = gateRunning("deliver", { startedAt: "2026-10-05T10:00:00.000Z", job: "started", pid: 4242 });
+    expect(running.code).toBe(3);
+    expect(running.verdict).toBe("running");
+    expect(resultVerdictLine("deliver", running).startsWith("deliver: RUNNING")).toBe(true);
+    expect(resultVerdictLine("deliver", running)).toContain("call deliver again");
+    expect(resultLabel(running)).toBe("RUNNING");
+    expect(gateEnvelope("deliver", running).verdict).toBe("running");
+    const block: GateResult = { code: 1, verdict: "block", summary: "s", lines: [], detail: {} };
+    expect(resultVerdictLine("x", block)).toBe("x: BLOCK");
+  });
+
+  test("a bare runner still cannot claim RUNNING", () => {
+    expect(gateCodeOf(3)).toBe(2);
+    expect(toGateResult("x", { code: 3, lines: [] }).code).toBe(2);
   });
 });

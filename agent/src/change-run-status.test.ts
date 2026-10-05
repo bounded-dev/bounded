@@ -39,6 +39,15 @@ describe("deliveryState", () => {
     expect(deliveryState([failed, summary].join("\n"))).toBe("delivered");
   });
 
+  test("a running deliver event is not delivered and never malformed", () => {
+    const running = line({ guard: "deliver", verdict: "running", summary: "running in the background", detail: { kind: "job-started" } });
+    expect(deliveryState(running)).toBe("undelivered");
+    expect(deliveryState([summary, running].join("\n"))).toBe("undelivered");
+    expect(deliveryState([running, summary].join("\n"))).toBe("delivered");
+    const poll = line({ guard: "gate-job", verdict: "running", summary: "deliver still running", detail: { kind: "job-running", gate: "deliver" } });
+    expect(deliveryState([summary, poll].join("\n"))).toBe("delivered");
+  });
+
   test("a malformed line or a missing verdict or summary is malformed", () => {
     expect(deliveryState(`${summary}\n{not json\n`)).toBe("malformed");
     expect(deliveryState(line({ guard: "deliver", summary: "no verdict" }))).toBe("malformed");

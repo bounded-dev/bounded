@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -15,19 +15,22 @@ import {
 import { readStartedTicket, readTicketMarker, ticketWorktreePath, writeStartedTicket } from "./ticket-worktree.ts";
 import { readDeliverySnapshot, recordDeliverySnapshot } from "./delivery-snapshot.ts";
 import { commandsIn } from "../test/fixtures/user-steps.ts";
+import { listJobs, runOrCollect } from "./detached-job.ts";
 import { LEAD_LOCK_RELATIVE } from "./lead-commands.ts";
 import { FakeTracker } from "../test/support/fake-tracker.ts";
 import { delivered, logLines, prepared, runStart } from "../test/support/lead-project.ts";
 
 // The lead's commands and every board transition they make (ADR 2026-066),
 // against real git repositories (a bare origin and the main worktree) and a
-// fake tracker, setup, check and architect host.
+// fake tracker, setup and architect host. The project check is a fixture
+// pack's (ADR 2026-073): a small script whose exit code and duration a test
+// sets in check.json, and which appends a line to checks.log each time it runs.
 
 let root = "";
 let main = "";
 let origin = "";
 let tracker: FakeTracker;
-let check: ReturnType<typeof vi.fn<(cwd: string) => { ok: boolean; output: string }>>;
+let checkPacks = "";
 let setup: ReturnType<typeof vi.fn<(worktree: string) => Promise<{ ok: boolean; summary: string }>>>;
 let preflight: ReturnType<typeof vi.fn<(worktree: string) => string | undefined>>;
 let syncConfig: ReturnType<typeof vi.fn<(worktree: string) => { ok: boolean; output: string }>>;
@@ -64,23 +67,60 @@ beforeEach(() => {
   git(main, "commit", "-q", "-m", "init");
   git(main, "remote", "add", "origin", origin);
   git(main, "push", "-q", "origin", "main");
+  // The project check: the composed fixture pack's one command.
+  checkPacks = join(root, "check-packs");
+  write(root, "check.mjs", [
+    'import { appendFileSync, existsSync, readFileSync } from "node:fs";',
+    `const config = existsSync(${JSON.stringify(join(root, "check.json"))}) ? JSON.parse(readFileSync(${JSON.stringify(join(root, "check.json"))}, "utf8")) : {};`,
+    `appendFileSync(${JSON.stringify(join(root, "checks.log"))}, "check\\n");`,
+    'console.log(config.code ? "1 test failed" : "check passed");',
+    "setTimeout(() => process.exit(config.code ?? 0), config.ms ?? 0);",
+  ].join("\n"));
+  write(checkPacks, "checker/contrib.json", JSON.stringify({ projectCheckCommands: [[process.execPath, join(root, "check.mjs")]] }));
+  write(main, ".bounded/composed-packs.json", '["checker"]\n');
   tracker = new FakeTracker();
-  check = vi.fn(() => ({ ok: true, output: "check passed" }));
   setup = vi.fn(async () => ({ ok: true, summary: "installed" }));
   preflight = vi.fn(() => undefined);
   syncConfig = vi.fn(() => ({ ok: true, output: "sync-config: OK — 3 files restored" }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  killJobs();
   rmSync(root, { recursive: true, force: true });
 });
 
+/** Every background run a test started, in main and in each ticket worktree. */
+function jobPids(): number[] {
+  const places = [main, ...(existsSync(join(main, ".bounded/worktrees")) ? readdirSync(join(main, ".bounded/worktrees")).map((n) => join(main, ".bounded/worktrees", n)) : [])];
+  const pids: number[] = [];
+  for (const place of places) {
+    const jobs = join(place, ".bounded/jobs");
+    if (!existsSync(jobs)) continue;
+    for (const name of readdirSync(jobs)) {
+      try {
+        const pid = (JSON.parse(readFileSync(join(jobs, name, "job.json"), "utf8")) as { pid?: unknown }).pid;
+        if (typeof pid === "number" && pid > 0) pids.push(pid);
+      } catch { /* not a job */ }
+    }
+  }
+  return pids;
+}
+function killJobs(): void {
+  for (const pid of jobPids()) {
+    try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
+  }
+}
+
 const deps = (): LeadDeps => ({
-  tracker: () => tracker, git: gitCommandLine, host: async () => HOST, setup, check, syncConfig,
+  tracker: () => tracker, git: gitCommandLine, host: async () => HOST, setup, syncConfig, packsDir: checkPacks,
   // This test process runs (for the lead's lock, and as a bound architect's session); nothing else does.
   processes: { startTime: (pid) => (pid === process.pid ? "t" : undefined) },
 });
-const lead = (argv: string[]): Promise<{ ok: boolean; text: string }> => {
+/** The check's next exit code and duration. */
+const checkWith = (config: { code?: number; ms?: number }): void => write(root, "check.json", JSON.stringify(config));
+/** How many times the project check has run. */
+const checks = (): string[] => existsSync(join(root, "checks.log")) ? readFileSync(join(root, "checks.log"), "utf8").trim().split("\n") : [];
+const lead = (argv: string[]): Promise<{ ok: boolean; text: string; running?: true }> => {
   const parsed = parseLeadArgs(argv);
   if (!parsed.ok) throw new Error(parsed.reason);
   return runLeadCommand(main, parsed.request, deps());
@@ -248,7 +288,7 @@ describe("the board transitions", () => {
     deliver(n);
     const out = await lead(["merge", String(n)]);
     expect(out.ok, out.text).toBe(true);
-    expect(check).toHaveBeenCalledWith(main);
+    expect(checks()).toHaveLength(1);
     expect(readFileSync(join(main, `contexts/t${n}.ts`), "utf8")).toContain(`t${n}`);
     expect(git(main, "rev-parse", "main")).toBe(git(origin, "rev-parse", "main"));
     expect(git(main, "log", "-1", "--format=%s")).toBe(`Merge #${n}: A`);
@@ -263,7 +303,7 @@ describe("the board transitions", () => {
     await lead(["start", String(n)]);
     deliver(n);
     const before = git(main, "rev-parse", "main");
-    check.mockReturnValueOnce({ ok: false, output: "1 test failed" });
+    checkWith({ code: 1 });
     const out = await lead(["merge", String(n)]);
     expect(out.ok).toBe(false);
     expect(out.text).toContain("the project check failed");
@@ -313,7 +353,7 @@ describe("the board transitions", () => {
     expect(out.text).toContain("does not merge cleanly");
     expect(git(main, "status", "--porcelain")).toBe("");
     expect(git(main, "rev-parse", "main")).toBe(theirs);
-    expect(check).not.toHaveBeenCalled();
+    expect(checks()).toEqual([]);
   });
 
   test("after a fast-forward, a failing check undoes to the fast-forwarded commit", async () => {
@@ -323,7 +363,7 @@ describe("the board transitions", () => {
     deliver(n);
     const before = git(main, "rev-parse", "main");
     const theirs = pushedElsewhere("docs/other.md", "# Someone else's work\n");
-    check.mockReturnValueOnce({ ok: false, output: "1 test failed" });
+    checkWith({ code: 1 });
     const out = await lead(["merge", String(n)]);
     expect(out.ok).toBe(false);
     expect(out.text).toContain("the merge was undone");
@@ -347,7 +387,7 @@ describe("the board transitions", () => {
     expect(out.ok).toBe(false);
     expect(out.text).toMatch(/cannot combine/);
     expect(commandsIn(`the user: ${out.text}`)).toEqual([]);
-    expect(check).not.toHaveBeenCalled();
+    expect(checks()).toEqual([]);
     expect(git(origin, "rev-parse", "main")).toBe(remote);
   });
 
@@ -385,7 +425,7 @@ describe("review fixes (ADR 2026-066)", () => {
     const out = await lead(["merge", String(n)]);
     expect(out.ok).toBe(false);
     expect(out.text).toContain("worker a0000000000000w01");
-    expect(check).not.toHaveBeenCalled();
+    expect(checks()).toEqual([]);
     expect(issue(n).status).toBe("Awaiting Merge");
     logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: SUBAGENT_STOPPED, agent: "a0000000000000w01" } });
     expect((await lead(["merge", String(n)])).text).not.toContain("worker a0000000000000w01");
@@ -403,7 +443,7 @@ describe("review fixes (ADR 2026-066)", () => {
     deliver(n, "contexts/a/a.ts");
     git(wt, "add", "contexts/a/a.ts");
     expect((await lead(["merge", String(n)])).text).toContain("the worktree changed after delivery");
-    expect(check).not.toHaveBeenCalled();
+    expect(checks()).toEqual([]);
     expect((await lead(["status"])).text).toContain("the worktree changed after delivery");
   });
 
@@ -758,4 +798,259 @@ describe("refusals before anything changes", () => {
     const request: LeadRequest = { command: "status" };
     expect((await runLeadCommand(join(root, "nowhere"), request, deps())).text).toContain("no project-local Bounded installation");
   });
+});
+
+// Issue #53 (ADR 2026-073): the project check behind a merge runs as a
+// background job, so a check that outlasts the host's command limit finishes
+// over repeated merges. Local main is never left unsafe: the merge is recorded
+// before git merges, and adopted, collected, undone or refused by the rules
+// the cases below name. A deadline of 16000 ms gives each call a 1000 ms budget.
+describe("a merge whose check outlasts the call", () => {
+  const DEADLINE = "16000";
+  const deadline = (): void => { vi.stubEnv("BOUNDED_COMMAND_TIMEOUT_MS", DEADLINE); };
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+  beforeEach(() => { vi.stubEnv("BOUNDED_COMMAND_TIMEOUT_MS", undefined); });
+
+  const delivered = async (title = "A", owns = ["contexts/a/"]): Promise<number> => {
+    const n = await create(title, owns);
+    await lead(["queue", String(n)]);
+    const out = await lead(["start", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    bind(n);
+    deliver(n, `${owns[0]}${title.toLowerCase()}.ts`);
+    return n;
+  };
+  /** Merge until the answer is not RUNNING: every 500 ms, up to 40 times. */
+  const pollMerge = async (n: number): Promise<{ ok: boolean; text: string; running?: true }> => {
+    let out = await lead(["merge", String(n)]);
+    for (let i = 0; i < 40 && out.running === true; i++) {
+      await sleep(500);
+      out = await lead(["merge", String(n)]);
+    }
+    return out;
+  };
+  const phase = (n: number): string | undefined => readStartedTicket(main, n)?.phase;
+  const groupGone = async (pid: number): Promise<void> => {
+    for (let i = 0; i < 100; i++) {
+      try { process.kill(-pid, 0); } catch { return; }
+      await sleep(100);
+    }
+  };
+
+  test("a merge whose check outlasts the call answers RUNNING and finishes on a later merge", async () => {
+    const n = await delivered();
+    const before = git(origin, "rev-parse", "main");
+    checkWith({ ms: 3000 });
+    deadline();
+    const first = await lead(["merge", String(n)]);
+    expect(first.ok).toBe(false);
+    expect(first.running).toBe(true);
+    expect(first.text).toMatch(/check.*running/);
+    expect(git(main, "log", "-1", "--format=%s")).toBe(`Merge #${n}: A`);
+    expect(git(origin, "rev-parse", "main")).toBe(before);
+    expect(phase(n)).toBe("merging");
+    const last = await pollMerge(n);
+    expect(last.ok, last.text).toBe(true);
+    expect(git(origin, "rev-parse", "main")).toBe(git(main, "rev-parse", "main"));
+    expect(issue(n)).toMatchObject({ status: "Done", state: "closed" });
+    expect(existsSync(ticketWorktreePath(main, n))).toBe(false);
+    expect(issue(n).comments.filter((c) => /check/.test(c))).toHaveLength(1);
+    expect(readGuardLog(main).some((e) => e.guard === "team-lead" && e.verdict === "running")).toBe(true);
+  }, 60_000);
+
+  test("without a deadline the check runs to its end in one call", async () => {
+    const n = await delivered();
+    checkWith({ ms: 1500 });
+    const out = await lead(["merge", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    expect(checks()).toHaveLength(1);
+  }, 30_000);
+
+  test("a failing check collected later undoes the merge", async () => {
+    const n = await delivered();
+    const before = git(main, "rev-parse", "main");
+    checkWith({ ms: 2000, code: 1 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    const last = await pollMerge(n);
+    expect(last.ok).toBe(false);
+    expect(last.text).toContain("the merge was undone");
+    expect(git(main, "rev-parse", "main")).toBe(before);
+    expect(git(origin, "rev-parse", "main")).toBe(before);
+    expect(issue(n).status).toBe("Awaiting Merge");
+    expect(phase(n)).not.toBe("merging");
+  }, 60_000);
+
+  test("a check that never completes undoes the merge as a harness bug and pushes nothing", async () => {
+    const n = await delivered();
+    const before = git(main, "rev-parse", "main");
+    checkWith({ ms: 30_000 });
+    deadline();
+    let out = await lead(["merge", String(n)]);
+    expect(out.running).toBe(true);
+    for (let death = 1; death <= 3 && out.running === true; death++) {
+      const pid = jobPids().at(-1)!;
+      process.kill(-pid, "SIGKILL");
+      await groupGone(pid);
+      out = await lead(["merge", String(n)]);
+    }
+    expect(out.running).toBeUndefined();
+    expect(out.ok).toBe(false);
+    expect(out.text).toMatch(/did not complete/);
+    expect(out.text).toMatch(/harness bug/);
+    expect(git(main, "rev-parse", "main")).toBe(before);
+    expect(git(origin, "rev-parse", "main")).toBe(before);
+  }, 60_000);
+
+  test("the merging record is written after the fast-forward", async () => {
+    const n = await delivered();
+    const other = join(root, "other");
+    execFileSync("git", ["clone", "-q", origin, other]);
+    write(other, "docs/other.md", "# Someone else's work\n");
+    git(other, "add", "-A");
+    git(other, "commit", "-q", "-m", "someone else's work");
+    git(other, "push", "-q", "origin", "main");
+    const theirs = git(other, "rev-parse", "HEAD");
+    checkWith({ ms: 3000, code: 1 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    expect(readStartedTicket(main, n)).toMatchObject({ phase: "merging", merging: { local: theirs } });
+    const last = await pollMerge(n);
+    expect(last.text).toContain("the merge was undone");
+    expect(git(main, "rev-parse", "main")).toBe(theirs);
+  }, 60_000);
+
+  test("while a merge is being checked, start, another merge, its reply and its sync-config refuse, and status names it", async () => {
+    const n = await delivered();
+    const m = await create("B", ["contexts/b/"]);
+    await lead(["queue", String(m)]);
+    checkWith({ ms: 3000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    expect((await lead(["start", String(m)])).text).toMatch(/being merged/);
+    expect((await lead(["merge", String(m)])).text).toMatch(/being merged/);
+    expect((await lead(["reply", String(n), "x"])).text).toMatch(/being merged/);
+    expect((await lead(["sync-config", String(n)])).text).toMatch(/being merged/);
+    const status = (await lead(["status"])).text;
+    expect(status).toContain(`#${n}`);
+    expect(status).toMatch(/being merged/);
+  }, 60_000);
+
+  test("a merge interrupted right after git merge is adopted, not merged twice", async () => {
+    const n = await delivered();
+    let interrupted = false;
+    const flaky: LeadDeps = {
+      ...deps(),
+      git: (args, cwd) => {
+        const run = gitCommandLine(args, cwd);
+        if (!interrupted && args[0] === "merge" && args.includes("--no-ff") && run.status === 0) {
+          interrupted = true;
+          throw new Error("the process was interrupted");
+        }
+        return run;
+      },
+    };
+    const first = await runLeadCommand(main, { command: "merge", issue: n }, flaky);
+    expect(first.ok).toBe(false);
+    const out = await lead(["merge", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    expect(git(main, "log", "--format=%s", "main").split("\n").filter((s) => s === `Merge #${n}: A`)).toHaveLength(1);
+    expect(git(origin, "rev-parse", "main")).toBe(git(main, "rev-parse", "main"));
+  }, 30_000);
+
+  test("an untracked file in main never blocks the merge", async () => {
+    const n = await delivered();
+    checkWith({ ms: 3000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    write(main, "stray.txt", "left by someone\n");
+    const last = await pollMerge(n);
+    expect(last.ok, last.text).toBe(true);
+    expect(existsSync(join(main, "stray.txt"))).toBe(true);
+  }, 60_000);
+
+  test("a tracked change in main during the check undoes the merge", async () => {
+    const n = await delivered();
+    const before = git(main, "rev-parse", "main");
+    checkWith({ ms: 3000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    write(main, "README.md", "# Shop, edited mid-check\n");
+    const last = await pollMerge(n);
+    expect(last.ok).toBe(false);
+    expect(last.text).toMatch(/main changed while its check ran/);
+    expect(last.text).toContain("the merge was undone");
+    expect(git(main, "rev-parse", "main")).toBe(before);
+    expect(readFileSync(join(main, "README.md"), "utf8")).toBe("# Shop\n");
+  }, 60_000);
+
+  test("a main that moved off the merge refuses and touches nothing; release keeps the phase", async () => {
+    const n = await delivered();
+    const before = git(origin, "rev-parse", "main");
+    checkWith({ ms: 3000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    git(main, "commit", "-q", "--allow-empty", "-m", "x");
+    const moved = git(main, "rev-parse", "HEAD");
+    const last = await pollMerge(n);
+    expect(last.ok).toBe(false);
+    expect(last.text).toMatch(/moved off the merge/);
+    expect(git(main, "rev-parse", "HEAD")).toBe(moved);
+    expect(git(origin, "rev-parse", "main")).toBe(before);
+    const release = await lead(["release", String(n), "--force"]);
+    expect(release.ok).toBe(false);
+    expect(release.text).toMatch(/cannot undo/);
+    expect(phase(n)).toBe("merging");
+    expect(git(main, "rev-parse", "HEAD")).toBe(moved);
+  }, 60_000);
+
+  test("release stops a merging ticket's check and undoes the merge", async () => {
+    const n = await delivered();
+    const before = git(main, "rev-parse", "main");
+    checkWith({ ms: 30_000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    const refused = await lead(["release", String(n)]);
+    expect(refused.ok).toBe(false);
+    expect(refused.text).toMatch(/still running/);
+    expect(refused.text).toMatch(/cannot prove|cannot tell/);
+    const out = await lead(["release", String(n), "--force"]);
+    expect(out.ok, out.text).toBe(true);
+    expect(git(main, "rev-parse", "main")).toBe(before);
+    expect(phase(n)).not.toBe("merging");
+    expect(listJobs(main)).toEqual([]);
+  }, 60_000);
+
+  test("merge refuses a live gate job in the worktree and clears a finished one", async () => {
+    const n = await delivered();
+    const wt = ticketWorktreePath(main, n);
+    const job = await runOrCollect(
+      { cwd: wt, name: "gate-green-gate", key: "green-gate", argv: [process.execPath, "-e", "setTimeout(() => {}, 3000)"] },
+      { deadlineMs: Number(DEADLINE) },
+    );
+    expect(job.state).toBe("running");
+    const status = (await lead(["status"])).text;
+    expect(status).toContain("green-gate");
+    expect(status).toMatch(/background/);
+    expect((await lead(["merge", String(n)])).text).toMatch(/green-gate/);
+    await sleep(4000);
+    checkWith({ ms: 3000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    expect(listJobs(wt)).toEqual([]);
+  }, 60_000);
+
+  test("sync-config refuses a ticket with an uncollected gate job", async () => {
+    const n = await delivered();
+    const wt = ticketWorktreePath(main, n);
+    const job = await runOrCollect(
+      { cwd: wt, name: "gate-green-gate", key: "green-gate", argv: [process.execPath, "-e", "setTimeout(() => {}, 300)"] },
+      { deadlineMs: Number(DEADLINE) },
+    );
+    expect(["running", "done"]).toContain(job.state);
+    await sleep(1500);
+    const out = await lead(["sync-config", String(n)]);
+    expect(out.ok).toBe(false);
+    expect(out.text).toMatch(/green-gate/);
+  }, 30_000);
 });

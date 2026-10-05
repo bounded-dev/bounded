@@ -66,7 +66,8 @@ describe("lead Bash: only its commands, rewritten onto the project's harness", (
     ["bounded lead status", q(CLI, "lead", "status")],
     ["bounded lead queue 4", q(CLI, "lead", "queue", "4")],
     ["bash .bounded/harness/scripts/bounded lead start 4", q(CLI, "lead", "start", "4")],
-    ["bounded lead merge '#4'", q(CLI, "lead", "merge", "#4")],
+    // Merge alone carries the call's deadline (ADR 2026-073): its check may outlast the call.
+    ["bounded lead merge '#4'", `BOUNDED_COMMAND_TIMEOUT_MS=120000 ${q(CLI, "lead", "merge", "#4")}`],
     ["bounded lead reply 4 'use the shorter name'", q(CLI, "lead", "reply", "4", "use the shorter name")],
     ["bounded lead ticket create --title 'Invoices' --outcome 'Send invoices' --acceptance 'A sent invoice is listed' --owns contexts/billing/invoice.contract.ts --depends 3 --decisions 'Currency'",
       q(CLI, "lead", "ticket", "create", "--title", "Invoices", "--outcome", "Send invoices", "--acceptance", "A sent invoice is listed",
@@ -105,6 +106,28 @@ describe("lead Bash: only its commands, rewritten onto the project's harness", (
     const r = hook(project(), "Bash", { command: "bounded lead sync-config 3", description: "d" });
     expect(r).toEqual({ decision: "rewrite", input: { command: q(CLI, "lead", "sync-config", "3"), description: "d" } });
     expect(hook(project(), "Bash", { command: "bounded lead sync-config" }).decision).toBe("deny");
+  });
+
+  // Issue #53: the project check behind a merge runs in the background once
+  // it outlasts the call, so merge must know the call's deadline.
+  test("`bounded lead merge` carries the call's deadline", () => {
+    const dir = project();
+    expect(hook(dir, "Bash", { command: "bounded lead merge 4", timeout: 600000 })).toEqual({
+      decision: "rewrite", input: { command: `BOUNDED_COMMAND_TIMEOUT_MS=600000 ${q(CLI, "lead", "merge", "4")}`, timeout: 600000 },
+    });
+    expect(hook(dir, "Bash", { command: "bounded lead merge 4" })).toEqual({
+      decision: "rewrite", input: { command: `BOUNDED_COMMAND_TIMEOUT_MS=120000 ${q(CLI, "lead", "merge", "4")}` },
+    });
+    expect(hook(dir, "Bash", { command: "bounded lead status" })).toEqual({
+      decision: "rewrite", input: { command: q(CLI, "lead", "status") },
+    });
+  });
+
+  test("a model-typed deadline prefix on a lead command is refused", () => {
+    const dir = project();
+    for (const command of ["BOUNDED_COMMAND_TIMEOUT_MS=1 bounded lead merge 4", "BOUNDED_COMMAND_TIMEOUT_MS=1 bounded lead status"]) {
+      expect(hook(dir, "Bash", { command }).decision, command).toBe("deny");
+    }
   });
 
   test("before the first ticket the lead may re-plan with the user's own bounded init, unrewritten", () => {

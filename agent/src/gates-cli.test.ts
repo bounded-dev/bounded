@@ -78,6 +78,11 @@ describe("usage (exit 64) and help (exit 0)", () => {
     }
   });
 
+  test("the usage lists 3 RUNNING", () => {
+    const r = run(["--help"], dir);
+    expect(r.stdout).toContain("0 PASS · 1 BLOCK · 2 ERROR (the gate could not run) · 3 RUNNING · 64 usage");
+  });
+
   test("<gate> --help prints the whole description and the flags", () => {
     const r = run(["sign-off", "--help"], dir);
     expect(r.status).toBe(0);

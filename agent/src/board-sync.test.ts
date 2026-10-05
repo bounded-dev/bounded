@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { applyBoardOps, boardOpsFor, boardPending, pendingOps, quarantinedOps, routeOf, runGateWithBoard } from "./board-sync.ts";
-import type { GateResult } from "./gate-result.ts";
+import { gateRunning, type GateResult } from "./gate-result.ts";
 import { logGuardEvent, readGuardLog } from "./guard-log.ts";
 import { SUBAGENT_STOPPED, WORKER_RESUMED } from "./lead-state.ts";
 import { TICKET_MARKER_RELATIVE } from "./ticket-worktree.ts";
@@ -160,6 +160,35 @@ describe("runGateWithBoard", () => {
     expect((await run({ name: "typecheck" }, pass()).out).code).toBe(0);
     expect(tracker.issues.get(7)!.status).toBe("Awaiting Merge");
     expect(existsSync(join(dir, ".bounded/board-pending.json"))).toBe(false);
+  });
+});
+
+// A RUNNING result (ADR 2026-073): the board hears of a background run once,
+// when it starts or restarts, never on each poll; it keeps every label.
+describe("RUNNING on the board", () => {
+  const deliverGate = { name: "deliver", milestone: "delivered" as const };
+  const R = (job: "started" | "restarted" | "running"): GateResult =>
+    gateRunning("deliver", { startedAt: "2026-10-05T10:00:00.000Z", job, pid: 4242 });
+
+  test("a RUNNING that starts or restarts a job posts one comment; a poll posts nothing", () => {
+    const state = { blocked: { deliver: "blocked: builder" } };
+    for (const job of ["started", "restarted"] as const) {
+      const { ops, state: after } = boardOpsFor(7, deliverGate, R(job), state);
+      expect(ops).toHaveLength(1);
+      expect(ops[0]).toMatchObject({ op: "comment", issue: 7 });
+      expect((ops[0] as { body: string }).body).toContain("RUNNING");
+      expect(after.blocked).toEqual({ deliver: "blocked: builder" });
+    }
+    expect(boardOpsFor(7, deliverGate, R("running"), state).ops).toEqual([]);
+  });
+
+  test("a RUNNING deliver neither records nor clears the delivery snapshot", async () => {
+    writeFileSync(join(dir, "a.ts"), "export const a = 1;\n");
+    await run(deliverGate, pass("delivered")).out;
+    const before = readFileSync(join(dir, ".bounded/delivery-snapshot.json"), "utf8");
+    writeFileSync(join(dir, "b.ts"), "export const b = 2;\n");
+    await run(deliverGate, R("started")).out;
+    expect(readFileSync(join(dir, ".bounded/delivery-snapshot.json"), "utf8")).toBe(before);
   });
 });
 

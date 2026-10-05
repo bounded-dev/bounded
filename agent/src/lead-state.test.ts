@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
 import {
-  ARCHITECT_ENDED, backgroundWorkers, LEAD_GUARD, SEAT_RELEASED, SUBAGENT_STOPPED, WORKER_CONTINUING, WORKER_RESUMED, WORKER_SEND_FAILED,
+  ARCHITECT_ENDED, backgroundWorkers, LEAD_GUARD, preparedTicket, readRunLog, SEAT_RELEASED, SUBAGENT_STOPPED, WORKER_CONTINUING, WORKER_RESUMED, WORKER_SEND_FAILED,
 } from "./lead-state.ts";
 import type { ProcessProbe } from "./process-lock.ts";
+import { delivered, LOG, logLines, makeLeadProject, prepared, runStart } from "../test/support/lead-project.ts";
 
 // The background-worker hold (ADR 2026-066) fails closed: it ends only with
 // the worker's recorded stop, its session gone stale, or the user's release.
@@ -71,5 +74,20 @@ describe("backgroundWorkers", () => {
     expect(names([continuing("w1", 0), failed("w1", 1), stopped("w1", 2), resumed("w1", 3)])).toEqual(["w1"]);
     expect(names([continuing("w1", 0), resumed("w1", 1), continuing("w1", 2), failed("w1", 3)])).toEqual(["w1"]);
     expect(names([continuing("w1", 0), resumed("w1", 1), continuing("w1", 2), failed("w1", 3), stopped("w1", 4)])).toEqual([]);
+  });
+});
+
+describe("readRunLog with background runs (ADR 2026-073)", () => {
+  test("readRunLog reads a log holding running events", () => {
+    const running = { ts: "t", guard: "deliver", verdict: "running", summary: "deliver: running in the background", detail: { kind: "job-started" } };
+    const project = makeLeadProject({ ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7"), runStart, running) });
+    try {
+      expect(readRunLog(project.dir)).toMatchObject({ kind: "read", state: "undelivered" });
+      expect(preparedTicket(project.dir)).toBe("7");
+      appendFileSync(join(project.dir, LOG), logLines(delivered));
+      expect(readRunLog(project.dir)).toMatchObject({ kind: "read", state: "delivered" });
+    } finally {
+      project.cleanup();
+    }
   });
 });
