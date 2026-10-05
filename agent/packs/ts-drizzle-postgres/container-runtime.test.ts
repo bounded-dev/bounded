@@ -129,8 +129,11 @@ describe("an engine that answers a ping but nothing else (issue #52)", () => {
 
   test("the child's timeout covers both requests", async () => {
     const dir = home();
-    await dockerApi(join(dir, "slow.sock"), 200, { pingDelayMs: 250, delayMs: 250 });
-    expect(probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/slow.sock` }, home: dir, timeoutMs: 300 }))
+    // Each request fits its own bound with wide margin; together they exceed one
+    // bound, so the child's timeout must cover both. Margins sized for a loaded
+    // machine (the 250/300 ms version flaked under the full parallel suite).
+    await dockerApi(join(dir, "slow.sock"), 200, { pingDelayMs: 700, delayMs: 700 });
+    expect(probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/slow.sock` }, home: dir, timeoutMs: 1_500 }))
       .toEqual({ available: true, endpoint: `unix://${dir}/slow.sock` });
   });
 
