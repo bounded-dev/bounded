@@ -73,6 +73,37 @@ describe("appDatabaseProblem", () => {
     expect(appDatabaseProblem(PATH, local)).toContain("app-test-database.test-support.ts");
   });
 
+  // Final review of #52, major 3: the app was still composed before its
+  // database existed. useAppDatabase() must come first, and no compose call
+  // may be reachable while the file loads.
+  test("useAppDatabase() must be the first statement after the imports", () => {
+    const hookFirst = appDatabaseProblem(PATH, lines(...IMPORTS, 'import { beforeAll } from "bun:test";', "",
+      "let app: unknown;", "beforeAll(() => { app = composeWeb(); });", "useAppDatabase();", "",
+      'test("x", () => { expect(app).toBeDefined(); });'));
+    expect(hookFirst).toMatch(/first statement/);
+    const late = appDatabaseProblem(PATH, lines(...IMPORTS, "", 'const label = "web";', "useAppDatabase();", "", ...TEST));
+    expect(late).toMatch(/first statement/);
+  });
+
+  test("a compose call reachable at load time is a problem, through helpers and describe.each", () => {
+    const helper = appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();",
+      "function make() { return composeWeb(); }", "function twice() { return make(); }", "const app = twice();", "",
+      'test("x", () => { expect(app).toBeDefined(); });'));
+    expect(helper).toContain("composeWeb");
+    const arrow = appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();",
+      "const make = () => composeWeb();", 'describe("web", () => { const app = make(); test("x", () => expect(app).toBeDefined()); });'));
+    expect(arrow).toContain("composeWeb");
+    const each = appDatabaseProblem(PATH, lines(...IMPORTS, 'import { describe } from "bun:test";', "", "useAppDatabase();",
+      'describe.each([1, 2])("web %i", () => {', "  const app = composeWeb();", '  test("x", () => { expect(app).toBeDefined(); });', "});"));
+    expect(each).toContain("composeWeb");
+    const passed = appDatabaseProblem(PATH, lines(...IMPORTS, 'import { describe } from "bun:test";', "", "useAppDatabase();",
+      "function body() { const app = composeWeb(); test(\"x\", () => { expect(app).toBeDefined(); }); }", 'describe("web", body);'));
+    expect(passed).toContain("composeWeb");
+    // A helper only tests call stays fine.
+    expect(appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();", "const make = () => composeWeb();",
+      'test("x", () => { expect(make()).toBeDefined(); });'))).toBeUndefined();
+  });
+
   test("compose at module scope is a problem", () => {
     const top = appDatabaseProblem(PATH, lines(...IMPORTS, "", "useAppDatabase();", "const app = composeWeb();", "",
       'test("x", () => { expect(app).toBeDefined(); });'));

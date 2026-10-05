@@ -54,7 +54,7 @@ Each generated composition root uses the driver for its app's runtime:
 | `bun run db:migrate` | Applies every context's pending migrations |
 | `bun run --filter @<scope>/<context> db:generate` | Generates a migration from that context's schema changes |
 
-These are for running the app locally. Tests and the project's own `check` never need them: store tests and each app's smoke tests start their own throwaway, migrated Postgres through Testcontainers (an app's through the generated `app-test-database.test-support.ts`, whose `useAppDatabase()` the smoke test calls at its top level), so the check needs nothing but a container engine.
+These are for running the app locally. Tests and the project's own `check` never need them: store tests and each app's smoke tests start their own throwaway, migrated Postgres through Testcontainers (an app's through the generated `app-test-database.test-support.ts`, whose `useAppDatabase()` the smoke test calls as its first statement after the imports), so the check needs nothing but a container engine.
 
 ## Production
 

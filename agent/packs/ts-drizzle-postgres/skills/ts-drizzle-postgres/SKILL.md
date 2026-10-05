@@ -108,7 +108,7 @@ the one step on their machine no role can take (ADR 2026-072).
 The apps' generated composition roots connect to `process.env.DATABASE_URL`,
 and refuse to start without it. Each app of a persisting project gets a
 generated `app-test-database.test-support.ts` beside its composition root:
-`useAppDatabase()`, called once at the top level of the app's smoke test,
+`useAppDatabase()`, called as the first statement after the imports of the app's smoke test,
 starts one throwaway Postgres (the pinned image) for that file, applies every
 context's migrations, points `DATABASE_URL` at it (so an inherited or `.env`
 value is never used), and stops it afterwards. Compose the app only inside a test or a

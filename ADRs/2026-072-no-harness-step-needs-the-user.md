@@ -45,8 +45,10 @@ templates (the ts pack's `workspaceTemplates` socket; web, mcp, lambda and
 desktop declare it). The drizzle `appPins` give every app the dev
 dependencies the support imports, and `generatedFileGlobs` gains
 `apps/**/app-test-database.test-support.ts`. The `drizzle-app-database`
-obligation (green phase) requires a top-level `useAppDatabase()` imported
-from the support and no `compose…()` call while the file is collected; green
+obligation (green phase) requires `useAppDatabase()`, imported from the
+support, as the first statement after the imports, and no `compose…()` call
+reachable while the file loads (module scope, `describe` callbacks including
+`describe.each`, functions called on the spot, and named helpers those call); green
 and deliver check green obligations before anything runs, routed to the
 test-writer. The gates no longer start an application database
 (`startAppDatabase` is gone); the preflight covers store tests and persisting

@@ -243,7 +243,7 @@ export function describeDrizzleStore(name: string, body: (db: () => ${DRIZZLE_PR
 
 /** The generated support file each persisting app's smoke tests import. */
 export const APP_TEST_DATABASE = "app-test-database.test-support.ts";
-/** What the smoke test calls at its top level. */
+/** What the smoke test calls as its first statement after the imports. */
 export const USE_APP_DATABASE = "useAppDatabase";
 
 /**
@@ -259,7 +259,7 @@ export function appTestDatabaseSource(migrations: readonly { readonly folder: st
 //
 // The app's smoke tests run against a real Postgres that Testcontainers
 // starts once per test file, with every context's committed migrations
-// applied. Call ${USE_APP_DATABASE}() once, at the top level of the smoke test,
+// applied. Call ${USE_APP_DATABASE}() first, right after the smoke test's imports,
 // and compose the app only inside a test or a hook: the composition root
 // reads DATABASE_URL when it composes, and this points it at the throwaway
 // database, so an inherited or .env value is never used and the check needs

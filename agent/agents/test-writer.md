@@ -141,9 +141,10 @@ name and by call site; a missing one blocks the red and names itself.
   `process.env.DATABASE_URL`, and the smoke test starts its own throwaway,
   migrated Postgres through the generated support beside the composition
   root: import `useAppDatabase` from `./app-test-database.test-support.ts`
-  and call `useAppDatabase()` once, **at the top level** of the file, then
-  compose the app **only inside a test or a hook** (`beforeAll`,
-  `beforeEach`), never at module scope or in a `describe` body. Green and
+  and call `useAppDatabase()` as **the first statement after the imports**,
+  then compose the app **only inside a test or a hook** (`beforeAll`,
+  `beforeEach`) registered after it, never at module scope, in a `describe`
+  body (`describe.each` included) or in a helper either of those calls. Green and
   deliver check both before anything runs (ADR 2026-072). The smoke test
   reaches the database, whose `DATABASE_URL` the support sets,
   **through the composition root**: never set, read or
