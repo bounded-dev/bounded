@@ -26,10 +26,11 @@
 // `run` does it too for a caller that calls `run` alone. The registry is the
 // one entry both hosts call, so no host can run a ts gate without it.
 //
-// Five gates can outlast a host's command limit and are marked `longRunning`:
-// deliver and the mutation measurement, which change the tree (deliver its
-// files, the measurement a mutant at a time) and so run alone, and green, red
-// and the test run, which only read it and may run alongside each other.
+// Five gates can outlast a host's command limit and are marked `longRunning`.
+// Deliver changes the tree (`writes-tree`) and the mutation measurement
+// writes a mutant at a time, so both run alone (`exclusive`); the measurement
+// puts every mutant back, so like green, red and the test run its tree must
+// not change while it runs (`reads-tree`). Those three run alongside each other.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -383,6 +384,7 @@ export const gates: readonly GateCommand[] = ([
       "Run the delivery pass after sign_off: remove the red-phase errors modules (each context's domain/shared/errors.ts) and the red gate's shadow project, check every generated file is what the design produces and no skeleton still throws NotImplementedError, check the shipped scripts/surface-check.ts is wired into the project's check, ignore runtime state under .bounded/ while preserving a committed local harness, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `bun run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if anything still imports NotImplementedError, if a generated file is out of date, or if the project's own check is red.",
     flags: [],
     longRunning: "writes-tree",
+    exclusive: true,
     async run(cwd) {
       const { runDeliver } = await import("./scripts/deliver.ts");
       return toGateResult("deliver", await runDeliver(cwd));
@@ -417,8 +419,10 @@ export const gates: readonly GateCommand[] = ([
       "A gate that blocks because a mutation-score mutant is still in a file is not the builder's to fix: it names the file and what to compare it with.",
       "Findings from it belong in sign_off: 'the suite does not hold down X' is exactly the kind of thing only you can see, and the gates cannot.",
     ],
-    // It writes a mutant into the source at a time: nothing may run beside it.
-    longRunning: "writes-tree",
+    // It writes a mutant into the source at a time, and restores each: it
+    // runs alone, and an edit by anyone else while it runs voids it.
+    longRunning: "reads-tree",
+    exclusive: true,
     async run(cwd, args) {
       const maxMutants = positiveInteger("mutation-score", cwd, args, "max-mutants");
       if (!maxMutants.ok) return maxMutants.result;

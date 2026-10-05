@@ -14,9 +14,10 @@ minutes at most) runs as a **background job** that a later call collects.
 born with their consumers (`src/gate-jobs.ts`, `src/gate-job-worker.ts`).
 `prepare` is a step whose own effects are not part of the evaluated run; a
 result from it ends the call. The ts pack declares five long gates:
-`deliver` and `mutation-score` (`writes-tree`: one changes the project's
-files, the other writes a mutant at a time) and `green-gate`, `red-gate`,
-`run-tests` (`reads-tree`). Its leftover-mutant restore (ADR 2026-070)
+`deliver` (`writes-tree`) and `mutation-score`, `green-gate`, `red-gate`,
+`run-tests` (`reads-tree`: the tree must not change while they run). Running
+alone is a separate property, `exclusive`: `deliver` and `mutation-score`
+(which writes a mutant at a time and puts each back) are exclusive. Its leftover-mutant restore (ADR 2026-070)
 is every entry's `prepare`.
 
 **Inline or detached is the host deadline's call.** Without
@@ -42,9 +43,11 @@ than the call's budget (`src/detached-job.ts`).
   result is ever read, so an abandoned run's late result is never collected.
 - **Which runs overlap.** Never two runs of one gate, in a call or in the
   background, under any mix of deadlines: a call that finds the gate running
-  in another call is refused ("running now in another call"). A `writes-tree`
+  in another call is refused ("running now in another call"); an in-call run
+  is live exactly while its process lives, whatever its age. An `exclusive`
   gate runs alone: it starts only when no other long run is live, and nothing
-  starts beside it. `reads-tree` gates run alongside each other, which keeps
+  starts beside it; a dead run whose processes live on still counts until its
+  group is stopped. The other long gates run alongside each other, which keeps
   ADR 2026-021's parallel red and `run_tests`. A refusal ran nothing: it is
   logged as the core's `job-refused` under `gate-job`, never as the gate's
   verdict, and neither the board nor the delivery snapshot hears of it. It

@@ -58,9 +58,10 @@ export const GATE_MILESTONES: readonly GateMilestone[] = ["design-frozen", "deli
 
 /** A gate whose run can outlast a host's command limit (ADR 2026-073). Under
  *  a host deadline the core runs it as a background job and answers RUNNING
- *  until a later call collects its verdict. `reads-tree`: the run only judges
- *  the tree, so a tree that changed while it ran voids it. `writes-tree`: the
- *  run changes the tree itself (delivery), and is judged over the tree it left. */
+ *  until a later call collects its verdict. `reads-tree`: the tree must not
+ *  change while it runs (it may write, as long as it puts everything back), so
+ *  a tree that changed voids it. `writes-tree`: the run changes the tree
+ *  itself (delivery), and is judged over the tree it left. */
 export type LongRunning = "reads-tree" | "writes-tree";
 export const LONG_RUNNING: readonly LongRunning[] = ["reads-tree", "writes-tree"];
 
@@ -82,6 +83,10 @@ export interface GateCommand {
   readonly promptGuidelines?: readonly string[];
   /** Run as a background job under a host deadline (ADR 2026-073). */
   readonly longRunning?: LongRunning;
+  /** A long gate that runs alone: no other long run beside it, and none
+   *  starts while it runs (it changes the project's files, even if only for
+   *  a while). Long gates without it may run alongside each other. */
+  readonly exclusive?: true;
   /**
    * A step before the run whose own effects are not part of what the run is
    * judged on (a pack putting back what an earlier, killed run left). A
@@ -126,6 +131,7 @@ export function isGateCommand(x: unknown): x is GateCommand {
       (Array.isArray(c["promptGuidelines"]) && c["promptGuidelines"].every((g) => typeof g === "string"))) &&
     (c["longRunning"] === undefined || (LONG_RUNNING as readonly unknown[]).includes(c["longRunning"])) &&
     (c["prepare"] === undefined || typeof c["prepare"] === "function") &&
+    (c["exclusive"] === undefined || c["exclusive"] === true) &&
     typeof c["run"] === "function"
   );
 }

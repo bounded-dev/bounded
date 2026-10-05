@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { jobOutput, listJobs, runOrCollect, stopJobs, type JobEvent, type JobSpec } from "./detached-job.ts";
+import { claimInline, jobOutput, listJobs, runOrCollect, stopJobs, type JobEvent, type JobSpec } from "./detached-job.ts";
 import { systemProcesses, type ProcessProbe } from "./process-lock.ts";
 
 // The core's detached, resumable job (ADR 2026-073): a run started in its own
@@ -205,4 +205,26 @@ describe("runOrCollect", () => {
     expect(inProject(cwd)).toEqual([]);
     expect(jobOutput(cwd, "test-job")).toContain("secret test output");
   });
+
+  // Re-review 1: an in-call run is live exactly while its own process lives,
+  // whatever its age: it is never judged dead by a time limit.
+  for (const exclusive of [true, false]) {
+    test(`an in-call run past its time limit still holds while its process lives (${exclusive ? "exclusive" : "reader"})`, async () => {
+      const group = { label: exclusive ? "alone" : "reader", exclusive };
+      const claim = await claimInline({ cwd, name: "in-call", key: "k", group });
+      expect(claim.ok).toBe(true);
+      try {
+        const later = () => Date.now() + 66 * 60_000;
+        // The same job, from another call: still refused.
+        const same = await runOrCollect({ cwd, name: "in-call", key: "k", argv: node(""), group }, { deadlineMs: DEADLINE, now: later });
+        expect(same.state).toBe("busy");
+        // A run that may not overlap it: still refused.
+        const other = await runOrCollect({ cwd, name: "other", key: "k", argv: node(""), group: { label: "other", exclusive: !exclusive } },
+          { deadlineMs: DEADLINE, now: later });
+        expect(other.state).toBe("busy");
+      } finally {
+        if (claim.ok) claim.release();
+      }
+    });
+  }
 });

@@ -348,7 +348,9 @@ function lifeOf(dir: string, record: JobRecord, judge: Judge): Life {
   // started it (a long-lived host process) still has a start time.
   const exited = ours && judge.probe === systemProcesses && zombie(record.pid);
   if (ours && !exited) {
-    return pastLimit ? { kind: "dead", reason: "timed-out", provable: !record.inline } : { kind: "alive" };
+    // An in-call run is live exactly while its own process lives, whatever its age.
+    if (record.inline === true) return { kind: "alive" };
+    return pastLimit ? { kind: "dead", reason: "timed-out", provable: true } : { kind: "alive" };
   }
   // Gone, exited, or its pid now belongs to another process. It may have finished in between.
   if (finished()) return { kind: "finished" };
@@ -391,7 +393,8 @@ function blocker(cwd: string, name: string, group: JobGroup, judge: Judge): RunH
     if (record?.group === undefined || record.failed !== undefined) continue;
     if (!group.exclusive && !record.group.exclusive) continue;
     const life = lifeOf(join(root, entry.name), record, judge);
-    if (life.kind === "alive" || life.kind === "unverifiable") return holderOf(entry.name, record);
+    // A dead run whose processes live on holds until its group is stopped.
+    if (life.kind === "alive" || life.kind === "unverifiable" || (life.kind === "dead" && life.provable)) return holderOf(entry.name, record);
   }
   return undefined;
 }

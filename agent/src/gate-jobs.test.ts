@@ -156,7 +156,7 @@ describe("a long gate under a host deadline", () => {
     expect(runs()).toEqual(["slow"]);
   }, 30_000);
 
-  test("one live long-gate run per project", async () => {
+  test("a gate that runs alone waits for a reader's background run to be collected", async () => {
     deadline();
     expect((await call(["slow", "--ms", "3000"])).code).toBe(3);
     const refused = await call(["slow2", "--ms", "100"]);
@@ -479,4 +479,28 @@ describe("which long runs may overlap", () => {
       expect(text, file).not.toMatch(/TypeScript|\bBun\b|Docker|Postgres|Testcontainers|container engine|vitest/i);
     }
   });
+
+  // Re-review 2: a measurement restores every mutant it writes, so an edit by
+  // anyone else during its run voids its result, as for a reader.
+  test("an edit during a run of a gate that runs alone and reads the tree is a BLOCK, not a verdict", async () => {
+    deadline();
+    expect((await call(["measure", "--ms", "3000"])).code).toBe(3);
+    await until(() => existsSync(join(root, "measure-started")));
+    appendFileSync(join(project, "src", "a.txt"), "edited mid-run\n");
+    const result = await poll(["measure", "--ms", "3000"]);
+    expect(result.code).toBe(1);
+    expect(result.text).toMatch(/changed while measure ran/);
+  }, 30_000);
+
+  // Re-review 3: a dead exclusive run whose commands live on still holds the project.
+  test("a dead exclusive run whose processes live on still keeps others out", async () => {
+    deadline();
+    expect((await call(["slow2", "--ms", "30000"])).code).toBe(3);
+    const runner = startedPids(project).at(-1)!;
+    process.kill(runner, "SIGKILL"); // the runner alone: its worker lives on in the group
+    await until(() => !alive(runner));
+    const refused = await call(["slow", "--ms", "100"]);
+    expect(refused.code).toBe(2);
+    expect(refused.text).toMatch(/slow2/);
+  }, 20_000);
 });

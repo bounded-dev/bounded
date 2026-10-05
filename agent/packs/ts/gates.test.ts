@@ -250,8 +250,7 @@ describe("background jobs", () => {
       "green-gate": "reads-tree",
       "red-gate": "reads-tree",
       "run-tests": "reads-tree",
-      // It writes mutants into the tree, so it runs alone (review ruling on the slot).
-      "mutation-score": "writes-tree",
+      "mutation-score": "reads-tree",
     });
   });
 
@@ -296,5 +295,13 @@ describe("background jobs", () => {
     const text = result.lines.join("\n");
     expect(text).not.toMatch(/timeout of at least/);
     expect(text).toMatch(/smaller --timeout-ms/);
+  });
+
+  // Re-review: running alone and a tree that must not change are two properties.
+  test("deliver and mutation-score run alone; only deliver may change the tree it is judged on", () => {
+    const alone = gates.filter((g) => g.exclusive === true).map((g) => g.name).sort();
+    expect(alone).toEqual(["deliver", "mutation-score"]);
+    expect(gates.find((g) => g.name === "mutation-score")?.longRunning).toBe("reads-tree");
+    expect(gates.find((g) => g.name === "deliver")?.longRunning).toBe("writes-tree");
   });
 });

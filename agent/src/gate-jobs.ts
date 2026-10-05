@@ -22,8 +22,10 @@
 // the core's record (`job-refused`), never the gate's verdict.
 //
 // Which long runs may overlap, in a call or in the background: never two runs
-// of one gate; a `writes-tree` gate (it changes the project's files) runs
-// alone; `reads-tree` gates run alongside each other (ADR 2026-021). A
+// of one gate; an `exclusive` gate (it changes the project's files, for good
+// or for a while) runs alone; the others run alongside each other (ADR
+// 2026-021). Whether a run must leave the tree as it found it is its own
+// property (`longRunning`), independent of whether it runs alone. A
 // refusal names what is running in the calling role's own terms: a gate the
 // role cannot call is never offered to it.
 
@@ -206,7 +208,7 @@ async function longRun(
   const deadlineMs = commandTimeoutMs(env);
   const spec: JobSpec = {
     cwd, name: gateJobName(gate.name), key: gateJobKey(gate.name, args),
-    group: { label: gate.name, exclusive: gate.longRunning === "writes-tree", ...(gate.tool !== undefined ? { tool: gate.tool } : {}) },
+    group: { label: gate.name, exclusive: gate.exclusive === true, ...(gate.tool !== undefined ? { tool: gate.tool } : {}) },
     argv: [process.execPath, WORKER, packs, cwd, gate.name, JSON.stringify(args)],
     tree: treeFingerprint(cwd, packs),
     meta: { gate: gate.name, packsDir: packs },

@@ -31,14 +31,23 @@ export const gates = [
   slow("slow"),
   slow("slow3"),
   // Runs alone, as a gate that changes the tree does (review ruling on the slot).
-  { ...slow("slow2"), longRunning: "writes-tree" },
+  { ...slow("slow2"), exclusive: true },
   {
     name: "writer", longRunning: "reads-tree", description: "Write into the tree it judges.", flags: [],
     async run(cwd: string) { await sleep(1500); writeFileSync(join(cwd, "out.txt"), "written"); return passed(cwd, "writer", ["writer: done"]); },
   },
   {
-    name: "shipper", longRunning: "writes-tree", milestone: "delivered", description: "Change the tree, then pass.", flags: [],
+    name: "shipper", longRunning: "writes-tree", exclusive: true, milestone: "delivered", description: "Change the tree, then pass.", flags: [],
     async run(cwd: string) { writeFileSync(join(cwd, "shipped.txt"), "shipped"); await sleep(1500); return passed(cwd, "shipper", ["shipper: done"]); },
+  },
+  {
+    // As a measurement does: it runs alone, and its tree must not change under it.
+    name: "measure", longRunning: "reads-tree", exclusive: true, description: "Measure, alone.", flags: [MS],
+    async run(cwd: string, args: Record<string, unknown>) {
+      writeFileSync(join(cwd, "..", "measure-started"), "started");
+      await sleep(typeof args.ms === "number" ? args.ms : 0);
+      return passed(cwd, "measure", ["measure: done"]);
+    },
   },
   {
     name: "prepped", longRunning: "reads-tree", description: "Prepared before its run.", flags: [],
