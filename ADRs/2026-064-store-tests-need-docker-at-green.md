@@ -35,7 +35,11 @@ skipped results the policy claims (the `Drizzle<Port>Store` blocks); green
 removes the variables, refuses when a runtime is needed and absent, and
 refuses any skipped or todo result.
 
-**Amendment — the green run's application database.** Apps persist through
+**Amendment — the green run's application database (superseded by ADR
+2026-072: the gates start no database; each persisting app's smoke tests
+start their own through the generated `app-test-database.test-support.ts`,
+required by the `drizzle-app-database` obligation; green and the build run
+remove any inherited `DATABASE_URL` from the test process).** Apps persist through
 Drizzle, and their composition roots connect to `process.env.DATABASE_URL`,
 so the app smoke tests need a migrated Postgres too. A policy decision to run
 may carry `prepare`, which returns a `PreparedTestService` (environment plus
@@ -60,11 +64,15 @@ has its own timeout; the child removes its container through Testcontainers'
 own client, and the parent sweeps the run's label on the runtime the child
 reported, again after a grace period if it was killed. Failure refuses green,
 mutation score and deliver's check with the cleaned cause and a remedy,
-routed to the orchestrator. As a backstop, a run decision may carry
+routed to the user since ADR 2026-072 (in product terms, no command). As a backstop, a run decision may carry
 `infrastructureFailure`: it claims only text Docker or Testcontainers produce,
 and green routes to the orchestrator only when every failure is claimed;
 otherwise the route stays the code's, with the machine's causes as a note.
-Mutation score refuses a run the machine failed rather than count mutants
+Since ADR 2026-072 the probe asks for the engine's version after its ping
+(a hung engine is refused within seconds, routed to the user), the preflight
+also covers persisting apps' smoke tests, and each of its stages fits the
+call's remaining budget, the pull on a stall clock re-armed by Testcontainers'
+own progress. Mutation score refuses a run the machine failed rather than count mutants
 killed. Known limit: deliver's check runs `bun run check` as text, so it
 gets the preflight but not the backstop. The core learns no technology: the
 patterns are the pack's (`testcontainers-preflight.ts`).
@@ -79,7 +87,7 @@ refusal. `run_tests` starts what the policies prepare, prints each
 exclusion's reason before the results, and logs the excluded files. A service
 that cannot start is an error with its reason, and nothing runs. At build the
 Postgres pack does what green does where it can: the Testcontainers preflight
-for store tests, then the throwaway migrated database as `DATABASE_URL`.
+(since ADR 2026-072 there is no gate database to start).
 Without a container runtime, or while a Drizzle context has no committed
 migration yet, it leaves the store tests and the app smoke tests out, naming
 the cause and that green runs them. Exclusion is by file list, never through

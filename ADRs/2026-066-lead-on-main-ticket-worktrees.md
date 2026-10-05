@@ -31,8 +31,10 @@ refuses when the ticket owns a contract path that overlaps one owned by
 another started ticket. Otherwise it creates the ticket's worktree and branch
 (`.bounded/worktrees/<n>`, `ticket/<n>`), installs dependencies, prepares the
 run and leaves one pending launch for the ticket's architect. If any step
-fails, it removes the worktree and branch. `merge` fetches and refuses unless `main` is
-level with `origin/main`. It commits the delivered work, merges with
+fails, it removes the worktree and branch. `merge` fetches, fast-forwards a
+clean `main` that is strictly behind `origin/main` and re-reads it, and
+refuses a diverged `main` in product terms (amended by ADR 2026-072).
+`sync-config` joins the lead's commands (ADR 2026-072). It commits the delivered work, merges with
 `--no-ff` and refuses on any conflict. It runs the packs' `projectCheckCommands`
 on `main` and undoes the merge if they fail. Only then does it push without
 force, close the issue and remove the worktree.

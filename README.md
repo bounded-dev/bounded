@@ -85,8 +85,8 @@ project's check and pushes. The `lead_*` tools do the same on pi.
 The project's configuration (every package manifest, the lockfile, compiler
 config) is generated from the selected capabilities and the design, and no
 agent may edit it. The gates refuse when it differs from what the
-capabilities generate. Restore it yourself with
-`bash .bounded/harness/scripts/bounded sync-config`.
+capabilities generate. The team lead restores it in the ticket's worktree
+once you agree, and reinstalls the dependencies from the lockfile.
 
 The initializer refuses an existing project before writing files. Today it
 initializes a TypeScript project built with Bun: a monorepo of bounded

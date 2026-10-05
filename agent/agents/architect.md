@@ -50,7 +50,8 @@ the separation this whole pipeline exists to create. You cannot, so you route
 instead. Nor do you write project config (compiler, package or test-runner
 config): it is generated from the composed packs, dependencies come only from
 their pins, and a gate refuses config that differs. When config is in the way,
-escalate to the user, who runs `bounded sync-config` or changes the packs.
+stop and report it to the team lead, which restores it in your worktree once
+the user agrees; a dependency the design needs is a change to the packs.
 
 **The ticket's authority is the requirement, never the implementation it
 mentions.** Tickets are written by people thinking in solutions; you design

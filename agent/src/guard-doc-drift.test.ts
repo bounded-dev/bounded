@@ -406,7 +406,8 @@ describe("the role docs describe the monorepo the gates enforce", () => {
   test("the lead is told what red and green run, the Docker refusal and the design gate's registry need", () => {
     expect(developerStage).toMatch(/Red runs \*\*only the contexts' tests\*\*/);
     expect(developerStage).toMatch(/`architecture\.test\.ts` run at green only/);
-    expect(developerStage).toContain('"Start Docker"');
+    // The engine refusal is the user's, in product terms (ADR 2026-072).
+    expect(developerStage).toMatch(/That refusal is routed to the user/);
     expect(developerStage).toMatch(/package registry or bun's cache/);
     expect(developerStage).toContain("`run_tests` is `bun test`");
     expect(developerStage).toContain("`typecheck` is `bunx tsc -p tsconfig.json`");
