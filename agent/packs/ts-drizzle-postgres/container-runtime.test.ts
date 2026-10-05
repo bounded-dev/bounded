@@ -171,22 +171,26 @@ describe("an engine that answers a ping but nothing else (issue #52)", () => {
     expect(refused.action).toBe("refuse");
     expect(preflights).toBe(0);
 
-    // A persisting tree with no store tests: whatever it prepares starts no
-    // database of the gate's own (the app smoke tests start their own).
-    const docker: string[][] = [];
+    // A persisting tree with no store tests: what it prepares is only the
+    // preflight over the smoke tests, and the service it hands the run sets
+    // no database of the gate's own (the app smoke tests start their own).
+    // (Final review of #52, minor 6: the former docker spy was never
+    // reachable; this observes what prepare actually starts.)
+    const prepared: string[][] = [];
     const options = {
       phase: "green" as const,
       storeTests: [],
       smokeTests: ["apps/web/src/server/composition-root.test.ts"],
       persists: true,
       probe: () => ({ available: true as const, endpoint: "unix:///run/docker.sock" }),
-      preflight: async () => nothing(),
-      docker: (args: readonly string[]) => { docker.push([...args]); },
+      preflight: async (_endpoint: string, _env: unknown, files: readonly string[]) => { prepared.push([...files]); return nothing(); },
     };
     const persisting = storeTestPhaseDecision(options);
     expect(persisting.action).toBe("run");
-    if (persisting.action === "run" && persisting.prepare !== undefined) await persisting.prepare({ set: {}, unset: [] });
-    expect(docker.filter((args) => args[0] === "run")).toEqual([]);
+    if (persisting.action !== "run" || persisting.prepare === undefined) throw new Error("expected a run that prepares");
+    const service = await persisting.prepare({ set: {}, unset: [] });
+    expect({ prepared, env: service.env, unsetsDatabase: persisting.unsetEnv.includes("DATABASE_URL") })
+      .toEqual({ prepared: [["apps/web/src/server/composition-root.test.ts"]], env: {}, unsetsDatabase: true });
   });
 });
 
