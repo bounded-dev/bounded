@@ -192,6 +192,13 @@ export interface LeadDeps {
    *  worktree's `.bounded/harness/packs`): the project check's commands
    *  (`projectCheckCommands`) and the config sync. */
   readonly packsDir?: string;
+  /** How a merge check's background run is judged and stopped (the test seam:
+   *  its clock, its signals and how long each signal is given). */
+  readonly jobs?: {
+    readonly now?: () => number;
+    readonly kill?: (pid: number, signal: NodeJS.Signals | 0) => boolean;
+    readonly graceMs?: number;
+  };
 }
 
 /** The lock every lead command holds in the main worktree, so no two interleave. */
@@ -431,11 +438,12 @@ async function release(main: string, issueNumber: number, force: boolean, deps: 
     if (merged === undefined && gitOut(deps, main, "rev-parse", "-q", "--verify", "MERGE_HEAD") !== undefined) git(deps, main, "merge", "--abort");
     const head = gitOut(deps, main, "rev-parse", "HEAD");
     if (merged === undefined && head !== undefined && head !== record.local && isMergeOf(main, deps, head, record.local, record.branchHead)) merged = head;
-    if (merged === undefined ? head !== record.local : head !== merged) {
+    if (head !== record.local && (merged === undefined || head !== merged)) {
       return refused(`#${issueNumber}'s merge is on the main line, which has moved off it, and the harness cannot undo it; this is a harness bug, ` +
         "so release leaves the merge, its record and its check as they are");
     }
-    if (merged !== undefined) mergeToUndo = { ...record, merged };
+    // At the recorded commit already, the merge is undone: only the record is settled.
+    if (merged !== undefined && head === merged) mergeToUndo = { ...record, merged };
   }
   const seat = architectStatus(ticket.worktree, probe);
   const workers = backgroundWorkers(readGuardLog(ticket.worktree), probe);
@@ -457,7 +465,7 @@ async function release(main: string, issueNumber: number, force: boolean, deps: 
   // The background runs first: a merge is undone only once its check is stopped.
   const stopped = [
     await stopJobs(ticket.worktree, { force: true }),
-    await stopJobs(main, { force: true, names: [mergeJobName(issueNumber)] }),
+    await stopJobs(main, { force: true, names: [mergeJobName(issueNumber)], ...(deps.jobs ?? {}) }),
   ];
   const stuck = stopped.flatMap((r) => r.stuck);
   if (stuck.length > 0) {
@@ -980,14 +988,19 @@ async function resumeMerge(
   // Whether a push already landed.
   const fetched = git(deps, main, "fetch", REMOTE, MAIN_BRANCH);
   if (fetched.status !== 0) return refused(`git fetch failed: ${tail(fetched.stderr, 5)}`);
+  if (record.merged === undefined && gitOut(deps, main, "rev-parse", "-q", "--verify", "MERGE_HEAD") !== undefined) {
+    git(deps, main, "merge", "--abort");
+  }
+  const head = gitOut(deps, main, "rev-parse", "HEAD");
+  // Main at the recorded commit: nothing is merged (or the merge is undone
+  // already). Any check of it is stopped, then the merge is made again.
+  if (head === record.local) {
+    const stopped = await stopJobs(main, { force: true, names: [mergeJobName(issueNumber)], ...(deps.jobs ?? {}) });
+    if (stopped.stuck.length > 0) return refused(stuckCheck(issueNumber));
+    return remerge(main, ticket, record, deps, tracker, startedAt);
+  }
   let merged = record.merged;
   if (merged === undefined) {
-    if (gitOut(deps, main, "rev-parse", "-q", "--verify", "MERGE_HEAD") !== undefined) git(deps, main, "merge", "--abort");
-    const head = gitOut(deps, main, "rev-parse", "HEAD");
-    if (head === record.local) {
-      writeStartedTicket(main, settled(ticket));
-      return merge(main, issueNumber, deps, tracker, startedAt);
-    }
     if (head === undefined || !isMergeOf(main, deps, head, record.local, record.branchHead)) {
       return refused(`the main line is not where #${issueNumber}'s interrupted merge left it, and the harness cannot tell what happened, ` +
         "so it touched nothing; this is a harness bug");
@@ -1002,9 +1015,36 @@ async function resumeMerge(
   return checkMerged(main, { ...ticket, merging: adopted }, adopted, deps, tracker, startedAt);
 }
 
-/** Undo a merge, only while main is still at its commit. */
+/** Make a recorded merge again from the recorded commit: its delivered work is
+ *  already committed on the branch, which must still be at the recorded head. */
+async function remerge(
+  main: string, ticket: StartedTicket, record: MergeRecord, deps: LeadDeps, tracker: Tracker, startedAt: number,
+): Promise<LeadOutcome> {
+  const issueNumber = ticket.issue;
+  const fresh = settled(ticket);
+  writeStartedTicket(main, fresh);
+  if (gitOut(deps, main, "rev-parse", ticket.branch) !== record.branchHead) {
+    return refused(`#${issueNumber}'s branch moved since its merge was recorded; its architect reruns deliver before it merges`);
+  }
+  if ((gitOut(deps, main, "status", "--porcelain", "--untracked-files=no") ?? "x") !== "") {
+    return refused(`${MAIN_BRANCH} has uncommitted changes; it must be clean to merge`);
+  }
+  return mergeFrom(main, fresh, ticket.title, { local: record.local, branchHead: record.branchHead }, deps, tracker, startedAt);
+}
+
+const stuckCheck = (issueNumber: number): string =>
+  `#${issueNumber}'s project check could not be stopped, so the merge stays as it is on local ${MAIN_BRANCH} and nothing is pushed; ` +
+  "this is a harness bug";
+
+/** Undo a merge, only while main is still at its commit; a main already back
+ *  at the recorded commit is a merge already undone. */
 function undoMerge(main: string, ticket: StartedTicket, record: MergeRecord, deps: LeadDeps, why: string): LeadOutcome {
-  if (gitOut(deps, main, "rev-parse", "HEAD") !== record.merged) return refused(movedOff(ticket.issue));
+  const head = gitOut(deps, main, "rev-parse", "HEAD");
+  if (head === record.local) {
+    writeStartedTicket(main, settled(ticket));
+    return refused(`${why}; the merge was already undone and ${MAIN_BRANCH} is at ${record.local.slice(0, 12)}`);
+  }
+  if (head !== record.merged) return refused(movedOff(ticket.issue));
   git(deps, main, "reset", "--hard", record.local);
   writeStartedTicket(main, settled(ticket));
   return refused(`${why}; the merge was undone and ${MAIN_BRANCH} is back at ${record.local.slice(0, 12)}`);
@@ -1026,7 +1066,7 @@ async function checkMerged(
   const deadlineMs = commandTimeoutMs(process.env);
   const answer: JobAnswer = await runOrCollect(
     { cwd: main, name, key: `merge #${issueNumber} at ${String(record.merged)}`, sequence: commands },
-    { startedAt, ...(deadlineMs !== undefined ? { deadlineMs } : {}) },
+    { startedAt, ...(deadlineMs !== undefined ? { deadlineMs } : {}), ...(deps.jobs ?? {}) },
   );
   if (answer.state === "running") {
     // The board hears of the check once, when it starts or restarts.
@@ -1039,6 +1079,8 @@ async function checkMerged(
       `Run bounded lead merge ${issueNumber} again to collect it${pending !== undefined ? `; ${pending}` : ""}`);
   }
   if (answer.state !== "done") return refused(`#${issueNumber}'s project check could not be started; this is a harness bug`);
+  // A check that could not be stopped may still run over the merge: never undo under it.
+  if (answer.outcome.failure === "stuck") return refused(stuckCheck(issueNumber));
   // Collected only over the merge itself.
   if (gitOut(deps, main, "rev-parse", "HEAD") !== record.merged) return refused(movedOff(issueNumber));
   const outcome = answer.outcome;

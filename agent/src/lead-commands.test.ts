@@ -1053,4 +1053,46 @@ describe("a merge whose check outlasts the call", () => {
     expect(out.ok).toBe(false);
     expect(out.text).toMatch(/green-gate/);
   }, 30_000);
+
+  // Review minor 4: a main already back at the recorded commit is a merge
+  // already undone; the record is settled and the merge can start afresh.
+  test("a main already reset to the pre-merge commit settles the record; merge and release go on", async () => {
+    const n = await delivered();
+    const before = git(main, "rev-parse", "main");
+    checkWith({ ms: 3000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    git(main, "reset", "-q", "--hard", before);
+    const out = await pollMerge(n);
+    expect(out.ok, out.text).toBe(true);
+    expect(git(origin, "rev-parse", "main")).toBe(git(main, "rev-parse", "main"));
+
+    const m = await delivered("B", ["contexts/b/"]);
+    const beforeB = git(main, "rev-parse", "main");
+    checkWith({ ms: 30_000 });
+    expect((await lead(["merge", String(m)])).running).toBe(true);
+    git(main, "reset", "-q", "--hard", beforeB);
+    const release = await lead(["release", String(m), "--force"]);
+    expect(release.ok, release.text).toBe(true);
+    expect(phase(m)).not.toBe("merging");
+    expect(git(main, "rev-parse", "main")).toBe(beforeB);
+  }, 90_000);
+
+  // Review minor 5: a check that could not be stopped still runs over the
+  // merge, so the merge is not undone under it.
+  test("a check that could not be stopped leaves the merge in place, as a harness bug", async () => {
+    const n = await delivered();
+    checkWith({ ms: 30_000 });
+    deadline();
+    expect((await lead(["merge", String(n)])).running).toBe(true);
+    const merged = git(main, "rev-parse", "HEAD");
+    const stuck: LeadDeps = { ...deps(), jobs: { now: () => Date.now() + 66 * 60_000, kill: () => true, graceMs: 200 } };
+    const out = await runLeadCommand(main, { command: "merge", issue: n }, stuck);
+    expect(out.ok).toBe(false);
+    expect(out.text).toMatch(/could not be stopped/);
+    expect(out.text).toMatch(/harness bug/);
+    expect(out.text).not.toMatch(/the merge was undone/);
+    expect(git(main, "rev-parse", "HEAD")).toBe(merged);
+    expect(phase(n)).toBe("merging");
+  }, 60_000);
 });
