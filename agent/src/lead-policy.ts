@@ -28,7 +28,17 @@ export const LEAD_COMMAND_TOOLS: Readonly<Record<string, string>> = {
   reply: "lead_reply",
   merge: "lead_merge",
   board: "lead_board",
+  "sync-config": "lead_sync_config",
 };
+
+/**
+ * The only commands the harness ever asks a project's user to run (AGENTS.md,
+ * "A project's user never runs harness steps"; ADR 2026-072). Each clears
+ * state the harness cannot prove is safe to clear, and every message naming
+ * one says so. Any other step a refusal or a brief would hand the user is a
+ * harness bug.
+ */
+export const USER_RECOVERY_COMMANDS: readonly string[] = Object.freeze(["bounded lead release"]);
 /** Every lead-only tool: a seat that is not the lead never holds one. */
 export const LEAD_TOOLS: readonly string[] = [...Object.values(LEAD_COMMAND_TOOLS), LEAD_SETUP_TOOL, LEAD_REPLAN_TOOL];
 

@@ -3,13 +3,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readProjectPacks } from "../src/project-composition.ts";
 import { composedPacks } from "./installed.ts";
 
-export function commandScript(cwd: string, command: string): string {
-  const registry = composedPacks(cwd);
-  const root = dirname(fileURLToPath(import.meta.url));
+/**
+ * The script of the one composed pack that provides `command`. By default the
+ * packs are this harness's own, in composition order; with `packsDir` they
+ * are read, as data, from that directory (a project's `.bounded/harness/packs`,
+ * the source the lead's commands read every socket from).
+ */
+export function commandScript(cwd: string, command: string, packsDir?: string): string {
+  const packs = packsDir === undefined ? composedPacks(cwd).packs : readProjectPacks(cwd);
+  const root = packsDir ?? dirname(fileURLToPath(import.meta.url));
   const matches: string[] = [];
-  for (const pack of registry.packs) {
+  for (const pack of packs) {
     const directory = join(root, pack);
     const manifestPath = join(directory, "contrib.json");
     let manifest: unknown;
@@ -47,6 +54,17 @@ export function runProjectCommand(command: string, cwd: string, args: readonly s
   const script = commandScript(cwd, command);
   const result = spawnSync(process.execPath, [script, cwd, ...args], { cwd, stdio: "inherit" });
   return result.status ?? 1;
+}
+
+/** Run a project command as `runProjectCommand` does, capturing its output
+ *  instead of inheriting the terminal: for a caller that reports it. */
+export function captureProjectCommand(
+  command: string, cwd: string, args: readonly string[] = [], packsDir?: string,
+): { readonly ok: boolean; readonly output: string } {
+  const script = commandScript(cwd, command, packsDir);
+  const result = spawnSync(process.execPath, [script, cwd, ...args], { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}${result.error !== undefined ? result.error.message : ""}`.trim();
+  return { ok: result.status === 0, output };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

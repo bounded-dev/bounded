@@ -10,6 +10,8 @@
 //   (deliver gate)  passes in the ticket worktree (board-sync.ts)     → Awaiting Merge
 //   merge           local merge, project check, push, close           → Done
 //   status, reply   read the architects' state, answer one architect
+//   sync-config     restore a ticket's generated config in its worktree,
+//                   once the user agrees; Awaiting Merge → Building
 //
 // Every host reaches these through `parseLeadArgs`, so the accepted shapes
 // cannot drift between the shell form and a host's tools. Everything with a
@@ -32,7 +34,7 @@ import { logGuardEvent, readGuardLog } from "./guard-log.ts";
 import { prepareLeadRun } from "./lead-run.ts";
 import { backgroundWorkers, isProjectLocalHarness, LEAD_GUARD, preparedTicket, readRunLog, SEAT_RELEASED } from "./lead-state.ts";
 import { planModelTier } from "./model-tier.ts";
-import { contributionsByPack } from "./pack-contrib.ts";
+import { contributionsByPack, projectConfigSyncCommand } from "./pack-contrib.ts";
 import { readProjectPacks } from "./project-composition.ts";
 import { dependenciesReady, HARNESS_RELATIVE, INSTALLATION_RELATIVE, type SetupResult } from "./setup-state.ts";
 import {
@@ -77,14 +79,18 @@ export const LEAD_COMMANDS: readonly LeadCommandSpec[] = [
   { name: "merge", usage: "bounded lead merge <issue>", summary: "Merge a delivered ticket into local main, run the project's check, push main and close the ticket; it moves to Done." },
   { name: "board", usage: "bounded lead board <retry|discard>", summary: "Try again, or set aside for good, the board updates that kept failing and were quarantined; status lists them." },
   {
+    name: "sync-config", usage: "bounded lead sync-config <issue>",
+    summary: "Only after the user agrees: restore a started ticket's generated project config (package manifests, lockfile, installed dependencies) in its own worktree; a delivered ticket reopens to Building until deliver passes again.",
+  },
+  {
     name: "release", usage: "bounded lead release <issue> [--force]", userOnly: true,
-    summary: "For the user, never the lead: clear all of a stuck ticket's seat state — its architect seat, background-worker blocks, launch claim and pending reply — once its recorded processes are gone, or with --force.",
+    summary: "For the user, never the lead: clear all of a stuck ticket's seat state — its architect seat, background-worker blocks, launch claim and pending reply — once its recorded processes are gone, or with --force. It is the user's because the harness cannot prove a seat's session is gone.",
   },
 ];
 
 export type LeadRequest =
   | { readonly command: "ticket-create"; readonly fields: TicketFields }
-  | { readonly command: "queue" | "start" | "merge"; readonly issue: number }
+  | { readonly command: "queue" | "start" | "merge" | "sync-config"; readonly issue: number }
   | { readonly command: "status" }
   | { readonly command: "reply"; readonly issue: number; readonly message: string }
   | { readonly command: "board"; readonly action: "retry" | "discard" }
@@ -125,7 +131,7 @@ export function parseLeadArgs(args: readonly string[]): ParsedLead {
   const [first, ...rest] = args;
   if (first === "ticket" && rest[0] === "create") return parseTicketCreate(rest.slice(1));
   if (first === "status") return rest.length === 0 ? { ok: true, request: { command: "status" } } : { ok: false, reason: usageOf("status") };
-  if (first === "queue" || first === "start" || first === "merge") {
+  if (first === "queue" || first === "start" || first === "merge" || first === "sync-config") {
     const issue = rest.length === 1 ? parseIssueRef(rest[0]!) : undefined;
     return issue === undefined ? { ok: false, reason: usageOf(first) } : { ok: true, request: { command: first, issue } };
   }
@@ -173,6 +179,12 @@ export interface LeadDeps {
   readonly processes?: ProcessProbe;
   /** Whether a worktree's dependencies are installed (default: the setup probes). */
   readonly ready?: (worktree: string) => boolean;
+  /** Restore a ticket worktree's generated config (default: the composed
+   *  `projectConfigSyncCommand`, run from {@link LeadDeps.packsDir}). */
+  readonly syncConfig?: (worktree: string) => { readonly ok: boolean; readonly output: string } | Promise<{ readonly ok: boolean; readonly output: string }>;
+  /** Where the lead reads pack data and scripts (default: the main
+   *  worktree's `.bounded/harness/packs`, the source the project check uses). */
+  readonly packsDir?: string;
 }
 
 /** The lock every lead command holds in the main worktree, so no two interleave. */
@@ -201,6 +213,22 @@ export function projectCheck(cwd: string): { readonly ok: boolean; readonly outp
     if (run.status !== 0) return { ok: false, output: outputs.join("\n") };
   }
   return { ok: true, output: outputs.join("\n") };
+}
+
+/**
+ * The default config sync, run in a ticket's worktree: the one composed
+ * pack's `projectConfigSyncCommand` (ADR 2026-072), its script read from the
+ * same packs directory as the socket, its output captured. Any refusal —
+ * no such command, more than one, a malformed one — comes back as the output.
+ */
+export async function syncTicketConfig(worktree: string, packsDir: string): Promise<{ readonly ok: boolean; readonly output: string }> {
+  try {
+    const { command } = projectConfigSyncCommand(readProjectPacks(worktree), packsDir);
+    const { captureProjectCommand } = await import("../packs/command.ts");
+    return captureProjectCommand(command, worktree, [], packsDir);
+  } catch (error) {
+    return { ok: false, output: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /** The production dependencies, with the installation's tracker opened by `tracker`. */
@@ -332,6 +360,7 @@ async function dispatch(main: string, request: LeadRequest, deps: LeadDeps, trac
     case "reply": return reply(main, request.issue, request.message, deps, tracker);
     case "merge": return merge(main, request.issue, deps, tracker);
     case "board": return boardQuarantine(main, request.action, tracker);
+    case "sync-config": return syncConfig(main, request.issue, deps, tracker);
     case "release": return release(main, request.issue, request.force, deps);
 
   }
@@ -393,7 +422,8 @@ function release(main: string, issueNumber: number, force: boolean, deps: LeadDe
       ...workers.map((w) => `worker ${w.worker}`),
       ...(claimLive ? ["an architect launch under way"] : []),
     ];
-    return refused(`#${issueNumber} still has ${what.join(", ")} recorded as running in a live session; if you are sure it is stuck, run bounded lead release ${issueNumber} --force`);
+    return refused(`#${issueNumber} still has ${what.join(", ")} recorded as running in a live session, and the harness cannot prove ` +
+      `it has stopped; if you are sure it is stuck, run bounded lead release ${issueNumber} --force`);
   }
   clearArchitectState(ticket.worktree);
   logGuardEvent(ticket.worktree, {
@@ -643,7 +673,8 @@ async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<L
         (architect.kind === "running" && architect.unrecognised === true) ||
         backgroundWorkers(readGuardLog(ticket.worktree), deps.processes ?? systemProcesses).length > 0 ||
         (pending?.issue === ticket.issue && pending.claimedBy !== undefined)) {
-      lines.push(`  if it stays stuck, the user (not the lead) can clear its seat with bounded lead release ${ticket.issue}`);
+      lines.push(`  if it stays stuck, the user (not the lead) can clear its seat with bounded lead release ${ticket.issue}: ` +
+        "the harness cannot prove its session is gone, so clearing it is the user's call");
     }
   }
   return done(`started tickets:\n${lines.join("\n")}`);
@@ -683,6 +714,59 @@ async function reply(main: string, issueNumber: number, message: string, deps: L
   return done(`#${issueNumber}'s reply is ready${reopen ? "; the ticket is reopened to Building until deliver passes again" : ""}. ${host.replyInstruction(pendingReply)}`);
 }
 
+/**
+ * Bring the local main level with the fetched remote, or say why not: a
+ * clean main that is strictly behind is fast-forwarded (`--ff-only`); a main
+ * holding commits the remote lacks is refused in product terms (issue #55
+ * tracks combining them). Undefined when main is level.
+ */
+function bringLevel(main: string, deps: LeadDeps): string | undefined {
+  const local = gitOut(deps, main, "rev-parse", MAIN_BRANCH);
+  const remote = gitOut(deps, main, "rev-parse", `${REMOTE}/${MAIN_BRANCH}`);
+  if (local === undefined || remote === undefined) return `${MAIN_BRANCH} or ${REMOTE}/${MAIN_BRANCH} cannot be read`;
+  if (local === remote) return undefined;
+  if (git(deps, main, "merge-base", "--is-ancestor", local, remote).status !== 0) {
+    return `the main line holds work the harness did not make, and the harness cannot combine it safely with ${REMOTE}/${MAIN_BRANCH}; ` +
+      "this is a harness gap (#55), and nothing was merged";
+  }
+  const forwarded = git(deps, main, "merge", "--ff-only", `${REMOTE}/${MAIN_BRANCH}`);
+  if (forwarded.status !== 0) return `${MAIN_BRANCH} could not be brought level with ${REMOTE}/${MAIN_BRANCH}: ${tail(`${forwarded.stdout}${forwarded.stderr}`, 5)}`;
+  return undefined;
+}
+
+/**
+ * Restore a started ticket's generated config in its own worktree (ADR
+ * 2026-072), the lead's step once the user agrees: never while its architect
+ * or a background worker may still change that tree. A delivered ticket is
+ * reopened to Building first, as a reply does, because the sync may change
+ * what deliver passed on.
+ */
+async function syncConfig(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
+  const ticket = readStartedTicket(main, issueNumber);
+  if (ticket === undefined) return refused(`#${issueNumber} is not started; its config lives in its worktree, which start creates`);
+  if (ticket.phase === "starting") return refused(`#${issueNumber}'s start did not finish; run bounded lead start ${issueNumber} first`);
+  const probe = deps.processes ?? systemProcesses;
+  const architect = architectStatus(ticket.worktree, probe);
+  if (architect.kind === "running") return refused(`#${issueNumber}'s architect is still running; restore its config once its turn stops`);
+  const held = backgroundWorkers(readGuardLog(ticket.worktree), probe);
+  if (held.length > 0) {
+    return refused(`#${issueNumber} still has ${held.map((w) => `worker ${w.worker}`).join(", ")} running in the background; restore its config once it stops`);
+  }
+  const issue = tracker.viewIssue(issueNumber);
+  if (issue.state !== "open") return refused(`#${issueNumber} is closed`);
+  const reopen = issue.status === "Awaiting Merge";
+  if (reopen) {
+    const pending = board(main, tracker, [{ op: "status", issue: issueNumber, status: "Building" }]);
+    if (pending !== undefined) return refused(`#${issueNumber} was not reopened, so its config was not restored: ${pending}`);
+    clearDeliverySnapshot(ticket.worktree);
+  }
+  const sync = deps.syncConfig ?? ((worktree: string) => syncTicketConfig(worktree, deps.packsDir ?? join(main, HARNESS_RELATIVE, "packs")));
+  const result = await sync(ticket.worktree);
+  const reopened = reopen ? "; the ticket is reopened to Building until deliver passes again" : "";
+  if (!result.ok) return refused(`#${issueNumber}'s generated config was not restored${reopened}:\n${tail(result.output)}`);
+  return done(`#${issueNumber}'s generated config is restored in ${relative(main, ticket.worktree)}${reopened}:\n${tail(result.output)}`);
+}
+
 async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
   const ticket = readStartedTicket(main, issueNumber);
   if (ticket === undefined) return refused(`#${issueNumber} is not started`);
@@ -705,11 +789,12 @@ async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker:
   if ((gitOut(deps, main, "status", "--porcelain") ?? "x") !== "") return refused(`${MAIN_BRANCH} has uncommitted changes; it must be clean to merge`);
   const fetched = git(deps, main, "fetch", REMOTE, MAIN_BRANCH);
   if (fetched.status !== 0) return refused(`git fetch failed: ${tail(fetched.stderr, 5)}`);
+  const level = bringLevel(main, deps);
+  if (level !== undefined) return refused(level);
+  // Re-read after the fast-forward: an undo returns here, not to the
+  // pre-fetch commit (ADR 2026-072).
   const local = gitOut(deps, main, "rev-parse", MAIN_BRANCH);
-  const remote = gitOut(deps, main, "rev-parse", `${REMOTE}/${MAIN_BRANCH}`);
-  if (local === undefined || local !== remote) {
-    return refused(`local ${MAIN_BRANCH} is not level with ${REMOTE}/${MAIN_BRANCH}; bring it level first`);
-  }
+  if (local === undefined) return refused(`${MAIN_BRANCH} cannot be read`);
 
   if ((gitOut(deps, ticket.worktree, "status", "--porcelain") ?? "") !== "") {
     if (git(deps, ticket.worktree, "add", "-A").status !== 0) return refused(`could not stage #${issueNumber}'s delivered work`);

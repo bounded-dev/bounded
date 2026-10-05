@@ -50,7 +50,8 @@ export function leadCommand(command: unknown): LeadCommand {
         // The same parser the command itself runs (lead-commands.ts, ADR 2026-066).
         const parsed = parseLeadArgs(cli.slice(1));
         if (parsed.ok && parsed.request.command === "release") {
-          return { action: { kind: "refused", reason: "bounded lead release is the user's own escape hatch; ask the user to run it" } };
+          return { action: { kind: "refused", reason: "bounded lead release is the user's own escape hatch: it clears seat state the harness " +
+            "cannot prove is gone, so only the user may decide to run it; tell the user which ticket is stuck and why" } };
         }
         return parsed.ok ? { action: { kind: "lead-command", command: parsed.request.command }, cli }
           : { action: { kind: "refused", reason: parsed.reason } };
