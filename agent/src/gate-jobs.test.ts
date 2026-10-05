@@ -186,6 +186,20 @@ describe("a long gate under a host deadline", () => {
     expect(runs()).toEqual(["slow", "slow"]);
   }, 40_000);
 
+  // The same rule with the edit made only once the run has ended (its last
+  // line written), so it cannot fall inside the run.
+  test("an edit made after the run ended discards its result, and the restart is collected", async () => {
+    deadline();
+    expect((await call(["slow", "--ms", "1500"])).code).toBe(3);
+    await until(() => runs().length === 1);
+    await sleep(300);
+    appendFileSync(join(project, "src", "a.txt"), "changed\n");
+    expect((await call(["slow", "--ms", "1500"])).code).toBe(3);
+    expect(jobEvents(project, "job-restarted").at(-1)?.detail).toMatchObject({ reason: "tree-changed" });
+    expect((await poll(["slow", "--ms", "1500"])).code).toBe(0);
+    expect(runs()).toEqual(["slow", "slow"]);
+  }, 40_000);
+
   test("the role does not change the key", async () => {
     deadline();
     vi.stubEnv("BOUNDED_DEV_STAGE_ROLE", "architect");

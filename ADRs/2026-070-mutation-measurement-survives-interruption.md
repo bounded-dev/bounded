@@ -1,6 +1,6 @@
 # 2026-070: The mutation measurement survives interruption, samples enough, and fits its host's time
 
-**Status:** accepted
+**Status:** accepted; amended by 2026-073
 
 ## Decision
 
@@ -61,6 +61,12 @@
   call.
 
 The measurement stays advisory (TN-26-002).
+
+- **Inside a background job (ADR 2026-073).** On Claude Code the measurement
+  runs inside a job whose deadline is the job's own limit, so its budget is
+  that limit's; the budget error there names only a smaller `--timeout-ms`,
+  never a command timeout no role can raise. The leftover restore is every ts
+  gate's `prepare`, run before the job takes the tree it judges.
 
 ## Why
 

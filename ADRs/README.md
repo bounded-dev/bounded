@@ -65,7 +65,7 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-031](2026-031-zod-inside-value-objects.md) | Zod is the engine inside value objects, never a public identity | accepted |
 | [2026-032](2026-032-intake-strips-the-how.md) | Intake strips the how — every spec is reworked to "what is required" | accepted |
 | [2026-033](2026-033-deliver-checks-socket.md) | `deliverChecks` — a pack-level socket for read-only checks at delivery | accepted |
-| [2026-034](2026-034-host-portable-enforcement.md) | Enforcement is host-portable — artifact gates as a CLI, capability constraints per host | accepted; amended by 2026-069 |
+| [2026-034](2026-034-host-portable-enforcement.md) | Enforcement is host-portable — artifact gates as a CLI, capability constraints per host | accepted; amended by 2026-069, 2026-073 |
 | [2026-035](2026-035-bounded-state-dir-and-adapter-layout.md) | Harness state lives in `.bounded/`; every adapter lives in `hosts/<host>/` with its own install script | accepted |
 | [2026-036](2026-036-project-pack-selection-and-delivery-obligations.md) | Project composition selects rules and delivery obligations | accepted |
 | [2026-037](2026-037-explicit-model-deployment-smoke.md) | Explicit model deployment smoke at reset | accepted |
@@ -97,10 +97,11 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-063](2026-063-hexagonal-and-adapter-packs.md) | The hexagonal pack and the adapter packs | accepted |
 | [2026-064](2026-064-store-tests-need-docker-at-green.md) | Store tests need a container runtime only at green | accepted |
 | [2026-065](2026-065-spec-first-init-by-product-surface.md) | Initialization reads the spec and selects by product surface | accepted |
-| [2026-066](2026-066-lead-on-main-ticket-worktrees.md) | The lead on main, a worktree per ticket, a board moved by gates | accepted; amended by 2026-069 |
+| [2026-066](2026-066-lead-on-main-ticket-worktrees.md) | The lead on main, a worktree per ticket, a board moved by gates | accepted; amended by 2026-069, 2026-073 |
 | [2026-067](2026-067-generated-composition-roots.md) | Composition roots are generated, their dependencies grouped by area | accepted |
 | [2026-068](2026-068-harness-development-lifecycle.md) | A development lifecycle for harness work | accepted |
 | [2026-069](2026-069-claude-code-session-tools-and-own-output.md) | Claude Code's session tools, and a seat re-reading its own saved output | accepted |
-| [2026-070](2026-070-mutation-measurement-survives-interruption.md) | The mutation measurement survives interruption, samples enough, and fits its host's time | accepted |
+| [2026-070](2026-070-mutation-measurement-survives-interruption.md) | The mutation measurement survives interruption, samples enough, and fits its host's time | accepted; amended by 2026-073 |
 | [2026-071](2026-071-a-later-ticket-takes-a-delivered-contract.md) | A later ticket takes a delivered ticket's contract | accepted |
 | [2026-072](2026-072-no-harness-step-needs-the-user.md) | No harness step needs the user: fast engine refusals routed to the user, call-bounded preparation, apps' own test databases, the lead's sync-config and merge fast-forward | accepted |
+| [2026-073](2026-073-long-gates-run-as-detached-jobs.md) | Long gates run as detached, resumable jobs; a RUNNING verdict | accepted |

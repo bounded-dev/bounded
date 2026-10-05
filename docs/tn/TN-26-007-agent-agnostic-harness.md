@@ -26,7 +26,9 @@ Two tiers, cleanly split:
 - **Artifact gates are a CLI.** Everything that judges the *tree* — purity,
   design, drift, red, green, sign-off, deliver, mutation score, typecheck,
   the test run — is one command, `bounded gates <gate> [dir] [--json]`, over
-  one result contract (exit `0` PASS, `1` BLOCK, `2` ERROR). No agent
+  one result contract (exit `0` PASS, `1` BLOCK, `2` ERROR, and `3` RUNNING
+  when a long gate's run outlasts a host's command limit and goes on in the
+  background until the next call collects it, ADR 2026-073). No agent
   framework in the loop: CI, a shell, or any agent gets the same verdict from
   the same tree. This tier is 100% deterministic by construction.
 - **Capability constraints are host adapters.** Everything that shapes what

@@ -12,7 +12,9 @@
 # behind this is src/gates-cli.ts; it discovers every packs/<lang>/gates.ts
 # and names no technology.
 #
-# Exit 0 PASS · 1 BLOCK · 2 ERROR (the gate could not run) · 64 usage.
+# Exit 0 PASS · 1 BLOCK · 2 ERROR (the gate could not run) · 3 RUNNING · 64 usage.
+# RUNNING: a long gate under a host's command time limit is still working in
+# the background; run the same gate again to collect it (ADR 2026-073).
 #
 # This runs the gate and nothing else: WHO may run it is the host's job (the
 # path gate, in pi). From a bare shell every gate is runnable.

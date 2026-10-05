@@ -536,6 +536,17 @@ each one recorded in the guard log as a real design-phase event. A gate is
 evidence about the run. Firing one to watch the clock corrupts the only record
 anybody has of what the run did.
 
+**A long gate may answer RUNNING.** `green_gate`, `red_gate`, `deliver` and
+`mutation_score` can take longer than one command is allowed on a host with a
+time limit, so there they run in the background (ADR 2026-073) and answer
+**RUNNING** until the run is done. RUNNING is not a verdict: call the gate again
+with the same arguments until it gives PASS, BLOCK or ERROR, and on Claude Code
+give each call the longest timeout the host allows. Changing the project's
+files while it runs makes it run again. An ERROR naming another gate that is
+still running in the background means call that gate again first to collect
+it: one long gate runs at a time. A background run that kept dying or never
+completed is a harness bug; report it to the team lead in product terms.
+
 **Before `sign_off`, run `mutation_score`.** It mutates parse-and-guard sites in
 the delivered code — comparison flips, `&&`/`||` swaps, negated `if`s, dropped
 early-return guards — and reports how many the suite killed. It is a
@@ -554,8 +565,8 @@ runs out of time after making progress stops between mutants and reports
 **PARTIAL** with no score: call it again with the same flags, as many times as
 it takes, and it continues where it stopped while the tree is unchanged. An
 **ERROR** saying the time budget cannot fit the next step is different:
-calling again unchanged judges nothing, so give the command the timeout the
-message names, or pass a smaller `--timeout-ms`. If any gate blocks because a
+calling again unchanged judges nothing, so pass a smaller `--timeout-ms` (or,
+where the message names a timeout for the call, give it that). If any gate blocks because a
 mutation-score run left a mutant in a file, that is not the builder's to fix:
 either a measurement is still running (wait for it), or one was killed and the
 file was edited since, and the message says which. In the second case compare

@@ -1,6 +1,6 @@
 # 2026-034: Enforcement is host-portable — artifact gates as a CLI, capability constraints per host
 
-**Status:** accepted
+**Status:** accepted; amended by 2026-069, 2026-073
 
 ## Decision
 
@@ -12,8 +12,10 @@ implied:
   review, surface check, scaffold. They are host-independent by
   construction and are exposed **once**, as a CLI — `bounded gates <gate> [cwd]
   [--json]` — over a single result contract (`src/gate-result.ts`: code
-  `0|1|2`, verdict, summary, lines, detail; exit `0` PASS, `1` BLOCK, `2`
-  ERROR, `64` usage). A pack contributes its gates through `packs/<lang>/
+  `0|1|2|3`, verdict, summary, lines, detail; exit `0` PASS, `1` BLOCK, `2`
+  ERROR, `3` RUNNING, `64` usage). RUNNING is produced only by the core's
+  `gateRunning`, for a long gate whose background run outlasts the host's
+  call (ADR 2026-073); a runner's own 3 is still ERROR. A pack contributes its gates through `packs/<lang>/
   gates.ts`; the root discovers them by convention and names no technology.
 - **Capability constraints** shape what a role *can do*: the tool strip,
   the path gate, the phase gate on spawns, the sanitized worker views. They

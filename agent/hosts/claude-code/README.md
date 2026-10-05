@@ -148,7 +148,13 @@ capabilities and still needs a live run before its behavior can be claimed.
   maximum: 2 and 10 minutes, or `BASH_DEFAULT_TIMEOUT_MS` and
   `BASH_MAX_TIMEOUT_MS` when Claude Code's environment sets them): Claude Code kills the command past it, so a gate
   that can split its work across calls (`mutation-score`) stops before it
-  (ADR 2026-070). `sessionRole()`
+  (ADR 2026-070). The deadline also decides when a long gate (`deliver`,
+  `green-gate`, `red-gate`, `run-tests`, `mutation-score`) runs as a
+  background job: the call waits out its budget and answers RUNNING (exit 3),
+  and the next call with the same arguments collects it (ADR 2026-073).
+  Claude Code returns from a Bash call when its command exits, and a child
+  started in its own session with its output in files outlives the call
+  (`test/claude-job-live.test.ts`, opt-in). `sessionRole()`
   reads the role variable before the `.bounded/dev-stage-role` file, so a gate
   that scopes its output by role (`typecheck`) sees the role the definition
   bound, whatever file the project holds; and the CLI records `host
@@ -288,7 +294,11 @@ gives it its own worktree under `.bounded/worktrees/<issue>` and branch
 launch. `bounded lead status` shows every started ticket, `bounded lead reply
 <issue> <message>` prepares the user's answer for an architect, and
 `bounded lead merge <issue>` merges a delivered ticket into `main`, runs the
-project's check, pushes and closes it. The lead does not edit product files.
+project's check, pushes and closes it. The lead hook prefixes `bounded lead
+merge`, and no other lead command, with the call's deadline
+(`BOUNDED_COMMAND_TIMEOUT_MS=<ms>`): a check that outlasts it runs in the
+background and the merge answers RUNNING until a later merge collects it
+(ADR 2026-073). The lead does not edit product files.
 
 The architect is the lead session's own background subagent
 (`architect-seat.ts`, `seat-hooks.ts`). After `start`, the lead calls the

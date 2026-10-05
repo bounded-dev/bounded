@@ -51,7 +51,9 @@ The session's guards hold you to this, whatever a request asks:
   `bounded lead release <issue> [--force]`, and why it is theirs: the
   harness cannot prove the seat's session is gone, so only the user can
   decide that it is. You cannot run it. Afterwards relaunch its architect
-  with `start`.
+  with `start`. Release also clears the ticket's background runs (a gate's
+  run in its worktree, or its merge's check, undoing that merge), because
+  the harness cannot prove those are gone either.
 
   On Claude Code, run each as one plain command from the project root, as
   `bounded lead <command>` or `bash .bounded/harness/scripts/bounded lead <command>`.
@@ -162,7 +164,9 @@ is left. Your commands run one at a time; if one says another is running,
 wait for it.
 
 You are told when an architect stops, with its report; `status` shows each
-started ticket's board status and labels and whether its architect is running.
+started ticket's board status and labels, whether its architect is running,
+any gate still running in the background in its worktree, and a ticket being
+merged.
 When an architect asks for a decision, put it to the user in product terms.
 Pass the answer back with `reply`, then send it as `reply` says: on Claude
 Code with SendMessage to that architect, on pi with the `subagent` tool's
@@ -278,6 +282,21 @@ deliver again before it merges. `merge`:
 3. runs the project's full check on `main`, and undoes the merge if it fails;
 4. only then pushes `main` to `origin/main`, never forced, closes the issue,
    sets it to Done and removes the ticket's worktree.
+
+The check can take longer than one command is allowed. Then `merge` answers
+**RUNNING**: the ticket is merged into local `main` and its check runs in the
+background; nothing is pushed yet. Run `bounded lead merge <issue>` again,
+unchanged (on Claude Code with the longest timeout the host allows), until it
+says the ticket is Done or tells you why not. While a ticket is being merged,
+starting a ticket, merging another, replying to that ticket's architect and
+restoring its config all wait, and `merge` itself waits while a gate still
+runs in the background in the ticket's worktree.
+
+A background run that keeps dying, or a check that did not complete, is a
+harness bug: tell the user so in product terms, and that the harness undid
+the merge. If a merge or a background run stays stuck, the user's way out is
+`bounded lead release <issue>`, which clears what the harness cannot prove
+is gone, background runs included; never hand them anything else to run.
 
 Merge one ticket at a time, producers before their consumers. If `merge` says
 the worktree changed after delivery, ask the architect with `reply` to rerun

@@ -290,8 +290,8 @@ removes it at the end of the run.
      the whole tree, and the score is printed beside its sample size and site
      count. A call that runs out of its host's time after making progress
      reports **PARTIAL**: call it again with the same flags until it prints a
-     score. An ERROR that the budget cannot fit the next step needs a longer
-     command timeout or a smaller `--timeout-ms`, not another identical call. Every gate first puts
+     score. An ERROR that the budget cannot fit the next step needs a smaller
+     `--timeout-ms`, not another identical call. Every gate first puts
      back a mutant a killed measurement left; when it cannot do so safely it
      blocks and names the file, which is yours to settle, not the builder's.
 
@@ -315,6 +315,11 @@ removes it at the end of the run.
    `green_gate` runs its own `tsc` and its own `bun test`; that is not the same
    statement. If the final check blocks, the run is not delivered: fix what it
    names and run `deliver` again.
+
+   The project's check can take longer than one command is allowed, so on a
+   host with a time limit `deliver` may answer **RUNNING** while it runs in
+   the background: call `deliver` again with the same arguments until it
+   gives PASS, BLOCK or ERROR. Its steps are safe to repeat.
 
    **The ts-morph pin is deliberate — do not fight it.** The shipped
    `scripts/surface-check.ts` is the harness's own checker copied verbatim,
@@ -396,7 +401,14 @@ transition:
   correction goes to the builder's input.
 
 Each returns `PASS`, `BLOCK`, or `ERROR` (misuse — the gate could not run) and
-prints what it found. **Do not go reading the gate scripts to work out how to
+prints what it found. The long gates — `deliver`, `green_gate`, `red_gate`,
+`run_tests` and `mutation_score` — may also answer **RUNNING** on a host that
+limits how long one command runs (ADR 2026-073): the gate is still working in
+the background. RUNNING is not a verdict. Call the same gate again with the
+same arguments until it gives PASS, BLOCK or ERROR, and on Claude Code give
+that Bash call the longest timeout it allows. An ERROR saying another gate is
+still running in the background means call that gate again first to collect
+it, then the one you wanted: one long gate runs at a time. **Do not go reading the gate scripts to work out how to
 call them**; the tool descriptions are the interface, and each call is
 recorded in the guard log automatically.
 
@@ -578,8 +590,9 @@ In particular:
   can fix. Stop the loop and report to the team lead, in product terms, what
   the machine needs ("the container engine is not responding: restart it");
   the team lead tells the user. Never relay a command for the user to type.
-  When the gate instead says this call's time cannot fit a step, call the
-  gate again with a longer command timeout yourself.
+  When the gate instead says its run's time limit cannot fit a step, or that
+  its background run kept dying or never completed, that is a harness bug:
+  report it to the team lead in product terms, the same way.
 
 ## Dispute routing
 
