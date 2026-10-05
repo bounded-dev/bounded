@@ -55,6 +55,15 @@ rules, not just today's dozens.
   probes live under `scripts/dogfood/` and are not `bounded` CLI commands or
   part of its npm package (ADR 2026-042). Development-workflow checks live
   under `scripts/workflow/` on the same terms.
+- **A project's user never runs harness steps.** The people using a
+  harnessed project describe what they want and answer product questions;
+  they do not run commands, edit design notes, contracts or `.bounded/`
+  state, or perform any step a role or gate owns. If a role or the lead ever
+  needs to ask the user to do one of those things, treat it as a harness bug:
+  fix the harness (a gate, command or guard that does the step itself), never
+  the guidance alone. The one deliberate exception is a recovery command the
+  harness reserves for the user (such as `bounded lead release`), and even
+  then the harness must say exactly why.
 - **Dogfood prompts are copy-ready.** A `docs/dogfood/*-prompt.md` file holds
   only the prompt text, so the user can select all and paste it. No header
   comment, usage note or run instructions in the file: those go in
