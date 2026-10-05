@@ -14,7 +14,9 @@
 // `bunx tsc`. An app importing a package only a context declares (drizzle-kit)
 // must still fail: the isolation the pins answer is real. Every app also pins,
 // as dev dependencies, what its generated smoke-test database support imports
-// (ADR 2026-072), so a Bun app's `pg` is declared too. Skipped, with the reason logged, only when bun is not
+// (ADR 2026-072), so a Bun app's `pg` is declared too: the trade is that its
+// production source could import it, which the builder's lint
+// `no-node-postgres-in-bun-apps` refuses instead. Skipped, with the reason logged, only when bun is not
 // on PATH; it needs the pinned packages from bun's cache or the registry.
 
 import { spawnSync } from "node:child_process";

@@ -314,6 +314,13 @@ Electron main process), a value import of `bun` or `bun:*`, the `Bun` global,
 and `import.meta.main` / `dir` / `file` / `path` / `env` are refused. That
 code runs on Node. Use Node or web-standard APIs there.
 
+**Bun apps use their own Postgres driver** —
+`bounded-ts-drizzle-postgres/no-node-postgres-in-bun-apps`: in an app that
+runs on Bun (its manifest does not build with `--target node`), a value import
+of `pg` or `drizzle-orm/node-postgres` is refused. Those are pinned only for
+the generated test-database support; reach the database through what the
+composition root constructs.
+
 **Size and complexity ceilings** — `complexity` max 15 per function,
 `max-lines-per-function` 60 (comments and blanks free), `max-lines` 350 per
 file, `max-depth` 4. The remedy for exceeding one is decomposition inside your
