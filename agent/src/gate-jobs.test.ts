@@ -156,7 +156,8 @@ describe("a long gate under a host deadline", () => {
     expect(runs()).toEqual(["slow"]);
   }, 30_000);
 
-  test("a gate that runs alone waits for a reader's background run to be collected", async () => {
+  // Pins: an exclusive gate (slow2) refuses to start beside a running reader (slow).
+  test("one live long-gate run per project", async () => {
     deadline();
     expect((await call(["slow", "--ms", "3000"])).code).toBe(3);
     const refused = await call(["slow2", "--ms", "100"]);
