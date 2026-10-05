@@ -17,6 +17,8 @@ import { gateInputs, isListing, listingCall } from "./listing.ts";
 import { isSearch, searchCall, searchGateInput } from "./search.ts";
 import { searchPatternContained } from "../../src/setup-state.ts";
 import { allowWith, deny, shellQuote, type HookPayload } from "./hook-output.ts";
+import { bashDeadlineMs } from "./path-gate-hook.ts";
+import { COMMAND_TIMEOUT_ENV } from "../../src/host.ts";
 import { claudeSeatActions } from "./tool-map.ts";
 import { leadArchitectLaunch, leadReplySend } from "./seat-hooks.ts";
 
@@ -95,9 +97,15 @@ export function listingActions(command: unknown, cwd: string): readonly SeatActi
   return gateInputs(call).map((input) => ({ kind: "read" as const, tool: call.tool, input }));
 }
 
+/** Rewrite an admitted command onto the project's harness copy. `bounded lead
+ *  merge` alone is told the call's deadline, because its project check runs
+ *  in the background once it outlasts the call (ADR 2026-073); a prefix the
+ *  model typed itself never reaches here (the lead's parser refuses it). */
 function runOnProjectCopy(payload: HookPayload, harnessRoot: string, cli: readonly string[]): string {
+  const command = [join(harnessRoot, "scripts", "bounded"), ...cli].map(shellQuote).join(" ");
+  const merge = cli[0] === "lead" && cli[1] === "merge";
   return allowWith({ ...payload.toolInput,
-    command: [join(harnessRoot, "scripts", "bounded"), ...cli].map(shellQuote).join(" ") });
+    command: merge ? `${COMMAND_TIMEOUT_ENV}=${bashDeadlineMs(payload.toolInput["timeout"])} ${command}` : command });
 }
 
 /** Project-local main-session policy: the team lead in the main worktree. */

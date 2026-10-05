@@ -569,6 +569,19 @@ function begin(spec: JobSpec, dir: string, options: RunOptions, judge: Judge, jo
   return { kind: "wait", record, started: { job, ...(reason !== undefined ? { reason } : {}) } };
 }
 
+/** The tail of what a job's commands printed (for the lead, never a role:
+ *  the path policy denies every role the job's files). */
+export function jobOutput(cwd: string, name: string, lines = 30): string {
+  const read = (file: string): string => {
+    try {
+      return readFileSync(join(jobDir(cwd, name), file), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  return `${read("stdout")}${read("stderr")}`.trimEnd().split("\n").slice(-lines).join("\n");
+}
+
 // ── Listing and stopping ────────────────────────────────────────────────────
 
 export type JobState = "running" | "finished" | "dead" | "failed";

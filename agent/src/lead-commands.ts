@@ -9,6 +9,9 @@
 //   (design gate)   passes in the ticket worktree (board-sync.ts)     → Building
 //   (deliver gate)  passes in the ticket worktree (board-sync.ts)     → Awaiting Merge
 //   merge           local merge, project check, push, close           → Done
+//                   (the check runs in the background: a merge whose
+//                   check outlasts the call answers RUNNING, and a later
+//                   merge collects it — ADR 2026-073)
 //   status, reply   read the architects' state, answer one architect
 //   sync-config     restore a ticket's generated config in its worktree,
 //                   once the user agrees; Awaiting Merge → Building
@@ -16,11 +19,13 @@
 // Every host reaches these through `parseLeadArgs`, so the accepted shapes
 // cannot drift between the shell form and a host's tools. Everything with a
 // side effect outside this process — the tracker, git, dependency setup, the
-// project check, the architect host — is a dependency, so each transition
-// is tested without the network or a host.
+// architect host, where the project check is declared — is a dependency, so
+// each transition is tested without the network or a host.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { jobOutput, listJobs, runOrCollect, stopJobs, type JobAnswer } from "./detached-job.ts";
+import { commandTimeoutMs } from "./host.ts";
 import { join, relative } from "node:path";
 import { applyBoardOps, boardReady, quarantinedOps, releaseQuarantine, type BoardOp } from "./board-sync.ts";
 import {
@@ -42,7 +47,7 @@ import {
 } from "./ticket-body.ts";
 import {
   readStartedTicket, readTicketMarker, removeStartedTicket, startedTickets, ticketBranch, ticketWorktreeDirs, ticketWorktreePath,
-  writeStartedTicket, writeTicketMarker, type StartedTicket,
+  writeStartedTicket, writeTicketMarker, type MergeRecord, type StartedTicket,
 } from "./ticket-worktree.ts";
 import {
   HANDOFF_PUBLISHED_LABEL, trackerRaw, trackerRefusal, WAITING_LABEL_PREFIX, waitingLabel, type Tracker, type TrackerIssue,
@@ -76,7 +81,10 @@ export const LEAD_COMMANDS: readonly LeadCommandSpec[] = [
   { name: "start", usage: "bounded lead start <issue>", summary: "Give a Queued ticket its worktree and branch, set it up, prepare its run and start its architect there; it moves to In Design." },
   { name: "status", usage: "bounded lead status", summary: "Show every started ticket's board status and its architect's state, with the report of a finished turn." },
   { name: "reply", usage: "bounded lead reply <issue> <message>", summary: "Continue a ticket's finished architect turn with the user's answer." },
-  { name: "merge", usage: "bounded lead merge <issue>", summary: "Merge a delivered ticket into local main, run the project's check, push main and close the ticket; it moves to Done." },
+  {
+    name: "merge", usage: "bounded lead merge <issue>",
+    summary: "Merge a delivered ticket into local main, run the project's check, push main and close the ticket; it moves to Done. A check that outlasts the call answers RUNNING: run the same merge again until it finishes.",
+  },
   { name: "board", usage: "bounded lead board <retry|discard>", summary: "Try again, or set aside for good, the board updates that kept failing and were quarantined; status lists them." },
   {
     name: "sync-config", usage: "bounded lead sync-config <issue>",
@@ -84,7 +92,7 @@ export const LEAD_COMMANDS: readonly LeadCommandSpec[] = [
   },
   {
     name: "release", usage: "bounded lead release <issue> [--force]", userOnly: true,
-    summary: "For the user, never the lead: clear all of a stuck ticket's seat state — its architect seat, background-worker blocks, launch claim and pending reply — once its recorded processes are gone, or with --force. It is the user's because the harness cannot prove a seat's session is gone.",
+    summary: "For the user, never the lead: clear all of a stuck ticket's state — its architect seat, background-worker blocks, launch claim, pending reply, background gate runs and a merge's check, undoing that merge — once its recorded processes are gone, or with --force. It is the user's because the harness cannot prove a seat's session or a background run is gone.",
   },
 ];
 
@@ -173,8 +181,6 @@ export interface LeadDeps {
   readonly host: (main: string) => Promise<ArchitectHost>;
   /** Install a fresh ticket worktree's dependencies from its lockfiles. */
   readonly setup: (worktree: string) => Promise<SetupResult>;
-  /** The project's full check, in `cwd`. */
-  readonly check: (cwd: string) => { readonly ok: boolean; readonly output: string };
   /** Which processes run, by pid and start time (locks and architect turns). */
   readonly processes?: ProcessProbe;
   /** Whether a worktree's dependencies are installed (default: the setup probes). */
@@ -183,37 +189,31 @@ export interface LeadDeps {
    *  `projectConfigSyncCommand`, run from {@link LeadDeps.packsDir}). */
   readonly syncConfig?: (worktree: string) => { readonly ok: boolean; readonly output: string } | Promise<{ readonly ok: boolean; readonly output: string }>;
   /** Where the lead reads pack data and scripts (default: the main
-   *  worktree's `.bounded/harness/packs`, the source the project check uses). */
+   *  worktree's `.bounded/harness/packs`): the project check's commands
+   *  (`projectCheckCommands`) and the config sync. */
   readonly packsDir?: string;
 }
 
 /** The lock every lead command holds in the main worktree, so no two interleave. */
 export const LEAD_LOCK_RELATIVE = ".bounded/lead/lock";
 
-/** The project's full check: each composed pack's declared command, in order. */
-export function projectCheck(cwd: string): { readonly ok: boolean; readonly output: string } {
-  let commands: string[][];
-  try {
-    commands = contributionsByPack(PROJECT_CHECK_SOCKET, readProjectPacks(cwd), join(cwd, HARNESS_RELATIVE, "packs"))
-      .flatMap(({ pack, value }) => {
-        if (!Array.isArray(value) || value.some((argv) => !Array.isArray(argv) || argv.length === 0 ||
-            argv.some((word) => typeof word !== "string" || word === ""))) {
-          throw new Error(`pack '${pack}' field '${PROJECT_CHECK_SOCKET}' must be a list of argv lists`);
-        }
-        return value as string[][];
-      });
-  } catch (error) {
-    return { ok: false, output: error instanceof Error ? error.message : String(error) };
-  }
-  if (commands.length === 0) return { ok: false, output: "no composed capability declares the project's check" };
-  const outputs: string[] = [];
-  for (const [command, ...args] of commands) {
-    const run = spawnSync(command!, args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
-    outputs.push(`$ ${[command, ...args].join(" ")}`, `${run.stdout ?? ""}${run.stderr ?? ""}`.trim());
-    if (run.status !== 0) return { ok: false, output: outputs.join("\n") };
-  }
-  return { ok: true, output: outputs.join("\n") };
+/** The project's full check: each composed pack's declared argv lists, in
+ *  order, read from `packsDir`. Throws when none is declared or one is malformed. */
+export function projectCheckCommands(main: string, packsDir: string): string[][] {
+  const commands = contributionsByPack(PROJECT_CHECK_SOCKET, readProjectPacks(main), packsDir)
+    .flatMap(({ pack, value }) => {
+      if (!Array.isArray(value) || value.some((argv) => !Array.isArray(argv) || argv.length === 0 ||
+          argv.some((word) => typeof word !== "string" || word === ""))) {
+        throw new Error(`pack '${pack}' field '${PROJECT_CHECK_SOCKET}' must be a list of argv lists`);
+      }
+      return value as string[][];
+    });
+  if (commands.length === 0) throw new Error("no composed capability declares the project's check");
+  return commands;
 }
+
+/** Where the lead reads pack data: the seam, else the main worktree's harness copy. */
+const packsOf = (main: string, deps: LeadDeps): string => deps.packsDir ?? join(main, HARNESS_RELATIVE, "packs");
 
 /**
  * The default config sync, run in a ticket's worktree: the one composed
@@ -241,7 +241,6 @@ export function leadDeps(tracker: (cwd: string) => Tracker, setupHost?: string):
       const { runProjectSetup } = await import("./setup-state.ts");
       return runProjectSetup(worktree, setupHost !== undefined ? { host: setupHost } : {});
     },
-    check: projectCheck,
   };
 }
 
@@ -250,10 +249,14 @@ export function leadDeps(tracker: (cwd: string) => Tracker, setupHost?: string):
 export interface LeadOutcome {
   readonly ok: boolean;
   readonly text: string;
+  /** The command's work goes on in the background: run it again to collect
+   *  it (ADR 2026-073). Exit 3 from the shell form. */
+  readonly running?: true;
 }
 
 const done = (text: string): LeadOutcome => ({ ok: true, text: `team-lead: ${text}` });
 const refused = (text: string): LeadOutcome => ({ ok: false, text: `team-lead: ${text}` });
+const running = (text: string): LeadOutcome => ({ ok: false, running: true, text: `team-lead: ${text}` });
 
 function installationHost(main: string): string | undefined {
   try {
@@ -311,6 +314,8 @@ function openingBrief(issue: TrackerIssue, worktree: string, main: string): stri
 }
 
 export async function runLeadCommand(main: string, request: LeadRequest, deps: LeadDeps): Promise<LeadOutcome> {
+  // A merge's wait on its check counts from here (ADR 2026-073).
+  const startedAt = Date.now();
   const place = leadPlace(main, deps);
   if (place !== undefined) return refused(place);
   // One lead command at a time: two starts must never both pass the
@@ -318,13 +323,13 @@ export async function runLeadCommand(main: string, request: LeadRequest, deps: L
   const lock = acquireLock(join(main, LEAD_LOCK_RELATIVE), deps.processes ?? systemProcesses);
   if (!lock.ok) return refused(`another lead command is running (${lock.reason}); wait for it to finish`);
   try {
-    return await runLocked(main, request, deps);
+    return await runLocked(main, request, deps, startedAt);
   } finally {
     lock.release();
   }
 }
 
-async function runLocked(main: string, request: LeadRequest, deps: LeadDeps): Promise<LeadOutcome> {
+async function runLocked(main: string, request: LeadRequest, deps: LeadDeps, startedAt: number): Promise<LeadOutcome> {
   // The escape hatch needs nothing else to work: not even the tracker.
   if (request.command === "release") return release(main, request.issue, request.force, deps);
   let tracker: Tracker;
@@ -340,7 +345,7 @@ async function runLocked(main: string, request: LeadRequest, deps: LeadDeps): Pr
   let outcome: LeadOutcome;
   let raw: string | undefined;
   try {
-    outcome = await dispatch(main, request, deps, tracker);
+    outcome = await dispatch(main, request, deps, tracker, startedAt);
   } catch (error) {
     const fromTracker = error instanceof Error && error.name === "TrackerError";
     if (fromTracker) raw = trackerRaw(error);
@@ -348,20 +353,20 @@ async function runLocked(main: string, request: LeadRequest, deps: LeadDeps): Pr
       : `${request.command} failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   logGuardEvent(main, {
-    guard: LEAD_GUARD, verdict: outcome.ok ? "pass" : "block", summary: outcome.text.split("\n")[0]!,
+    guard: LEAD_GUARD, verdict: outcome.ok ? "pass" : outcome.running === true ? "running" : "block", summary: outcome.text.split("\n")[0]!,
     detail: { kind: "lead-command", command: request.command, ...("issue" in request ? { issue: request.issue } : {}), ...(raw !== undefined ? { raw } : {}) },
   });
   return outcome;
 }
 
-async function dispatch(main: string, request: LeadRequest, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
+async function dispatch(main: string, request: LeadRequest, deps: LeadDeps, tracker: Tracker, startedAt: number): Promise<LeadOutcome> {
   switch (request.command) {
     case "ticket-create": return ticketCreate(main, request.fields, tracker);
     case "queue": return queue(main, request.issue, tracker);
     case "start": return start(main, request.issue, deps, tracker);
     case "status": return status(main, deps, tracker);
     case "reply": return reply(main, request.issue, request.message, deps, tracker);
-    case "merge": return merge(main, request.issue, deps, tracker);
+    case "merge": return merge(main, request.issue, deps, tracker, startedAt);
     case "board": return boardQuarantine(main, request.action, tracker);
     case "sync-config": return syncConfig(main, request.issue, deps, tracker);
     case "release": return release(main, request.issue, request.force, deps);
@@ -406,27 +411,67 @@ function boardQuarantine(main: string, action: "retry" | "discard", tracker: Tra
 }
 
 /**
- * The user's escape hatch: clear all of a ticket's seat state — the
- * architect seat, background-worker blocks, a launch claim and a pending
- * reply — once its recorded processes are gone, or with `force`. Then
- * `bounded lead start` relaunches its architect into the same worktree.
+ * The user's escape hatch: clear all of a ticket's state — the architect
+ * seat, background-worker blocks, a launch claim, a pending reply, its
+ * background gate runs and its merge's check, undoing that merge — once its
+ * recorded processes are gone, or with `force`. Then `bounded lead start`
+ * relaunches its architect into the same worktree. A merge the main line has
+ * moved off is never undone here: that is a harness bug, and release leaves
+ * everything as it is.
  */
-function release(main: string, issueNumber: number, force: boolean, deps: LeadDeps): LeadOutcome {
+async function release(main: string, issueNumber: number, force: boolean, deps: LeadDeps): Promise<LeadOutcome> {
   const ticket = readStartedTicket(main, issueNumber);
   if (ticket === undefined) return refused(`#${issueNumber} is not started`);
   const probe = deps.processes ?? systemProcesses;
+  // A merge the harness cannot undo stops everything here, before anything is cleared.
+  let mergeToUndo: MergeRecord | undefined;
+  if (ticket.phase === "merging" && ticket.merging !== undefined) {
+    const record = ticket.merging;
+    let merged = record.merged;
+    if (merged === undefined && gitOut(deps, main, "rev-parse", "-q", "--verify", "MERGE_HEAD") !== undefined) git(deps, main, "merge", "--abort");
+    const head = gitOut(deps, main, "rev-parse", "HEAD");
+    if (merged === undefined && head !== undefined && head !== record.local && isMergeOf(main, deps, head, record.local, record.branchHead)) merged = head;
+    if (merged === undefined ? head !== record.local : head !== merged) {
+      return refused(`#${issueNumber}'s merge is on the main line, which has moved off it, and the harness cannot undo it; this is a harness bug, ` +
+        "so release leaves the merge, its record and its check as they are");
+    }
+    if (merged !== undefined) mergeToUndo = { ...record, merged };
+  }
   const seat = architectStatus(ticket.worktree, probe);
   const workers = backgroundWorkers(readGuardLog(ticket.worktree), probe);
   const pending = readPendingLaunch(main);
   const claimLive = pending?.issue === issueNumber && pending.claimedBy !== undefined && !claimStale(pending, probe);
-  if (!force && (seat.kind === "running" || workers.length > 0 || claimLive)) {
+  const gateRuns = gateJobs(ticket.worktree, ["running"]);
+  const checkRunning = listJobs(main).some((j) => j.name === mergeJobName(issueNumber) && j.state === "running");
+  if (!force && (seat.kind === "running" || workers.length > 0 || claimLive || gateRuns.length > 0 || checkRunning)) {
     const what = [
       ...(seat.kind === "running" ? [`its architect (turn ${seat.turn})`] : []),
       ...workers.map((w) => `worker ${w.worker}`),
       ...(claimLive ? ["an architect launch under way"] : []),
+      ...gateRuns.map((g) => `a background run of ${g} (still running)`),
+      ...(checkRunning ? ["its merge's project check (still running)"] : []),
     ];
     return refused(`#${issueNumber} still has ${what.join(", ")} recorded as running in a live session, and the harness cannot prove ` +
       `it has stopped; if you are sure it is stuck, run bounded lead release ${issueNumber} --force`);
+  }
+  // The background runs first: a merge is undone only once its check is stopped.
+  const stopped = [
+    await stopJobs(ticket.worktree, { force: true }),
+    await stopJobs(main, { force: true, names: [mergeJobName(issueNumber)] }),
+  ];
+  const stuck = stopped.flatMap((r) => r.stuck);
+  if (stuck.length > 0) {
+    return refused(`#${issueNumber}'s background run ${stuck.join(", ")} could not be stopped; this is a harness bug, and nothing else was released`);
+  }
+  let undone = "";
+  if (ticket.phase === "merging" && ticket.merging !== undefined) {
+    const head = gitOut(deps, main, "rev-parse", "HEAD");
+    if (mergeToUndo !== undefined) {
+      if (head !== mergeToUndo.merged) return refused(movedOff(issueNumber));
+      git(deps, main, "reset", "--hard", mergeToUndo.local);
+      undone = `; its merge was undone and ${MAIN_BRANCH} is back at ${mergeToUndo.local.slice(0, 12)}`;
+    }
+    writeStartedTicket(main, settled(ticket));
   }
   clearArchitectState(ticket.worktree);
   logGuardEvent(ticket.worktree, {
@@ -439,7 +484,7 @@ function release(main: string, issueNumber: number, force: boolean, deps: LeadDe
     guard: LEAD_GUARD, verdict: "pass", summary: `team-lead: the user released #${issueNumber}'s seat${force ? " (forced)" : ""}`,
     detail: { kind: SEAT_RELEASED, issue: issueNumber, force, seat: seat.kind, workers: workers.map((w) => w.worker) },
   });
-  return done(`#${issueNumber}'s seat is released; the lead relaunches its architect with bounded lead start ${issueNumber}`);
+  return done(`#${issueNumber}'s seat is released${undone}; the lead relaunches its architect with bounded lead start ${issueNumber}`);
 }
 
 /** Whether the worktree still holds exactly what its deliver gate passed on. */
@@ -504,6 +549,10 @@ function queue(main: string, issueNumber: number, tracker: Tracker): LeadOutcome
  * ticket's ownership check always sees this one.
  */
 async function start(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
+  const merging = mergingTicket(main);
+  if (merging !== undefined) {
+    return refused(`#${merging.issue} is being merged; start #${issueNumber} once that merge is done (bounded lead merge ${merging.issue} carries it on)`);
+  }
   const issue = tracker.viewIssue(issueNumber);
   if (issue.state !== "open") return refused(`#${issueNumber} is closed`);
   const worktree = ticketWorktreePath(main, issueNumber);
@@ -640,6 +689,12 @@ async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<L
       lines.push(`#${ticket.issue} ${issue.title} — its start did not finish; run bounded lead start ${ticket.issue} to finish it`);
       continue;
     }
+    if (ticket.phase === "merging") {
+      const check = listJobs(main).find((j) => j.name === mergeJobName(ticket.issue));
+      lines.push(`#${ticket.issue} ${issue.title} — being merged: ` + (check?.state === "running"
+        ? `its project check is running in the background since ${check.startedAt}; run bounded lead merge ${ticket.issue} again to collect it`
+        : `run bounded lead merge ${ticket.issue} again to carry the merge on`));
+    }
     const labels = issue.labels.filter((l) => l.startsWith("blocked: ") || l.startsWith(WAITING_LABEL_PREFIX));
     lines.push(`#${ticket.issue} ${issue.title} — ${issue.status ?? "not on the board"}${labels.length > 0 ? ` (${labels.join(", ")})` : ""}`);
     if (issue.status === "Awaiting Merge" && !deliveredTreeIntact(ticket.worktree)) {
@@ -668,6 +723,13 @@ async function status(main: string, deps: LeadDeps, tracker: Tracker): Promise<L
         lines.push(`  architect: turn ${architect.turn} ended with its session; relaunch it with bounded lead start ${ticket.issue}`);
         break;
     }
+    for (const job of listJobs(ticket.worktree)) {
+      const gate = gateOfJob(job.name);
+      lines.push(job.state === "running" ? `  background run: ${gate} running since ${job.startedAt}`
+        : job.state === "finished" ? `  background run: ${gate} finished; its verdict waits for the next ${gate} call to collect it`
+        : job.state === "dead" ? `  background run: ${gate} stopped without a verdict; the next ${gate} call starts it again`
+        : `  background run: ${gate} kept dying without a verdict; this is a harness bug`);
+    }
     for (const w of backgroundWorkers(readGuardLog(ticket.worktree), deps.processes ?? systemProcesses)) {
       lines.push(`  gates held: worker ${w.worker} resumed in the background at ${w.since} and has no recorded stop` +
         (w.unrecognised === true ? " (its session could not be recognised, so the hold stays until its stop is recorded or the user releases it)" : ""));
@@ -687,6 +749,9 @@ async function reply(main: string, issueNumber: number, message: string, deps: L
   const ticket = readStartedTicket(main, issueNumber);
   if (ticket === undefined) return refused(`#${issueNumber} is not started; start it first`);
   if (ticket.phase === "starting") return refused(`#${issueNumber}'s start did not finish; run bounded lead start ${issueNumber} first`);
+  if (ticket.phase === "merging") {
+    return refused(`#${issueNumber} is being merged; its architect is not continued until the merge is done or undone (bounded lead merge ${issueNumber} carries it on)`);
+  }
   const issue = tracker.viewIssue(issueNumber);
   if (issue.state !== "open") return refused(`#${issueNumber} is closed`);
   if (flagLike(message)) return refused("a reply may not begin with '-'; reword it");
@@ -748,6 +813,13 @@ async function syncConfig(main: string, issueNumber: number, deps: LeadDeps, tra
   const ticket = readStartedTicket(main, issueNumber);
   if (ticket === undefined) return refused(`#${issueNumber} is not started; its config lives in its worktree, which start creates`);
   if (ticket.phase === "starting") return refused(`#${issueNumber}'s start did not finish; run bounded lead start ${issueNumber} first`);
+  if (ticket.phase === "merging") return refused(`#${issueNumber} is being merged; its config is not restored while the merge is under way`);
+  // A gate's background run judges (or, delivering, writes) this tree.
+  const uncollected = gateJobs(ticket.worktree, ["running", "finished"]);
+  if (uncollected.length > 0) {
+    return refused(`#${issueNumber} has a background run of ${uncollected.join(", ")} in its worktree whose verdict is not collected yet; ` +
+      "restore its config once its architect has collected it");
+  }
   const probe = deps.processes ?? systemProcesses;
   const architect = architectStatus(ticket.worktree, probe);
   if (architect.kind === "running") return refused(`#${issueNumber}'s architect is still running; restore its config once its turn stops`);
@@ -770,7 +842,59 @@ async function syncConfig(main: string, issueNumber: number, deps: LeadDeps, tra
   return done(`#${issueNumber}'s generated config is restored in ${relative(main, ticket.worktree)}${reopened}:\n${tail(result.output)}`);
 }
 
-async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
+// ── Merge (ADR 2026-066, ADR 2026-073) ──────────────────────────────────────
+//
+// The project check behind a merge can outlast the host's call, so it runs as
+// a background job in the main worktree (`merge-<issue>`), and local main is
+// never left unsafe in between:
+//   · the merge is recorded (phase "merging", with main's commit and the
+//     branch head) after main is brought level and before `git merge` runs,
+//     and the merge commit is recorded once git made it;
+//   · a merge whose call ended is resumed, never repeated: a merge git left
+//     half-done is aborted; a main still at the recorded commit starts over;
+//     a main at a merge of exactly the recorded commit and branch head is
+//     adopted; anything else is refused, touching nothing;
+//   · the check is collected only while main is still at the merge commit;
+//     a passing check over a main with no tracked changes is pushed; a check
+//     that failed or never completed, a tracked change, or a refused push
+//     undoes the merge (`reset --hard` to the recorded commit, only while
+//     main is still at the merge commit);
+//   · a main that moved off the merge while its check ran is refused and
+//     left exactly as it is: the harness cannot undo it safely.
+// While one ticket is merging, starting a ticket, merging another, and
+// replying to or syncing the merging one all wait.
+
+/** The main worktree's job for a ticket's merge check. */
+export const mergeJobName = (issue: number): string => `merge-${issue}`;
+
+/** The ticket being merged, if any. */
+function mergingTicket(main: string): StartedTicket | undefined {
+  return startedTickets(main).find((t) => t.phase === "merging");
+}
+
+/** A record with its merge settled: back to "started". */
+function settled(ticket: StartedTicket): StartedTicket {
+  const { merging: _merge, ...rest } = ticket;
+  return { ...rest, phase: "started" };
+}
+
+/** The gate a worktree job runs, by its job name. */
+const gateOfJob = (name: string): string => name.replace(/^gate-/, "");
+
+/** The ticket worktree's background gate runs in the given states. */
+function gateJobs(worktree: string, states: readonly string[]): readonly string[] {
+  return listJobs(worktree).filter((j) => states.includes(j.state)).map((j) => gateOfJob(j.name));
+}
+
+const movedOff = (issueNumber: number): string =>
+  `the main line moved off the merge of #${issueNumber} while its check ran; the harness cannot undo it safely, so it touched nothing; ` +
+  "this is a harness bug";
+
+async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker: Tracker, startedAt: number): Promise<LeadOutcome> {
+  const busy = mergingTicket(main);
+  if (busy !== undefined && busy.issue !== issueNumber) {
+    return refused(`#${busy.issue} is being merged; merge #${issueNumber} once that merge is done (bounded lead merge ${busy.issue} carries it on)`);
+  }
   const ticket = readStartedTicket(main, issueNumber);
   if (ticket === undefined) return refused(`#${issueNumber} is not started`);
   if (ticket.phase === "starting") return refused(`#${issueNumber}'s start did not finish; run bounded lead start ${issueNumber} first`);
@@ -781,6 +905,13 @@ async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker:
   if (held.length > 0) {
     return refused(`#${issueNumber} still has ${held.map((w) => `worker ${w.worker}`).join(", ")} running in the background; merge waits for its stop`);
   }
+  // So may a gate's background run in the worktree.
+  const live = gateJobs(ticket.worktree, ["running"]);
+  if (live.length > 0) {
+    return refused(`#${issueNumber} still has ${live.join(", ")} running in the background in its worktree; merge waits for it to finish`);
+  }
+  if (ticket.phase === "merging" && ticket.merging !== undefined) return resumeMerge(main, ticket, ticket.merging, deps, tracker, startedAt);
+
   const issue = tracker.viewIssue(issueNumber);
   if (issue.status !== "Awaiting Merge") return refused(`#${issueNumber} is ${issue.status ?? "not on the board"}; only a ticket whose deliver gate passed merges`);
   const log = readRunLog(ticket.worktree);
@@ -807,26 +938,138 @@ async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker:
   if (gitOut(deps, ticket.worktree, "rev-parse", "HEAD^{tree}") !== delivered.tree) {
     return refused(`#${issueNumber}: the branch does not hold the delivered tree; rerun deliver`);
   }
+  const branchHead = gitOut(deps, ticket.worktree, "rev-parse", "HEAD");
+  if (branchHead === undefined) return refused(`#${issueNumber}'s branch cannot be read`);
+  // Finished gate runs in the worktree judged a tree that is now being merged.
+  await stopJobs(ticket.worktree, { force: false });
+  return mergeFrom(main, ticket, issue.title, { local, branchHead }, deps, tracker, startedAt);
+}
 
-  const merged = git(deps, main, "merge", "--no-ff", "--no-edit", "-m", `Merge #${issueNumber}: ${issue.title}`, ticket.branch);
+/** Record the merge, make it, record its commit, then check it. */
+async function mergeFrom(
+  main: string, ticket: StartedTicket, title: string, record: MergeRecord, deps: LeadDeps, tracker: Tracker, startedAt: number,
+): Promise<LeadOutcome> {
+  const issueNumber = ticket.issue;
+  writeStartedTicket(main, { ...ticket, phase: "merging", merging: record });
+  const merged = git(deps, main, "merge", "--no-ff", "--no-edit", "-m", `Merge #${issueNumber}: ${title}`, ticket.branch);
   if (merged.status !== 0) {
     git(deps, main, "merge", "--abort");
+    writeStartedTicket(main, settled(ticket));
     return refused(`#${issueNumber} does not merge cleanly into ${MAIN_BRANCH}; the merge was aborted: ${tail(`${merged.stdout}${merged.stderr}`, 8)}`);
   }
-  const undo = (why: string): LeadOutcome => {
-    git(deps, main, "reset", "--hard", local);
-    return refused(`${why}; the merge was undone and ${MAIN_BRANCH} is back at ${local.slice(0, 12)}`);
-  };
-  const check = deps.check(main);
-  if (!check.ok) return undo(`the project check failed on ${MAIN_BRANCH} after merging #${issueNumber}:\n${tail(check.output)}`);
-  const pushed = git(deps, main, "push", REMOTE, `${MAIN_BRANCH}:${MAIN_BRANCH}`);
-  if (pushed.status !== 0) return undo(`pushing ${MAIN_BRANCH} was refused: ${tail(pushed.stderr, 5)}`);
+  const head = gitOut(deps, main, "rev-parse", "HEAD");
+  // Unreadable: the record stays "merging", and the next merge decides.
+  if (head === undefined) return refused(`${MAIN_BRANCH} cannot be read after merging #${issueNumber}; run bounded lead merge ${issueNumber} again`);
+  const done = { ...record, merged: head };
+  const current = { ...ticket, phase: "merging" as const, merging: done };
+  writeStartedTicket(main, current);
+  return checkMerged(main, current, done, deps, tracker, startedAt);
+}
 
+/** Is `commit` a merge of exactly `first` and `second`? */
+function isMergeOf(main: string, deps: LeadDeps, commit: string, first: string, second: string): boolean {
+  const parents = gitOut(deps, main, "rev-list", "--parents", "-n", "1", commit)?.split(/\s+/).slice(1);
+  return parents !== undefined && parents.length === 2 && parents[0] === first && parents[1] === second;
+}
+
+/** A merge recorded by a call that ended: adopt it, start it over, or refuse. */
+async function resumeMerge(
+  main: string, ticket: StartedTicket, record: MergeRecord, deps: LeadDeps, tracker: Tracker, startedAt: number,
+): Promise<LeadOutcome> {
+  const issueNumber = ticket.issue;
+  // Whether a push already landed.
+  const fetched = git(deps, main, "fetch", REMOTE, MAIN_BRANCH);
+  if (fetched.status !== 0) return refused(`git fetch failed: ${tail(fetched.stderr, 5)}`);
+  let merged = record.merged;
+  if (merged === undefined) {
+    if (gitOut(deps, main, "rev-parse", "-q", "--verify", "MERGE_HEAD") !== undefined) git(deps, main, "merge", "--abort");
+    const head = gitOut(deps, main, "rev-parse", "HEAD");
+    if (head === record.local) {
+      writeStartedTicket(main, settled(ticket));
+      return merge(main, issueNumber, deps, tracker, startedAt);
+    }
+    if (head === undefined || !isMergeOf(main, deps, head, record.local, record.branchHead)) {
+      return refused(`the main line is not where #${issueNumber}'s interrupted merge left it, and the harness cannot tell what happened, ` +
+        "so it touched nothing; this is a harness bug");
+    }
+    merged = head;
+    writeStartedTicket(main, { ...ticket, merging: { ...record, merged } });
+  }
+  const adopted = { ...record, merged };
+  if (gitOut(deps, main, "rev-parse", `${REMOTE}/${MAIN_BRANCH}`) === merged) {
+    return finishMerge(main, ticket, deps, tracker);
+  }
+  return checkMerged(main, { ...ticket, merging: adopted }, adopted, deps, tracker, startedAt);
+}
+
+/** Undo a merge, only while main is still at its commit. */
+function undoMerge(main: string, ticket: StartedTicket, record: MergeRecord, deps: LeadDeps, why: string): LeadOutcome {
+  if (gitOut(deps, main, "rev-parse", "HEAD") !== record.merged) return refused(movedOff(ticket.issue));
+  git(deps, main, "reset", "--hard", record.local);
+  writeStartedTicket(main, settled(ticket));
+  return refused(`${why}; the merge was undone and ${MAIN_BRANCH} is back at ${record.local.slice(0, 12)}`);
+}
+
+/** Run the project check over the merge in the background, or collect it. */
+async function checkMerged(
+  main: string, ticket: StartedTicket, record: MergeRecord, deps: LeadDeps, tracker: Tracker, startedAt: number,
+): Promise<LeadOutcome> {
+  const issueNumber = ticket.issue;
+  let commands: string[][];
+  try {
+    commands = projectCheckCommands(main, packsOf(main, deps));
+  } catch (error) {
+    return undoMerge(main, ticket, record, deps, `the project check failed on ${MAIN_BRANCH} after merging #${issueNumber}: ` +
+      (error instanceof Error ? error.message : String(error)));
+  }
+  const name = mergeJobName(issueNumber);
+  const deadlineMs = commandTimeoutMs(process.env);
+  const answer: JobAnswer = await runOrCollect(
+    { cwd: main, name, key: `merge #${issueNumber} at ${String(record.merged)}`, sequence: commands },
+    { startedAt, ...(deadlineMs !== undefined ? { deadlineMs } : {}) },
+  );
+  if (answer.state === "running") {
+    // The board hears of the check once, when it starts or restarts.
+    const pending = answer.job === "running" ? undefined : board(main, tracker, [{
+      op: "comment", issue: issueNumber,
+      body: `\`bounded lead merge\`: RUNNING — #${issueNumber} is merged locally and its project check is running in the background (${answer.job} at ${answer.startedAt}); nothing is pushed yet`,
+    }]);
+    return running(`#${issueNumber} is merged into local ${MAIN_BRANCH} and its project check is still running in the background ` +
+      `(started ${answer.startedAt})${answer.note !== undefined ? `; ${answer.note}` : ""}; nothing is pushed yet. ` +
+      `Run bounded lead merge ${issueNumber} again to collect it${pending !== undefined ? `; ${pending}` : ""}`);
+  }
+  if (answer.state !== "done") return refused(`#${issueNumber}'s project check could not be started; this is a harness bug`);
+  // Collected only over the merge itself.
+  if (gitOut(deps, main, "rev-parse", "HEAD") !== record.merged) return refused(movedOff(issueNumber));
+  const outcome = answer.outcome;
+  const output = jobOutput(main, name);
+  answer.release();
+  if (outcome.failure !== undefined || outcome.code === null || outcome.timedOut === true) {
+    return undoMerge(main, ticket, record, deps, `the project check did not complete on ${MAIN_BRANCH} after merging #${issueNumber}` +
+      `${outcome.error !== undefined ? ` (${outcome.error})` : ""}; this is a harness bug`);
+  }
+  if (outcome.code !== 0) {
+    return undoMerge(main, ticket, record, deps, `the project check failed on ${MAIN_BRANCH} after merging #${issueNumber}:\n${output}`);
+  }
+  // Untracked files never block: only a change to what git tracks.
+  if ((gitOut(deps, main, "status", "--porcelain", "--untracked-files=no") ?? "x") !== "") {
+    return undoMerge(main, ticket, record, deps, `${MAIN_BRANCH} changed while its check ran`);
+  }
+  const pushed = git(deps, main, "push", REMOTE, `${MAIN_BRANCH}:${MAIN_BRANCH}`);
+  if (pushed.status !== 0) return undoMerge(main, ticket, record, deps, `pushing ${MAIN_BRANCH} was refused: ${tail(pushed.stderr, 5)}`);
+  return finishMerge(main, ticket, deps, tracker);
+}
+
+/** The merge is pushed: close the ticket and remove its worktree and branch. */
+async function finishMerge(main: string, ticket: StartedTicket, deps: LeadDeps, tracker: Tracker): Promise<LeadOutcome> {
+  const issueNumber = ticket.issue;
   const pending = board(main, tracker, [
     { op: "status", issue: issueNumber, status: "Done" },
     { op: "close", issue: issueNumber },
   ]);
   const cleanup: string[] = [];
+  await stopJobs(ticket.worktree, { force: false });
+  await stopJobs(main, { force: false, names: [mergeJobName(issueNumber)] });
   if (git(deps, main, "worktree", "remove", "--force", ticket.worktree).status !== 0) cleanup.push("its worktree could not be removed");
   if (git(deps, main, "branch", "-d", ticket.branch).status !== 0) cleanup.push(`branch ${ticket.branch} could not be deleted`);
   removeStartedTicket(main, issueNumber);

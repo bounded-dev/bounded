@@ -6,7 +6,8 @@
 // command writes (no role may write `.bounded/`), and the main worktree keeps a
 // record of every started ticket until it is merged.
 
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Ticket worktrees, under the main worktree. */
@@ -56,9 +57,22 @@ export function writeTicketMarker(worktree: string, marker: TicketMarker): void 
   writeFileSync(join(worktree, TICKET_MARKER_RELATIVE), JSON.stringify(marker, null, 2) + "\n");
 }
 
+/** A merge recorded before `git merge` runs (ADR 2026-073), so a merge whose
+ *  call ended is adopted, collected, undone or refused, never repeated. */
+export interface MergeRecord {
+  /** Local main before the merge (after the fast-forward): what an undo returns to. */
+  readonly local: string;
+  /** The ticket branch's head that was merged. */
+  readonly branchHead: string;
+  /** The merge commit, once git made it. */
+  readonly merged?: string;
+}
+
 export interface StartedTicket {
-  /** "starting" until every step of `start` is done; a rerun of `start` finishes it. */
-  readonly phase?: "starting" | "started";
+  /** "starting" until every step of `start` is done; a rerun of `start` finishes it.
+   *  "merging" from just before `git merge` until the merge is pushed or undone. */
+  readonly phase?: "starting" | "started" | "merging";
+  readonly merging?: MergeRecord;
   readonly issue: number;
   readonly title: string;
   readonly branch: string;
@@ -67,10 +81,15 @@ export interface StartedTicket {
   readonly startedAt: string;
 }
 
+/** Written whole (a temporary file renamed into place): a reader sees the old
+ *  record or the new one, never half of one. */
 export function writeStartedTicket(main: string, record: StartedTicket): void {
   const dir = join(main, LEAD_TICKETS_RELATIVE);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${record.issue}.json`), JSON.stringify(record, null, 2) + "\n");
+  const path = join(dir, `${record.issue}.json`);
+  const temp = `${path}.${process.pid}-${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync(temp, JSON.stringify(record, null, 2) + "\n");
+  renameSync(temp, path);
 }
 
 export function removeStartedTicket(main: string, issue: number): void {
