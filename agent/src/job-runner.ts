@@ -2,10 +2,11 @@
 // src/detached-job.ts in a session of its own, so the call that started it can
 // return and nothing that ends that call reaches it.
 //
-//   node job-runner.ts <job-dir> <run-id> <commands-json>
+//   node job-runner.ts <job-dir> <run-id> <commands-json> <output-dir>
 //
 // It runs each command (an argv list) in turn, in its own working directory,
-// with their output in the job directory's `stdout` and `stderr` files, and
+// with their output in the `stdout` and `stderr` files of its output
+// directory (outside the project, so no role's search reaches it), and
 // stops at the first that fails. At the job's time limit (the
 // BOUNDED_COMMAND_TIMEOUT_MS it was started with) it records the run as timed
 // out and stops everything it started. Its one product is
@@ -43,9 +44,9 @@ export function writeWhole(path: string, text: string): void {
   renameSync(temp, path);
 }
 
-async function runAll(jobDir: string, runId: string, commands: readonly (readonly string[])[], timeoutMs: number): Promise<never> {
-  const out = openSync(join(jobDir, "stdout"), "w");
-  const err = openSync(join(jobDir, "stderr"), "w");
+async function runAll(jobDir: string, runId: string, commands: readonly (readonly string[])[], timeoutMs: number, outputDir: string): Promise<never> {
+  const out = openSync(join(outputDir, "stdout"), "w");
+  const err = openSync(join(outputDir, "stderr"), "w");
   let finished = false;
   const finish = (result: Omit<RunnerResult, "runId" | "finishedAt">): void => {
     if (finished) return;
@@ -85,9 +86,9 @@ async function runAll(jobDir: string, runId: string, commands: readonly (readonl
   process.exit(0);
 }
 
-const [jobDir, runId, raw] = process.argv.slice(2);
-if (isMainModule(import.meta.url) && jobDir !== undefined && runId !== undefined && raw !== undefined) {
+const [jobDir, runId, raw, outputDir] = process.argv.slice(2);
+if (isMainModule(import.meta.url) && jobDir !== undefined && runId !== undefined && raw !== undefined && outputDir !== undefined) {
   const commands = JSON.parse(raw) as string[][];
   const timeoutMs = Number(process.env["BOUNDED_COMMAND_TIMEOUT_MS"]);
-  await runAll(jobDir, runId, commands, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60 * 60_000);
+  await runAll(jobDir, runId, commands, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60 * 60_000, outputDir);
 }

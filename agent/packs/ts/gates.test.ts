@@ -250,7 +250,8 @@ describe("background jobs", () => {
       "green-gate": "reads-tree",
       "red-gate": "reads-tree",
       "run-tests": "reads-tree",
-      "mutation-score": "reads-tree",
+      // It writes mutants into the tree, so it runs alone (review ruling on the slot).
+      "mutation-score": "writes-tree",
     });
   });
 

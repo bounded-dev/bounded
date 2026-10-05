@@ -1,47 +1,55 @@
 // Detached, resumable jobs (ADR 2026-073). A host that kills a command at a
-// time limit (Claude Code: ten minutes at most) cannot run a check that takes
-// longer in one call. So the core runs such work as a job: a runner process in
-// a session of its own (src/job-runner.ts), with its output in files, which
-// the call waits on for as long as its budget allows and then leaves running.
-// The next call with the same key waits again, or collects the result.
+// time limit cannot run a check that takes longer in one call. So the core
+// runs such work as a job: a runner process in a session of its own
+// (src/job-runner.ts), with its output in files, which the call waits on for
+// as long as its budget allows and then leaves running. The next call with
+// the same key waits again, or collects the result.
 //
 // Each job is a directory, `.bounded/jobs/<name>/`, holding `spec.json` (what
 // was asked), `job.json` (the current run: its id, its runner's pid and that
 // pid's start time, the host, when it started, its time limit, its key, the
-// tree it started on and how many runs in a row died), the run's output files
-// and `result-<run-id>.json` / `payload-<run-id>.json`. Every file is written
-// whole (a temporary file renamed into place). Inspecting, starting, stopping
-// and collecting happen under one project-wide lock, `.bounded/jobs/lock`,
-// held only for those moments, never while a call waits.
+// tree it started on, how many runs in a row died, and where its output is)
+// and `result-<run-id>.json` (exit codes only). The run's raw output and its
+// payload live outside the project, in a directory of their own under the
+// system's temporary directory, so nothing in the project holds them. Every
+// file is written whole (a temporary file renamed into place). Inspecting,
+// starting, stopping and collecting happen under one project-wide lock,
+// `.bounded/jobs/lock`, held only for those moments, never while a call waits.
+//
+// A run in the caller's own process (an in-call run) is recorded the same
+// way, marked `inline`, so every call sees every run of a job, wherever it
+// runs.
 //
 // The rules, in the order a call applies them:
 //   · the current run's result file wins over every liveness judgement; a
 //     run's result is collected only by its own id, so a run abandoned
 //     earlier can never be collected;
-//   · a run is alive while its runner's pid runs with the recorded start time
-//     on this host; on another host, or when the start time cannot be read,
-//     it counts as running until its time limit plus a margin has passed
-//     (the host-aware pattern of mutation-journal.ts; doubt fails closed);
+//   · a run is alive while its process runs with the recorded start time on
+//     this host; on another host, or when the start time cannot be read, it
+//     counts as running until its time limit plus a margin has passed (the
+//     host-aware pattern of mutation-journal.ts; doubt fails closed);
 //   · a run is dead when it is gone without a result, or past its time limit
 //     plus the margin; three deaths in a row for the same key and tree stop
 //     the job for good, as a harness bug, until the key or the tree changes;
 //   · a run is signalled only when it is provably the job's: its leader runs
-//     with the recorded start time, or no process has its pid but a process
-//     group with that id exists (a pid is not reused while its group lives).
-//     It is sent SIGTERM, then SIGKILL, each followed by a wait; a group that
-//     survives both is an error, never a second run. A run that is not
-//     provably the job's is abandoned untouched;
-//   · a live run with another key is stopped, and a new one started;
-//   · one project-wide slot (`.bounded/jobs/slot`) is held by the one live
-//     long-gate run, job or in-process, so two never share one tree.
+//     with the recorded start time, or its leader has gone (or exited, not
+//     yet reaped) while a process group with that id still runs (a pid is not
+//     reused while its group lives). It is sent SIGTERM, then SIGKILL, each
+//     followed by a wait; a group that survives both is an error, never a
+//     second run. A run that is not provably the job's is abandoned untouched;
+//   · a live run with another key is stopped, and a new one started; a live
+//     in-call run is never stopped from another call: that call is refused;
+//   · runs that share a group (`JobSpec.group`) overlap only when neither is
+//     exclusive: an exclusive run starts only when no other run of the group
+//     is live, and no run starts while an exclusive one is.
 // The clock is wall time: a machine that sleeps through a run's time limit
 // makes a live run look dead on waking, which costs a restart and never
 // corrupts a run.
 
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { hostname } from "node:os";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { callBudgetMs, COMMAND_TIMEOUT_ENV } from "./host.ts";
@@ -55,13 +63,25 @@ export const JOB_CEILING_MS = 60 * 60_000;
 export const JOB_MARGIN_MS = 5 * 60_000;
 /** Deaths in a row, for one key and tree, that stop a job for good. */
 export const MAX_DEATHS = 3;
-/** Env a job's commands see: the job's directory, and its run's id. */
+/** Env a job's commands see: the job's directory, the directory its output
+ *  and payload go to (outside the project), and its run's id. */
 export const JOB_DIR_ENV = "BOUNDED_JOB_DIR";
+export const JOB_OUTPUT_ENV = "BOUNDED_JOB_OUTPUT";
 export const JOB_RUN_ENV = "BOUNDED_JOB_RUN_ID";
 
 const GRACE_MS = 10_000;
 const LOCK_WAIT_MS = 120_000;
 const RUNNER = fileURLToPath(new URL("./job-runner.ts", import.meta.url));
+
+/** Which runs may overlap: those of one group, unless either is exclusive. */
+export interface JobGroup {
+  /** What a refusal calls this job (a gate's name). */
+  readonly label: string;
+  /** Runs alone: nothing else of the group runs beside it. */
+  readonly exclusive: boolean;
+  /** How a caller reaches this job (a gate's tool name), for refusals. */
+  readonly tool?: string;
+}
 
 export interface JobSpec {
   /** The project (or worktree) the job belongs to and runs in. */
@@ -80,15 +100,14 @@ export interface JobSpec {
   readonly tree?: string;
   /** Recorded with the run, for the caller's own collection rules. */
   readonly meta?: Readonly<Record<string, unknown>>;
-  /** Take the project's one long-run slot, under this label. */
-  readonly slot?: string;
+  /** The runs it may or may not overlap. */
+  readonly group?: JobGroup;
 }
 
 export interface JobRecord {
   readonly runId: string;
   readonly pid: number;
-  /** The runner's start time, as the process probe reads it; null when it
-   *  could not be read. */
+  /** The process's start time, as the probe reads it; null when it could not be read. */
   readonly pidStarted: string | null;
   readonly host: string;
   readonly startedAt: string;
@@ -97,6 +116,11 @@ export interface JobRecord {
   readonly tree?: string;
   readonly deaths: number;
   readonly meta?: Readonly<Record<string, unknown>>;
+  readonly group?: JobGroup;
+  /** Where the run's output and payload are, outside the project. */
+  readonly outputDir?: string;
+  /** A run in a caller's own process: it has no runner, and no result file. */
+  readonly inline?: true;
   /** Set once the job has stopped for good: the error every later call with
    *  the same key and tree answers. */
   readonly failed?: string;
@@ -119,6 +143,18 @@ export type JobEvent =
   | { readonly kind: "started" | "restarted"; readonly runId: string; readonly pid: number; readonly startedAt: string; readonly reason?: string }
   | { readonly kind: "running"; readonly runId: string; readonly pid: number; readonly startedAt: string; readonly note?: string };
 
+/** A live run that keeps another from starting. */
+export interface RunHolder {
+  /** Its job name. */
+  readonly name: string;
+  readonly label: string;
+  readonly tool?: string;
+  readonly exclusive: boolean;
+  readonly startedAt: string;
+  /** Running in a caller's own process, not in the background. */
+  readonly inline: boolean;
+}
+
 export type JobAnswer =
   | {
     readonly state: "done"; readonly outcome: JobOutcome; readonly runId: string; readonly startedAt: string;
@@ -130,10 +166,12 @@ export type JobAnswer =
     readonly state: "running"; readonly runId: string; readonly pid: number; readonly startedAt: string;
     readonly job: "started" | "restarted" | "running"; readonly reason?: string; readonly note?: string;
   }
-  /** Another job holds the project's slot. */
-  | { readonly state: "busy"; readonly holder: SlotHolder; readonly runId?: undefined }
+  /** Another live run (this job's own in-call run, or another of its group) blocks it. */
+  | { readonly state: "busy"; readonly holder: RunHolder; readonly runId?: undefined }
   /** Collect-only, and nothing to collect. */
-  | { readonly state: "none"; readonly runId?: undefined };
+  | { readonly state: "none"; readonly runId?: undefined }
+  /** The jobs' lock stayed held for the whole of the call's budget. */
+  | { readonly state: "locked"; readonly runId?: undefined };
 
 export interface RunOptions {
   /** The host's command deadline; undefined waits until the run ends. */
@@ -182,10 +220,17 @@ function writeRecord(dir: string, record: JobRecord): void {
   writeWhole(join(dir, "job.json"), `${JSON.stringify(record, null, 2)}\n`);
 }
 
-function readOutcome(dir: string, runId: string): JobOutcome | undefined {
-  const raw = readJson(join(dir, resultFile(runId))) as RunnerResult | undefined;
-  if (raw === undefined || raw.runId !== runId) return undefined;
-  const payload = readJson(join(dir, payloadFile(runId)));
+/** Remove a job's directory and its output, wherever that is. */
+function removeJob(dir: string): void {
+  const outputDir = readRecord(dir)?.outputDir;
+  if (outputDir !== undefined) rmSync(outputDir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+}
+
+function readOutcome(dir: string, record: JobRecord): JobOutcome | undefined {
+  const raw = readJson(join(dir, resultFile(record.runId))) as RunnerResult | undefined;
+  if (raw === undefined || raw.runId !== record.runId) return undefined;
+  const payload = record.outputDir === undefined ? undefined : readJson(join(record.outputDir, payloadFile(record.runId)));
   return {
     code: typeof raw.code === "number" ? raw.code : null,
     ...(raw.signal !== undefined ? { signal: raw.signal } : {}),
@@ -197,10 +242,25 @@ function readOutcome(dir: string, runId: string): JobOutcome | undefined {
 
 /** For a job's own command: hand the caller a structured result. */
 export function writeJobPayload(payload: unknown, env: Readonly<Record<string, string | undefined>> = process.env): void {
-  const dir = env[JOB_DIR_ENV];
+  const dir = env[JOB_OUTPUT_ENV];
   const runId = env[JOB_RUN_ENV];
   if (dir === undefined || runId === undefined) throw new Error("writeJobPayload runs only inside a background job");
   writeWhole(join(dir, payloadFile(runId)), `${JSON.stringify(payload)}\n`);
+}
+
+/** The tail of what a job's commands printed (for the lead, never a role:
+ *  it is kept outside the project). */
+export function jobOutput(cwd: string, name: string, lines = 30): string {
+  const outputDir = readRecord(jobDir(cwd, name))?.outputDir;
+  const read = (file: string): string => {
+    if (outputDir === undefined) return "";
+    try {
+      return readFileSync(join(outputDir, file), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  return `${read("stdout")}${read("stderr")}`.trimEnd().split("\n").slice(-lines).join("\n");
 }
 
 // ── Processes ───────────────────────────────────────────────────────────────
@@ -261,8 +321,13 @@ interface Judge {
   readonly graceMs: number;
 }
 
+const judgeOf = (options: Pick<RunOptions, "probe" | "now" | "kill" | "graceMs">): Judge => ({
+  probe: options.probe ?? systemProcesses, now: options.now ?? Date.now,
+  kill: options.kill ?? signalProcess, graceMs: options.graceMs ?? GRACE_MS,
+});
+
 function lifeOf(dir: string, record: JobRecord, judge: Judge): Life {
-  const finished = (): boolean => existsSync(join(dir, resultFile(record.runId)));
+  const finished = (): boolean => !record.inline && existsSync(join(dir, resultFile(record.runId)));
   if (finished()) return { kind: "finished" };
   const pastLimit = judge.now() - Date.parse(record.startedAt) > record.timeoutMs + JOB_MARGIN_MS;
   if (record.host !== hostname()) {
@@ -278,14 +343,17 @@ function lifeOf(dir: string, record: JobRecord, judge: Judge): Life {
       note: "whether its process still runs cannot be checked from here; it counts as running until its time limit has passed",
     };
   }
+  const ours = started !== undefined && started === record.pidStarted;
   // A runner that has exited but not yet been reaped by the process that
   // started it (a long-lived host process) still has a start time.
-  if (started !== undefined && started === record.pidStarted && !(judge.probe === systemProcesses && zombie(record.pid))) {
-    return pastLimit ? { kind: "dead", reason: "timed-out", provable: true } : { kind: "alive" };
+  const exited = ours && judge.probe === systemProcesses && zombie(record.pid);
+  if (ours && !exited) {
+    return pastLimit ? { kind: "dead", reason: "timed-out", provable: !record.inline } : { kind: "alive" };
   }
-  // Gone, or its pid now belongs to another process. It may have finished in between.
+  // Gone, exited, or its pid now belongs to another process. It may have finished in between.
   if (finished()) return { kind: "finished" };
-  const orphans = started === undefined && judge.kill(-record.pid, 0);
+  // Its commands may outlive it in its group, which is then provably the job's.
+  const orphans = !record.inline && (started === undefined || exited) && judge.kill(-record.pid, 0);
   return { kind: "dead", reason: pastLimit ? "timed-out" : "dead", provable: orphans };
 }
 
@@ -306,88 +374,89 @@ async function stopRun(record: JobRecord, judge: Judge): Promise<boolean> {
   return gone();
 }
 
-// ── The slot ────────────────────────────────────────────────────────────────
+// ── Who may run beside whom ─────────────────────────────────────────────────
 
-export interface SlotHolder {
-  /** The job name holding it. */
-  readonly name: string;
-  /** What to call it in a refusal (a gate's name). */
-  readonly label: string;
-  readonly pid: number;
-  readonly pidStarted: string | null;
-  readonly host: string;
-  readonly startedAt: string;
-}
+const holderOf = (name: string, record: JobRecord): RunHolder => ({
+  name, label: record.group?.label ?? name, exclusive: record.group?.exclusive ?? false, startedAt: record.startedAt,
+  inline: record.inline === true, ...(record.group?.tool !== undefined ? { tool: record.group.tool } : {}),
+});
 
-const slotPath = (cwd: string): string => join(jobsDir(cwd), "slot");
-
-function readSlot(cwd: string): SlotHolder | undefined {
-  const raw = readJson(slotPath(cwd));
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const s = raw as Record<string, unknown>;
-  return typeof s["name"] === "string" && typeof s["pid"] === "number" && typeof s["startedAt"] === "string"
-    ? { label: String(s["name"]), pidStarted: null, host: hostname(), ...(s as object) } as SlotHolder : undefined;
-}
-
-function slotHeld(holder: SlotHolder, judge: Judge): boolean {
-  const young = judge.now() - Date.parse(holder.startedAt) <= JOB_CEILING_MS + JOB_MARGIN_MS;
-  if (holder.host !== hostname()) return young;
-  const started = holder.pidStarted === null ? null : judge.probe.startTime(holder.pid);
-  if (started === null) return young;
-  return started === holder.pidStarted;
-}
-
-/** Who holds the slot against `name`, if anyone. */
-function slotBlocker(cwd: string, name: string, judge: Judge): SlotHolder | undefined {
-  const holder = readSlot(cwd);
-  return holder !== undefined && holder.name !== name && slotHeld(holder, judge) ? holder : undefined;
-}
-
-function takeSlot(cwd: string, holder: SlotHolder): void {
-  mkdirSync(jobsDir(cwd), { recursive: true });
-  writeWhole(slotPath(cwd), `${JSON.stringify(holder)}\n`);
-}
-
-function freeSlot(cwd: string, name: string, pid?: number): void {
-  const holder = readSlot(cwd);
-  if (holder !== undefined && holder.name === name && (pid === undefined || holder.pid === pid)) rmSync(slotPath(cwd), { force: true });
+/** A live run of another job in `group` that `name` may not run beside. */
+function blocker(cwd: string, name: string, group: JobGroup, judge: Judge): RunHolder | undefined {
+  const root = jobsDir(cwd);
+  if (!existsSync(root)) return undefined;
+  for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory() || entry.name === name) continue;
+    const record = readRecord(join(root, entry.name));
+    if (record?.group === undefined || record.failed !== undefined) continue;
+    if (!group.exclusive && !record.group.exclusive) continue;
+    const life = lifeOf(join(root, entry.name), record, judge);
+    if (life.kind === "alive" || life.kind === "unverifiable") return holderOf(entry.name, record);
+  }
+  return undefined;
 }
 
 // ── The lock ────────────────────────────────────────────────────────────────
 
-async function locked<T>(cwd: string, fn: () => Promise<T> | T): Promise<T> {
+/** Run `fn` under the jobs' lock, waiting for it at most `waitMs`; undefined when it stayed held. */
+async function locked<T>(cwd: string, fn: () => Promise<T> | T, waitMs = LOCK_WAIT_MS): Promise<{ readonly value: T } | undefined> {
   const path = join(jobsDir(cwd), "lock");
-  const end = Date.now() + LOCK_WAIT_MS;
+  const end = Date.now() + Math.max(0, waitMs);
   for (;;) {
     const lock = acquireLock(path, systemProcesses);
     if (lock.ok) {
       try {
-        return await fn();
+        return { value: await fn() };
       } finally {
         lock.release();
       }
     }
-    if (Date.now() > end) throw new Error(`the background-job lock stayed held (${lock.reason})`);
-    await sleep(20 + Math.floor(Math.random() * 30));
+    if (Date.now() >= end) return undefined;
+    await sleep(Math.min(20 + Math.floor(Math.random() * 30), Math.max(1, end - Date.now())));
   }
 }
 
+async function mustLock<T>(cwd: string, fn: () => Promise<T> | T): Promise<T> {
+  const done = await locked(cwd, fn);
+  if (done === undefined) throw new Error("the background-job lock stayed held");
+  return done.value;
+}
+
 /**
- * Take the slot for a long run in this process (an in-process gate run), or
- * say who holds it.
+ * Record a run in this very process (a gate run in the call) as the job's
+ * run, so every other call sees it: refused when the job already has a live
+ * run, or another run of its group may not run beside it.
  */
-export async function claimSlot(
-  cwd: string, name: string, label: string, options: { readonly probe?: ProcessProbe; readonly now?: () => number } = {},
-): Promise<{ readonly ok: true; release(): void } | { readonly ok: false; readonly holder: SlotHolder }> {
-  const judge: Judge = { probe: options.probe ?? systemProcesses, now: options.now ?? Date.now, kill: signalProcess, graceMs: GRACE_MS };
-  return locked(cwd, () => {
-    const blocker = slotBlocker(cwd, name, judge);
-    if (blocker !== undefined) return { ok: false as const, holder: blocker };
-    takeSlot(cwd, {
-      name, label, pid: process.pid, pidStarted: judge.probe.startTime(process.pid) ?? null,
-      host: hostname(), startedAt: new Date(judge.now()).toISOString(),
+export async function claimInline(
+  spec: JobSpec, options: { readonly probe?: ProcessProbe; readonly now?: () => number } = {},
+): Promise<{ readonly ok: true; release(): void } | { readonly ok: false; readonly holder: RunHolder }> {
+  const judge = judgeOf(options);
+  const dir = jobDir(spec.cwd, spec.name);
+  return mustLock(spec.cwd, () => {
+    const existing = readRecord(dir);
+    if (existing !== undefined && existing.failed === undefined) {
+      const life = lifeOf(dir, existing, judge);
+      if (life.kind === "alive" || life.kind === "unverifiable") return { ok: false as const, holder: holderOf(spec.name, existing) };
+    }
+    if (spec.group !== undefined) {
+      const holder = blocker(spec.cwd, spec.name, spec.group, judge);
+      if (holder !== undefined) return { ok: false as const, holder };
+    }
+    removeJob(dir);
+    mkdirSync(dir, { recursive: true });
+    const runId = randomBytes(8).toString("hex");
+    writeRecord(dir, {
+      runId, pid: process.pid, pidStarted: judge.probe.startTime(process.pid) ?? null, host: hostname(),
+      startedAt: new Date(judge.now()).toISOString(), timeoutMs: spec.timeoutMs ?? JOB_CEILING_MS, key: spec.key, deaths: 0,
+      inline: true, ...(spec.tree !== undefined ? { tree: spec.tree } : {}), ...(spec.group !== undefined ? { group: spec.group } : {}),
+      ...(spec.meta !== undefined ? { meta: spec.meta } : {}),
     });
-    return { ok: true as const, release: () => freeSlot(cwd, name, process.pid) };
+    return {
+      ok: true as const,
+      release: () => {
+        if (readRecord(dir)?.runId === runId) removeJob(dir);
+      },
+    };
   });
 }
 
@@ -407,16 +476,15 @@ type Step =
  */
 export async function runOrCollect(spec: JobSpec, options: RunOptions = {}): Promise<JobAnswer> {
   const callStart = options.startedAt ?? Date.now();
-  const judge: Judge = {
-    probe: options.probe ?? systemProcesses, now: options.now ?? Date.now,
-    kill: options.kill ?? signalProcess, graceMs: options.graceMs ?? GRACE_MS,
-  };
+  const judge = judgeOf(options);
   const budget = options.deadlineMs === undefined ? undefined : callBudgetMs(options.deadlineMs) ?? 0;
   const left = (): number => (budget === undefined ? Number.POSITIVE_INFINITY : budget - (Date.now() - callStart));
   const dir = jobDir(spec.cwd, spec.name);
   let mine: { readonly job: "started" | "restarted"; readonly reason?: string } | undefined;
   for (;;) {
-    const step = await locked(spec.cwd, () => inspect(spec, dir, options, judge));
+    const held = await locked(spec.cwd, () => inspect(spec, dir, options, judge), Math.min(LOCK_WAIT_MS, left()));
+    if (held === undefined) return { state: "locked" };
+    const step = held.value;
     if (step.kind === "answer") {
       const answer = step.answer;
       return answer.state === "done" && mine?.job === "restarted"
@@ -472,10 +540,16 @@ async function inspect(spec: JobSpec, dir: string, options: RunOptions, judge: J
     },
   });
   const fresh = (job: "started" | "restarted", reason?: string, deaths = 0): Step =>
-    start ? begin(spec, dir, options, judge, job, reason, deaths) : (rmSync(dir, { recursive: true, force: true }), none);
+    start ? begin(spec, dir, options, judge, job, reason, deaths) : (removeJob(dir), none);
 
   let record = readRecord(dir);
   if (record === undefined) return fresh("started");
+  // A run in another call's own process is never stopped from here.
+  if (record.inline === true) {
+    const life = lifeOf(dir, record, judge);
+    if (life.kind === "alive" || life.kind === "unverifiable") return { kind: "answer", answer: { state: "busy", holder: holderOf(spec.name, record) } };
+    return fresh("started");
+  }
   if (record.failed !== undefined) {
     if (record.key === spec.key && record.tree === spec.tree) return failed(record, record.failed, "died");
     return fresh("restarted", record.key !== spec.key ? "args-changed" : "tree-changed");
@@ -483,7 +557,7 @@ async function inspect(spec: JobSpec, dir: string, options: RunOptions, judge: J
   const life = lifeOf(dir, record, judge);
   switch (life.kind) {
     case "finished": {
-      const outcome = readOutcome(dir, record.runId) ?? { code: null, error: "its result could not be read" };
+      const outcome = readOutcome(dir, record) ?? { code: null, error: "its result could not be read" };
       if (record.key !== spec.key) return fresh("restarted", "args-changed");
       const why = options.accept?.(outcome, record);
       if (why !== undefined) return fresh("restarted", why);
@@ -494,8 +568,7 @@ async function inspect(spec: JobSpec, dir: string, options: RunOptions, judge: J
           state: "done", outcome, runId: current.runId, startedAt: current.startedAt,
           ...(current.meta !== undefined ? { meta: current.meta } : {}),
           release: () => {
-            if (readRecord(dir)?.runId === current.runId) rmSync(dir, { recursive: true, force: true });
-            freeSlot(spec.cwd, spec.name);
+            if (readRecord(dir)?.runId === current.runId) removeJob(dir);
           },
         },
       };
@@ -514,7 +587,6 @@ async function inspect(spec: JobSpec, dir: string, options: RunOptions, judge: J
       if (deaths >= MAX_DEATHS) {
         record = { ...record, deaths, failed: DIED, ...(spec.tree !== undefined ? { tree: spec.tree } : {}) };
         writeRecord(dir, record);
-        freeSlot(spec.cwd, spec.name);
         return failed(record, DIED, "died");
       }
       return fresh("restarted", life.reason, deaths);
@@ -522,14 +594,15 @@ async function inspect(spec: JobSpec, dir: string, options: RunOptions, judge: J
   }
 }
 
-/** Start a run: the slot first, then a clean directory, the runner, the record. */
+/** Start a run: who it may run beside first, then a clean directory, the runner, the record. */
 function begin(spec: JobSpec, dir: string, options: RunOptions, judge: Judge, job: "started" | "restarted", reason: string | undefined, deaths: number): Step {
-  if (spec.slot !== undefined) {
-    const blocker = slotBlocker(spec.cwd, spec.name, judge);
-    if (blocker !== undefined) return { kind: "answer", answer: { state: "busy", holder: blocker } };
+  if (spec.group !== undefined) {
+    const holder = blocker(spec.cwd, spec.name, spec.group, judge);
+    if (holder !== undefined) return { kind: "answer", answer: { state: "busy", holder } };
   }
-  rmSync(dir, { recursive: true, force: true });
+  removeJob(dir);
   mkdirSync(dir, { recursive: true });
+  const outputDir = mkdtempSync(join(tmpdir(), "bounded-job-"));
   const runId = randomBytes(8).toString("hex");
   const timeoutMs = spec.timeoutMs ?? JOB_CEILING_MS;
   const commands = spec.sequence ?? (spec.argv !== undefined ? [spec.argv] : []);
@@ -539,11 +612,12 @@ function begin(spec: JobSpec, dir: string, options: RunOptions, judge: Judge, jo
   // The host's deadline is the caller's, not the job's: inside a job it is the job's own limit.
   env[COMMAND_TIMEOUT_ENV] = String(timeoutMs);
   env[JOB_DIR_ENV] = dir;
+  env[JOB_OUTPUT_ENV] = outputDir;
   env[JOB_RUN_ENV] = runId;
-  const log = openSync(join(dir, "runner.log"), "w");
+  const log = openSync(join(outputDir, "runner.log"), "w");
   let pid: number | undefined;
   try {
-    const child = spawn(process.execPath, [RUNNER, dir, runId, JSON.stringify(commands)], {
+    const child = spawn(process.execPath, [RUNNER, dir, runId, JSON.stringify(commands), outputDir], {
       cwd: spec.cwd, detached: true, stdio: ["ignore", log, log], env,
     });
     child.on("error", () => {});
@@ -560,26 +634,11 @@ function begin(spec: JobSpec, dir: string, options: RunOptions, judge: Judge, jo
   const record: JobRecord = {
     runId, pid: pid ?? 0, pidStarted: started === undefined ? "gone" : started, host: hostname(), startedAt, timeoutMs,
     key: spec.key, ...(spec.tree !== undefined ? { tree: spec.tree } : {}), deaths, ...(spec.meta !== undefined ? { meta: spec.meta } : {}),
+    ...(spec.group !== undefined ? { group: spec.group } : {}), outputDir,
   };
   writeRecord(dir, record);
-  if (spec.slot !== undefined && pid !== undefined) {
-    takeSlot(spec.cwd, { name: spec.name, label: spec.slot, pid, pidStarted: record.pidStarted, host: record.host, startedAt });
-  }
   options.onEvent?.({ kind: job, runId, pid: record.pid, startedAt, ...(reason !== undefined ? { reason } : {}) });
   return { kind: "wait", record, started: { job, ...(reason !== undefined ? { reason } : {}) } };
-}
-
-/** The tail of what a job's commands printed (for the lead, never a role:
- *  the path policy denies every role the job's files). */
-export function jobOutput(cwd: string, name: string, lines = 30): string {
-  const read = (file: string): string => {
-    try {
-      return readFileSync(join(jobDir(cwd, name), file), "utf8");
-    } catch {
-      return "";
-    }
-  };
-  return `${read("stdout")}${read("stderr")}`.trimEnd().split("\n").slice(-lines).join("\n");
 }
 
 // ── Listing and stopping ────────────────────────────────────────────────────
@@ -589,23 +648,24 @@ export type JobState = "running" | "finished" | "dead" | "failed";
 /** Every job in `cwd`, and what state its current run is in. */
 export function listJobs(
   cwd: string, options: { readonly probe?: ProcessProbe; readonly now?: () => number } = {},
-): readonly { readonly name: string; readonly state: JobState; readonly startedAt: string }[] {
-  const judge: Judge = { probe: options.probe ?? systemProcesses, now: options.now ?? Date.now, kill: signalProcess, graceMs: GRACE_MS };
+): readonly { readonly name: string; readonly state: JobState; readonly startedAt: string; readonly inline: boolean }[] {
+  const judge = judgeOf(options);
   const root = jobsDir(cwd);
   if (!existsSync(root)) return [];
-  const out: { name: string; state: JobState; startedAt: string }[] = [];
+  const out: { name: string; state: JobState; startedAt: string; inline: boolean }[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue;
     const dir = join(root, entry.name);
     const record = readRecord(dir);
     if (record === undefined) continue;
+    const inline = record.inline === true;
     if (record.failed !== undefined) {
-      out.push({ name: entry.name, state: "failed", startedAt: record.startedAt });
+      out.push({ name: entry.name, state: "failed", startedAt: record.startedAt, inline });
       continue;
     }
     const life = lifeOf(dir, record, judge);
     const state: JobState = life.kind === "finished" ? "finished" : life.kind === "dead" ? "dead" : "running";
-    out.push({ name: entry.name, state, startedAt: record.startedAt });
+    out.push({ name: entry.name, state, startedAt: record.startedAt, inline });
   }
   return out;
 }
@@ -636,11 +696,8 @@ export async function stopJobs(
   const report = { stopped: [] as string[], cleared: [] as string[], live: [] as string[], stuck: [] as string[] };
   const root = jobsDir(cwd);
   if (!existsSync(root)) return report;
-  const judge: Judge = {
-    probe: options.probe ?? systemProcesses, now: options.now ?? Date.now,
-    kill: options.kill ?? signalProcess, graceMs: options.graceMs ?? GRACE_MS,
-  };
-  return locked(cwd, async () => {
+  const judge = judgeOf(options);
+  return mustLock(cwd, async () => {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory() || (options.names !== undefined && !options.names.includes(entry.name))) continue;
       const dir = join(root, entry.name);
@@ -651,7 +708,8 @@ export async function stopJobs(
           report.live.push(entry.name);
           continue;
         }
-        if (life.kind === "alive" && !(await stopRun(record, judge))) {
+        // An in-call run is another process's own work: only its record goes.
+        if (life.kind === "alive" && record.inline !== true && !(await stopRun(record, judge))) {
           report.stuck.push(entry.name);
           continue;
         }
@@ -663,8 +721,7 @@ export async function stopJobs(
         }
         report.cleared.push(entry.name);
       }
-      rmSync(dir, { recursive: true, force: true });
-      freeSlot(cwd, entry.name);
+      removeJob(dir);
     }
     return report;
   });

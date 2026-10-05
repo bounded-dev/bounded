@@ -312,6 +312,9 @@ export async function runGateWithBoard(
     return refusal(gate.name, `${gate.name} did not run: ${reason}`);
   }
   const result = await run();
+  // A gate that did not start (another run holds the project) changed nothing:
+  // neither the delivery evidence nor the board hears of it.
+  if (result.detail["ran"] === false) return result;
   // A delivered pass is evidence about exactly this tree; merge takes no other.
   // A run still working in the background is no evidence either way.
   if (gate.milestone === "delivered" && result.code !== 3) {

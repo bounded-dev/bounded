@@ -27,8 +27,9 @@
 // one entry both hosts call, so no host can run a ts gate without it.
 //
 // Five gates can outlast a host's command limit and are marked `longRunning`:
-// deliver (which changes the tree), and green, red, the test run and the
-// mutation measurement (which only judge it).
+// deliver and the mutation measurement, which change the tree (deliver its
+// files, the measurement a mutant at a time) and so run alone, and green, red
+// and the test run, which only read it and may run alongside each other.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -416,7 +417,8 @@ export const gates: readonly GateCommand[] = ([
       "A gate that blocks because a mutation-score mutant is still in a file is not the builder's to fix: it names the file and what to compare it with.",
       "Findings from it belong in sign_off: 'the suite does not hold down X' is exactly the kind of thing only you can see, and the gates cannot.",
     ],
-    longRunning: "reads-tree",
+    // It writes a mutant into the source at a time: nothing may run beside it.
+    longRunning: "writes-tree",
     async run(cwd, args) {
       const maxMutants = positiveInteger("mutation-score", cwd, args, "max-mutants");
       if (!maxMutants.ok) return maxMutants.result;

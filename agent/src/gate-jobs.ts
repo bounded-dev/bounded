@@ -2,9 +2,8 @@
 // doors — `bounded gates` and pi's gate tools — call `runGate`, so how a gate
 // runs never depends on which host asked.
 //
-// A gate the registry marks `longRunning` (deliver, green, red, the test run,
-// the mutation measurement in the TypeScript pack) can outlast a host's
-// command limit. Under a host deadline (BOUNDED_COMMAND_TIMEOUT_MS) its whole
+// A gate the registry marks `longRunning` (a pack's delivery, test and
+// measurement gates) can outlast a host's command limit. Under a host deadline (BOUNDED_COMMAND_TIMEOUT_MS) its whole
 // run is a background job (src/detached-job.ts): the worker
 // (gate-job-worker.ts) runs the gate's `prepare` and `run` in a session of its
 // own, and the call waits for as long as its budget allows, then answers
@@ -19,8 +18,14 @@
 // core substitutes for the gate's own is logged under the gate's own guard,
 // where phase timing and the board read it; the core's own guard `gate-job`
 // carries only polls and pass-through collection, whose verdict the gate
-// itself logged inside the job. One long-gate run is live per project at a
-// time: two would share one tree, one container engine, one mutation journal.
+// itself logged inside the job. A refusal to start, which runs nothing, is
+// the core's record (`job-refused`), never the gate's verdict.
+//
+// Which long runs may overlap, in a call or in the background: never two runs
+// of one gate; a `writes-tree` gate (it changes the project's files) runs
+// alone; `reads-tree` gates run alongside each other (ADR 2026-021). A
+// refusal names what is running in the calling role's own terms: a gate the
+// role cannot call is never offered to it.
 
 import { fileURLToPath } from "node:url";
 import { runGateWithBoard } from "./board-sync.ts";
@@ -29,7 +34,9 @@ import { packsDir as defaultPacksDir } from "./gate-discovery.ts";
 import { gateRunning, type GateResult } from "./gate-result.ts";
 import { logGuardEvent } from "./guard-log.ts";
 import { commandTimeoutMs } from "./host.ts";
-import { claimSlot, runOrCollect, type JobAnswer, type JobEvent, type JobOutcome, type JobSpec, type SlotHolder } from "./detached-job.ts";
+import { claimInline, runOrCollect, type JobAnswer, type JobEvent, type JobOutcome, type JobSpec, type RunHolder } from "./detached-job.ts";
+import { asRole } from "./path-gate.ts";
+import { ROLE_TOOLS } from "./path-policy.ts";
 import { treeFingerprint } from "./tree-fingerprint.ts";
 import type { Tracker } from "./tracker.ts";
 
@@ -100,17 +107,32 @@ function substitute(cwd: string, gate: string, code: 1 | 2, message: string, det
   });
 }
 
-/** A gate cannot answer RUNNING itself: only the background runner does. */
+/** A gate cannot answer RUNNING itself, by code or by verdict: only the background runner does. */
 function noOwnRunning(cwd: string, gate: string, result: GateResult): GateResult {
-  return result.code === 3
+  return result.code === 3 || result.verdict === "running"
     ? substitute(cwd, gate, 2, "a gate cannot answer RUNNING; only the harness's background runner does", { reason: "gate-claimed-running" })
     : result;
 }
 
-function slotRefusal(cwd: string, gate: string, holder: SlotHolder): GateResult {
-  return substitute(cwd, gate, 2,
-    `${holder.label} is still running in the background (started ${holder.startedAt}); call ${holder.label} again to collect it first, then run ${gate}`,
-    { reason: "slot", holder: holder.label });
+/** A gate that did not start: an ERROR that ran nothing, so the board and the
+ *  delivery evidence ignore it (`ran: false`), logged as the core's own record. */
+export function notStarted(cwd: string, gate: string, message: string, detail: Record<string, unknown>): GateResult {
+  logGuardEvent(cwd, { guard: GATE_JOB_GUARD, verdict: "error", summary: `${gate} did not start: ${message}`, detail: { kind: "job-refused", gate, ...detail } });
+  return { code: 2, verdict: "error", summary: message, lines: [`${gate}: ERROR — ${message}`], detail: { ...detail, ran: false } };
+}
+
+/** Why `gate` cannot start beside `holder`, in the calling role's terms. */
+function busyRefusal(cwd: string, gate: string, holder: RunHolder, role: string | undefined): GateResult {
+  const known = asRole(role);
+  const callable = known === undefined || (holder.tool !== undefined && ROLE_TOOLS[known].includes(holder.tool));
+  const message = holder.label === gate
+    ? `${gate} is running now in another call (started ${holder.startedAt}); call ${gate} again once it has finished`
+    : !callable
+      ? `${holder.label} is running (started ${holder.startedAt}) and ${gate} cannot run alongside it; wait for it to finish, then call ${gate} again`
+      : holder.inline
+        ? `${holder.label} is running now in another call (started ${holder.startedAt}) and ${gate} cannot run alongside it; call ${gate} again once it has finished`
+        : `${holder.label} is still running in the background (started ${holder.startedAt}); call ${holder.label} again to collect it first, then run ${gate}`;
+  return notStarted(cwd, gate, message, { reason: "busy", holder: holder.label });
 }
 
 function isPayload(value: unknown): value is GatePayload {
@@ -183,7 +205,8 @@ async function longRun(
   const packs = options.packsDir ?? defaultPacksDir();
   const deadlineMs = commandTimeoutMs(env);
   const spec: JobSpec = {
-    cwd, name: gateJobName(gate.name), key: gateJobKey(gate.name, args), slot: gate.name,
+    cwd, name: gateJobName(gate.name), key: gateJobKey(gate.name, args),
+    group: { label: gate.name, exclusive: gate.longRunning === "writes-tree", ...(gate.tool !== undefined ? { tool: gate.tool } : {}) },
     argv: [process.execPath, WORKER, packs, cwd, gate.name, JSON.stringify(args)],
     tree: treeFingerprint(cwd, packs),
     meta: { gate: gate.name, packsDir: packs },
@@ -196,7 +219,10 @@ async function longRun(
   const onEvent = (event: JobEvent): void => logEvent(cwd, gate.name, event);
   const answerOf = async (answer: JobAnswer): Promise<{ readonly result: GateResult; readonly release?: () => void }> => {
     switch (answer.state) {
-      case "busy": return { result: slotRefusal(cwd, gate.name, answer.holder) };
+      case "busy": return { result: busyRefusal(cwd, gate.name, answer.holder, options.role) };
+      case "locked": return {
+        result: notStarted(cwd, gate.name, `another call is checking ${gate.name}'s background runs right now; call ${gate.name} again`, { reason: "locked" }),
+      };
       case "running": return {
         result: gateRunning(gate.name, {
           startedAt: answer.startedAt, job: answer.job, pid: answer.pid,
@@ -205,12 +231,13 @@ async function longRun(
       };
       case "done": return { result: collected(cwd, gate, answer.outcome, answer.runId, options.role), release: answer.release };
       case "none": {
-        const slot = await claimSlot(cwd, spec.name, gate.name);
-        if (!slot.ok) return { result: slotRefusal(cwd, gate.name, slot.holder) };
+        // The run in this call is recorded as the gate's run, so no other call starts one beside it.
+        const claim = await claimInline(spec);
+        if (!claim.ok) return { result: busyRefusal(cwd, gate.name, claim.holder, options.role) };
         try {
           return { result: await inline(cwd, gate, args) };
         } finally {
-          slot.release();
+          claim.release();
         }
       }
     }

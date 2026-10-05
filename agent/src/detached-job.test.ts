@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { listJobs, runOrCollect, stopJobs, type JobEvent, type JobSpec } from "./detached-job.ts";
+import { jobOutput, listJobs, runOrCollect, stopJobs, type JobEvent, type JobSpec } from "./detached-job.ts";
 import { systemProcesses, type ProcessProbe } from "./process-lock.ts";
 
 // The core's detached, resumable job (ADR 2026-073): a run started in its own
@@ -175,4 +175,34 @@ describe("runOrCollect", () => {
     const states = Object.fromEntries(listJobs(cwd).map((j) => [j.name, j.state]));
     expect(states).toEqual({ "running-job": "running", "finished-job": "finished", "dead-job": "dead" });
   }, 20_000);
+
+  // Review minor 6: a runner gone (or exited and not yet reaped) while the
+  // commands it started still run is a dead run whose group is the job's:
+  // it is stopped before the restart, never left running beside it.
+  test("a run whose runner died while its commands live is stopped before the restart", async () => {
+    const marker = join(cwd, "marker");
+    const sleeper = spec({ argv: node(`setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x"), 4000)`) });
+    const first = await runOrCollect(sleeper, { deadlineMs: DEADLINE });
+    expect(first.state).toBe("running");
+    if (first.state !== "running") return;
+    process.kill(first.pid, "SIGKILL"); // the runner alone; its command lives on in the group
+    const events: JobEvent[] = [];
+    const second = await runOrCollect(sleeper, { deadlineMs: DEADLINE, onEvent: (e) => events.push(e) });
+    expect(events.find((e) => e.kind === "restarted")).toMatchObject({ reason: "dead" });
+    expect(groupAlive(first.pid)).toBe(false);
+    await stopJobs(cwd, { force: true });
+    await sleep(4500);
+    expect(existsSync(marker)).toBe(false);
+    expect(second.runId).not.toBe(first.runId);
+  }, 20_000);
+
+  // Review minor 7: a job's raw output never sits in the project, so a search
+  // over `.bounded` cannot reach it.
+  test("a job's output is kept outside the project", async () => {
+    expect((await runOrCollect(spec({ argv: node('console.log(["secret", "test", "output"].join(" "))') }))).state).toBe("done");
+    const inProject = (dir: string): string[] => readdirSync(dir, { recursive: true, encoding: "utf8" })
+      .filter((name) => { try { return readFileSync(join(dir, name), "utf8").includes("secret test output"); } catch { return false; } });
+    expect(inProject(cwd)).toEqual([]);
+    expect(jobOutput(cwd, "test-job")).toContain("secret test output");
+  });
 });

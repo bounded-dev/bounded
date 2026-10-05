@@ -425,8 +425,9 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
 const ALWAYS_DENY = [".git", ".git/**"] as const;
 
 // Denied for every role, both directions: a background job's files (ADR
-// 2026-073). Its output holds the raw suite output, test source and paths
-// included, which `run_tests` sanitizes only in its result; no role reads it.
+// 2026-073). Its raw output (the suite's, test source and paths included,
+// which `run_tests` sanitizes only in its result) is kept outside the project
+// altogether; what stays here is the job's bookkeeping, which no role reads.
 const JOBS_DENY = [".bounded/jobs", ".bounded/jobs/**"] as const;
 
 // Denied for every role on WRITE only. `.bounded/` holds the guard log and the
@@ -1194,7 +1195,9 @@ export function decide(
       ? globs.some((g) => overlaps(t, globBase(g)))
       : matchesAny(globs, t);
     if (hit(ALWAYS_DENY)) return block(`path-gate: ${role} may not ${v} '${t}': '.git' is denied for all roles`);
-    if (hit(JOBS_DENY)) {
+    // A search over `.bounded` still works: the jobs keep their raw output
+    // outside the project, so only a path inside `.bounded/jobs` is refused.
+    if (matchesAny(JOBS_DENY, t)) {
       return block(`path-gate: ${role} may not ${v} '${t}': '.bounded/jobs' holds background runs' raw output and is denied for all roles — the gate's own result is what to read`);
     }
     return null;

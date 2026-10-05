@@ -1139,6 +1139,14 @@ describe("no role reads background job files", () => {
       expect(d(role, "read", ".bounded/guard-log.jsonl").allow).toBe(true);
     });
   }
+
+  // Review minor 7: a search over `.bounded` still works (the jobs' raw
+  // output is kept outside the project); one inside `.bounded/jobs` does not.
+  test("a search over .bounded is allowed, one inside .bounded/jobs is not", () => {
+    expect(d("architect", "grep", ".bounded").allow).toBe(true);
+    expect(d("architect", "grep", ".bounded/jobs").allow).toBe(false);
+    expect(d("architect", "grep", ".bounded/jobs/gate-run-tests").allow).toBe(false);
+  });
 });
 
 // `remove` is write-class: Run 8's test-writer could not delete its own broken

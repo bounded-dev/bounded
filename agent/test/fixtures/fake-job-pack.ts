@@ -29,7 +29,9 @@ const slow = (name: string) => ({
 });
 export const gates = [
   slow("slow"),
-  slow("slow2"),
+  slow("slow3"),
+  // Runs alone, as a gate that changes the tree does (review ruling on the slot).
+  { ...slow("slow2"), longRunning: "writes-tree" },
   {
     name: "writer", longRunning: "reads-tree", description: "Write into the tree it judges.", flags: [],
     async run(cwd: string) { await sleep(1500); writeFileSync(join(cwd, "out.txt"), "written"); return passed(cwd, "writer", ["writer: done"]); },
@@ -46,6 +48,10 @@ export const gates = [
   {
     name: "quick", tool: "quick_gate", description: "Pass at once.", flags: [],
     async run(cwd: string) { return passed(cwd, "quick", ["quick: done"]); },
+  },
+  {
+    name: "fibber", description: "Claim the running verdict with a passing code.", flags: [],
+    async run() { return { code: 0, verdict: "running", summary: "still going", lines: ["fibber: still going"], detail: {} }; },
   },
   {
     name: "liar", description: "Claim to be running.", flags: [],
