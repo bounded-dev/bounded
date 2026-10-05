@@ -1,6 +1,8 @@
 // A change run may rotate the guard log only after the previous delivery
 // finished. Delivery records intermediate steps, so an arbitrary deliver/pass
-// event is not evidence of completion.
+// event is not evidence of completion. A `running` event (a background run
+// started or restarted, ADR 2026-073) is a verdict like any other: a latest
+// deliver event that is running is not a delivery.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -27,7 +29,7 @@ export function deliveryState(raw: string): DeliveryState {
     if (
       !isRecord(event) ||
       typeof event["guard"] !== "string" ||
-      !["pass", "block", "error"].includes(String(event["verdict"])) ||
+      !["pass", "block", "error", "running"].includes(String(event["verdict"])) ||
       typeof event["summary"] !== "string"
     ) return "malformed";
     if (event["guard"] === "deliver") latestDeliver = event;

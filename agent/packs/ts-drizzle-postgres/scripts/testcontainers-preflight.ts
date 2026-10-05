@@ -524,8 +524,13 @@ export async function preflightTestcontainers(
   const budget = callBudgetMs(deps.deadlineMs ?? commandTimeoutMs(deps.env));
   const left = (): number => (budget === undefined ? Number.POSITIVE_INFINITY : budget - now());
   const tooLate = (at: PreflightStage): boolean => left() < STAGE_MINIMUM_MS[at];
-  const budgetRefusal = (at: PreflightStage): Error => new Error(
-    `this call's time cannot fit starting the test containers (needs at least ${STAGE_MINIMUM_MS[at] / 1000} s for the ${at} stage, ` +
+  // Inside a background job (ADR 2026-073) the deadline is the job's own
+  // limit, which no role can raise: running out of it is the harness's bug.
+  const inJob = deps.env["BOUNDED_JOB_DIR"] !== undefined;
+  const budgetRefusal = (at: PreflightStage): Error => new Error(inJob
+    ? `this run's time limit cannot fit starting the test containers (needs at least ${STAGE_MINIMUM_MS[at] / 1000} s for the ${at} stage, ` +
+      `${Math.max(0, Math.floor(left() / 1000))} s left); this is a harness bug`
+    : `this call's time cannot fit starting the test containers (needs at least ${STAGE_MINIMUM_MS[at] / 1000} s for the ${at} stage, ` +
       `${Math.max(0, Math.floor(left() / 1000))} s left); call the gate again with a longer command timeout`,
   );
   if (tooLate("runtime")) throw budgetRefusal("runtime");
@@ -580,8 +585,10 @@ export async function preflightTestcontainers(
   }
   if (overBudget !== undefined) throw budgetRefusal(overBudget);
   if (result.timedOut && budgetBound) {
-    throw new Error(`this call's time ran out during the ${stage} stage of starting the test containers; ` +
-      "call the gate again with a longer command timeout");
+    throw new Error(inJob
+      ? `this run's time limit ran out during the ${stage} stage of starting the test containers; this is a harness bug`
+      : `this call's time ran out during the ${stage} stage of starting the test containers; ` +
+        "call the gate again with a longer command timeout");
   }
   if (result.status === 0 && done) {
     return {

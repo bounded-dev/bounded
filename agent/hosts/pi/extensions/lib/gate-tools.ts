@@ -38,10 +38,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type TObject, type TOptional, type TSchema, type TString } from "typebox";
 import type { FlagSpec, GateArgs, GateCommand } from "../../../../src/gate-command.ts";
-import { verdictLine } from "../../../../src/gate-result.ts";
+import { resultVerdictLine } from "../../../../src/gate-result.ts";
+import { longRunningNote, runGate } from "../../../../src/gate-jobs.ts";
 import { sessionRole } from "../../../../src/path-gate.ts";
 import { targetCwd } from "../../../../src/target-cwd.ts";
-import { runGateWithBoard } from "../../../../src/board-sync.ts";
 import { openTracker } from "../../../../trackers/index.ts";
 
 /** The one parameter every gate tool takes, worded once. */
@@ -132,11 +132,14 @@ function stringParam(params: Readonly<Record<string, unknown>>, name: string): s
  * Register one pi tool per registry entry whose `tool` is in `tools`. The
  * set is the host's statement of which gates this extension offers — the
  * architect's roster and the workers' are two extensions over one registry.
+ * `packsDir` is where `gates` came from, when not this harness's own packs: a
+ * long gate's background run finds its gate there (ADR 2026-073).
  */
 export function registerGateTools(
   pi: ExtensionAPI,
   gates: readonly GateCommand[],
   tools: ReadonlySet<string>,
+  packsDir?: string,
 ): void {
   for (const gate of gates) {
     const tool = gate.tool;
@@ -144,19 +147,26 @@ export function registerGateTools(
     pi.registerTool({
       name: tool,
       label: labelOf(tool),
-      description: gate.description,
+      description: longRunningNote(gate),
       ...(gate.promptSnippet === undefined ? {} : { promptSnippet: gate.promptSnippet }),
       ...(gate.promptGuidelines === undefined ? {} : { promptGuidelines: [...gate.promptGuidelines] }),
       parameters: toolParams(gate),
       async execute(_id, params, signal, _onUpdate, ctx) {
+        const startedAt = Date.now();
         const cwd = targetCwd(ctx.cwd, stringParam(params, "cwd"));
-        // In a ticket worktree the board follows the gate (ADR 2026-066).
-        const result = await runGateWithBoard(cwd, gate,
-          () => gate.run(cwd, { ...gateArgsFrom(gate, params), ...hostArgs(gate, ctx.cwd) }), openTracker, sessionRole(ctx.cwd));
+        const role = sessionRole(ctx.cwd);
+        // In a ticket worktree the board follows the gate (ADR 2026-066). pi
+        // gives no deadline, so a long gate runs in the call, after collecting
+        // any background run a deadline-bound call started (ADR 2026-073).
+        const result = await runGate(cwd, gate, { ...gateArgsFrom(gate, params), ...hostArgs(gate, ctx.cwd) }, {
+          open: openTracker, startedAt, ...(signal !== undefined ? { signal } : {}),
+          ...(packsDir !== undefined ? { packsDir } : {}), ...(role !== undefined ? { role } : {}),
+        });
         // A cancelled call reports the cancellation, not a verdict the caller
-        // never waited for (the gate itself has already run to completion).
+        // never waited for (the gate itself has already run to completion, or
+        // its background run goes on and the next call collects it).
         if (signal?.aborted) return { content: [{ type: "text", text: `${tool}: cancelled` }], details: {} };
-        const text = [...result.lines, verdictLine(gate.name, result.code)].join("\n");
+        const text = [...result.lines, resultVerdictLine(gate.name, result)].join("\n");
         return { content: [{ type: "text", text }], details: { code: result.code, ok: result.code === 0 } };
       },
     });

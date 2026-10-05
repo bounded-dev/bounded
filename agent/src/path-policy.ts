@@ -424,6 +424,11 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
 // Denied for every role, both directions.
 const ALWAYS_DENY = [".git", ".git/**"] as const;
 
+// Denied for every role, both directions: a background job's files (ADR
+// 2026-073). Its output holds the raw suite output, test source and paths
+// included, which `run_tests` sanitizes only in its result; no role reads it.
+const JOBS_DENY = [".bounded/jobs", ".bounded/jobs/**"] as const;
+
 // Denied for every role on WRITE only. `.bounded/` holds the guard log and the
 // contract-checksum manifest — the audit trail and the drift evidence. Every
 // role must be able to READ them (diagnosing a jam, citing the log when
@@ -1185,12 +1190,14 @@ export function decide(
   // path inside it. Listing the project root is how a role learns what exists
   // without guessing.
   const gitBlocked = (): Decision | null => {
-    const gitHit = SEARCH_TOOLS.has(tool) && tool !== "ls"
-      ? ALWAYS_DENY.some((g) => overlaps(t, globBase(g)))
-      : matchesAny(ALWAYS_DENY, t);
-    return gitHit
-      ? block(`path-gate: ${role} may not ${v} '${t}': '.git' is denied for all roles`)
-      : null;
+    const hit = (globs: readonly string[]): boolean => SEARCH_TOOLS.has(tool) && tool !== "ls"
+      ? globs.some((g) => overlaps(t, globBase(g)))
+      : matchesAny(globs, t);
+    if (hit(ALWAYS_DENY)) return block(`path-gate: ${role} may not ${v} '${t}': '.git' is denied for all roles`);
+    if (hit(JOBS_DENY)) {
+      return block(`path-gate: ${role} may not ${v} '${t}': '.bounded/jobs' holds background runs' raw output and is denied for all roles — the gate's own result is what to read`);
+    }
+    return null;
   };
 
   if (WRITE_TOOLS.has(tool)) {

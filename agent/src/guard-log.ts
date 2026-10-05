@@ -21,7 +21,8 @@ import { dirname, join } from "node:path";
 export type GuardVerdict =
   | "pass" // guard ran, nothing wrong
   | "block" // guard stopped something (drift caught)
-  | "error"; // guard itself couldn't run (e.g. no files matched)
+  | "error" // guard itself couldn't run (e.g. no files matched)
+  | "running"; // a long gate's run is still working in the background (ADR 2026-073)
 
 export interface GuardEvent {
   /** Which guard fired: "contract-purity", "scaffold", "path-gate", "red-gate", … */

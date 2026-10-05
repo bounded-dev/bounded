@@ -21,8 +21,14 @@
 // Every entry is wrapped (`afterLeftoverRestore`): before a gate runs, whatever
 // mutant a killed mutation-score run left in the tree is put back from its
 // journal, or the gate refuses to judge a tree that may still hold one
-// (ADR 2026-070). The registry is the one entry both hosts call, so no host
-// can run a ts gate without it.
+// (ADR 2026-070). The restore is the entry's `prepare`, so a gate run as a
+// background job (ADR 2026-073) takes the tree it judges after it, and its own
+// `run` does it too for a caller that calls `run` alone. The registry is the
+// one entry both hosts call, so no host can run a ts gate without it.
+//
+// Five gates can outlast a host's command limit and are marked `longRunning`:
+// deliver (which changes the tree), and green, red, the test run and the
+// mutation measurement (which only judge it).
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -37,6 +43,7 @@ import {
 } from "../../src/gate-command.ts";
 import { gateError, guardVerdictOf, toGateResult, type GateResult } from "../../src/gate-result.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
+import { JOB_DIR_ENV } from "../../src/detached-job.ts";
 import { callBudgetMs, commandTimeoutMs } from "../../src/host.ts";
 import { restoreLeftoverMutant } from "./scripts/mutation-journal.ts";
 
@@ -156,26 +163,37 @@ const patternsOf = (args: GateArgs): readonly string[] | undefined => {
 /** Run `gate` only over a tree without a mutation-score mutant in it: a
  *  leftover from a killed run is restored first (and the gate's lines say
  *  so); one that cannot be restored safely blocks the gate, which touches
- *  nothing and is logged under its own name. */
+ *  nothing and is logged under its own name. The restore is the entry's
+ *  `prepare`; `run` repeats it (a no-op once done) for a caller of `run` alone. */
 function afterLeftoverRestore(gate: GateCommand): GateCommand {
+  /** What a restore in `prepare` said, for the run's lines, by project. */
+  const restored = new Map<string, string>();
+  const restore = (cwd: string): GateResult | undefined => {
+    const leftover = restoreLeftoverMutant(cwd);
+    if (leftover.status === "restored") restored.set(cwd, `mutation-score: ${leftover.line}`);
+    if (leftover.status !== "refused") return undefined;
+    const result: GateResult = {
+      code: 1,
+      verdict: "block",
+      summary: leftover.reason,
+      lines: [`${gate.name}: BLOCK — ${leftover.reason}`],
+      detail: { reason: "mutation-leftover" },
+    };
+    logGuardEvent(cwd, { guard: gate.name, verdict: "block", summary: result.summary, detail: result.detail });
+    return result;
+  };
   return {
     ...gate,
+    async prepare(cwd) {
+      return restore(cwd);
+    },
     async run(cwd, args) {
-      const leftover = restoreLeftoverMutant(cwd);
-      if (leftover.status === "refused") {
-        const result: GateResult = {
-          code: 1,
-          verdict: "block",
-          summary: leftover.reason,
-          lines: [`${gate.name}: BLOCK — ${leftover.reason}`],
-          detail: { reason: "mutation-leftover" },
-        };
-        logGuardEvent(cwd, { guard: gate.name, verdict: "block", summary: result.summary, detail: result.detail });
-        return result;
-      }
+      const refused = restore(cwd);
+      if (refused !== undefined) return refused;
       const result = await gate.run(cwd, args);
-      if (leftover.status !== "restored") return result;
-      return { ...result, lines: [`mutation-score: ${leftover.line}`, ...result.lines] };
+      const line = restored.get(cwd);
+      restored.delete(cwd);
+      return line === undefined ? result : { ...result, lines: [line, ...result.lines] };
     },
   };
 }
@@ -191,6 +209,15 @@ export function mutationBudgetMs(deadlineMs: number | undefined): number | undef
  *  inverse of {@link callBudgetMs}. */
 export function deadlineForBudgetMs(budgetMs: number): number {
   return Math.max(Math.ceil(budgetMs / 0.85), budgetMs + 15_000);
+}
+
+/** What to do when the measurement's budget cannot fit its next step. Inside
+ *  a background job the deadline is the job's own limit, which no role can
+ *  raise, so only a smaller per-mutant timeout is offered (ADR 2026-073). */
+export function mutationBudgetRemedy(neededMs: number, env: Readonly<Record<string, string | undefined>> = process.env): string {
+  if (env[JOB_DIR_ENV] !== undefined) return "pass a smaller --timeout-ms";
+  return `give this command a timeout of at least ${Math.ceil(deadlineForBudgetMs(neededMs) / 1000)}s ` +
+    "(the measurement keeps a margin of it for releasing what it starts), or pass a smaller --timeout-ms";
 }
 
 // --- the registry ------------------------------------------------------------------
@@ -281,6 +308,7 @@ export const gates: readonly GateCommand[] = ([
     description:
       "Run the red gate after the test-writer finishes. A VALID red means the project typechecks, the suite runs, and every test fails with NotImplementedError against regenerated skeletons. Wrong-reason failures, passing tests and skipped tests are rejected. The gate prints one `route → <role>` line naming who must fix what it found.",
     flags: [],
+    longRunning: "reads-tree",
     async run(cwd) {
       const { runRedGate } = await import("./scripts/red-gate.ts");
       return await runRedGate(cwd);
@@ -304,6 +332,7 @@ export const gates: readonly GateCommand[] = ([
     description:
       "Run the green gate after the builder finishes. GREEN means every test passes AND the project typechecks — a passing suite on a project that does not compile is a false green, not a pass. The gate prints one `route → <role>` line naming who must fix what it found.",
     flags: [],
+    longRunning: "reads-tree",
     async run(cwd) {
       const { runGreenGate } = await import("./scripts/green-gate.ts");
       const r = await runGreenGate(cwd);
@@ -352,6 +381,7 @@ export const gates: readonly GateCommand[] = ([
     description:
       "Run the delivery pass after sign_off: remove the red-phase errors modules (each context's domain/shared/errors.ts) and the red gate's shadow project, check every generated file is what the design produces and no skeleton still throws NotImplementedError, check the shipped scripts/surface-check.ts is wired into the project's check, ignore runtime state under .bounded/ while preserving a committed local harness, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `bun run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if anything still imports NotImplementedError, if a generated file is out of date, or if the project's own check is red.",
     flags: [],
+    longRunning: "writes-tree",
     async run(cwd) {
       const { runDeliver } = await import("./scripts/deliver.ts");
       return toGateResult("deliver", await runDeliver(cwd));
@@ -382,10 +412,11 @@ export const gates: readonly GateCommand[] = ([
       "A survivor is not automatically a defect — it is a question. Read the line it names and decide whether the rule it broke is one the spec actually requires.",
       "The measurement costs one full suite run per mutant (at least 40), so run it once, late, on a green suite — not between builder bounces.",
       "PARTIAL means the call ran out of time after making progress, not that anything failed: call it again with the same flags until it reports a score. The verdicts so far are kept while the tree is unchanged.",
-      "An ERROR saying the time budget cannot fit the next step is not PARTIAL: calling again unchanged judges nothing. Give the command the timeout it names, or pass a smaller --timeout-ms.",
+      "An ERROR saying the time budget cannot fit the next step is not PARTIAL: calling again unchanged judges nothing. Pass a smaller --timeout-ms, or the timeout it names where it names one.",
       "A gate that blocks because a mutation-score mutant is still in a file is not the builder's to fix: it names the file and what to compare it with.",
       "Findings from it belong in sign_off: 'the suite does not hold down X' is exactly the kind of thing only you can see, and the gates cannot.",
     ],
+    longRunning: "reads-tree",
     async run(cwd, args) {
       const maxMutants = positiveInteger("mutation-score", cwd, args, "max-mutants");
       if (!maxMutants.ok) return maxMutants.result;
@@ -399,9 +430,7 @@ export const gates: readonly GateCommand[] = ([
         ...(maxMutants.value !== undefined ? { maxMutants: maxMutants.value } : {}),
         ...(timeoutMs.value !== undefined ? { timeoutMs: timeoutMs.value } : {}),
         ...(budgetMs !== undefined ? { budgetMs } : {}),
-        budgetRemedy: (neededMs) =>
-          `give this command a timeout of at least ${Math.ceil(deadlineForBudgetMs(neededMs) / 1000)}s ` +
-          "(the measurement keeps a margin of it for releasing what it starts), or pass a smaller --timeout-ms",
+        budgetRemedy: (neededMs) => mutationBudgetRemedy(neededMs),
       });
       return {
         ...toGateResult("mutation-score", r, {
@@ -461,6 +490,7 @@ export const gates: readonly GateCommand[] = ([
     description:
       "Run the project's suite with `bun test` and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes. It starts what the green gate would start for the run (a throwaway database), and where that cannot start yet (no container runtime, no migration generated) it leaves out the tests that need it and says why before the results.",
     flags: [],
+    longRunning: "reads-tree",
     promptGuidelines: [
       "Use run_tests to check whether your implementation satisfies the suite; it never reveals test source.",
       "Tests it says it left out are not yours to fix and not a reason to stop: green runs them. Report the line to the architect if the work depends on them.",

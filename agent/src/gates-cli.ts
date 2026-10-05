@@ -13,34 +13,37 @@
 //
 // Output is the gate's own lines followed by `<gate>: PASS|BLOCK|ERROR`, to
 // stdout on a pass and stderr otherwise — the pack CLIs' convention, so a
-// person's eye and a CI log filter both keep working. `--json` prints the
-// envelope from src/gate-result.ts instead, always to stdout. Exit codes are
-// the contract's: 0 PASS · 1 BLOCK · 2 ERROR (the gate could not run) · 64
-// usage (this program was misused, no gate ran).
+// person's eye and a CI log filter both keep working. A long gate under a
+// host deadline may instead answer `<gate>: RUNNING (…)`, on stdout: its run
+// goes on in the background and the next call collects it (ADR 2026-073).
+// `--json` prints the envelope from src/gate-result.ts instead, always to
+// stdout. Exit codes are the contract's: 0 PASS · 1 BLOCK · 2 ERROR (the gate
+// could not run) · 3 RUNNING · 64 usage (this program was misused, no gate
+// ran).
 //
 // The CLI does not decide who may run a gate: that is a capability constraint
 // and belongs to the host's adapter (the path gate in pi). From a bare shell
 // every gate is runnable and the log says so by what it does not record.
 
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   argString,
-  isGateRegistry,
   parseGateArgs,
   type FlagSpec,
   type GateArgs,
   type GateCommand,
 } from "./gate-command.ts";
-import { gateEnvelope, gateError, gateExitCode, verdictLine, type GateResult } from "./gate-result.ts";
+import { discoverGates, packsDir } from "./gate-discovery.ts";
+import { runGate, longRunningNote } from "./gate-jobs.ts";
+import { gateEnvelope, gateError, gateExitCode, resultVerdictLine, type GateResult } from "./gate-result.ts";
 import { logGuardEvent } from "./guard-log.ts";
 import { HOST_ENV, NO_HOST, hostFromEnv, recordHostDeclaration, type HostName } from "./host.ts";
 import { isMainModule } from "./is-main-module.ts";
 import { asRole } from "./path-gate.ts";
-import { runGateWithBoard } from "./board-sync.ts";
+import type { Tracker } from "./tracker.ts";
 import { openTracker } from "../trackers/index.ts";
 import { targetCwd } from "./target-cwd.ts";
+
+export { discoverGates, packsDir };
 
 /** sysexits' EX_USAGE: the program was invoked wrongly, no gate ran. */
 export const USAGE_EXIT = 64;
@@ -69,36 +72,6 @@ const GLOBAL_FLAGS: readonly FlagSpec[] = [
   { name: "list", kind: "boolean", description: "List every gate (with --json: as an array)." },
 ];
 
-// --- discovery -----------------------------------------------------------------------
-
-/** Where the packs live, resolved from this file so the CLI works through the
- *  ~/.pi/agent symlink and from any cwd. */
-export function packsDir(): string {
-  return fileURLToPath(new URL("../packs/", import.meta.url));
-}
-
-/**
- * Every gate every pack contributes, in pack order. A `gates.ts` whose export
- * is not a registry is an error, not a skip: a pack that half-loads is a gate
- * that silently cannot be run.
- */
-export async function discoverGates(dir: string = packsDir()): Promise<readonly GateCommand[]> {
-  const found: GateCommand[] = [];
-  const packs = readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name)
-    .sort();
-  for (const pack of packs) {
-    const registry = join(dir, pack, "gates.ts");
-    if (!existsSync(registry)) continue;
-    const mod: unknown = await import(pathToFileURL(registry).href);
-    const gates = typeof mod === "object" && mod !== null && "gates" in mod ? mod.gates : undefined;
-    if (!isGateRegistry(gates)) throw new Error(`${registry}: the 'gates' export is not a gate registry`);
-    found.push(...gates);
-  }
-  return found;
-}
-
 // --- help text ----------------------------------------------------------------------
 
 /** The first sentence of a description — enough for a listing. */
@@ -126,10 +99,11 @@ export function usage(gates: readonly GateCommand[]): string {
     `       ${PROGRAM} --list [--json]`,
     "",
     "Run one artifact gate against a project (default: the current directory).",
-    "Prints the gate's lines and a final `<gate>: PASS|BLOCK|ERROR` line;",
-    "--json prints one JSON object instead.",
+    "Prints the gate's lines and a final `<gate>: PASS|BLOCK|ERROR` line, or",
+    "`<gate>: RUNNING` while a long gate works in the background (call it",
+    "again to collect it); --json prints one JSON object instead.",
     "",
-    "exit codes: 0 PASS · 1 BLOCK · 2 ERROR (the gate could not run) · 64 usage",
+    "exit codes: 0 PASS · 1 BLOCK · 2 ERROR (the gate could not run) · 3 RUNNING · 64 usage",
     "",
     "gates:",
     ...table(gates.map((g) => [g.name, firstSentence(g.description)])),
@@ -161,7 +135,7 @@ export function gateUsage(gate: GateCommand, context: UsageContext = {}): string
   return [
     `usage: ${PROGRAM} ${gate.name} [cwd] [--json]${offered.length > 0 ? " [flags]" : ""}`,
     "",
-    gate.description,
+    longRunningNote(gate),
     "",
     "flags:",
     ...lines,
@@ -187,29 +161,36 @@ const STDIO: Output = {
 };
 
 /** Print a result the way the pack CLIs do: lines then the verdict line, on
- *  stdout for a pass and stderr otherwise; or the JSON envelope on stdout. */
+ *  stdout for a pass (or RUNNING) and stderr otherwise; or the JSON envelope
+ *  on stdout. */
 function print(io: Output, name: string, result: GateResult, json: boolean): void {
   if (json) {
     io.out(`${JSON.stringify(gateEnvelope(name, result))}\n`);
     return;
   }
-  const text = [...result.lines, verdictLine(name, result.code)].join("\n") + "\n";
-  (result.code === 0 ? io.out : io.err)(text);
+  const text = [...result.lines, resultVerdictLine(name, result)].join("\n") + "\n";
+  (result.code === 0 || result.code === 3 ? io.out : io.err)(text);
 }
 
 /**
  * Run the command line and return the exit code. `sessionCwd` is what a
  * relative `[cwd]` resolves against; `io` is where output goes. Both are
  * parameters so a test can drive this without spawning, though the tests
- * spawn too — the launcher is part of the contract.
+ * spawn too — the launcher is part of the contract. `packs` (where the gates
+ * come from) and `open` (the tracker) are for in-process callers only: no
+ * flag or environment variable reaches them.
  */
 export async function main(
   argv: readonly string[],
   sessionCwd: string = process.cwd(),
   io: Output = STDIO,
   gates?: readonly GateCommand[],
+  packs?: string,
+  open: (cwd: string) => Tracker = openTracker,
 ): Promise<number> {
-  const all = gates ?? (await discoverGates());
+  // A long gate's wait counts from here (ADR 2026-073).
+  const startedAt = Date.now();
+  const all = gates ?? (await discoverGates(packs));
 
   // `--list` anywhere means list: it names no gate, so no gate runs.
   if (argv.includes("--list")) {
@@ -274,10 +255,13 @@ export async function main(
 
   let result: GateResult;
   try {
-    // In a ticket worktree the board follows the gate (ADR 2026-066).
+    // In a ticket worktree the board follows the gate (ADR 2026-066); a long
+    // gate under a host deadline runs in the background (ADR 2026-073).
     const role = process.env["BOUNDED_DEV_STAGE_ROLE"];
-    result = await runGateWithBoard(cwd, gate, () => gate.run(cwd, envArgs(gate, parsed.args, process.env)), openTracker,
-      asRole(role) !== undefined ? role : undefined);
+    result = await runGate(cwd, gate, envArgs(gate, parsed.args, process.env), {
+      open, startedAt, ...(packs !== undefined ? { packsDir: packs } : {}),
+      ...(asRole(role) !== undefined ? { role } : {}),
+    });
   } catch (e) {
     // A gate that throws could not run: ERROR, in the same shape as any
     // other, so a --json consumer never has to parse a stack trace — and
