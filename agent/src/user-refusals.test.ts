@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { configDriftBlock, configDriftReason } from "../packs/ts/scripts/project-config.ts";
 import { commandsIn, constantStrings, harnessSources, stringTexts, userCommandViolations } from "../test/fixtures/user-steps.ts";
-import { gitHubSignInError } from "../trackers/github.ts";
-import { trackerRefusal } from "./tracker.ts";
+import { ghFailure, gitHubSignInError } from "../trackers/github.ts";
+import { trackerRaw, trackerRefusal } from "./tracker.ts";
 
 // "A project's user never runs harness steps" (AGENTS.md; ADR 2026-072), held
 // over what the harness itself says: the refusals routed to a person, and
@@ -84,6 +84,31 @@ describe("refusals routed to a person name no command for the user (issue #52)",
     expect(refusal).toMatch(/route → user/);
     expect(userCommandViolations("trackerRefusal", refusal, () => false, true)).toEqual([]);
     expect(refusal).toContain("gh auth login");
+    expect(refusal).toMatch(/credentials/);
+  });
+
+  // Re-review of #52, major: raw `gh` output reached the user through the
+  // tracker refusal. Known failures map to product terms; the raw text stays
+  // out of the routed message (the guard log's detail keeps it).
+  test.each([
+    ["the reviewer's repro: a missing scope", "error: your authentication token is missing required scopes [project]\nTo request it, run:  gh auth refresh -s project"],
+    ["an expired sign-in", "HTTP 401: Bad credentials (https://api.github.com/graphql)\nTry authenticating with:  gh auth login"],
+    ["a board that is gone", "GraphQL: Could not resolve to a ProjectV2 with the number 9. (organization.projectV2)"],
+    ["no network", "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com"],
+    ["anything else", "something odd happened: run `gh repo sync` and try again"],
+  ])("a tracker refusal for %s names no command but a reserved one, and none of gh's own text", (_label, stderr) => {
+    const error = ghFailure(["project", "item-edit"], stderr);
+    const refusal = trackerRefusal(error);
+    expect(refusal).toMatch(/route → user/);
+    expect(userCommandViolations("trackerRefusal", refusal, () => false, true)).toEqual([]);
+    for (const line of stderr.split("\n")) expect(refusal).not.toContain(line.trim());
+    expect(trackerRaw(error)).toContain(stderr.split("\n")[0]!.trim());
+  });
+
+  test("a missing project scope asks the user for the one reserved refresh, with its why", () => {
+    const refusal = trackerRefusal(ghFailure(["project", "item-edit"], "missing required scopes [project]; run: gh auth refresh -s project"));
+    expect(refusal).toContain("the GitHub sign-in needs project access");
+    expect(refusal).toContain("`gh auth refresh -s project`");
     expect(refusal).toMatch(/credentials/);
   });
 

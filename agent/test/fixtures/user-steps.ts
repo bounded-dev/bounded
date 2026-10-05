@@ -30,7 +30,7 @@ import { GATE_TOOLS } from "../../src/path-policy.ts";
 
 /** The reserved recovery commands, as the drift test spells them. It must
  *  equal the core's `USER_RECOVERY_COMMANDS`. */
-export const RESERVED: readonly string[] = ["bounded lead release", "gh auth login"];
+export const RESERVED: readonly string[] = ["bounded lead release", "gh auth login", "gh auth refresh -s project"];
 
 /** The harness's own command names that are one word: a lead command, a
  *  gate, or a gate tool, when the name cannot be an ordinary word. */

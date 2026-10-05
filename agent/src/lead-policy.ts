@@ -39,10 +39,13 @@ export const LEAD_COMMAND_TOOLS: Readonly<Record<string, string>> = {
  *   bounded lead release  clears seat state the harness cannot prove is gone
  *   gh auth login         signs in to GitHub with the user's own credentials,
  *                         which the harness never holds
+ *   gh auth refresh -s project
+ *                         grants that sign-in access to the project board,
+ *                         which changes what the user's own credentials allow
  *
  * Any other step a refusal or a brief would hand the user is a harness bug.
  */
-export const USER_RECOVERY_COMMANDS: readonly string[] = Object.freeze(["bounded lead release", "gh auth login"]);
+export const USER_RECOVERY_COMMANDS: readonly string[] = Object.freeze(["bounded lead release", "gh auth login", "gh auth refresh -s project"]);
 /** Every lead-only tool: a seat that is not the lead never holds one. */
 export const LEAD_TOOLS: readonly string[] = [...Object.values(LEAD_COMMAND_TOOLS), LEAD_SETUP_TOOL, LEAD_REPLAN_TOOL];
 

@@ -45,7 +45,7 @@ import {
   writeStartedTicket, writeTicketMarker, type StartedTicket,
 } from "./ticket-worktree.ts";
 import {
-  HANDOFF_PUBLISHED_LABEL, trackerRefusal, WAITING_LABEL_PREFIX, waitingLabel, type Tracker, type TrackerIssue,
+  HANDOFF_PUBLISHED_LABEL, trackerRaw, trackerRefusal, WAITING_LABEL_PREFIX, waitingLabel, type Tracker, type TrackerIssue,
 } from "./tracker.ts";
 
 /** The branch the lead sits on, merges into and pushes. */
@@ -338,15 +338,18 @@ async function runLocked(main: string, request: LeadRequest, deps: LeadDeps): Pr
     return refused(trackerRefusal(error));
   }
   let outcome: LeadOutcome;
+  let raw: string | undefined;
   try {
     outcome = await dispatch(main, request, deps, tracker);
   } catch (error) {
-    outcome = refused(error instanceof Error && error.name === "TrackerError" ? trackerRefusal(error)
+    const fromTracker = error instanceof Error && error.name === "TrackerError";
+    if (fromTracker) raw = trackerRaw(error);
+    outcome = refused(fromTracker ? trackerRefusal(error)
       : `${request.command} failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   logGuardEvent(main, {
     guard: LEAD_GUARD, verdict: outcome.ok ? "pass" : "block", summary: outcome.text.split("\n")[0]!,
-    detail: { kind: "lead-command", command: request.command, ...("issue" in request ? { issue: request.issue } : {}) },
+    detail: { kind: "lead-command", command: request.command, ...("issue" in request ? { issue: request.issue } : {}), ...(raw !== undefined ? { raw } : {}) },
   });
   return outcome;
 }
