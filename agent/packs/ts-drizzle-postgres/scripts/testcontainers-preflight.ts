@@ -372,6 +372,12 @@ try {
       else process.stderr.write(format(...args) + "\\n");
     };
   } catch {}
+  // Under NODE_ENV=test Testcontainers gives each logger its own console.log,
+  // which wins over the shared one above: point the pull logger's at ours too.
+  try {
+    const { pullLog } = createRequire(testcontainers)("./common");
+    if (pullLog && pullLog.logger) pullLog.logger.log = () => say({ progress: "pull" });
+  } catch {}
   const { getContainerRuntimeClient, ImageName } = await import(testcontainers);
   const image = process.env.BOUNDED_PREFLIGHT_IMAGE;
   client = await getContainerRuntimeClient();
