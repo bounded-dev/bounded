@@ -63,10 +63,12 @@ store tests' directory, in exactly the test process's environment. The pull
 has its own timeout; the child removes its container through Testcontainers'
 own client, and the parent sweeps the run's label on the runtime the child
 reported, again after a grace period if it was killed. Failure refuses green,
-mutation score and deliver's check with the cleaned cause and a remedy,
-routed to the user since ADR 2026-072 (in product terms, no command). As a backstop, a run decision may carry
+mutation score and deliver's check with the cleaned cause and a remedy in
+product terms (no command, ADR 2026-072). Green, deliver and `run_tests`
+route it to the user (`route → user`); mutation score is advisory and prints
+no route, only the refusal. As a backstop, a run decision may carry
 `infrastructureFailure`: it claims only text Docker or Testcontainers produce,
-and green routes to the orchestrator only when every failure is claimed;
+and green routes to the user (since ADR 2026-072; before, the orchestrator) only when every failure is claimed, store or persisting smoke test alike;
 otherwise the route stays the code's, with the machine's causes as a note.
 Since ADR 2026-072 the probe asks for the engine's version after its ping
 (a hung engine is refused within seconds, routed to the user), the preflight
