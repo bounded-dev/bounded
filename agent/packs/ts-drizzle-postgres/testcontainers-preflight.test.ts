@@ -700,6 +700,21 @@ describe("the decision: the preflight runs before anything else at green, and on
     expect(preflights).toBe(0);
   });
 
+  // Final review of #52, minor 7: a smoke test the machine failed is the
+  // user's, like a store test, not the builder's.
+  test("app smoke tests get the infrastructure classifier too", () => {
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [], probe: up, persists: true, smokeTests: [SMOKE],
+      preflight: async () => service("preflight", []),
+      infrastructureFailure: (_endpoint, files) => storeTestInfrastructureFailure(files, CONTEXT),
+    });
+    if (decision.action !== "run") throw new Error("expected run");
+    expect(decision.infrastructureFailure).toBeTypeOf("function");
+    expect(decision.infrastructureFailure!({ name: "web > lists", file: SMOKE, message: "Error: Could not find a working container runtime strategy" }))
+      .toMatch(/the container engine isn't running/);
+    expect(decision.infrastructureFailure!({ name: "web > lists", file: SMOKE, message: "expected 1 to be 2" })).toBeUndefined();
+  });
+
   test("a persisting tree whose smoke tests have no runtime is refused at green, routed to the user", () => {
     const down = () => ({ available: false as const, reason: "no container runtime found" });
     const decision = storeTestPhaseDecision({ phase: "green", storeTests: [], probe: down, persists: true, smokeTests: [SMOKE] });

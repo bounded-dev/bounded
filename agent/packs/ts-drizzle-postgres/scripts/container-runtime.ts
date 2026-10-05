@@ -289,7 +289,9 @@ export interface StoreTestPhaseOptions {
   /** Start and stop one container through the given test files' own
    *  Testcontainers, before the run; rejects with the refusal. */
   readonly preflight?: (endpoint: string, env: TestEnvChange, files: readonly string[]) => Promise<PreparedTestService>;
-  readonly infrastructureFailure?: (endpoint: string) => (failure: TestFailure) => string | undefined;
+  /** The classifier over the given test files (store and persisting smoke
+   *  tests) that tells the machine's failures from the code's. */
+  readonly infrastructureFailure?: (endpoint: string, files: readonly string[]) => (failure: TestFailure) => string | undefined;
   /** Build only: contexts with no committed migration yet. */
   readonly missingMigrations?: readonly string[];
 }
@@ -318,13 +320,13 @@ function buildDecision(options: StoreTestPhaseOptions, files: readonly string[])
   return withPreflight({ action: "run", unsetEnv: STORE_TEST_ENV }, options, probed.endpoint, files);
 }
 
-/** A run decision with the preflight (and, with store tests, the
- *  classifier) on the probed endpoint. */
+/** A run decision with the preflight and the classifier, both over every
+ *  test that needs the engine, on the probed endpoint. */
 function withPreflight(
   decision: Extract<PhaseTestDecision, { action: "run" }>, options: StoreTestPhaseOptions, endpoint: string, files: readonly string[],
 ): PhaseTestDecision {
-  const classified = options.storeTests.length > 0 && options.infrastructureFailure !== undefined
-    ? { infrastructureFailure: options.infrastructureFailure(endpoint) } : {};
+  const classified = files.length > 0 && options.infrastructureFailure !== undefined
+    ? { infrastructureFailure: options.infrastructureFailure(endpoint, files) } : {};
   const preflight = options.preflight;
   if (preflight === undefined) return { ...decision, ...classified };
   return { ...decision, ...classified, prepare: (env) => preflight(endpoint, env, files) };
@@ -389,7 +391,7 @@ export const storeTestPolicy: PhaseTestPolicy = {
       smokeTests,
       probe: () => probeContainerRuntime(),
       preflight: (endpoint, env, files) => preflightAllStoreTests(project, files, endpoint, env),
-      infrastructureFailure: (endpoint) => storeTestInfrastructureFailure(storeTests, { image: POSTGRES_IMAGE, endpoint }),
+      infrastructureFailure: (endpoint, files) => storeTestInfrastructureFailure(files, { image: POSTGRES_IMAGE, endpoint }),
       ...(phase === "build" ? { missingMigrations: contextsWithoutMigrations(project) } : {}),
     });
   },
