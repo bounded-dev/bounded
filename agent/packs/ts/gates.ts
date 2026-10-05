@@ -37,7 +37,7 @@ import {
 } from "../../src/gate-command.ts";
 import { gateError, guardVerdictOf, toGateResult, type GateResult } from "../../src/gate-result.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
-import { commandTimeoutMs } from "../../src/host.ts";
+import { callBudgetMs, commandTimeoutMs } from "../../src/host.ts";
 import { restoreLeftoverMutant } from "./scripts/mutation-journal.ts";
 
 // --- shared pieces ----------------------------------------------------------------
@@ -180,14 +180,15 @@ function afterLeftoverRestore(gate: GateCommand): GateCommand {
   };
 }
 
-/** The share of the host's command deadline mutation-score leaves unused, to
- *  release what it started and report: the larger of 15% and 15 s. */
+/** The share of the host's command deadline mutation-score may spend: the
+ *  core's per-call budget (the larger of 15% and 15 s is left unused, to
+ *  release what it started and report). */
 export function mutationBudgetMs(deadlineMs: number | undefined): number | undefined {
-  if (deadlineMs === undefined) return undefined;
-  return Math.max(0, deadlineMs - Math.max(Math.ceil(deadlineMs * 0.15), 15_000));
+  return callBudgetMs(deadlineMs);
 }
 
-/** The shortest host deadline whose budget is at least `budgetMs`. */
+/** The shortest host deadline whose budget is at least `budgetMs`: the
+ *  inverse of {@link callBudgetMs}. */
 export function deadlineForBudgetMs(budgetMs: number): number {
   return Math.max(Math.ceil(budgetMs / 0.85), budgetMs + 15_000);
 }

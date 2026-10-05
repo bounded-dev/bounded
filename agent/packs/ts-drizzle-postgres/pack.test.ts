@@ -49,6 +49,7 @@ describe("generated files (ADR 2026-058)", () => {
   test("the globs are valid and cover TN-26-012's drizzle rows plus the per-context config", () => {
     const hexagonal = new Set(generatedFileGlobsFor(["ts", "ts-hexagonal"], packsDir));
     expect(generatedFileGlobsFor(PACKS, packsDir).filter((g) => !hexagonal.has(g))).toEqual([
+      "apps/**/app-test-database.test-support.ts",
       "contexts/*/drizzle.config.ts",
       "contexts/*/src/adapters/out/drizzle/drizzle-database.ts",
       "contexts/*/src/adapters/out/drizzle/drizzle-test-database.test-support.ts",

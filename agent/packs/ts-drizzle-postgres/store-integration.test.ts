@@ -21,7 +21,7 @@ import {
   drizzleStoreTests, probeContainerRuntime, STORE_TEST_ENV, storeTestDecision, storeTestEnv, storeTestPhaseDecision, storeTestPolicy,
   type ContainerRuntimeProbe,
 } from "./scripts/container-runtime.ts";
-import { APP_DATABASE_ENV, dockerCli, startAppDatabase } from "./scripts/app-database.ts";
+import { dockerCli } from "./scripts/app-database.ts";
 import {
   DEFAULT_PREFLIGHT_DEPS, PREFLIGHT_LABEL_KEY, PREFLIGHT_LABEL_VALUE, PREFLIGHT_RUN_LABEL, preflightTargets, preflightTestcontainers, testcontainersResolution,
 } from "./scripts/testcontainers-preflight.ts";
@@ -257,28 +257,7 @@ describe("the generated store-test support under bun test", () => {
   }, 300_000);
 });
 
-// --- the green run's throwaway application database (the app smoke tests) -----------
-
 const dockerCliMissing = spawnSync("docker", ["--version"]).status === 0 ? undefined : "the docker CLI is not on PATH";
-const appDatabaseSkip = bun ?? (!runtime.available ? runtime.reason : dockerCliMissing);
-if (appDatabaseSkip !== undefined) console.warn(`store-integration: skipping the throwaway application database: ${appDatabaseSkip}`);
-
-describe.skipIf(appDatabaseSkip !== undefined)("the green run's throwaway application database", () => {
-  test("starts, applies every context's migrations, answers through its URL, and is gone after release", { timeout: 900_000 }, async () => {
-    const endpoint = runtime.available ? runtime.endpoint : "";
-    const service = await startAppDatabase(dir, endpoint);
-    const name = /\((bounded-green-db-[0-9a-f]+)\)/.exec(service.description)?.[1] ?? "";
-    try {
-      expect(service.env[APP_DATABASE_ENV]).toMatch(/^postgres:\/\/postgres:postgres@127\.0\.0\.1:\d+\/app$/);
-      const tables = await dockerCli(["exec", name, "psql", "-U", "postgres", "-d", "app", "-tAc",
-        "select count(*) from information_schema.tables where table_schema = 'project_management'"], endpoint);
-      expect(Number(tables.stdout.trim())).toBeGreaterThan(0);
-    } finally {
-      service.release();
-    }
-    expect((await dockerCli(["ps", "--all", "--quiet", "--filter", `name=${name}`], endpoint)).stdout.trim()).toBe("");
-  });
-});
 
 // --- green's Testcontainers preflight, on a real runtime ------------------------
 
@@ -349,14 +328,14 @@ describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight o
     expect(await leftovers()).toBe("");
   });
 
-  test("the composed policy itself: every distinct Testcontainers preflights, then the app database starts, and nothing is left", { timeout: 900_000 }, async () => {
+  test("the composed policy itself: every distinct Testcontainers preflights, no database is started, and nothing is left", { timeout: 900_000 }, async () => {
     const decision = storeTestPolicy.decide({ project: dir, phase: "green" });
     if (decision.action !== "run" || decision.prepare === undefined) throw new Error(`expected a run with a prepare, got ${decision.action}`);
     expect(preflightTargets(drizzleStoreTests(dir), (file) => testcontainersResolution(dir, file))).toHaveLength(1);
     const service = await decision.prepare({ set: {}, unset: [] });
     try {
-      expect(service.description).toMatch(/^Testcontainers preflight: started and removed .*; started a throwaway /);
-      expect(service.env[APP_DATABASE_ENV]).toMatch(/^postgres:\/\//);
+      expect(service.description).toMatch(/^Testcontainers preflight: started and removed /);
+      expect(service.env).toEqual({});
     } finally {
       service.release();
     }
@@ -372,7 +351,8 @@ describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight o
     expect(refusal).toContain("could not start a postgres:0.0.0-bounded-preflight-absent container on this machine (green's preflight, before any test ran)");
     expect(refusal).toContain("docker-credential-bounded-absent-helper");
     expect(refusal).toContain(
-      "Remedy: $DOCKER_CONFIG/config.json names credsStore 'bounded-absent-helper' but docker-credential-bounded-absent-helper is not on PATH: remove the line or install the helper.",
+      "Remedy: the container engine's settings name a registry login helper that isn't installed: install it, or remove it from the engine's settings " +
+        "($DOCKER_CONFIG/config.json names credsStore 'bounded-absent-helper', and docker-credential-bounded-absent-helper is not installed).",
     );
     expect(refusal).not.toContain(tmpdir());
     expect(await leftovers()).toBe("");
@@ -381,56 +361,54 @@ describe.skipIf(preflightSkip !== undefined)("green's Testcontainers preflight o
   test("through the policy and the gate's services: green does not run, and says why", { timeout: 300_000 }, async () => {
     const storeTests = drizzleStoreTests(dir);
     const deps = { ...DEFAULT_PREFLIGHT_DEPS, env: { ...process.env, DOCKER_CONFIG: brokenDockerConfig() } };
-    const decision = storeTestPhaseDecision("green", storeTests, () => runtime, false, undefined,
-      (probed) => preflightTestcontainers(dir, storeTests[0]!, probed, deps, { image: UNCACHED }));
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests, probe: () => runtime,
+      preflight: (probed) => preflightTestcontainers(dir, storeTests[0]!, probed, deps, { image: UNCACHED }),
+    });
     let ran = false;
     const prepared = await withPreparedServices(combineDecisions("green", [{ name: storeTestPolicy.name, decision }]), async () => { ran = true; });
     expect(ran).toBe(false);
     expect(prepared.ok).toBe(false);
-    if (!prepared.ok) expect(prepared.reason).toContain("docker-credential-bounded-absent-helper is not on PATH: remove the line or install the helper");
+    if (!prepared.ok) {
+      expect(prepared.reason).toContain("docker-credential-bounded-absent-helper is not installed");
+      expect(prepared.route).toBe("user");
+    }
     expect(await leftovers()).toBe("");
   });
 });
 
-// The builder's run_tests (the build phase, issue #48): the same database and
-// preflight green uses where it can, and the files left out, with the reason,
-// where it cannot. Pure: the probe and the services are injected.
+// The builder's run_tests (the build phase, issue #48): the same preflight
+// green uses where it can, and the files left out, with the reason, where it
+// cannot. Pure: the probe and the services are injected.
 describe("the store-test policy at build", () => {
   const STORE = "contexts/pm/src/adapters/out/drizzle/notes/notes.store.test.ts";
   const SMOKE = "apps/web/src/server/composition-root.test.ts";
   const up = (): ContainerRuntimeProbe => ({ available: true, endpoint: "unix:///var/run/docker.sock" });
   const down = (): ContainerRuntimeProbe => ({ available: false, reason: "no container runtime found: DOCKER_HOST is unset" });
 
-  function services(order: string[]) {
-    return {
-      startDatabase: async () => {
-        order.push("database");
-        return { description: "started a throwaway database", env: { DATABASE_URL: "postgres://throwaway" }, release: () => {} };
-      },
-      preflight: async () => {
-        order.push("preflight");
-        return { description: "preflight passed", env: {}, release: () => {} };
-      },
-      classifier: () => () => undefined,
-    };
-  }
+  const options = (probe: () => ContainerRuntimeProbe, missingMigrations: readonly string[], order: string[] = []) => ({
+    phase: "build" as const, storeTests: [STORE], probe, persists: true, smokeTests: [SMOKE], missingMigrations,
+    preflight: async (_endpoint: string, _env: unknown, files: readonly string[]) => {
+      order.push(`preflight ${files.join(",")}`);
+      return { description: "preflight passed", env: {}, release: () => {} };
+    },
+    infrastructureFailure: () => () => undefined,
+  });
 
-  test("at build with a runtime and migrations, the run gets green's database and preflight", async () => {
+  test("at build with a runtime and migrations, the run gets green's preflight over the store and smoke tests", async () => {
     const order: string[] = [];
-    const { startDatabase, preflight, classifier } = services(order);
-    const decision = storeTestPhaseDecision("build", [STORE], up, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: [] });
+    const decision = storeTestPhaseDecision(options(up, [], order));
     expect(decision.action).toBe("run");
     if (decision.action !== "run") return;
     expect(decision.exclude).toBeUndefined();
     expect(decision.prepare).toBeDefined();
     const service = await decision.prepare!({ set: {}, unset: [] });
-    expect(order).toEqual(["preflight", "database"]);
-    expect(service.env["DATABASE_URL"]).toBe("postgres://throwaway");
+    expect(order).toEqual([`preflight ${STORE},${SMOKE}`]);
+    expect(service.env).toEqual({});
   });
 
   test("at build without a runtime, store and smoke tests are excluded with the runtime's reason, never refused", () => {
-    const { startDatabase, preflight, classifier } = services([]);
-    const decision = storeTestPhaseDecision("build", [STORE], down, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: [] });
+    const decision = storeTestPhaseDecision(options(down, []));
     expect(decision.action).toBe("run");
     if (decision.action !== "run") return;
     expect(decision.exclude?.files).toEqual([STORE, SMOKE]);
@@ -440,8 +418,7 @@ describe("the store-test policy at build", () => {
   });
 
   test("at build before migrations exist, the same files are excluded and the reason names generate_artifacts", () => {
-    const { startDatabase, preflight, classifier } = services([]);
-    const decision = storeTestPhaseDecision("build", [STORE], up, true, startDatabase, preflight, classifier, { smokeTests: [SMOKE], missingMigrations: ["contexts/pm"] });
+    const decision = storeTestPhaseDecision(options(up, ["contexts/pm"]));
     expect(decision.action).toBe("run");
     if (decision.action !== "run") return;
     expect(decision.exclude?.files).toEqual([STORE, SMOKE]);

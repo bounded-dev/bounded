@@ -212,7 +212,8 @@ describe("storeTestDecision (ADR 2026-064)", () => {
     const decision = storeTestDecision("green", tests, down);
     expect(decision.action).toBe("refuse");
     expect((decision as { reason: string }).reason).toContain(tests[0]);
-    expect((decision as { reason: string }).reason).toContain("Start Docker");
+    expect((decision as { reason: string }).reason).toContain("isn't running: start it");
+    expect(decision).toHaveProperty("route", "user");
     expect(decision).toHaveProperty("unsetEnv", unsetEnv);
     expect(decision).not.toHaveProperty("env");
   });

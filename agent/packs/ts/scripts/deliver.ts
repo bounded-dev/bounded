@@ -34,10 +34,12 @@
 //   6. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
 //   7. timing         READ-ONLY: where the run's minutes went, from the guard log.
-//   8. check          READ-ONLY: the project's OWN `bun run check`, BLOCK if
-//                     red. Every other step is deliver's opinion of a finished
-//                     repo; this one asks the repo whether it satisfies its own
-//                     definition of done.
+//   8. check          READ-ONLY: the green test obligations first (an app's
+//                     smoke test and its own database, issue #52), then the
+//                     project's OWN `bun run check`, BLOCK if red. Every other
+//                     step is deliver's opinion of a finished repo; this one
+//                     asks the repo whether it satisfies its own definition of
+//                     done.
 //   9. pack checks    READ-ONLY, and LAST: every `deliverChecks` contribution
 //                     (ADR 2026-033), in composition order.
 //
@@ -69,7 +71,8 @@ import {
 } from "../../../src/phase-durations.ts";
 import { composedPacks } from "../../installed.ts";
 import { deliverChecks, type DeliverCheckResult } from "../pack.ts";
-import { configDriftBlock, configIsGenerated, SYNC_COMMAND } from "./project-config.ts";
+import { configDriftBlock, configIsGenerated, TEAM_LEAD_RESTORES } from "./project-config.ts";
+import { greenObligations } from "./green-gate.ts";
 import { emitProject, projectFactsOf, type ProjectFile } from "./project-emitters.ts";
 import { phaseRun, type PhaseRun, withPreparedServices } from "./phase-policy.ts";
 import { SHADOW_RELATIVE } from "./red-gate.ts";
@@ -136,8 +139,8 @@ export interface DeliverOptions {
    *  unit-testable without a registry round trip or a real suite run. */
   readonly run?: CommandRun;
   /** The phase test policies the project's own check runs under. Default:
-   *  the project's green policies, so a throwaway database backs it. */
-  readonly policy?: Pick<PhaseRun, "refusals" | "env" | "prepares">;
+   *  the project's green policies, so it is refused where green would be. */
+  readonly policy?: Pick<PhaseRun, "refusals" | "env" | "prepares"> & Partial<Pick<PhaseRun, "refusalRoute">>;
 }
 
 export interface DeliverResult {
@@ -254,7 +257,7 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
   const refuseConfigChange = (step: string, what: string, detail: Record<string, unknown> = {}): DeliverResult => {
     lines.push(`deliver: BLOCK — ${what} — this project's config is generated from its composed packs, so deliver may not change ` +
       "the package manifest, the lockfile or the installed dependencies (ADR 2026-054)");
-    lines.push(`  a missing pin or script is a defect in the pack; missing installed dependencies are restored by the user with \`${SYNC_COMMAND}\``);
+    lines.push(`  a missing pin or script is a defect in the pack; for missing installed dependencies, ${TEAM_LEAD_RESTORES}`);
     lines.push("deliver: route → orchestrator");
     log("block", step, what, { ...detail, route: "orchestrator" });
     return { code: 1, lines };
@@ -503,13 +506,24 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
 
   // --- 8. the project's own check (r15 shipped two red repos) ---
   {
+    // The green-only obligations first, as green checks them: a smoke test
+    // that would reach for a database it did not start never runs (issue
+    // #52). They are static, so the suite does not run to find them.
+    const obligations = greenObligations(cwd, GUARD);
+    if (obligations !== undefined) {
+      lines.push(...obligations.lines);
+      log("block", "check", obligations.summary, obligations.detail);
+      return { code: 1, lines };
+    }
     // The check runs the whole suite, app smoke tests and store tests
-    // included: under the green policies, exactly as green ran it, so it
-    // never reaches a developer's database through an inherited or .env
-    // DATABASE_URL, and is refused where green would be.
+    // included: under the green policies, exactly as green ran it, so it is
+    // refused where green would be. Each app's smoke tests start their own
+    // database through the generated support, which overrides any inherited
+    // or .env DATABASE_URL (ADR 2026-072).
     const policy = options.policy ?? phaseRun(cwd, "green");
     if (policy.refusals.length > 0) {
-      const result = block("check", `the project's own \`bun run check\` cannot run here: ${policy.refusals.join("; ")}`, { reason: "test-policy" });
+      const result = block("check", `the project's own \`bun run check\` cannot run here: ${policy.refusals.join("; ")}`, { reason: "test-policy" },
+        policy.refusalRoute ?? "orchestrator");
       return { ...result, lines };
     }
     const prepared = await withPreparedServices(policy, async (env) => {
@@ -519,7 +533,8 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
       return run(BUN, ["run", "check"], cwd, childEnv);
     });
     if (!prepared.ok) {
-      const result = block("check", `the project's own \`bun run check\` cannot run here: ${prepared.reason}`, { reason: "test-policy" });
+      const result = block("check", `the project's own \`bun run check\` cannot run here: ${prepared.reason}`, { reason: "test-policy" },
+        prepared.route ?? "orchestrator");
       return { ...result, lines };
     }
     for (const line of prepared.lines) lines.push(`deliver: check — ${line}`);

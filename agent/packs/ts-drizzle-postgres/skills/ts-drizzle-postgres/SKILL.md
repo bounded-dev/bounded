@@ -92,29 +92,35 @@ route the fix to the builder and generate again.
 A renamed column or table is ambiguous: Drizzle must ask whether it is a
 rename or a drop-and-create, and the gate refuses with nothing written. Make
 the change in two steps (add the new column, generate, then drop the old one
-and generate again), or escalate to the user, who runs
-`bun run db:generate` in that context in a terminal.
+and generate again), or report it to the team lead, which asks the user the
+product question "renamed or new?". Running the generation with that answer is temporarily the user's step, a known harness gap (#57): the user runs `bun run db:generate` in that context in a terminal.
 
 ## Docker
 
 Store tests need a container runtime (ADR 2026-064). Without one, red skips
 the store tests and logs why; every other level still runs. Green refuses
 while store tests exist and no container runtime answers: it never passes by
-skipping them.
+skipping them. The runtime is asked for its version as well as a ping, so an
+engine that answers but hangs is refused within seconds. That refusal is
+routed to the user, in product terms: starting or restarting the engine is
+the one step on their machine no role can take (ADR 2026-072).
 
 The apps' generated composition roots connect to `process.env.DATABASE_URL`,
-and refuse to start without it. At green,
-with a runtime, the gate starts one throwaway Postgres (the pinned image),
-applies every context's migrations to it, sets its URL as `DATABASE_URL` for
-the whole run (over any inherited value, so a developer database is never
-touched), and removes it afterwards, on failure too. The app smoke tests reach
-it through the composition root. Without a runtime, a project that persists
-through Drizzle is refused at green with "Start Docker".
+and refuse to start without it. Each app of a persisting project gets a
+generated `app-test-database.test-support.ts` beside its composition root:
+`useAppDatabase()`, called once at the top level of the app's smoke test,
+starts one throwaway Postgres (the pinned image) for that file, applies every
+context's migrations, points `DATABASE_URL` at it (so an inherited or `.env`
+value is never used), and stops it afterwards. Compose the app only inside a test or a
+hook, never while the file is collected; green and deliver check both before
+anything runs (ADR 2026-072). The gates start no database of their own, so the
+project's own `check` needs nothing but a container engine.
 
 ## Project commands
 
 - `bun run db:up` starts the local Postgres; `bun run db:migrate` applies
   every context's pending migrations to `DATABASE_URL` (from the root `.env`,
-  copied from `.env.example`).
+  copied from `.env.example`). Both are only for running the app locally;
+  no gate, test or check ever needs them.
 - `bun run check:db`, part of `check`, verifies that every context's committed
   migrations match its schema, without writing anything.

@@ -131,9 +131,8 @@ export interface RestoreDeps {
   readonly host: string;
 }
 
-/** Is process `pid` alive on this host? The same liveness test the orphaned
- *  throwaway database uses (ts-drizzle-postgres/scripts/app-database.ts):
- *  signal 0, and EPERM means the process exists under another user. */
+/** Is process `pid` alive on this host? Signal 0, and EPERM means the
+ *  process exists under another user. */
 export function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

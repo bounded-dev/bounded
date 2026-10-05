@@ -12,6 +12,7 @@
       "root": "apps",
       "manifest": "templates/desktop/package.json",
       "runtime": "node",
+      "compositionRoot": "src/main/composition-root.ts",
       "description": "An Electron app: src/main/main.ts opens the window and calls the context's router in-process through composeApp().createCaller({}); src/main/composition-root.ts, generated, wires handlers and adapters; src/renderer/ is the React page it loads."
     }
   },

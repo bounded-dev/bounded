@@ -29,6 +29,7 @@
       "root": "apps",
       "manifest": "templates/mcp/package.json",
       "runtime": "bun",
+      "compositionRoot": "src/composition-root.ts",
       "description": "An MCP server app: src/main.ts connects the composed server to a stdio transport; src/composition-root.ts, generated, wires the context's handlers and adapters."
     }
   },

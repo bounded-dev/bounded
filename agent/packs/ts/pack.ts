@@ -480,7 +480,8 @@ export interface TestFailure {
 export type PhaseTestDecision =
   /** Run; remove `unsetEnv` from the test process's environment. With
    *  `prepare`, the gate starts the service just before the run (a throw
-   *  blocks the gate with its message, routed to the orchestrator), sets
+   *  blocks the gate with its message, routed to the orchestrator, or to the
+   *  user when the error is {@link routedToUser}), sets
    *  its `env`, and releases it afterwards. With `infrastructureFailure`,
    *  green asks it about every failure: a returned cause means the machine,
    *  not the code, failed that test. Only when every failure is claimed does
@@ -508,8 +509,27 @@ export type PhaseTestDecision =
       readonly unsetEnv: readonly string[];
       readonly skippedTest: (resultName: string) => boolean;
     }
-  /** Green only: do not run; block with `reason`. */
-  | { readonly action: "refuse"; readonly reason: string; readonly unsetEnv: readonly string[] };
+  /** Green only: do not run; block with `reason`. With `route: "user"`
+   *  the cause is the user's machine (the container engine), which only the
+   *  user can start or restart: when every refusal says so the gate routes to
+   *  the user, in product terms, never to a role (ADR 2026-072). */
+  | { readonly action: "refuse"; readonly reason: string; readonly unsetEnv: readonly string[]; readonly route?: typeof USER_ROUTE };
+
+/** The route of a refusal only the user can clear (ADR 2026-072). A
+ *  `prepare` that rejects with an error whose `route` is this blocks the
+ *  gate routed to the user too; any other rejection keeps the gate's own
+ *  route. */
+export const USER_ROUTE = "user" as const;
+
+/** Is this rejection one only the user can clear? */
+export function routedToUser(error: unknown): boolean {
+  return error !== null && typeof error === "object" && (error as { route?: unknown }).route === USER_ROUTE;
+}
+
+/** An error whose cause only the user can clear, in product terms. */
+export function userRoutedError(message: string): Error & { readonly route: typeof USER_ROUTE } {
+  return Object.assign(new Error(message), { route: USER_ROUTE } as const);
+}
 
 export interface PhaseTestPolicy {
   /** Lowercase, dash-separated. */
@@ -851,6 +871,11 @@ export interface WorkspaceTemplate {
    *  It selects the `appPins` the app takes. Every app template declares
    *  one; the context template does not. */
   readonly runtime?: string;
+  /** Workspace-relative path of the app's generated composition root, e.g.
+   *  `src/server/composition-root.ts`. A pack whose generated support sits
+   *  beside it (ts-drizzle-postgres: each app's smoke-test database, ADR
+   *  2026-072) reads it here; the context template declares none. */
+  readonly compositionRoot?: string;
   /** Sorted by path. */
   readonly files: readonly WorkspaceTemplateFile[];
   readonly description: string;
@@ -859,7 +884,7 @@ export interface WorkspaceTemplate {
 /**
  * The composed packs' `workspaceTemplates`, sorted by kind. Each contrib.json
  * value is an object keyed by kind: `{ root, manifest, description, runtime?,
- * files? }`,
+ * compositionRoot?, files? }`,
  * where `files` maps a workspace-relative path to `{ source, mode }`. Every
  * pack-relative source must exist; a kind contributed twice, an unknown
  * field, `..`, an absolute path, or a template file named `package.json` (the
@@ -883,9 +908,13 @@ export function workspaceTemplates(packs: readonly string[], packsDir = defaultP
       const where = `Selected pack '${pack}' workspace template '${kind}'`;
       if (!KEBAB.test(kind)) throw new Error(`${where} needs a kebab-case kind`);
       if (kinds.has(kind)) throw new Error(`${where} is contributed twice across the composition`);
-      const entry = strictObject(raw, ["root", "manifest", "description", "runtime", "files"], where);
+      const entry = strictObject(raw, ["root", "manifest", "description", "runtime", "compositionRoot", "files"], where);
       if (entry.runtime !== undefined && (typeof entry.runtime !== "string" || !KEBAB.test(entry.runtime))) {
         throw new Error(`${where} runtime must be kebab-case`);
+      }
+      if (entry.compositionRoot !== undefined && (typeof entry.compositionRoot !== "string" || !WORKSPACE_FILE.test(entry.compositionRoot) ||
+          entry.compositionRoot.split("/").some((s) => s === "." || s === "..") || !entry.compositionRoot.endsWith("/composition-root.ts"))) {
+        throw new Error(`${where} compositionRoot must be a workspace-relative path to a composition-root.ts`);
       }
       if (typeof entry.root !== "string" || !KEBAB.test(entry.root)) throw new Error(`${where} needs a one-segment kebab-case root`);
       if (typeof entry.description !== "string" || entry.description.trim() === "") throw new Error(`${where} needs a description`);
@@ -907,6 +936,7 @@ export function workspaceTemplates(packs: readonly string[], packsDir = defaultP
       out.push({
         pack, kind, root: entry.root, manifest, description: entry.description,
         ...(entry.runtime === undefined ? {} : { runtime: entry.runtime as string }),
+        ...(entry.compositionRoot === undefined ? {} : { compositionRoot: entry.compositionRoot as string }),
         files: files.sort((a, b) => a.path.localeCompare(b.path)),
       });
     }

@@ -11,8 +11,10 @@
 // The test generates the whole default stack's manifests for a design with a
 // store and all four apps, checks each app's pins, then (with bun) writes a
 // composition root per app kind, installs for real and type-checks with
-// `bunx tsc`. A Bun app importing `pg` must still fail: the isolation the
-// pins answer is real. Skipped, with the reason logged, only when bun is not
+// `bunx tsc`. An app importing a package only a context declares (drizzle-kit)
+// must still fail: the isolation the pins answer is real. Every app also pins,
+// as dev dependencies, what its generated smoke-test database support imports
+// (ADR 2026-072), so a Bun app's `pg` is declared too. Skipped, with the reason logged, only when bun is not
 // on PATH; it needs the pinned packages from bun's cache or the registry.
 
 import { spawnSync } from "node:child_process";
@@ -160,14 +162,14 @@ describe("every app gets the Postgres driver its runtime needs", () => {
     files.set(LOCKFILE, lockfileFor(generated.manifests, undefined).lock);
     for (const [path, content] of configFiles(STACK, PACKS_DIR, NAME)) files.set(path, content);
     for (const [path, content] of Object.entries(COMPOSITION_ROOTS)) files.set(path, content);
-    // A Bun app reaching for the Node driver it does not declare.
-    files.set("apps/web/src/server/undeclared.ts", 'import { Pool } from "pg";\n\nexport const pool = new Pool();\n');
+    // An app reaching for a package only a context declares.
+    files.set("apps/web/src/server/undeclared.ts", 'import { defineConfig } from "drizzle-kit";\n\nexport const config = defineConfig;\n');
     for (const [path, content] of files) write(project, path, content);
 
     const install = spawnSync("bun", ["install", "--frozen-lockfile", "--ignore-scripts"], { cwd: project, encoding: "utf8", timeout: 300_000 });
     expect(install.status, install.stderr).toBe(0);
     const tsc = spawnSync("bunx", ["tsc", "-p", TSCONFIG], { cwd: project, encoding: "utf8", timeout: 300_000 });
     const errors = `${tsc.stdout}${tsc.stderr}`.split("\n").filter((line) => line.includes("error TS"));
-    expect(errors).toEqual([expect.stringMatching(/^apps\/web\/src\/server\/undeclared\.ts\(1,\d+\): error TS2307: Cannot find module 'pg'/)]);
+    expect(errors).toEqual([expect.stringMatching(/^apps\/web\/src\/server\/undeclared\.ts\(1,\d+\): error TS2307: Cannot find module 'drizzle-kit'/)]);
   });
 });

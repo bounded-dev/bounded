@@ -66,6 +66,14 @@ export function commandTimeoutMs(env: Readonly<Record<string, string | undefined
   return Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
+/** The share of a host's command deadline one call may spend on its own work,
+ *  leaving the larger of 15% and 15 s to release what it started and report
+ *  (ADR 2026-070, ADR 2026-072). Undefined when the host gives no deadline. */
+export function callBudgetMs(deadlineMs: number | undefined): number | undefined {
+  if (deadlineMs === undefined) return undefined;
+  return Math.max(0, deadlineMs - Math.max(Math.ceil(deadlineMs * 0.15), 15_000));
+}
+
 /** Build a declaration; `unenforced` is derived so the two lists can never disagree. */
 export function declareHost(host: HostName, enforced: readonly Constraint[]): HostDeclaration {
   const held = new Set(enforced);

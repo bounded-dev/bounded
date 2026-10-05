@@ -14,7 +14,7 @@ import { afterAll, afterEach, describe, expect, test, vi } from "vitest";
 import { logGuardEvent } from "../../src/guard-log.ts";
 import { commandsIn } from "../../test/fixtures/user-steps.ts";
 import type { CommandResult } from "./scripts/app-database.ts";
-import type { PreparedTestService } from "../ts/pack.ts";
+import { type PreparedTestService, userRoutedError } from "../ts/pack.ts";
 import { runGreenGate } from "../ts/scripts/green-gate.ts";
 import { cannedGateEnv, type CannedCase, withEnv } from "../ts/scripts/junit-fixture.test-support.ts";
 import { combineDecisions, withPreparedServices } from "../ts/scripts/phase-policy.ts";
@@ -39,6 +39,7 @@ const tempDir = (prefix: string): string => {
 };
 
 const HOME = "/Users/someone";
+const HELPER = "the container engine's settings name a registry login helper that isn't installed: install it, or remove it from the engine's settings";
 const CONTEXT: ClassifyContext = {
   image: POSTGRES_IMAGE,
   home: HOME,
@@ -55,7 +56,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
       const found = recogniseInfrastructure(text, CONTEXT);
       expect(found?.kind).toBe("credential-helper");
       expect(found?.remedy).toBe(
-        "~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper",
+        `${HELPER} (~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed)`,
       );
       expect(found?.cause).toContain("docker-credential-desktop");
     }
@@ -66,7 +67,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
       ...CONTEXT, dockerConfig: { shownAs: "$DOCKER_CONFIG/config.json", credHelpers: { "123.dkr.ecr.aws": "ecr-login" } },
     });
     expect(found?.remedy).toBe(
-      "$DOCKER_CONFIG/config.json names credHelpers '123.dkr.ecr.aws' → 'ecr-login' but docker-credential-ecr-login is not on PATH: remove the line or install the helper",
+      `${HELPER} ($DOCKER_CONFIG/config.json names credHelpers '123.dkr.ecr.aws' → 'ecr-login', and docker-credential-ecr-login is not installed)`,
     );
   });
 
@@ -74,10 +75,10 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
     const noRuntime = recogniseInfrastructure("Error: Could not find a working container runtime strategy", CONTEXT);
     expect(noRuntime?.kind).toBe("no-runtime");
     expect(noRuntime?.remedy).toContain("unix://~/.orbstack/run/docker.sock");
-    expect(noRuntime?.remedy).toContain("DOCKER_HOST");
+    expect(noRuntime?.remedy).toContain("the container engine isn't running: start it");
 
     expect(recogniseInfrastructure("connect ECONNREFUSED /var/run/docker.sock", CONTEXT)?.kind).toBe("socket");
-    expect(recogniseInfrastructure("connect EACCES /var/run/docker.sock", CONTEXT)?.remedy).toMatch(/permissions/);
+    expect(recogniseInfrastructure("connect EACCES /var/run/docker.sock", CONTEXT)?.remedy).toMatch(/can't reach the container engine: restart it/);
 
     for (const text of [
       'Failed to pull image "postgres:17.6": (HTTP code 500) server error - Get "https://registry-1.docker.io/v2/": dial tcp: lookup registry-1.docker.io: no such host',
@@ -86,7 +87,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
     ]) {
       const pull = recogniseInfrastructure(text, CONTEXT);
       expect(pull?.kind).toBe("pull");
-      expect(pull?.remedy).toContain(`docker pull ${POSTGRES_IMAGE}`);
+      expect(pull?.remedy).toBe("the container engine can't fetch images: check your network and registry login");
     }
 
     for (const text of [
@@ -95,7 +96,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
     ]) {
       const reaper = recogniseInfrastructure(text, CONTEXT);
       expect(reaper?.kind).toBe("reaper");
-      expect(reaper?.remedy).toContain("TESTCONTAINERS_RYUK_DISABLED=true");
+      expect(reaper?.remedy).toContain("allow it in the engine's settings");
     }
   });
 
@@ -151,7 +152,7 @@ describe("classifyPreflightFailure", () => {
   test("anything unrecognised still refuses with the raw cause and a way to see the runtime's own error", () => {
     const found = classifyPreflightFailure("Error: (HTTP code 409) conflict", "start", false, CONTEXT);
     expect(found).toMatchObject({ kind: "other", cause: "Error: (HTTP code 409) conflict" });
-    expect(found.remedy).toContain(`docker run --rm ${POSTGRES_IMAGE}`);
+    expect(found.remedy).toBe("the container engine couldn't start the test database: restart it");
   });
 });
 
@@ -345,8 +346,8 @@ describe("preflightTestcontainers (no Docker needed)", () => {
     expect(seen.env?.["BUN_CONFIG_X"]).toBeUndefined();
     expect(seen.env?.["TESTCONTAINERS_RYUK_DISABLED"]).toBeUndefined();
     expect(JSON.parse(seen.env?.["BOUNDED_PREFLIGHT_LABELS"] ?? "{}")).toEqual({ "dev.bounded.role": "green-testcontainers-preflight", "dev.bounded.preflight-run": "run1" });
-    // runtime, then the pull's own generous clock, then the start's.
-    expect(seen.budgets).toEqual([60_000, 600_000, 180_000, 180_000]);
+    // runtime, then the pull's stall clock (re-armed by its progress), then the start's.
+    expect(seen.budgets).toEqual([60_000, 60_000, 180_000, 180_000]);
     // Swept on the runtime Testcontainers reported using, not the probed one; a clean exit needs no grace sweep.
     expect(seen.events).toEqual(["sweep unix:///tc/resolved.sock"]);
   });
@@ -356,7 +357,7 @@ describe("preflightTestcontainers (no Docker needed)", () => {
     mkdirSync(join(deps.home, ".docker"));
     writeFileSync(join(deps.home, ".docker", "config.json"), JSON.stringify({ credsStore: "desktop" }));
     await expect(preflightTestcontainers("/p", "x.store.test.ts", "", { ...deps, env: { PATH: "/usr/bin" } })).rejects.toThrow(
-      "Remedy: ~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper.",
+      `Remedy: ${HELPER} (~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed).`,
     );
     expect(seen.events).toEqual(["sweep "]); // no host reported: the environment's default runtime
   });
@@ -600,61 +601,70 @@ const up = () => ({ available: true as const, endpoint: "unix:///run/docker.sock
 const service = (description: string, released: string[], env: Record<string, string> = {}): PreparedTestService =>
   ({ description, env, release: () => void released.push(description) });
 
-describe("the decision: the preflight runs before anything else at green, and only with store tests", () => {
-  test("green with store tests: preflight, then the app database, on the probed endpoint, as one service", async () => {
+describe("the decision: the preflight runs before anything else at green, and only with tests that need it", () => {
+  const SMOKE = "apps/web/src/server/composition-root.test.ts";
+
+  test("green with store tests: the preflight on the probed endpoint, over the store and persisting smoke tests", async () => {
     const order: string[] = [];
     const released: string[] = [];
-    const decision = storeTestPhaseDecision("green", [STORE], up, true,
-      async (endpoint) => { order.push(`database ${endpoint}`); return service("database", released, { DATABASE_URL: "postgres://x" }); },
-      async (endpoint) => { order.push(`preflight ${endpoint}`); return service("preflight", released); },
-      () => () => undefined,
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up, persists: true, smokeTests: [SMOKE],
+      preflight: async (endpoint, _env, files) => { order.push(`preflight ${endpoint} ${files.join(",")}`); return service("preflight", released); },
+      infrastructureFailure: () => () => undefined,
+    });
     if (decision.action !== "run") throw new Error("expected run");
     expect(order).toEqual([]);
     const started = await decision.prepare!({ set: {}, unset: [] });
-    expect(order).toEqual(["preflight unix:///run/docker.sock", "database unix:///run/docker.sock"]);
-    expect(started.env).toEqual({ DATABASE_URL: "postgres://x" });
-    expect(started.description).toBe("preflight; database");
+    expect(order).toEqual([`preflight unix:///run/docker.sock ${STORE},${SMOKE}`]);
+    expect(started.env).toEqual({});
     started.release();
-    expect(released).toEqual(["database", "preflight"]);
+    expect(released).toEqual(["preflight"]);
     expect(decision.infrastructureFailure).toBeTypeOf("function");
   });
 
   test("the preflight gets the run's environment change, as the test process will see it", async () => {
     const seen: unknown[] = [];
-    const decision = storeTestPhaseDecision("green", [STORE], up, true,
-      async () => service("database", [], { DATABASE_URL: "postgres://x" }),
-      async (_endpoint, env) => { seen.push(env); return service("preflight", []); },
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up, persists: true,
+      preflight: async (_endpoint, env) => { seen.push(env); return service("preflight", []); },
+    });
     if (decision.action !== "run") throw new Error("expected run");
     await decision.prepare!({ set: { A: "1" }, unset: ["B"] });
     expect(seen).toEqual([{ set: { A: "1" }, unset: ["B"] }]);
   });
 
-  test("a failed preflight starts no database and refuses through withPreparedServices", async () => {
-    let databases = 0;
-    const decision = storeTestPhaseDecision("green", [STORE], up, true,
-      async () => { databases++; return service("database", []); },
-      async () => { throw new Error(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
-    );
+  test("a failed preflight refuses through withPreparedServices, routed to the user", async () => {
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up, persists: true,
+      preflight: async () => { throw userRoutedError(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
+    });
     const run = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     let ran = false;
     const prepared = await withPreparedServices(run, async () => { ran = true; });
     expect(prepared.ok).toBe(false);
     expect(ran).toBe(false);
-    expect(databases).toBe(0);
-    if (!prepared.ok) expect(prepared.reason).toContain("docker-credential-desktop is not on PATH");
+    if (!prepared.ok) {
+      expect(prepared.reason).toContain("docker-credential-desktop is not installed");
+      expect(prepared.route).toBe("user");
+    }
   });
 
-  test("red, and a tree without store tests, never preflight and carry no classifier", () => {
+  test("red, and a tree with neither store nor persisting smoke tests, never preflight and carry no classifier", () => {
     let preflights = 0;
     const preflight = async () => { preflights++; return service("preflight", []); };
-    const red = storeTestPhaseDecision("red", [STORE], up, true, undefined, preflight, () => () => "x");
+    const red = storeTestPhaseDecision({ phase: "red", storeTests: [STORE], probe: up, persists: true, preflight, infrastructureFailure: () => () => "x" });
     expect(red.action).toBe("skip");
-    const noStores = storeTestPhaseDecision("green", [], up, true, async () => service("database", []), preflight, () => () => "x");
-    if (noStores.action !== "run") throw new Error("expected run");
-    expect(noStores.infrastructureFailure).toBeUndefined();
+    const noTests = storeTestPhaseDecision({ phase: "green", storeTests: [], probe: up, persists: true, preflight, infrastructureFailure: () => () => "x" });
+    // A persisting tree never passes an inherited DATABASE_URL on (ADR 2026-072).
+    expect(noTests).toEqual({ action: "run", unsetEnv: ["BOUNDED_STORE_TESTS_SKIP", "BOUNDED_STORE_TESTS_PHASE", "DATABASE_URL"] });
     expect(preflights).toBe(0);
+  });
+
+  test("a persisting tree whose smoke tests have no runtime is refused at green, routed to the user", () => {
+    const down = () => ({ available: false as const, reason: "no container runtime found" });
+    const decision = storeTestPhaseDecision({ phase: "green", storeTests: [], probe: down, persists: true, smokeTests: [SMOKE] });
+    expect(decision).toMatchObject({ action: "refuse", route: "user" });
+    expect((decision as { reason: string }).reason).toMatch(/smoke tests each start a throwaway migrated database.*start it/);
   });
 });
 
@@ -664,8 +674,8 @@ describe("storeTestInfrastructureFailure: the defence in depth", () => {
   test("claims a store test, or a failure no file claims, that failed because of the machine", () => {
     expect(classify({ name: "DrizzleCreateProjectStore > (unnamed)", file: STORE, message: "error: Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT" }))
       .toBe("DrizzleCreateProjectStore > (unnamed): error: Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT. " +
-        "Remedy: ~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper");
-    expect(classify({ name: "unhandled error", message: "Could not find a working container runtime strategy" })).toMatch(/Testcontainers found no container runtime/);
+        `Remedy: ${HELPER} (~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed)`);
+    expect(classify({ name: "unhandled error", message: "Could not find a working container runtime strategy" })).toMatch(/the container engine isn't running: start it/);
   });
 
   test("leaves the code's failures, and the same text from another test file, to the roles", () => {
@@ -692,7 +702,7 @@ describe("storeTestInfrastructureFailure: the defence in depth", () => {
     const failures = run.results.filter((r) => r.status === "failed");
     expect(failures.length).toBeGreaterThan(0);
     const causes = failures.map((r) => classify({ name: r.name, ...(r.message !== undefined ? { message: r.message } : {}), ...(r.file !== undefined ? { file: r.file } : {}) }));
-    expect(causes.some((cause) => cause?.includes("docker-credential-desktop is not on PATH"))).toBe(true);
+    expect(causes.some((cause) => cause?.includes("docker-credential-desktop is not installed"))).toBe(true);
   }, 60_000);
 });
 
@@ -717,39 +727,41 @@ const PASSING: readonly CannedCase[] = [
   { name: "CreateNoteHandler > creates the note and saves it", status: "passed" },
 ];
 
-describe("the green gate (with fakes): the machine's failures go to the orchestrator, never a role", () => {
+describe("the green gate (with fakes): the machine's failures go to the user, never a role", () => {
   test("a failed preflight refuses before any test runs, with the cause and the remedy", async () => {
     const dir = builtWithStandingRed();
     const marker = join(dir, ".suite-ran");
-    const decision = storeTestPhaseDecision("green", [STORE], up, false, undefined,
-      async () => { throw new Error(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
-      () => storeTestInfrastructureFailure([STORE], CONTEXT),
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up,
+      preflight: async () => { throw userRoutedError(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
+      infrastructureFailure: () => storeTestInfrastructureFailure([STORE], CONTEXT),
+    });
     const policy = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     const env = { ...cannedGateEnv(dir, PASSING), BOUNDED_GATE_TEST_CMD: "sh", BOUNDED_GATE_TEST_ARGS: JSON.stringify(["-c", `touch '${marker}'; exit 1`]) };
     const r = await withEnv(env, () => runGreenGate(dir, { policy }));
-    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "test-policy", route: "orchestrator" } });
-    expect(r.lines.at(-1)).toBe("green-gate: route → orchestrator");
-    expect(r.lines.join("\n")).toContain("~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper");
+    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "test-policy", route: "user" } });
+    expect(r.lines.at(-1)).toBe("green-gate: route → user");
+    expect(r.lines.join("\n")).toContain("~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed)");
     expect(r.lines.join("\n")).not.toContain("route → builder");
     expect(existsSync(marker)).toBe(false);
   }, 120_000);
 
-  test("a store test that still fails because of the machine routes to the orchestrator with the cause, not the builder", async () => {
+  test("a store test that still fails because of the machine routes to the user with the cause, not the builder", async () => {
     const dir = builtWithStandingRed();
-    const decision = storeTestPhaseDecision("green", [STORE], up, false, undefined,
-      async () => service("preflight", []),
-      () => storeTestInfrastructureFailure([STORE], CONTEXT),
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up,
+      preflight: async () => service("preflight", []),
+      infrastructureFailure: () => storeTestInfrastructureFailure([STORE], CONTEXT),
+    });
     const policy = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     const cases: CannedCase[] = [...PASSING, {
       name: "DrizzleCreateProjectStore > (unnamed)", status: "failed", file: STORE,
       message: "error: Failed to pull image \"postgres:17.6\": getaddrinfo ENOTFOUND registry-1.docker.io",
     }];
     const r = await withEnv(cannedGateEnv(dir, cases), () => runGreenGate(dir, { policy }));
-    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "infrastructure", route: "orchestrator" } });
-    expect(r.lines.at(-1)).toBe("green-gate: route → orchestrator");
-    expect(r.lines.join("\n")).toContain("the image could not be pulled");
+    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "infrastructure", route: "user" } });
+    expect(r.lines.at(-1)).toBe("green-gate: route → user");
+    expect(r.lines.join("\n")).toContain("the container engine can't fetch images");
 
     // The same run with an ordinary assertion failure is still the builder's, with no note.
     const ordinary = await withEnv(cannedGateEnv(dir, [...PASSING, { name: "DrizzleCreateProjectStore > saves", status: "failed", file: STORE, message: "error: expected 1 to be 2" }]),
@@ -759,10 +771,11 @@ describe("the green gate (with fakes): the machine's failures go to the orchestr
 
   test("a mix never hides the code's failure: the route stays the builder's, which is named, with the machine's cause as a note", async () => {
     const dir = builtWithStandingRed();
-    const decision = storeTestPhaseDecision("green", [STORE], up, false, undefined,
-      async () => service("preflight", []),
-      () => storeTestInfrastructureFailure([STORE], CONTEXT),
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up,
+      preflight: async () => service("preflight", []),
+      infrastructureFailure: () => storeTestInfrastructureFailure([STORE], CONTEXT),
+    });
     const policy = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     const cases: CannedCase[] = [...PASSING,
       { name: "DrizzleCreateProjectStore > (unnamed)", status: "failed", file: STORE, message: "error: Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT" },
@@ -776,7 +789,7 @@ describe("the green gate (with fakes): the machine's failures go to the orchestr
     expect(note).toBeGreaterThan(-1);
     expect(note).toBeLessThan(r.lines.length - 1);
     expect(r.lines.join("\n")).toContain("suspected infrastructure: DrizzleCreateProjectStore > (unnamed)");
-    expect(r.lines.join("\n")).toContain("docker-credential-desktop is not on PATH");
+    expect(r.lines.join("\n")).toContain("docker-credential-desktop is not installed");
     expect((r.detail as { suspectedInfrastructure?: unknown }).suspectedInfrastructure).toHaveLength(1);
   }, 120_000);
 });

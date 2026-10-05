@@ -28,6 +28,7 @@ import { UNHANDLED_NAME } from "./sanitize-test-output.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { decide } from "../../../src/path-policy.ts";
+import { userRoutedError } from "../pack.ts";
 import { sourceRoots, testFileSuffixes } from "../../../src/pack-contrib.ts";
 import { makeTempProject, type TempProject } from "../../../test/support/temp-project.ts";
 
@@ -636,6 +637,30 @@ describe("runTestsGate under a build policy", () => {
     });
     expect(r.code).toBe(2);
     expect(r.lines.join("\n")).toContain("migrations did not apply");
+    expect(r.lines.some((line) => line.includes("route →"))).toBe(false);
     expect(calls).toEqual([]);
+  });
+
+  // Issue #52 (ADR 2026-072): what only the user can clear says so.
+  test("a service that cannot start for the user's machine routes run_tests to the user", async () => {
+    const dir = twoTests();
+    const calls: Recorded[] = [];
+    const r = await runTestsGate(dir, {
+      run: recording(calls),
+      policy: {
+        refusals: [],
+        env: { set: {}, unset: [] },
+        prepares: [{ name: "engine", prepare: async () => { throw userRoutedError("the container engine isn't running: start it"); } }],
+      },
+    });
+    expect(r.code).toBe(2);
+    expect(r.lines).toContain("run_tests: route → user");
+    expect(r.detail).toMatchObject({ route: "user" });
+    expect(calls).toEqual([]);
+    const refused = await runTestsGate(twoTests(), {
+      run: recording(calls),
+      policy: { refusals: ["the container engine is not responding: restart it"], refusalRoute: "user", env: { set: {}, unset: [] }, prepares: [] },
+    });
+    expect(refused.lines).toContain("run_tests: route → user");
   });
 });

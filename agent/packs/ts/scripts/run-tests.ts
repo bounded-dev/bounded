@@ -73,7 +73,7 @@ export interface RunTestsOptions {
 
 /** What the builder's run (`runTestsGate`) applies: the build phase's
  *  composed policies, or an injected stand-in. */
-export type BuildPolicy = Pick<PhaseRun, "refusals" | "env" | "prepares"> & Partial<Pick<PhaseRun, "exclusions">>;
+export type BuildPolicy = Pick<PhaseRun, "refusals" | "env" | "prepares"> & Partial<Pick<PhaseRun, "exclusions" | "refusalRoute">>;
 
 export interface RunTestsGateOptions extends RunTestsOptions {
   /** Default: the project's composed policies at `build`. */
@@ -560,7 +560,7 @@ function buildPolicy(cwd: string): BuildPolicy {
  * be given what it needs.
  *
  * It runs under the build phase's test policies (ADR 2026-064, issue #48):
- * a service they prepare (green's throwaway database) is started for the run
+ * a service they prepare (green's container preflight) is started for the run
  * and released after it, and a test file they leave out is not run, with the
  * reason printed before the results and the files logged. A service that
  * cannot start is the machine's failure, not the builder's: ERROR with the
@@ -572,22 +572,25 @@ export async function runTestsGate(cwd: string, options: RunTestsGateOptions = {
   const policy = options.policy ?? buildPolicy(cwd);
   const excluded = policy.exclusions?.files ?? [];
   const exclusionLines = (policy.exclusions?.reasons ?? []).map((reason) => `run_tests: ${reason}`);
-  const cannotRun = (reason: string): GateResult => {
+  // What only the user can clear (the container engine) says so, in the
+  // board's own wording; anything else goes back to the caller (ADR 2026-072).
+  const cannotRun = (reason: string, route?: "user"): GateResult => {
     const summary = "suite could not run";
-    logGuardEvent(cwd, { guard: RUN_TESTS_GUARD, verdict: "error", summary, detail: { names: [], reason } });
+    const routed = route === undefined ? {} : { route };
+    logGuardEvent(cwd, { guard: RUN_TESTS_GUARD, verdict: "error", summary, detail: { names: [], reason, ...routed } });
     return {
       code: 2,
       verdict: "error",
       summary,
-      lines: [`run_tests: suite could not run (BLOCKED): ${reason}`],
-      detail: { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, blocked: true, stuck: false, names: [], reason },
+      lines: [`run_tests: suite could not run (BLOCKED): ${reason}`, ...(route === undefined ? [] : [`run_tests: route → ${route}`])],
+      detail: { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, blocked: true, stuck: false, names: [], reason, ...routed },
     };
   };
-  if (policy.refusals.length > 0) return cannotRun(policy.refusals.join("; "));
+  if (policy.refusals.length > 0) return cannotRun(policy.refusals.join("; "), policy.refusalRoute);
   const prepared = await withPreparedServices(policy, (env) =>
     runTests(cwd, { ...options, env: { set: { ...options.env?.set, ...env.set }, unset: [...(options.env?.unset ?? []), ...env.unset] }, exclude: [...(options.exclude ?? []), ...excluded] }),
   );
-  if (!prepared.ok) return cannotRun(prepared.reason);
+  if (!prepared.ok) return cannotRun(prepared.reason, prepared.route);
   const result = prepared.value;
   const preamble = [...prepared.lines.map((line) => `run_tests: ${line}`), ...exclusionLines];
   const names = failureNames(result);
