@@ -522,6 +522,46 @@ describe("the preflight's stage clocks (issue #52)", () => {
   });
 });
 
+// Final review of #52, major 1: a healthy engine that runs out of the call's
+// time is the calling role's to retry with a longer timeout, never the user's.
+describe("a stage cut short by the call's budget, not its own clock", () => {
+  test("is refused as over budget, routed to the caller, not classified as the engine's failure", async () => {
+    const budgets: number[] = [];
+    const deps: PreflightDeps = {
+      ...scriptedChild([], 0).deps,
+      now: () => 80_000, // 22 s left of a 102 s budget: enough to start the runtime stage
+      deadlineMs: 120_000,
+      child: async (_env, _cwd, _onLine, timeoutFor) => {
+        budgets.push(timeoutFor());
+        return { status: null, stdout: "", stderr: "", timedOut: true };
+      },
+    };
+    let error: unknown;
+    try {
+      await preflightTestcontainers("/p", "x.store.test.ts", "", deps);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(budgets).toEqual([22_000]);
+    expect((error as Error).message).toMatch(/call the gate again with a longer command timeout/);
+    expect((error as Error).message).not.toMatch(/container engine|restart/);
+    expect(error).not.toMatchObject({ route: "user" });
+  });
+
+  test("a stage that runs out of its own clock, with time to spare, is still the engine's", async () => {
+    const deps: PreflightDeps = {
+      ...scriptedChild([], 0).deps,
+      now: () => 0,
+      deadlineMs: 600_000,
+      child: async (_env, _cwd, _onLine, timeoutFor) => {
+        expect(timeoutFor()).toBe(60_000);
+        return { status: null, stdout: "", stderr: "", timedOut: true };
+      },
+    };
+    await expect(preflightTestcontainers("/p", "x.store.test.ts", "", deps)).rejects.toMatchObject({ route: "user" });
+  });
+});
+
 describe("the preflight's remedies are the user's, in product terms (issue #52)", () => {
   test("a credential-helper failure during Testcontainers' own pull is still classified", async () => {
     const { deps } = scriptedChild(['{"done":"runtime"}', JSON.stringify({

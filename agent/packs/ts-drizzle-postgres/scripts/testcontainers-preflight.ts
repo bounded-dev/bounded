@@ -525,11 +525,17 @@ export async function preflightTestcontainers(
   if (tooLate("runtime")) throw budgetRefusal("runtime");
   let stageStarted = now();
   let overBudget: PreflightStage | undefined;
+  // Whether the timer last armed was the call's budget rather than the
+  // stage's own clock: a kill then means the call ran out of time, which the
+  // calling role fixes with a longer timeout, not the engine failing.
+  let budgetBound = false;
   const timeoutFor = (): number => {
     if (overBudget !== undefined) return 0;
     let clock = STAGE_TIMEOUT[stage];
     if (stage === "pull") clock = Math.min(clock, PULL_CAP_MS - (now() - stageStarted));
-    return Math.max(0, Math.min(clock, left()));
+    const remaining = left();
+    budgetBound = remaining < clock;
+    return Math.max(0, Math.min(clock, remaining));
   };
   try {
     result = await deps.child(env, project, (line) => {
@@ -567,6 +573,10 @@ export async function preflightTestcontainers(
     sweep();
   }
   if (overBudget !== undefined) throw budgetRefusal(overBudget);
+  if (result.timedOut && budgetBound) {
+    throw new Error(`this call's time ran out during the ${stage} stage of starting the test containers; ` +
+      "call the gate again with a longer command timeout");
+  }
   if (result.status === 0 && done) {
     return {
       description: `Testcontainers preflight: started and removed a ${image} container through the store tests' own Testcontainers`,
