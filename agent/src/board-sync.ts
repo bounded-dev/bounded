@@ -18,7 +18,7 @@ import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSyn
 import { systemProcesses } from "./process-lock.ts";
 import { join } from "node:path";
 import type { GateMilestone } from "./gate-command.ts";
-import type { GateResult } from "./gate-result.ts";
+import { resultLabel, type GateResult } from "./gate-result.ts";
 import { logGuardEvent, readGuardLog } from "./guard-log.ts";
 import { backgroundWorkers } from "./lead-state.ts";
 import { readTicketMarker } from "./ticket-worktree.ts";
@@ -222,7 +222,9 @@ export function routeOf(result: GateResult): string | undefined {
   return undefined;
 }
 
-/** The updates one gate result calls for, and the blocked labels after it. */
+/** The updates one gate result calls for, and the blocked labels after it.
+ *  A RUNNING result (ADR 2026-073) posts one comment when its run starts or
+ *  restarts and nothing while it is polled; it never moves a label or status. */
 export function boardOpsFor(
   issue: number,
   gate: { readonly name: string; readonly milestone?: GateMilestone },
@@ -230,8 +232,14 @@ export function boardOpsFor(
   state: BoardState,
   context: { readonly role?: string; readonly waiting?: () => readonly number[] } = {},
 ): { readonly ops: readonly BoardOp[]; readonly state: BoardState } {
-  const label = result.code === 0 ? "PASS" : result.code === 1 ? "BLOCK" : "ERROR";
-  const ops: BoardOp[] = [{ op: "comment", issue, body: `\`${gate.name}\`: ${label} — ${result.summary}` }];
+  if (result.code === 3) {
+    const job = result.detail["job"];
+    return {
+      ops: job === "started" || job === "restarted" ? [{ op: "comment", issue, body: `\`${gate.name}\`: RUNNING — ${result.summary}` }] : [],
+      state,
+    };
+  }
+  const ops: BoardOp[] = [{ op: "comment", issue, body: `\`${gate.name}\`: ${resultLabel(result)} — ${result.summary}` }];
   const blocked = { ...state.blocked };
   const previous = blocked[gate.name];
   if (result.code === 0) {
@@ -304,8 +312,12 @@ export async function runGateWithBoard(
     return refusal(gate.name, `${gate.name} did not run: ${reason}`);
   }
   const result = await run();
+  // A gate that did not start (another run holds the project) changed nothing:
+  // neither the delivery evidence nor the board hears of it.
+  if (result.detail["ran"] === false) return result;
   // A delivered pass is evidence about exactly this tree; merge takes no other.
-  if (gate.milestone === "delivered") {
+  // A run still working in the background is no evidence either way.
+  if (gate.milestone === "delivered" && result.code !== 3) {
     try {
       if (result.code === 0) recordDeliverySnapshot(cwd);
       else clearDeliverySnapshot(cwd);

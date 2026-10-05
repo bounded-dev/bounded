@@ -1130,6 +1130,25 @@ describe(".bounded is write-denied for every role, read-allowed for all", () => 
   }
 });
 
+// A background job's output files hold raw suite output, which run_tests
+// sanitizes only in its result (ADR 2026-073): no role reads them.
+describe("no role reads background job files", () => {
+  for (const role of ["architect", "test-writer", "builder", "reviewer"] as const) {
+    test(`${role} may not read .bounded/jobs, and may still read the guard log`, () => {
+      expect(d(role, "read", ".bounded/jobs/gate-run-tests/stdout").allow).toBe(false);
+      expect(d(role, "read", ".bounded/guard-log.jsonl").allow).toBe(true);
+    });
+  }
+
+  // Review minor 7: a search over `.bounded` still works (the jobs' raw
+  // output is kept outside the project); one inside `.bounded/jobs` does not.
+  test("a search over .bounded is allowed, one inside .bounded/jobs is not", () => {
+    expect(d("architect", "grep", ".bounded").allow).toBe(true);
+    expect(d("architect", "grep", ".bounded/jobs").allow).toBe(false);
+    expect(d("architect", "grep", ".bounded/jobs/gate-run-tests").allow).toBe(false);
+  });
+});
+
 // `remove` is write-class: Run 8's test-writer could not delete its own broken
 // test file, and the architect fell back to `git clean -f` in someone else's
 // zone. Deleting must obey exactly the write zones.

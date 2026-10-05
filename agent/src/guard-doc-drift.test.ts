@@ -424,3 +424,42 @@ describe("the role docs describe the monorepo the gates enforce", () => {
     expect(builder).toContain("bunx tsc -p tsconfig.json");
   });
 });
+
+// A long gate may answer RUNNING on a host with a command time limit (ADR
+// 2026-073). Every role that runs one must know what to do with it.
+describe("RUNNING is told to every role that can meet it", () => {
+  const root = join(import.meta.dirname, "..", "..");
+  const teamLead = readFileSync(join(import.meta.dirname, "..", "skills", "team-lead", "SKILL.md"), "utf8");
+  const flat = (text: string): string => text.replace(/\s*\n\s*/g, " ");
+
+  test("every role that runs a long gate is told RUNNING means call it again", () => {
+    for (const [name, doc] of [["developer-stage", developerStage], ["architect", architect]] as const) {
+      expect(flat(doc), name).toMatch(/RUNNING/);
+      expect(flat(doc), name).toMatch(/call (it|the gate|`?[\w-]+`?) again/i);
+    }
+    expect(flat(builder)).toMatch(/RUNNING/);
+    expect(flat(builder)).toMatch(/`?run_tests`? again/i);
+    expect(flat(teamLead)).toMatch(/RUNNING/);
+    expect(flat(teamLead)).toMatch(/`?bounded lead merge`?[^.]* again/i);
+  });
+
+  test("no brief tells a role to raise its command timeout for mutation", () => {
+    for (const [name, doc] of [["developer-stage", developerStage], ["architect", architect]] as const) {
+      expect(flat(doc), name).not.toMatch(/give the command the timeout/i);
+      expect(flat(doc), name).not.toMatch(/longer command timeout/i);
+    }
+  });
+
+  test("the gate contract's docs list 3 RUNNING", () => {
+    expect(readFileSync(join(import.meta.dirname, "..", "scripts", "bounded-gates"), "utf8")).toContain("3 RUNNING");
+    expect(flat(readFileSync(join(root, "docs", "tn", "TN-26-007-agent-agnostic-harness.md"), "utf8"))).toContain("`3` RUNNING");
+  });
+
+  test("the team lead is told a background run that keeps dying is a harness bug, with release as the user's way out and its why", () => {
+    const text = flat(teamLead);
+    expect(text).toMatch(/keeps dying|died 3 times/);
+    expect(text).toMatch(/harness bug/);
+    expect(text).toMatch(/bounded lead release/);
+    expect(text).toMatch(/cannot prove|cannot tell/);
+  });
+});

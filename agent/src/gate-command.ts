@@ -56,6 +56,15 @@ export type GateArgs = Readonly<Record<string, unknown>>;
 export type GateMilestone = "design-frozen" | "delivered" | "handoff-published";
 export const GATE_MILESTONES: readonly GateMilestone[] = ["design-frozen", "delivered", "handoff-published"];
 
+/** A gate whose run can outlast a host's command limit (ADR 2026-073). Under
+ *  a host deadline the core runs it as a background job and answers RUNNING
+ *  until a later call collects its verdict. `reads-tree`: the tree must not
+ *  change while it runs (it may write, as long as it puts everything back), so
+ *  a tree that changed voids it. `writes-tree`: the run changes the tree
+ *  itself (delivery), and is judged over the tree it left. */
+export type LongRunning = "reads-tree" | "writes-tree";
+export const LONG_RUNNING: readonly LongRunning[] = ["reads-tree", "writes-tree"];
+
 export interface GateCommand {
   /** The CLI name: `bounded gates <name>`. Also the prefix of the verdict line. */
   readonly name: string;
@@ -72,6 +81,20 @@ export interface GateCommand {
   readonly promptSnippet?: string;
   /** Prompt guidance a host may fold into the role's brief. */
   readonly promptGuidelines?: readonly string[];
+  /** Run as a background job under a host deadline (ADR 2026-073). */
+  readonly longRunning?: LongRunning;
+  /** A long gate that runs alone: no other long run beside it, and none
+   *  starts while it runs (it changes the project's files, even if only for
+   *  a while). Long gates without it may run alongside each other. */
+  readonly exclusive?: true;
+  /**
+   * A step before the run whose own effects are not part of what the run is
+   * judged on (a pack putting back what an earlier, killed run left). A
+   * result from it ends the call with that result. A background job takes the
+   * tree it judges after this step, so the step's own edits never read as the
+   * tree changing under the run.
+   */
+  prepare?(cwd: string): Promise<GateResult | undefined>;
   run(cwd: string, args: GateArgs): Promise<GateResult>;
 }
 
@@ -106,6 +129,9 @@ export function isGateCommand(x: unknown): x is GateCommand {
     (c["promptSnippet"] === undefined || typeof c["promptSnippet"] === "string") &&
     (c["promptGuidelines"] === undefined ||
       (Array.isArray(c["promptGuidelines"]) && c["promptGuidelines"].every((g) => typeof g === "string"))) &&
+    (c["longRunning"] === undefined || (LONG_RUNNING as readonly unknown[]).includes(c["longRunning"])) &&
+    (c["prepare"] === undefined || typeof c["prepare"] === "function") &&
+    (c["exclusive"] === undefined || c["exclusive"] === true) &&
     typeof c["run"] === "function"
   );
 }

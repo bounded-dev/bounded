@@ -1,6 +1,6 @@
 # 2026-066: The lead on main, a worktree per ticket, a board moved by gates
 
-**Status:** accepted
+**Status:** accepted; amended by 2026-069, 2026-073
 
 ## Decision
 
@@ -37,10 +37,18 @@ refuses a diverged `main` in product terms (amended by ADR 2026-072).
 `sync-config` joins the lead's commands (ADR 2026-072). It commits the delivered work, merges with
 `--no-ff` and refuses on any conflict. It runs the packs' `projectCheckCommands`
 on `main` and undoes the merge if they fail. Only then does it push without
-force, close the issue and remove the worktree.
+force, close the issue and remove the worktree. The check runs in the
+background (ADR 2026-073): the merge is recorded as `merging` before git
+merges, a merge whose check outlasts the call answers RUNNING, and a later
+merge adopts or refuses an interrupted merge, collects the check only while
+`main` is at the merge commit, and undoes only then. While a ticket merges,
+`start`, other merges, its `reply` and its `sync-config` wait. The Claude Code
+lead hook gives `bounded lead merge`, and no other lead command, the call's
+deadline.
 
 The architect is the host's own standard subagent, run in the background in
-its ticket's worktree; the core never launches anything (`architect-seat.ts`).
+its ticket's worktree; the core never launches an agent (`architect-seat.ts`);
+it runs the project's own checks in the background (ADR 2026-073).
 `start` leaves one pending launch, under the lead's lock, and says how the lead
 launches the architect next. The host adapter binds that launch to the
 pending ticket, routes the architect's calls to the ticket worktree, and
@@ -155,9 +163,12 @@ routes to the user. Any lead command refuses in the same way.
   `status` lists every hold.
 - **One escape hatch, for the user only.** `bounded lead release <issue>
   [--force]` clears all of a ticket's seat state: the architect seat,
-  background-worker holds, a launch claim and the pending reply. It does so
+  background-worker holds, a launch claim and the pending reply, and (ADR
+  2026-073) its background gate runs and its merge's check, undoing a
+  `merging` merge, but never one the main line has moved off. It does so
   once their recorded processes are gone, or with `--force`, and logs the
-  release in the worktree and in main. The lead hook refuses it and pi
+  release in the worktree and in main. `status` shows a merge in progress and
+  every background run. The lead hook refuses it and pi
   registers no tool for it. `status` names it whenever a ticket looks stuck,
   and `start` then relaunches the architect.
 - **One judge per seat call.** In a ticket seat the project-wide hook judges

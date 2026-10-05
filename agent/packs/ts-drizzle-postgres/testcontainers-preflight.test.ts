@@ -522,6 +522,32 @@ describe("the preflight's stage clocks (issue #52)", () => {
   });
 });
 
+// Issue #53: inside a background job the deadline is the job's own ceiling,
+// so no role can give the call a longer timeout: running out is a harness bug.
+describe("the budget refusal inside a background job", () => {
+  test("inside a job the budget refusal is a harness bug, not advice to raise the timeout", async () => {
+    let spawned = 0;
+    const base = scriptedChild(DONE, 0).deps;
+    const deps: PreflightDeps = {
+      ...base,
+      env: { ...base.env, BOUNDED_JOB_DIR: "/p/.bounded/jobs/gate-green-gate" },
+      now: () => 95_000,
+      deadlineMs: 120_000,
+      child: async () => { spawned++; return { status: 0, stdout: "", stderr: "", timedOut: false }; },
+    };
+    let error: unknown;
+    try {
+      await preflightTestcontainers("/p", "x.store.test.ts", "", deps);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(spawned).toBe(0);
+    expect((error as Error).message).toMatch(/this run's time limit/);
+    expect((error as Error).message).toMatch(/harness bug/);
+    expect((error as Error).message).not.toMatch(/longer command timeout/);
+  });
+});
+
 // Final review of #52, major 1: a healthy engine that runs out of the call's
 // time is the calling role's to retry with a longer timeout, never the user's.
 describe("a stage cut short by the call's budget, not its own clock", () => {

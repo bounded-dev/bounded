@@ -67,12 +67,14 @@ export function registerLeadCommandTools(pi: ExtensionAPI, leadSession: (cwd: st
       description: `${spec.summary} (the shell form is \`${spec.usage}\`).`,
       parameters: shape.parameters,
       async execute(_id, params, _signal, _onUpdate, ctx) {
-        const reply = (body: string, ok: boolean) => ({ content: [{ type: "text" as const, text: body }], details: { ok } });
+        const reply = (body: string, ok: boolean, running?: true) =>
+          ({ content: [{ type: "text" as const, text: body }], details: { ok, ...(running === true ? { running } : {}) } });
         if (!leadSession(ctx.cwd)) return reply("team-lead: only the project-local lead in the main worktree runs lead commands", false);
         const parsed = parseLeadArgs(shape.argv(params as Params));
         if (!parsed.ok) return reply(`team-lead: ${parsed.reason}`, false);
         const outcome = await runLeadCommand(ctx.cwd, parsed.request, leadDeps(openTracker, "pi"));
-        return reply(outcome.text, outcome.ok);
+        // A merge whose check still runs in the background (ADR 2026-073).
+        return reply(outcome.text, outcome.ok, outcome.running);
       },
     });
   }

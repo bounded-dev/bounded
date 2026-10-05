@@ -1,7 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { discoverGates, main } from "../../../../src/gates-cli.ts";
+import { readGuardLog } from "../../../../src/guard-log.ts";
+import { writeFakeJobPack } from "../../../../test/fixtures/fake-job-pack.ts";
 import type { GateArgs, GateCommand } from "../../../../src/gate-command.ts";
 import type { GateResult } from "../../../../src/gate-result.ts";
 import { CWD_DESCRIPTION, gateArgsFrom, hostArgs, registerGateTools, toolParams } from "./gate-tools.ts";
@@ -34,20 +37,20 @@ interface RecordedTool {
 }
 
 /** Minimal ExtensionAPI stub: records what registerGateTools registers. */
-function registered(gates: readonly GateCommand[], tools: ReadonlySet<string>): Map<string, RecordedTool> {
+function registered(gates: readonly GateCommand[], tools: ReadonlySet<string>, packsDir?: string): Map<string, RecordedTool> {
   const recorded = new Map<string, RecordedTool>();
   const pi = {
     registerTool(spec: RecordedTool) {
       recorded.set(spec.name, spec);
     },
   };
-  registerGateTools(pi as never, gates, tools);
+  registerGateTools(pi as never, gates, tools, packsDir);
   return recorded;
 }
 
 /** The one registered tool a test drives, or a failure naming it. */
-function one(gates: readonly GateCommand[], tools: ReadonlySet<string>, name: string): RecordedTool {
-  const tool = registered(gates, tools).get(name);
+function one(gates: readonly GateCommand[], tools: ReadonlySet<string>, name: string, packsDir?: string): RecordedTool {
+  const tool = registered(gates, tools, packsDir).get(name);
   if (tool === undefined) throw new Error(`'${name}' was not registered`);
   return tool;
 }
@@ -258,5 +261,58 @@ describe("the session role is the host's to supply", () => {
     expect(claimed.content[0]?.text).toContain(JSON.stringify({ role: "builder" }));
     const unbound = await tool.execute("c2", {}, undefined, () => {}, { cwd: join(dir, "sub") });
     expect(unbound.content[0]?.text).toBe(["{}", "scoped: PASS"].join("\n"));
+  });
+});
+
+// Long gates run as background jobs under a host deadline (ADR 2026-073). pi
+// gives no deadline, so its call runs a long gate in the call, after first
+// collecting any job a deadline-bound call (Claude Code, a shell) started.
+describe("background jobs through the pi tools", () => {
+  let root = "";
+  let project = "";
+  let packs = "";
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-gate-tools-jobs-")));
+    project = join(root, "project");
+    packs = join(root, "packs");
+    mkdirSync(join(project, "src"), { recursive: true });
+    writeFileSync(join(project, "src", "a.txt"), "a\n");
+    writeFakeJobPack(packs);
+    vi.stubEnv("BOUNDED_GUARD_LOG", "");
+    vi.stubEnv("BOUNDED_HOST", undefined);
+    vi.stubEnv("BOUNDED_COMMAND_TIMEOUT_MS", undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    for (const e of readGuardLog(project)) {
+      const pid = Number(e.detail?.["pid"]);
+      if (e.detail?.["kind"] === "job-started" && Number.isSafeInteger(pid) && pid > 0) {
+        try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
+      }
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+  const runs = (): string[] => {
+    const path = join(root, "runs.log");
+    return existsSync(path) ? readFileSync(path, "utf8").trim().split("\n") : [];
+  };
+
+  test("pi collects a job a deadline-bound call started", async () => {
+    vi.stubEnv("BOUNDED_COMMAND_TIMEOUT_MS", "16000");
+    const io = { out: () => {}, err: () => {} };
+    expect(await main(["slow", "--ms", "2000"], project, io, undefined, packs)).toBe(3);
+    vi.stubEnv("BOUNDED_COMMAND_TIMEOUT_MS", undefined);
+    const tool = one(await discoverGates(packs), new Set(["slow_gate"]), "slow_gate", packs);
+    const res = await tool.execute("c1", { ms: 2000 }, undefined, () => {}, { cwd: project });
+    expect(res.content[0]?.text.endsWith("slow: PASS")).toBe(true);
+    expect(res.details).toMatchObject({ code: 0 });
+    expect(runs()).toEqual(["slow"]);
+  }, 20_000);
+
+  test("a long gate's tool description says to call again on RUNNING", async () => {
+    const tools = registered(await discoverGates(packs), new Set(["slow_gate", "quick_gate"]), packs);
+    expect(tools.get("slow_gate")?.description).toContain("RUNNING");
+    expect(tools.get("slow_gate")?.description).toContain("call it again");
+    expect(tools.get("quick_gate")?.description).not.toContain("RUNNING");
   });
 });
