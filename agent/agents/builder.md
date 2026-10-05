@@ -167,8 +167,8 @@ packs' pins. If you need a package that is not there, that is a
   command runs, a long suite runs in the background (ADR 2026-073) and
   `run_tests` answers **RUNNING** while it works. That is not a result: call
   `run_tests` again, unchanged, until it gives one. An ERROR saying another
-  gate is still running means the architect's gate is using the project; wait
-  and call `run_tests` again.
+  gate is running means a gate that changes the project is at work; wait for
+  it to finish, then call `run_tests` again.
 - **Store tests and app smoke tests need Postgres.** Tests of Postgres stores
   (`adapters/out/drizzle/**/*.store.test.ts`) start a real Postgres through
   Docker, and each app's smoke test (`composition-root.test.ts`) starts its

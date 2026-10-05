@@ -542,9 +542,10 @@ time limit, so there they run in the background (ADR 2026-073) and answer
 **RUNNING** until the run is done. RUNNING is not a verdict: call the gate again
 with the same arguments until it gives PASS, BLOCK or ERROR, and on Claude Code
 give each call the longest timeout the host allows. Changing the project's
-files while it runs makes it run again. An ERROR naming another gate that is
-still running in the background means call that gate again first to collect
-it: one long gate runs at a time. A background run that kept dying or never
+files while it runs makes it run again. `green_gate` and `red_gate` only read the
+project and may run beside the builder's `run_tests`; `deliver` and
+`mutation_score` change it and run alone. An ERROR naming another gate still
+running in the background means call that gate again first to collect it. A background run that kept dying or never
 completed is a harness bug; report it to the team lead in product terms.
 
 **Before `sign_off`, run `mutation_score`.** It mutates parse-and-guard sites in

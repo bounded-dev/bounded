@@ -406,9 +406,11 @@ prints what it found. The long gates — `deliver`, `green_gate`, `red_gate`,
 limits how long one command runs (ADR 2026-073): the gate is still working in
 the background. RUNNING is not a verdict. Call the same gate again with the
 same arguments until it gives PASS, BLOCK or ERROR, and on Claude Code give
-that Bash call the longest timeout it allows. An ERROR saying another gate is
-still running in the background means call that gate again first to collect
-it, then the one you wanted: one long gate runs at a time. **Do not go reading the gate scripts to work out how to
+that Bash call the longest timeout it allows. `red_gate`, `green_gate` and
+`run_tests` only read the project and may run at the same time; `deliver` and
+`mutation_score` change it, so they run alone. A gate that cannot start yet
+answers ERROR naming what is running and what to do: call that gate again to
+collect it first when it is yours, otherwise wait for it to finish. **Do not go reading the gate scripts to work out how to
 call them**; the tool descriptions are the interface, and each call is
 recorded in the guard log automatically.
 

@@ -14,8 +14,9 @@ minutes at most) runs as a **background job** that a later call collects.
 born with their consumers (`src/gate-jobs.ts`, `src/gate-job-worker.ts`).
 `prepare` is a step whose own effects are not part of the evaluated run; a
 result from it ends the call. The ts pack declares five long gates:
-`deliver` (`writes-tree`) and `green-gate`, `red-gate`, `run-tests`,
-`mutation-score` (`reads-tree`). Its leftover-mutant restore (ADR 2026-070)
+`deliver` and `mutation-score` (`writes-tree`: one changes the project's
+files, the other writes a mutant at a time) and `green-gate`, `red-gate`,
+`run-tests` (`reads-tree`). Its leftover-mutant restore (ADR 2026-070)
 is every entry's `prepare`.
 
 **Inline or detached is the host deadline's call.** Without
@@ -24,21 +25,31 @@ after collecting or waiting on any job a deadline-bound call started. With
 one, the whole gate runs in a worker (`gate-job-worker.ts`) under a runner
 (`job-runner.ts`) started with `detached: true` (its own session), stdio to
 files, `unref()`. The call waits up to `callBudgetMs(deadline)` less what it
-has already spent, then answers RUNNING.
+has already spent, then answers RUNNING. A run in the call is recorded as the
+gate's run too (`inline`), so every call sees every run of a gate.
 
 **A job** is `.bounded/jobs/<name>/` (`gate-<gate>` in a project,
 `merge-<issue>` in the main worktree): `spec.json`, `job.json` (run id, the
 runner's pid and its start time, host, start, limit, key, tree, deaths), the
-output files and `result-<id>.json` / `payload-<id>.json`, each written
-whole. Inspecting, starting, stopping and collecting happen under
-`.bounded/jobs/lock`, held only for those moments (`src/detached-job.ts`).
+`result-<id>.json` (exit codes only), each written whole. The run's raw
+output and its payload live outside the project, in a temporary directory
+the record names. Inspecting, starting, stopping and collecting happen under
+`.bounded/jobs/lock`, held only for those moments and waited for no longer
+than the call's budget (`src/detached-job.ts`).
 
 - **Key and run id.** A job's key is the gate and its canonical arguments,
   never the role. Every run has a random id, and only the current run's
   result is ever read, so an abandoned run's late result is never collected.
-- **One live long-gate run per project.** `.bounded/jobs/slot` is held by
-  the one live run, job or in-call. Another long gate meanwhile answers ERROR,
-  under its own guard, naming the gate to call again first.
+- **Which runs overlap.** Never two runs of one gate, in a call or in the
+  background, under any mix of deadlines: a call that finds the gate running
+  in another call is refused ("running now in another call"). A `writes-tree`
+  gate runs alone: it starts only when no other long run is live, and nothing
+  starts beside it. `reads-tree` gates run alongside each other, which keeps
+  ADR 2026-021's parallel red and `run_tests`. A refusal ran nothing: it is
+  logged as the core's `job-refused` under `gate-job`, never as the gate's
+  verdict, and neither the board nor the delivery snapshot hears of it. It
+  names what is running in the calling role's terms, and never offers a gate
+  the role cannot call.
 - **Collection.** A live run with the same key is waited on; one with
   another key is stopped (`args-changed`). A finished run is collected over
   the tree it left: the worker records the tree (`src/tree-fingerprint.ts`)
@@ -68,7 +79,8 @@ whole. Inspecting, starting, stopping and collecting happen under
   budget refusal becomes "this run's time limit … a harness bug", and
   mutation-score's remedy names only `--timeout-ms`.
 - **No role reads job files.** `.bounded/jobs/**` is denied to every
-  pipeline role: the output holds raw suite output.
+  pipeline role, and the raw suite output is not in the project at all, so a
+  search over `.bounded` still works.
 
 **RUNNING.** `GateCode` is `0|1|2|3`. Only `gateRunning` builds code 3
 (`verdict: "running"`); `gateCodeOf` still clamps a runner's own 3 to
@@ -81,7 +93,8 @@ to call it again on RUNNING. The guard log's verdicts gain `running`:
 - a job's start and restart are `running` events under the gate's own guard
   (`job-started`, `job-restarted`, with pid, run id and reason);
 - every verdict the core substitutes for the gate's (the reads-tree BLOCK,
-  the slot ERROR, "cannot answer RUNNING", no verdict, three deaths) is
+  "cannot answer RUNNING", whether by code or by verdict, no verdict, three
+  deaths) is
   logged under the gate's own guard;
 - the core guard `gate-job` carries only polls (`job-running`) and
   pass-through collection (`job-collected`), whose verdict the gate logged
@@ -150,8 +163,8 @@ lets any pack's long gate opt in with one field.
 - A gate that needs more than an hour never completes, and says so.
 - A job on another host is never killed; it is waited on until its limit.
 - A role that edits the tree while a gate runs waits one more run.
-- Red's shadow run and the builder's `run_tests` no longer overlap on Claude
-  Code (ADR 2026-021's concurrency stays on pi).
+- Red's shadow run and the builder's `run_tests` still overlap; `deliver` and
+  the mutation measurement wait for every other long run, and they for it.
 - A laptop that sleeps past a job's limit costs a restart, never a corrupt run.
 - A main that moved off a merge is a harness bug release will not paper over.
 - A slow check still costs its full time: this keeps calls short, it does
