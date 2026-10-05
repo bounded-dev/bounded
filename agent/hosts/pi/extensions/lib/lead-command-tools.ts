@@ -45,6 +45,7 @@ const SHAPES: Readonly<Record<string, { readonly parameters: TSchema; readonly a
     parameters: Type.Object({ action: Type.String({ description: "retry or discard the quarantined board updates" }) }),
     argv: (p) => ["board", String(p["action"] ?? "")],
   },
+  "sync-config": { parameters: Type.Object({ issue: ISSUE }), argv: (p) => ["sync-config", String(p["issue"] ?? "")] },
 };
 
 /** The argv a lead command tool's parameters stand for (exported for tests). */

@@ -504,7 +504,7 @@ export interface MutationScoreOptions {
   readonly runSuite?: SuiteRunner;
   /** The phase test policies the whole measurement runs under. Default: the
    *  project's green policies with the default runner, none with an injected
-   *  one. Services they prepare (a throwaway database) are started once,
+   *  one. Services they prepare (a container preflight) are started once,
    *  before the baseline, and released after the last mutant. */
   readonly policy?: Pick<PhaseRun, "refusals" | "env" | "prepares"> & Partial<Pick<PhaseRun, "infrastructure">>;
 }

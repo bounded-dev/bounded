@@ -27,10 +27,13 @@
 //   (`bunLockProblems`, no network), including each entry's registry URL,
 //   integrity and dependencies against the fingerprint of the clean
 //   resolution recorded when bun produced it (.bounded/lockfile-fingerprint.json).
-// · `sync-config` (the user's command, scripts/sync-config.ts) rewrites the
-//   files from the same function, derives the lockfile when the old one no
-//   longer verifies, then reinstalls through the composed packs' setup
-//   commands when anything changed.
+// · `sync-config` (scripts/sync-config.ts, the command this pack names in
+//   its `projectConfigSyncCommand`) rewrites the files from the same
+//   function, derives the lockfile when the old one no longer verifies, then
+//   reinstalls through the composed packs' setup commands when anything
+//   changed. The team lead runs it, as `bounded lead sync-config <issue>`, in
+//   a ticket's worktree once the user agrees (ADR 2026-072): a project's user
+//   never runs a harness step.
 //
 // A project that was not initialized by `bounded init` (an adopted repository,
 // a global-harness arm) had its config written by someone else, so there is
@@ -77,8 +80,10 @@ import {
 } from "./project-package.ts";
 
 export { LOCKFILE, MANIFEST };
-/** Where the user runs the sync from, in a project-local installation. */
-export const SYNC_COMMAND = "bash .bounded/harness/scripts/bounded sync-config";
+/** Who restores drifted config, said the same way by every refusal: the team
+ *  lead, in the ticket's own worktree, once the user agrees (ADR 2026-072). */
+export const TEAM_LEAD_RESTORES =
+  "escalate to the team lead: with the user's agreement it restores the generated config in this ticket's worktree";
 
 /** The harness this module runs from: the checkout, or a project's `.bounded/harness`. */
 export function harnessRootOf(): string {
@@ -234,11 +239,12 @@ export function configDriftReason(cwd: string, harnessRoot = harnessRootOf()): s
   try {
     drift = configDrift(cwd, harnessRoot);
   } catch (error) {
-    return `config-drift: the generated project config cannot be computed (${error instanceof Error ? error.message : String(error)})`;
+    return `config-drift: the generated project config cannot be computed (${error instanceof Error ? error.message : String(error)}). ` +
+      `Nothing was run: ${TEAM_LEAD_RESTORES}`;
   }
   if (drift.length === 0) return undefined;
   return `config-drift: project config differs from what the composed packs generate (${drift.map((d) => d.path).join(", ")}); ` +
-    `nothing was run — escalate to the user, who restores it with \`${SYNC_COMMAND}\``;
+    `nothing was run. To restore it, ${TEAM_LEAD_RESTORES}`;
 }
 
 /**
@@ -275,7 +281,7 @@ export function configDriftBlock(
       `${gate}: BLOCK — ${summary}`,
       ...drift.map((d) => `  ${d.path}: ${d.problem}`),
       "  No role may edit project config (ADR 2026-054): it is generated from the composed packs and the design.",
-      `  Escalate to the user: \`${SYNC_COMMAND}\` restores it, and a dependency or setting the project needs belongs in a pack.`,
+      `  To restore it, ${TEAM_LEAD_RESTORES}. A dependency or setting the project needs belongs in a pack.`,
       `${gate}: route → orchestrator`,
     ],
     detail: { step: "config-drift", drift },
@@ -354,12 +360,13 @@ const execSetup: SetupRun = (command, args, cwd) => {
 };
 
 /**
- * `bounded sync-config`: the sync, then the composed packs' own project setup
+ * `sync-config`: the sync, then the composed packs' own project setup
  * commands (ADR 2026-051) whenever the sync changed anything or a project
- * dependency tree is missing, so the user has one command. The commands are
+ * dependency tree is missing, so restoring is one command. The commands are
  * the same pack data the lead's first setup runs: they install only from the
  * committed lockfile and never run the project's lifecycle scripts. This is
- * the one reinstall after the first run, and only the user reaches it.
+ * the one reinstall after the first run; the team lead reaches it, in a
+ * ticket's worktree, only after the user agrees (ADR 2026-072).
  */
 export function syncConfigCommand(
   project: string,

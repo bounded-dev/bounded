@@ -46,7 +46,8 @@
   Code hook sets it from the Bash call's own timeout (default 2 minutes, at
   most 10, or `BASH_DEFAULT_TIMEOUT_MS` and `BASH_MAX_TIMEOUT_MS` when set,
   as Claude Code itself reads them). The measurement's budget is that deadline less the larger of 15%
-  and 15 s. A mutant, or the baseline, starts only when its full timeout
+  and 15 s (`callBudgetMs`, in core `host.ts` since ADR 2026-072, which the
+  Testcontainers preflight's stage clocks use too). A mutant, or the baseline, starts only when its full timeout
   still fits. Otherwise the call stops cleanly and reports PARTIAL with no
   score. A call whose budget cannot fit the baseline (when it needs one) and
   one mutant would make no progress, so it is an error naming the time

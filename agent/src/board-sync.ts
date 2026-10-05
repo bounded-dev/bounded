@@ -24,7 +24,7 @@ import { backgroundWorkers } from "./lead-state.ts";
 import { readTicketMarker } from "./ticket-worktree.ts";
 import { clearDeliverySnapshot, recordDeliverySnapshot } from "./delivery-snapshot.ts";
 import {
-  blockedLabel, HANDOFF_PUBLISHED_LABEL, trackerRefusal, waitingLabel, type BoardStatus, type Tracker,
+  blockedLabel, HANDOFF_PUBLISHED_LABEL, trackerRaw, trackerRefusal, waitingLabel, type BoardStatus, type Tracker,
 } from "./tracker.ts";
 
 export const BOARD_GUARD = "board";
@@ -300,7 +300,7 @@ export async function runGateWithBoard(
     boardReady(cwd, tracker);
   } catch (error) {
     const reason = trackerRefusal(error);
-    logGuardEvent(cwd, { guard: BOARD_GUARD, verdict: "block", summary: `${gate.name} refused: ${reason}`, detail: { gate: gate.name, route: "user" } });
+    logGuardEvent(cwd, { guard: BOARD_GUARD, verdict: "block", summary: `${gate.name} refused: ${reason}`, detail: { gate: gate.name, route: "user", raw: trackerRaw(error) } });
     return refusal(gate.name, `${gate.name} did not run: ${reason}`);
   }
   const result = await run();
@@ -324,7 +324,7 @@ export async function runGateWithBoard(
     return result;
   } catch (error) {
     const reason = trackerRefusal(error);
-    logGuardEvent(cwd, { guard: BOARD_GUARD, verdict: "error", summary: `${gate.name} ran, but the board was not updated: ${reason}`, detail: { gate: gate.name, route: "user" } });
+    logGuardEvent(cwd, { guard: BOARD_GUARD, verdict: "error", summary: `${gate.name} ran, but the board was not updated: ${reason}`, detail: { gate: gate.name, route: "user", raw: trackerRaw(error) } });
     return {
       ...result,
       code: 2, verdict: "error",

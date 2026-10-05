@@ -11,8 +11,12 @@
 // The test generates the whole default stack's manifests for a design with a
 // store and all four apps, checks each app's pins, then (with bun) writes a
 // composition root per app kind, installs for real and type-checks with
-// `bunx tsc`. A Bun app importing `pg` must still fail: the isolation the
-// pins answer is real. Skipped, with the reason logged, only when bun is not
+// `bunx tsc`. An app importing a package only a context declares (drizzle-kit)
+// must still fail: the isolation the pins answer is real. Every app also pins,
+// as dev dependencies, what its generated smoke-test database support imports
+// (ADR 2026-072), so a Bun app's `pg` is declared too: the trade is that its
+// production source could import it, which the builder's lint
+// `no-node-postgres-in-bun-apps` refuses instead. Skipped, with the reason logged, only when bun is not
 // on PATH; it needs the pinned packages from bun's cache or the registry.
 
 import { spawnSync } from "node:child_process";
@@ -138,6 +142,21 @@ describe("every app gets the Postgres driver its runtime needs", () => {
     }
   });
 
+  // Issue #52: every app's smoke test starts its own migrated Postgres
+  // through the generated app-test-database support, so the project's own
+  // check needs only a container engine. The app workspace pins what that
+  // support imports, for both runtimes.
+  test("apps of a persisting project pin what the support imports, for both runtimes", () => {
+    const tc = DRIZZLE.devDependencies["@testcontainers/postgresql"]!;
+    const testcontainers = DRIZZLE.devDependencies["testcontainers"]!;
+    for (const app of ["apps/web", "apps/mcp", "apps/lambdas", "apps/desktop"]) {
+      expect(deps(app, "devDependencies"), app).toMatchObject({ "@testcontainers/postgresql": tc, testcontainers });
+    }
+    for (const app of ["apps/web", "apps/mcp"]) {
+      expect(deps(app, "devDependencies"), app).toMatchObject({ pg: DRIZZLE.dependencies["pg"]!, "@types/pg": DRIZZLE.devDependencies["@types/pg"]! });
+    }
+  });
+
   test.skipIf(!HAS_BUN)("a composition root per app kind type-checks after a real install; an undeclared driver does not", { timeout: 600_000 }, () => {
     const files = new Map<string, string>();
     for (const [dir, manifest] of generated.manifests) files.set(manifestPath(dir), serializeManifest(manifest as Manifest));
@@ -145,14 +164,14 @@ describe("every app gets the Postgres driver its runtime needs", () => {
     files.set(LOCKFILE, lockfileFor(generated.manifests, undefined).lock);
     for (const [path, content] of configFiles(STACK, PACKS_DIR, NAME)) files.set(path, content);
     for (const [path, content] of Object.entries(COMPOSITION_ROOTS)) files.set(path, content);
-    // A Bun app reaching for the Node driver it does not declare.
-    files.set("apps/web/src/server/undeclared.ts", 'import { Pool } from "pg";\n\nexport const pool = new Pool();\n');
+    // An app reaching for a package only a context declares.
+    files.set("apps/web/src/server/undeclared.ts", 'import { defineConfig } from "drizzle-kit";\n\nexport const config = defineConfig;\n');
     for (const [path, content] of files) write(project, path, content);
 
     const install = spawnSync("bun", ["install", "--frozen-lockfile", "--ignore-scripts"], { cwd: project, encoding: "utf8", timeout: 300_000 });
     expect(install.status, install.stderr).toBe(0);
     const tsc = spawnSync("bunx", ["tsc", "-p", TSCONFIG], { cwd: project, encoding: "utf8", timeout: 300_000 });
     const errors = `${tsc.stdout}${tsc.stderr}`.split("\n").filter((line) => line.includes("error TS"));
-    expect(errors).toEqual([expect.stringMatching(/^apps\/web\/src\/server\/undeclared\.ts\(1,\d+\): error TS2307: Cannot find module 'pg'/)]);
+    expect(errors).toEqual([expect.stringMatching(/^apps\/web\/src\/server\/undeclared\.ts\(1,\d+\): error TS2307: Cannot find module 'drizzle-kit'/)]);
   });
 });

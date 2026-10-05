@@ -82,17 +82,19 @@ it then runs the composed packs' `projectSetupCommands`. These install only
 from the lockfile and never run lifecycle scripts. This is the one supported
 reinstall after the first setup.
 
-**Only the user runs sync.** No role or seat can reach it. A bound role's
-shell runs only `bounded gates <gate>`, and the team lead's commands are
-preparation and setup. Sync overwrites what is on disk, which may be the
-user's deliberate edit, and its reinstall is one the lead's setup
-deliberately refuses after the first run (ADR 2026-051). Both are decisions
-for the project's owner.
+**The lead runs sync, after the user agrees (amended by ADR 2026-072).** No
+role can reach it: a bound role's shell runs only `bounded gates <gate>`.
+Sync overwrites what is on disk, which may be the user's deliberate edit, and
+its reinstall is one the lead's setup deliberately refuses after the first
+run (ADR 2026-051), so it needs the project owner's agreement. The team lead
+runs it as `bounded lead sync-config <issue>` (pi: `lead_sync_config`), in
+that ticket's worktree, only once the user agrees; the user never runs it.
 
 **Delivery changes no generated config.** In a generated project, a delivery
 step that would pin, fold a script or install is a block routed to the
 orchestrator. An unpinned dependency is a pack defect, and a missing install
-is the user's to restore. Delivery re-runs the drift check last.
+is restored by the team lead's `sync-config` once the user agrees (ADR
+2026-072). Delivery re-runs the drift check last.
 
 **Launcher.** The project-local `bounded` dispatches exactly the composed
 packs' `projectCommands`. A name that shadows a core subcommand is refused at

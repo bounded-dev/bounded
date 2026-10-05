@@ -162,6 +162,33 @@ export function projectCommandNames(packs: readonly string[], reserved: readonly
   return [...names].sort();
 }
 
+/** The data socket naming which project command restores a project's
+ *  generated config (ADR 2026-072). Its consumer is `bounded lead sync-config`. */
+export const CONFIG_SYNC_SOCKET = "projectConfigSyncCommand";
+
+/**
+ * The one project command that restores the composition's generated config:
+ * the composed pack that names it in `projectConfigSyncCommand`, and the
+ * command's name. Refuses, naming the pack, a value that is not a non-empty
+ * string or names a command no composed pack provides; refuses none, and
+ * more than one.
+ */
+export function projectConfigSyncCommand(packs: readonly string[], packsDir?: string): { readonly pack: string; readonly command: string } {
+  const named = contributionsByPack(CONFIG_SYNC_SOCKET, packs, packsDir);
+  if (named.length === 0) throw new Error("no composed capability restores project config");
+  if (named.length > 1) {
+    throw new Error(`more than one composed capability restores project config (${named.map((n) => `'${n.pack}'`).join(", ")})`);
+  }
+  const { pack, value } = named[0]!;
+  if (typeof value !== "string" || value === "") throw new Error(`Selected pack '${pack}' ${CONFIG_SYNC_SOCKET} must be a non-empty command name`);
+  const provided = new Set<string>();
+  for (const { value: commands } of contributionsByPack("projectCommands", packs, packsDir)) {
+    if (commands !== null && typeof commands === "object" && !Array.isArray(commands)) for (const name of Object.keys(commands)) provided.add(name);
+  }
+  if (!provided.has(value)) throw new Error(`Selected pack '${pack}' ${CONFIG_SYNC_SOCKET} names '${value}', which no composed pack's projectCommands provides`);
+  return { pack, command: value };
+}
+
 /** A config-names field (ADR 2026-054): file-name globs, `*` the only
  *  wildcard, never a path. */
 export function fileNameGlobs(field: string, packs: readonly string[], packsDir?: string): string[] {

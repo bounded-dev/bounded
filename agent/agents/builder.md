@@ -115,7 +115,10 @@ packs' pins. If you need a package that is not there, that is a
   feature's out ports in contract order. A store comes from the project's
   storage technology, an other out port from its `@implementedBy`
   technology. One database is shared by every store; with Postgres composed
-  it connects to `process.env.DATABASE_URL`. The handlers are passed grouped
+  it connects to `process.env.DATABASE_URL`, which each app's smoke tests
+  point at their own throwaway database through the generated
+  `app-test-database.test-support.ts` (ADR 2026-072): no gate, test or check
+  needs a database you start. The handlers are passed grouped
   by area, the way the router nests them: `{ notes: { create, list } }`.
   What you make work is what it constructs: the handlers, stores, adapters
   and `InMemoryDatabase`. Their constructors are fixed by their skeletons.
@@ -162,9 +165,9 @@ packs' pins. If you need a package that is not there, that is a
   names, statuses and error messages, never the test code. Debug from that.
 - **Store tests and app smoke tests need Postgres.** Tests of Postgres stores
   (`adapters/out/drizzle/**/*.store.test.ts`) start a real Postgres through
-  Docker, and each app's smoke test (`composition-root.test.ts`) reads the
-  database the gate starts. `run_tests` starts the same throwaway database the
-  green gate does. Where it cannot — no container runtime answers, or a
+  Docker, and each app's smoke test (`composition-root.test.ts`) starts its
+  own the same way. `run_tests` runs the same container check the green gate
+  does first. Where it cannot — no container runtime answers, or a
   context has no migration yet because the architect's `generate_artifacts`
   has not run since your schema changed — it leaves those test files out and
   prints why before the results. They are not optional: green runs them.
@@ -310,6 +313,13 @@ app whose manifest builds with `bun build --target node` (a Lambda app, an
 Electron main process), a value import of `bun` or `bun:*`, the `Bun` global,
 and `import.meta.main` / `dir` / `file` / `path` / `env` are refused. That
 code runs on Node. Use Node or web-standard APIs there.
+
+**Bun apps use their own Postgres driver** —
+`bounded-ts-drizzle-postgres/no-node-postgres-in-bun-apps`: in an app that
+runs on Bun (its manifest does not build with `--target node`), a value import
+of `pg` or `drizzle-orm/node-postgres` is refused. Those are pinned only for
+the generated test-database support; reach the database through what the
+composition root constructs.
 
 **Size and complexity ceilings** — `complexity` max 15 per function,
 `max-lines-per-function` 60 (comments and blanks free), `max-lines` 350 per

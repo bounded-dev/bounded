@@ -49,8 +49,8 @@ export class AmbiguousSchemaChange extends Error {
       `the schema change in ${context} is ambiguous: Drizzle Kit must ask whether a changed column or table is a ` +
         "rename or a drop-and-create, and there is no terminal to ask in. Nothing was generated. Make the change " +
         "unambiguous (add the new column or table in one generation and remove the old one in a later one), " +
-        `or escalate to the user, who runs \`bun run db:generate\` in ${context} in a terminal, answers the ` +
-        "prompt, and commits the reviewed migration.",
+        "or escalate to the team lead: deciding whether this is a rename is temporarily the user's step, a known " +
+        `harness gap (#57); the user runs \`bun run db:generate\` in ${context} in a terminal and answers the prompt.`,
     );
     this.name = "AmbiguousSchemaChange";
   }
@@ -206,8 +206,9 @@ function checkContext(context: DrizzleContext, root: string, timeoutMs: number):
       return {
         verdict: "block",
         summary: `database schema and committed migrations differ in ${context.dir}`,
-        detail: [`Regenerate ${context.dir}/${MIGRATIONS_DIR}/ from the schema (the architect's generate_artifacts gate, ` +
-          `or \`bun run db:generate\` in ${context.dir} outside the harness), review the SQL, and commit it with its meta/ folder.`],
+        detail: [`Regenerate ${context.dir}/${MIGRATIONS_DIR}/ from the schema with the architect's generate_artifacts gate, ` +
+          "review the SQL, and commit it with its meta/ folder; outside the harness, running " +
+          `\`bun run db:generate\` in ${context.dir} is temporarily the user's step, a known harness gap (#57).`],
       };
     }
     if (withoutEmptyJournal(history, committed).size > 0) runKit(bin, copy, "check", process.env, context.dir, timeoutMs);

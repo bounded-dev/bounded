@@ -5,6 +5,8 @@ import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import { generatedFileGlobs, pathLayoutFor } from "../../../src/pack-contrib.ts";
 import { classifyGreen, redBindingFor, redPassStandsForCurrentContracts, routeAfterRepeat, runGreenGate } from "./green-gate.ts";
 import { cannedGateEnv, type CannedCase, withEnv } from "./junit-fixture.test-support.ts";
+import { combineDecisions } from "./phase-policy.ts";
+import type { PhaseTestDecision } from "../pack.ts";
 import { CONTEXT_SRC, type Fixture, pipelineProject, placeStage } from "./pipeline-fixture.test-support.ts";
 import { emitProject, projectFactsOf } from "./project-emitters.ts";
 import { testFilesHash } from "./red-gate.ts";
@@ -423,6 +425,20 @@ describe("runGreenGate on the monorepo", () => {
     const r = await green(f);
     expect(r).toMatchObject({ code: 1, detail: { skeletonImports: [`${CONTEXT_SRC}/domain/notes/note-id.ts`], route: "builder" } });
     expect(r.lines).toContain(`  skeleton: ${CONTEXT_SRC}/domain/notes/note-id.ts imports NotImplementedError`);
+  });
+
+  // Issue #52: a refusal only the user can clear (the container engine) is
+  // routed to the user in the board's own wording, never to a role.
+  test("a policy refusal routed to the user prints the board's user wording", async () => {
+    const f = built();
+    standingRed(f.dir);
+    const refusal: PhaseTestDecision = { action: "refuse", reason: "the container engine is not responding: restart it", unsetEnv: [], route: "user" };
+    const policy = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision: refusal }]);
+    const r = await withEnv(cannedGateEnv(f.dir, ALL_PASS), () => runGreenGate(f.dir, { policy }));
+    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "test-policy", route: "user" } });
+    expect(r.lines).toContain("green-gate: route → user");
+    expect(r.lines).not.toContain("green-gate: route → orchestrator");
+    expect(greenEvent(f.dir)).toMatchObject({ verdict: "block", detail: { route: "user" } });
   });
 
   test("the app smoke test is owed at green", async () => {

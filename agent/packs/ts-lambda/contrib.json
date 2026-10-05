@@ -24,6 +24,7 @@
       "root": "apps",
       "manifest": "templates/lambdas/package.json",
       "runtime": "node",
+      "compositionRoot": "src/composition-root.ts",
       "description": "A Lambda app: src/<feature>.ts per Lambda exports `handler`, built once per cold start from the generated src/composition-root.ts; the build bundles exactly those entries for Node."
     }
   },

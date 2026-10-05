@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { BOARD_STATUSES } from "../src/tracker.ts";
+import { BOARD_STATUSES, TrackerError } from "../src/tracker.ts";
 import { ghCommandLine, ghExecutable, gitHubSettings, gitHubTracker, parseProjectRef, resolveGitHubAtInit, type GhRun } from "./github.ts";
 import { openTracker, trackerConfigAtInit } from "./index.ts";
 
@@ -133,13 +133,26 @@ describe("the tracker port over gh", () => {
     expect(renamed.viewIssue(1).status).toBeUndefined();
   });
 
-  test("an unreachable or failing gh is a TrackerError that names the call", () => {
+  // Re-review of #52: the message, routed to the user, is in product terms;
+  // the call and gh's own text are kept for the guard log only.
+  test("an unreachable or failing gh is a TrackerError in product terms that keeps the call for the log", () => {
+    const thrown = (body: () => unknown): TrackerError => {
+      try {
+        body();
+      } catch (error) {
+        if (error instanceof TrackerError) return error;
+        throw error;
+      }
+      throw new Error("expected a TrackerError");
+    };
     const tracker = gitHubTracker(settings(), gh());
     seed({ offline: true });
-    expect(() => tracker.check()).toThrow(/gh auth status failed: error connecting/);
-    expect(() => tracker.viewIssue(1)).toThrow(/gh api graphql failed/);
+    const offline = thrown(() => tracker.check());
+    expect(offline.message).toBe("GitHub could not be reached; check the network connection");
+    expect(offline.raw).toMatch(/gh auth status: error connecting/);
+    expect(thrown(() => tracker.viewIssue(1)).raw).toMatch(/gh api graphql/);
     seed({});
     expect(() => tracker.viewIssue(9)).toThrow("issue #9 not found");
-    expect(() => gitHubTracker(settings(), ghCommandLine(join(dir, "no-such-gh"))).check()).toThrow(/gh auth status failed/);
+    expect(thrown(() => gitHubTracker(settings(), ghCommandLine(join(dir, "no-such-gh"))).check()).raw).toMatch(/gh auth status/);
   });
 });

@@ -63,12 +63,33 @@ export function gitHubSettings(raw: Readonly<Record<string, unknown>>): GitHubSe
   return { repository, project: p as unknown as GitHubSettings["project"] };
 }
 
+/** Signing in is the user's: it needs their own credentials. */
+const SIGN_IN = "GitHub sign-in is needed: signing in is the user's own step, `gh auth login`, because it needs their own GitHub " +
+  "credentials, which the harness never holds";
+/** Granting the board scope is the user's: it changes what their credentials allow. */
+const PROJECT_SCOPE = "the GitHub sign-in needs project access: granting it is the user's own step, `gh auth refresh -s project`, " +
+  "because it changes what their own GitHub credentials allow, which the harness never holds";
+
+/**
+ * A failed `gh` call as a TrackerError in product terms (ADR 2026-072): the
+ * known failures by what they mean for the user, never `gh`'s own text,
+ * which can name commands; that raw text is kept in `raw` for the guard log.
+ */
+export function ghFailure(args: readonly string[], output: string): TrackerError {
+  const raw = `gh ${args.slice(0, 2).join(" ")}: ${output.trim().split("\n").slice(-3).join(" ")}`;
+  const what = args[0] === "project" ? "the project board" : args[0] === "issue" ? "an issue" : args[0] === "label" ? "a label" : "GitHub";
+  const meaning =
+    /required scopes|INSUFFICIENT_SCOPES|auth refresh|read:project|\bscopes?\b/i.test(output) ? PROJECT_SCOPE
+    : /HTTP 401|Bad credentials|not logged in|auth login|authentication required|token .*(expired|invalid)/i.test(output) ? SIGN_IN
+    : /Could not resolve to a|HTTP 404|not found/i.test(output) ? `GitHub could not find ${what === "GitHub" ? "the repository or the project board" : what} the harness was set up with`
+    : /error connecting|could not connect|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|network|timed out|no such host/i.test(output) ? "GitHub could not be reached; check the network connection"
+    : `GitHub refused a request about ${what}`;
+  return new TrackerError(meaning, raw);
+}
+
 function call(run: GhRun, args: readonly string[], cwd?: string): string {
   const result = run(args, cwd);
-  if (result.status !== 0) {
-    const why = (result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`).split("\n").slice(-3).join(" ");
-    throw new TrackerError(`gh ${args.slice(0, 2).join(" ")} failed: ${why}`);
-  }
+  if (result.status !== 0) throw ghFailure(args, result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
   return result.stdout;
 }
 
@@ -77,7 +98,7 @@ function json<T>(run: GhRun, args: readonly string[], cwd?: string): T {
   try {
     return JSON.parse(out) as T;
   } catch {
-    throw new TrackerError(`gh ${args.slice(0, 2).join(" ")} printed something other than JSON`);
+    throw new TrackerError("GitHub answered a request with something the harness could not read", `gh ${args.slice(0, 2).join(" ")} printed: ${out.slice(0, 400)}`);
   }
 }
 
@@ -113,7 +134,7 @@ export function gitHubTracker(settings: GitHubSettings, run: GhRun = ghCommandLi
     createIssue(title, body) {
       const url = call(run, ["issue", "create", ...repo, "--title", title, "--body", body]).trim();
       const match = ISSUE_URL.exec(url);
-      if (match === null) throw new TrackerError(`gh issue create printed no issue URL ('${url.slice(0, 200)}')`);
+      if (match === null) throw new TrackerError("GitHub created the issue but did not say where", `gh issue create printed: ${url.slice(0, 200)}`);
       return { number: Number(match[1]), url };
     },
     viewIssue(issue): TrackerIssue {
@@ -187,6 +208,16 @@ const SET_STATUSES = [
   "}",
 ].join("\n");
 
+/**
+ * GitHub access is missing: the GitHub command-line tool is not installed or
+ * not signed in. Signing in is the one GitHub step reserved for the user
+ * (USER_RECOVERY_COMMANDS, ADR 2026-072): it needs the user's own
+ * credentials, which the harness never holds.
+ */
+export function gitHubSignInError(): TrackerError {
+  return new TrackerError(`GitHub is required, and GitHub access is missing: the GitHub command-line tool is not installed or not signed in. ${SIGN_IN}`);
+}
+
 export function resolveGitHubAtInit(
   target: string,
   projectRef: string | undefined,
@@ -194,7 +225,7 @@ export function resolveGitHubAtInit(
   init: { readonly createStatuses?: boolean } = {},
 ): { readonly kind: string } & GitHubSettings {
   if (run(["auth", "status"]).status !== 0) {
-    throw new TrackerError("GitHub is required: `gh` is not installed or not authenticated — run `gh auth login`");
+    throw gitHubSignInError();
   }
   const repoRun = run(["repo", "view", "--json", "nameWithOwner,owner"], target);
   if (repoRun.status !== 0) {

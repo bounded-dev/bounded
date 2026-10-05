@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { readGuardLog } from "./guard-log.ts";
 import {
+  callBudgetMs,
   COMMAND_TIMEOUT_ENV,
   commandTimeoutMs,
   CONSTRAINTS,
@@ -101,5 +102,15 @@ describe("the host's command deadline", () => {
       expect(commandTimeoutMs({ BOUNDED_COMMAND_TIMEOUT_MS: value }), value).toBeUndefined();
     }
     expect(commandTimeoutMs({})).toBeUndefined();
+  });
+
+  // Issue #52: every gate step that can split or refuse its work keeps inside
+  // one share of the host's deadline, read from the core.
+  test("callBudgetMs leaves the larger of 15% and 15 s", () => {
+    expect(callBudgetMs(600_000)).toBe(510_000);
+    expect(callBudgetMs(120_000)).toBe(102_000);
+    expect(callBudgetMs(16_000)).toBe(1_000);
+    expect(callBudgetMs(10_000)).toBe(0);
+    expect(callBudgetMs(undefined)).toBeUndefined();
   });
 });

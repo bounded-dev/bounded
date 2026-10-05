@@ -11,9 +11,12 @@
 //   green   any refusal refuses the run; otherwise every policy's `unsetEnv`
 //           is removed, so a variable leaked into the gate's environment
 //           cannot skip anything
+//   green   a refusal a policy routes to the user (the machine's container
+//           engine) routes the gate to the user, but only when every
+//           refusal does (`refusalRoute`, ADR 2026-072)
 //   green   a policy may recognise a failure as the machine's, not the
 //           code's (`infrastructureFailure`): when every failure is the
-//           machine's, the gate routes to the orchestrator instead of a role
+//           machine's, the gate routes to the user instead of a role
 //   both    a policy may ask for a service the run needs (`prepare`): the
 //           gate starts each in policy order just before the run, sets its
 //           environment over everything else, and releases every one after
@@ -22,11 +25,18 @@
 import { readProjectPacks } from "../../../src/project-composition.ts";
 import { composePacks } from "../../../src/socket-registry.ts";
 import { INSTALLED_PACKS } from "../../installed.ts";
-import { type PhaseTestDecision, phaseTestPolicies, type PreparedTestService, type TestEnvChange, type TestFailure, type TestPhase } from "../pack.ts";
+import {
+  type PhaseTestDecision, phaseTestPolicies, type PreparedTestService, routedToUser, type TestEnvChange, type TestFailure, type TestPhase,
+  type USER_ROUTE,
+} from "../pack.ts";
 
 export interface PhaseRun {
   /** Why the gate must not run the suite at all (green only). */
   readonly refusals: readonly string[];
+  /** "user" only when there are refusals and every one of them is a
+   *  policy's refusal routed to the user (the machine's container engine);
+   *  otherwise undefined, and the gate's own route applies (ADR 2026-072). */
+  readonly refusalRoute?: typeof USER_ROUTE;
   /** Why some tests are skipped (red only), one line per skipping policy. */
   readonly skips: readonly string[];
   readonly env: { readonly set: Readonly<Record<string, string>>; readonly unset: readonly string[] };
@@ -68,10 +78,12 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
   const classifiers: ((failure: TestFailure) => string | undefined)[] = [];
   const excluded = new Set<string>();
   const exclusionReasons: string[] = [];
+  let everyRefusalUsers = true;
   for (const { name, decision } of decisions) {
     if (decision.action === "run" && decision.exclude !== undefined) {
       if (phase !== "build") {
         refusals.push(`${name} asked to leave test files out at ${phase}: ${decision.exclude.reason}`);
+        everyRefusalUsers = false;
         continue;
       }
       for (const file of decision.exclude.files) excluded.add(file);
@@ -82,6 +94,7 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
     for (const variable of decision.unsetEnv) unset.add(variable);
     if (decision.action === "refuse" || (decision.action === "skip" && phase === "green")) {
       refusals.push(decision.action === "refuse" ? decision.reason : `${name} asked to skip tests at green: ${decision.reason}`);
+      if (decision.action !== "refuse" || decision.route !== "user") everyRefusalUsers = false;
     } else if (decision.action === "skip") {
       skips.push(decision.reason);
       Object.assign(set, decision.env);
@@ -91,6 +104,7 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
   for (const variable of Object.keys(set)) unset.delete(variable);
   return {
     refusals,
+    ...(refusals.length > 0 && everyRefusalUsers ? { refusalRoute: "user" as const } : {}),
     skips,
     env: { set, unset: [...unset].sort() },
     skippedOnPurpose: (resultName) => claims.some((claim) => claim(resultName)),
@@ -122,7 +136,9 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
 /** The outcome of a run inside prepared services. */
 export type PreparedRun<T> =
   | { readonly ok: true; readonly value: T; readonly lines: readonly string[] }
-  | { readonly ok: false; readonly reason: string };
+  /** `route` is "user" when the service could not start for a reason only
+   *  the user can clear (ADR 2026-072); otherwise the gate's own route. */
+  | { readonly ok: false; readonly reason: string; readonly route?: typeof USER_ROUTE };
 
 /**
  * Start every service the policies asked for, run `body` with the run's
@@ -165,7 +181,11 @@ export async function withPreparedServices<T>(
       try {
         service = await prepare({ set: { ...set }, unset: run.env.unset.filter((variable) => !(variable in set)) });
       } catch (error) {
-        return { ok: false, reason: `the '${name}' test policy could not start what the run needs: ${error instanceof Error ? error.message : String(error)}` };
+        return {
+          ok: false,
+          reason: `the '${name}' test policy could not start what the run needs: ${error instanceof Error ? error.message : String(error)}`,
+          ...(routedToUser(error) ? { route: "user" as const } : {}),
+        };
       }
       started.push(service);
       Object.assign(set, service.env);

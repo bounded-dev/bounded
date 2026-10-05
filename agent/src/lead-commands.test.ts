@@ -13,7 +13,8 @@ import {
   gitCommandLine, LEAD_COMMANDS, parseLeadArgs, runLeadCommand, type LeadDeps, type LeadRequest,
 } from "./lead-commands.ts";
 import { readStartedTicket, readTicketMarker, ticketWorktreePath, writeStartedTicket } from "./ticket-worktree.ts";
-import { recordDeliverySnapshot } from "./delivery-snapshot.ts";
+import { readDeliverySnapshot, recordDeliverySnapshot } from "./delivery-snapshot.ts";
+import { commandsIn } from "../test/fixtures/user-steps.ts";
 import { LEAD_LOCK_RELATIVE } from "./lead-commands.ts";
 import { FakeTracker } from "../test/support/fake-tracker.ts";
 import { delivered, logLines, prepared, runStart } from "../test/support/lead-project.ts";
@@ -29,6 +30,7 @@ let tracker: FakeTracker;
 let check: ReturnType<typeof vi.fn<(cwd: string) => { ok: boolean; output: string }>>;
 let setup: ReturnType<typeof vi.fn<(worktree: string) => Promise<{ ok: boolean; summary: string }>>>;
 let preflight: ReturnType<typeof vi.fn<(worktree: string) => string | undefined>>;
+let syncConfig: ReturnType<typeof vi.fn<(worktree: string) => { ok: boolean; output: string }>>;
 
 const git = (cwd: string, ...args: string[]): string => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 const write = (dir: string, rel: string, content: string): void => {
@@ -66,6 +68,7 @@ beforeEach(() => {
   check = vi.fn(() => ({ ok: true, output: "check passed" }));
   setup = vi.fn(async () => ({ ok: true, summary: "installed" }));
   preflight = vi.fn(() => undefined);
+  syncConfig = vi.fn(() => ({ ok: true, output: "sync-config: OK — 3 files restored" }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -73,7 +76,7 @@ afterEach(() => {
 });
 
 const deps = (): LeadDeps => ({
-  tracker: () => tracker, git: gitCommandLine, host: async () => HOST, setup, check,
+  tracker: () => tracker, git: gitCommandLine, host: async () => HOST, setup, check, syncConfig,
   // This test process runs (for the lead's lock, and as a bound architect's session); nothing else does.
   processes: { startTime: (pid) => (pid === process.pid ? "t" : undefined) },
 });
@@ -110,7 +113,7 @@ const deliver = (n: number, rel = `contexts/t${n}.ts`): void => {
 
 describe("parseLeadArgs — one parser for every host", () => {
   test("every command's usage is a shape the parser knows", () => {
-    expect(LEAD_COMMANDS.map((c) => c.name)).toEqual(["ticket create", "queue", "start", "status", "reply", "merge", "board", "release"]);
+    expect(LEAD_COMMANDS.map((c) => c.name)).toEqual(["ticket create", "queue", "start", "status", "reply", "merge", "board", "sync-config", "release"]);
     expect(LEAD_COMMANDS.filter((c) => c.userOnly === true).map((c) => c.name)).toEqual(["release"]);
   });
   test.each([
@@ -271,23 +274,81 @@ describe("the board transitions", () => {
     expect(issue(n)).toMatchObject({ status: "Awaiting Merge", state: "open" });
   });
 
-  test("merge refuses unless local main is level with origin/main, and refuses a conflicting merge", async () => {
+  /** Someone else pushes one commit to origin/main; returns its sha. */
+  const pushedElsewhere = (rel: string, content: string): string => {
+    const other = join(root, "other");
+    execFileSync("git", ["clone", "-q", origin, other]);
+    write(other, rel, content);
+    git(other, "add", "-A");
+    git(other, "commit", "-q", "-m", "someone else's work");
+    git(other, "push", "-q", "origin", "main");
+    return git(other, "rev-parse", "HEAD");
+  };
+
+  // Issue #52: a main that is only behind origin is the lead's to bring level,
+  // never the user's.
+  test("merge fast-forwards a clean main that is only behind origin", async () => {
+    const n = await create("A", ["contexts/a/a.contract.ts"]);
+    await lead(["queue", String(n)]);
+    await lead(["start", String(n)]);
+    deliver(n);
+    const theirs = pushedElsewhere("docs/other.md", "# Someone else's work\n");
+    const out = await lead(["merge", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    expect(existsSync(join(main, "docs/other.md"))).toBe(true);
+    expect(existsSync(join(main, `contexts/t${n}.ts`))).toBe(true);
+    expect(git(main, "rev-list", "--count", `${theirs}..main`)).not.toBe("0");
+    expect(git(main, "merge-base", "main", theirs)).toBe(theirs);
+    expect(git(main, "rev-parse", "main")).toBe(git(origin, "rev-parse", "main"));
+    expect(issue(n)).toMatchObject({ status: "Done", state: "closed" });
+  });
+
+  test("merge refuses a conflicting merge once main is level, and runs no check", async () => {
     const n = await create("A", ["contexts/a/a.contract.ts"]);
     await lead(["queue", String(n)]);
     await lead(["start", String(n)]);
     deliver(n, "README.md");
-    // Someone else pushed first.
-    const other = join(root, "other");
-    execFileSync("git", ["clone", "-q", origin, other]);
-    write(other, "README.md", "# Shop, renamed\n");
-    git(other, "commit", "-q", "-am", "rename");
-    git(other, "push", "-q", "origin", "main");
-    expect((await lead(["merge", String(n)])).text).toContain("not level with origin/main");
-    git(main, "pull", "-q", "--ff-only", "origin", "main");
+    const theirs = pushedElsewhere("README.md", "# Shop, renamed\n");
     const out = await lead(["merge", String(n)]);
     expect(out.text).toContain("does not merge cleanly");
     expect(git(main, "status", "--porcelain")).toBe("");
+    expect(git(main, "rev-parse", "main")).toBe(theirs);
     expect(check).not.toHaveBeenCalled();
+  });
+
+  test("after a fast-forward, a failing check undoes to the fast-forwarded commit", async () => {
+    const n = await create("A", ["contexts/a/a.contract.ts"]);
+    await lead(["queue", String(n)]);
+    await lead(["start", String(n)]);
+    deliver(n);
+    const before = git(main, "rev-parse", "main");
+    const theirs = pushedElsewhere("docs/other.md", "# Someone else's work\n");
+    check.mockReturnValueOnce({ ok: false, output: "1 test failed" });
+    const out = await lead(["merge", String(n)]);
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain("the merge was undone");
+    expect(git(main, "rev-parse", "main")).toBe(theirs);
+    expect(git(main, "rev-parse", "main")).not.toBe(before);
+    expect(git(origin, "rev-parse", "main")).toBe(theirs);
+    expect(git(main, "status", "--porcelain")).toBe("");
+    expect(issue(n)).toMatchObject({ status: "Awaiting Merge", state: "open" });
+  });
+
+  test("a diverged main is refused in product terms", async () => {
+    const n = await create("A", ["contexts/a/a.contract.ts"]);
+    await lead(["queue", String(n)]);
+    await lead(["start", String(n)]);
+    deliver(n);
+    write(main, "docs/local.md", "# Made outside the harness\n");
+    git(main, "add", "-A");
+    git(main, "commit", "-q", "-m", "local only");
+    const remote = git(origin, "rev-parse", "main");
+    const out = await lead(["merge", String(n)]);
+    expect(out.ok).toBe(false);
+    expect(out.text).toMatch(/cannot combine/);
+    expect(commandsIn(`the user: ${out.text}`)).toEqual([]);
+    expect(check).not.toHaveBeenCalled();
+    expect(git(origin, "rev-parse", "main")).toBe(remote);
   });
 
   test("a pushed merge whose board update fails reports the pending update; the next command replays it first", async () => {
@@ -563,6 +624,111 @@ describe("review fixes (ADR 2026-066)", () => {
     write(ticketWorktreePath(main, n), ".bounded/board-pending.json", JSON.stringify([{ op: "status", issue: n, status: "Building" }]));
     tracker.failAfter = 1;
     expect((await lead(["merge", String(n)])).text).toContain("route → user");
+  });
+});
+
+// Issue #52 (ADR 2026-072): generated config that drifted is restored by the
+// lead, in the ticket's own worktree, once the user agrees; never by the user.
+describe("sync-config: the lead restores a ticket's generated config", () => {
+  const started = async (title: string, owns: string[]): Promise<number> => {
+    const n = await create(title, owns);
+    await lead(["queue", String(n)]);
+    const out = await lead(["start", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    bind(n);
+    return n;
+  };
+  const stopped = async (title: string, owns: string[]): Promise<number> => {
+    const n = await started(title, owns);
+    const wt = ticketWorktreePath(main, n);
+    recordArchitectEnded(wt, readArchitectState(wt)!.agent);
+    return n;
+  };
+
+  test("sync-config parses only with an issue", () => {
+    expect(parseLeadArgs(["sync-config", "7"])).toEqual({ ok: true, request: { command: "sync-config", issue: 7 } });
+    expect(parseLeadArgs(["sync-config", "#7"])).toEqual({ ok: true, request: { command: "sync-config", issue: 7 } });
+    for (const argv of [["sync-config"], ["sync-config", "x"], ["sync-config", "7", "8"]]) expect(parseLeadArgs(argv).ok, argv.join(" ")).toBe(false);
+    expect(LEAD_COMMANDS.find((c) => c.name === "sync-config")).toMatchObject({ usage: "bounded lead sync-config <issue>" });
+    expect(LEAD_COMMANDS.find((c) => c.name === "sync-config")?.userOnly).toBeUndefined();
+  });
+
+  test("sync-config runs in the ticket's worktree", async () => {
+    const n = await stopped("A", ["contexts/a/"]);
+    const out = await lead(["sync-config", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    expect(syncConfig).toHaveBeenCalledTimes(1);
+    expect(syncConfig).toHaveBeenCalledWith(ticketWorktreePath(main, n));
+    expect(out.text).toContain("sync-config: OK — 3 files restored");
+    // A failed sync is a refusal with its output.
+    syncConfig.mockReturnValueOnce({ ok: false, output: "sync-config: BLOCK — the lockfile cannot be derived" });
+    const failed = await lead(["sync-config", String(n)]);
+    expect(failed.ok).toBe(false);
+    expect(failed.text).toContain("the lockfile cannot be derived");
+  });
+
+  test("sync-config refuses an unstarted ticket and one whose architect is running", async () => {
+    expect((await lead(["sync-config", "99"])).text).toContain("#99 is not started");
+    const n = await started("A", ["contexts/a/"]);
+    const running = await lead(["sync-config", String(n)]);
+    expect(running.ok).toBe(false);
+    expect(running.text).toMatch(/architect is still running/);
+    const wt = ticketWorktreePath(main, n);
+    recordArchitectEnded(wt, readArchitectState(wt)!.agent);
+    logGuardEvent(wt, { guard: "phase-gate", verdict: "pass", summary: "", detail: { kind: WORKER_RESUMED, worker: "a0000000000000w01", pid: process.pid, pidStarted: "t" } });
+    const held = await lead(["sync-config", String(n)]);
+    expect(held.ok).toBe(false);
+    expect(held.text).toContain("worker a0000000000000w01");
+    expect(syncConfig).not.toHaveBeenCalled();
+  });
+
+  test("sync-config on a ticket Awaiting Merge reopens it to Building and clears its delivery snapshot", async () => {
+    const n = await started("A", ["contexts/a/"]);
+    deliver(n, "contexts/a/a.ts");
+    expect(issue(n).status).toBe("Awaiting Merge");
+    const out = await lead(["sync-config", String(n)]);
+    expect(out.ok, out.text).toBe(true);
+    expect(out.text).toMatch(/reopened to Building/);
+    expect(issue(n).status).toBe("Building");
+    expect(readDeliverySnapshot(ticketWorktreePath(main, n))).toBeUndefined();
+    tracker.setStatus(n, "Awaiting Merge");
+    expect((await lead(["merge", String(n)])).text).toContain("records no delivered tree");
+  });
+
+  test("the default sync-config resolves one contribution from the harness packs directory", async () => {
+    const n = await stopped("A", ["contexts/a/"]);
+    const wt = ticketWorktreePath(main, n);
+    const packs = join(root, "packs");
+    const pack = (name: string, manifest: Record<string, unknown>): void => {
+      write(packs, `${name}/contrib.json`, JSON.stringify(manifest));
+      write(packs, `${name}/s.ts`, `console.log("restored by ${name} in " + process.argv[2]);\n`);
+    };
+    const composed = (...names: string[]): void => write(wt, ".bounded/composed-packs.json", JSON.stringify(names));
+    const sync = (): Promise<{ ok: boolean; text: string }> => {
+      const { syncConfig: _spy, ...real } = deps();
+      return runLeadCommand(main, { command: "sync-config", issue: n } as LeadRequest, { ...real, packsDir: packs } as LeadDeps);
+    };
+
+    pack("fake", { projectConfigSyncCommand: "sync-config", projectCommands: { "sync-config": "s.ts" } });
+    composed("fake");
+    const out = await sync();
+    expect(out.ok, out.text).toBe(true);
+    expect(out.text).toContain(`restored by fake in ${wt}`);
+
+    pack("plain", { projectCommands: { other: "s.ts" } });
+    composed("plain");
+    expect((await sync()).text).toMatch(/no composed capability restores project config/);
+
+    pack("second", { projectConfigSyncCommand: "again", projectCommands: { again: "s.ts" } });
+    composed("fake", "second");
+    expect((await sync()).text).toMatch(/more than one/);
+
+    pack("broken", { projectConfigSyncCommand: 3, projectCommands: { "sync-config": "s.ts" } });
+    composed("broken");
+    expect((await sync()).text).toContain("'broken'");
+    pack("dangling", { projectConfigSyncCommand: "restore", projectCommands: { "sync-config": "s.ts" } });
+    composed("dangling");
+    expect((await sync()).text).toContain("'dangling'");
   });
 });
 

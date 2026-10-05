@@ -203,7 +203,7 @@ removes it at the end of the run.
      faking side effects against each feature's out ports;
    - the builder fills the skeletons and writes mappers (each app's
      composition root is generated), blind to test source, debugging through the sanitized
-     `run_tests` tool. That run starts the throwaway database green would;
+     `run_tests` tool. That run makes the container check green would;
      without a container runtime, or before `generate_artifacts` has written a
      context's migrations, it leaves the store and app smoke tests out and
      says why, and green runs them.
@@ -255,9 +255,11 @@ removes it at the end of the run.
      failing test and each type error. Green also runs the store tests against
      real Postgres, so it **refuses** when store tests exist and no container
      runtime (Docker) answers — it never passes by skipping them (ADR
-     2026-064). The refusal says "Start Docker"; tell the user when that is
-     what stands between the run and green, because no role can start it.
-     Green also runs every app's smoke test and the architecture test.
+     2026-064). That refusal is routed to the user, because the container
+     engine is the user's machine and no role can start it (see the route
+     list below). Green also runs every app's smoke test and the architecture
+     test, and checks before anything runs that each smoke test of a
+     persisting app calls `useAppDatabase()` (ADR 2026-072).
    - **The one ordering that survives: green requires a red that covers these
      tests.** Two halves, both mechanical. *Contracts:* a red pass since the
      most recent freeze — a green over a suite no red gate ever validated is a
@@ -528,7 +530,7 @@ Because you are gating on types you must also route them, and the gate does it
 for you: a failing gate prints exactly one
 
 ```
-<gate>: route → architect | test-writer | builder | orchestrator
+<gate>: route → architect | test-writer | builder | orchestrator | user
 ```
 
 line naming the **furthest-upstream** role that may repair what it found —
@@ -561,9 +563,23 @@ In particular:
 - `orchestrator` means no role may write the offending file — you included.
   Project config (the compiler, package and test-runner config) is generated
   from the composed packs, and a gate refuses when it has drifted. Do not try
-  to work around it: stop and escalate to the user with the gate's lines. The
-  user restores the config with `bounded sync-config`. A dependency or setting
-  the design needs is a change to the packs, not to this project.
+  to work around it: stop and report to the team lead with the gate's lines.
+  The team lead restores the config in this ticket's worktree once the user
+  agrees. A dependency or setting the design needs is a change to the packs,
+  not to this project.
+- A route to the user reads:
+
+  ```
+  green-gate: route → user
+  ```
+
+  `user` means the cause is the user's machine (the container engine is not
+  running, not responding, or cannot start the test database), which no role
+  can fix. Stop the loop and report to the team lead, in product terms, what
+  the machine needs ("the container engine is not responding: restart it");
+  the team lead tells the user. Never relay a command for the user to type.
+  When the gate instead says this call's time cannot fit a step, call the
+  gate again with a longer command timeout yourself.
 
 ## Dispute routing
 

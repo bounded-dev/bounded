@@ -57,18 +57,31 @@ export interface Tracker {
   close(issue: number): void;
 }
 
-/** The tracker could not be reached, or refused the call. */
+/** The tracker could not be reached, or refused the call. Its message is in
+ *  product terms, because it is routed to the user (ADR 2026-072); the
+ *  tracker's own raw output, when there is one, is kept apart in `raw`, for
+ *  the guard log only. */
 export class TrackerError extends Error {
-  constructor(message: string) {
+  readonly raw: string | undefined;
+  constructor(message: string, raw?: string) {
     super(message);
     this.name = "TrackerError";
+    this.raw = raw;
   }
 }
 
-/** The reason every refused command and gate gives when the tracker fails. */
+/** The reason every refused command and gate gives when the tracker fails.
+ *  Only a TrackerError's own product-terms message is ever shown; anything
+ *  else is not text to put in front of the user. */
 export function trackerRefusal(error: unknown): string {
-  const why = error instanceof Error ? error.message : String(error);
+  const why = error instanceof TrackerError ? error.message : "the tracker failed in a way the harness does not recognise";
   return `the tracker is unreachable or refused (${why.slice(0, 400)}); nothing was changed on the board — route → user`;
+}
+
+/** The raw text behind a tracker failure, for the guard log's detail only. */
+export function trackerRaw(error: unknown): string | undefined {
+  if (error instanceof TrackerError) return error.raw;
+  return error instanceof Error ? error.message : String(error);
 }
 
 export interface TrackerConfig {

@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import { generatedFileGlobsFor, pathGlobMatcher } from "../../src/pack-contrib.ts";
 import { composePacks } from "../../src/socket-registry.ts";
 import { INSTALLED_PACKS } from "../installed.ts";
-import { emittedFileProblem, skeletonEmitters, type EmittedFile } from "../ts/pack.ts";
+import { emittedFileProblem, skeletonEmitters, workspaceTemplates, type EmittedFile } from "../ts/pack.ts";
 import type { FeatureContractModel } from "../ts/scripts/feature-model.ts";
 import {
   drizzleConfigSource, emitDrizzlePersistence, emitDrizzleStores, migrationsTable, POSTGRES_IMAGE, schemaModuleSource,
@@ -163,6 +163,49 @@ describe("what the example's design emits", () => {
     const own = emitters.filter((e) => !hexagonal.has(e.name));
     expect(own.map((e) => e.name)).toEqual(["drizzle-persistence", "drizzle-stores"]);
     expect(own.flatMap((e) => e.emit(exampleFacts()))).toEqual(all());
+  });
+});
+
+// Issue #52: the project's own check needs only a container engine. Each app
+// of a persisting project gets generated support that starts one migrated
+// Postgres for its smoke tests and points DATABASE_URL at it, so neither a
+// `.env` file nor a database someone started by hand is ever needed.
+describe("each app's smoke tests get their own database (issue #52)", () => {
+  const WEB_PACKS = ["ts", "ts-hexagonal", "ts-trpc", "ts-web", "ts-drizzle-postgres"];
+  const web = { ...contextWorkspace("web"), kind: "web", dir: "apps/web", sourceRoot: "apps/web/src", packageName: "@example/web", contracts: [] };
+  const appFacts = () => ({ ...exampleFacts("design", [contextWorkspace(), web]), packs: WEB_PACKS, workspaceTemplates: workspaceTemplates(WEB_PACKS, packsDir) });
+  const SUPPORT = "apps/web/src/server/app-test-database.test-support.ts";
+
+  test("each persisting app gets generated database support for its smoke tests", () => {
+    const emitted = emitDrizzlePersistence(appFacts());
+    const support = emitted.find((f) => f.path === SUPPORT);
+    expect(support?.mode).toBe("generated");
+    const source = support!.content;
+    expect(source).toContain('import("@testcontainers/postgresql")');
+    expect(source).toContain(POSTGRES_IMAGE);
+    expect(source).toContain(migrationsTable("project-management"));
+    expect(source).toContain("project-management/src/adapters/out/drizzle/migrations");
+    expect(source).toMatch(/process\.env\[?["']?DATABASE_URL["']?\]?\s*=/);
+    expect(source).toContain("180_000");
+    expect(source).toMatch(/export function useAppDatabase\(\)/);
+    // The red gate's token skips it as the store support skips.
+    expect(source).toContain('process.env["BOUNDED_STORE_TESTS_SKIP"]');
+    // The context's own files are unchanged; an app with no persisting
+    // context gets nothing.
+    expect(emitted.filter((f) => f.path !== SUPPORT)).toEqual(emitDrizzlePersistence(exampleFacts()));
+    const noStore = contextWorkspace("billing", {
+      "application/invoices/send-invoice/send-invoice.contract.ts": "export interface SendInvoice {\n  execute(): Promise<void>;\n}\n",
+    });
+    expect(emitDrizzlePersistence({ ...appFacts(), workspaces: [noStore, web] })).toEqual([]);
+  });
+
+  test("the generated support is covered by the pack's generatedFileGlobs", () => {
+    const generated = pathGlobMatcher(generatedFileGlobsFor(WEB_PACKS, packsDir));
+    expect(generated(SUPPORT)).toBe(true);
+    for (const f of emitDrizzlePersistence(appFacts())) {
+      expect(emittedFileProblem(f, "drizzle-persistence"), f.path).toBeUndefined();
+      expect(generated(f.path), f.path).toBe(true);
+    }
   });
 });
 

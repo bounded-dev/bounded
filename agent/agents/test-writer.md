@@ -138,12 +138,22 @@ name and by call site; a missing one blocks the red and names itself.
   One smoke test per app, next to its composition root: build the app with
   its composition function and make one call through what it returns.
   When the project keeps its data in Postgres, the composition root reads
-  `process.env.DATABASE_URL`, and the green gate starts a throwaway, migrated
-  Postgres and sets `DATABASE_URL` for the run (over any inherited value), so
-  the smoke test reaches the database **through the composition root**: never
-  set, read or construct a database URL in the test, and never assume an
-  empty database beyond what the test itself created. The function names are
-  fixed by the app's kind:
+  `process.env.DATABASE_URL`, and the smoke test starts its own throwaway,
+  migrated Postgres through the generated support beside the composition
+  root: import `useAppDatabase` from `./app-test-database.test-support.ts`
+  and call `useAppDatabase()` as **the first statement after the imports**,
+  then compose the app **only inside a test or a hook** (`beforeAll`,
+  `beforeEach`) registered after it, or a function declaration only those
+  call directly: never at module scope, in a `describe` body, in an arrow
+  bound to a name, or passed around. Of the app's own code, import only the
+  support and `./composition-root.ts` (no other relative or workspace
+  import); third-party packages such as an MCP client, and types, are fine. Green and
+  deliver check both before anything runs (ADR 2026-072). The smoke test
+  reaches the database, whose `DATABASE_URL` the support sets,
+  **through the composition root**: never set, read or
+  construct a database URL in the test, and never assume an empty database
+  beyond what the test itself created. The function names are fixed by the
+  app's kind:
 
   | App kind | Composition root | Function |
   |---|---|---|

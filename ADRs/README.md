@@ -103,3 +103,4 @@ Keep ADRs very concise. Record only what was actually decided and why:
 | [2026-069](2026-069-claude-code-session-tools-and-own-output.md) | Claude Code's session tools, and a seat re-reading its own saved output | accepted |
 | [2026-070](2026-070-mutation-measurement-survives-interruption.md) | The mutation measurement survives interruption, samples enough, and fits its host's time | accepted |
 | [2026-071](2026-071-a-later-ticket-takes-a-delivered-contract.md) | A later ticket takes a delivered ticket's contract | accepted |
+| [2026-072](2026-072-no-harness-step-needs-the-user.md) | No harness step needs the user: fast engine refusals routed to the user, call-bounded preparation, apps' own test databases, the lead's sync-config and merge fast-forward | accepted |

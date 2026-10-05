@@ -4,12 +4,17 @@
 // against a scripted child, the policy decision, and the green gate's
 // routing of both to the orchestrator. The real-container cases live in
 // store-integration.test.ts.
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterAll, describe, expect, test } from "vitest";
+import { setTimeout as realSleep } from "node:timers/promises";
+import { afterAll, afterEach, describe, expect, test, vi } from "vitest";
 import { logGuardEvent } from "../../src/guard-log.ts";
-import type { PreparedTestService } from "../ts/pack.ts";
+import { commandsIn } from "../../test/fixtures/user-steps.ts";
+import type { CommandResult } from "./scripts/app-database.ts";
+import { type PreparedTestService, userRoutedError } from "../ts/pack.ts";
 import { runGreenGate } from "../ts/scripts/green-gate.ts";
 import { cannedGateEnv, type CannedCase, withEnv } from "../ts/scripts/junit-fixture.test-support.ts";
 import { combineDecisions, withPreparedServices } from "../ts/scripts/phase-policy.ts";
@@ -20,7 +25,7 @@ import { runScaffold } from "../ts/scripts/scaffold-project.ts";
 import { storeTestPhaseDecision } from "./scripts/container-runtime.ts";
 import { POSTGRES_IMAGE } from "./scripts/emit.ts";
 import {
-  preflightAllStoreTests, preflightTargets, SWEEP_GRACE_MS,
+  preflightAllStoreTests, preflightTargets, SWEEP_GRACE_MS, preflightChild, type ChildResult, type InfrastructureKind,
   classifyPreflightFailure, cleanCause, type ClassifyContext, type PreflightDeps, preflightRefusal, preflightTestcontainers,
   readDockerConfig, recogniseInfrastructure, storeTestInfrastructureFailure,
 } from "./scripts/testcontainers-preflight.ts";
@@ -34,6 +39,7 @@ const tempDir = (prefix: string): string => {
 };
 
 const HOME = "/Users/someone";
+const HELPER = "the container engine's settings name a registry login helper that isn't installed: install it, or remove it from the engine's settings";
 const CONTEXT: ClassifyContext = {
   image: POSTGRES_IMAGE,
   home: HOME,
@@ -50,7 +56,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
       const found = recogniseInfrastructure(text, CONTEXT);
       expect(found?.kind).toBe("credential-helper");
       expect(found?.remedy).toBe(
-        "~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper",
+        `${HELPER} (~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed)`,
       );
       expect(found?.cause).toContain("docker-credential-desktop");
     }
@@ -61,7 +67,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
       ...CONTEXT, dockerConfig: { shownAs: "$DOCKER_CONFIG/config.json", credHelpers: { "123.dkr.ecr.aws": "ecr-login" } },
     });
     expect(found?.remedy).toBe(
-      "$DOCKER_CONFIG/config.json names credHelpers '123.dkr.ecr.aws' → 'ecr-login' but docker-credential-ecr-login is not on PATH: remove the line or install the helper",
+      `${HELPER} ($DOCKER_CONFIG/config.json names credHelpers '123.dkr.ecr.aws' → 'ecr-login', and docker-credential-ecr-login is not installed)`,
     );
   });
 
@@ -69,10 +75,10 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
     const noRuntime = recogniseInfrastructure("Error: Could not find a working container runtime strategy", CONTEXT);
     expect(noRuntime?.kind).toBe("no-runtime");
     expect(noRuntime?.remedy).toContain("unix://~/.orbstack/run/docker.sock");
-    expect(noRuntime?.remedy).toContain("DOCKER_HOST");
+    expect(noRuntime?.remedy).toContain("the container engine isn't running: start it");
 
     expect(recogniseInfrastructure("connect ECONNREFUSED /var/run/docker.sock", CONTEXT)?.kind).toBe("socket");
-    expect(recogniseInfrastructure("connect EACCES /var/run/docker.sock", CONTEXT)?.remedy).toMatch(/permissions/);
+    expect(recogniseInfrastructure("connect EACCES /var/run/docker.sock", CONTEXT)?.remedy).toMatch(/can't reach the container engine: restart it/);
 
     for (const text of [
       'Failed to pull image "postgres:17.6": (HTTP code 500) server error - Get "https://registry-1.docker.io/v2/": dial tcp: lookup registry-1.docker.io: no such host',
@@ -81,7 +87,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
     ]) {
       const pull = recogniseInfrastructure(text, CONTEXT);
       expect(pull?.kind).toBe("pull");
-      expect(pull?.remedy).toContain(`docker pull ${POSTGRES_IMAGE}`);
+      expect(pull?.remedy).toBe("the container engine can't fetch images: check your network and registry login");
     }
 
     for (const text of [
@@ -90,7 +96,7 @@ describe("recogniseInfrastructure: the cause and the remedy", () => {
     ]) {
       const reaper = recogniseInfrastructure(text, CONTEXT);
       expect(reaper?.kind).toBe("reaper");
-      expect(reaper?.remedy).toContain("TESTCONTAINERS_RYUK_DISABLED=true");
+      expect(reaper?.remedy).toContain("allow it in the engine's settings");
     }
   });
 
@@ -146,7 +152,7 @@ describe("classifyPreflightFailure", () => {
   test("anything unrecognised still refuses with the raw cause and a way to see the runtime's own error", () => {
     const found = classifyPreflightFailure("Error: (HTTP code 409) conflict", "start", false, CONTEXT);
     expect(found).toMatchObject({ kind: "other", cause: "Error: (HTTP code 409) conflict" });
-    expect(found.remedy).toContain(`docker run --rm ${POSTGRES_IMAGE}`);
+    expect(found.remedy).toBe("the container engine couldn't start the test database: restart it");
   });
 });
 
@@ -340,8 +346,8 @@ describe("preflightTestcontainers (no Docker needed)", () => {
     expect(seen.env?.["BUN_CONFIG_X"]).toBeUndefined();
     expect(seen.env?.["TESTCONTAINERS_RYUK_DISABLED"]).toBeUndefined();
     expect(JSON.parse(seen.env?.["BOUNDED_PREFLIGHT_LABELS"] ?? "{}")).toEqual({ "dev.bounded.role": "green-testcontainers-preflight", "dev.bounded.preflight-run": "run1" });
-    // runtime, then the pull's own generous clock, then the start's.
-    expect(seen.budgets).toEqual([60_000, 600_000, 180_000, 180_000]);
+    // runtime, then the pull's stall clock (re-armed by its progress), then the start's.
+    expect(seen.budgets).toEqual([60_000, 60_000, 180_000, 180_000]);
     // Swept on the runtime Testcontainers reported using, not the probed one; a clean exit needs no grace sweep.
     expect(seen.events).toEqual(["sweep unix:///tc/resolved.sock"]);
   });
@@ -351,7 +357,7 @@ describe("preflightTestcontainers (no Docker needed)", () => {
     mkdirSync(join(deps.home, ".docker"));
     writeFileSync(join(deps.home, ".docker", "config.json"), JSON.stringify({ credsStore: "desktop" }));
     await expect(preflightTestcontainers("/p", "x.store.test.ts", "", { ...deps, env: { PATH: "/usr/bin" } })).rejects.toThrow(
-      "Remedy: ~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper.",
+      `Remedy: ${HELPER} (~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed).`,
     );
     expect(seen.events).toEqual(["sweep "]); // no host reported: the environment's default runtime
   });
@@ -371,6 +377,233 @@ describe("preflightTestcontainers (no Docker needed)", () => {
   test("an exit 0 without the last stage is not a pass", async () => {
     const { deps } = scriptedChild(['{"done":"runtime"}', '{"done":"pull"}'], 0);
     await expect(preflightTestcontainers("/p", "x.store.test.ts", "", deps)).rejects.toThrow(/could not start/);
+  });
+});
+
+// --- issue #52: no preparation outlives the host's call ------------------------
+//
+// A hung engine answered the probe's ping and then stalled every later stage:
+// over half an hour of silent waiting inside one host command. Each stage now
+// runs on a clock that fits what is left of the call, the pull's clock is a
+// stall clock re-armed by each line of Testcontainers' own pull progress, and
+// a stage whose minimum no longer fits is refused before it starts.
+
+/** A child runner (runChild's shape) playing `steps` on the (fake) clock:
+ *  each line at its time after the spawn, then an exit 0 at `exitAt`. A kill
+ *  records when it happened and ends the child with no status. */
+function timedRunner(steps: readonly { readonly at: number; readonly line: string }[], exitAt = Number.MAX_SAFE_INTEGER) {
+  let spawned!: () => void;
+  const ready = new Promise<void>((resolve) => { spawned = resolve; });
+  const seen: { killedAt?: number } = {};
+  const runner = (_command: string, _args: readonly string[], options: { onSpawn?: (child: ChildProcess) => void }): Promise<CommandResult> =>
+    new Promise((resolve) => {
+      const stdout = new EventEmitter();
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      const finish = (status: number | null): void => {
+        for (const timer of timers) clearTimeout(timer);
+        resolve({ status, stdout: "", stderr: "" });
+      };
+      options.onSpawn?.({ stdout, kill: () => { seen.killedAt = Date.now(); finish(null); return true; } } as unknown as ChildProcess);
+      for (const step of steps) timers.push(setTimeout(() => stdout.emit("data", Buffer.from(`${step.line}\n`)), step.at));
+      if (exitAt < Number.MAX_SAFE_INTEGER) timers.push(setTimeout(() => finish(0), exitAt));
+      spawned();
+    });
+  return { runner, ready, seen };
+}
+
+/** The preflight's deps with the real preflightChild over a timed runner, on
+ *  the fake clock. */
+function onFakeClock(steps: readonly { readonly at: number; readonly line: string }[], exitAt?: number) {
+  const timed = timedRunner(steps, exitAt);
+  const results: ChildResult[] = [];
+  const deps: PreflightDeps = {
+    ...scriptedChild([], 0).deps,
+    now: () => Date.now(),
+    sleep: async () => {},
+    child: async (env, cwd, onLine, timeoutFor) => {
+      const result = await preflightChild(env, cwd, onLine, timeoutFor, timed.runner);
+      results.push(result);
+      return result;
+    },
+  };
+  return { deps, results, ...timed };
+}
+
+/** Wait (on the real clock) for the injected runner to be spawned. */
+async function spawnedWithin(ready: Promise<void>, ms = 10_000): Promise<void> {
+  const timedOut = realSleep(ms).then(() => { throw new Error("the preflight never spawned its child through the injected runner"); });
+  await Promise.race([ready, timedOut]);
+}
+
+const PROGRESS = '{"progress":"pull"}';
+
+describe("the preflight's stage clocks (issue #52)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  test("preflightChild re-arms the pull clock on each progress line", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const steady = [{ at: 1_000, line: '{"done":"runtime"}' }];
+    for (let at = 31_000; at <= 181_000; at += 30_000) steady.push({ at, line: PROGRESS });
+    steady.push({ at: 190_000, line: '{"done":"pull"}' }, { at: 195_000, line: '{"done":"start"}' });
+    const ok = onFakeClock(steady, 196_000);
+    const service = preflightTestcontainers("/p", "x.store.test.ts", "", ok.deps);
+    service.catch(() => {});
+    await spawnedWithin(ok.ready);
+    await vi.advanceTimersByTimeAsync(200_000);
+    await expect(service).resolves.toMatchObject({ env: {} });
+    expect(ok.results).toHaveLength(1);
+    expect(ok.results[0]!.timedOut).toBe(false);
+
+    // No progress after the runtime: the pull's stall clock runs out at 60 s.
+    const stalled = onFakeClock([{ at: 1_000, line: '{"done":"runtime"}' }]);
+    const started = Date.now();
+    const refused = preflightTestcontainers("/p", "x.store.test.ts", "", stalled.deps);
+    refused.catch(() => {});
+    await spawnedWithin(stalled.ready);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await expect(refused).rejects.toThrow(/did not finish in time/);
+    expect(stalled.results[0]?.timedOut).toBe(true);
+    expect(stalled.seen.killedAt! - started).toBeGreaterThanOrEqual(60_000);
+    expect(stalled.seen.killedAt! - started).toBeLessThanOrEqual(62_000);
+  });
+
+  test("without a deadline a slow, steady pull is still bounded", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const forever = [{ at: 1_000, line: '{"done":"runtime"}' }];
+    for (let at = 31_000; at <= 2_500_000; at += 30_000) forever.push({ at, line: PROGRESS });
+    const slow = onFakeClock(forever);
+    const started = Date.now();
+    const refused = preflightTestcontainers("/p", "x.store.test.ts", "", { ...slow.deps, env: { PATH: "/usr/bin" } });
+    refused.catch(() => {});
+    await spawnedWithin(slow.ready);
+    for (let i = 0; i < 70 && slow.seen.killedAt === undefined; i++) await vi.advanceTimersByTimeAsync(30_000);
+    expect(slow.seen.killedAt).toBeDefined();
+    const pullRan = slow.seen.killedAt! - started - 1_000;
+    expect(pullRan).toBeGreaterThanOrEqual(1_800_000);
+    expect(pullRan).toBeLessThanOrEqual(1_830_000);
+    await expect(refused).rejects.toThrow(/did not finish in time/);
+  });
+
+  test("every stage clock fits the call's remaining budget", async () => {
+    let now = 0;
+    const seen: [number, number][] = [];
+    const deps: PreflightDeps = {
+      ...scriptedChild([], 0).deps,
+      now: () => now,
+      deadlineMs: 120_000,
+      child: async (_env, _cwd, onLine, timeoutFor) => {
+        seen.push([now, timeoutFor()]);
+        for (const line of DONE) {
+          now += 5_000;
+          onLine(line);
+          seen.push([now, timeoutFor()]);
+        }
+        return { status: 0, stdout: "", stderr: "", timedOut: false };
+      },
+    };
+    await preflightTestcontainers("/p", "x.store.test.ts", "", deps);
+    expect(seen.length).toBeGreaterThanOrEqual(4);
+    for (const [elapsed, budget] of seen) {
+      expect(budget, `at ${elapsed} ms`).toBeGreaterThan(0);
+      expect(budget, `at ${elapsed} ms`).toBeLessThanOrEqual(102_000 - elapsed);
+    }
+  });
+
+  test("a stage whose minimum no longer fits is refused before it starts", async () => {
+    let spawned = 0;
+    const deps: PreflightDeps = {
+      ...scriptedChild(DONE, 0).deps,
+      now: () => 95_000,
+      deadlineMs: 120_000,
+      child: async () => { spawned++; return { status: 0, stdout: "", stderr: "", timedOut: false }; },
+    };
+    await expect(preflightTestcontainers("/p", "x.store.test.ts", "", deps)).rejects.toThrow(/call the gate again with a longer command timeout/);
+    expect(spawned).toBe(0);
+  });
+});
+
+// Final review of #52, major 1: a healthy engine that runs out of the call's
+// time is the calling role's to retry with a longer timeout, never the user's.
+describe("a stage cut short by the call's budget, not its own clock", () => {
+  test("is refused as over budget, routed to the caller, not classified as the engine's failure", async () => {
+    const budgets: number[] = [];
+    const deps: PreflightDeps = {
+      ...scriptedChild([], 0).deps,
+      now: () => 80_000, // 22 s left of a 102 s budget: enough to start the runtime stage
+      deadlineMs: 120_000,
+      child: async (_env, _cwd, _onLine, timeoutFor) => {
+        budgets.push(timeoutFor());
+        return { status: null, stdout: "", stderr: "", timedOut: true };
+      },
+    };
+    let error: unknown;
+    try {
+      await preflightTestcontainers("/p", "x.store.test.ts", "", deps);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(budgets).toEqual([22_000]);
+    expect((error as Error).message).toMatch(/call the gate again with a longer command timeout/);
+    expect((error as Error).message).not.toMatch(/container engine|restart/);
+    expect(error).not.toMatchObject({ route: "user" });
+  });
+
+  test("a stage that runs out of its own clock, with time to spare, is still the engine's", async () => {
+    const deps: PreflightDeps = {
+      ...scriptedChild([], 0).deps,
+      now: () => 0,
+      deadlineMs: 600_000,
+      child: async (_env, _cwd, _onLine, timeoutFor) => {
+        expect(timeoutFor()).toBe(60_000);
+        return { status: null, stdout: "", stderr: "", timedOut: true };
+      },
+    };
+    await expect(preflightTestcontainers("/p", "x.store.test.ts", "", deps)).rejects.toMatchObject({ route: "user" });
+  });
+});
+
+describe("the preflight's remedies are the user's, in product terms (issue #52)", () => {
+  test("a credential-helper failure during Testcontainers' own pull is still classified", async () => {
+    const { deps } = scriptedChild(['{"done":"runtime"}', JSON.stringify({
+      failed: "pull",
+      error: 'error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``',
+    })], 1);
+    mkdirSync(join(deps.home, ".docker"));
+    writeFileSync(join(deps.home, ".docker", "config.json"), JSON.stringify({ credsStore: "osxkeychain" }));
+    let error: unknown;
+    try {
+      await preflightTestcontainers("/p", "x.store.test.ts", "", { ...deps, env: { PATH: "/usr/bin" } });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toMatch(/registry login helper that isn't installed/);
+    expect(message).not.toContain("docker pull");
+    expect(commandsIn(`the user: ${message}`)).toEqual([]);
+    expect(error).toMatchObject({ route: "user" });
+  });
+
+  test("every remedy is in product terms with no docker command", () => {
+    const cases: readonly [string, "runtime" | "pull" | "start", boolean][] = [
+      ["Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT", "pull", false],
+      ["Error: Could not find a working container runtime strategy", "runtime", false],
+      ["connect ECONNREFUSED /var/run/docker.sock", "runtime", false],
+      ["Error: Failed to connect to Reaper", "start", false],
+      ["toomanyrequests: You have reached your pull rate limit", "pull", false],
+      ["", "pull", true],
+      ["", "start", true],
+      ["Error: (HTTP code 409) conflict", "start", false],
+    ];
+    const kinds = new Set<InfrastructureKind>();
+    for (const [text, stage, timedOut] of cases) {
+      const found = classifyPreflightFailure(text, stage, timedOut, CONTEXT);
+      kinds.add(found.kind);
+      expect(commandsIn(`the user: ${found.remedy}`), found.kind).toEqual([]);
+      expect(found.remedy, found.kind).not.toMatch(/\bdocker\s/i);
+      expect(found.remedy, found.kind).not.toMatch(/DOCKER_HOST|TESTCONTAINERS_|\.testcontainers\.properties/);
+    }
+    expect([...kinds].sort()).toEqual(["credential-helper", "no-runtime", "other", "pull", "reaper", "socket", "timeout"]);
   });
 });
 
@@ -408,61 +641,85 @@ const up = () => ({ available: true as const, endpoint: "unix:///run/docker.sock
 const service = (description: string, released: string[], env: Record<string, string> = {}): PreparedTestService =>
   ({ description, env, release: () => void released.push(description) });
 
-describe("the decision: the preflight runs before anything else at green, and only with store tests", () => {
-  test("green with store tests: preflight, then the app database, on the probed endpoint, as one service", async () => {
+describe("the decision: the preflight runs before anything else at green, and only with tests that need it", () => {
+  const SMOKE = "apps/web/src/server/composition-root.test.ts";
+
+  test("green with store tests: the preflight on the probed endpoint, over the store and persisting smoke tests", async () => {
     const order: string[] = [];
     const released: string[] = [];
-    const decision = storeTestPhaseDecision("green", [STORE], up, true,
-      async (endpoint) => { order.push(`database ${endpoint}`); return service("database", released, { DATABASE_URL: "postgres://x" }); },
-      async (endpoint) => { order.push(`preflight ${endpoint}`); return service("preflight", released); },
-      () => () => undefined,
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up, persists: true, smokeTests: [SMOKE],
+      preflight: async (endpoint, _env, files) => { order.push(`preflight ${endpoint} ${files.join(",")}`); return service("preflight", released); },
+      infrastructureFailure: () => () => undefined,
+    });
     if (decision.action !== "run") throw new Error("expected run");
     expect(order).toEqual([]);
     const started = await decision.prepare!({ set: {}, unset: [] });
-    expect(order).toEqual(["preflight unix:///run/docker.sock", "database unix:///run/docker.sock"]);
-    expect(started.env).toEqual({ DATABASE_URL: "postgres://x" });
-    expect(started.description).toBe("preflight; database");
+    expect(order).toEqual([`preflight unix:///run/docker.sock ${STORE},${SMOKE}`]);
+    expect(started.env).toEqual({});
     started.release();
-    expect(released).toEqual(["database", "preflight"]);
+    expect(released).toEqual(["preflight"]);
     expect(decision.infrastructureFailure).toBeTypeOf("function");
   });
 
   test("the preflight gets the run's environment change, as the test process will see it", async () => {
     const seen: unknown[] = [];
-    const decision = storeTestPhaseDecision("green", [STORE], up, true,
-      async () => service("database", [], { DATABASE_URL: "postgres://x" }),
-      async (_endpoint, env) => { seen.push(env); return service("preflight", []); },
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up, persists: true,
+      preflight: async (_endpoint, env) => { seen.push(env); return service("preflight", []); },
+    });
     if (decision.action !== "run") throw new Error("expected run");
     await decision.prepare!({ set: { A: "1" }, unset: ["B"] });
     expect(seen).toEqual([{ set: { A: "1" }, unset: ["B"] }]);
   });
 
-  test("a failed preflight starts no database and refuses through withPreparedServices", async () => {
-    let databases = 0;
-    const decision = storeTestPhaseDecision("green", [STORE], up, true,
-      async () => { databases++; return service("database", []); },
-      async () => { throw new Error(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
-    );
+  test("a failed preflight refuses through withPreparedServices, routed to the user", async () => {
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up, persists: true,
+      preflight: async () => { throw userRoutedError(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
+    });
     const run = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     let ran = false;
     const prepared = await withPreparedServices(run, async () => { ran = true; });
     expect(prepared.ok).toBe(false);
     expect(ran).toBe(false);
-    expect(databases).toBe(0);
-    if (!prepared.ok) expect(prepared.reason).toContain("docker-credential-desktop is not on PATH");
+    if (!prepared.ok) {
+      expect(prepared.reason).toContain("docker-credential-desktop is not installed");
+      expect(prepared.route).toBe("user");
+    }
   });
 
-  test("red, and a tree without store tests, never preflight and carry no classifier", () => {
+  test("red, and a tree with neither store nor persisting smoke tests, never preflight and carry no classifier", () => {
     let preflights = 0;
     const preflight = async () => { preflights++; return service("preflight", []); };
-    const red = storeTestPhaseDecision("red", [STORE], up, true, undefined, preflight, () => () => "x");
+    const red = storeTestPhaseDecision({ phase: "red", storeTests: [STORE], probe: up, persists: true, preflight, infrastructureFailure: () => () => "x" });
     expect(red.action).toBe("skip");
-    const noStores = storeTestPhaseDecision("green", [], up, true, async () => service("database", []), preflight, () => () => "x");
-    if (noStores.action !== "run") throw new Error("expected run");
-    expect(noStores.infrastructureFailure).toBeUndefined();
+    const noTests = storeTestPhaseDecision({ phase: "green", storeTests: [], probe: up, persists: true, preflight, infrastructureFailure: () => () => "x" });
+    // A persisting tree never passes an inherited DATABASE_URL on (ADR 2026-072).
+    expect(noTests).toEqual({ action: "run", unsetEnv: ["BOUNDED_STORE_TESTS_SKIP", "BOUNDED_STORE_TESTS_PHASE", "DATABASE_URL"] });
     expect(preflights).toBe(0);
+  });
+
+  // Final review of #52, minor 7: a smoke test the machine failed is the
+  // user's, like a store test, not the builder's.
+  test("app smoke tests get the infrastructure classifier too", () => {
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [], probe: up, persists: true, smokeTests: [SMOKE],
+      preflight: async () => service("preflight", []),
+      infrastructureFailure: (_endpoint, files) => storeTestInfrastructureFailure(files, CONTEXT),
+    });
+    if (decision.action !== "run") throw new Error("expected run");
+    expect(decision.infrastructureFailure).toBeTypeOf("function");
+    expect(decision.infrastructureFailure!({ name: "web > lists", file: SMOKE, message: "Error: Could not find a working container runtime strategy" }))
+      .toMatch(/the container engine isn't running/);
+    expect(decision.infrastructureFailure!({ name: "web > lists", file: SMOKE, message: "expected 1 to be 2" })).toBeUndefined();
+  });
+
+  test("a persisting tree whose smoke tests have no runtime is refused at green, routed to the user", () => {
+    const down = () => ({ available: false as const, reason: "no container runtime found" });
+    const decision = storeTestPhaseDecision({ phase: "green", storeTests: [], probe: down, persists: true, smokeTests: [SMOKE] });
+    expect(decision).toMatchObject({ action: "refuse", route: "user" });
+    expect((decision as { reason: string }).reason).toMatch(/smoke tests each start a throwaway migrated database.*start it/);
   });
 });
 
@@ -472,8 +729,8 @@ describe("storeTestInfrastructureFailure: the defence in depth", () => {
   test("claims a store test, or a failure no file claims, that failed because of the machine", () => {
     expect(classify({ name: "DrizzleCreateProjectStore > (unnamed)", file: STORE, message: "error: Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT" }))
       .toBe("DrizzleCreateProjectStore > (unnamed): error: Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT. " +
-        "Remedy: ~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper");
-    expect(classify({ name: "unhandled error", message: "Could not find a working container runtime strategy" })).toMatch(/Testcontainers found no container runtime/);
+        `Remedy: ${HELPER} (~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed)`);
+    expect(classify({ name: "unhandled error", message: "Could not find a working container runtime strategy" })).toMatch(/the container engine isn't running: start it/);
   });
 
   test("leaves the code's failures, and the same text from another test file, to the roles", () => {
@@ -500,7 +757,7 @@ describe("storeTestInfrastructureFailure: the defence in depth", () => {
     const failures = run.results.filter((r) => r.status === "failed");
     expect(failures.length).toBeGreaterThan(0);
     const causes = failures.map((r) => classify({ name: r.name, ...(r.message !== undefined ? { message: r.message } : {}), ...(r.file !== undefined ? { file: r.file } : {}) }));
-    expect(causes.some((cause) => cause?.includes("docker-credential-desktop is not on PATH"))).toBe(true);
+    expect(causes.some((cause) => cause?.includes("docker-credential-desktop is not installed"))).toBe(true);
   }, 60_000);
 });
 
@@ -525,39 +782,41 @@ const PASSING: readonly CannedCase[] = [
   { name: "CreateNoteHandler > creates the note and saves it", status: "passed" },
 ];
 
-describe("the green gate (with fakes): the machine's failures go to the orchestrator, never a role", () => {
+describe("the green gate (with fakes): the machine's failures go to the user, never a role", () => {
   test("a failed preflight refuses before any test runs, with the cause and the remedy", async () => {
     const dir = builtWithStandingRed();
     const marker = join(dir, ".suite-ran");
-    const decision = storeTestPhaseDecision("green", [STORE], up, false, undefined,
-      async () => { throw new Error(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
-      () => storeTestInfrastructureFailure([STORE], CONTEXT),
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up,
+      preflight: async () => { throw userRoutedError(preflightRefusal(recogniseInfrastructure("spawn docker-credential-desktop ENOENT", CONTEXT)!, POSTGRES_IMAGE)); },
+      infrastructureFailure: () => storeTestInfrastructureFailure([STORE], CONTEXT),
+    });
     const policy = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     const env = { ...cannedGateEnv(dir, PASSING), BOUNDED_GATE_TEST_CMD: "sh", BOUNDED_GATE_TEST_ARGS: JSON.stringify(["-c", `touch '${marker}'; exit 1`]) };
     const r = await withEnv(env, () => runGreenGate(dir, { policy }));
-    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "test-policy", route: "orchestrator" } });
-    expect(r.lines.at(-1)).toBe("green-gate: route → orchestrator");
-    expect(r.lines.join("\n")).toContain("~/.docker/config.json names credsStore 'desktop' but docker-credential-desktop is not on PATH: remove the line or install the helper");
+    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "test-policy", route: "user" } });
+    expect(r.lines.at(-1)).toBe("green-gate: route → user");
+    expect(r.lines.join("\n")).toContain("~/.docker/config.json names credsStore 'desktop', and docker-credential-desktop is not installed)");
     expect(r.lines.join("\n")).not.toContain("route → builder");
     expect(existsSync(marker)).toBe(false);
   }, 120_000);
 
-  test("a store test that still fails because of the machine routes to the orchestrator with the cause, not the builder", async () => {
+  test("a store test that still fails because of the machine routes to the user with the cause, not the builder", async () => {
     const dir = builtWithStandingRed();
-    const decision = storeTestPhaseDecision("green", [STORE], up, false, undefined,
-      async () => service("preflight", []),
-      () => storeTestInfrastructureFailure([STORE], CONTEXT),
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up,
+      preflight: async () => service("preflight", []),
+      infrastructureFailure: () => storeTestInfrastructureFailure([STORE], CONTEXT),
+    });
     const policy = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     const cases: CannedCase[] = [...PASSING, {
       name: "DrizzleCreateProjectStore > (unnamed)", status: "failed", file: STORE,
       message: "error: Failed to pull image \"postgres:17.6\": getaddrinfo ENOTFOUND registry-1.docker.io",
     }];
     const r = await withEnv(cannedGateEnv(dir, cases), () => runGreenGate(dir, { policy }));
-    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "infrastructure", route: "orchestrator" } });
-    expect(r.lines.at(-1)).toBe("green-gate: route → orchestrator");
-    expect(r.lines.join("\n")).toContain("the image could not be pulled");
+    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "infrastructure", route: "user" } });
+    expect(r.lines.at(-1)).toBe("green-gate: route → user");
+    expect(r.lines.join("\n")).toContain("the container engine can't fetch images");
 
     // The same run with an ordinary assertion failure is still the builder's, with no note.
     const ordinary = await withEnv(cannedGateEnv(dir, [...PASSING, { name: "DrizzleCreateProjectStore > saves", status: "failed", file: STORE, message: "error: expected 1 to be 2" }]),
@@ -567,10 +826,11 @@ describe("the green gate (with fakes): the machine's failures go to the orchestr
 
   test("a mix never hides the code's failure: the route stays the builder's, which is named, with the machine's cause as a note", async () => {
     const dir = builtWithStandingRed();
-    const decision = storeTestPhaseDecision("green", [STORE], up, false, undefined,
-      async () => service("preflight", []),
-      () => storeTestInfrastructureFailure([STORE], CONTEXT),
-    );
+    const decision = storeTestPhaseDecision({
+      phase: "green", storeTests: [STORE], probe: up,
+      preflight: async () => service("preflight", []),
+      infrastructureFailure: () => storeTestInfrastructureFailure([STORE], CONTEXT),
+    });
     const policy = combineDecisions("green", [{ name: "store-tests-need-a-container-runtime", decision }]);
     const cases: CannedCase[] = [...PASSING,
       { name: "DrizzleCreateProjectStore > (unnamed)", status: "failed", file: STORE, message: "error: Error from Docker credential provider: Error: spawn docker-credential-desktop ENOENT" },
@@ -584,7 +844,7 @@ describe("the green gate (with fakes): the machine's failures go to the orchestr
     expect(note).toBeGreaterThan(-1);
     expect(note).toBeLessThan(r.lines.length - 1);
     expect(r.lines.join("\n")).toContain("suspected infrastructure: DrizzleCreateProjectStore > (unnamed)");
-    expect(r.lines.join("\n")).toContain("docker-credential-desktop is not on PATH");
+    expect(r.lines.join("\n")).toContain("docker-credential-desktop is not installed");
     expect((r.detail as { suspectedInfrastructure?: unknown }).suspectedInfrastructure).toHaveLength(1);
   }, 120_000);
 });

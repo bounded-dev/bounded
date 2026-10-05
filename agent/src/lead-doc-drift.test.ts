@@ -5,6 +5,7 @@ import { LEAD_COMMANDS, parseLeadArgs } from "./lead-commands.ts";
 import { LEAD_COMMAND_TOOLS } from "./lead-policy.ts";
 import { SETUP_COMMAND } from "./setup-state.ts";
 import { LEAD_REPLAN_USAGE } from "./init-command.ts";
+import { projectAgentsInstructions } from "./project-init.ts";
 import { BOARD_STATUSES } from "./tracker.ts";
 
 // The lead's commands are typed by people and agents from the docs; a doc that
@@ -41,6 +42,21 @@ describe("the team-lead skill matches the lead's commands", () => {
       expect(LEAD_COMMANDS.some((c) => c.name.startsWith(name)), command).toBe(true);
     }
     expect(parseLeadArgs(["prepare"]).ok).toBe(false);
+  });
+});
+
+// Issue #52: a project's own AGENTS.md teaches the lead to restore drifted
+// config itself, in the ticket's worktree, once the user agrees.
+describe("the generated AGENTS.md", () => {
+  test("the generated AGENTS.md lists sync-config for both hosts", () => {
+    const packs = ["ts", "ts-hexagonal"];
+    const claude = projectAgentsInstructions("claude-code", packs);
+    expect(claude).toContain("sync-config <issue>");
+    expect(claude).toMatch(/only after the user (explicitly )?agrees/);
+    const pi = projectAgentsInstructions("pi", packs);
+    expect(pi).toContain("`lead_sync_config`");
+    expect(pi).toMatch(/only after the user (explicitly )?agrees/);
+    for (const text of [claude, pi]) expect(text).not.toMatch(/the user (runs|restores)[^.]*sync-config/);
   });
 });
 

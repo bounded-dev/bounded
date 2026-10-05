@@ -5,8 +5,11 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, describe, expect, test } from "vitest";
+import type { PreparedTestService } from "../ts/pack.ts";
+import { commandsIn } from "../../test/fixtures/user-steps.ts";
 import {
-  candidateEndpoints, drizzleStoreTests, probeContainerRuntime, storeTestDecision, storeTestEnv, type ContainerRuntimeProbe,
+  candidateEndpoints, drizzleStoreTests, probeContainerRuntime, storeTestDecision, storeTestEnv, storeTestPhaseDecision,
+  type ContainerRuntimeProbe,
 } from "./scripts/container-runtime.ts";
 
 const temporary: string[] = [];
@@ -24,10 +27,21 @@ function home(): string {
 }
 
 /** A fake Docker API in its own process (the probe blocks this one while it
- *  waits): answers `/_ping` with `status`, or never answers when null. */
-async function dockerApi(socket: string, status: number | null): Promise<void> {
+ *  waits): answers `/_ping` with `status`, or never answers when null, and
+ *  `/version` with `version.status` (200 by default; never when null), each
+ *  after its delay. */
+async function dockerApi(
+  socket: string, status: number | null,
+  version: { readonly status?: number | null; readonly pingDelayMs?: number; readonly delayMs?: number } = {},
+): Promise<void> {
   mkdirSync(dirname(socket), { recursive: true });
-  const script = `require("node:http").createServer((q, r) => { ${status === null ? "" : `r.statusCode = q.url === "/_ping" ? ${status} : 404; r.end("OK");`} }).listen(${JSON.stringify(socket)});`;
+  const answers = { "/_ping": [status, version.pingDelayMs ?? 0], "/version": [version.status === undefined ? 200 : version.status, version.delayMs ?? 0] };
+  const script = `const answers = ${JSON.stringify(answers)};
+require("node:http").createServer((q, r) => {
+  const [code, delay] = answers[q.url] ?? [404, 0];
+  if (code === null) return;
+  setTimeout(() => { r.statusCode = code; r.end(q.url === "/version" ? "{}" : "OK"); }, delay);
+}).listen(${JSON.stringify(socket)});`;
   servers.push(spawn(process.execPath, ["-e", script], { stdio: "ignore" }));
   for (let i = 0; i < 200 && !existsSync(socket); i++) await sleep(25);
   if (!existsSync(socket)) throw new Error(`fake Docker API did not start on ${socket}`);
@@ -88,6 +102,98 @@ describe("probeContainerRuntime", () => {
   });
 });
 
+// Issue #52: an engine that answers a ping but stalls everywhere else (a front
+// proxy or VM in front of a hung daemon) is refused within seconds, not after
+// half an hour of silent preparation.
+describe("an engine that answers a ping but nothing else (issue #52)", () => {
+  test("an engine that answers a ping but hangs on its version is not responding, within seconds", async () => {
+    const dir = home();
+    await dockerApi(join(dir, "hung.sock"), 200, { status: null });
+    const started = Date.now();
+    const probe = probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/hung.sock` }, home: dir, timeoutMs: 300 });
+    expect(probe.available).toBe(false);
+    expect((probe as { reason: string }).reason).toMatch(/the container engine is not responding/);
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  // Final review of #52, minor 5: an error answer is an answer, not a hang.
+  test("an engine that answers its version with an error is reported as such, not as not responding", async () => {
+    const dir = home();
+    await dockerApi(join(dir, "err.sock"), 200, { status: 500 });
+    const probe = probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/err.sock` }, home: dir, timeoutMs: 300 });
+    expect(probe.available).toBe(false);
+    const reason = (probe as { reason: string }).reason;
+    expect(reason).toMatch(/answered a request for its version with an error \(500\)/);
+    expect(reason).not.toMatch(/not responding/);
+  });
+
+  test("the child's timeout covers both requests", async () => {
+    const dir = home();
+    await dockerApi(join(dir, "slow.sock"), 200, { pingDelayMs: 250, delayMs: 250 });
+    expect(probeContainerRuntime({ env: { ...bare, DOCKER_HOST: `unix://${dir}/slow.sock` }, home: dir, timeoutMs: 300 }))
+      .toEqual({ available: true, endpoint: `unix://${dir}/slow.sock` });
+  });
+
+  test("a refusal for an unavailable or unresponsive engine is routed to the user in product terms", () => {
+    const decision = storeTestPhaseDecision({
+      phase: "green",
+      storeTests: ["contexts/c/src/adapters/out/drizzle/x.store.test.ts"],
+      probe: () => ({ available: false, reason: "the container engine is not responding: it answered a ping but not a request for its version within 3 s" }),
+    });
+    expect(decision.action).toBe("refuse");
+    expect(decision).toHaveProperty("route", "user");
+    const reason = (decision as { reason: string }).reason;
+    expect(reason).toMatch(/restart|start it/i);
+    expect(commandsIn(`the user: ${reason}`)).toEqual([]);
+  });
+
+  test("the probe runs before any preparation, and no prepare starts a database", async () => {
+    const store = "contexts/c/src/adapters/out/drizzle/x.store.test.ts";
+    const order: string[] = [];
+    const nothing = (): PreparedTestService => ({ description: "preflight", env: {}, release: () => {} });
+    const decision = storeTestPhaseDecision({
+      phase: "green",
+      storeTests: [store],
+      probe: () => { order.push("probe"); return { available: true, endpoint: "unix:///run/docker.sock" }; },
+      preflight: async () => { order.push("preflight"); return nothing(); },
+    });
+    if (decision.action !== "run" || decision.prepare === undefined) throw new Error("expected a run that prepares");
+    await decision.prepare({ set: {}, unset: [] });
+    expect(order).toEqual(["probe", "preflight"]);
+
+    let preflights = 0;
+    const refused = storeTestPhaseDecision({
+      phase: "green",
+      storeTests: [store],
+      probe: () => ({ available: false, reason: "the container engine isn't running" }),
+      preflight: async () => { preflights++; return nothing(); },
+    });
+    expect(refused.action).toBe("refuse");
+    expect(preflights).toBe(0);
+
+    // A persisting tree with no store tests: what it prepares is only the
+    // preflight over the smoke tests, and the service it hands the run sets
+    // no database of the gate's own (the app smoke tests start their own).
+    // (Final review of #52, minor 6: the former docker spy was never
+    // reachable; this observes what prepare actually starts.)
+    const prepared: string[][] = [];
+    const options = {
+      phase: "green" as const,
+      storeTests: [],
+      smokeTests: ["apps/web/src/server/composition-root.test.ts"],
+      persists: true,
+      probe: () => ({ available: true as const, endpoint: "unix:///run/docker.sock" }),
+      preflight: async (_endpoint: string, _env: unknown, files: readonly string[]) => { prepared.push([...files]); return nothing(); },
+    };
+    const persisting = storeTestPhaseDecision(options);
+    expect(persisting.action).toBe("run");
+    if (persisting.action !== "run" || persisting.prepare === undefined) throw new Error("expected a run that prepares");
+    const service = await persisting.prepare({ set: {}, unset: [] });
+    expect({ prepared, env: service.env, unsetsDatabase: persisting.unsetEnv.includes("DATABASE_URL") })
+      .toEqual({ prepared: [["apps/web/src/server/composition-root.test.ts"]], env: {}, unsetsDatabase: true });
+  });
+});
+
 describe("storeTestDecision (ADR 2026-064)", () => {
   const down: ContainerRuntimeProbe = { available: false, reason: "no container runtime found" };
   const up: ContainerRuntimeProbe = { available: true, endpoint: "unix:///var/run/docker.sock" };
@@ -121,7 +227,8 @@ describe("storeTestDecision (ADR 2026-064)", () => {
     const decision = storeTestDecision("green", tests, down);
     expect(decision.action).toBe("refuse");
     expect((decision as { reason: string }).reason).toContain(tests[0]);
-    expect((decision as { reason: string }).reason).toContain("Start Docker");
+    expect((decision as { reason: string }).reason).toContain("isn't running: start it");
+    expect(decision).toHaveProperty("route", "user");
     expect(decision).toHaveProperty("unsetEnv", unsetEnv);
     expect(decision).not.toHaveProperty("env");
   });

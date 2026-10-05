@@ -1,48 +1,55 @@
 // Green's Testcontainers preflight, and the infrastructure-failure classifier
-// (ADR 2026-064, amended).
+// (ADR 2026-064, amended by ADR 2026-072).
 //
-// At green a Postgres project starts containers two ways: the gate's own
-// throwaway app database through the docker CLI (app-database.ts), and the
-// store tests through Testcontainers, inside the generated test support. The
-// two can disagree: a credential helper named in the Docker config but
-// missing from PATH, a registry out of reach, a socket Testcontainers does
-// not look at, or a resource reaper (Ryuk) that cannot start all break only
-// the second. Those failures used to look like failing store tests and went
-// to the builder, who cannot fix a machine.
+// At green a Postgres project starts containers through Testcontainers, inside
+// the generated test support: the store tests' and each persisting app's
+// smoke tests'. A credential helper named in the Docker config but missing
+// from PATH, a registry out of reach, a socket Testcontainers does not look
+// at, or a resource reaper (Ryuk) that cannot start used to look like
+// failing tests and went to the builder, who cannot fix a machine.
 //
-// So before green runs any test, when store tests exist and a runtime
-// answers, the policy starts and stops one container from the pinned image
-// through the SAME code path the store tests use, once per distinct
-// Testcontainers installation the contexts with store tests resolve:
+// So before green runs any test, when such tests exist and a runtime answers,
+// the policy starts and stops one container from the pinned image through the
+// SAME code path the tests use, once per distinct Testcontainers installation
+// their directories resolve:
 //
 //   · the same `bun` on PATH, in the project, with the environment the test
 //     process gets (the gate's test environment with the policies' set and
 //     unset applied), so DOCKER_HOST, the Testcontainers properties,
 //     DOCKER_CONFIG and the Ryuk settings are exactly the tests';
-//   · `@testcontainers/postgresql` resolved from the store tests' own
-//     directory, the module the generated support imports;
+//   · `@testcontainers/postgresql` resolved from the test's own directory,
+//     the module the generated support imports;
 //   · `bun -e` rather than `bun test`: the test run adds only a preload that
 //     silences console output, which Testcontainers does not read.
 //
-// The pull has its own generous timeout, like the app database's. The child
-// removes its container itself on every exit it controls, through the client
-// Testcontainers resolved; the parent then sweeps this run's label on the
-// runtime the child reported using, and once more after a grace period when
-// the child was killed, for a create that was still in flight.
+// No stage outlives the host's call (issue #52). Each stage runs on its own
+// clock, never longer than what is left of the call's budget (the core's
+// callBudgetMs of the host's deadline): runtime 60 s, start 180 s, and the
+// pull a stall clock of 60 s re-armed by every line of Testcontainers' own
+// pull progress (its `testcontainers:pull` log, forwarded by the child), and
+// capped at 30 minutes overall. A stage whose minimum no longer fits the
+// budget is refused before it starts, routed to the calling role, which calls
+// the gate again with a longer timeout. The child removes its container
+// itself on every exit it controls, through the client Testcontainers
+// resolved; the parent then sweeps this run's label on the runtime the child
+// reported using, and once more after a grace period when the child was
+// killed, for a create that was still in flight.
 //
 // A failure refuses green with the real cause, cleaned of secrets, and a
-// concrete remedy. The same classifier is green's backstop over the suite's
-// failures. It is deliberately conservative: it claims only text that Docker
-// or Testcontainers themselves produce, and when unsure it leaves the
-// failure with the builder.
+// remedy in product terms, routed to the user: the machine is theirs, and no
+// role can fix it (ADR 2026-072). The same classifier is green's backstop
+// over the suite's failures. It is deliberately conservative: it claims only
+// text that Docker or Testcontainers themselves produce, and when unsure it
+// leaves the failure with the builder.
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PreparedTestService, TestFailure } from "../../ts/pack.ts";
-import { COMMAND_TIMEOUT_MS, PULL_TIMEOUT_MS, runChild, type CommandResult } from "./app-database.ts";
+import { callBudgetMs, commandTimeoutMs } from "../../../src/host.ts";
+import { type PreparedTestService, type TestFailure, userRoutedError } from "../../ts/pack.ts";
+import { COMMAND_TIMEOUT_MS, runChild, type CommandResult } from "./app-database.ts";
 import { POSTGRES_IMAGE } from "./emit.ts";
 
 /** Every preflight container carries this label and a per-run one. */
@@ -51,6 +58,12 @@ export const PREFLIGHT_LABEL_VALUE = "green-testcontainers-preflight";
 export const PREFLIGHT_RUN_LABEL = "dev.bounded.preflight-run";
 /** Start and stop, after the pull: the generated support's own start budget. */
 export const START_TIMEOUT_MS = 180_000;
+/** The pull's stall clock, re-armed by each line of pull progress. */
+export const PULL_STALL_MS = 60_000;
+/** The pull's overall cap. */
+export const PULL_CAP_MS = 1_800_000;
+/** The least time each stage needs to be worth starting. */
+export const STAGE_MINIMUM_MS: Readonly<Record<"runtime" | "pull" | "start", number>> = { runtime: 10_000, pull: 30_000, start: 30_000 };
 /** How long after a killed child the parent sweeps again. */
 export const SWEEP_GRACE_MS = 3_000;
 
@@ -62,7 +75,7 @@ export interface InfrastructureCause {
   readonly kind: InfrastructureKind;
   /** The underlying error, cleaned of secrets and machine paths. */
   readonly cause: string;
-  /** What the user can do about it. */
+  /** What the user can do about it, in product terms. */
   readonly remedy: string;
 }
 
@@ -273,45 +286,30 @@ export function recogniseInfrastructure(text: string, context: ClassifyContext, 
     return {
       kind: "credential-helper",
       cause,
-      remedy: `${context.dockerConfig.shownAs} names ${helperKey(name, context.dockerConfig)} but docker-credential-${name} is not on PATH: remove the line or install the helper`,
+      remedy: `${REMEDY["credential-helper"]} (${context.dockerConfig.shownAs} names ${helperKey(name, context.dockerConfig)}, ` +
+        `and docker-credential-${name} is not installed)`,
     };
   }
-  const probed = context.endpoint !== undefined ? ` (the harness found one answering at ${shown(context.endpoint, home)})` : "";
-  if (TC_NO_RUNTIME.test(text)) {
-    return {
-      kind: "no-runtime",
-      cause,
-      remedy: `Testcontainers found no container runtime${probed}: start the runtime, or point Testcontainers at it with ` +
-        "DOCKER_HOST or docker.host in ~/.testcontainers.properties",
-    };
-  }
+  const probed = context.endpoint !== undefined ? ` (the harness found it answering at ${shown(context.endpoint, home)})` : "";
+  if (TC_NO_RUNTIME.test(text)) return { kind: "no-runtime", cause, remedy: `${REMEDY["no-runtime"]}${probed}` };
   if (options.narrow === true) return undefined;
-  if (TC_REAPER.test(text)) {
-    return {
-      kind: "reaper",
-      cause,
-      remedy: "Testcontainers' resource reaper (Ryuk) could not start: let the runtime run it (it mounts the Docker socket), " +
-        "or, where it cannot (rootless runtimes), set TESTCONTAINERS_RYUK_DISABLED=true for the harness",
-    };
-  }
-  if (DOCKER_SOCKET.test(text)) {
-    return {
-      kind: "socket",
-      cause,
-      remedy: `Testcontainers could not reach the Docker socket it chose${probed}: start the runtime, fix the socket's ` +
-        "permissions, or point DOCKER_HOST (or docker.host in ~/.testcontainers.properties) at the runtime's socket",
-    };
-  }
-  if (REGISTRY.test(text)) {
-    return {
-      kind: "pull",
-      cause,
-      remedy: `the image could not be pulled: check the network and registry access (\`docker pull ${context.image}\` shows the ` +
-        "registry's own answer), log in if the registry needs it, or configure the runtime's proxy or mirror",
-    };
-  }
+  if (TC_REAPER.test(text)) return { kind: "reaper", cause, remedy: REMEDY.reaper };
+  if (DOCKER_SOCKET.test(text)) return { kind: "socket", cause, remedy: `${REMEDY.socket}${probed}` };
+  if (REGISTRY.test(text)) return { kind: "pull", cause, remedy: REMEDY.pull };
   return undefined;
 }
+
+/** What the user does about each cause, in product terms: never a command
+ *  to type (ADR 2026-072). The engine is the user's machine. */
+const REMEDY: Readonly<Record<InfrastructureKind, string>> = {
+  "credential-helper": "the container engine's settings name a registry login helper that isn't installed: install it, or remove it from the engine's settings",
+  "no-runtime": "the container engine isn't running: start it",
+  socket: "the tests can't reach the container engine: restart it",
+  reaper: "the container engine doesn't let the tests' cleanup helper run: allow it in the engine's settings",
+  pull: "the container engine can't fetch images: check your network and registry login",
+  timeout: "the container engine couldn't start the test database: restart it",
+  other: "the container engine couldn't start the test database: restart it",
+};
 
 /** Every failure the preflight can report: a recognised cause, a stage that
  *  ran out of time, or the raw cause with a generic remedy. Pure. In the
@@ -320,36 +318,19 @@ export function classifyPreflightFailure(text: string, stage: PreflightStage, ti
   const known = recogniseInfrastructure(text, context);
   if (known !== undefined) return known;
   const clean = (): string => cleanCause(text, context.home ?? homedir(), context.temp ?? tmpdir());
-  if (stage === "pull" && !timedOut && text !== "") {
-    return {
-      kind: "pull",
-      cause: clean(),
-      remedy: `the image could not be pulled: check the network and registry access (\`docker pull ${context.image}\` shows the ` +
-        "registry's own answer), log in if the registry needs it, or configure the runtime's proxy or mirror",
-    };
-  }
+  if (stage === "pull" && !timedOut && text !== "") return { kind: "pull", cause: clean(), remedy: REMEDY.pull };
   if (timedOut) {
     const what = stage === "pull" ? `pulling ${context.image}` : stage === "runtime" ? "reaching the container runtime" : "starting and stopping the container";
-    return {
-      kind: stage === "pull" ? "pull" : "timeout",
-      cause: clean() || `${what} did not finish in time`,
-      remedy: stage === "pull"
-        ? `pull the image ahead (\`docker pull ${context.image}\`) or check the network and registry access, then run green again`
-        : "check that the runtime is healthy and not overloaded (`docker info`, `docker ps`), then run green again",
-    };
+    return { kind: stage === "pull" ? "pull" : "timeout", cause: clean() || `${what} did not finish in time`, remedy: stage === "pull" ? REMEDY.pull : REMEDY.timeout };
   }
-  return {
-    kind: "other",
-    cause: clean() || "the preflight exited without saying why",
-    remedy: `run \`docker run --rm ${context.image} postgres --version\` to see the runtime's own error, fix it, and run green again`,
-  };
+  return { kind: "other", cause: clean() || "the preflight exited without saying why", remedy: REMEDY.other };
 }
 
 /** The refusal text for a failed preflight. */
 export function preflightRefusal(found: InfrastructureCause, image: string): string {
-  return `Testcontainers, which the store tests start Postgres through, could not start a ${image} container on this ` +
+  return `Testcontainers, which the tests that need Postgres start it through, could not start a ${image} container on this ` +
     `machine (green's preflight, before any test ran): ${found.cause}. Remedy: ${found.remedy}. This is the machine, ` +
-    "not the code: no role can fix it (ADR 2026-064).";
+    "not the code: no role can fix it (ADR 2026-064, ADR 2026-072).";
 }
 
 // The child: one container through the store tests' own Testcontainers,
@@ -364,6 +345,10 @@ const labels = JSON.parse(process.env.BOUNDED_PREFLIGHT_LABELS);
 const runLabel = process.env.BOUNDED_PREFLIGHT_RUN_LABEL;
 let stage = "runtime";
 let client;
+// Testcontainers logs each line of its own pull's progress under this
+// namespace: forwarded as progress, it re-arms the parent's stall clock.
+const PULL_LOG = "testcontainers:pull";
+process.env.DEBUG = [process.env.DEBUG, PULL_LOG].filter((x) => x).join(",");
 async function sweep() {
   if (client === undefined) return;
   try {
@@ -376,7 +361,24 @@ try {
   const from = createRequire(process.env.BOUNDED_PREFLIGHT_FROM);
   const postgresql = from.resolve("@testcontainers/postgresql");
   const { PostgreSqlContainer } = await import(postgresql);
-  const { getContainerRuntimeClient, ImageName } = await import(createRequire(postgresql).resolve("testcontainers"));
+  const testcontainers = createRequire(postgresql).resolve("testcontainers");
+  try {
+    const debug = createRequire(testcontainers)("debug");
+    const { format } = await import("node:util");
+    const write = debug.log;
+    debug.log = function (...args) {
+      if (this && this.namespace === PULL_LOG) say({ progress: "pull" });
+      else if (typeof write === "function") write.apply(this, args);
+      else process.stderr.write(format(...args) + "\\n");
+    };
+  } catch {}
+  // Under NODE_ENV=test Testcontainers gives each logger its own console.log,
+  // which wins over the shared one above: point the pull logger's at ours too.
+  try {
+    const { pullLog } = createRequire(testcontainers)("./common");
+    if (pullLog && pullLog.logger) pullLog.logger.log = () => say({ progress: "pull" });
+  } catch {}
+  const { getContainerRuntimeClient, ImageName } = await import(testcontainers);
   const image = process.env.BOUNDED_PREFLIGHT_IMAGE;
   client = await getContainerRuntimeClient();
   const modem = client.container.dockerode.modem ?? {};
@@ -401,6 +403,9 @@ try {
 
 export type ChildResult = CommandResult & { readonly timedOut: boolean };
 
+/** runChild's shape: the preflight's one way to spawn its child. */
+export type SpawnChild = typeof runChild;
+
 export interface PreflightDeps {
   /** Run the child; `timeoutFor()` bounds the current stage, re-read after
    *  every line the child prints. */
@@ -412,16 +417,26 @@ export interface PreflightDeps {
   readonly suffix: () => string;
   readonly env: NodeJS.ProcessEnv;
   readonly home: string;
+  /** Milliseconds on the clock the call's budget is measured on: since this
+   *  process started, by default (performance.now()). */
+  readonly now?: () => number;
+  /** The host's command deadline; by default read from `env`
+   *  (BOUNDED_COMMAND_TIMEOUT_MS). Undefined there means none. */
+  readonly deadlineMs?: number;
 }
 
-const STAGE_TIMEOUT: Readonly<Record<PreflightStage, number>> = { runtime: COMMAND_TIMEOUT_MS, pull: PULL_TIMEOUT_MS, start: START_TIMEOUT_MS };
+/** Each stage's own clock (the pull's is a stall clock). */
+const STAGE_TIMEOUT: Readonly<Record<PreflightStage, number>> = { runtime: COMMAND_TIMEOUT_MS, pull: PULL_STALL_MS, start: START_TIMEOUT_MS };
 const NEXT: Readonly<Record<PreflightStage, PreflightStage | undefined>> = { runtime: "pull", pull: "start", start: undefined };
 
-/** The child under `bun -e`, each stage on its own clock. */
-export function preflightChild(env: NodeJS.ProcessEnv, cwd: string, onLine: (line: string) => void, timeoutFor: () => number): Promise<ChildResult> {
+/** The child under `bun -e`; `timeoutFor()` is re-read after every line it
+ *  prints, so a progress line re-arms the current stage's clock. */
+export function preflightChild(
+  env: NodeJS.ProcessEnv, cwd: string, onLine: (line: string) => void, timeoutFor: () => number, spawnChild: SpawnChild = runChild,
+): Promise<ChildResult> {
   return new Promise((resolve) => {
     // runChild gives the overall bound; the per-stage clock is ours.
-    const total = STAGE_TIMEOUT.runtime + STAGE_TIMEOUT.pull + STAGE_TIMEOUT.start;
+    const total = STAGE_TIMEOUT.runtime + PULL_CAP_MS + STAGE_TIMEOUT.start;
     let timedOut = false;
     let buffered = "";
     let timer: NodeJS.Timeout | undefined;
@@ -431,7 +446,7 @@ export function preflightChild(env: NodeJS.ProcessEnv, cwd: string, onLine: (lin
       timer = setTimeout(() => { timedOut = true; kill?.(); }, timeoutFor());
     };
     arm();
-    void runChild("bun", ["-e", CHILD], {
+    void spawnChild("bun", ["-e", CHILD], {
       cwd, env, timeoutMs: total,
       onSpawn: (child) => {
         kill = () => child.kill("SIGKILL");
@@ -503,6 +518,31 @@ export async function preflightTestcontainers(
   let host: string | undefined;
   let done = false;
   let result: ChildResult;
+  // The call's budget (issue #52): each stage's clock fits what is left of
+  // it, and a stage whose minimum no longer fits is refused before it starts.
+  const now = deps.now ?? (() => performance.now());
+  const budget = callBudgetMs(deps.deadlineMs ?? commandTimeoutMs(deps.env));
+  const left = (): number => (budget === undefined ? Number.POSITIVE_INFINITY : budget - now());
+  const tooLate = (at: PreflightStage): boolean => left() < STAGE_MINIMUM_MS[at];
+  const budgetRefusal = (at: PreflightStage): Error => new Error(
+    `this call's time cannot fit starting the test containers (needs at least ${STAGE_MINIMUM_MS[at] / 1000} s for the ${at} stage, ` +
+      `${Math.max(0, Math.floor(left() / 1000))} s left); call the gate again with a longer command timeout`,
+  );
+  if (tooLate("runtime")) throw budgetRefusal("runtime");
+  let stageStarted = now();
+  let overBudget: PreflightStage | undefined;
+  // Whether the timer last armed was the call's budget rather than the
+  // stage's own clock: a kill then means the call ran out of time, which the
+  // calling role fixes with a longer timeout, not the engine failing.
+  let budgetBound = false;
+  const timeoutFor = (): number => {
+    if (overBudget !== undefined) return 0;
+    let clock = STAGE_TIMEOUT[stage];
+    if (stage === "pull") clock = Math.min(clock, PULL_CAP_MS - (now() - stageStarted));
+    const remaining = left();
+    budgetBound = remaining < clock;
+    return Math.max(0, Math.min(clock, remaining));
+  };
   try {
     result = await deps.child(env, project, (line) => {
       let parsed: { done?: unknown; failed?: unknown; error?: unknown; host?: unknown };
@@ -513,9 +553,13 @@ export async function preflightTestcontainers(
       }
       if (typeof parsed.host === "string" && parsed.host !== "") host = parsed.host;
       if (parsed.done === "start") done = true;
-      else if (typeof parsed.done === "string" && parsed.done in NEXT) stage = NEXT[parsed.done as PreflightStage] ?? stage;
+      else if (typeof parsed.done === "string" && parsed.done in NEXT) {
+        stage = NEXT[parsed.done as PreflightStage] ?? stage;
+        stageStarted = now();
+        if (tooLate(stage)) overBudget = stage;
+      }
       if (typeof parsed.failed === "string") failure = typeof parsed.error === "string" ? parsed.error : "";
-    }, () => STAGE_TIMEOUT[stage]);
+    }, timeoutFor);
   } catch (error) {
     result = { status: null, stdout: "", stderr: "", error: error instanceof Error ? error : new Error(String(error)), timedOut: false };
   }
@@ -534,6 +578,11 @@ export async function preflightTestcontainers(
     await deps.sleep(SWEEP_GRACE_MS);
     sweep();
   }
+  if (overBudget !== undefined) throw budgetRefusal(overBudget);
+  if (result.timedOut && budgetBound) {
+    throw new Error(`this call's time ran out during the ${stage} stage of starting the test containers; ` +
+      "call the gate again with a longer command timeout");
+  }
   if (result.status === 0 && done) {
     return {
       description: `Testcontainers preflight: started and removed a ${image} container through the store tests' own Testcontainers`,
@@ -547,7 +596,7 @@ export async function preflightTestcontainers(
   const found = classifyPreflightFailure(text, stage, result.timedOut, {
     image, endpoint: sweepHost, home: deps.home, dockerConfig: readDockerConfig(deps.env, deps.home),
   });
-  throw new Error(preflightRefusal(found, image));
+  throw userRoutedError(preflightRefusal(found, image));
 }
 
 /** Where a store test's `@testcontainers/postgresql` resolves from, or
@@ -574,7 +623,7 @@ export function preflightTargets(storeTests: readonly string[], resolve: (file: 
   return out;
 }
 
-/** The preflight for every distinct Testcontainers the store tests use. */
+/** The preflight for every distinct Testcontainers the given tests use. */
 export async function preflightAllStoreTests(
   project: string, storeTests: readonly string[], endpoint: string, change: EnvChange,
   preflight: (file: string) => Promise<PreparedTestService> = (file) => preflightTestcontainers(project, file, endpoint, DEFAULT_PREFLIGHT_DEPS, { change }),

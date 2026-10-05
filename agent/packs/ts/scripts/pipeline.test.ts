@@ -204,6 +204,10 @@ function generatedProject(packs: readonly string[]): { dir: string; scope: strin
   return { dir, scope: "@notebook" };
 }
 
+/** The persisting project once green passed on it with a container engine. */
+let greenPersisting: string | undefined;
+const ENGINE = probeContainerRuntime();
+
 describe.skipIf(!HAS_BUN)("the pipeline with Postgres persistence", () => {
   test("red skips the store tests without a container runtime; green refuses without one and runs them with one", { timeout: 600_000 }, async () => {
     const { dir, scope } = generatedProject(["ts", "ts-hexagonal", "ts-trpc", "ts-web", "ts-drizzle-postgres"]);
@@ -241,6 +245,7 @@ describe.skipIf(!HAS_BUN)("the pipeline with Postgres persistence", () => {
       const green = await runGreenGate(dir);
       if (runtime.available) {
         expect(green.code, green.lines.join("\n")).toBe(0);
+        greenPersisting = dir;
       } else {
         expect(green.code).toBe(1);
         expect(green.lines.join("\n")).toMatch(/green needs a container runtime: 2 Drizzle store test file\(s\) run against real Postgres/);
@@ -248,6 +253,22 @@ describe.skipIf(!HAS_BUN)("the pipeline with Postgres persistence", () => {
         expect(green.detail).toMatchObject({ reason: "test-policy" });
       }
     });
+  });
+
+  // Issue #52 (ADR 2026-072): the project's own check needs a container
+  // engine and nothing else. The app smoke tests start their own migrated
+  // Postgres, so neither a `.env` file nor an inherited DATABASE_URL (both
+  // pointing at a database nobody started) can reach them.
+  test.skipIf(!ENGINE.available)("the project's own check passes with a container engine alone: a misleading .env and a dead inherited URL are ignored", { timeout: 600_000 }, () => {
+    expect(greenPersisting, "green passed on the persisting project").toBeDefined();
+    const dir = greenPersisting!;
+    const dead = "postgres://nobody@127.0.0.1:1/none";
+    writeFileSync(join(dir, ".env"), `DATABASE_URL=${dead}\n`);
+    const contrib = JSON.parse(readFileSync(join(AGENT, "packs/ts/contrib.json"), "utf8")) as { projectCheckCommands: string[][] };
+    for (const [command, ...args] of contrib.projectCheckCommands) {
+      const run = spawnSync(command!, args, { cwd: dir, encoding: "utf8", env: { ...process.env, DATABASE_URL: dead }, timeout: 540_000 });
+      expect(run.status, `${run.stdout}${run.stderr}`).toBe(0);
+    }
   });
 });
 

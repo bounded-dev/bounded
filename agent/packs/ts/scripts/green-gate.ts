@@ -22,7 +22,9 @@
 // the phase test policies (ADR 2026-064) refuse before the suite runs when
 // store tests exist and no container runtime answers; the variables that
 // would let a store test skip itself are removed from the test process.
-// Green also checks the green-only test obligations: an app's smoke test.
+// Green also checks the green-only test obligations (an app's smoke test),
+// before anything runs (issue #52). What only the user can clear (the
+// container engine) routes to the user in product terms (ADR 2026-072).
 //
 // GREEN IS BOUND TO A RED. Before running anything, the gate requires a
 // red-gate pass that is still standing: recorded after the last contract
@@ -465,19 +467,26 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
   const binding = redBindingFor(readGuardLog(cwd), hash);
   if (!binding.ok) return blockAndLog(cwd, refusal(binding.reason));
 
+  // The green-only obligations are static: checked before anything starts,
+  // so a smoke test that would reach for a database it did not start never
+  // runs at all (issue #52).
+  const obligations = greenObligations(cwd);
+  if (obligations !== undefined) return blockAndLog(cwd, obligations);
+
   // Store tests need a container runtime at green (ADR 2026-064): refuse
   // rather than run a suite whose store tests cannot start.
   const policy = options.policy ?? phaseRun(cwd, "green");
   if (policy.refusals.length > 0) {
+    const route = policy.refusalRoute ?? "orchestrator";
     return blockAndLog(cwd, {
       code: 1,
       verdict: "block",
       summary: "a test level cannot run on this machine",
       lines: [
         ...policy.refusals.map((reason) => `green-gate: FAIL — ${reason}`),
-        "green-gate: route → orchestrator",
+        `green-gate: route → ${route}`,
       ],
-      detail: { reason: "test-policy", refusals: policy.refusals, route: "orchestrator" },
+      detail: { reason: "test-policy", refusals: policy.refusals, route },
     });
   }
 
@@ -487,26 +496,28 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
   } catch {
     roots = [];
   }
-  // A policy may start what the run needs (ts-drizzle-postgres: a throwaway
-  // Postgres for the app smoke tests' DATABASE_URL); it is released after.
+  // A policy may start what the run needs (ts-drizzle-postgres: a
+  // Testcontainers preflight); it is released after.
   const prepared = await withPreparedServices(policy, (env) => Promise.all([
     runTests(cwd, { ...gateOptionsFromEnv(), env, timeoutMs: GATE_SUITE_TIMEOUT_MS }),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
     lintSrc(cwd),
   ]));
   if (!prepared.ok) {
+    const route = prepared.route ?? "orchestrator";
     return blockAndLog(cwd, {
       code: 1,
       verdict: "block",
       summary: "a service the test run needs could not start",
-      lines: [`green-gate: FAIL — ${prepared.reason}`, "green-gate: route → orchestrator"],
-      detail: { reason: "test-policy", refusals: [prepared.reason], route: "orchestrator" },
+      lines: [`green-gate: FAIL — ${prepared.reason}`, `green-gate: route → ${route}`],
+      detail: { reason: "test-policy", refusals: [prepared.reason], route },
     });
   }
   const [run, tsc, lint] = prepared.value;
   // Failures a policy recognises as the machine's (a container start that
   // could not pull, authenticate or reach the runtime). Only when EVERY
-  // failure is the machine's does the run go to the orchestrator: one such
+  // failure is the machine's does the run go to the user, whose machine it
+  // is (ADR 2026-072): one such
   // failure must never hide a real one, so on a mix the verdict stays the
   // code's and the machine's causes ride along as a note.
   const infrastructure = policy.infrastructure([
@@ -524,9 +535,9 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
         ...prepared.lines.map((line) => `green-gate: ${line}`),
         `green-gate: FAIL — every failure is the machine's, not the code's; no role can fix ${n === 1 ? "it" : "them"}`,
         ...infrastructure.causes.map((cause) => `  ${cause}`),
-        "green-gate: route → orchestrator",
+        "green-gate: route → user",
       ],
-      detail: { reason: "infrastructure", causes: infrastructure.causes, route: "orchestrator" },
+      detail: { reason: "infrastructure", causes: infrastructure.causes, route: "user" },
     });
   }
   // Surface check is synchronous ts-morph work; a code-2 (no contracts, or a
@@ -548,16 +559,14 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
     skeletons,
     projectOwnerOf(cwd),
   );
-  const obliged = base.code === 0 ? withGreenObligations(cwd, base) : base;
-
   // Reroute a repeat. classifyGreen stays pure — the history lives in the guard
   // log, which is where every other convergence check already reads from.
-  const names = (obliged.detail as { names?: unknown }).names;
+  const names = (base.detail as { names?: unknown }).names;
   const failing = Array.isArray(names) ? names.filter((n): n is string => typeof n === "string") : [];
   const result =
-    obliged.verdict === "block" && failing.length > 0 && (obliged.detail as { reason?: unknown }).reason === "failures"
-      ? rerouteIfRepeated(obliged, failing, priorGreenFailures(cwd))
-      : obliged;
+    base.verdict === "block" && failing.length > 0 && (base.detail as { reason?: unknown }).reason === "failures"
+      ? rerouteIfRepeated(base, failing, priorGreenFailures(cwd))
+      : base;
 
   const noted = infrastructure.causes.length === 0 ? result : withInfrastructureNote(result, infrastructure.causes);
   const reported = prepared.lines.length === 0 ? noted : { ...noted, lines: [...prepared.lines.map((line) => `green-gate: ${line}`), ...noted.lines] };
@@ -570,7 +579,7 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
 function withInfrastructureNote(base: GateResult, causes: readonly string[]): GateResult {
   const note = [
     `${GUARD}: note — ${causes.length === 1 ? "one failure looks" : `${causes.length} failures look`} like the machine's, not the code's; ` +
-      "the others are the code's, so the route stands. If the machine's persists, the orchestrator should fix it:",
+      "the others are the code's, so the route stands. If the machine's persists, it is the user's to fix, in product terms:",
     ...causes.map((cause) => `  suspected infrastructure: ${cause}`),
   ];
   const at = base.lines.findIndex((line) => line.startsWith(`${GUARD}: route →`));
@@ -578,23 +587,24 @@ function withInfrastructureNote(base: GateResult, causes: readonly string[]): Ga
   return { ...base, lines, detail: { ...(base.detail as Record<string, unknown>), suspectedInfrastructure: causes } };
 }
 
-/** The green-only test obligations (an app's smoke test, ADR 2026-063). */
-function withGreenObligations(cwd: string, base: GateResult): GateResult {
+/** The green-only test obligations (an app's smoke test, ADR 2026-063; its
+ *  own database, ADR 2026-072): a block before anything runs, or undefined. */
+export function greenObligations(cwd: string, guard = GUARD): GateResult | undefined {
   let gaps;
   try {
     gaps = checkObligations(readObligationInput(cwd, projectFactsOf(cwd, "deliver"), "green"));
   } catch (error) {
     gaps = [{ level: "obligations", message: `the obligations could not be read: ${error instanceof Error ? error.message : String(error)}` }];
   }
-  if (gaps.length === 0) return base;
+  if (gaps.length === 0) return undefined;
   return {
     code: 1,
     verdict: "block",
     summary: `${gaps.length} green test obligation${gaps.length === 1 ? "" : "s"} unmet (route: test-writer)`,
     lines: [
-      `green-gate: FAIL — the suite passes but ${gaps.length} test obligation${gaps.length === 1 ? " is" : "s are"} unmet`,
+      `${guard}: FAIL — ${gaps.length} green test obligation${gaps.length === 1 ? " is" : "s are"} unmet; nothing was run`,
       ...obligationLines(gaps),
-      "green-gate: route → test-writer",
+      `${guard}: route → test-writer`,
     ],
     detail: { reason: "obligations", gaps: gaps.map((g) => ({ level: g.level, path: g.path, message: g.message })), route: "test-writer" },
   };
