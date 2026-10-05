@@ -187,6 +187,19 @@ const SET_STATUSES = [
   "}",
 ].join("\n");
 
+/**
+ * GitHub access is missing: the GitHub command-line tool is not installed or
+ * not signed in. Signing in is the one GitHub step reserved for the user
+ * (USER_RECOVERY_COMMANDS, ADR 2026-072): it needs the user's own
+ * credentials, which the harness never holds.
+ */
+export function gitHubSignInError(): TrackerError {
+  return new TrackerError(
+    "GitHub is required, and GitHub access is missing: the GitHub command-line tool is not installed or not signed in. " +
+      "Signing in is the user's own step, `gh auth login`, because it needs their own GitHub credentials, which the harness never holds",
+  );
+}
+
 export function resolveGitHubAtInit(
   target: string,
   projectRef: string | undefined,
@@ -194,7 +207,7 @@ export function resolveGitHubAtInit(
   init: { readonly createStatuses?: boolean } = {},
 ): { readonly kind: string } & GitHubSettings {
   if (run(["auth", "status"]).status !== 0) {
-    throw new TrackerError("GitHub is required: `gh` is not installed or not authenticated — run `gh auth login`");
+    throw gitHubSignInError();
   }
   const repoRun = run(["repo", "view", "--json", "nameWithOwner,owner"], target);
   if (repoRun.status !== 0) {

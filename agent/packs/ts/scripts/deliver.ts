@@ -521,9 +521,14 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
     // database through the generated support, which overrides any inherited
     // or .env DATABASE_URL (ADR 2026-072).
     const policy = options.policy ?? phaseRun(cwd, "green");
+    // Routed to the user, the line names no command, not even the check's
+    // own (ADR 2026-072).
+    const cannotRun = (why: string, route: string): string => route === "user"
+      ? `the project's check can't run because ${why}`
+      : `the project's own \`bun run check\` cannot run here: ${why}`;
     if (policy.refusals.length > 0) {
-      const result = block("check", `the project's own \`bun run check\` cannot run here: ${policy.refusals.join("; ")}`, { reason: "test-policy" },
-        policy.refusalRoute ?? "orchestrator");
+      const route = policy.refusalRoute ?? "orchestrator";
+      const result = block("check", cannotRun(policy.refusals.join("; "), route), { reason: "test-policy" }, route);
       return { ...result, lines };
     }
     const prepared = await withPreparedServices(policy, async (env) => {
@@ -533,8 +538,8 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
       return run(BUN, ["run", "check"], cwd, childEnv);
     });
     if (!prepared.ok) {
-      const result = block("check", `the project's own \`bun run check\` cannot run here: ${prepared.reason}`, { reason: "test-policy" },
-        prepared.route ?? "orchestrator");
+      const route = prepared.route ?? "orchestrator";
+      const result = block("check", cannotRun(prepared.reason, route), { reason: "test-policy" }, route);
       return { ...result, lines };
     }
     for (const line of prepared.lines) lines.push(`deliver: check — ${line}`);

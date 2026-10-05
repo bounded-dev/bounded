@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { configDriftBlock, configDriftReason } from "../packs/ts/scripts/project-config.ts";
-import { constantStrings, harnessSources, stringTexts, userCommandViolations } from "../test/fixtures/user-steps.ts";
+import { commandsIn, constantStrings, harnessSources, stringTexts, userCommandViolations } from "../test/fixtures/user-steps.ts";
+import { gitHubSignInError } from "../trackers/github.ts";
+import { trackerRefusal } from "./tracker.ts";
 
 // "A project's user never runs harness steps" (AGENTS.md; ADR 2026-072), held
 // over what the harness itself says: the refusals routed to a person, and
@@ -61,6 +63,46 @@ describe("refusals routed to a person name no command for the user (issue #52)",
     // A sentence split across literals is read whole.
     const split = stringTexts("x.ts", 'const a = "tell the user " + "to run `git pull` first";\n').flatMap((t) => userCommandViolations("x.ts", t));
     expect(split.map((v) => v.command)).toEqual(["git pull"]);
+  });
+
+  // Final review of #52, major 2 and minor 4: the detector reads composed
+  // messages whole, every line of an output routed to the user, the
+  // harness's own command shapes, and a sentence pointing back at the user.
+  test("the detector reads what it used to miss", () => {
+    expect(userCommandViolations("x", "the check failed — route → user\n  fix: `bun run check` in the project", () => false, true).map((v) => v.command))
+      .toEqual(["bun run check"]);
+    expect(commandsIn("the user restores it with `.bounded/harness/scripts/bounded sync-config`").length).toBe(1);
+    expect(commandsIn("the user restores it with `sync-config`")).toEqual(["sync-config"]);
+    expect(commandsIn("the user reruns `green_gate` once it is up")).toEqual(["green_gate"]);
+    expect(userCommandViolations("x", "Tell the user the config drifted. They restore it with `sync-config`.").map((v) => v.command))
+      .toEqual(["sync-config"]);
+    expect(commandsIn("the user may run `bounded lead release 4 --force`")).toEqual([]);
+  });
+
+  test("a tracker refusal for missing GitHub sign-in names only the reserved sign-in, and why", () => {
+    const refusal = trackerRefusal(gitHubSignInError());
+    expect(refusal).toMatch(/route → user/);
+    expect(userCommandViolations("trackerRefusal", refusal, () => false, true)).toEqual([]);
+    expect(refusal).toContain("gh auth login");
+    expect(refusal).toMatch(/credentials/);
+  });
+
+  test("every source string routed to the user names no command, every line read as the user's", () => {
+    const sources = harnessSources(agent);
+    const constants = constantStrings(sources);
+    const violations = sources.flatMap(({ path, source }) => stringTexts(path, source, constants)
+      .filter((text) => /route → user/.test(text))
+      .flatMap((text) => userCommandViolations(path, text, namesGenerationAsGap, true)));
+    expect(violations).toEqual([]);
+  });
+
+  test("the reserved GitHub sign-in names its why wherever the user is sent to it", () => {
+    const sources = harnessSources(agent);
+    const constants = constantStrings(sources);
+    const named = sources.flatMap(({ path, source }) => stringTexts(path, source, constants)
+      .filter((text) => text.includes("gh auth login") && /\buser\b/i.test(text)).map((text) => ({ path, text })));
+    expect(named.length).toBeGreaterThan(0);
+    for (const { path, text } of named) expect(text, path).toMatch(/credentials/);
   });
 
   test("every reserved command named for the user says why", () => {

@@ -9,6 +9,7 @@ import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { checkSummaryLine, runDeliver, SURFACE_SCRIPT } from "./deliver.ts";
 import type { CommandOutcome, CommandRun } from "./deliver.ts";
 import { emitProject, projectFactsOf } from "./project-emitters.ts";
+import { userCommandViolations } from "../../../test/fixtures/user-steps.ts";
 import { writeEmittedFiles } from "./scaffold-project.ts";
 
 // Delivery on the hexagonal monorepo (TN-26-012). Every fixture is a small
@@ -457,6 +458,19 @@ describe("runDeliver: the project's own check runs under the green policies", ()
     expect(bun.calls.some((c) => c.args[0] === "run")).toBe(false);
     const blocked = readGuardLog(dir).filter((e) => e.guard === "deliver" && e.verdict === "block").at(-1);
     expect(blocked?.detail).toMatchObject({ step: "check", route: "user" });
+  });
+
+  // Final review of #52, major 2: an output routed to the user names no
+  // command on any line, not even the project's own check.
+  test("a refusal routed to the user names no command on any line", async () => {
+    const dir = proj();
+    const r = await runDeliver(dir, {
+      surfaceCheckSource: surfaceStub(), run: fakeBun().run,
+      policy: { refusals: ["the container engine is not responding: restart it"], refusalRoute: "user", env: { set: {}, unset: [] }, prepares: [] },
+    });
+    expect(r.lines).toContain("deliver: route → user");
+    expect(userCommandViolations("deliver", r.lines.join("\n"), () => false, true)).toEqual([]);
+    expect(text(r.lines)).toMatch(/the project's check can't run because the container engine is not responding/);
   });
 });
 

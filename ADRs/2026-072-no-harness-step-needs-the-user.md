@@ -69,9 +69,12 @@ refusals now say "escalate to the team lead".
 undoes to the fast-forwarded commit. A diverged `main` is refused in product
 terms (follow-up #55).
 
-**One reserved recovery command.** `USER_RECOVERY_COMMANDS` in
-`lead-policy.ts` is `["bounded lead release"]`; every message naming it says
-why (the harness cannot prove a seat's session is gone).
+**Two reserved recovery commands.** `USER_RECOVERY_COMMANDS` in
+`lead-policy.ts` is `["bounded lead release", "gh auth login"]`; every
+message naming one says why: the harness cannot prove a seat's session is
+gone, and signing in to GitHub needs the user's own credentials, which the
+harness never holds. Every line of an output routed to the user (`route →
+user`), the composed message included, names no other command.
 
 **Two named, temporary exceptions**, each saying so: the team lead's "Release
 a dependency" section (#54), and naming `db:generate` for an ambiguous schema

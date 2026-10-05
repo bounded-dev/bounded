@@ -3,24 +3,40 @@
 // (src/user-steps-drift.test.ts) and the refusal test over the harness's own
 // source strings (src/user-refusals.test.ts).
 //
-// A sentence addresses the user when it says "user". In such a sentence, a
-// command is:
+// A sentence addresses the user when it says "user", or when it follows one
+// that does and refers back with "they", "them" or "their". Read `strict`,
+// every line of an output routed to the user (`route → user`) addresses the
+// user, whatever it says. In such a sentence, a command is:
 //
 //   · a backticked span that starts with `!`, or whose first token is a
 //     lowercase word (not a label ending in a colon) followed by at least one
 //     more token (`bun run check`);
-//   · unbackticked text that starts a shell escape (`! bun …`) or names a
-//     common command-line tool followed by a lowercase word (`git pull`).
+//   · a backticked path to a program followed by more
+//     (`.bounded/harness/scripts/bounded sync-config`);
+//   · a backticked single word that is one of the harness's own command
+//     names (`sync-config`, `green_gate`, `red-gate`);
+//   · unbackticked text that starts a shell escape (`! bun …`), names a
+//     common command-line tool followed by a lowercase word (`git pull`), or
+//     a path to a program followed by more.
 //
 // A command that starts with one of the harness's reserved recovery commands
 // is allowed: those are the user's by design, and the harness says why.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
+import { gates } from "../../packs/ts/gates.ts";
+import { LEAD_COMMANDS } from "../../src/lead-commands.ts";
+import { GATE_TOOLS } from "../../src/path-policy.ts";
 
 /** The reserved recovery commands, as the drift test spells them. It must
  *  equal the core's `USER_RECOVERY_COMMANDS`. */
-export const RESERVED: readonly string[] = ["bounded lead release"];
+export const RESERVED: readonly string[] = ["bounded lead release", "gh auth login"];
+
+/** The harness's own command names that are one word: a lead command, a
+ *  gate, or a gate tool, when the name cannot be an ordinary word. */
+export const HARNESS_WORDS: ReadonlySet<string> = new Set(
+  [...LEAD_COMMANDS.map((c) => c.name), ...gates.map((g) => g.name), ...GATE_TOOLS].filter((name) => /^[a-z]+(?:[-_][a-z]+)+$/.test(name)),
+);
 
 export interface Violation {
   readonly where: string;
@@ -29,7 +45,10 @@ export interface Violation {
 }
 
 const ADDRESSES_USER = /\buser\b/i;
-const TOOL = /(^|[\s("'])(!\s?[a-z]|(bounded|bash|bun|bunx|npm|npx|git|gh|docker)\s+[a-z:-]+)/;
+const TOOL = /(^|[\s("'])(!\s?[a-z]|(bounded|bash|bun|bunx|npm|npx|git|gh|docker)\s+[a-z:-]+|(?:\.{1,2}\/|\/|\.bounded\/)(?:[\w.-]+\/)*[\w-]+\s+[a-z][a-z:-]*)/;
+/** A path to a program, then more: `.bounded/harness/scripts/bounded sync-config`. */
+const PATH_COMMAND = /^(?:\.{1,2}\/|\/|\.bounded\/)(?:[\w.-]+\/)*[\w-]+\s+\S/;
+const POINTS_BACK = /\b(they|them|their)\b/i;
 
 /** Prose split into sentences: paragraph and list-item breaks, table rows,
  *  headings, code fences, and sentence ends before a capital, a backtick or
@@ -72,14 +91,15 @@ export function sentences(text: string): string[] {
 
 const reserved = (command: string): boolean => RESERVED.some((entry) => command === entry || command.startsWith(`${entry} `));
 
-/** The commands a sentence addressing the user names (reserved ones excepted). */
-export function commandsIn(sentence: string): string[] {
-  if (!ADDRESSES_USER.test(sentence)) return [];
+/** The commands a sentence addressing the user names (reserved ones
+ *  excepted). `addressed` overrides whether it addresses the user. */
+export function commandsIn(sentence: string, addressed = ADDRESSES_USER.test(sentence)): string[] {
+  if (!addressed) return [];
   const out: string[] = [];
   for (const match of sentence.matchAll(/`([^`]+)`/g)) {
     const span = match[1]!.trim();
     // A first token ending in a colon is a label (`declined: true`), not a command.
-    if (span.startsWith("!") || /^[a-z][a-z0-9_.-]*(?::[a-z0-9_.-]+)*\s+\S/.test(span)) {
+    if (span.startsWith("!") || /^[a-z][a-z0-9_.-]*(?::[a-z0-9_.-]+)*\s+\S/.test(span) || PATH_COMMAND.test(span) || HARNESS_WORDS.has(span)) {
       if (!reserved(span)) out.push(span);
     }
   }
@@ -93,11 +113,21 @@ export function commandsIn(sentence: string): string[] {
   return out;
 }
 
-/** Every command named to the user in `text`, sentence by sentence. */
-export function userCommandViolations(where: string, text: string, exempt: (sentence: string) => boolean = () => false): Violation[] {
-  return sentences(text)
-    .filter((sentence) => !exempt(sentence))
-    .flatMap((sentence) => commandsIn(sentence).map((command) => ({ where, sentence, command })));
+/** Every command named to the user in `text`, sentence by sentence. With
+ *  `strict` (an output routed to the user: `route → user`), every sentence
+ *  addresses the user. */
+export function userCommandViolations(
+  where: string, text: string, exempt: (sentence: string) => boolean = () => false, strict = false,
+): Violation[] {
+  const out: Violation[] = [];
+  let previous = false;
+  for (const sentence of sentences(text)) {
+    const addressed = strict || ADDRESSES_USER.test(sentence) || (previous && POINTS_BACK.test(sentence));
+    previous = ADDRESSES_USER.test(sentence) || strict;
+    if (exempt(sentence)) continue;
+    for (const command of commandsIn(sentence, addressed)) out.push({ where, sentence, command });
+  }
+  return out;
 }
 
 /** Markdown with one section (by its exact heading line) removed. */

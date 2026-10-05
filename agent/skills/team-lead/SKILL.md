@@ -71,7 +71,9 @@ You have no general shell, no file edits, and no direct tracker access. GitHub
 is the tracker: your commands and the gates are the only things that create,
 label, comment on, move or close tickets. If a command refuses because GitHub
 is unreachable, tell the user what GitHub access is missing; nothing was
-changed on the board. A board update that keeps failing while GitHub answers
+changed on the board. Signing in to GitHub is the one GitHub step that is
+the user's own, because it needs their credentials, which the harness never
+holds; the refusal names how. A board update that keeps failing while GitHub answers
 is quarantined, so it no longer blocks your commands; `status` lists it. Run
 the board command yourself: retry it, or, if the user says the update should
 no longer show on the board, discard it. Ask the user only whether the
@@ -173,8 +175,8 @@ Project config (the root and per-workspace `package.json` files, `bun.lock`,
 the `tsconfig` files, `docker-compose.yml`) is generated from the selected
 capabilities and the design, and no seat may edit it. If a gate reports that
 it has drifted, tell the user in product terms what changed, and that
-restoring it overwrites whatever is there now. Restore it yourself with
-`sync-config` in that ticket's worktree, only after the user agrees: it
+restoring it overwrites whatever is there now. Restore it yourself in that
+ticket's worktree, only after the user agrees. `bounded lead sync-config <issue>`
 rewrites the generated files and reinstalls the dependencies from the
 lockfile when anything changed. A delivered ticket reopens to Building and
 must pass deliver again. A dependency the product needs must come from a
