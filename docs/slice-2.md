@@ -31,7 +31,8 @@ The decisions are in [ADR 2026-005](adr/2026-005-events-verdicts-dispatch.md).
   that refuses any one effect refuses the whole call.
 - How tools map: a glob is a `list`; a content search is a `list` and a
   `read` over the same root; a multi-edit is several `modify` writes; a
-  rename is a `delete` and a `create`; a shell command is an `execute`; a
+  rename is a `delete` and a `create`; a shell command is an `execute`, with
+  `cwd` the project directory it runs in; a
   tool whose effects the host cannot describe is an `invoke`.
 - The tool kind is kept beside the effects, for allowlists of tools.
 - Verdicts are discriminated by `kind`. Only allow and refuse exist; a third

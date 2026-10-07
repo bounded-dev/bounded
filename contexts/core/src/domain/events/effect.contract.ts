@@ -27,6 +27,8 @@ export interface WriteEffect {
 export interface ExecuteEffect {
   readonly kind: "execute";
   readonly command: string;
+  /** The project directory the command runs in, when the host says; adapters refuse a directory outside the project. */
+  readonly cwd: ProjectPath | null;
 }
 
 /** Reaches the network. */

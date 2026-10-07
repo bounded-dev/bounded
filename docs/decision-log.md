@@ -29,7 +29,8 @@ One JSON object per decision, plain and serialisable:
 ```
 
 Every decision has an `id`. An allowed decision's verdict is `{ "kind": "allow" }`. A session start has
-`tool: null` and no effects. `pack` and `effect` are null when no pack's guard
+`tool: null` and no effects. A command's description includes the directory
+it runs in, when the host gave one ("execute `make` in apps/web"). `pack` and `effect` are null when no pack's guard
 refused (for example, when the core pack is not selected); `effect` is null
 for a whole-call refusal.
 

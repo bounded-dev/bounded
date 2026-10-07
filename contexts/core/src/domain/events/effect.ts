@@ -11,7 +11,7 @@ const SHAPES = {
   read: { fields: ["path"], optional: [], form: "A read effect is { kind, path }" },
   list: { fields: ["root"], optional: ["filter"], form: "A list effect is { kind, root, filter? }" },
   write: { fields: ["path", "change"], optional: [], form: "A write effect is { kind, path, change }" },
-  execute: { fields: ["command"], optional: [], form: "An execute effect is { kind, command }" },
+  execute: { fields: ["command"], optional: ["cwd"], form: "An execute effect is { kind, command, cwd? }" },
   fetch: { fields: ["url"], optional: [], form: "A fetch effect is { kind, url }" },
   delegate: { fields: ["agent"], optional: [], form: "A delegate effect is { kind, agent }" },
   invoke: { fields: ["name"], optional: [], form: "An invoke effect is { kind, name }" },
@@ -52,7 +52,10 @@ function check(raw: unknown): Result<Contract.Effect> {
       if (typeof command !== "string" || command.trim() === "") return refuse("An execute effect must name the command it runs");
       if (command.includes("\0")) return refuse("A command must not contain a NUL character");
       if (control(command, "\t\n\r")) return refuse("A command must not contain control characters other than tab and line breaks");
-      return made({ kind, command });
+      const rawCwd = own(raw, "cwd") ?? null;
+      if (rawCwd === null) return made({ kind, command, cwd: null });
+      const cwd = ProjectPath.parse(rawCwd);
+      return cwd.ok ? made({ kind, command, cwd: cwd.value }) : cwd;
     }
     case "fetch": {
       const url = own(raw, "url");
@@ -90,7 +93,7 @@ export function describeEffect(effect: Contract.Effect): string {
     case "write":
       return `write (${effect.change}) ${effect.path}`;
     case "execute":
-      return `execute \`${effect.command}\``;
+      return effect.cwd === null ? `execute \`${effect.command}\`` : `execute \`${effect.command}\` in ${effect.cwd}`;
     case "fetch":
       return `fetch ${effect.url}`;
     case "delegate":
