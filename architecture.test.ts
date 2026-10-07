@@ -56,6 +56,46 @@ function importsOf(path: string, text: string): { spec: string; line: number; ty
   return out;
 }
 
+/**
+ * Every packIdsFor(...) (or PackId.forPackage(...)) call in a workspace's
+ * source names that workspace's npm package, so a pack's id always starts
+ * with the package it ships in (ADR 2026-004). Tests and fixtures build
+ * packs of imaginary packages and are exempt.
+ */
+const CORE = "bounded";
+
+/**
+ * It guards against mistakes, not deliberate bypass: an alias of the
+ * factory, PackId.parse outside the core and casts are flagged where they
+ * can be seen, but code determined to forge an id can still do so.
+ */
+function packIdViolations(path: string, text: string, packageName: string): string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const at = (node: ts.Node) => `${path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1}`;
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportSpecifier(node) && node.propertyName?.text === "packIdsFor") {
+      out.push(`${at(node)} — import packIdsFor under its own name, so this rule can see every call`);
+    }
+    if (ts.isCallExpression(node) && packageName !== CORE && ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) && node.expression.expression.text === "PackId" && node.expression.name.text === "parse") {
+      out.push(`${at(node)} — PackId.parse is the core's; build this workspace's ids with packIdsFor("${packageName}")`);
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const named = (ts.isIdentifier(callee) && callee.text === "packIdsFor") || (ts.isPropertyAccessExpression(callee) && callee.name.text === "forPackage");
+      const argument = node.arguments[0];
+      if (named && !(argument !== undefined && ts.isStringLiteral(argument) && argument.text === packageName)) {
+        const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
+        out.push(`${path}:${line} — pack ids in this workspace come from packIdsFor("${packageName}"), the name in its package.json`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+}
+
 const violations: string[] = [];
 const files = [...new Glob("contexts/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
 for (const path of files) {
@@ -69,6 +109,7 @@ for (const path of files) {
   }
   const text = await Bun.file(`${ROOT}/${path}`).text();
   const pure = (layer === "domain" || layer === "application") && !isTest;
+  if (!isTest) violations.push(...packIdViolations(path, text, context.name));
   if (pure && /\b(Bun|process|fetch|require)\s*[.(]/.test(text)) violations.push(`${path} — ${layer} code does no I/O`);
   for (const { spec, line, typeOnly } of importsOf(path, text)) {
     const at = `${path}:${line} imports "${spec}"`;
@@ -91,7 +132,11 @@ for (const path of files) {
       else if (target === context && layer === "domain") violations.push(`${at} — domain files import each other by relative path`);
       continue;
     }
-    if (spec === "<computed>") violations.push(`${at} — an import with a computed specifier cannot be checked`);
+    // Only an out adapter may load code chosen at run time (a project's
+    // configuration file, ADR 2026-010); anywhere else it cannot be checked.
+    if (spec === "<computed>") {
+      if (!rest.join("/").startsWith("adapters/out/")) violations.push(`${at} — an import with a computed specifier cannot be checked; only an out adapter may load code at run time`);
+    }
     else if (pure && !typeOnly && spec !== "zod") violations.push(`${at} — ${layer} code uses no library but zod${IO_MODULES.test(spec) ? " and does no I/O" : ""}`);
   }
 }
@@ -149,7 +194,7 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/in-memory", "./application", "./domain"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./open-project"]);
   });
 
   test("every export path points at a file that exists", async () => {
@@ -160,6 +205,21 @@ describe("architecture", () => {
 
   test("the scan reads source files", () => {
     expect(files.length).toBeGreaterThan(0);
+  });
+
+  test("the pack-id rule flags a call that does not name the workspace's package", () => {
+    expect(packIdViolations("a.ts", 'packIdsFor("bounded")("core");', "bounded")).toEqual([]);
+    expect(packIdViolations("a.ts", 'packIdsFor("other")("core");', "bounded")).toEqual([
+      'a.ts:1 — pack ids in this workspace come from packIdsFor("bounded"), the name in its package.json',
+    ]);
+    expect(packIdViolations("a.ts", "const p = PackId.forPackage(name);", "bounded")).toHaveLength(1);
+    expect(packIdViolations("a.ts", 'import { packIdsFor as ids } from "bounded/domain";', "my-pack")).toEqual([
+      "a.ts:1 — import packIdsFor under its own name, so this rule can see every call",
+    ]);
+    expect(packIdViolations("a.ts", 'const id = PackId.parse("bounded/core");', "my-pack")).toEqual([
+      'a.ts:1 — PackId.parse is the core\'s; build this workspace\'s ids with packIdsFor("my-pack")',
+    ]);
+    expect(packIdViolations("a.ts", 'const id = PackId.parse("bounded/core");', "bounded")).toEqual([]);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {

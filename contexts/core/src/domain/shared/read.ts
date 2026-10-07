@@ -5,10 +5,10 @@ export function own(raw: object, key: string): unknown {
   return Object.hasOwn(raw, key) ? (raw as Record<string, unknown>)[key] : undefined;
 }
 
-/** Text for any value, even one whose toString throws. */
+/** Text for any value, even an error whose message is not text, or one whose toString throws. */
 export function show(value: unknown): string {
   try {
-    return value instanceof Error ? value.message : String(value);
+    return String(value instanceof Error ? (value.message as unknown) : value);
   } catch {
     return "a value that cannot be printed";
   }

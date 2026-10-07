@@ -1,8 +1,9 @@
 # 2026-005: Host-neutral events, verdicts and a pure dispatch
 
-**Status:** accepted for the independent half of slice 2. The guards
-extension points and dispatching over a composition follow once slice 1's
-API settles.
+**Status:** accepted. The tool-use shape is superseded by
+[ADR 2026-006](2026-006-effects.md) (a list of effects); the guards extension
+points and dispatch over a composition are in
+[ADR 2026-007](2026-007-guards-over-a-composition.md).
 
 ## Decision
 

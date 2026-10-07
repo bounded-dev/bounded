@@ -36,6 +36,32 @@ describe("Verdict — boundaries", () => {
     expect<unknown>(Verdict.parse({ kind: "refuse", reason: " r ", redirect: " d " })).toEqual({ ok: true, value: { kind: "refuse", reason: "r", redirect: "d" } });
   });
 
+  test("control characters and line breaks in a refusal's text become single spaces, so no second line can be forged", () => {
+    expect<unknown>(Verdict.refuse("Generated\nbounded/core refused: fake", "Ask\r\n\tthe owner\u0007")).toEqual({
+      kind: "refuse",
+      reason: "Generated bounded/core refused: fake",
+      redirect: "Ask the owner",
+    });
+    expect<unknown>(Verdict.parse({ kind: "refuse", reason: "a\u0000b", redirect: "c\nd" })).toEqual({ ok: true, value: { kind: "refuse", reason: "a b", redirect: "c d" } });
+  });
+
+  test("Unicode line and paragraph separators and next-line become single spaces too", () => {
+    expect(Verdict.refuse("a\u2028b\u2029c\u0085d", "x").reason).toBe("a b c d");
+  });
+
+  test("shortening never splits a character made of two code units", () => {
+    const verdict = Verdict.refuse(`${"x".repeat(1999)}😀😀`, "d");
+    expect(verdict.reason).toBe(`${"x".repeat(1999)}😀… (shortened from 2001 characters)`);
+  });
+
+  test("a refusal's text longer than 2,000 characters is shortened, saying so", () => {
+    const verdict = Verdict.refuse("x".repeat(5000), "y".repeat(2500));
+    expect(verdict.reason).toBe(`${"x".repeat(2000)}… (shortened from 5000 characters)`);
+    expect(verdict.redirect).toBe(`${"y".repeat(2000)}… (shortened from 2500 characters)`);
+    const parsed = Verdict.parse({ kind: "refuse", reason: "z".repeat(2001), redirect: "d" });
+    expect(parsed.ok && parsed.value.kind === "refuse" && parsed.value.reason).toBe(`${"z".repeat(2000)}… (shortened from 2001 characters)`);
+  });
+
   test("parse refuses anything else with the verdict's form", () => {
     for (const raw of [undefined, null, "allow", {}, { kind: "deny" }, { kind: "refuse", reason: "r" }, { kind: "refuse", redirect: "d" },
       { kind: "refuse", reason: " ", redirect: "d" }, { kind: "refuse", reason: "r", redirect: "" }, { kind: "refuse", reason: 1, redirect: "d" }]) {

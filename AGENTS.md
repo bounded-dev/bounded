@@ -28,6 +28,9 @@ Bun is the runtime, package manager and test runner.
 Every non-trivial change follows [the development lifecycle](docs/development-workflow.md)
 (ADR 2026-001): plan, plan review, red commit, build, final review, report.
 
+- **Superseded tests are recorded.** A design change that replaces a test an
+  earlier red commit owns records it in `superseded-tests.json` (successor
+  and reason), in the red commit of that change.
 - **Red first, never weakened.** Commit the failing tests alone before
   implementing: test files, `*.test-support.ts` conformance suites and
   fixtures only. Before review, run
@@ -46,7 +49,7 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 
 ```
 contexts/
-  core/          @bounded/core       the mechanism (spec Parts 1 and 2; slice 1 so far)
+  core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
 apps/
   claude-code/   bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
 architecture.test.ts                 the layer and dependency rules, as a test
@@ -75,7 +78,8 @@ src/
     index.ts              the application barrel
   adapters/in/<tech>/     driving adapters: depend on in ports, never handlers
   adapters/out/<tech>/    driven adapters: implement out ports; each runs its port's conformance suite
-  pack/                   reserved: the context's pack, its composition root
+  pack/                   the context's composition root: openProject, which host adapters call (ADR 2026-010)
+  packs/                  packs the core ships, each in its own folder (the path gate, when merged)
 ```
 
 Rules, enforced by `architecture.test.ts` unless stated:
@@ -84,7 +88,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   Adapters never import other adapters' technologies.
 - **Domain and application do no I/O** and import no library but zod.
 - **Within a context, layers import each other through the package's own
-  export paths** (`@bounded/core/domain`), domain files by relative path.
+  export paths** (`bounded/domain`), domain files by relative path.
 - **A context imports another context only when its `package.json` declares
   it as a dependency**, and only through that package's export paths. The
   core depends on nothing and never imports a pack.
@@ -95,6 +99,8 @@ Rules, enforced by `architecture.test.ts` unless stated:
   Result<X>`; entities are built with `new` from valid value objects.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a
   test beside every adapter that implements it.
+- **Pack ids root at their own package**: every `packIdsFor(...)` call in a
+  workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are
   allowed where the extension mechanism needs them; each such deviation from
   the example is recorded in an ADR (ADRs 2026-002 and 2026-003).
@@ -103,9 +109,12 @@ Rules, enforced by `architecture.test.ts` unless stated:
 
 - **The core owns mechanism, never content.** It defines packs, typed
   extension points, contributions, composition, data contributions, the
-  host-neutral event vocabulary, verdicts and dispatch (the last three in a
-  later slice). It holds no opinion about any application and names no
-  programming language, framework, tool or agent host.
+  host-neutral event vocabulary (a tool use is a list of effects), verdicts
+  and dispatch. It holds no opinion about any application and names no
+  programming language, framework, tool or agent host. The core's own pack,
+  `bounded/core`, is the only place it declares extension points: one guards
+  point per event kind and per effect kind (ADR 2026-007). Gates contribute
+  guards there and never handle one effect versus many.
 - **Packs own content.** A pack declares its own extension points and
   gives values to its own points and contributes to points of packs it lists
   in `dependsOn` (pack objects, so imports are the dependency graph).
@@ -116,14 +125,23 @@ Rules, enforced by `architecture.test.ts` unless stated:
   point and the fix.
 - **Fail closed.** A missing, unreadable or malformed input is a refusal with
   an actionable message, never "contributes nothing".
-- **Strict typing (ADR 2026-003).** Anything not explicitly wired fails to
-  compile: a pack contributes only to points of packs directly in its
-  `dependsOn` tuple, with values of exactly the point's type; points are
-  declared only inside their own pack; reads are typed by the point object.
+- **Strict typing (ADRs 2026-003, 2026-004).** Anything not explicitly wired
+  fails to compile: a pack contributes only to points of packs directly in
+  its `dependsOn` tuple (each with an exact id from `packIdsFor`), with
+  values of exactly the point's type, never containing `any`; points are declared only
+  inside their own pack under camelCase keys; reads are typed by the point
+  object.
   Composition repeats every rule at run time for untyped data. A change that
   loosens a rule, or adds one, comes with a rejected fixture line stating
   its reason (`contexts/core/test/fixtures/compile-time/`) and a run-time
   refusal test.
+- **Every decision is recorded (ADR 2026-008).** Hosts judge events through
+  the judge-event feature, which records each decision; a decision that
+  cannot be recorded within the bound is refused, never allowed.
+- **The project is a pack too (ADR 2026-010).** `defineConfig` turns a
+  project's contributions into the pack `bounded/project`, which depends on
+  every selected pack; a project never contributes to an unselected pack's
+  point. A configuration that cannot be used makes every event refused.
 - If a change needs the core to learn a technology's name or an opinion, it is
   in the wrong place: put it in a pack and give the core a mechanism.
 

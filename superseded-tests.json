@@ -2,19 +2,28 @@
   {
     "file": "contexts/core/src/application/composition/compose-packs/compose-packs.command.laws.test.ts",
     "case": "ComposePacksCommand laws > validates each name through PackName, in order",
-    "successor": { "file": "contexts/core/src/application/composition/compose-packs/compose-packs.command.laws.test.ts", "case": "ComposePacksCommand laws > validates each id through PackId, in order" },
+    "successor": {
+      "file": "contexts/core/src/application/composition/compose-packs/compose-packs.command.laws.test.ts",
+      "case": "ComposePacksCommand laws > validates each id through PackId, in order"
+    },
     "reason": "selections name packs by id (ADR 2026-004), so the command validates PackIds, not PackNames"
   },
   {
     "file": "contexts/core/src/domain/composition/composition.test.ts",
     "case": "Composition — reading an extension point > returns every contributed value, typed, dependencies' before dependents'",
-    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — reading an extension point > returns every value, typed and as its check stored it, dependencies' before dependents'" },
+    "successor": {
+      "file": "contexts/core/src/domain/composition/composition.test.ts",
+      "case": "Composition — reading an extension point > returns every value, typed and as its check stored it, dependencies' before dependents'"
+    },
     "reason": "a point's check now parses and may normalise, so the read returns what the check stored (ADR 2026-003)"
   },
   {
     "file": "contexts/core/src/domain/composition/composition.test.ts",
     "case": "Composition — reading an extension point > reading with a look-alike point object (same id, other value type) is refused",
-    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — reading an extension point > reading the point of another pack with the selected one's id is refused" },
+    "successor": {
+      "file": "contexts/core/src/domain/composition/composition.test.ts",
+      "case": "Composition — reading an extension point > reading the point of another pack with the selected one's id is refused"
+    },
     "reason": "points are declared inside their pack, so a look-alike point can only come from another pack with the same id"
   },
   {
@@ -26,7 +35,10 @@
   {
     "file": "contexts/core/src/domain/composition/composition.test.ts",
     "case": "Composition — reading an extension point > reading the point of another pack with the selected one's label is refused",
-    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — reading an extension point > reading the point of another pack with the selected one's id is refused" },
+    "successor": {
+      "file": "contexts/core/src/domain/composition/composition.test.ts",
+      "case": "Composition — reading an extension point > reading the point of another pack with the selected one's id is refused"
+    },
     "reason": "labels became pack ids (ADR 2026-004)"
   },
   {
@@ -38,8 +50,11 @@
   {
     "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",
     "case": "ExtensionPointId — boundaries > refuses anything else with a reason that names it and shows the form",
-    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — every refusal names the pack, the extension point and the fix > `${title}` #9" },
-    "reason": "the remaining id rule is the point key, refused at composition when it could collide with the id scheme"
+    "successor": {
+      "file": "contexts/core/src/domain/composition/composition.test.ts",
+      "case": "Composition — every refusal names the pack, the extension point and the fix > point keys that could collide with the id scheme are refused"
+    },
+    "reason": "the remaining id rule is the point key, refused at composition when it could collide with the '<pack id>.<key>' scheme"
   },
   {
     "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",
@@ -50,31 +65,208 @@
   {
     "file": "contexts/core/src/domain/packs/pack-name.test.ts",
     "case": "PackName — boundaries > accepts lowercase words joined by single hyphens",
-    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse accepts an unscoped or scoped package with a lowercase-hyphen local id" },
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+      "case": "PackId — boundaries > parse accepts an unscoped or scoped package with a lowercase-hyphen local id"
+    },
     "reason": "pack names became npm-namespaced pack ids (ADR 2026-004)"
   },
   {
     "file": "contexts/core/src/domain/packs/pack-name.test.ts",
     "case": "PackName — boundaries > refuses anything else with a reason that names it and shows the form",
-    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse refuses anything else with a reason that names it and shows the form" },
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+      "case": "PackId — boundaries > parse refuses anything else with a reason that names it and shows the form"
+    },
     "reason": "pack names became npm-namespaced pack ids (ADR 2026-004)"
   },
   {
     "file": "contexts/core/src/domain/packs/pack-name.test.ts",
     "case": "PackName — boundaries > refuses every name that could reach outside the packs' folder",
-    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse refuses anything else with a reason that names it and shows the form" },
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+      "case": "PackId — boundaries > parse refuses anything else with a reason that names it and shows the form"
+    },
     "reason": "an id is never a path; its refusals cover '..', '/' in the local id, leading '/' and empty parts"
   },
   {
     "file": "contexts/core/src/domain/packs/pack-name.test.ts",
     "case": "PackName — boundaries > refuses a value that is not a string",
-    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse refuses a value that is not a string" },
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+      "case": "PackId — boundaries > parse refuses a value that is not a string"
+    },
     "reason": "pack names became npm-namespaced pack ids (ADR 2026-004)"
   },
   {
     "file": "contexts/core/src/domain/packs/pack-name.test.ts",
     "case": "PackName — boundaries > its wire form is the name",
-    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse accepts an unscoped or scoped package with a lowercase-hyphen local id" },
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+      "case": "PackId — boundaries > parse accepts an unscoped or scoped package with a lowercase-hyphen local id"
+    },
     "reason": "a pack id is its own wire form: a branded string, so parse returns the text itself"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a tool use: who acts, with what kind of tool, how, on which paths",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > a tool use: who acts, with what kind of tool, and every effect the call has"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a run carries its command, exactly as given",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > its paths are normalised project-relative paths, in the order given",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > its effects keep the order given, each checked and normalised"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > the action is read, write or run",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a write names the file and whether it is created, modified or deleted"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a path that is absolute or climbs out refuses the whole tool use, naming the path",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > an invalid effect refuses the whole tool use, naming the effect by position"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a run must name its command, and only a run has one",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — nonsense is refused > fields that do not belong to the kind, and missing ones"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a search can say where it searches: the directory searched and the file-name filter that limits it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a list names the directory it lists and an optional file-name filter"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a search's root is a project path and its filter is non-empty text; only a search carries them",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a list names the directory it lists and an optional file-name filter"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > is frozen, its paths and search too",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > is frozen, its effects too"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — independent parts > tool kind and action are independent: the host classifies both",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — independent parts > tool kind and effects are independent: the host classifies both"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — independent parts > a command must not contain a NUL character",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a read names the file whose contents it reads, normalised",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a read names the file whose contents it reads, normalised"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a list names the directory it lists and an optional file-name filter",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a list names the directory it lists and an optional file-name filter"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a write names the file and whether it is created, modified or deleted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a write names the file and whether it is created, modified or deleted"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a fetch names an absolute URL without spaces or control characters",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a fetch names an absolute URL without spaces or control characters"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a delegate names the agent it hands work to",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a delegate names the agent it hands work to"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a path that is absolute or climbs out is refused with the path's reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a path that is absolute or climbs out is refused with the path's reason"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
   }
 ]
