@@ -367,5 +367,23 @@
       "case": "withHooks: the same command before and after every tool call > installs the hook before every tool call, after it, and after its failure, idempotently"
     },
     "reason": "a command that fails reaches Claude Code's PostToolUseFailure, not PostToolUse, so the hook is installed for it too (review B2)"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/file-system/drift/watched-files.test.ts",
+    "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/file-system/drift/watched-files.test.ts",
+      "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
+    },
+    "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/in-memory/drift/watched-files.test.ts",
+    "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/in-memory/drift/watched-files.test.ts",
+      "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
+    },
+    "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
   }
 ]

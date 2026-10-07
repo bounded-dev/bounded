@@ -1,10 +1,15 @@
 import type { Result, ToolResult, ToolUse, Verdict, WatchedPath } from "bounded/domain";
 
-/** A watched file: the SHA-256 of its bytes (hex), its size in bytes, and the index of the first rule that watches it. */
+/**
+ * A watched file: the SHA-256 of its bytes (hex), its size in bytes, and the
+ * index of the first rule that watches it. A link is never followed: `link`
+ * is true, and its hash is of where it points.
+ */
 export interface WatchedFile {
   readonly hash: string;
   readonly size: number;
   readonly rule: number;
+  readonly link?: true;
 }
 
 /** Every watched file by project-relative path. */
@@ -15,7 +20,7 @@ export type WatchedHashes = Readonly<Record<string, WatchedFile>>;
  * (its content matched it), from a copy of its bytes (base64), or nowhere
  * (too large to copy: a change is reported, never replaced).
  */
-export type Kept = { readonly from: "commit" } | { readonly from: "copy"; readonly content: string } | { readonly from: "nowhere" };
+export type Kept = { readonly from: "commit" } | { readonly from: "copy"; readonly content: string; readonly executable: boolean } | { readonly from: "nowhere" };
 
 /** A watched file before a command, and how it can be put back. */
 export interface SnapshotFile extends WatchedFile {
@@ -28,8 +33,8 @@ export interface Snapshot {
   readonly files: Readonly<Record<string, SnapshotFile>>;
 }
 
-/** Where a restored file comes from: a commit, a copy of its bytes (base64), or nowhere (it did not exist, so it is removed). */
-export type RestoreFrom = { readonly from: "commit"; readonly commit: string } | { readonly from: "copy"; readonly content: string } | { readonly from: "absent" };
+/** Where a restored file comes from: a commit (its bytes and executable bit), or a copy of its bytes (base64) and whether it was executable. */
+export type RestoreFrom = { readonly from: "commit"; readonly commit: string } | { readonly from: "copy"; readonly content: string; readonly executable: boolean };
 
 /** A watched file that a shell command changed. */
 export interface Change {
@@ -61,15 +66,18 @@ export interface WatchShell {
  * @implementedBy in-memory file-system
  */
 export interface WatchedFiles {
+  /** The watched files now; never inside node_modules or .git at any depth, nor .bounded, and never through a linked directory. */
   hash(rules: readonly WatchedPath[]): Promise<Result<WatchedHashes>>;
   /** The commit checked out; null when the project is not a git repository with a commit. */
   head(): Promise<Result<string | null>>;
   /** The watched files as `commit` holds them. */
   committed(rules: readonly WatchedPath[], commit: string): Promise<Result<WatchedHashes>>;
-  /** A file's bytes, base64, with their hash and size. */
-  copy(path: string): Promise<Result<{ readonly hash: string; readonly size: number; readonly content: string }>>;
+  /** A file's bytes, base64, with their hash and size, and whether it is executable. */
+  copy(path: string): Promise<Result<{ readonly hash: string; readonly size: number; readonly content: string; readonly executable: boolean }>>;
   /** Puts one project-relative file back; refuses a path outside the project. Leaves version control's index alone. */
   restore(path: string, from: RestoreFrom): Promise<Result<void>>;
+  /** Moves files out of the project into a new quarantine directory, keeping their paths, and says where. Never deletes. */
+  quarantine(paths: readonly string[]): Promise<Result<string>>;
 }
 
 /**

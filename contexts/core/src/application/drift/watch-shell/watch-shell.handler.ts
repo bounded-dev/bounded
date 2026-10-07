@@ -148,13 +148,13 @@ export class WatchShellHandler implements WatchShell {
     let budget = this.limits.total;
     const files: Record<string, SnapshotFile> = {};
     for (const [path, file] of Object.entries(hashed.value).sort(([a], [b]) => (a < b ? -1 : 1))) {
-      if (committed.value[path]?.hash === file.hash) files[path] = { ...file, kept: { from: "commit" } };
-      else if (file.size > this.limits.perFile || file.size > budget) files[path] = { ...file, kept: { from: "nowhere" } };
+      if (committed.value[path]?.hash === file.hash && file.link !== true) files[path] = { ...file, kept: { from: "commit" } };
+      else if (file.link === true || file.size > this.limits.perFile || file.size > budget) files[path] = { ...file, kept: { from: "nowhere" } };
       else {
         const copy = await this.files.copy(path);
         if (!copy.ok) return copy;
         budget -= copy.value.size;
-        files[path] = { hash: copy.value.hash, size: copy.value.size, rule: file.rule, kept: { from: "copy", content: copy.value.content } };
+        files[path] = { hash: copy.value.hash, size: copy.value.size, rule: file.rule, kept: { from: "copy", content: copy.value.content, executable: copy.value.executable } };
       }
     }
     return { ok: true, value: { commit: head.value, files } };
@@ -171,19 +171,19 @@ export class WatchShellHandler implements WatchShell {
     const files: Record<string, SnapshotFile> = {};
     for (const [path, file] of Object.entries(stored.files)) {
       if (!isRecord(file) || typeof file.hash !== "string" || !SHA256.test(file.hash)) return altered(`${path} has a hash that is not a SHA-256`);
-      const { hash, size, rule, kept } = file;
-      if (!isCount(size) || !isCount(rule) || rule >= rules.length || !isRecord(kept)) return altered(`${path} is not a snapshot's file`);
+      const { hash, size, rule, kept, link } = file;
+      if (!isCount(size) || !isCount(rule) || rule >= rules.length || !isRecord(kept) || !(link === undefined || link === true)) return altered(`${path} is not a snapshot's file`);
       let keptAs: Kept;
       if (kept.from === "commit") {
         if (commit === null || committed.value[path]?.hash !== hash) return altered(`${path} does not match the commit it was kept by`);
         keptAs = { from: "commit" };
       } else if (kept.from === "copy") {
         const copy = typeof kept.content === "string" ? await digest(kept.content) : undefined;
-        if (copy === undefined || copy.hash !== hash || copy.size !== size) return altered(`the copy of ${path} does not match its hash`);
-        keptAs = { from: "copy", content: kept.content as string };
+        if (copy === undefined || copy.hash !== hash || copy.size !== size || typeof kept.executable !== "boolean") return altered(`the copy of ${path} does not match its hash`);
+        keptAs = { from: "copy", content: kept.content as string, executable: kept.executable };
       } else if (kept.from === "nowhere") keptAs = { from: "nowhere" };
       else return altered(`${path} is not a snapshot's file`);
-      files[path] = { hash, size, rule, kept: keptAs };
+      files[path] = { hash, size, rule, kept: keptAs, ...(link === true ? { link } : {}) };
     }
     return { ok: true, value: { commit, files } };
   }
@@ -200,10 +200,21 @@ export class WatchShellHandler implements WatchShell {
     if (changed.length === 0) return NOTHING;
     const failures = new Set<string>();
     const restored: string[] = [];
+    // What the command created is moved aside, never deleted: a snapshot entry removed by tampering must not cost a file.
+    const created = changed.filter(({ path }) => before.files[path] === undefined).map(({ path }) => path);
+    let movedTo: string | undefined;
+    if (created.length > 0) {
+      const moved = await this.quarantine(created);
+      if (moved.ok) {
+        movedTo = moved.value;
+        restored.push(...created);
+      } else failures.add(`what it created could not be moved aside: ${moved.error}`);
+    }
     for (const { path } of changed) {
+      if (before.files[path] === undefined) continue;
       const from = restoreFrom(before, path);
       if (from === undefined) {
-        failures.add(`${path} was too large to keep a copy of, so it was left as the command left it`);
+        failures.add(before.files[path]?.link === true ? `${path} was a link, which is not kept, so it was left as the command left it` : `${path} was too large to keep a copy of, so it was left as the command left it`);
         continue;
       }
       const failure = await this.restore(path, from);
@@ -218,7 +229,7 @@ export class WatchShellHandler implements WatchShell {
         if (different.length > 0) failures.add(`after restoring, ${different.join(", ")} still ${different.length === 1 ? "differs" : "differ"} from before the command`);
       }
     }
-    const groups = describe(changed, before.files, after.value, rules);
+    const groups = describe(changed, before.files, after.value, rules) + (movedTo === undefined ? "" : ` What it created was moved, not deleted, to ${movedTo}.`);
     const message =
       failures.size === 0
         ? `This command changed protected files, and they were restored: ${groups}`
@@ -226,6 +237,15 @@ export class WatchShellHandler implements WatchShell {
     const first = rules[Math.min(...changed.map((change) => ruleOf(change, before.files, after.value)))];
     await this.record(result, message, first, failures.size === 0 ? "changed by a shell command; restored" : "changed by a shell command; restore failed");
     return { changed, restored: failures.size === 0, message };
+  }
+
+  /** Where the created files went, or why they could not be moved. */
+  private async quarantine(paths: readonly string[]): Promise<Result<string>> {
+    try {
+      return await this.files.quarantine(paths);
+    } catch (thrown) {
+      return { ok: false, error: text(thrown) };
+    }
   }
 
   /** Why putting one file back failed, or undefined. */
@@ -278,11 +298,11 @@ export class WatchShellHandler implements WatchShell {
   }
 }
 
-/** Where a changed file comes back from: its copy, the snapshot's commit, or nowhere when it did not exist; undefined when it cannot. */
+/** Where a changed file that existed before comes back from: its copy or the snapshot's commit; undefined when it cannot. */
 function restoreFrom(before: Snapshot, path: string): RestoreFrom | undefined {
   const was = before.files[path];
-  if (was === undefined) return { from: "absent" };
-  if (was.kept.from === "copy") return { from: "copy", content: was.kept.content };
+  if (was === undefined) return undefined;
+  if (was.kept.from === "copy") return { from: "copy", content: was.kept.content, executable: was.kept.executable };
   if (was.kept.from === "commit" && before.commit !== null) return { from: "commit", commit: before.commit };
   return undefined;
 }

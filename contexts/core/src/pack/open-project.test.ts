@@ -113,9 +113,12 @@ export default defineConfig({
     writeFileSync(join(root, "generated", "a.ts"), "tampered\n");
     writeFileSync(join(root, "generated", "new.ts"), "created\n");
     const check = await afterTool({ ...shell, kind: "tool-result", ok: true });
+    const where = /What it created was moved, not deleted, to (.+)\.$/.exec(check.message ?? "")?.[1] ?? "";
     expect(check.message).toBe(
-      "This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Change the generator's input instead.",
+      `This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Change the generator's input instead. What it created was moved, not deleted, to ${where}.`,
     );
+    expect(where.startsWith(join(process.env.XDG_STATE_HOME ?? "", "bounded"))).toBe(true);
+    expect(readFileSync(join(where, "generated", "new.ts"), "utf8")).toBe("created\n");
     expect(readFileSync(join(root, "generated", "a.ts"), "utf8")).toBe("original\n");
     expect(existsSync(join(root, "generated", "new.ts"))).toBe(false);
     const lines = log(root);

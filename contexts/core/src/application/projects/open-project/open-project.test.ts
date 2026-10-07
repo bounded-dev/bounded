@@ -99,11 +99,12 @@ describe("OpenProjectHandler", () => {
       hash: async () => watched(working),
       head: async () => ({ ok: true, value: "c0" }),
       committed: async () => watched([["generated/a.ts", "a"]]),
-      copy: async (path) => ({ ok: true, value: { hash: sha256(working.get(path) ?? ""), size: (working.get(path) ?? "").length, content: btoa(working.get(path) ?? "") } }),
+      copy: async (path) => ({ ok: true, value: { hash: sha256(working.get(path) ?? ""), size: (working.get(path) ?? "").length, content: btoa(working.get(path) ?? ""), executable: false } }),
       restore: async (path) => {
         working.set(path, "a");
         return { ok: true, value: undefined };
       },
+      quarantine: async () => ({ ok: true, value: "/state/quarantine" }),
     };
     const kept = new Map<string, unknown>();
     const snapshots = { save: async (id: string, hashes: unknown) => void kept.set(id, hashes), take: async (id: string) => kept.get(id) as never };

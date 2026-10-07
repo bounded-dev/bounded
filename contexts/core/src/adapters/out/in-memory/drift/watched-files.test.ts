@@ -8,5 +8,6 @@ watchedFilesConformance("InMemoryWatchedFiles", async (committed) => {
     write: async (path, content) => files.write(path, content),
     remove: async (path) => files.remove(path),
     read: async (path) => files.read(path),
+    readQuarantined: async (location, path) => files.quarantined(location, path),
   };
 });
