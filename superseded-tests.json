@@ -38,8 +38,8 @@
   {
     "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",
     "case": "ExtensionPointId — boundaries > refuses anything else with a reason that names it and shows the form",
-    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — every refusal names the pack, the extension point and the fix > `${title}`" },
-    "reason": "the remaining id rule is the point key, refused at composition when it could collide with the id scheme (the refusal table's row for it; the table is one source-level case)"
+    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — every refusal names the pack, the extension point and the fix > point keys that could collide with the id scheme are refused" },
+    "reason": "the remaining id rule is the point key, refused at composition when it could collide with the '<pack id>.<key>' scheme"
   },
   {
     "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",

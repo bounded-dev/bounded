@@ -116,10 +116,6 @@ describe("Composition — every refusal names the pack, the extension point and 
       "Two available packs have the id 'test-packs/a'. An id names one pack in selections and messages: give each pack its own"],
     ["an available pack whose id is not a pack id", [untypedPack({ id: "Bad Label" })], [],
       "Available pack 'Bad Label' has an invalid id: Pack id 'Bad Label' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'. Give it an id from packIdsFor(...)"],
-    ["an extension point key that could collide with the id scheme", [untypedPack({ id: "test-packs/bad", points: { "a.b": point({ description: "Dotted", check: anything }) } })], [],
-      keyRefusal("a.b")],
-    ["a point key that is __proto__", [untypedPack({ id: "test-packs/bad", points: JSON.parse('{"__proto__": 1}') })], [],
-      keyRefusal("__proto__")],
     ["a point declared on another pack's behalf", [untypedPack({ id: "test-packs/bad", points: { stolen: words } })], [],
       malformed(`its points must each be declared with point(...) ${COPY}`)],
     ["a point declared without a check", [untypedPack({ id: "test-packs/bad", points: { loose: point({ description: "No check" } as never) } })], [],
@@ -161,6 +157,13 @@ describe("Composition — every refusal names the pack, the extension point and 
       expect(Composition.compose(available, selected.length === 0 ? available : selected)).toEqual({ ok: false, error: message });
     });
   }
+
+  test("point keys that could collide with the id scheme are refused", () => {
+    const dotted = untypedPack({ id: "test-packs/bad", points: { "a.b": point({ description: "Dotted", check: anything }) } });
+    const proto = untypedPack({ id: "test-packs/bad", points: JSON.parse('{"__proto__": 1}') });
+    expect(Composition.compose([dotted], [dotted])).toEqual({ ok: false, error: keyRefusal("a.b") });
+    expect(Composition.compose([proto], [proto])).toEqual({ ok: false, error: keyRefusal("__proto__") });
+  });
 
   test("garbage instead of lists is refused, never thrown", () => {
     const refusal = { ok: false as const, error: "Compose takes a list of available packs and a list of selected packs" };
