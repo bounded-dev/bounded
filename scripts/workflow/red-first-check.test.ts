@@ -255,7 +255,8 @@ describe("red-first-check end to end", () => {
     repo.git("checkout", "--quiet", "main");
     repo.commit({ "notes.md": "main\n" }, "docs on main");
     repo.commit({ "superseded-tests.json": JSON.stringify([record("from main")]) }, "record on main");
-    repo.git("merge", "--quiet", "--no-ff", "--no-commit", "build");
+    // Both sides changed the record and notes.md: the merge stops on conflicts, resolved below.
+    spawnSync("git", ["merge", "--quiet", "--no-ff", "--no-commit", "build"], { cwd: repo.dir });
     writeFileSync(join(repo.dir, "superseded-tests.json"), JSON.stringify([record("from main"), record("from build")]));
     writeFileSync(join(repo.dir, "notes.md"), "main and build\n");
     repo.git("add", "-A");
