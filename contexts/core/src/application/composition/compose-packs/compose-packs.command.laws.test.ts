@@ -1,0 +1,30 @@
+import { describe, expect, test } from "bun:test";
+import { PackName } from "@bounded/core/domain";
+import { ComposePacksCommand } from "./compose-packs.command.ts";
+
+const INVALID = { ok: false as const, error: "Invalid compose packs input: give { selected: [pack names] }" };
+
+describe("ComposePacksCommand laws", () => {
+  test("refuses anything that is not an object with a list of strings", () => {
+    for (const raw of [undefined, null, 0, "core", [], {}, { selected: "core" }, { selected: [1] }, { selected: null }]) {
+      expect(ComposePacksCommand.parse(raw)).toEqual(INVALID);
+    }
+  });
+
+  test("validates each name through PackName, in order", () => {
+    for (const selected of [["core", "path-gate"], ["core", "Bad"], ["../x", "Bad"], []]) {
+      const result = ComposePacksCommand.parse({ selected });
+      const failed = selected.map((name) => PackName.parse(name)).find((r) => !r.ok);
+      if (failed !== undefined) {
+        expect(result).toEqual(failed);
+        continue;
+      }
+      expect(result.ok && result.value.selected.map((n) => n.value)).toEqual(selected);
+    }
+  });
+
+  test("ignores fields the input does not declare", () => {
+    const result = ComposePacksCommand.parse({ selected: ["core"], extra: true });
+    expect(result.ok && result.value.selected.map((n) => n.value)).toEqual(["core"]);
+  });
+});
