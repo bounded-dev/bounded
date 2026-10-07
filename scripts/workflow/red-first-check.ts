@@ -119,6 +119,31 @@ export interface Supersession {
   readonly reason: string;
 }
 
+/**
+ * Why a record cannot supersede `replaced`, or undefined. `headCases` are the
+ * cases of the replaced case's file at the head (undefined when it is gone),
+ * `successorCases` those of the successor's file.
+ */
+export function supersessionProblem(
+  replaced: TestCase,
+  record: Supersession,
+  headCases: readonly TestCase[] | undefined,
+  successorCases: readonly TestCase[] | undefined,
+): string | undefined {
+  if (record.successor !== null && record.successor.file === record.file && record.successor.case === replaced.id) return "names itself as its successor";
+  if (headCases?.some((c) => c.id === replaced.id) === true) return "is recorded as superseded but still exists at the head";
+  if (record.successor === null) return undefined;
+  const { file, case: id } = record.successor;
+  const successor = successorCases?.find((c) => c.id === id);
+  if (successor === undefined) return `is superseded by ${file}: "${id}", which does not exist at the head`;
+  const title = successor.titles.at(-1) ?? "";
+  if (title.startsWith("`") && title.endsWith("`")) return `is superseded by ${file}: "${id}", a computed title (a table of cases); name one specific case`;
+  if (successor.assertions < replaced.assertions) {
+    return `is superseded by ${file}: "${id}", which makes ${successor.assertions} assertion(s), fewer than its ${replaced.assertions}`;
+  }
+  return undefined;
+}
+
 /** The records in the file's text (none when the file is absent), or why they cannot be read. */
 export function parseSupersessions(text: string | undefined): { ok: true; value: Supersession[] } | { ok: false; error: string } {
   if (text === undefined) return { ok: true, value: [] };
@@ -614,6 +639,13 @@ function run(args: readonly string[], print: (line: string) => void): number {
   const runners = fixtureRunners(changes.map((c) => c.path)).filter((f) => !testFiles.includes(f) && show(repo, red, f) !== undefined);
   print(`scope: ${changes.length} path(s) in the red commit, ${testFiles.length} runnable test file(s)${runners.length > 0 ? `, plus ${runners.join(", ")} for its fixtures` : ""}`);
 
+  // The record may change only in test-only commits after the red commit, so
+  // a build can never quietly supersede the tests it should pass.
+  for (const commit of git(repo, "log", "--format=%H", `${red}..${head}`, "--", SUPERSESSIONS).split("\n").filter((l) => l !== "")) {
+    const paths = git(repo, "diff-tree", "-r", "--no-commit-id", "--name-only", "--root", commit).split("\n").filter((l) => l !== "");
+    if (!paths.every(isTestPath)) failures.push(`supersessions: ${SUPERSESSIONS} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
+  }
+
   // 2. red
   if (testFiles.length > 0 || runners.length > 0) {
     const result = runAtRed(repo, red, [...testFiles, ...runners], print);
@@ -630,6 +662,9 @@ function run(args: readonly string[], print: (line: string) => void): number {
   for (const file of testFiles) {
     const owned = redCases(show(repo, `${red}^`, file), show(repo, red, file) ?? "", file);
     ownedCount += owned.length;
+    const at = headPathOf(repo, red, head, file);
+    const source = at === undefined ? undefined : show(repo, head, at);
+    const headCases = source === undefined ? undefined : extractTestCases(source, at);
     const cases: TestCase[] = [];
     for (const c of owned) {
       const record = recorded(headRecords, file, c.id);
@@ -637,23 +672,21 @@ function run(args: readonly string[], print: (line: string) => void): number {
         cases.push(c);
         continue;
       }
+      const problem = supersessionProblem(c, record, headCases, record.successor === null ? undefined : extractTestCases(show(repo, head, record.successor.file) ?? "", record.successor.file));
+      if (problem !== undefined) {
+        failures.push(`preserved: ${file}: "${c.id}" ${problem}`);
+        continue;
+      }
       if (record.successor === null) {
         notes.push(`${file}: "${c.id}" is superseded with no successor (${record.reason})`);
         continue;
       }
       const { file: nextFile, case: nextCase } = record.successor;
-      const successor = extractTestCases(show(repo, head, nextFile) ?? "", nextFile).find((n) => n.id === nextCase);
-      if (successor === undefined) {
-        failures.push(`preserved: ${file}: "${c.id}" is superseded by ${nextFile}: "${nextCase}", which does not exist at the head`);
-        continue;
-      }
       notes.push(`${file}: "${c.id}" is superseded by ${nextFile}: "${nextCase}" (${record.reason})`);
-      addAtHead(nextFile, [successor]);
+      const successor = extractTestCases(show(repo, head, nextFile) ?? "", nextFile).find((n) => n.id === nextCase);
+      if (successor !== undefined) addAtHead(nextFile, [successor]);
     }
-    const at = headPathOf(repo, red, head, file);
     if (at !== undefined) addAtHead(at, cases);
-    const source = at === undefined ? undefined : show(repo, head, at);
-    const headCases = source === undefined ? undefined : extractTestCases(source, at);
     for (const w of compareCases(cases, headCases)) failures.push(`preserved: ${file}: "${w.id}" ${w.kind} (${w.detail})`);
     const now = new Map((headCases ?? []).map((c) => [c.id, c.text]));
     for (const c of cases) {
