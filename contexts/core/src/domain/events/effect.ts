@@ -106,4 +106,4 @@ export function describeEffect(effect: Contract.Effect): string {
 const parse = (raw: unknown): Result<Contract.Effect> => readSafely("An effect", () => check(raw));
 
 export type Effect = Contract.Effect;
-export const Effect: Contract.EffectFactory = { parse };
+export const Effect: Contract.EffectFactory = Object.freeze({ parse });

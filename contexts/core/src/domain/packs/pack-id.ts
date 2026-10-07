@@ -23,5 +23,5 @@ function forPackage(pkg: string): (local: string) => never {
 }
 
 export type PackId<Text extends string = string> = Contract.PackId<Text>;
-export const PackId: Contract.PackIdFactory = { parse, forPackage };
+export const PackId: Contract.PackIdFactory = Object.freeze({ parse, forPackage });
 export const packIdsFor = PackId.forPackage;

@@ -2,8 +2,8 @@ import { z } from "zod";
 import { PackId, type Result } from "bounded/domain";
 import type * as Contract from "./compose-packs.contract.ts";
 
-// Wire contract: what an in adapter validates before calling the feature.
-export const composePacksSchema = z.object({
+// Wire contract: kept inside the module, since a zod schema cannot be frozen.
+const composePacksSchema = z.object({
   selected: z.array(z.string()),
 }) satisfies z.ZodType<Contract.ComposePacksInput>;
 

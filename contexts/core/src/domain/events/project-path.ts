@@ -27,4 +27,4 @@ function parse(raw: unknown): Result<ProjectPath> {
 }
 
 export type ProjectPath = Contract.ProjectPath;
-export const ProjectPath: Contract.ProjectPathFactory = { parse };
+export const ProjectPath: Contract.ProjectPathFactory = Object.freeze({ parse });

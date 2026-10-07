@@ -20,15 +20,26 @@ export interface OpenProjectOptions {
  * the root is not absolute, it refuses every event.
  */
 export async function openProject(root: string, options: OpenProjectOptions = {}): Promise<ProjectJudge> {
-  const command = OpenProjectCommand.parse({ root });
-  if (!command.ok) {
-    const refusal = Verdict.refuse(`This project cannot be opened: ${command.error}`, "Pass the project's absolute root directory to openProject");
-    return Object.freeze({ judge: async () => refusal, problem: command.error });
+  try {
+    const command = OpenProjectCommand.parse({ root });
+    if (!command.ok) return refusingAll(`This project cannot be opened: ${command.error}`, "Pass the project's absolute root directory to openProject", command.error);
+    const { log } = options;
+    const logs = log === undefined ? new FileSystemProjectDecisionLogs() : { forProject: () => log };
+    const handler = new OpenProjectHandler(options.configSource ?? new FileSystemProjectConfigSource(), logs, options.clock ?? new SystemClock(), {
+      ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
+    });
+    return await handler.execute(command.value);
+  } catch (thrown) {
+    // Never rejects: a host must always get a judge, and this one refuses.
+    const problem = thrown instanceof Error ? thrown.message : "the project could not be opened";
+    return refusingAll(`This project cannot be opened: ${problem}`, "Report this to the maintainers of bounded; every action is refused meanwhile", problem);
   }
-  const { log } = options;
-  const logs = log === undefined ? new FileSystemProjectDecisionLogs() : { forProject: () => log };
-  const handler = new OpenProjectHandler(options.configSource ?? new FileSystemProjectConfigSource(), logs, options.clock ?? new SystemClock(), {
-    ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
-  });
-  return handler.execute(command.value);
 }
+
+function refusingAll(reason: string, redirect: string, problem: string): ProjectJudge {
+  const refusal = Verdict.refuse(reason, redirect);
+  return Object.freeze({ judge: async () => refusal, problem });
+}
+
+// Frozen, so code loaded later cannot patch it.
+Object.freeze(openProject);

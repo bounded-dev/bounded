@@ -77,17 +77,21 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
   ? unknown
   : { readonly id: Refused<"give the pack an exact id from packIdsFor(...)(...)"> }) & {
   readonly points?: { readonly [K in keyof Points]: CamelCase<K> extends true ? unknown : Refused<"point keys are camelCase words, such as protectedPaths"> };
-} & (Dependencies extends readonly [] ? unknown : { readonly dependsOn: PackListRules<Dependencies, "list dependsOn as a tuple of packs, such as [core, pathGate]", "list each dependency once"> });
+} & (Dependencies extends readonly []
+    ? unknown
+    : { readonly dependsOn: PackListRules<Dependencies, "list dependsOn as a tuple of packs, such as [core, pathGate]", "list each dependency once", "each dependency is a pack with an exact id"> });
 
 /**
  * A list of packs the compiler can see pack by pack: a tuple (else `Tuple`),
  * each pack once (else `Once`), each with an exact id.
  */
-export type PackListRules<List extends readonly AnyPack[], Tuple extends string, Once extends string> = number extends List["length"]
+export type PackListRules<List extends readonly AnyPack[], Tuple extends string, Once extends string, Exact extends string> = number extends List["length"]
   ? Refused<Tuple>
-  : true extends Repeats<List>
-    ? Refused<Once>
-    : { readonly [K in keyof List]: [ExactId<List[K]["id"]>] extends [true] ? unknown : Refused<"each dependency is a pack with an exact id"> };
+  : false extends { [K in keyof List]: ExactId<List[K]["id"]> }[number]
+    ? { readonly [K in keyof List]: [ExactId<List[K]["id"]>] extends [true] ? unknown : Refused<Exact> }
+    : true extends Repeats<List>
+      ? Refused<Once>
+      : unknown;
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 /** Library classes with no type arguments: their own members are not inspected. */

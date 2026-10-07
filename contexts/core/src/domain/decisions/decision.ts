@@ -46,4 +46,4 @@ function invalid(id: string, time: string, refusal: Verdict): Decision {
 }
 
 export type Decision = Contract.Decision;
-export const Decision: Contract.DecisionFactory = { of, invalid, enforced };
+export const Decision: Contract.DecisionFactory = Object.freeze({ of, invalid, enforced });

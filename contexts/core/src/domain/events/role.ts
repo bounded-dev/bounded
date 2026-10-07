@@ -20,4 +20,4 @@ export function roleOf(event: object, name: string): Result<Role | null> {
 }
 
 export type Role = Contract.Role;
-export const Role: Contract.RoleFactory = { parse };
+export const Role: Contract.RoleFactory = Object.freeze({ parse });

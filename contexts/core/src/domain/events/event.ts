@@ -14,4 +14,4 @@ function parse(raw: unknown): Result<Event> {
 }
 
 export type Event = Contract.Event;
-export const Event: Contract.EventFactory = { parse };
+export const Event: Contract.EventFactory = Object.freeze({ parse });

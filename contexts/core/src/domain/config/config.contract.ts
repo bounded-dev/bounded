@@ -21,6 +21,6 @@ export interface ConfigSpec<Packs extends readonly AnyPack[]> {
 export interface ConfigFactory {
   /** `export default defineConfig({ packs: [corePack, …], contributes: [...] })` in bounded.config.ts. */
   defineConfig<const Packs extends readonly AnyPack[]>(
-    spec: ConfigSpec<Packs> & (Packs extends readonly [] ? unknown : { readonly packs: PackListRules<Packs, "list packs as a tuple of packs", "list each pack once"> }),
+    spec: ConfigSpec<Packs> & (Packs extends readonly [] ? unknown : { readonly packs: PackListRules<Packs, "list packs as a tuple of packs", "list each pack once", "each selected pack is a pack with an exact id"> }),
   ): Config;
 }

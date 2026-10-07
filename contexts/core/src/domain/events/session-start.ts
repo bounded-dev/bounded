@@ -16,4 +16,4 @@ function parse(raw: unknown): Result<SessionStart> {
 }
 
 export type SessionStart = Contract.SessionStart;
-export const SessionStart: Contract.SessionStartFactory = { parse };
+export const SessionStart: Contract.SessionStartFactory = Object.freeze({ parse });

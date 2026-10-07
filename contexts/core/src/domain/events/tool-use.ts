@@ -37,4 +37,4 @@ function check(raw: unknown): Result<ToolUse> {
 const parse = (raw: unknown): Result<ToolUse> => readSafely("A tool use", () => check(raw));
 
 export type ToolUse = Contract.ToolUse;
-export const ToolUse: Contract.ToolUseFactory = { parse };
+export const ToolUse: Contract.ToolUseFactory = Object.freeze({ parse });

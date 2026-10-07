@@ -54,4 +54,4 @@ function parse(raw: unknown): Result<Verdict> {
 }
 
 export type Verdict = Contract.Verdict;
-export const Verdict: Contract.VerdictFactory = { allow, refuse, parse };
+export const Verdict: Contract.VerdictFactory = Object.freeze({ allow, refuse, parse });

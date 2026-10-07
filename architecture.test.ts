@@ -125,7 +125,9 @@ for (const path of files) {
     const target = contexts.find((c) => spec === c.name || spec.startsWith(`${c.name}/`));
     if (target !== undefined) {
       const exportPath = spec.slice(target.name.length + 1);
-      const targetLayer = layerOf(exportPath);
+      // An export's layer is where its file lives (./src/<layer>/...).
+      const targetFile = target.exports[`./${exportPath}`];
+      const targetLayer = targetFile === undefined ? undefined : layerOf(targetFile.replace(/^\.\/src\//, ""));
       if (!(`./${exportPath}` in target.exports) || targetLayer === undefined) violations.push(`${at} — import a context only through its export paths`);
       else if (target !== context && !context.dependencies.includes(target.name)) violations.push(`${at} — ${context.name} does not declare ${target.name} as a dependency`);
       else if (target === context && !ALLOWED[layer].includes(targetLayer)) violations.push(`${at} — ${layer} may not depend on ${targetLayer}`);

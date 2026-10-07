@@ -21,30 +21,47 @@ export class OpenProjectHandler implements OpenProject {
     private readonly options: { readonly recordWithinMs?: number } = {},
   ) {}
 
+  /** Never rejects: whatever goes wrong, the judge refuses every event (and records it, when the log can be opened). */
   async execute(command: OpenProjectCommand): Promise<ProjectJudge> {
-    const log = this.logFor(command.root);
-    const composition = await this.compose(command.root);
-    if (!composition.ok) {
-      const refusal = Verdict.refuse(`This project's configuration cannot be used: ${composition.error}`, FIX);
-      return this.judge(new JudgeEventHandler(null, log, this.clock, { ...this.options, refuseEverything: refusal }), composition.error);
+    let log: DecisionLog | undefined;
+    try {
+      const root = command.root;
+      log = this.logFor(root);
+      const composition = await this.compose(root);
+      if (!composition.ok) return this.refusing(log, composition.error);
+      return this.judge(new JudgeEventHandler(composition.value, log, this.clock, this.options), null);
+    } catch (thrown) {
+      return this.refusing(log, text(thrown));
     }
-    return this.judge(new JudgeEventHandler(composition.value, log, this.clock, this.options), null);
   }
 
   private judge(handler: JudgeEventHandler, problem: string | null): ProjectJudge {
     return Object.freeze({ judge: (event: unknown) => handler.judge(event), problem });
   }
 
+  /** A judge that refuses every event with `problem`, recording it if it can. */
+  private refusing(log: DecisionLog | undefined, problem: string): ProjectJudge {
+    const refusal = Verdict.refuse(`This project's configuration cannot be used: ${problem}`, FIX);
+    try {
+      if (log !== undefined) return this.judge(new JudgeEventHandler(null, log, this.clock, { refuseEverything: refusal }), problem);
+    } catch {
+      // fall through: refuse without recording
+    }
+    return Object.freeze({ judge: async () => refusal, problem });
+  }
+
   /** The project's composition, or why its configuration cannot be used. Never throws. */
   private async compose(root: string): Promise<Result<Composition>> {
-    let loaded: Awaited<ReturnType<ProjectConfigSource["load"]>>;
+    let loaded: unknown;
     try {
       loaded = await this.configs.load(root);
     } catch (thrown) {
       return { ok: false, error: `the configuration source failed: ${text(thrown)}` };
     }
-    if (!loaded.ok) return loaded;
-    const composed = composeConfig(loaded.value);
+    if (typeof loaded !== "object" || loaded === null || !("ok" in loaded)) return { ok: false, error: "the configuration source returned no result" };
+    const result = loaded as Result<Parameters<typeof composeConfig>[0]>;
+    if (!result.ok) return { ok: false, error: typeof result.error === "string" ? result.error : "the configuration source returned no reason" };
+    const composed = composeConfig(result.value);
     return composed.ok ? composed : { ok: false, error: `its packs cannot be composed: ${composed.error}` };
   }
 

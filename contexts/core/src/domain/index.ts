@@ -42,3 +42,11 @@ export type { Config, ConfigFactory, ConfigSpec } from "./config/config.contract
 export { composeConfig, defineConfig, isConfig } from "./config/config.ts";
 export type { Allow, Refuse, VerdictFactory } from "./verdicts/verdict.contract.ts";
 export { Verdict } from "./verdicts/verdict.ts";
+
+// Everything exported here is frozen, a function's or class's prototype too,
+// so code loaded later (a project's configuration, a pack) cannot patch it.
+import * as exported from "./index.ts";
+for (const value of Object.values(exported)) {
+  Object.freeze(value);
+  if (typeof value === "function" && value.prototype !== undefined) Object.freeze(value.prototype);
+}
