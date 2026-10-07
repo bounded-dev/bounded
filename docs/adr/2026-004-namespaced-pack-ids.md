@@ -9,8 +9,12 @@
   `"bounded/core"`. The id is typed as its exact text and branded, so a plain
   string cannot stand in for it. The package part is an npm package name,
   scoped or not; the local part is lowercase words joined by hyphens, without
-  `/`. Both are checked at compile time when written as literals, and the
-  whole id at run time, always (`PackId.parse`, at composition). The id is
+  `/`. `PackId.parse` is authoritative and runs at composition, always. The
+  compile-time checks on literals are approximate: they refuse what template
+  literal types can express (widened or union text, uppercase, `/`, `.`,
+  `_`, a leading or trailing hyphen, a double hyphen, a leading digit, an
+  npm name that is neither `name` nor `@scope/name`), and leave the rest to
+  `PackId.parse`. The id is
   the pack's label in selections, messages and logs; there is no other.
 - **Why ids rather than symbols.** An id is readable and can be persisted: it
   appears in logs and messages, and future data-only packs can name their
@@ -26,8 +30,9 @@
   takes pack objects for both lists. A wire input that names packs (the
   compose-packs feature) resolves each id to the catalog's pack before
   composing.
-- **Points.** A point's check must return a precise type: `any` does not
-  compile, because it would accept every value and spread `any` to readers.
+- **Points.** A point's check must return a precise type: `any` anywhere in
+  the value type (itself, an array element, a tuple member, a property, a
+  function's parameters or result, to a depth of eight) does not compile, because it would accept every value and spread `any` to readers.
   `unknown` is allowed: it is honest, and readers must narrow it. Point keys
   are camelCase (compile time: no `.`, `-`, `_`, `/`, space or `$`, and a
   lowercase first letter; run time: `^[a-z][a-zA-Z0-9]*$`), and a pack's
@@ -37,6 +42,13 @@
 - **Package names.** The workspace package is `bounded`, the npm package this
   library becomes, so code imports `bounded/domain`; its pack ids root at
   `bounded`. Nothing uses an npm scope, because the project owns none.
+
+- **Ids root at the package they ship in (binding).** In a workspace's
+  source, every `packIdsFor(...)` call names that workspace's package.json
+  `name`; the architecture test enforces it (tests and fixtures, which build
+  packs of imaginary packages, are exempt). The future file-backed pack
+  catalog must, at load time, refuse any pack whose id does not start with
+  the npm package it was loaded from, followed by `/`.
 
 ## Known limits
 

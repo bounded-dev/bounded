@@ -93,6 +93,8 @@ Rules, enforced by `architecture.test.ts` unless stated:
   Result<X>`; entities are built with `new` from valid value objects.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a
   test beside every adapter that implements it.
+- **Pack ids root at their own package**: every `packIdsFor(...)` call in a
+  workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are
   allowed where the extension mechanism needs them; each such deviation from
   the example is recorded in an ADR (ADRs 2026-002 and 2026-003).
@@ -117,7 +119,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **Strict typing (ADRs 2026-003, 2026-004).** Anything not explicitly wired
   fails to compile: a pack contributes only to points of packs directly in
   its `dependsOn` tuple (each with an exact id from `packIdsFor`), with
-  values of exactly the point's type, never `any`; points are declared only
+  values of exactly the point's type, never containing `any`; points are declared only
   inside their own pack under camelCase keys; reads are typed by the point
   object.
   Composition repeats every rule at run time for untyped data. A change that
