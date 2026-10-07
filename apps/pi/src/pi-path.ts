@@ -1,7 +1,8 @@
 // Where a pi path argument really acts. pi rewrites a path before using it,
 // then resolves it lexically against a directory; this does the same, keeps
 // the result inside the project, and follows links to where they land.
-import { lstatSync, realpathSync } from "node:fs";
+// POSIX paths only: pi's Windows rewrites (drive letters, '~\\') are not mirrored.
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,8 +35,26 @@ export interface Located {
   readonly exists: boolean;
 }
 
-/** Locates a pi path argument given relative to `base` (an absolute directory). */
-export type Locate = (raw: string, base: string) => Result<Located>;
+/**
+ * Locates a pi path argument given relative to `base` (an absolute
+ * directory). A "read" is located as pi's read tool opens it, fallback
+ * spellings included.
+ */
+export type Locate = (raw: string, base: string, use?: "read") => Result<Located>;
+
+/**
+ * The spelling pi's read opens (resolveReadPath in pi's tools/path-utils.js):
+ * the path if it exists, else the first that exists of a narrow no-break
+ * space before AM/PM, the NFD form, a curly apostrophe, and NFD with a curly
+ * apostrophe, each over the whole absolute path. Existence follows links.
+ */
+function piReadSpelling(absolute: string): string {
+  if (existsSync(absolute)) return absolute;
+  const nfd = absolute.normalize("NFD");
+  const curly = (path: string): string => path.replace(/'/g, "\u2019");
+  const variants = [absolute.replace(/ (AM|PM)\./gi, "\u202F$1."), nfd, curly(absolute), curly(nfd)];
+  return variants.find((variant) => variant !== absolute && existsSync(variant)) ?? absolute;
+}
 
 const exists = (path: string): boolean => {
   try {
@@ -52,9 +71,11 @@ const within = (root: string, path: string): string | undefined => {
 };
 
 /**
- * The real path `absolute` lands on: its deepest existing part through
- * realpath, then the rest as written. A dangling link has no real path, so
- * it is refused: writing through it would create its target, wherever that is.
+ * The real path `absolute` lands on: its deepest existing part through the
+ * native realpath (which, unlike node's JS one, returns the stored case on a
+ * case-insensitive volume), then the rest as written. A dangling link has no
+ * real path, so it is refused: writing through it would create its target,
+ * wherever that is. So is a loop of links.
  */
 function landing(raw: string, absolute: string): Result<{ real: string; exists: boolean }> {
   let existing = absolute;
@@ -64,25 +85,27 @@ function landing(raw: string, absolute: string): Result<{ real: string; exists: 
     existing = dirname(existing);
   }
   try {
-    return { ok: true, value: { real: join(realpathSync(existing), ...rest), exists: rest.length === 0 } };
-  } catch {
-    return { ok: false, error: `Path '${raw}' goes through a link whose target does not exist (${existing})` };
+    return { ok: true, value: { real: join(realpathSync.native(existing), ...rest), exists: rest.length === 0 } };
+  } catch (error) {
+    const loop = error instanceof Error && "code" in error && error.code === "ELOOP";
+    return { ok: false, error: loop ? `Path '${raw}' goes through a loop of links (${existing})` : `Path '${raw}' goes through a link whose target does not exist (${existing})` };
   }
 }
 
 /** The locator for a project: pi's rewrite, then lexically inside the project, then where links land. */
 export function locator(root: string, home: string = homedir()): Locate {
-  return (raw, base) => {
+  return (raw, base, use) => {
     if (raw.includes("\0")) return { ok: false, error: "A path must not contain a NUL character" };
     let realRoot: string;
     try {
-      realRoot = realpathSync(root);
+      realRoot = realpathSync.native(root);
     } catch {
       return { ok: false, error: `The project root ${root} cannot be found` };
     }
     const rewritten = piRewrite(raw, home);
     if (!rewritten.ok) return rewritten;
-    const absolute = resolve(base, rewritten.value);
+    const resolved = resolve(base, rewritten.value);
+    const absolute = use === "read" ? piReadSpelling(resolved) : resolved;
     if (within(root, absolute) === undefined && within(realRoot, absolute) === undefined) {
       return { ok: false, error: `Path '${raw}' is ${absolute}, outside the project` };
     }

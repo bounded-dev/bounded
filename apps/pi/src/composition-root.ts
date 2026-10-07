@@ -4,7 +4,7 @@
 // extension failing closed, every tool call is blocked with this message.
 import type { Decide } from "./extension.ts";
 
-/** Composes the project at `root` into its decide. Throws when it cannot. */
-export function composeProject(root: string): Decide {
+/** Composes the project at `root` into its decide. Rejects when it cannot. */
+export async function composeProject(root: string): Promise<Decide> {
   throw new Error(`bounded-pi cannot compose ${root} yet: reading bounded.config.ts arrives with the core integration`);
 }

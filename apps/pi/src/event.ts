@@ -10,7 +10,8 @@ export type Effect =
   | { readonly kind: "read"; readonly path: ProjectPath }
   | { readonly kind: "list"; readonly root: ProjectPath; readonly filter?: string }
   | { readonly kind: "write"; readonly path: ProjectPath; readonly change: "create" | "modify" | "delete" }
-  | { readonly kind: "execute"; readonly command: string }
+  /** A shell command, and the project directory it runs in when the host says. */
+  | { readonly kind: "execute"; readonly command: string; readonly cwd?: ProjectPath }
   | { readonly kind: "fetch"; readonly url: string }
   | { readonly kind: "delegate"; readonly agent: string }
   /** A call whose effects cannot be described: an unknown tool, an MCP tool, a skill, a web search. */
@@ -23,19 +24,21 @@ export interface ToolUse {
   readonly effects: readonly [Effect, ...Effect[]];
 }
 
-/** The text an effect carries, by name, for those that carry one. */
-function textOf(effect: Effect): readonly [name: string, text: string] | undefined {
+/** The text fields an effect carries, by name: each must be non-blank and free of NUL. */
+function textsOf(effect: Effect): readonly (readonly [name: string, text: string])[] {
   switch (effect.kind) {
     case "execute":
-      return ["command", effect.command];
+      return [["command", effect.command]];
     case "fetch":
-      return ["url", effect.url];
+      return [["url", effect.url]];
     case "delegate":
-      return ["agent", effect.agent];
+      return [["agent", effect.agent]];
     case "invoke":
-      return ["name", effect.name];
+      return [["name", effect.name]];
+    case "list":
+      return effect.filter === undefined ? [] : [["filter", effect.filter]];
     default:
-      return undefined;
+      return [];
   }
 }
 
@@ -45,9 +48,10 @@ export function toolUse(role: Role | null, tool: ToolKind, effects: readonly Eff
   const [first, ...rest] = frozen;
   if (first === undefined) return { ok: false, error: "A tool use has at least one effect" };
   for (const effect of frozen) {
-    const [name, text] = textOf(effect) ?? ["", "-"];
-    if (text.trim() === "") return { ok: false, error: `A ${effect.kind} effect names its ${name}` };
-    if (text.includes("\0")) return { ok: false, error: `A ${effect.kind} effect's ${name} must not contain a NUL character` };
+    for (const [name, text] of textsOf(effect)) {
+      if (text.trim() === "") return { ok: false, error: `A ${effect.kind} effect names its ${name}` };
+      if (text.includes("\0")) return { ok: false, error: `A ${effect.kind} effect's ${name} must not contain a NUL character` };
+    }
   }
   return { ok: true, value: Object.freeze({ kind: "tool-use", role, tool, effects: Object.freeze([first, ...rest] as const) }) };
 }
