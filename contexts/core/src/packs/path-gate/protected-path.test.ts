@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ProtectedPath, writes } from "bounded/path-gate";
 
-const rule = { match: "packages/db/**", deny: ["modify"], redirect: "Change the schema instead" };
+const rule = { match: "packages/db/**", deny: ["modify", "delete"], redirect: "Change the schema instead" };
 const refused = (raw: unknown): string => {
   const parsed = ProtectedPath.parse(raw);
   return parsed.ok ? "accepted" : parsed.error;
@@ -68,5 +68,41 @@ describe("ProtectedPath — a deny-only rule", () => {
     expect(refused({ ...rule, redirect: "  " })).toBe("A rule's redirect must say what to do instead");
     expect(refused({ ...rule, redirect: 1 })).toBe("A rule's redirect must say what to do instead");
     expect(refused({ ...rule, why: " " })).toBe("A rule's why, when given, must be non-empty text");
+  });
+
+  test("'**' inside a group, parentheses and extglobs are refused: alternatives are written with braces", () => {
+    expect(refused({ ...rule, match: "a/{**,x}/c" })).toContain("match pattern 'a/{**,x}/c' has '**' inside a group");
+    for (const match of ["@(**)", "+(a|aa)+(a|aa)+(b)", "(a|b)/x", "a/!(b)"]) {
+      expect(refused({ ...rule, match })).toContain(`match pattern '${match}' uses parentheses. Write alternatives with braces, such as {a,b}`);
+    }
+  });
+
+  test("a pattern is at most 512 characters", () => {
+    expect(refused({ ...rule, match: "a".repeat(513) })).toContain("is longer than 512 characters");
+    expect(ProtectedPath.parse({ ...rule, match: "a".repeat(512) }).ok).toBe(true);
+  });
+
+  test("a trailing '/' is refused: a plain name covers its contents", () => {
+    expect(refused({ ...rule, match: "packages/db/" })).toContain("match pattern 'packages/db/' ends in '/'. Write 'packages/db': a name covers everything under it");
+  });
+
+  test("an except that covers the whole match is refused: the rule would deny nothing", () => {
+    for (const except of ["packages/db/**", "**"]) {
+      expect(refused({ ...rule, except: [except] })).toBe(`A rule's except pattern '${except}' covers its whole match 'packages/db/**', so the rule would deny nothing`);
+    }
+  });
+
+  test("a rule that denies modify also denies create or delete, or a delete and create would change the file", () => {
+    expect(refused({ ...rule, deny: ["modify"] })).toBe(
+      "A rule that denies modify must also deny create or delete: otherwise deleting and creating the file changes it (spread `writes`)",
+    );
+    expect(ProtectedPath.parse({ ...rule, deny: ["modify", "create"] }).ok).toBe(true);
+  });
+
+  test("redirect and why hold no control characters and are at most 1000 characters", () => {
+    expect(refused({ ...rule, redirect: "a\nb" })).toBe("A rule's redirect must not contain control characters");
+    expect(refused({ ...rule, why: "a\u0000b" })).toBe("A rule's why must not contain control characters");
+    expect(refused({ ...rule, redirect: "a".repeat(1001) })).toBe("A rule's redirect must be at most 1000 characters");
+    expect(refused({ ...rule, why: "a".repeat(1001) })).toBe("A rule's why must be at most 1000 characters");
   });
 });

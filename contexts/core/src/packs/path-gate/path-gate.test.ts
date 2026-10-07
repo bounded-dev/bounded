@@ -95,6 +95,35 @@ describe("the path gate — reads and writes", () => {
   });
 });
 
+describe("the path gate — names and directories", () => {
+  test("a rule ending in a literal name covers everything under that name", () => {
+    const db = rules("a", { match: "packages/db", deny: [...writes], redirect: "Leave the database package alone" });
+    expect(reason(decide([db], [write("packages/db/src/x.ts", "modify")]))).toContain("the rule 'packages/db' from test-packs/a denies modify of 'packages/db/src/x.ts'");
+    expect(decide([db], [write("packages/dbx/x.ts", "modify")])).toBe(Verdict.allow);
+    expect(decide([db], [read("packages/db/src/x.ts")])).toBe(Verdict.allow);
+  });
+
+  test("a rule ending in a glob covers only the paths it matches", () => {
+    const keys = rules("a", { match: "keys/*.pem", deny: ["modify", "delete"], redirect: "Rotate keys with the tool" });
+    expect(decide([keys], [write("keys/a.pem/notes.txt", "modify")])).toBe(Verdict.allow);
+    expect(decide([keys], [write("keys/a.pem", "modify")]).kind).toBe("refuse");
+  });
+
+  test("deleting a directory that could hold a path a rule denies delete for is refused", () => {
+    expect(reason(decide([rules("a", db)], [write("packages", "delete")]))).toBe(
+      "bounded/path-gate refused write (delete) packages: the rule 'packages/db/**' from test-packs/a denies delete, and deleting 'packages' could delete a path it matches",
+    );
+    expect(decide([rules("a", db)], [write("packages/db", "delete")]).kind).toBe("refuse");
+    expect(decide([rules("a", db)], [write("packages/db", "delete"), write("packages/db2", "create")]).kind).toBe("refuse");
+    expect(decide([rules("a", db)], [write("docs", "delete"), write("packages", "modify")])).toBe(Verdict.allow);
+    expect(decide([rules("a", { ...db, except: ["packages/db/src/schema/**"] })], [write("packages/db/src/schema", "delete")])).toBe(Verdict.allow);
+  });
+
+  test("deleting the project root is always refused", () => {
+    expect(decide([], [write(".", "delete")]).kind).toBe("refuse");
+  });
+});
+
 describe("the path gate — except carves paths out of its own rule only", () => {
   const generated: ProtectedPath = { ...db, except: ["packages/db/src/schema/**"] };
 
@@ -116,7 +145,7 @@ describe("the path gate — except carves paths out of its own rule only", () =>
 describe("the path gate — a denial always wins", () => {
   test("rules from several packs all apply: any rule that denies refuses", () => {
     const readOnly = rules("a", { match: "docs/**", deny: ["read"], redirect: "Use the published docs" });
-    const frozen = rules("b", { match: "docs/adr/**", deny: ["modify"], redirect: "Write a superseding ADR" });
+    const frozen = rules("b", { match: "docs/adr/**", deny: ["modify", "delete"], redirect: "Write a superseding ADR" });
     expect(decide([readOnly, frozen], [write("docs/guide.md", "modify")])).toBe(Verdict.allow);
     expect(decide([readOnly, frozen], [write("docs/adr/001.md", "modify")])).toEqual(
       Verdict.refuse("bounded/path-gate refused write (modify) docs/adr/001.md: the rule 'docs/adr/**' from test-packs/b denies modify of 'docs/adr/001.md'", "Write a superseding ADR"),
@@ -124,8 +153,8 @@ describe("the path gate — a denial always wins", () => {
   });
 
   test("when several rules deny, the first in pack order is named, whatever order the packs were listed in", () => {
-    const first = rules("a", { match: "src/**", deny: ["modify"], redirect: "first" });
-    const second = rules("b", { match: "src/core/**", deny: ["modify"], redirect: "second" });
+    const first = rules("a", { match: "src/**", deny: ["modify", "delete"], redirect: "first" });
+    const second = rules("b", { match: "src/core/**", deny: ["modify", "delete"], redirect: "second" });
     expect(decide([second, first], [write("src/core/x.ts", "modify")])).toMatchObject({ kind: "refuse", redirect: "first" });
     expect(decide([first, second], [write("src/core/x.ts", "modify")])).toMatchObject({ kind: "refuse", redirect: "first" });
   });
@@ -154,12 +183,38 @@ describe("the path gate — listing is judged conservatively", () => {
     expect(decide([hidden("packages/*/secrets/**")], [list("packages/a/src")])).toBe(Verdict.allow);
   });
 
-  test("a filter excludes a protected path only provably: when the rule ends in a literal name the filter does not match", () => {
-    expect(decide([hidden("config/.env")], [list("config", "*.ts")])).toBe(Verdict.allow);
-    expect(decide([hidden("config/.env")], [list("config", "*")]).kind).toBe("refuse");
-    expect(reason(decide([hidden("config/.env")], [list("config", ".env")]))).toContain("listing 'config' (.env) could reveal a path it matches");
-    expect(decide([hidden("config/*.pem")], [list("config", "*.ts")]).kind).toBe("refuse");
+  test("a filter excludes a protected path only provably: a literal name, or disjoint literal suffixes or prefixes", () => {
+    expect(decide([hidden("config/*.pem")], [list("config", "*.ts")])).toBe(Verdict.allow);
+    expect(decide([hidden("config/*.pem")], [list("config", "*.pem.bak")])).toBe(Verdict.allow);
+    expect(decide([hidden("config/*.pem")], [list("config", "server.ts")])).toBe(Verdict.allow);
+    expect(decide([hidden("config/key*")], [list("config", "id*")])).toBe(Verdict.allow);
+    expect(reason(decide([hidden("config/*.pem")], [list("config", "*m")]))).toContain("listing 'config' could reveal a path it matches");
+    expect(decide([hidden("config/*.pem")], [list("config", "server.PEM")]).kind).toBe("refuse");
+    expect(decide([hidden("config/key*")], [list("config", "k*")]).kind).toBe("refuse");
+    expect(decide([hidden("config/key*")], [list("config", "*.ts")]).kind).toBe("refuse");
     expect(decide([hidden("secrets/**")], [list(".", "*.md")]).kind).toBe("refuse");
+  });
+
+  test("a rule ending in a literal name covers that name's contents, so no filter rules it out", () => {
+    expect(decide([hidden("config/.env")], [list("config", "*.ts")]).kind).toBe("refuse");
+  });
+
+  test("a filter with '/' or '**' in it proves nothing", () => {
+    for (const filter of ["sub/*.ts", "{a/b,*.ts}", "**/*.ts", "*.ts/", "**"]) {
+      expect(decide([hidden("config/*.pem")], [list("config", filter)]).kind).toBe("refuse");
+    }
+  });
+
+  test("a part with '**' anywhere in it may span parts of a path", () => {
+    expect(decide([hidden("a/b**/c")], [list("a/bz/d")]).kind).toBe("refuse");
+    expect(decide([hidden("a/b**/c")], [list("a/x/d")])).toBe(Verdict.allow);
+  });
+
+  test("a listing refusal composes its redirect: list elsewhere or filter it out, then the rule's own redirect", () => {
+    expect(decide([hidden("secrets/**")], [list(".")])).toMatchObject({
+      kind: "refuse",
+      redirect: "List a root outside 'secrets/**', or give a filter that cannot match it — Do not look there",
+    });
   });
 
   test("an except helps a listing only when it covers everything under the root", () => {
@@ -176,10 +231,18 @@ describe("the path gate — listing is judged conservatively", () => {
   test("a content search (a list and a read over the same root) is refused when it could read a path a rule denies read for", () => {
     const keys = rules("a", { match: "src/keys/**", deny: ["read"], redirect: "Search elsewhere" });
     expect(reason(decide([keys], [list("src", "*.ts"), read("src")], "search"))).toBe(
-      "bounded/path-gate refused read src: the rule 'src/keys/**' from test-packs/a denies read, and searching 'src' (*.ts) could read a path it matches",
+      "bounded/path-gate refused read src: the rule 'src/keys/**' from test-packs/a denies read, and searching 'src' could read a path it matches",
     );
     expect(decide([keys], [list("docs"), read("docs")], "search")).toBe(Verdict.allow);
-    expect(decide([keys], [list("src"), read("src")], "search")).toMatchObject({ kind: "refuse", redirect: "Search elsewhere" });
+    expect(decide([keys], [list("src"), read("src")], "search")).toMatchObject({
+      kind: "refuse",
+      redirect: "Search a root outside 'src/keys/**', or give a filter that cannot match it — Search elsewhere",
+    });
+  });
+
+  test("a search is recognised whatever the case of its root", () => {
+    const keys = rules("a", { match: "src/keys/**", deny: ["read"], redirect: "Search elsewhere" });
+    expect(decide([keys], [list("SRC"), read("src")], "search").kind).toBe("refuse");
   });
 });
 
@@ -207,7 +270,7 @@ describe("the path gate — built-in protection of its own configuration", () =>
     if (!composed.ok) throw new Error(composed.error);
     const entries = composed.value.entries(protectedPaths);
     expect(entries.ok && entries.value.map(({ from, value }) => [from, value.match, value.deny])).toEqual([
-      ["bounded/path-gate", "bounded.config.*", ["create", "modify", "delete"]],
+      ["bounded/path-gate", "**/bounded.config.*", ["create", "modify", "delete"]],
       ["bounded/path-gate", ".bounded/**", ["create", "modify", "delete"]],
     ]);
   });
@@ -215,7 +278,7 @@ describe("the path gate — built-in protection of its own configuration", () =>
   test("an agent cannot write its own guardrails", () => {
     for (const change of writes) {
       expect(reason(decide([], [write("bounded.config.ts", change)]))).toBe(
-        `bounded/path-gate refused write (${change}) bounded.config.ts: the rule 'bounded.config.*' from bounded/path-gate denies ${change} of 'bounded.config.ts' (the project's guardrails are changed by people, not by agents)`,
+        `bounded/path-gate refused write (${change}) bounded.config.ts: the rule '**/bounded.config.*' from bounded/path-gate denies ${change} of 'bounded.config.ts' (the project's guardrails are changed by people, not by agents)`,
       );
     }
     expect(decide([], [write("bounded.config.js", "create")]).kind).toBe("refuse");
@@ -224,7 +287,11 @@ describe("the path gate — built-in protection of its own configuration", () =>
   });
 
   test("the configuration can still be read, and other files written", () => {
-    expect(decide([], [read("bounded.config.ts"), read(".bounded/guard-log.jsonl"), write("src/bounded.config.ts", "modify")])).toBe(Verdict.allow);
+    expect(decide([], [read("bounded.config.ts"), read(".bounded/guard-log.jsonl"), write("src/config.ts", "modify")])).toBe(Verdict.allow);
+  });
+
+  test("a configuration file is protected at any depth", () => {
+    expect(decide([], [write("packages/app/bounded.config.ts", "modify")]).kind).toBe("refuse");
   });
 
   test("no pack's except can carve out the built-in protection", () => {
