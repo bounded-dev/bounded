@@ -53,3 +53,14 @@ recording each refusal. An event the host sends that cannot be read is
 refused and recorded with `"event": "invalid"`.
 
 Add `.bounded/` to the project's `.gitignore`.
+
+## Protect the configuration
+
+`bounded.config.ts` runs code inside the process that judges every action, so
+it decides what is allowed. The core freezes everything it exports, so a
+configuration cannot patch it, but the configuration itself, and every file it
+imports, must be protected from the agent: the path gate protects
+`bounded.config.*`; files the configuration imports should be protected too
+(protecting the whole import closure automatically is planned). The file must
+live in the project (a link pointing outside it is refused), and a changed
+file is read afresh the next time a project is opened.

@@ -31,6 +31,25 @@
   wires the defaults: the file-system configuration source, a decision log
   at `<root>/.bounded/guard-log.jsonl`, the system clock.
 
+- **Opening never rejects.** `openProject` and `OpenProjectHandler.execute`
+  catch every failure (an unusable `recordWithinMs`, a source that returns
+  nothing, anything thrown) and return a judge that refuses every event,
+  recording it when the project's log can be opened. Host adapters rely on
+  always getting a judge.
+- **A configuration runs code, so the core is frozen.** Every export of the
+  public entry points, and every function's and class's prototype, is frozen
+  when the entry point loads, so `bounded.config.ts` or a pack it imports
+  cannot replace `Verdict.parse`, `Composition.compose` or a handler's
+  methods. Gaps that remain: a configuration can still patch the runtime's
+  own globals (`JSON`, `Promise`, `Object`), and it can import the core's
+  files by path rather than through the package. So **`bounded.config.*` and
+  every file it imports must be protected paths**: the path gate protects
+  `bounded.config.*`; protecting the configuration's whole import closure is
+  a recorded gap.
+- **Strict loading.** The file must resolve inside the project (no link out of
+  it). Each load imports the file as it is now (keyed by its modification
+  time), so a changed configuration is read afresh without a restart.
+
 ## Deviations from the example
 
 - The open-project feature reuses the judge-event feature's `DecisionLog` and
