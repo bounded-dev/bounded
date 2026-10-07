@@ -35,8 +35,10 @@ export interface ExtensionOptions {
   readonly home?: string;
   /** How long deciding one call may take before the call is blocked. 3 seconds by default. */
   readonly deadlineMs?: number;
-  /** How long composing may take before the waiting call is blocked; the next call retries. 15 seconds by default. */
+  /** How long composing may take before the waiting calls are blocked. 15 seconds by default. */
   readonly composeDeadlineMs?: number;
+  /** After a composition times out, how long calls stay blocked before one composes again. 30 seconds by default. */
+  readonly composeBackoffMs?: number;
 }
 
 const block = (reason: string, redirect: string): PiBlock => ({ block: true, reason: `${reason}\n${redirect}` });
@@ -65,12 +67,14 @@ function deepFreeze(value: unknown, seen = new Set<object>()): void {
 type Composed = { ok: true; decide: Decide } | { ok: false; error: string; timedOut: boolean };
 
 /** The extension pi loads: `(pi) => void`, given the project and its composition root. */
-export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadlineMs = 15000 }: ExtensionOptions): (pi: Pi) => void {
+export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadlineMs = 15000, composeBackoffMs = 30000 }: ExtensionOptions): (pi: Pi) => void {
   const locate = locator(root, home);
   return (pi) => {
     let started = false;
-    /** The composition calls wait for; undefined after one ran out of time, so the next call tries again. */
+    /** The composition calls wait for. */
     let composed: Promise<Composed> | undefined;
+    /** After a composition ran out of time, when the first call may compose again: a back-off, so slow imports do not pile up. */
+    let retryAt: number | undefined;
     const compose = (): Promise<Composed> =>
       within(load, composeDeadlineMs, `composing the project did not finish within ${composeDeadlineMs} ms`).then(
         (decide): Composed => ({ ok: true, decide }),
@@ -81,6 +85,7 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
     // slow composition never delays the session itself.
     pi.on("session_start", async () => {
       started = true;
+      retryAt = undefined;
       composed = compose();
       return undefined;
     });
@@ -88,14 +93,21 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
     pi.on("tool_call", async (event, context) => {
       try {
         if (!started) return block("bounded blocked this call: it came before the session started", "Start a new pi session in this project");
-        composed ??= compose();
-        const current = composed;
-        const project = await current;
-        if (!project.ok) {
-          if (project.timedOut && composed === current) composed = undefined;
-          const redirect = project.timedOut ? "The next tool call composes the project again" : "Fix the project's bounded configuration, then start a new pi session";
-          return block(`bounded could not start: ${project.error}`, redirect);
+        if (retryAt !== undefined && Date.now() >= retryAt) {
+          retryAt = undefined;
+          composed = compose();
         }
+        const current = composed ?? compose();
+        const project = await current;
+        if (!project.ok && project.timedOut) {
+          if (composed === current && retryAt === undefined) retryAt = Date.now() + composeBackoffMs;
+          const wait = Math.max(0, (retryAt ?? Date.now()) - Date.now()) / 1000;
+          return block(
+            `bounded could not start: composing the project timed out (${project.error}); bounded retries in ${wait.toFixed(1)} s`,
+            "Calls are blocked until the project composes; check what makes bounded.config.ts slow to load",
+          );
+        }
+        if (!project.ok) return block(`bounded could not start: ${project.error}`, "Fix the project's bounded configuration, then start a new pi session");
         const [toolName, input, cwd] = [field(event, "toolName"), field(event, "input"), field(context, "cwd")];
         deepFreeze(input);
         if (typeof toolName !== "string") return block("bounded could not read pi's tool call: it names no tool", "Report this to the maintainers of bounded-pi");

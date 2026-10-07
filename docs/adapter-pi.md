@@ -100,10 +100,12 @@ such calls are refused.
 delaying the session; tool calls await it. `decide(toolUse)` returns a
 `Promise<Verdict>` (`bounded/domain`), as the core's judging is
 asynchronous. Composing has a deadline of 15 s, each decision one of 3 s
-(both set through `bounded(root, { composeDeadlineMs, deadlineMs })`): a
+(set through `bounded(root, { composeDeadlineMs, deadlineMs, composeBackoffMs })`): a
 promise that never settles blocks the call instead of hanging pi. A
-composition that runs out of time blocks the calls waiting for it, and the
-next call composes again; one that fails blocks every call until a new
+composition that runs out of time blocks the calls waiting for it and is
+kept as failed for a back-off (30 s, `composeBackoffMs`), during which calls
+are blocked saying it timed out and when it retries; the first call after
+the back-off composes again, so slow imports do not pile up; one that fails blocks every call until a new
 session. pi gets `undefined` to run the call, or
 `{ block: true, reason: "<reason>\n<redirect>" }`. The call's input is
 deep-frozen before it is translated, so nothing can change what is judged:

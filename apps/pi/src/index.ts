@@ -9,8 +9,8 @@ export { type ProjectFile, piLoader } from "./install.ts";
 export { type Locate, type Located, locator, piRewrite } from "./pi-path.ts";
 export { type PiToolCall, translate } from "./translate.ts";
 
-/** Deadlines a project may change: composing (15 s by default) and each decision (3 s by default). */
-export type BoundedOptions = Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs">;
+/** Timings a project may change: composing (15 s), each decision (3 s), and the back-off after composing times out (30 s). */
+export type BoundedOptions = Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs" | "composeBackoffMs">;
 
 /** The extension for the project at `root`, composed from its configuration. What the generated loader hands the project to. */
 export function bounded(root: string, options: BoundedOptions = {}): (pi: Pi) => void {
