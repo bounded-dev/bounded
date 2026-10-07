@@ -147,7 +147,7 @@ describe("Composition — every refusal names the pack, the extension point and 
   }
 
   test("garbage instead of lists is refused, never thrown", () => {
-    const refusal = { ok: false, error: "Compose takes a list of available packs and a list of selected pack names" };
+    const refusal = { ok: false as const, error: "Compose takes a list of available packs and a list of selected pack names" };
     expect(Composition.compose(null as unknown as AnyPack[], [])).toEqual(refusal);
     expect(Composition.compose([], "base" as unknown as string[])).toEqual(refusal);
     expect(Composition.compose([null as unknown as AnyPack], [])).toEqual({ ok: false, error: notBuilt("null") });

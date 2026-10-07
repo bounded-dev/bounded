@@ -1,4 +1,4 @@
-import type { Composition, Pack, PackName, Result } from "@bounded/core/domain";
+import type { AnyPack, Composition, PackName, Result } from "@bounded/core/domain";
 
 // Wire input: what callers send.
 export interface ComposePacksInput {
@@ -24,5 +24,5 @@ export interface ComposePacks {
 // Out port: exactly what this feature needs.
 /** The packs available to compose from. */
 export interface ComposePacksCatalog {
-  available(): Promise<readonly Pack[]>;
+  available(): Promise<readonly AnyPack[]>;
 }

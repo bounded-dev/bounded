@@ -28,7 +28,7 @@ export const unionDep = definePack({ id: "union", dependsOn: [either], contribut
 export const twice = definePack({ id: "twice", dependsOn: [base, base] }); // rejected: list each dependency once
 export const typeArgs = definePack<"args", Record<never, never>, [typeof base]>({ id: "args", contributes: [contribution(base.points.words, ["x"])] }); // rejected: 'dependsOn' is missing
 // 4. Points are declared only inside their own pack, under valid keys; labels are literals.
-export const thief = definePack({ id: "thief", points: { stolen: base.points.words } }); // rejected: is not assignable to type 'PointDeclaration
+export const thief = definePack({ id: "thief", points: { stolen: base.points.words } }); // rejected: is not assignable to type 'AnyDeclaration'
 export const dotted = definePack({ id: "dotted", points: { "a.b": point({ description: "Dotted", check: text }) } }); // rejected: point keys are camelCase words without dots
 export const widened = definePack({ id: anyLabel }); // rejected: write the pack id as a string literal
 export const unchecked = point({ description: "No check" }); // rejected: 'check' is missing
