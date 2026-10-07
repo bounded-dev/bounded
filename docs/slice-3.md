@@ -11,7 +11,7 @@ imported from `bounded/path-gate`. Role path rules come later. All code is in
    refusal a rule can meet.
 2. `matching.ts` — how a rule meets a path: exact matching, and the
    conservative reach of a listing (the reasoning is in its comments).
-3. `path-gate.ts` — the pack: its own rules for `bounded.config.*` and
+3. `path-gate.ts` — the pack: its own rules for `**/bounded.config.*` and
    `.bounded/**`, and the read, list and write guards.
 4. `protected-path.test.ts`, `path-gate.test.ts`, then `rocketflare.test.ts`
    (end to end); the fixtures `path-gate-accepted.ts` and
@@ -55,7 +55,7 @@ if (composed.ok && call.ok) console.log(dispatchEvent(composed.value, call.value
 
 Editing `packages/db/src/schema/users.ts` is allowed (the rule's own
 exception); reading `apps/web/.env.local` is refused; modifying
-`infra/main.tf` is allowed and deleting it refused; writing
+`infra/main.tf` is allowed and deleting it (or `infra`) refused; writing
 `bounded.config.ts` is refused by the path gate's own rule. Writing
 `deny: ["write"]` does not compile (spread `writes`), and contributing rules
 without `pathGate` in `dependsOn` does not compile either.
@@ -66,4 +66,16 @@ Execute, fetch, delegate and invoke effects pass the path gate: a shell
 command's paths cannot be read from its text; a later slice hashes protected
 files around commands. A content search is refused whenever it could read a
 read-protected file, so `**`-led read rules make project-wide searches
-refuse; search a narrower root.
+refuse; search a narrower root. Only the configuration's entry file is
+protected, not the modules it imports (ADR 2026-009 lists the known gaps).
+
+## Writing rules
+
+- A literal name covers everything under it: `packages/db` protects the
+  whole directory. Do not end a pattern in `/`.
+- Prefer literal last parts or pure suffixes (`**/.env`, `**/.env.local`,
+  `**/*.pem`) to open globs (`**/.env*`): exact paths match the same, and a
+  pure suffix can be ruled out by a listing's filter (`*.ts`).
+- Write alternatives with braces (`{a,b}`), never parentheses, and keep `/`
+  and `**` out of groups.
+- Denying `modify` needs `create` or `delete` too; `[...writes]` is usual.
