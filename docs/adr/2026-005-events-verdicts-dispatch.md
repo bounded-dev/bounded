@@ -1,0 +1,48 @@
+# 2026-005: Host-neutral events, verdicts and a pure dispatch
+
+**Status:** accepted for the independent half of slice 2. The guards
+extension points and dispatching over a composition follow once slice 1's
+API settles.
+
+## Decision
+
+- **Events are a closed, host-neutral vocabulary.** `ToolUse { role, tool,
+  action, paths, command, search }` and `SessionStart { role }`, discriminated
+  by `kind`. `tool` is one of read, search, edit, write, shell, web, subagent,
+  other; `action` is read, write or run. Only a run has a command (a string,
+  else null) and only a search has search details (`{ root, filter }`, or
+  null when the host does not say where it searched). `role` must be given:
+  a role label, or null for none. Nothing names a host, tool product or
+  technology.
+- **Paths arrive resolved.** The host adapter rewrites its own paths and
+  resolves links (it does the I/O); `ProjectPath` only checks and normalises:
+  relative to the project, '/'-separated, no '.', empty or climbing '..'
+  segments, no NUL. Absolute paths, '~', drive letters and backslashes are
+  refused rather than guessed at. The root is ".".
+- **A verdict is allow or refuse { reason, redirect }**, both non-empty,
+  discriminated by `kind` so that a third form (such as allowing with
+  rewritten input) can be added later without changing the other two.
+  `Verdict.refuse` with blank text still refuses, with text saying what is
+  missing; `Verdict.parse` refuses blank text.
+- **A guard is `(event, context) => Verdict`**, synchronous. `Context` is a
+  type parameter defaulting to `void` (no argument); the integration fills it
+  with the composed result.
+- **`dispatch(guards, event, context?)` is a pure domain function.** It
+  checks the event with `Event.parse`, runs the guards in the order given,
+  re-checks each result with `Verdict.parse`, and returns the first refusal,
+  or allow. A guard that is not a function, throws, returns a promise or
+  returns anything but a verdict is a refusal naming the guard by position
+  and the failure. It never throws.
+
+## Deviations from the example
+
+- **Frozen plain objects with type-only brands**, not `<Name>Impl` classes:
+  as `PackId`, the brand stops a look-alike literal at compile time, and
+  every run-time entry point (`parse`, `dispatch`) checks the shape again, so
+  untyped data is held to the same rules. Role and ProjectPath are branded
+  strings, readable in messages.
+- **A function-valued type in the domain** (`Guard`), and a domain function
+  rather than an application feature for dispatch: it has no port and does
+  no I/O. The integrated dispatch over a composition may become a feature.
+- **Guards are named by position, not function name**: names do not survive
+  every transpiler. The integration will name the contributing pack.

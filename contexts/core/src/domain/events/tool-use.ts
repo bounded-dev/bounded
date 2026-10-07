@@ -1,0 +1,57 @@
+import type { Result } from "../shared/result.ts";
+import { ProjectPath } from "./project-path.ts";
+import { roleOf } from "./role.ts";
+import type * as Contract from "./tool-use.contract.ts";
+
+const TOOLS: readonly Contract.ToolKind[] = ["read", "search", "edit", "write", "shell", "web", "subagent", "other"];
+const ACTIONS: readonly Contract.Action[] = ["read", "write", "run"];
+const SEARCH = "A search is { root, filter }: root the project-relative directory searched, filter the file-name pattern that limits it, or null";
+
+const one = <T extends string>(list: readonly T[], raw: unknown): raw is T => list.some((item) => item === raw);
+const a = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`);
+const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
+
+function parseSearch(raw: unknown): Result<Contract.Search | null> {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "object" || !("root" in raw)) return refuse(SEARCH);
+  const filter = "filter" in raw && raw.filter !== undefined ? raw.filter : null;
+  if (filter !== null && (typeof filter !== "string" || filter.trim() === "")) return refuse(SEARCH);
+  const root = ProjectPath.parse(raw.root);
+  return root.ok ? { ok: true, value: Object.freeze({ root: root.value, filter }) } : root;
+}
+
+function parse(raw: unknown): Result<ToolUse> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse("A tool use is an object: { role, tool, action, paths, command, search }");
+  const fields: Partial<Record<"kind" | "tool" | "action" | "paths" | "command" | "search", unknown>> = raw;
+  if (fields.kind !== undefined && fields.kind !== "tool-use") return refuse(`A tool use has kind 'tool-use', not '${String(fields.kind)}'`);
+  const role = roleOf(raw, "A tool use");
+  if (!role.ok) return role;
+  const { tool, action, command } = fields;
+  if (!one(TOOLS, tool)) return refuse(`Tool kind '${String(tool)}' is not one of: ${TOOLS.join(", ")}`);
+  if (!one(ACTIONS, action)) return refuse(`Action '${String(action)}' is not one of: ${ACTIONS.join(", ")}`);
+  if (!Array.isArray(fields.paths)) return refuse("A tool use's paths must be a list of project-relative paths");
+  const paths: ProjectPath[] = [];
+  for (const path of fields.paths) {
+    const parsed = ProjectPath.parse(path);
+    if (!parsed.ok) return parsed;
+    paths.push(parsed.value);
+  }
+  const search = parseSearch(fields.search);
+  if (!search.ok) return search;
+  if (search.value !== null && tool !== "search") return refuse(`Only a search carries search details; ${a(tool)} does not`);
+  const common = { kind: "tool-use" as const, role: role.value, tool, paths: Object.freeze(paths), search: search.value };
+  if (action === "run") {
+    if (typeof command !== "string" || command.trim() === "") return refuse("A run must name the command it runs");
+    return made({ ...common, action, command });
+  }
+  if (command !== undefined && command !== null) return refuse(`Only a run carries a command; ${a(action)} does not`);
+  return made({ ...common, action, command: null });
+}
+
+/** The brand exists only in types: every tool use is made here, checked and frozen. */
+function made(fields: Omit<ToolUse, "__brand">): Result<ToolUse> {
+  return { ok: true, value: Object.freeze(fields) as ToolUse };
+}
+
+export type ToolUse = Contract.ToolUse;
+export const ToolUse: Contract.ToolUseFactory = { parse };
