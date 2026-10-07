@@ -50,6 +50,7 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 ```
 contexts/
   core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
+    src/pack/path-gate/              the path gate (slice 3): a pack shipped in bounded, exported as bounded/path-gate
 architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below
@@ -76,7 +77,7 @@ src/
     index.ts              the application barrel
   adapters/in/<tech>/     driving adapters: depend on in ports, never handlers
   adapters/out/<tech>/    driven adapters: implement out ports; each runs its port's conformance suite
-  pack/                   reserved: the context's pack, its composition root
+  pack/<name>/            a pack shipped in the context's package, such as path-gate/
 ```
 
 Rules, enforced by `architecture.test.ts` unless stated:
@@ -93,6 +94,10 @@ Rules, enforced by `architecture.test.ts` unless stated:
   Result<X>`; entities are built with `new` from valid value objects.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a
   test beside every adapter that implements it.
+- **A shipped pack is an ordinary pack** (ADR 2026-008): its code under
+  `src/pack/<name>/` imports only the package's `domain` export path, its
+  own directory and libraries the package declares, and does no I/O; nothing
+  outside that directory imports it, so the core never depends on a pack.
 - **Pack ids root at their own package**: every `packIdsFor(...)` call in a
   workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are

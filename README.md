@@ -4,10 +4,11 @@ The small, pure core of the Bounded harness, a set of guardrails for coding
 agents: the mechanism by which packs (selectable bundles of behaviour) extend
 one another. [docs/spec.md](docs/spec.md) is the requirement.
 
-**Status: slices 1 and 2** — packs, typed extension points, contributions
+**Status: slices 1 to 3** — packs, typed extension points, contributions
 and composition ([docs/slice-1.md](docs/slice-1.md)); host-neutral events
 made of precise effects, verdicts, guards and dispatch over a composition
-([docs/slice-2.md](docs/slice-2.md)). Each guide has a reading order and a
+([docs/slice-2.md](docs/slice-2.md)); the path gate, the first pack
+([docs/slice-3.md](docs/slice-3.md)). Each guide has a reading order and a
 worked example.
 
 ## Design in brief
@@ -32,6 +33,13 @@ worked example.
   guard point per event and effect kind; `dispatchEvent` fans a call out into
   its effects and asks each kind's guards, and the first refusal wins, naming
   the pack and the effect (ADRs 2026-005 to 2026-007).
+
+- **The path gate** (`bounded/path-gate`) is an ordinary pack. Packs and
+  projects contribute deny-only rules to its `protectedPaths` point (a
+  glob, its own exceptions, what it denies, a redirect); its guards refuse
+  reads, listings and writes a rule denies, naming the rule and the pack
+  that contributed it. A denial always wins, and it protects the project's
+  Bounded configuration itself (ADR 2026-008).
 
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
