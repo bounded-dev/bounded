@@ -86,47 +86,66 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
         : { readonly dependsOn: { readonly [K in keyof Dependencies]: [ExactId<Dependencies[K]["id"]>] extends [true] ? unknown : Refused<"each dependency is a pack with an exact id"> } });
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
-/** Values whose type is a library class with no type arguments: inspected no further. */
-type Leaf = Date | RegExp | URL | Error | ArrayBuffer | ArrayBufferView;
+/** Library classes with no type arguments: their own members are not inspected. */
+type Leaf =
+  | Date
+  | RegExp
+  | URL
+  | Error
+  | ArrayBuffer
+  | SharedArrayBuffer
+  | DataView
+  | Int8Array
+  | Uint8Array
+  | Uint8ClampedArray
+  | Int16Array
+  | Uint16Array
+  | Int32Array
+  | Uint32Array
+  | Float32Array
+  | Float64Array
+  | BigInt64Array
+  | BigUint64Array;
+/** The leaves T is assignable to (never when none). */
+type LeafOf<T> = Leaf extends infer L ? (L extends unknown ? (T extends L ? L : never) : never) : never;
 
 /**
  * Whether `any` appears in T, to a depth of eight. Inspected: T itself; the
  * type arguments of Promise (any PromiseLike), ReadonlyMap/Map,
  * ReadonlySet/Set and arrays and tuples; a function's own parameters and
  * result; a constructor's own parameters and instance type; and the own
- * properties of any other object. Leaves (never descended into): Date,
- * RegExp, URL, Error, ArrayBuffer and typed arrays. Library method
- * signatures are never inspected, so precise built-in types pass.
+ * properties of any other object. Leaves (Date, RegExp, URL, Error,
+ * ArrayBuffer, SharedArrayBuffer, DataView and the typed arrays) are matched
+ * by assignability, and only the members a type adds to its leaf are
+ * inspected. Library method signatures are never inspected, so precise
+ * built-in types pass.
  */
 type ContainsAny<T, Depth extends readonly unknown[] = []> = IsAny<T> extends true
   ? true
   : Depth["length"] extends 8
     ? false
-    : T extends Leaf
-      ? false
-      : T extends PromiseLike<infer Settled>
-        ? ContainsAny<Settled, [...Depth, 1]>
-        : T extends ReadonlyMap<infer Key, infer Item>
-          ? true extends ContainsAny<Key, [...Depth, 1]> | ContainsAny<Item, [...Depth, 1]>
-            ? true
-            : false
-          : T extends ReadonlySet<infer Item>
-            ? ContainsAny<Item, [...Depth, 1]>
-            : T extends readonly (infer Element)[]
-              ? ContainsAny<Element, [...Depth, 1]>
-              : T extends (...args: infer Parameters) => infer Returned
-                ? true extends ContainsAny<Returned, [...Depth, 1]> | ContainsAny<Parameters, [...Depth, 1]>
-                  ? true
-                  : false
-                : T extends abstract new (...args: infer Parameters) => infer Instance
-                  ? true extends ContainsAny<Instance, [...Depth, 1]> | ContainsAny<Parameters, [...Depth, 1]>
-                    ? true
-                    : false
-                  : T extends object
-                    ? true extends { [K in keyof T]-?: ContainsAny<T[K], [...Depth, 1]> }[keyof T]
-                      ? true
-                      : false
-                    : false;
+    : [LeafOf<T>] extends [never]
+      ? StructureContainsAny<T, [...Depth, 1]>
+      : AnyIn<{ [K in Exclude<keyof T, keyof LeafOf<T>>]-?: ContainsAny<T[K], [...Depth, 1]> }[Exclude<keyof T, keyof LeafOf<T>>]>;
+
+/** `true` when any of the results is true. */
+type AnyIn<Results> = true extends Results ? true : false;
+
+type StructureContainsAny<T, Depth extends readonly unknown[]> = T extends PromiseLike<infer Settled>
+  ? ContainsAny<Settled, Depth>
+  : T extends ReadonlyMap<infer Key, infer Item>
+    ? AnyIn<ContainsAny<Key, Depth> | ContainsAny<Item, Depth>>
+    : T extends ReadonlySet<infer Item>
+      ? ContainsAny<Item, Depth>
+      : T extends readonly (infer Element)[]
+        ? ContainsAny<Element, Depth>
+        : T extends (...args: infer Parameters) => infer Returned
+          ? AnyIn<ContainsAny<Returned, Depth> | ContainsAny<Parameters, Depth>>
+          : T extends abstract new (...args: infer Parameters) => infer Instance
+            ? AnyIn<ContainsAny<Instance, Depth> | ContainsAny<Parameters, Depth>>
+            : T extends object
+              ? AnyIn<{ [K in keyof T]-?: ContainsAny<T[K], Depth> }[keyof T]>
+              : false;
 
 export interface PackFactory {
   /** Define a pack: its id, the packs it depends on, the points it declares and what it contributes. */
