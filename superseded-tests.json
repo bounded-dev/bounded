@@ -268,5 +268,41 @@
       "case": "Effect — the seven kinds > a path that is absolute or climbs out is refused with the path's reason"
     },
     "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "apps/pi/src/translate.test.ts",
+    "case": "translate — pi's tools as host-neutral tool uses > an unknown tool is 'other': it is invoked by name, never executed, and writes its path, if it names one",
+    "successor": {
+      "file": "apps/pi/src/translate.test.ts",
+      "case": "translate — pi's tools as host-neutral tool uses > an unknown tool is 'other', invoked by name only, whatever its arguments"
+    },
+    "reason": "an unknown tool's arguments say nothing reliable about what it touches, so it is invoked by name only; custom tools are to be described later by a declared per-tool translation table"
+  },
+  {
+    "file": "apps/pi/src/translate.test.ts",
+    "case": "translate — pi's tools as host-neutral tool uses > a tool's cwd parameter is where its paths are resolved from, and must itself be in the project",
+    "successor": {
+      "file": "apps/pi/src/translate.test.ts",
+      "case": "translate — pi's tools as host-neutral tool uses > pi's built-in tools ignore a cwd argument, so it changes nothing they are judged by"
+    },
+    "reason": "pi's built-in tools ignore a cwd argument, so applying it judged a different file than the one pi opens (read { cwd: 'public', path: 'secrets.env' } reads ./secrets.env)"
+  },
+  {
+    "file": "apps/pi/src/translate.test.ts",
+    "case": "translate — with the real locator > a cwd parameter is resolved before paths are made project-relative",
+    "successor": {
+      "file": "apps/pi/src/translate.test.ts",
+      "case": "translate — with the real locator > a subagent's cwd is located before its output path, which starts there"
+    },
+    "reason": "only the subagent tool honours a cwd argument now; unknown tools carry no paths"
+  },
+  {
+    "file": "apps/pi/src/install.test.ts",
+    "case": "piLoader — the file pi loads as the project's bounded extension > default-exports bounded-pi's extension for the project it sits in",
+    "successor": {
+      "file": "apps/pi/src/install.test.ts",
+      "case": "piLoader — loaded by pi's own jiti, under node > hands the project root to bounded-pi's extension"
+    },
+    "reason": "the loader is now an async factory that fails closed when bounded-pi cannot be loaded, so it is exercised as pi loads it: through pi's jiti, under node"
   }
 ]

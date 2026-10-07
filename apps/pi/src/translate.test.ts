@@ -74,6 +74,7 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
     expect(pi("deploy", { target: "prod" })).toEqual(use("other", { kind: "invoke", name: "deploy" }));
     expect(pi("mcp__github__create_issue", {})).toEqual(use("other", { kind: "invoke", name: "mcp__github__create_issue" }));
     expect(pi("remove", { path: "src/a.ts", cwd: "../elsewhere" })).toEqual(use("other", { kind: "invoke", name: "remove" }));
+    expect(pi("remove", { path: "src/gone.ts" })).toEqual(use("other", { kind: "invoke", name: "remove" }));
   });
 
   test("pi's built-in tools ignore a cwd argument, so it changes nothing they are judged by", () => {

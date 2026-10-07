@@ -49,7 +49,10 @@ describe("piLoader — loaded by pi's own jiti, under node", () => {
 
   test.skipIf(!piRuntimeAvailable)("hands the project root to bounded-pi's extension", () => {
     const root = project('export const bounded = (root) => (pi) => { pi.root = root; pi.on("session_start", () => {}); };\n');
-    expect(load(root)).toEqual({ events: ["session_start"], root, result: null });
+    const loaded = load(root);
+    expect(loaded.root).toBe(root);
+    expect(loaded.events).toEqual(["session_start"]);
+    expect(loaded.result).toBeNull();
   });
 
   test.skipIf(!piRuntimeAvailable)("when bounded-pi cannot be loaded, blocks every tool call, saying how to fix it", () => {
