@@ -35,8 +35,8 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
   });
 
   test("ls lists its directory, the session's when none is given", () => {
-    expect(pi("ls", { path: "src" })).toEqual(use("search", { kind: "list", root: "src" }));
-    expect(pi("ls", {}, `${ROOT}/src`)).toEqual(use("search", { kind: "list", root: "src" }));
+    expect(pi("ls", { path: "src" })).toEqual(use("search", { kind: "list", root: "src", filter: null }));
+    expect(pi("ls", {}, `${ROOT}/src`)).toEqual(use("search", { kind: "list", root: "src", filter: null }));
   });
 
   test("find lists its directory, filtered by its pattern", () => {
@@ -46,7 +46,7 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
 
   test("grep lists its root, filtered by its glob, and reads it; the content pattern is not part of the event", () => {
     expect(pi("grep", { pattern: "TODO", path: "src", glob: "*.ts" })).toEqual(use("search", { kind: "list", root: "src", filter: "*.ts" }, { kind: "read", path: "src" }));
-    expect(pi("grep", { pattern: "TODO" })).toEqual(use("search", { kind: "list", root: "." }, { kind: "read", path: "." }));
+    expect(pi("grep", { pattern: "TODO" })).toEqual(use("search", { kind: "list", root: ".", filter: null }, { kind: "read", path: "." }));
   });
 
   test("bash and powershell execute their command", () => {
@@ -80,8 +80,8 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
   test("pi's built-in tools ignore a cwd argument, so it changes nothing they are judged by", () => {
     expect(pi("read", { cwd: "public", path: "secrets.env" })).toEqual(use("read", { kind: "read", path: "secrets.env" }));
     expect(pi("write", { cwd: "src", path: "a.ts" })).toEqual(use("write", { kind: "write", path: "a.ts", change: "create" }));
-    expect(pi("ls", { cwd: "../elsewhere" })).toEqual(use("search", { kind: "list", root: "." }));
-    expect(pi("grep", { cwd: "src", pattern: "x" })).toEqual(use("search", { kind: "list", root: "." }, { kind: "read", path: "." }));
+    expect(pi("ls", { cwd: "../elsewhere" })).toEqual(use("search", { kind: "list", root: ".", filter: null }));
+    expect(pi("grep", { cwd: "src", pattern: "x" })).toEqual(use("search", { kind: "list", root: ".", filter: null }, { kind: "read", path: "." }));
     expect(pi("bash", { cwd: "src", command: "ls" })).toEqual(use("shell", { kind: "execute", command: "ls", cwd: "." }));
   });
 });

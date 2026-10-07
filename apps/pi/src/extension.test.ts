@@ -201,11 +201,14 @@ describe("piExtension — freezing and deadlines", () => {
   });
 
   test("bounded(root, options) passes its deadlines to the extension", async () => {
+    // A configuration that never finishes loading: only the compose deadline ends the wait.
+    const hanging = mkdtempSync(join(tmpdir(), "bounded-pi-hanging-"));
+    writeFileSync(join(hanging, "bounded.config.ts"), "await new Promise(() => {});\nexport default {};\n");
     const fake = fakePi();
-    bounded(project, { composeDeadlineMs: 50, deadlineMs: 50 })(fake.pi);
+    bounded(hanging, { composeDeadlineMs: 50, deadlineMs: 50 })(fake.pi);
     await fake.start();
-    const result = await fake.call("read", { path: "a.ts" });
+    const result = await fake.call("read", { path: "a.ts" }, { cwd: hanging });
     expect(result).toMatchObject({ block: true });
-    expect((result as { reason: string }).reason).toContain("bounded could not start");
+    expect((result as { reason: string }).reason).toContain("within 50 ms");
   });
 });
