@@ -132,6 +132,10 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **Every decision is recorded (ADR 2026-008).** Hosts judge events through
   the judge-event feature, which records each decision; a decision that
   cannot be recorded within the bound is refused, never allowed.
+- **The project is a pack too (ADR 2026-009).** `defineConfig` turns a
+  project's contributions into the pack `bounded/project`, which depends on
+  every selected pack; a project never contributes to an unselected pack's
+  point. A configuration that cannot be used makes every event refused.
 - If a change needs the core to learn a technology's name or an opinion, it is
   in the wrong place: put it in a pack and give the core a mechanism.
 
