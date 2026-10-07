@@ -33,6 +33,11 @@ worked example.
   its effects and asks each kind's guards, and the first refusal wins, naming
   the pack and the effect (ADRs 2026-005 to 2026-007).
 
+- **Decisions are recorded.** The judge-event feature decides an event and
+  records the decision through an asynchronous log (in memory, or a JSON-lines
+  file); if the decision cannot be recorded in time, the action is refused
+  ([docs/decision-log.md](docs/decision-log.md), ADR 2026-008).
+
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
 
