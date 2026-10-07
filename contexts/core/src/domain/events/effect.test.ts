@@ -36,10 +36,17 @@ describe("Effect — the seven kinds", () => {
   });
 
   test("an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not", () => {
-    expect<unknown>(Effect.parse({ kind: "execute", command: " make\n\tbuild " })).toEqual({ ok: true, value: { kind: "execute", command: " make\n\tbuild " } });
+    expect<unknown>(Effect.parse({ kind: "execute", command: " make\n\tbuild " })).toEqual({ ok: true, value: { kind: "execute", command: " make\n\tbuild ", cwd: null } });
     expect(error({ kind: "execute", command: " " })).toBe("An execute effect must name the command it runs");
     expect(error({ kind: "execute", command: "rm a\0b" })).toBe("A command must not contain a NUL character");
     expect(error({ kind: "execute", command: "echo \u001b[31m" })).toBe("A command must not contain control characters other than tab and line breaks");
+  });
+
+  test("an execute may name the project directory it runs in, normalised; outside the project is refused", () => {
+    expect<unknown>(Effect.parse({ kind: "execute", command: "make", cwd: "./apps//web" })).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: "apps/web" } });
+    expect<unknown>(Effect.parse({ kind: "execute", command: "make", cwd: null })).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null } });
+    expect(error({ kind: "execute", command: "make", cwd: "../elsewhere" })).toBe("Path '../elsewhere' climbs out of the project with '..'. Only paths inside the project can be checked");
+    expect(error({ kind: "execute", command: "make", cwd: "/tmp" })).toBe("Path '/tmp' is absolute. Give it relative to the project root, such as 'src/a.ts'");
   });
 
   test("a fetch names an absolute URL without spaces or control characters", () => {
@@ -77,7 +84,7 @@ describe("Effect — nonsense is refused", () => {
     expect(error({ kind: "read", path: "a", command: "cat a" })).toBe("A read effect is { kind, path }");
     expect(error({ kind: "read" })).toBe("A read effect is { kind, path }");
     expect(error({ kind: "write", path: "a" })).toBe("A write effect is { kind, path, change }");
-    expect(error({ kind: "execute", command: "ls", path: "a" })).toBe("An execute effect is { kind, command }");
+    expect(error({ kind: "execute", command: "ls", path: "a" })).toBe("An execute effect is { kind, command, cwd? }");
     expect(error({ kind: "list", path: "a" })).toBe("A list effect is { kind, root, filter? }");
     expect(error({ kind: "fetch", url: "https://a", path: "x" })).toBe("A fetch effect is { kind, url }");
     expect(error({ kind: "delegate" })).toBe("A delegate effect is { kind, agent }");
@@ -107,6 +114,7 @@ describe("describeEffect — how a message names an effect", () => {
     expect(named({ kind: "list", root: "src" })).toBe("list src");
     expect(named({ ...write, change: "modify" })).toBe("write (modify) src/a.ts");
     expect(named(execute)).toBe("execute `make build`");
+    expect(named({ ...execute, cwd: "apps/web" })).toBe("execute `make build` in apps/web");
     expect(named(fetch)).toBe("fetch https://example.com/a");
     expect(named(delegate)).toBe("delegate to explore");
     expect(named(invoke)).toBe("invoke mcp__docs__search");

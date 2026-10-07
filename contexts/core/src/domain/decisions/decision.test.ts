@@ -66,6 +66,12 @@ describe("Decision", () => {
     });
   });
 
+  test("records the directory a command runs in", () => {
+    const inApp = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "make", cwd: "apps/web" }] });
+    if (!inApp.ok) throw new Error(inApp.error);
+    expect(Decision.of("d-9", TIME, inApp.value, { verdict: Verdict.allow, refusedBy: null }).effects).toEqual(["execute `make` in apps/web"]);
+  });
+
   test("is plain, frozen, serialisable data", () => {
     const decision = Decision.of("d-6", TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
     expect(JSON.parse(JSON.stringify(decision))).toEqual(decision);
