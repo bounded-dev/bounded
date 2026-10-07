@@ -1,30 +1,41 @@
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
 import type { Judgement } from "../guards/guard.contract.ts";
+import type { Verdict } from "../verdicts/verdict.contract.ts";
 import type * as Contract from "./decision.contract.ts";
 
-function verdictOf({ verdict, refusedBy }: Judgement): Contract.RecordedVerdict {
+/** The longest text field a decision keeps. */
+const LIMIT = 4096;
+const bounded = (text: string): string => (text.length <= LIMIT ? text : `${text.slice(0, LIMIT)}… (shortened from ${text.length} characters)`);
+
+function verdictOf(verdict: Verdict, refusedBy: Judgement["refusedBy"]): Contract.RecordedVerdict {
   if (verdict.kind === "allow") return Object.freeze({ kind: "allow" });
   return Object.freeze({
     kind: "refuse",
-    reason: verdict.reason,
-    redirect: verdict.redirect,
+    reason: bounded(verdict.reason),
+    redirect: bounded(verdict.redirect),
     pack: refusedBy === null ? null : refusedBy.pack,
-    effect: refusedBy === null || refusedBy.effect === null ? null : describeEffect(refusedBy.effect),
+    effect: refusedBy === null || refusedBy.effect === null ? null : bounded(describeEffect(refusedBy.effect)),
   });
 }
 
-function of(time: string, event: Event, judgement: Judgement): Decision {
+function of(id: string, time: string, event: Event, judgement: Judgement): Decision {
   const tool = event.kind === "tool-use" ? event : null;
   return Object.freeze({
-    time,
+    id: bounded(id),
+    time: bounded(time),
     event: event.kind,
     role: event.role,
     tool: tool === null ? null : tool.tool,
-    effects: Object.freeze(tool === null ? [] : tool.effects.map(describeEffect)),
-    verdict: verdictOf(judgement),
+    effects: Object.freeze(tool === null ? [] : tool.effects.map((effect) => bounded(describeEffect(effect)))),
+    verdict: verdictOf(judgement.verdict, judgement.refusedBy),
+    note: null,
   });
 }
 
+function enforced(decision: Decision, time: string, verdict: Verdict, note: string): Decision {
+  return Object.freeze({ ...decision, time: bounded(time), verdict: verdictOf(verdict, null), note: bounded(note) });
+}
+
 export type Decision = Contract.Decision;
-export const Decision: Contract.DecisionFactory = { of };
+export const Decision: Contract.DecisionFactory = { of, enforced };

@@ -13,6 +13,7 @@ export class FileSystemDecisionLog implements DecisionLog {
 
   async record(decision: Decision): Promise<void> {
     await mkdir(dirname(this.file), { recursive: true });
-    await appendFile(this.file, `${JSON.stringify(decision)}\n`, "utf8");
+    // One append of one complete line: never a partial record from this writer.
+    await appendFile(this.file, `${JSON.stringify(decision)}\n`, { encoding: "utf8", mode: 0o600 });
   }
 }
