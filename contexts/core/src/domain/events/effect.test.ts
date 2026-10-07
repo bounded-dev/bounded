@@ -8,15 +8,16 @@ const write = { kind: "write", path: "src/a.ts", change: "modify" };
 const execute = { kind: "execute", command: "make build" };
 const fetch = { kind: "fetch", url: "https://example.com/a" };
 const delegate = { kind: "delegate", agent: "explore" };
+const invoke = { kind: "invoke", name: "mcp__docs__search" };
 
-valueObjectLaws("Effect", Effect, [read, list, write, execute, fetch, delegate], [{ kind: "delete", path: "a" }, { ...read, path: "/etc/hosts" }, { ...write, change: "rename" }]);
+valueObjectLaws("Effect", Effect, [read, list, write, execute, fetch, delegate, invoke], [{ kind: "delete", path: "a" }, { ...read, path: "/etc/hosts" }, { ...write, change: "rename" }]);
 
 const error = (raw: unknown): string | undefined => {
   const result = Effect.parse(raw);
   return result.ok ? undefined : result.error;
 };
 
-describe("Effect — the six kinds", () => {
+describe("Effect — the seven kinds", () => {
   test("a read names the file whose contents it reads, normalised", () => {
     expect<unknown>(Effect.parse({ kind: "read", path: "./src//a.ts" })).toEqual({ ok: true, value: { kind: "read", path: "src/a.ts" } });
   });
@@ -52,6 +53,13 @@ describe("Effect — the six kinds", () => {
     expect(error({ kind: "delegate", agent: "a\nb" })).toBe("An agent's name must not contain control characters");
   });
 
+  test("an invoke names a tool whose effects the host cannot describe", () => {
+    expect<unknown>(Effect.parse(invoke)).toEqual({ ok: true, value: { kind: "invoke", name: "mcp__docs__search" } });
+    expect(error({ kind: "invoke", name: " " })).toBe("An invoke effect must name the tool it invokes");
+    expect(error({ kind: "invoke", name: "a\u0000b" })).toBe("A tool name must not contain NUL or control characters");
+    expect(error({ kind: "invoke", name: "web", url: "https://a" })).toBe("An invoke effect is { kind, name }");
+  });
+
   test("a path that is absolute or climbs out is refused with the path's reason", () => {
     expect(error({ kind: "write", path: "../b.ts", change: "create" })).toBe("Path '../b.ts' climbs out of the project with '..'. Only paths inside the project can be checked");
     expect(error({ kind: "list", root: "/etc" })).toBe("Path '/etc' is absolute. Give it relative to the project root, such as 'src/a.ts'");
@@ -61,7 +69,7 @@ describe("Effect — the six kinds", () => {
 describe("Effect — nonsense is refused", () => {
   test("an effect of no known kind", () => {
     for (const raw of [undefined, null, "read", [], { kind: "delete", path: "a" }, { path: "a" }]) {
-      expect(error(raw)).toBe("An effect has kind read, list, write, execute, fetch or delegate");
+      expect(error(raw)).toBe("An effect has kind read, list, write, execute, fetch, delegate or invoke");
     }
   });
 
@@ -101,5 +109,6 @@ describe("describeEffect — how a message names an effect", () => {
     expect(named(execute)).toBe("execute `make build`");
     expect(named(fetch)).toBe("fetch https://example.com/a");
     expect(named(delegate)).toBe("delegate to explore");
+    expect(named(invoke)).toBe("invoke mcp__docs__search");
   });
 });

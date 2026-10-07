@@ -1,5 +1,5 @@
 // The legitimate forms. Compiles without errors.
-import { type Composition, contribution, definePack, packIdsFor, point, type Result } from "bounded/domain";
+import { type Composition, contribution, definePack, packIdsFor, point, type ProjectPath, type Result, type ToolUse } from "bounded/domain";
 import { base, ext, packId, tags, text } from "./packs.ts";
 
 // Ids come from one factory per npm package, scoped or not.
@@ -52,5 +52,7 @@ export const builtIns = definePack({
     later: point({ description: "Later", check: parsed<Promise<string>>() }),
     guards: point({ description: "Guard-like functions", check: parsed<(event: { readonly path: string }) => Promise<{ readonly allow: boolean }>>() }),
     makers: point({ description: "Constructors", check: parsed<new (name: string) => { readonly name: string }>() }),
+    paths: point({ description: "Branded strings", check: parsed<ProjectPath>() }),
+    calls: point({ description: "Checked events", check: parsed<ToolUse>() }),
   },
 });

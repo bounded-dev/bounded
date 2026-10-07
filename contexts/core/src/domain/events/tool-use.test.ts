@@ -42,7 +42,7 @@ describe("ToolUse — boundaries", () => {
 
   test("a call has at least one effect", () => {
     for (const effects of [[], undefined, "read", { kind: "read", path: "a" }]) {
-      expect(error({ ...edit, effects })).toBe("A tool use's effects must be a non-empty list of what the call reads, lists, writes, executes, fetches or delegates");
+      expect(error({ ...edit, effects })).toBe("A tool use's effects must be a non-empty list of what the call reads, lists, writes, executes, fetches, delegates or invokes");
     }
   });
 
@@ -51,7 +51,7 @@ describe("ToolUse — boundaries", () => {
       "Effect 2 of 2: Path '../b.ts' climbs out of the project with '..'. Only paths inside the project can be checked",
     );
     expect(error({ ...edit, effects: [{ kind: "read", path: "/etc/hosts" }] })).toBe("Effect 1 of 1: Path '/etc/hosts' is absolute. Give it relative to the project root, such as 'src/a.ts'");
-    expect(error({ ...edit, effects: ["src/a.ts"] })).toBe("Effect 1 of 1: An effect has kind read, list, write, execute, fetch or delegate");
+    expect(error({ ...edit, effects: ["src/a.ts"] })).toBe("Effect 1 of 1: An effect has kind read, list, write, execute, fetch, delegate or invoke");
   });
 
   test("refuses something that is not a tool use", () => {

@@ -51,6 +51,18 @@ describe("Composition — reading an extension point", () => {
     expect(read.ok && read.value.map((word) => word.toUpperCase())).toEqual(["ALPHA", "BETA", "GAMMA"]);
   });
 
+  test("entries say which pack each value came from", () => {
+    expect(composed([ext, base], [ext, base]).entries(words)).toEqual({
+      ok: true,
+      value: [
+        { from: base.id, value: "alpha" },
+        { from: ext.id, value: "beta" },
+        { from: ext.id, value: "gamma" },
+      ],
+    });
+    expect(composed([base, other], [other]).entries(words).ok).toBe(false);
+  });
+
   test("never depends on the order packs were listed in", () => {
     const b = wordsPack("b", [], ["b"]);
     const a = wordsPack("a", [b], ["a"]);
