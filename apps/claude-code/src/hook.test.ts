@@ -89,4 +89,13 @@ describe("runHook: stdin to stdout, fail closed", () => {
     expect(out).toBe(deny("bounded did not decide within 50 ms", "Retry the call; if it keeps timing out, report it to the maintainers of bounded"));
     expect(Date.now() - started).toBeLessThan(1000);
   });
+
+  test("decide is told the project it decides for", async () => {
+    const projects: unknown[] = [];
+    await runHook(stdin("Read", { file_path: "/p/a" }), hook((_event, project) => {
+      projects.push(project);
+      return Verdict.allow;
+    }));
+    expect(projects).toEqual([{ projectDir: "/p" }]);
+  });
 });

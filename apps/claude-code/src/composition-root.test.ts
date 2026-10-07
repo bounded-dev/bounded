@@ -53,9 +53,10 @@ describe("composeHook: the hook wired to the file system, the environment and ar
     expect(reasonOf(out)).toBe("--role is given without a role label\nGive the role after it, as in --role builder");
   });
 
-  test("until bounded.config.ts is wired in, the placeholder decide refuses: installed means enforced", async () => {
-    const verdict = await decideFromConfig({ kind: "tool-use", role: null, tool: "read", effects: [] } as unknown as ToolUse);
-    expect(verdict.kind).toBe("refuse");
+  test("decideFromConfig judges with the project's configuration; a project without one refuses, saying why", async () => {
+    const event = { kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "src/a.ts" }] } as unknown as ToolUse;
+    const verdict = await decideFromConfig(event, { projectDir: root });
+    expect(verdict.kind === "refuse" && verdict.reason).toStartWith("This project's configuration cannot be used: ");
   });
 
   test("bounded answers before Claude Code's timeout for the installed hook", () => {

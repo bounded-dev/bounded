@@ -1,7 +1,7 @@
 // The hook as Claude Code runs it: a subprocess given the payload on stdin,
 // answering on stdout, always exiting 0.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,8 +13,8 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-async function run(entry: string, stdin: string, at = APP, timeout = 10_000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const child = Bun.spawn(["bun", join(at, entry)], { stdin: new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_PROJECT_DIR: root }, timeout });
+async function run(entry: string, stdin: string, at = APP, timeout = 10_000, projectDir = root): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const child = Bun.spawn(["bun", join(at, entry)], { stdin: new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir }, timeout });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exitCode };
 }
@@ -70,5 +70,43 @@ describe("main.ts as a Claude Code PreToolUse hook", () => {
     expect(stdout).toBe(deny("bounded did not decide within 200 ms\nRetry the call; if it keeps timing out, report it to the maintainers of bounded"));
     expect(exitCode).toBe(0);
     expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  test("with a real bounded.config.ts: a guarded write is denied, naming the pack; another is allowed; both are logged", async () => {
+    // A project resolving `bounded` to the workspace package, as the core's own end-to-end tests do.
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cc-config-")));
+    try {
+      mkdirSync(join(project, "node_modules"));
+      symlinkSync(join(APP, "..", "..", "contexts", "core"), join(project, "node_modules", "bounded"), "dir");
+      writeFileSync(
+        join(project, "bounded.config.ts"),
+        `import { contribution, corePack, defineConfig, definePack, packIdsFor, Verdict } from "bounded/domain";
+const noGenerated = definePack({
+  id: packIdsFor("test-packs")("no-generated"),
+  dependsOn: [corePack],
+  contributes: [
+    contribution(corePack.points.writeGuards, [
+      (effect) => (effect.path.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow),
+    ]),
+  ],
+});
+export default defineConfig({ packs: [corePack, noGenerated] });
+`,
+      );
+      const write = (path: string): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(project, path), content: "x" }, cwd: project });
+
+      const refused = await run("src/main.ts", write("generated/api.ts"), APP, 10_000, project);
+      expect(refused.stdout).toBe(deny("test-packs/no-generated refused write (create) generated/api.ts: generated/ is written by the generator\nChange the generator's input instead"));
+      expect(refused.exitCode).toBe(0);
+
+      const allowed = await run("src/main.ts", write("src/a.ts"), APP, 10_000, project);
+      expect(allowed.stdout).toBe("");
+      expect(allowed.exitCode).toBe(0);
+
+      const lines = readFileSync(join(project, ".bounded", "guard-log.jsonl"), "utf8").split("\n").filter((line) => line !== "");
+      expect(lines.map((line) => JSON.parse(line).verdict.kind)).toEqual(["refuse", "allow"]);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });

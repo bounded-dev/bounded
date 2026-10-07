@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Verdict } from "bounded/domain";
+import { ToolUse, Verdict } from "bounded/domain";
 import { type PathResolver, toToolUse } from "./event.ts";
 import type { HostCall } from "./translate.ts";
 
@@ -33,13 +33,15 @@ describe("toToolUse: a translated call, its paths resolved, as a host-neutral ev
 
   test("a list's root is resolved; its filter is kept, and left out when the host gave none", () => {
     const search = event({ tool: "search", effects: [{ kind: "list", root: ".", filter: "*.md" }, { kind: "list", root: "/p/docs" }] });
-    expect(search.effects).toEqual([{ kind: "list", root: ".", filter: "*.md" }, { kind: "list", root: "docs" }] as never);
-    expect(Object.hasOwn(search.effects[1] ?? {}, "filter")).toBe(false);
+    // The core's list effect always has a filter: null when the host gave none.
+    expect(search.effects).toEqual([{ kind: "list", root: ".", filter: "*.md" }, { kind: "list", root: "docs", filter: null }] as never);
+    expect(search.effects[1]?.kind === "list" && search.effects[1].filter).toBeNull();
   });
 
   test("effects without paths pass as they are", () => {
     const effects = [{ kind: "execute", command: "ls" }, { kind: "fetch", url: "https://example.com" }, { kind: "delegate", agent: "Explore" }, { kind: "invoke", name: "Skill" }] as const;
-    expect(event({ tool: "other", effects: [...effects] }).effects).toEqual([...effects] as never);
+    // The core's execute effect always has a cwd: null when the host gave none.
+    expect(event({ tool: "other", effects: [...effects] }).effects).toEqual([{ ...effects[0], cwd: null }, ...effects.slice(1)] as never);
   });
 
   test("an execute's cwd is resolved to a project-relative directory; one the resolver refuses refuses the call", () => {
@@ -53,6 +55,11 @@ describe("toToolUse: a translated call, its paths resolved, as a host-neutral ev
     expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls" }] }, { ...at, role: "builder" }).role).toBe("builder" as never);
     const bad = toToolUse({ tool: "shell", effects: [{ kind: "execute", command: "ls" }] }, { ...at, role: "Not A Role" });
     expect(bad).toEqual({ ok: false, error: Verdict.refuse("Role 'Not A Role' must be lowercase words joined by single hyphens, such as 'builder'", "Start the hook with --role naming a role label") });
+  });
+
+  test("the event is the core's, built by its parse", () => {
+    const made = event({ tool: "read", effects: [{ kind: "read", path: "/p/a" }] });
+    expect(ToolUse.parse(made)).toEqual({ ok: true, value: made });
   });
 
   test("the event and its effects are frozen", () => {

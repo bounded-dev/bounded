@@ -268,5 +268,14 @@
       "case": "Effect — the seven kinds > a path that is absolute or climbs out is refused with the path's reason"
     },
     "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "apps/claude-code/src/composition-root.test.ts",
+    "case": "composeHook: the hook wired to the file system, the environment and argv > until bounded.config.ts is wired in, the placeholder decide refuses: installed means enforced",
+    "successor": {
+      "file": "apps/claude-code/src/composition-root.test.ts",
+      "case": "composeHook: the hook wired to the file system, the environment and argv > decideFromConfig judges with the project's configuration; a project without one refuses, saying why"
+    },
+    "reason": "decideFromConfig now opens the project's bounded.config.ts and judges with it, so the placeholder that refused every call is gone"
   }
 ]
