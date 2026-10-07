@@ -110,7 +110,7 @@ describe("red-first-check JUnit", () => {
 });
 
 /** A throwaway repository: a base commit, a red commit, and a build on top. */
-function repository(): { dir: string; commit: (files: Record<string, string>, message: string) => string } {
+function repository(): { dir: string; commit: (files: Record<string, string>, message: string) => string; git: (...args: string[]) => string } {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "red-first-repo-")));
   const git = (...args: string[]): string => {
     const run = spawnSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args], { cwd: dir, encoding: "utf8" });
@@ -125,7 +125,7 @@ function repository(): { dir: string; commit: (files: Record<string, string>, me
     return git("rev-parse", "HEAD");
   };
   commit({ "package.json": '{"name":"t","private":true}\n' }, "base");
-  return { dir, commit };
+  return { dir, commit, git };
 }
 
 const RED_TEST = `import { expect, test } from "bun:test";\nimport { sum } from "./sum.ts";\ntest("adds", () => { expect(sum(1, 2)).toBe(3); });\n`;
@@ -224,6 +224,34 @@ describe("red-first-check end to end", () => {
       expect(lines.some((l) => /^FAIL supersessions: superseded-tests\.json was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
     }, 60_000);
   });
+
+  test("a merge that changes the record and code itself (an evil merge) is not test-only", () => {
+    const repo = repository();
+    const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+    repo.git("checkout", "--quiet", "-b", "build");
+    repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b;\n" }, "green");
+    repo.git("checkout", "--quiet", "main");
+    repo.commit({ "notes.test.ts": `import { expect, test } from "bun:test";\ntest("n", () => { expect(1).toBe(1); });\n` }, "test-only on main");
+    repo.git("merge", "--quiet", "--no-ff", "--no-commit", "build");
+    writeFileSync(join(repo.dir, "superseded-tests.json"), "[]\n");
+    writeFileSync(join(repo.dir, "sum.ts"), "export const sum = (a: number, b: number): number => b + a;\n");
+    repo.git("add", "-A");
+    repo.git("commit", "--quiet", "--no-edit");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+    expect(lines.some((l) => /^FAIL supersessions: superseded-tests\.json was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+  }, 60_000);
+
+  test("an ordinary merge of a build branch passes", () => {
+    const repo = repository();
+    const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+    repo.git("checkout", "--quiet", "-b", "build");
+    repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b;\n" }, "green");
+    repo.git("checkout", "--quiet", "main");
+    repo.git("merge", "--quiet", "--no-ff", "-m", "merge build", "build");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+  }, 60_000);
 
   test("a red commit may delete a test file only when every case in it is recorded as superseded", () => {
     const OLD = `import { expect, test } from "bun:test";\ntest("old", () => { expect(1).toBe(1); });\n`;

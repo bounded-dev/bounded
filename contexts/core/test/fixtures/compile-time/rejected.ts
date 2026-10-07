@@ -1,7 +1,7 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
 // compile-time.test.ts runs the TypeScript compiler on this file and checks both.
-import { type AnyPack, type Composition, contribution, definePack, type PackId, packIdsFor, point } from "bounded/domain";
+import { type AnyPack, type Composition, contribution, definePack, type PackId, packIdsFor, point, type Result } from "bounded/domain";
 import { base, ext, packId, tags, text } from "./packs.ts";
 
 declare const somePacks: AnyPack[];
@@ -24,6 +24,12 @@ export const wrongOwnValues = point({ description: "Own values", check: text, va
 export const anyValues = point({ description: "Parsed", check: (raw: unknown) => ({ ok: true as const, value: JSON.parse(String(raw)) }) }); // rejected: a point's check must return a precise type, not any
 export const anyArray = point({ description: "Parsed list", check: (raw: unknown) => ({ ok: true as const, value: [JSON.parse(String(raw))] }) }); // rejected: a point's check must return a precise type, not any
 export const anyField = point({ description: "Parsed field", check: (raw: unknown) => ({ ok: true as const, value: { data: JSON.parse(String(raw)) } }) }); // rejected: a point's check must return a precise type, not any
+const parsed = <T>() => (raw: unknown): Result<T> => ({ ok: false, error: `not checked in this fixture: ${String(raw)}` });
+export const anyPromise = point({ description: "Later", check: parsed<Promise<any>>() }); // rejected: a point's check must return a precise type, not any
+export const anySet = point({ description: "Set", check: parsed<ReadonlySet<any>>() }); // rejected: a point's check must return a precise type, not any
+export const anyMapValue = point({ description: "Map", check: parsed<ReadonlyMap<string, any>>() }); // rejected: a point's check must return a precise type, not any
+export const anyParameter = point({ description: "Guard", check: parsed<(event: any) => Promise<boolean>>() }); // rejected: a point's check must return a precise type, not any
+export const anyConstructor = point({ description: "Maker", check: parsed<new (x: any) => object>() }); // rejected: a point's check must return a precise type, not any
 // 3. dependsOn is a tuple of distinct packs, each with an exact id.
 export const notTuple = definePack({ id: packId("list"), dependsOn: somePacks }); // rejected: list dependsOn as a tuple of packs
 export const unionDep = definePack({ id: packId("union"), dependsOn: [either], contributes: [contribution(base.points.words, ["x"])] }); // rejected: each dependency is a pack with an exact id
