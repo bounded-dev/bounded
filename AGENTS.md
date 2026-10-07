@@ -103,9 +103,12 @@ Rules, enforced by `architecture.test.ts` unless stated:
 
 - **The core owns mechanism, never content.** It defines packs, typed
   extension points, contributions, composition, data contributions, the
-  host-neutral event vocabulary, verdicts and dispatch (the last three in a
-  later slice). It holds no opinion about any application and names no
-  programming language, framework, tool or agent host.
+  host-neutral event vocabulary (a tool use is a list of effects), verdicts
+  and dispatch. It holds no opinion about any application and names no
+  programming language, framework, tool or agent host. The core's own pack,
+  `bounded/core`, is the only place it declares extension points: one guards
+  point per event kind and per effect kind (ADR 2026-007). Gates contribute
+  guards there and never handle one effect versus many.
 - **Packs own content.** A pack declares its own extension points and
   gives values to its own points and contributes to points of packs it lists
   in `dependsOn` (pack objects, so imports are the dependency graph).

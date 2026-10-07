@@ -4,9 +4,11 @@ The small, pure core of the Bounded harness, a set of guardrails for coding
 agents: the mechanism by which packs (selectable bundles of behaviour) extend
 one another. [docs/spec.md](docs/spec.md) is the requirement.
 
-**Status: slice 1** — packs, typed extension points, contributions and
-composition. Start with [docs/slice-1.md](docs/slice-1.md) for a reading order
-and a worked example.
+**Status: slices 1 and 2** — packs, typed extension points, contributions
+and composition ([docs/slice-1.md](docs/slice-1.md)); host-neutral events
+made of precise effects, verdicts, guards and dispatch over a composition
+([docs/slice-2.md](docs/slice-2.md)). Each guide has a reading order and a
+worked example.
 
 ## Design in brief
 
@@ -24,6 +26,12 @@ and a worked example.
   either refuses with a message naming the pack, the extension point and the
   fix, or returns a result from which each extension point is read, typed,
   dependencies' contributions first, independent of listing order.
+
+- **Events and guards.** A tool use is a list of effects (read, list, write,
+  execute, fetch, delegate, invoke). The core pack `bounded/core` declares a
+  guard point per event and effect kind; `dispatchEvent` fans a call out into
+  its effects and asks each kind's guards, and the first refusal wins, naming
+  the pack and the effect (ADRs 2026-005 to 2026-007).
 
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
