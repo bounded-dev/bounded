@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { Verdict } from "bounded/domain";
+import { type ToolResult, Verdict } from "bounded/domain";
 import type { PathResolver, ToolUse } from "./event.ts";
-import { type Decide, respond, runHook } from "./hook.ts";
+import { type AdapterRefusal, type AfterTool, type Decide, respond, runHook } from "./hook.ts";
 
 const deny = (reason: string, redirect: string): string =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `${reason}\n${redirect}` } });
@@ -16,6 +16,52 @@ const recording =
     return Verdict.allow;
   };
 const FAILED = "Report this to the maintainers of bounded; the call stays refused until it is fixed";
+
+describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", () => {
+  const after = (tool_name: string, tool_input: Record<string, unknown>, extra: Record<string, unknown> = {}): string =>
+    JSON.stringify({ hook_event_name: "PostToolUse", tool_name, tool_input, tool_response: {}, tool_use_id: "toolu_1", cwd: "/p", ...extra });
+
+  test("a PreToolUse call carries Claude Code's tool_use_id to the core as the call id", async () => {
+    const seen: ToolUse[] = [];
+    await runHook(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "make" }, tool_use_id: "toolu_1", cwd: "/p" }), hook(recording(seen)));
+    expect(seen[0]?.callId).toBe("toolu_1");
+  });
+
+  test("a refusal the adapter makes itself is recorded, and the answer is still that refusal", async () => {
+    const recorded: AdapterRefusal[] = [];
+    const out = await runHook(stdin("Read", {}), { ...hook(recording([]), "builder"), record: async (refusal) => void recorded.push(refusal) });
+    expect(out).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
+    expect(recorded).toEqual([{ tool: "Read", reason: "Claude Code's Read call has no file_path to check", redirect: "Retry the call with its file_path given as text", role: "builder", input: {} }]);
+  });
+
+  test("a recording that fails or hangs never changes or delays the answer", async () => {
+    const out = await runHook(stdin("Read", {}), { ...hook(recording([])), record: () => new Promise(() => {}) });
+    expect(out).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
+    const failing = await runHook(stdin("Read", {}), { ...hook(recording([])), record: async () => { throw new Error("no log"); } });
+    expect(failing).toBe(out);
+  });
+
+  test("a PostToolUse call asks afterTool about the finished call; what was undone is told to Claude", async () => {
+    const results: ToolResult[] = [];
+    const afterTool: AfterTool = async (result) => {
+      results.push(result);
+      return { message: "This command changed protected files, and they were restored: generated/a.ts was modified." };
+    };
+    const out = await runHook(after("Bash", { command: "./regenerate.sh" }), { ...hook(recording([])), afterTool });
+    expect(JSON.parse(out)).toEqual({ decision: "block", reason: "This command changed protected files, and they were restored: generated/a.ts was modified." });
+    expect<unknown>(results[0]).toEqual({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "toolu_1" });
+  });
+
+  test("a PostToolUse with nothing undone, or no afterTool, answers nothing", async () => {
+    expect(await runHook(after("Bash", { command: "ls" }), { ...hook(recording([])), afterTool: async () => ({ message: null }) })).toBe("");
+    expect(await runHook(after("Bash", { command: "ls" }), hook(recording([])))).toBe("");
+  });
+
+  test("a PostToolUse whose check fails tells Claude so, never silently", async () => {
+    const out = await runHook(after("Bash", { command: "ls" }), { ...hook(recording([])), afterTool: async () => { throw new Error("boom"); } });
+    expect(JSON.parse(out)).toEqual({ decision: "block", reason: "bounded could not check protected files after this call: boom. Check them against version control." });
+  });
+});
 
 describe("respond: a verdict in Claude Code's words", () => {
   test("allow is empty output, so Claude Code's own permissions still apply", () => {
@@ -48,7 +94,7 @@ describe("runHook: stdin to stdout, fail closed", () => {
       asked = true;
       return Verdict.allow;
     };
-    expect(await runHook("", hook(decide))).toBe(deny("The hook was given no input", "Register bounded's hook for PreToolUse only, as the install helper does"));
+    expect(await runHook("", hook(decide))).toBe(deny("The hook was given no input", "Register bounded's hook for PreToolUse and PostToolUse, as the install helper does"));
     expect(await runHook("{oops", hook(decide))).toStartWith('{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The hook\'s input is not JSON: ');
     expect(await runHook(stdin("Read", {}), hook(decide))).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
     expect(asked).toBe(false);

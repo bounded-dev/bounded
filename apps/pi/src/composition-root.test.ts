@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ToolUse, Verdict } from "bounded/domain";
+import { ToolResult, ToolUse, Verdict } from "bounded/domain";
 import type { openProject } from "bounded/open-project";
 import { composeProject } from "./composition-root.ts";
 import { type Pi, type PiHandler, piExtension } from "./extension.ts";
@@ -34,13 +34,27 @@ describe("composeProject — never fails open, whatever openProject or its judge
     expect(thrown.kind === "refuse" && thrown.reason).toContain("judge broke");
   });
 
+  test("the decide carries the project's afterTool and refuse; an openProject that rejects has neither", async () => {
+    const decide = await composeProject(root);
+    const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], ok: true, callId: "1" });
+    if (!result.ok) throw new Error(result.error);
+    expect(await decide.afterTool?.(result.value)).toMatchObject({ message: null });
+    await decide.refuse?.({ tool: "read", reason: "outside the project", redirect: "use a path inside it", role: null, input: {} });
+    const log = join(root, ".bounded", "guard-log.jsonl");
+    expect(existsSync(log)).toBe(true);
+    expect(readFileSync(log, "utf8")).toContain('"event":"adapter"');
+    const failed = await composeProject(root, rejecting);
+    expect(failed.afterTool).toBeUndefined();
+    expect(failed.refuse).toBeUndefined();
+  });
+
   test("the refusal reaches pi as a block with a reason and a redirect", async () => {
     let handler: PiHandler | undefined;
     let start: PiHandler | undefined;
     const pi: Pi = {
       on(name, h) {
         if (name === "tool_call") handler = h;
-        else start = h;
+        else if (name === "session_start") start = h;
       },
     };
     piExtension({ root, load: () => composeProject(root, rejecting) })(pi);

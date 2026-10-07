@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Verdict } from "bounded/domain";
+import { type ToolResult, Verdict } from "bounded/domain";
 import type { ToolUse } from "./event.ts";
-import { type Decide, type ExtensionOptions, type Load, type Pi, type PiHandler, piExtension } from "./extension.ts";
+import { type AdapterRefusal, type Decide, type ExtensionOptions, type Load, type Pi, type PiHandler, piExtension } from "./extension.ts";
 import { bounded } from "./index.ts";
 
 const project = mkdtempSync(join(tmpdir(), "bounded-pi-extension-"));
@@ -22,7 +22,9 @@ function fakePi() {
   const emit = (event: string, payload: unknown, context: unknown = { cwd: project }) => Promise.all((handlers.get(event) ?? []).map((handler) => handler(payload, context)));
   const start = () => emit("session_start", { type: "session_start", reason: "startup" });
   const call = async (toolName: string, input: unknown, context?: unknown) => (await emit("tool_call", { type: "tool_call", toolCallId: "1", toolName, input }, context))[0];
-  return { pi, handlers, start, call };
+  const finished = async (toolName: string, input: unknown, isError = false) =>
+    (await emit("tool_result", { type: "tool_result", toolCallId: "1", toolName, input, content: [{ type: "text", text: "done" }], isError }))[0];
+  return { pi, handlers, start, call, finished };
 }
 
 // The decide a composed project would give: refuse writes under generated/.
@@ -44,16 +46,16 @@ async function started(load: Load, deadlines: Pick<ExtensionOptions, "deadlineMs
 }
 
 describe("piExtension — end to end through a fake pi", () => {
-  test("registers for session_start and tool_call only", () => {
+  test("registers for session_start, tool_call and tool_result only", () => {
     const fake = fakePi();
     piExtension({ root: project, load: loads(noGenerated) })(fake.pi);
-    expect([...fake.handlers.keys()].sort()).toEqual(["session_start", "tool_call"]);
+    expect([...fake.handlers.keys()].sort()).toEqual(["session_start", "tool_call", "tool_result"]);
   });
 
   test("an allowed call returns undefined, so pi runs it", async () => {
     const fake = await started(loads(noGenerated));
     expect(await fake.call("read", { path: "generated/api.ts" })).toBeUndefined();
-    expect<unknown>(seen.at(-1)).toEqual({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "generated/api.ts" }] });
+    expect<unknown>(seen.at(-1)).toEqual({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "generated/api.ts" }], callId: "1" });
   });
 
   test("a refused call blocks, with the reason and the redirect on separate lines", async () => {
@@ -85,7 +87,7 @@ describe("piExtension — end to end through a fake pi", () => {
   test("a shell call's execute effect carries the session's directory, project-relative", async () => {
     const fake = await started(loads(noGenerated));
     await fake.call("bash", { command: "ls" }, { cwd: join(project, "generated") });
-    expect<unknown>(seen.at(-1)).toEqual({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "generated" }] });
+    expect<unknown>(seen.at(-1)).toEqual({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "generated" }], callId: "1" });
   });
 
   test("an allowed call's input is frozen, so a later handler cannot change what was judged", async () => {
@@ -97,6 +99,63 @@ describe("piExtension — end to end through a fake pi", () => {
     expect(() => {
       (input as { path: string }).path = "generated/api.ts";
     }).toThrow();
+  });
+});
+
+describe("piExtension — after a tool ran, and refusals the adapter makes", () => {
+  const withExtras = (extras: Pick<Decide, "afterTool" | "refuse">): Load => async () => Object.assign(async (event: ToolUse) => noGenerated(event), extras);
+
+  test("a finished call is given to afterTool as a tool result with pi's call id", async () => {
+    const results: ToolResult[] = [];
+    const fake = await started(withExtras({ afterTool: async (result) => {
+      results.push(result);
+      return { message: null };
+    } }));
+    expect(await fake.finished("bash", { command: "./regenerate.sh" })).toBeUndefined();
+    expect<unknown>(results).toEqual([{ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "1" }]);
+  });
+
+  test("what afterTool undid is added to the result pi gives the agent, marked as an error", async () => {
+    const fake = await started(withExtras({ afterTool: async () => ({ message: "This command changed protected files, and they were restored: generated/api.ts was modified." }) }));
+    expect(await fake.finished("bash", { command: "./regenerate.sh" })).toEqual({
+      content: [{ type: "text", text: "done" }, { type: "text", text: "This command changed protected files, and they were restored: generated/api.ts was modified." }],
+      isError: true,
+    });
+  });
+
+  test("a failed tool, one bounded cannot translate, and a project with no afterTool are still checked or left alone", async () => {
+    const results: ToolResult[] = [];
+    const fake = await started(withExtras({ afterTool: async (result) => {
+      results.push(result);
+      return { message: null };
+    } }));
+    await fake.finished("read", { path: "../outside.txt" }, true);
+    expect<unknown>(results).toEqual([{ kind: "tool-result", role: null, tool: "other", effects: [{ kind: "invoke", name: "read" }], ok: false, callId: "1" }]);
+    expect(await (await started(loads(noGenerated))).finished("bash", { command: "ls" })).toBeUndefined();
+  });
+
+  test("an afterTool that fails tells the agent so, never silently", async () => {
+    const fake = await started(withExtras({ afterTool: async () => { throw new Error("boom"); } }));
+    expect(await fake.finished("bash", { command: "ls" })).toEqual({
+      content: [{ type: "text", text: "done" }, { type: "text", text: "bounded could not check protected files after this call: boom. Check them against version control." }],
+      isError: true,
+    });
+  });
+
+  test("a call the adapter blocks itself is recorded through refuse, and still blocked", async () => {
+    const recorded: AdapterRefusal[] = [];
+    const fake = await started(withExtras({ refuse: async (refusal) => void recorded.push(refusal) }));
+    const result = await fake.call("read", { path: "../outside.txt" });
+    expect(result).toMatchObject({ block: true });
+    const [reason, redirect] = (result as { reason: string }).reason.split("\n");
+    expect<unknown>(recorded).toEqual([{ tool: "read", reason, redirect, role: null, input: { path: "../outside.txt" } }]);
+  });
+
+  test("a recording that hangs or fails never delays or changes the block", async () => {
+    const hanging = await started(withExtras({ refuse: () => never() }), { deadlineMs: 50 });
+    expect(await hanging.call("read", { path: "../outside.txt" })).toMatchObject({ block: true });
+    const failing = await started(withExtras({ refuse: async () => { throw new Error("no log"); } }));
+    expect(await failing.call("read", { path: "../outside.txt" })).toMatchObject({ block: true });
   });
 });
 

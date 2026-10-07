@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Verdict } from "bounded/domain";
-import { composeHook, DEADLINE_MS, DRAIN_MS, decideFromConfig } from "./composition-root.ts";
+import { ToolResult, Verdict } from "bounded/domain";
+import { afterToolFromConfig, composeHook, DEADLINE_MS, DRAIN_MS, decideFromConfig, recordFromConfig } from "./composition-root.ts";
 import type { ToolUse } from "./event.ts";
 import type { Decide } from "./hook.ts";
 import { HOOK_TIMEOUT_SECONDS } from "./install.ts";
@@ -57,6 +57,19 @@ describe("composeHook: the hook wired to the file system, the environment and ar
     const event = { kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "src/a.ts" }] } as unknown as ToolUse;
     const verdict = await decideFromConfig(event, { projectDir: root });
     expect(verdict.kind === "refuse" && verdict.reason).toStartWith("This project's configuration cannot be used: ");
+  });
+
+  test("recordFromConfig records the adapter's own refusal in the project's guard log", async () => {
+    await recordFromConfig({ tool: "Read", reason: "no file_path", redirect: "give one", role: null, input: {} }, { projectDir: root });
+    const file = join(root, ".bounded", "guard-log.jsonl");
+    expect(existsSync(file)).toBe(true);
+    expect(readFileSync(file, "utf8")).toContain('"event":"adapter"');
+  });
+
+  test("afterToolFromConfig asks the project's judge; with no snapshot there is nothing to undo", async () => {
+    const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], ok: true, callId: "toolu_x" });
+    if (!result.ok) throw new Error(result.error);
+    expect(await afterToolFromConfig(result.value, { projectDir: root })).toEqual({ message: null });
   });
 
   test("bounded answers before Claude Code's timeout for the installed hook", () => {

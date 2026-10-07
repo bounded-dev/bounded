@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HOOK_TIMEOUT_SECONDS, hookCommand, withHook } from "./install.ts";
+import { HOOK_TIMEOUT_SECONDS, hookCommand, withHook, withHooks } from "./install.ts";
 
 const COMMAND = "bun /opt/bounded/apps/claude-code/src/main.ts";
 // If the command cannot run at all (bun missing, a crash before main), exit 2 blocks the call.
@@ -56,6 +56,20 @@ describe("withHook: bounded's PreToolUse hook merged into .claude/settings.json"
     const theirs = { type: "command", command: "lint" };
     const older = { hooks: { PreToolUse: [{ matcher: "", hooks: [theirs, { type: "command", command: OLD_WRAPPED, timeout: 10 }] }, { matcher: "", hooks: [{ type: "command", command: COMMAND }] }] } };
     expect(withHook(older, COMMAND)).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [{ matcher: "", hooks: [theirs] }, ours] } }, changed: true } });
+  });
+});
+
+describe("withHooks: the same command before and after every tool call", () => {
+  test("installs the hook for PreToolUse and PostToolUse, idempotently", () => {
+    const both = withHooks({}, COMMAND);
+    expect(both).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours] } }, changed: true } });
+    if (!both.ok) throw new Error(both.error);
+    expect(withHooks(both.value.settings, COMMAND)).toEqual({ ok: true, value: { settings: both.value.settings, changed: false } });
+  });
+
+  test("refuses what withHook refuses", () => {
+    expect(withHooks({ disableAllHooks: true }, COMMAND).ok).toBe(false);
+    expect(withHooks({ hooks: { PostToolUse: {} } }, COMMAND)).toEqual({ ok: false, error: ".claude/settings.json's 'hooks.PostToolUse' is not a list" });
   });
 });
 
