@@ -13,8 +13,8 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-async function run(entry: string, stdin: string, at = APP): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const child = Bun.spawn(["bun", join(at, entry)], { stdin: new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_PROJECT_DIR: root } });
+async function run(entry: string, stdin: string, at = APP, timeout = 10_000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const child = Bun.spawn(["bun", join(at, entry)], { stdin: new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_PROJECT_DIR: root }, timeout });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exitCode };
 }
@@ -61,5 +61,14 @@ describe("main.ts as a Claude Code PreToolUse hook", () => {
     expect(stdout).toBe(deny("No\nAsk"));
     expect(stderr).toContain("late decision-log line");
     expect(exitCode).toBe(0);
+  });
+
+  test("a decide pending forever, with work left running, is denied at the deadline and the process still exits 0 after the drain", async () => {
+    const payload = { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: join(root, "src") }, cwd: root };
+    const started = Date.now();
+    const { stdout, exitCode } = await run("test/fixtures/pending-forever-hook.ts", JSON.stringify(payload), APP, 4000);
+    expect(stdout).toBe(deny("bounded did not decide within 200 ms\nRetry the call; if it keeps timing out, report it to the maintainers of bounded"));
+    expect(exitCode).toBe(0);
+    expect(Date.now() - started).toBeLessThan(3000);
   });
 });

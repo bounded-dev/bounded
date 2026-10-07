@@ -67,6 +67,31 @@ describe("translate: every Claude Code tool to a host-neutral call", () => {
     expect(refusal("Grep", { pattern: "x", glob: "!../*.ts" })).toBe("Claude Code's Grep call has a glob that climbs with '..' where its reach cannot be judged");
   });
 
+  test("a filter whose reach is hidden in glob syntax is refused, for Glob patterns and Grep globs alike", () => {
+    const hidden = [
+      "{../out,src}/*",
+      "{/etc,src}/*",
+      "{..,src}/x",
+      "..{,}/x",
+      "@(..)/x",
+      "+(../)x",
+      "?(..)/x",
+      "\\.\\./x",
+      "[.][.]/x",
+      ".[.]/x",
+    ];
+    for (const filter of hidden) {
+      expect(refusal("Glob", { pattern: filter })).toMatch(/^Claude Code's Glob call has a pattern .*reach cannot be judged$/);
+      expect(refusal("Grep", { pattern: "x", glob: filter })).toMatch(/^Claude Code's Grep call has a glob .*reach cannot be judged$/);
+    }
+  });
+
+  test("ordinary filters, braces and classes included, pass as they are", () => {
+    for (const filter of ["**/*.{ts,tsx}", "src/[abc]*.ts", "*.md", "@(src|test)/**", "a.b/*.ts"]) {
+      expect(call("Glob", { pattern: filter })).toEqual({ tool: "search", effects: [{ kind: "list", root: ".", filter }] });
+    }
+  });
+
   test("a call without the path or command its tool needs is refused, never passed through", () => {
     expect(refusal("Read", {})).toBe("Claude Code's Read call has no file_path to check");
     expect(refusal("Write", { file_path: 3 })).toBe("Claude Code's Write call has no file_path to check");

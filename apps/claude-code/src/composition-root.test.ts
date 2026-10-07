@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Verdict } from "bounded/domain";
-import { composeHook, DEADLINE_MS, decideFromConfig } from "./composition-root.ts";
+import { composeHook, DEADLINE_MS, DRAIN_MS, decideFromConfig } from "./composition-root.ts";
 import type { ToolUse } from "./event.ts";
 import type { Decide } from "./hook.ts";
 import { HOOK_TIMEOUT_SECONDS } from "./install.ts";
@@ -60,5 +60,9 @@ describe("composeHook: the hook wired to the file system, the environment and ar
 
   test("bounded answers before Claude Code's timeout for the installed hook", () => {
     expect(DEADLINE_MS).toBeLessThan(HOOK_TIMEOUT_SECONDS * 1000 - 2000);
+  });
+
+  test("the deadline and the drain after the answer both end before Claude Code's timeout for the hook", () => {
+    expect(DEADLINE_MS + DRAIN_MS).toBeLessThan(HOOK_TIMEOUT_SECONDS * 1000 - 2000);
   });
 });
