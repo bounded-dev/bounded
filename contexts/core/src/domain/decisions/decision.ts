@@ -6,7 +6,11 @@ import type * as Contract from "./decision.contract.ts";
 
 /** The longest text field a decision keeps. */
 const LIMIT = 4096;
-const bounded = (text: string): string => (text.length <= LIMIT ? text : `${text.slice(0, LIMIT)}… (shortened from ${text.length} characters)`);
+/** Text of at most LIMIT characters, counted and cut in code points so a character is never split. */
+function bounded(text: string): string {
+  const characters = [...text];
+  return characters.length <= LIMIT ? text : `${characters.slice(0, LIMIT).join("")}… (shortened from ${characters.length} characters)`;
+}
 
 function verdictOf(verdict: Verdict, refusedBy: Judgement["refusedBy"]): Contract.RecordedVerdict {
   if (verdict.kind === "allow") return Object.freeze({ kind: "allow" });

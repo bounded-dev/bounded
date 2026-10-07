@@ -42,7 +42,7 @@
   `Composition.compose` in the same copy of the core; a look-alike object is
   refused. A guard that dispatches again is refused with a short reason
   rather than recursing. A refusal's reason and redirect are one line: control
-  characters and line breaks become spaces, so a guard cannot forge a second
+  characters and line breaks (including U+2028, U+2029 and U+0085) become spaces, so a guard cannot forge a second
   "… refused" line, and text past 2,000 characters is shortened, saying so.
 - **Every failure refuses.** As in ADR 2026-005, per guard call: a guard
   that is not a function, throws, returns a promise or anything but a

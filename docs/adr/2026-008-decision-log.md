@@ -23,9 +23,14 @@
 - **The log never contradicts what was enforced.** Every decision has an id.
   When a record lands after the bound, the handler appends, once it has
   settled, a line with the same id, the enforced verdict and the note "not
-  recorded in time; enforced: refuse"; readers take the later line for an id.
+  recorded in time; enforced: refuse" (whether the late record landed or
+  failed; none if it never settles); readers take the later line for an id.
+  Host adapters must let the event loop drain after answering (no
+  `process.exit` right after the verdict), so the late line is not lost.
+  Ids come from a `DecisionIds` port, like the clock.
 - **Bounded and private.** Text fields are shortened past 4,096 characters.
-  The file log creates its file with mode 0600 and writes each record in one
+  Shortening counts code points, never splitting a character. The file log
+  creates its file with mode 0600, makes an existing one so, and writes each record in one
   append of one complete line; readers skip a line that does not parse.
   Installers ignore `.bounded/` in version control. Redaction is left as a
   later hook.

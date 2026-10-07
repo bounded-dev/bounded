@@ -11,17 +11,19 @@ const allow = Object.freeze({ kind: "allow" }) as Contract.Allow;
 /** The longest reason or redirect kept; longer text is shortened, saying so. */
 const LIMIT = 2000;
 
-/** One line of bounded text: control characters and line breaks become single spaces. */
+/** One line of bounded text: control characters and line breaks (U+2028, U+2029 and U+0085 too) become single spaces. */
 function line(value: string): string {
   let flat = "";
   for (const char of value) {
     const code = char.charCodeAt(0);
-    const control = code < 0x20 || code === 0x7f;
+    const control = code < 0x20 || code === 0x7f || code === 0x85 || code === 0x2028 || code === 0x2029;
     if (!control) flat += char;
     else if (!flat.endsWith(" ")) flat += " ";
   }
   flat = flat.trim();
-  return flat.length <= LIMIT ? flat : `${flat.slice(0, LIMIT)}… (shortened from ${flat.length} characters)`;
+  // Counted and cut in code points, so a character is never split in two.
+  const characters = [...flat];
+  return characters.length <= LIMIT ? flat : `${characters.slice(0, LIMIT).join("")}… (shortened from ${characters.length} characters)`;
 }
 
 function refuse(reason: string, redirect: string): Contract.Refuse {

@@ -30,6 +30,14 @@ export interface DecisionLog {
 }
 
 /**
+ * A new, unique id for each decision.
+ * @implementedBy system
+ */
+export interface DecisionIds {
+  next(): string;
+}
+
+/**
  * The time of a decision, ISO 8601 in UTC.
  * @implementedBy system
  */

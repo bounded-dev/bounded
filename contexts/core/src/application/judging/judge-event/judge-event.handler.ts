@@ -1,5 +1,5 @@
 import { type Composition, Decision, decideEvent, Event, type Judgement, Verdict } from "bounded/domain";
-import type { Clock, DecisionLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
+import type { Clock, DecisionIds, DecisionLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
 
 const UNRECORDED_REDIRECT = "Make the decision log writable; until decisions can be recorded, every action is refused";
 const LATE_NOTE = "not recorded in time; enforced: refuse";
@@ -31,6 +31,7 @@ export class JudgeEventHandler implements JudgeEvent {
   static readonly DEFAULT_RECORD_WITHIN_MS = 2000;
   private readonly recordWithinMs: number;
   private readonly decide: (event: Event) => Judgement;
+  private readonly ids: DecisionIds;
 
   /**
    * `options.refuseEverything` makes every event get that refusal, recorded
@@ -41,11 +42,12 @@ export class JudgeEventHandler implements JudgeEvent {
     composition: Composition | null,
     private readonly log: DecisionLog,
     private readonly clock: Clock,
-    options: { readonly recordWithinMs?: number; readonly refuseEverything?: Verdict } = {},
+    options: { readonly recordWithinMs?: number; readonly refuseEverything?: Verdict; readonly ids?: DecisionIds } = {},
   ) {
     const bound = options.recordWithinMs ?? JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS;
     if (!Number.isFinite(bound) || bound <= 0) throw new RangeError("recordWithinMs must be a finite number of milliseconds above zero");
     this.recordWithinMs = bound;
+    this.ids = options.ids ?? { next: () => crypto.randomUUID() };
     const refusal = options.refuseEverything;
     this.decide = refusal === undefined ? (event) => decideEvent(composition, event) : () => ({ verdict: refusal, refusedBy: null });
   }
@@ -55,7 +57,7 @@ export class JudgeEventHandler implements JudgeEvent {
       const event = Event.parse(typeof command === "object" && command !== null ? command.event : undefined);
       if (!event.ok) return Verdict.refuse(`The handler was given something that is not a judge-event command: ${event.error}`, "Build the command with JudgeEventCommand.parse");
       const judgement = this.decide(event.value);
-      return await this.settle(judgement, () => Decision.of(crypto.randomUUID(), this.now(), event.value, judgement));
+      return await this.settle(judgement, () => Decision.of(this.ids.next(), this.now(), event.value, judgement));
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
     }
@@ -67,10 +69,10 @@ export class JudgeEventHandler implements JudgeEvent {
       const event = Event.parse(raw);
       if (event.ok) {
         const judgement = this.decide(event.value);
-        return await this.settle(judgement, () => Decision.of(crypto.randomUUID(), this.now(), event.value, judgement));
+        return await this.settle(judgement, () => Decision.of(this.ids.next(), this.now(), event.value, judgement));
       }
       const refusal = Verdict.refuse(`The host sent an event that cannot be read: ${event.error}`, "Report this to the maintainers of the host adapter; the action is refused meanwhile");
-      return await this.settle({ verdict: refusal, refusedBy: null }, () => Decision.invalid(crypto.randomUUID(), this.now(), refusal));
+      return await this.settle({ verdict: refusal, refusedBy: null }, () => Decision.invalid(this.ids.next(), this.now(), refusal));
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
     }
@@ -119,9 +121,10 @@ export class JudgeEventHandler implements JudgeEvent {
   }
 
   /**
-   * After a timeout, once the late record lands (or fails), append a line
-   * with its id saying what was enforced, so the log never contradicts the
-   * verdict. If the late record never lands, there is nothing to correct.
+   * After a timeout, once the late record settles, append a line with its id
+   * saying what was enforced, so the log never contradicts the verdict. The
+   * line is appended whether the late record landed or failed; if it never
+   * settles, nothing is appended.
    */
   private followUp(decision: Decision, landing: Promise<void>, enforced: Verdict): void {
     const write = (): void => {

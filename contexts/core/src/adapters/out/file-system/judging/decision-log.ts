@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, chmod, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { DecisionLog } from "bounded/application";
 import type { Decision } from "bounded/domain";
@@ -15,5 +15,7 @@ export class FileSystemDecisionLog implements DecisionLog {
     await mkdir(dirname(this.file), { recursive: true });
     // One append of one complete line: never a partial record from this writer.
     await appendFile(this.file, `${JSON.stringify(decision)}\n`, { encoding: "utf8", mode: 0o600 });
+    // The mode above applies only when the file is created; an existing file is made private too.
+    await chmod(this.file, 0o600);
   }
 }

@@ -54,9 +54,13 @@ to record.
 A record can land after the bound has passed, when the host has already been
 told to refuse. Once it lands, the handler appends a second line with the
 **same id**, the enforced refusal as its verdict, and the note
-`"not recorded in time; enforced: refuse"`. Read the log by id: **when two
-lines share an id, the later one says what was enforced.** If the late record
-never lands, there is nothing to correct and no second line.
+`"not recorded in time; enforced: refuse"`. The second line is appended
+once the late record settles, whether it landed or failed; if it never
+settles, there is no second line. Read the log by id: **when two lines share
+an id, the later one says what was enforced.**
+
+A host adapter must let its process's event loop drain after answering (no
+`process.exit` straight after the verdict), or a late line can be lost.
 
 ## Reading the file
 
@@ -64,13 +68,16 @@ One JSON object per line. Each record is written by one append of one
 complete line, and the file log has been tested with two processes appending
 at once. A reader should still skip a line that does not parse (a disk that
 filled up mid-write, or a line written by something else) and carry on.
-Every text field is at most 4,096 characters; longer text ends with
-"… (shortened from N characters)".
+Every text field is at most 4,096 characters (counted in code points, so a
+character is never split); longer text ends with
+"… (shortened from N characters)". Decision ids come from the `DecisionIds`
+port (random UUIDs by default, `RandomDecisionIds` in `bounded/adapters/system`).
 
 ## Privacy
 
 Decisions hold commands, paths and URLs as the agent gave them. The file log
-creates its file readable and writable by its owner only (mode 0600).
+creates its file readable and writable by its owner only (mode 0600), and
+makes an existing file so on every record.
 Installers should add `.bounded/` to the project's `.gitignore` so the log is
 never committed. A hook to redact sensitive text before it is recorded is
 planned, not built.
