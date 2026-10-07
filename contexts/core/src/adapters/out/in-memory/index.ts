@@ -1,1 +1,1 @@
-export { InMemoryComposePacksCatalog } from "./compose-packs.catalog.ts";
+export { InMemoryComposePacksCatalog } from "./composition/compose-packs.catalog.ts";

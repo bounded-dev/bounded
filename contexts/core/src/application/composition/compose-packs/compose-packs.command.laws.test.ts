@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { PackName } from "@bounded/core/domain";
 import { ComposePacksCommand } from "./compose-packs.command.ts";
 
 const INVALID = { ok: false as const, error: "Invalid compose packs input: give { selected: [pack names] }" };
@@ -11,16 +10,17 @@ describe("ComposePacksCommand laws", () => {
     }
   });
 
-  test("validates each name through PackName, in order", () => {
-    for (const selected of [["core", "path-gate"], ["core", "Bad"], ["../x", "Bad"], []]) {
-      const result = ComposePacksCommand.parse({ selected });
-      const failed = selected.map((name) => PackName.parse(name)).find((r) => !r.ok);
-      if (failed !== undefined) {
-        expect(result).toEqual(failed);
-        continue;
-      }
-      expect(result.ok && result.value.selected.map((n) => n.value)).toEqual(selected);
-    }
+  test("keeps valid names in order, and an empty selection", () => {
+    const result = ComposePacksCommand.parse({ selected: ["path-gate", "core"] });
+    expect(result.ok && result.value.selected.map((n) => n.value)).toEqual(["path-gate", "core"]);
+    expect(ComposePacksCommand.parse({ selected: [] }).ok).toBe(true);
+  });
+
+  test("refuses with the first invalid name's reason", () => {
+    expect(ComposePacksCommand.parse({ selected: ["core", "Bad", "../x"] })).toEqual({
+      ok: false,
+      error: "Pack name 'Bad' must be lowercase words joined by single hyphens, such as 'path-gate'",
+    });
   });
 
   test("ignores fields the input does not declare", () => {
