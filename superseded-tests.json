@@ -270,7 +270,7 @@
     "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
   },
   {
-    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "file": "contexts/core/src/pack/path-gate/path-gate.test.ts",
     "case": "the path gate \u2014 listing is judged conservatively > a filter excludes a protected path only provably: when the rule ends in a literal name the filter does not match",
     "successor": {
       "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
