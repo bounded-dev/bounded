@@ -1,6 +1,6 @@
 export type { Result } from "./shared/result.ts";
 
-export type { CompositionFactory } from "./composition/composition.contract.ts";
+export type { CompositionFactory, Entry } from "./composition/composition.contract.ts";
 export { Composition } from "./composition/composition.ts";
 export type {
   AnyPack,
@@ -10,6 +10,7 @@ export type {
   ExtensionPoint,
   Pack,
   PackFactory,
+  PackListRules,
   PackSpec,
   PointDeclaration,
   StrictSpec,
@@ -27,9 +28,17 @@ export type { RoleFactory } from "./events/role.contract.ts";
 export { Role } from "./events/role.ts";
 export type { SessionStartFactory } from "./events/session-start.contract.ts";
 export { SessionStart } from "./events/session-start.ts";
-export type { Action, Search, ToolKind, ToolUseFactory } from "./events/tool-use.contract.ts";
+export type { ToolKind, ToolUseFactory } from "./events/tool-use.contract.ts";
+export type { Change, DelegateEffect, EffectFactory, EffectKind, ExecuteEffect, FetchEffect, InvokeEffect, ListEffect, ReadEffect, WriteEffect } from "./events/effect.contract.ts";
+export { describeEffect, Effect } from "./events/effect.ts";
 export { ToolUse } from "./events/tool-use.ts";
-export type { Dispatch, Guard } from "./guards/guard.contract.ts";
+export type { Dispatch, EffectGuard, Guard, Judgement } from "./guards/guard.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
+export { corePack } from "./guards/core-pack.ts";
+export { decideEvent, dispatchEvent } from "./guards/dispatch-event.ts";
+export type { DecisionFactory, RecordedVerdict } from "./decisions/decision.contract.ts";
+export { Decision } from "./decisions/decision.ts";
+export type { Config, ConfigFactory, ConfigSpec } from "./config/config.contract.ts";
+export { composeConfig, defineConfig, isConfig } from "./config/config.ts";
 export type { Allow, Refuse, VerdictFactory } from "./verdicts/verdict.contract.ts";
 export { Verdict } from "./verdicts/verdict.ts";

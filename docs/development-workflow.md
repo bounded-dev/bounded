@@ -110,6 +110,23 @@ tree.
   the reviewer to judge. A red commit may delete a test file only when every
   case in it is recorded. A red commit that changes the compile-time
   fixtures also runs `compile-time.test.ts`, which must fail at the red commit.
+  A record is refused when its case still exists at the head, when a case
+  names itself as its successor, when the successor is a computed title (a
+  table of cases generated in a loop), when the successor makes fewer
+  assertions than the case it replaces, and when any commit after the red
+  commit that changed the record is not test-only (a merge counts by the
+  paths it changed itself, those differing from every parent).
+
+**What a supersession record cannot prove.** A record says a case was
+replaced; the check confirms the successor exists, is a single named case,
+makes at least as many assertions and passes, and that only test-only
+commits changed the record. It cannot tell whether the successor tests the
+same requirement, whether a record with no successor was justified, or
+whether the reason is true. Assertions inside helpers and in loop tables are
+invisible to its counts. "Still exists" is checked in the case's own file,
+followed through renames by git's rename detection; a case moved to an
+unrelated file under the same title is not detected. Every record is printed as a note: the final
+reviewer must read each one against the spec and the replaced case.
 
 **The comparison counts assertions; it never reads them.** A red
 `expect(add(1, 2)).toBe(3)` replaced by `expect(1).toBe(1)` passes every

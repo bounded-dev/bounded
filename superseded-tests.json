@@ -52,9 +52,9 @@
     "case": "ExtensionPointId — boundaries > refuses anything else with a reason that names it and shows the form",
     "successor": {
       "file": "contexts/core/src/domain/composition/composition.test.ts",
-      "case": "Composition — every refusal names the pack, the extension point and the fix > `${title}` #9"
+      "case": "Composition — every refusal names the pack, the extension point and the fix > point keys that could collide with the id scheme are refused"
     },
-    "reason": "the remaining id rule is the point key, refused at composition when it could collide with the id scheme"
+    "reason": "the remaining id rule is the point key, refused at composition when it could collide with the '<pack id>.<key>' scheme"
   },
   {
     "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",
@@ -108,39 +108,165 @@
     "reason": "a pack id is its own wire form: a branded string, so parse returns the text itself"
   },
   {
-    "file": "apps/pi/src/translate.test.ts",
-    "case": "translate — pi's tools as host-neutral tool uses > an unknown tool is 'other': it is invoked by name, never executed, and writes its path, if it names one",
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a tool use: who acts, with what kind of tool, how, on which paths",
     "successor": {
-      "file": "apps/pi/src/translate.test.ts",
-      "case": "translate — pi's tools as host-neutral tool uses > an unknown tool is 'other', invoked by name only, whatever its arguments"
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > a tool use: who acts, with what kind of tool, and every effect the call has"
     },
-    "reason": "an unknown tool's arguments say nothing reliable about what it touches, so it is invoked by name only; custom tools are to be described later by a declared per-tool translation table"
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
   },
   {
-    "file": "apps/pi/src/translate.test.ts",
-    "case": "translate — pi's tools as host-neutral tool uses > a tool's cwd parameter is where its paths are resolved from, and must itself be in the project",
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a run carries its command, exactly as given",
     "successor": {
-      "file": "apps/pi/src/translate.test.ts",
-      "case": "translate — pi's tools as host-neutral tool uses > pi's built-in tools ignore a cwd argument, so it changes nothing they are judged by"
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not"
     },
-    "reason": "pi's built-in tools ignore a cwd argument, so applying it judged a different file than the one pi opens (read { cwd: 'public', path: 'secrets.env' } reads ./secrets.env)"
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
   },
   {
-    "file": "apps/pi/src/translate.test.ts",
-    "case": "translate — with the real locator > a cwd parameter is resolved before paths are made project-relative",
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > its paths are normalised project-relative paths, in the order given",
     "successor": {
-      "file": "apps/pi/src/translate.test.ts",
-      "case": "translate — with the real locator > a subagent's cwd is located before its output path, which starts there"
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > its effects keep the order given, each checked and normalised"
     },
-    "reason": "only the subagent tool honours a cwd argument now; unknown tools carry no paths"
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
   },
   {
-    "file": "apps/pi/src/install.test.ts",
-    "case": "piLoader — the file pi loads as the project's bounded extension > default-exports bounded-pi's extension for the project it sits in",
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > the action is read, write or run",
     "successor": {
-      "file": "apps/pi/src/install.test.ts",
-      "case": "piLoader — loaded by pi's own jiti, under node > hands the project root to bounded-pi's extension"
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a write names the file and whether it is created, modified or deleted"
     },
-    "reason": "the loader is now an async factory that fails closed when bounded-pi cannot be loaded, so it is exercised as pi loads it: through pi's jiti, under node"
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a path that is absolute or climbs out refuses the whole tool use, naming the path",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > an invalid effect refuses the whole tool use, naming the effect by position"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a run must name its command, and only a run has one",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — nonsense is refused > fields that do not belong to the kind, and missing ones"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a search can say where it searches: the directory searched and the file-name filter that limits it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a list names the directory it lists and an optional file-name filter"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > a search's root is a project path and its filter is non-empty text; only a search carries them",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a list names the directory it lists and an optional file-name filter"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — boundaries > is frozen, its paths and search too",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > is frozen, its effects too"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — independent parts > tool kind and action are independent: the host classifies both",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — independent parts > tool kind and effects are independent: the host classifies both"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — independent parts > a command must not contain a NUL character",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not"
+    },
+    "reason": "the coarse action, paths, command and search of a tool use became a list of precise effects (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a read names the file whose contents it reads, normalised",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a read names the file whose contents it reads, normalised"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a list names the directory it lists and an optional file-name filter",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a list names the directory it lists and an optional file-name filter"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a write names the file and whether it is created, modified or deleted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a write names the file and whether it is created, modified or deleted"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a fetch names an absolute URL without spaces or control characters",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a fetch names an absolute URL without spaces or control characters"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a delegate names the agent it hands work to",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a delegate names the agent it hands work to"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — the six kinds > a path that is absolute or climbs out is refused with the path's reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > a path that is absolute or climbs out is refused with the path's reason"
+    },
+    "reason": "the effects gained a seventh kind, invoke, for tool calls the host cannot describe (ADR 2026-006)"
   }
 ]

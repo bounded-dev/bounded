@@ -9,4 +9,9 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-001](2026-001-development-lifecycle.md) | A development lifecycle: plan, plan review, red commit, build, final review |
 | [2026-002](2026-002-typed-extension-points.md) | Typed extension points with compile-time ownership; deviations from the example |
 | [2026-003](2026-003-packs-refer-to-packs.md) | Packs refer to each other as objects; strict typing is binding |
+| [2026-004](2026-004-namespaced-pack-ids.md) | npm-namespaced pack ids; selection by pack objects; workspace package `bounded` |
 | [2026-005](2026-005-events-verdicts-dispatch.md) | Host-neutral events, verdicts and a pure dispatch |
+| [2026-006](2026-006-effects.md) | A tool use is a list of precise effects |
+| [2026-007](2026-007-guards-over-a-composition.md) | Guards over a composition: the core pack and per-effect dispatch |
+| [2026-008](2026-008-decision-log.md) | Every decision is recorded, and an unrecorded decision fails closed |
+| [2026-010](2026-010-project-configuration.md) | A project's configuration (defineConfig), and opening a project for judging |

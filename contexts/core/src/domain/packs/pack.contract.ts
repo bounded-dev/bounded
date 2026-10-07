@@ -77,15 +77,82 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
   ? unknown
   : { readonly id: Refused<"give the pack an exact id from packIdsFor(...)(...)"> }) & {
   readonly points?: { readonly [K in keyof Points]: CamelCase<K> extends true ? unknown : Refused<"point keys are camelCase words, such as protectedPaths"> };
-} & (Dependencies extends readonly []
-    ? unknown
-    : number extends Dependencies["length"]
-      ? { readonly dependsOn: Refused<"list dependsOn as a tuple of packs, such as [core, pathGate]"> }
-      : true extends Repeats<Dependencies>
-        ? { readonly dependsOn: Refused<"list each dependency once"> }
-        : { readonly dependsOn: { readonly [K in keyof Dependencies]: [ExactId<Dependencies[K]["id"]>] extends [true] ? unknown : Refused<"each dependency is a pack with an exact id"> } });
+} & (Dependencies extends readonly [] ? unknown : { readonly dependsOn: PackListRules<Dependencies, "list dependsOn as a tuple of packs, such as [core, pathGate]", "list each dependency once"> });
+
+/**
+ * A list of packs the compiler can see pack by pack: a tuple (else `Tuple`),
+ * each pack once (else `Once`), each with an exact id.
+ */
+export type PackListRules<List extends readonly AnyPack[], Tuple extends string, Once extends string> = number extends List["length"]
+  ? Refused<Tuple>
+  : true extends Repeats<List>
+    ? Refused<Once>
+    : { readonly [K in keyof List]: [ExactId<List[K]["id"]>] extends [true] ? unknown : Refused<"each dependency is a pack with an exact id"> };
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
+/** Library classes with no type arguments: their own members are not inspected. */
+type Leaf =
+  | Date
+  | RegExp
+  | URL
+  | Error
+  | ArrayBuffer
+  | SharedArrayBuffer
+  | DataView
+  | Int8Array
+  | Uint8Array
+  | Uint8ClampedArray
+  | Int16Array
+  | Uint16Array
+  | Int32Array
+  | Uint32Array
+  | Float32Array
+  | Float64Array
+  | BigInt64Array
+  | BigUint64Array;
+/** The leaves T is assignable to (never when none). */
+type LeafOf<T> = Leaf extends infer L ? (L extends unknown ? (T extends L ? L : never) : never) : never;
+
+/**
+ * Whether `any` appears in T, to a depth of eight. Inspected: T itself; the
+ * type arguments of Promise (any PromiseLike), ReadonlyMap/Map,
+ * ReadonlySet/Set and arrays and tuples; a function's own parameters and
+ * result; a constructor's own parameters and instance type; and the own
+ * properties of any other object. Primitives, branded or not, are leaves,
+ * as are Date, RegExp, URL, Error,
+ * ArrayBuffer, SharedArrayBuffer, DataView and the typed arrays) are matched
+ * by assignability, and only the members a type adds to its leaf are
+ * inspected. Library method signatures are never inspected, so precise
+ * built-in types pass.
+ */
+type ContainsAny<T, Depth extends readonly unknown[] = []> = IsAny<T> extends true
+  ? true
+  : Depth["length"] extends 8
+    ? false
+    : T extends string | number | boolean | bigint | symbol | null | undefined
+      ? false
+      : [LeafOf<T>] extends [never]
+      ? StructureContainsAny<T, [...Depth, 1]>
+      : AnyIn<{ [K in Exclude<keyof T, keyof LeafOf<T>>]-?: ContainsAny<T[K], [...Depth, 1]> }[Exclude<keyof T, keyof LeafOf<T>>]>;
+
+/** `true` when any of the results is true. */
+type AnyIn<Results> = true extends Results ? true : false;
+
+type StructureContainsAny<T, Depth extends readonly unknown[]> = T extends PromiseLike<infer Settled>
+  ? ContainsAny<Settled, Depth>
+  : T extends ReadonlyMap<infer Key, infer Item>
+    ? AnyIn<ContainsAny<Key, Depth> | ContainsAny<Item, Depth>>
+    : T extends ReadonlySet<infer Item>
+      ? ContainsAny<Item, Depth>
+      : T extends readonly (infer Element)[]
+        ? ContainsAny<Element, Depth>
+        : T extends (...args: infer Parameters) => infer Returned
+          ? AnyIn<ContainsAny<Returned, Depth> | ContainsAny<Parameters, Depth>>
+          : T extends abstract new (...args: infer Parameters) => infer Instance
+            ? AnyIn<ContainsAny<Instance, Depth> | ContainsAny<Parameters, Depth>>
+            : T extends object
+              ? AnyIn<{ [K in keyof T]-?: ContainsAny<T[K], Depth> }[keyof T]>
+              : false;
 
 export interface PackFactory {
   /** Define a pack: its id, the packs it depends on, the points it declares and what it contributes. */
@@ -94,10 +161,11 @@ export interface PackFactory {
   ): Pack<Id, Points>;
   /**
    * Declare an extension point inside a pack definition; its value type is
-   * what `check` returns. `unknown` is allowed (readers must narrow), `any` is not.
+   * what `check` returns. `unknown` is allowed (readers must narrow); `any`, anywhere
+   * in the type, is not.
    */
   point<Value>(
-    spec: { readonly description: string; readonly check: (raw: unknown) => Result<Value>; readonly values?: readonly NoInfer<Value>[] } & (IsAny<Value> extends true
+    spec: { readonly description: string; readonly check: (raw: unknown) => Result<Value>; readonly values?: readonly NoInfer<Value>[] } & (true extends ContainsAny<Value>
       ? { readonly check: Refused<"a point's check must return a precise type, not any"> }
       : unknown),
   ): PointDeclaration<Value>;

@@ -1,0 +1,55 @@
+# Configuring a project
+
+A project chooses its packs in `bounded.config.ts` at its root (`.js` and
+`.mjs` work too; exactly one must exist).
+
+```ts
+// bounded.config.ts
+import { contribution, corePack, defineConfig, Verdict, type WriteEffect } from "bounded/domain";
+
+export default defineConfig({
+  // The selection: pack objects. corePack must be among them, or every event is refused.
+  packs: [corePack],
+  // The project's own contributions, to points of the packs it selects.
+  contributes: [
+    contribution(corePack.points.writeGuards, [
+      (effect: WriteEffect) => (effect.path.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow),
+    ]),
+  ],
+});
+```
+
+The project acts as one more pack, `bounded/project`, that depends on every
+selected pack. So its contributions follow the same rules as any pack's: a
+contribution to a point of a pack the project does not select does not
+compile, and is refused when the packs are composed. The selection must be a
+tuple of distinct packs (`[corePack, pathGate]`), not a widened list.
+
+## Opening a project
+
+A host adapter's composition root opens the project once and asks its judge
+about every event:
+
+```ts
+import { openProject } from "bounded/open-project";
+
+const project = await openProject("/absolute/path/to/project");
+if (project.problem !== null) console.error(project.problem);
+const verdict = await project.judge(eventFromTheHost);
+```
+
+The judge decides each event with the composed packs and records the decision
+in `<root>/.bounded/guard-log.jsonl` (see [the decision log](decision-log.md)).
+A host may pass its own `configSource`, `log`, `clock` or `recordWithinMs`.
+
+## When the configuration cannot be used
+
+The judge never fails open. If there is no configuration, more than one, one
+that throws while loading, one whose default export `defineConfig` did not
+make, or one whose packs cannot be composed (for example, a pack whose
+dependency is not selected), `problem` says what is wrong and the judge
+refuses every event with "This project's configuration cannot be used: …",
+recording each refusal. An event the host sends that cannot be read is
+refused and recorded with `"event": "invalid"`.
+
+Add `.bounded/` to the project's `.gitignore`.
