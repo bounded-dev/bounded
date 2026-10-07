@@ -13,9 +13,9 @@ function decisions(): Decision[] {
   const start = SessionStart.parse({ role: null });
   if (!use.ok || !start.ok) throw new Error("expected events");
   return [
-    Decision.of("2026-10-07T12:00:00.000Z", use.value, { verdict: Verdict.allow, refusedBy: null }),
-    Decision.of("2026-10-07T12:00:01.000Z", start.value, { verdict: Verdict.refuse("No role", "Start as a role"), refusedBy: null }),
-    Decision.of("2026-10-07T12:00:02.000Z", use.value, { verdict: Verdict.refuse('Generated: "x"\nline two', "Ask"), refusedBy: null }),
+    Decision.of("d-1", "2026-10-07T12:00:00.000Z", use.value, { verdict: Verdict.allow, refusedBy: null }),
+    Decision.of("d-2", "2026-10-07T12:00:01.000Z", start.value, { verdict: Verdict.refuse("No role", "Start as a role"), refusedBy: null }),
+    Decision.of("d-3", "2026-10-07T12:00:02.000Z", use.value, { verdict: Verdict.refuse('Generated: "x"\nline two', "Ask"), refusedBy: null }),
   ];
 }
 

@@ -37,7 +37,9 @@ describe("JudgeEventHandler", () => {
   test("allows, and records the decision once with its time, role, tool and effects", async () => {
     const log = new FakeLog();
     expect(await new JudgeEventHandler(composition, log, clock).execute(command("src/a.ts"))).toBe(Verdict.allow);
-    expect<unknown>(log.decisions).toEqual([{ time: TIME, event: "tool-use", role: "builder", tool: "edit", effects: ["write (modify) src/a.ts"], verdict: { kind: "allow" } }]);
+    expect<unknown>(log.decisions).toEqual([
+      { id: log.decisions[0]?.id, time: TIME, event: "tool-use", role: "builder", tool: "edit", effects: ["write (modify) src/a.ts"], verdict: { kind: "allow" }, note: null },
+    ]);
   });
 
   test("refuses, and records the refusal with the pack and the effect that refused", async () => {
@@ -89,6 +91,59 @@ describe("JudgeEventHandler", () => {
     const log = new FakeLog(() => new Promise<void>(() => {}));
     const verdict = await new JudgeEventHandler(composition, log, clock, { recordWithinMs: 20 }).execute(command("src/a.ts"));
     expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: it did not finish within 20 ms");
+  });
+
+  test("every decision has its own id", async () => {
+    const log = new FakeLog();
+    const handler = new JudgeEventHandler(composition, log, clock);
+    await handler.execute(command("src/a.ts"));
+    await handler.execute(command("src/a.ts"));
+    const [first, second] = log.decisions;
+    expect((first?.id ?? "").length).toBeGreaterThan(0);
+    expect(first?.id).not.toBe(second?.id);
+  });
+
+  test("a record that lands after the bound is followed by a line with the same id saying what was enforced", async () => {
+    const log = new FakeLog(() => Bun.sleep(60));
+    const verdict = await new JudgeEventHandler(composition, log, clock, { recordWithinMs: 20 }).execute(command("src/a.ts"));
+    expect(verdict.kind).toBe("refuse");
+    await Bun.sleep(150);
+    const [original, followUp] = log.decisions;
+    expect(log.decisions.length).toBe(2);
+    expect(original?.verdict.kind).toBe("allow");
+    expect(followUp?.id).toBe(original?.id ?? "missing");
+    expect(followUp?.note).toBe("not recorded in time; enforced: refuse");
+    expect<unknown>(followUp?.verdict).toEqual({
+      kind: "refuse",
+      reason: "The guards allowed this, but the decision could not be recorded: it did not finish within 20 ms",
+      redirect: UNRECORDED_REDIRECT,
+      pack: null,
+      effect: null,
+    });
+  });
+
+  test("a clock that does not give an ISO 8601 time is a failure to record", async () => {
+    const odd: Clock = { now: () => "yesterday" };
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(composition, log, odd).execute(command("src/a.ts"));
+    expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: the clock gave 'yesterday', not an ISO 8601 time");
+    expect(log.decisions).toEqual([]);
+  });
+
+  test("something that is not a command is refused, never thrown, and nothing is recorded", async () => {
+    const log = new FakeLog();
+    const handler = new JudgeEventHandler(composition, log, clock);
+    for (const raw of [null, undefined, 7, {}, { event: { kind: "deploy" } }]) {
+      const verdict = await handler.execute(raw as unknown as JudgeEventCommand);
+      expect(verdict.kind === "refuse" && verdict.reason.startsWith("The handler was given something that is not a judge-event command")).toBe(true);
+    }
+    expect(log.decisions).toEqual([]);
+  });
+
+  test("refuses to be built with a bound that is not a finite number of milliseconds above zero", () => {
+    for (const recordWithinMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new JudgeEventHandler(composition, new FakeLog(), clock, { recordWithinMs })).toThrow("recordWithinMs must be a finite number of milliseconds above zero");
+    }
   });
 
   test("records within two seconds by default", () => {

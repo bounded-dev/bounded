@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Decision, SessionStart, Verdict } from "bounded/domain";
@@ -21,7 +21,7 @@ decisionLogConformance("FileSystemDecisionLog", async () => {
 
 const started = SessionStart.parse({ role: null });
 if (!started.ok) throw new Error(started.error);
-const decision = Decision.of("2026-10-07T12:00:00.000Z", started.value, { verdict: Verdict.allow, refusedBy: null });
+const decision = Decision.of("d-1", "2026-10-07T12:00:00.000Z", started.value, { verdict: Verdict.allow, refusedBy: null });
 
 describe("FileSystemDecisionLog", () => {
   test("creates the folders on the way to its file", async () => {
@@ -36,6 +36,24 @@ describe("FileSystemDecisionLog", () => {
     await new FileSystemDecisionLog(file).record(decision);
     expect(readFileSync(file, "utf8")).toBe(`{"earlier":true}\n${JSON.stringify(decision)}\n`);
   });
+
+  test("creates its file readable and writable by its owner only", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "decision-log-")), "log.jsonl");
+    await new FileSystemDecisionLog(file).record(decision);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  test("two processes appending at once leave only whole lines", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "decision-log-")), "log.jsonl");
+    const worker = join(import.meta.dir, "../../../../../test/fixtures/append-worker.ts");
+    const runs = [1, 2].map((n) => Bun.spawn(["bun", worker, file, String(n), "200"], { stdout: "ignore", stderr: "inherit" }));
+    expect(await Promise.all(runs.map((run) => run.exited))).toEqual([0, 0]);
+    const text = readFileSync(file, "utf8");
+    const all = text.split("\n").filter((line) => line !== "");
+    expect(all.length).toBe(400);
+    expect(all.every((line) => typeof JSON.parse(line).id === "string")).toBe(true);
+    expect(text.endsWith("\n")).toBe(true);
+  }, 30_000);
 
   test("rejects when the file cannot be written", async () => {
     const blocker = join(mkdtempSync(join(tmpdir(), "decision-log-")), "file");
