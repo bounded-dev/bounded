@@ -6,6 +6,10 @@
     "bounded-claude-code": "./src/main.ts"
   },
   "dependencies": {
-    "bounded": "workspace:*"
+    "bounded": "workspace:*",
+    "picomatch": "4.0.7"
+  },
+  "devDependencies": {
+    "@types/picomatch": "4.0.3"
   }
 }

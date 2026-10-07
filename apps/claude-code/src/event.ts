@@ -15,7 +15,8 @@ export type Effect =
   | { readonly kind: "read"; readonly path: ProjectPath }
   | { readonly kind: "list"; readonly root: ProjectPath; readonly filter?: string }
   | { readonly kind: "write"; readonly path: ProjectPath; readonly change: Change }
-  | { readonly kind: "execute"; readonly command: string }
+  /** A shell command, and the project-relative directory it runs in, when the host says. */
+  | { readonly kind: "execute"; readonly command: string; readonly cwd?: ProjectPath }
   | { readonly kind: "fetch"; readonly url: string }
   | { readonly kind: "delegate"; readonly agent: string }
   /** A tool call whose effects cannot be described, by the tool's name. */
@@ -72,6 +73,10 @@ export function toToolUse(call: HostCall, { role, cwd, paths }: Resolving): Resu
       if (effect.kind === "read") made = { kind: "read", path };
       else if (effect.kind === "list") made = effect.filter === undefined ? { kind: "list", root: path } : { kind: "list", root: path, filter: effect.filter };
       else made = { kind: "write", path, change: effect.change === "create-or-modify" ? (exists ? "modify" : "create") : effect.change };
+    } else if (effect.kind === "execute") {
+      const found = effect.cwd === undefined ? null : resolve(effect.cwd);
+      if (found !== null && !found.ok) return found;
+      made = found === null ? { kind: "execute", command: effect.command } : { kind: "execute", command: effect.command, cwd: found.value.path };
     } else made = { ...effect };
     effects.push(Object.freeze(made));
   }

@@ -1,5 +1,5 @@
 // The composition root: the only place that chooses the adapters and reads
-// the environment. It returns the hook, ready to host; main.ts hosts it.
+// the environment. It returns the hook, ready to host; run.ts hosts it.
 //
 // THE SEAM: `decide`. Today it is injected (tests, test/fixtures). Once the
 // core integration lands, `decideFromConfig` loads the project's
@@ -8,6 +8,9 @@
 import { Verdict } from "bounded/domain";
 import { type Decide, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
+
+/** How long bounded may take to decide: well below the installed hook's timeout (install.ts). */
+export const DEADLINE_MS = 20_000;
 
 export interface Wiring {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -24,7 +27,7 @@ export const decideFromConfig: Decide = () =>
   );
 
 /** The hook for one process: stdin text in, stdout text out. */
-export function composeHook({ env, argv, decide }: Wiring): (stdin: string) => string {
+export function composeHook({ env, argv, decide }: Wiring): (stdin: string) => Promise<string> {
   const projectDir = env.CLAUDE_PROJECT_DIR;
   if (projectDir === undefined || !projectDir.startsWith("/")) {
     return refuseAll(
@@ -34,7 +37,7 @@ export function composeHook({ env, argv, decide }: Wiring): (stdin: string) => s
   }
   const role = roleFrom(argv);
   if (role === undefined) return refuseAll("--role is given without a role label", "Give the role after it, as in --role builder");
-  return (stdin) => runHook(stdin, { projectDir, role, decide, paths: projectPaths(projectDir) });
+  return (stdin) => runHook(stdin, { projectDir, role, decide, paths: projectPaths(projectDir), deadlineMs: DEADLINE_MS });
 }
 
 /** `--role <label>` or `--role=<label>`; null when absent, undefined when given without a label. */
@@ -45,7 +48,7 @@ function roleFrom(argv: readonly string[]): string | null | undefined {
   return label === undefined || label === "" || label.startsWith("--") ? undefined : label;
 }
 
-function refuseAll(reason: string, redirect: string): (stdin: string) => string {
+function refuseAll(reason: string, redirect: string): (stdin: string) => Promise<string> {
   const answer = respond(Verdict.refuse(reason, redirect));
-  return () => answer;
+  return async () => answer;
 }

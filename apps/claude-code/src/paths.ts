@@ -3,7 +3,9 @@
 // judged by where it really lands: its existing components are resolved with
 // realpath, so a link counts as its target, and the result must be inside the
 // project. A path that does not exist yet is judged by its nearest existing
-// parent; a link to nothing is refused.
+// parent, its missing tail keeping the case it was written in; a link to
+// nothing is refused. Limits: a hard link cannot be told from its target, and
+// the file system can change between this check and the tool's use of it.
 import { lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type Refuse, type Result, Verdict } from "bounded/domain";
@@ -27,7 +29,7 @@ function realLocation(path: string): Result<{ real: string; exists: boolean }, s
   const rest: string[] = [];
   for (let head = path; ; head = dirname(head)) {
     try {
-      return { ok: true, value: { real: join(realpathSync(head), ...rest), exists: rest.length === 0 } };
+      return { ok: true, value: { real: join(realpathSync.native(head), ...rest), exists: rest.length === 0 } };
     } catch (thrown) {
       const code = (thrown as NodeJS.ErrnoException).code;
       if (code !== "ENOENT" && code !== "ENOTDIR") return { ok: false, error: `cannot be read: ${message(thrown)}` };
@@ -52,14 +54,16 @@ function entryExists(path: string): boolean {
 /** The resolver for one project: `projectDir` is Claude Code's CLAUDE_PROJECT_DIR. */
 export function projectPaths(projectDir: string): PathResolver {
   return {
-    resolve(raw, cwd) {
+    resolve(given, cwd) {
+      // Claude Code trims a path (String.prototype.trim) before it uses it: judge what it uses.
+      const raw = given.trim();
       if (raw === "") return refuse("A path must not be empty");
       if (raw.includes("\0")) return refuse("A path must not contain a NUL character");
       const form = HOST_FORMS.find((prefix) => raw.startsWith(prefix));
       if (form !== undefined) return refuse(`Path '${raw}' starts with '${form}'. Give the path itself: absolute under the project, or relative to it`);
       let realRoot: string;
       try {
-        realRoot = realpathSync(projectDir);
+        realRoot = realpathSync.native(projectDir);
       } catch (thrown) {
         return refuse(`The project directory '${projectDir}' cannot be read: ${message(thrown)}`);
       }

@@ -5,8 +5,8 @@ import { type Result, Verdict } from "bounded/domain";
 import { type PathResolver, type ToolUse, toToolUse } from "./event.ts";
 import { readPayload, translate } from "./translate.ts";
 
-/** What bounded decides about one event. The composition root supplies it. */
-export type Decide = (event: ToolUse) => Verdict;
+/** What bounded decides about one event; the core's judging is asynchronous. The composition root supplies it. */
+export type Decide = (event: ToolUse) => Verdict | Promise<Verdict>;
 
 export interface Hook {
   /** Claude Code's project root; the session's cwd falls back to it. */
@@ -14,9 +14,12 @@ export interface Hook {
   readonly role: string | null;
   readonly decide: Decide;
   readonly paths: PathResolver;
+  /** How long decide may take before the call is denied: below Claude Code's timeout for the hook. */
+  readonly deadlineMs: number;
 }
 
-const FAILED = "Report this to the maintainers of bounded; the call stays refused until it is fixed";
+/** The redirect for every failure of the hook itself. */
+export const FAILED = "Report this to the maintainers of bounded; the call stays refused until it is fixed";
 
 /** A verdict as Claude Code's hook output: nothing for allow, a deny with the reason and redirect for refuse. */
 export function respond(verdict: Verdict): string {
@@ -25,16 +28,25 @@ export function respond(verdict: Verdict): string {
   return JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason } });
 }
 
-/** The hook's answer to its stdin. Never throws. */
-export function runHook(stdin: string, hook: Hook): string {
+/** The hook's answer to its stdin. Never rejects. */
+export async function runHook(stdin: string, hook: Hook): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<Verdict>((settle) => {
+    timer = setTimeout(
+      () => settle(Verdict.refuse(`bounded did not decide within ${hook.deadlineMs} ms`, "Retry the call; if it keeps timing out, report it to the maintainers of bounded")),
+      hook.deadlineMs,
+    );
+  });
   try {
-    return respond(verdictFor(stdin, hook));
+    return respond(await Promise.race([verdictFor(stdin, hook), deadline]));
   } catch (thrown) {
     return respond(Verdict.refuse(`bounded's Claude Code hook failed: ${thrown instanceof Error ? thrown.message : String(thrown)}`, FAILED));
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-function verdictFor(stdin: string, { projectDir, role, decide, paths }: Hook): Verdict {
+async function verdictFor(stdin: string, { projectDir, role, decide, paths }: Hook): Promise<Verdict> {
   const payload = readPayload(stdin);
   if (!payload.ok) return payload.error;
   const call = translate(payload.value);
@@ -42,7 +54,7 @@ function verdictFor(stdin: string, { projectDir, role, decide, paths }: Hook): V
   const event = toToolUse(call.value, { role, cwd: payload.value.cwd ?? projectDir, paths });
   if (!event.ok) return event.error;
   // decide may be untyped code: hold what it returns to the verdict's form.
-  const verdict: Result<Verdict> = Verdict.parse(decide(event.value));
+  const verdict: Result<Verdict> = Verdict.parse(await decide(event.value));
   if (!verdict.ok) throw new Error(verdict.error);
   return verdict.value;
 }
