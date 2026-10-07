@@ -1,5 +1,6 @@
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
+import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { Judgement } from "../guards/guard.contract.ts";
 import type { Verdict } from "../verdicts/verdict.contract.ts";
 import type * as Contract from "./decision.contract.ts";
@@ -23,8 +24,8 @@ function verdictOf(verdict: Verdict, refusedBy: Judgement["refusedBy"]): Contrac
   });
 }
 
-function of(id: string, time: string, event: Event, judgement: Judgement): Decision {
-  const tool = event.kind === "tool-use" ? event : null;
+function of(id: string, time: string, event: Event | ToolResult, judgement: Judgement, note?: string): Decision {
+  const tool = event.kind === "session-start" ? null : event;
   return Object.freeze({
     id: bounded(id),
     time: bounded(time),
@@ -33,7 +34,7 @@ function of(id: string, time: string, event: Event, judgement: Judgement): Decis
     tool: tool === null ? null : tool.tool,
     effects: Object.freeze(tool === null ? [] : tool.effects.map((effect) => bounded(describeEffect(effect)))),
     verdict: verdictOf(judgement.verdict, judgement.refusedBy),
-    note: null,
+    note: note === undefined ? null : bounded(note),
   });
 }
 

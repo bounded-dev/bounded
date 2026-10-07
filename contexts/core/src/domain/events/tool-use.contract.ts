@@ -16,6 +16,8 @@ export interface ToolUse {
   readonly role: Role | null;
   readonly tool: ToolKind;
   readonly effects: readonly [Effect, ...Effect[]];
+  /** The host's id for this call, when it gives one: a tool result names the same id. */
+  readonly callId?: string;
 }
 
 export interface ToolUseFactory {

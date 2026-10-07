@@ -2,6 +2,7 @@ import type { Composition } from "../composition/composition.contract.ts";
 import type { DelegateEffect, Effect, ExecuteEffect, FetchEffect, InvokeEffect, ListEffect, ReadEffect, WriteEffect } from "../events/effect.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
+import { WatchedPath } from "../drift/watched-path.ts";
 import { definePack, point } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
@@ -39,5 +40,6 @@ export const corePack = definePack({
     fetchGuards: point({ description: "Guards for reaching the network", check: forEffect<FetchEffect>() }),
     delegateGuards: point({ description: "Guards for handing work to another agent", check: forEffect<DelegateEffect>() }),
     invokeGuards: point({ description: "Guards for tools whose effects the host cannot describe", check: forEffect<InvokeEffect>() }),
+    watchedPaths: point({ description: "Files a shell command must not change: its changes to them are undone", check: WatchedPath.parse }),
   },
 });

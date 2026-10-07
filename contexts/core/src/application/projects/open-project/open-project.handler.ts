@@ -1,7 +1,11 @@
-import { type Composition, composeConfig, type Result, Verdict } from "bounded/domain";
+import { type Composition, composeConfig, type Result, ToolResult, Verdict } from "bounded/domain";
+import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
+import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
 import type { Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 import { JudgeEventHandler } from "../../judging/judge-event/judge-event.handler.ts";
-import type { OpenProject, OpenProjectCommand, ProjectConfigSource, ProjectDecisionLogs, ProjectJudge } from "./open-project.contract.ts";
+import type { OpenProject, OpenProjectCommand, ProjectConfigSource, ProjectDecisionLogs, ProjectDrift, ProjectJudge } from "./open-project.contract.ts";
+
+const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
 
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
@@ -18,7 +22,7 @@ export class OpenProjectHandler implements OpenProject {
     private readonly configs: ProjectConfigSource,
     private readonly logs: ProjectDecisionLogs,
     private readonly clock: Clock,
-    private readonly options: { readonly recordWithinMs?: number } = {},
+    private readonly options: { readonly recordWithinMs?: number; readonly drift?: ProjectDrift } = {},
   ) {}
 
   /** Never rejects: whatever goes wrong, the judge refuses every event (and records it, when the log can be opened). */
@@ -29,14 +33,20 @@ export class OpenProjectHandler implements OpenProject {
       log = this.logFor(root);
       const composition = await this.compose(root);
       if (!composition.ok) return this.refusing(log, composition.error);
-      return this.judge(new JudgeEventHandler(composition.value, log, this.clock, this.options), null);
+      const drift = this.options.drift?.forProject(root);
+      const watch = drift === undefined ? undefined : new WatchShellHandler(composition.value, drift.files, drift.snapshots, log, this.clock);
+      const handler = new JudgeEventHandler(composition.value, log, this.clock, {
+        ...(this.options.recordWithinMs === undefined ? {} : { recordWithinMs: this.options.recordWithinMs }),
+        ...(watch === undefined ? {} : { beforeAllow: async (event) => (event.kind === "tool-use" ? watch.snapshot(event) : Verdict.allow) }),
+      });
+      return this.judge(handler, null, watch);
     } catch (thrown) {
       return this.refusing(log, text(thrown));
     }
   }
 
-  private judge(handler: JudgeEventHandler, problem: string | null): ProjectJudge {
-    return Object.freeze({ judge: (event: unknown) => handler.judge(event), problem });
+  private judge(handler: JudgeEventHandler, problem: string | null, watch?: WatchShell): ProjectJudge {
+    return Object.freeze({ judge: (event: unknown) => handler.judge(event), afterTool: (result: unknown) => afterTool(watch, result), problem });
   }
 
   /** A judge that refuses every event with `problem`, recording it if it can. */
@@ -47,7 +57,7 @@ export class OpenProjectHandler implements OpenProject {
     } catch {
       // fall through: refuse without recording
     }
-    return Object.freeze({ judge: async () => refusal, problem });
+    return Object.freeze({ judge: async () => refusal, afterTool: async () => NOTHING, problem });
   }
 
   /** The project's composition, or why its configuration cannot be used. Never throws. */
@@ -77,5 +87,16 @@ export class OpenProjectHandler implements OpenProject {
         },
       };
     }
+  }
+}
+
+/** Check a tool result for drift; with no watching, or a result that cannot be read, nothing is undone. Never throws. */
+async function afterTool(watch: WatchShell | undefined, raw: unknown): Promise<DriftCheck> {
+  try {
+    const result = ToolResult.parse(raw);
+    if (!result.ok) return { ...NOTHING, message: `The host sent a tool result that cannot be read: ${result.error}` };
+    return watch === undefined ? NOTHING : await watch.verify(result.value);
+  } catch (thrown) {
+    return { changed: [], restored: false, message: `Protected files could not be checked after this command: ${text(thrown)}` };
   }
 }

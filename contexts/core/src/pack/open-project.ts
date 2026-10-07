@@ -1,6 +1,6 @@
-import { type DecisionLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge } from "bounded/application";
+import { type DecisionLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectDrift, type ProjectJudge } from "bounded/application";
 import type { Clock } from "bounded/application";
-import { FileSystemProjectConfigSource, FileSystemProjectDecisionLogs } from "bounded/adapters/file-system";
+import { FileSystemProjectConfigSource, FileSystemProjectDecisionLogs, FileSystemProjectDrift } from "bounded/adapters/file-system";
 import { SystemClock } from "bounded/adapters/system";
 import { Verdict } from "bounded/domain";
 
@@ -11,6 +11,8 @@ export interface OpenProjectOptions {
   readonly log?: DecisionLog;
   readonly clock?: Clock;
   readonly recordWithinMs?: number;
+  /** Where watched files are hashed and restored, and snapshots kept; by default the project's disk and `.bounded/snapshots/`. */
+  readonly drift?: ProjectDrift;
 }
 
 /**
@@ -27,6 +29,7 @@ export async function openProject(root: string, options: OpenProjectOptions = {}
     const logs = log === undefined ? new FileSystemProjectDecisionLogs() : { forProject: () => log };
     const handler = new OpenProjectHandler(options.configSource ?? new FileSystemProjectConfigSource(), logs, options.clock ?? new SystemClock(), {
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
+      drift: options.drift ?? new FileSystemProjectDrift(),
     });
     return await handler.execute(command.value);
   } catch (thrown) {
@@ -38,7 +41,7 @@ export async function openProject(root: string, options: OpenProjectOptions = {}
 
 function refusingAll(reason: string, redirect: string, problem: string): ProjectJudge {
   const refusal = Verdict.refuse(reason, redirect);
-  return Object.freeze({ judge: async () => refusal, problem });
+  return Object.freeze({ judge: async () => refusal, afterTool: async () => ({ changed: [], restored: true, message: null }), problem });
 }
 
 // Frozen, so code loaded later cannot patch it.

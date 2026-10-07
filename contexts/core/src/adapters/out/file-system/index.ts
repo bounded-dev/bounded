@@ -1,6 +1,9 @@
 export { FileSystemDecisionLog } from "./judging/decision-log.ts";
 export { FileSystemProjectConfigSource } from "./projects/config-source.ts";
 export { FileSystemProjectDecisionLogs } from "./projects/decision-logs.ts";
+export { FileSystemShellSnapshots } from "./drift/snapshots.ts";
+export { FileSystemWatchedFiles } from "./drift/watched-files.ts";
+export { FileSystemProjectDrift } from "./projects/drift.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

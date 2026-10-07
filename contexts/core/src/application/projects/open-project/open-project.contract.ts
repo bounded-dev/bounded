@@ -1,4 +1,5 @@
 import type { Config, Result, Verdict } from "bounded/domain";
+import type { DriftCheck, ShellSnapshots, WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 
 // Wire input: what a host's composition root sends.
@@ -24,6 +25,12 @@ export interface OpenProjectCommandFactory {
  */
 export interface ProjectJudge {
   judge(event: unknown): Promise<Verdict>;
+  /**
+   * After a tool ran (its result in wire form): undo what a shell command
+   * changed in watched files and say what happened; `message` is null when
+   * nothing changed. Never throws.
+   */
+  afterTool(result: unknown): Promise<DriftCheck>;
   readonly problem: string | null;
 }
 
@@ -40,6 +47,14 @@ export interface OpenProject {
  */
 export interface ProjectConfigSource {
   load(root: string): Promise<Result<Config>>;
+}
+
+/**
+ * Each project's watched files and shell snapshots, for undoing what shell commands change.
+ * @implementedBy file-system
+ */
+export interface ProjectDrift {
+  forProject(root: string): { readonly files: WatchedFiles; readonly snapshots: ShellSnapshots };
 }
 
 /**

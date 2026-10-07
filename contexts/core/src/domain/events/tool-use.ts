@@ -8,6 +8,11 @@ import type * as Contract from "./tool-use.contract.ts";
 const TOOLS: readonly Contract.ToolKind[] = ["read", "search", "edit", "write", "shell", "web", "subagent", "other"];
 const EFFECTS = "A tool use's effects must be a non-empty list of what the call reads, lists, writes, executes, fetches, delegates or invokes";
 
+/** A host's id for a tool call: non-empty text without control characters, at most 256 characters. */
+function isCallId(raw: unknown): raw is string {
+  return typeof raw === "string" && raw.trim() !== "" && raw.length <= 256 && ![...raw].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f);
+}
+
 const one = <T extends string>(list: readonly T[], raw: unknown): raw is T => list.some((item) => item === raw);
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
@@ -30,8 +35,11 @@ function check(raw: unknown): Result<ToolUse> {
   }
   const [first, ...rest] = effects;
   if (first === undefined) return refuse(EFFECTS);
+  const callId = own(raw, "callId");
+  if (callId !== undefined && !isCallId(callId)) return refuse("A tool call id is non-empty text without control characters, at most 256 characters");
+  const fields = { kind: "tool-use", role: role.value, tool, effects: Object.freeze([first, ...rest] as const) };
   // The brand exists only in types: every tool use is made here, checked and frozen.
-  return { ok: true, value: Object.freeze({ kind: "tool-use", role: role.value, tool, effects: Object.freeze([first, ...rest] as const) }) as ToolUse };
+  return { ok: true, value: Object.freeze(callId === undefined ? fields : { ...fields, callId }) as ToolUse };
 }
 
 const parse = (raw: unknown): Result<ToolUse> => readSafely("A tool use", () => check(raw));
