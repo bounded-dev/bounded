@@ -72,6 +72,19 @@ describe("Decision", () => {
     expect(Decision.of("d-9", TIME, inApp.value, { verdict: Verdict.allow, refusedBy: null }).effects).toEqual(["execute `make` in apps/web"]);
   });
 
+  test("records an event that could not be read, with the refusal it got", () => {
+    expect<unknown>(Decision.invalid("d-10", TIME, Verdict.refuse("The event cannot be read", "Fix the adapter"))).toEqual({
+      id: "d-10",
+      time: TIME,
+      event: "invalid",
+      role: null,
+      tool: null,
+      effects: [],
+      verdict: { kind: "refuse", reason: "The event cannot be read", redirect: "Fix the adapter", pack: null, effect: null },
+      note: null,
+    });
+  });
+
   test("is plain, frozen, serialisable data", () => {
     const decision = Decision.of("d-6", TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
     expect(JSON.parse(JSON.stringify(decision))).toEqual(decision);

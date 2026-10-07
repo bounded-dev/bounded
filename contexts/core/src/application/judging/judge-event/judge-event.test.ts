@@ -146,6 +146,29 @@ describe("JudgeEventHandler", () => {
     }
   });
 
+  test("judges an event in its wire form, as execute does", async () => {
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(composition, log, clock).judge({ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "generated/a.ts", change: "modify" }] });
+    expect(verdict.kind).toBe("refuse");
+    expect(log.decisions[0]?.event).toBe("tool-use");
+  });
+
+  test("an event that cannot be read is refused and recorded as invalid", async () => {
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(composition, log, clock).judge({ kind: "tool-use", role: null });
+    expect(verdict.kind === "refuse" && verdict.reason.startsWith("The host sent an event that cannot be read: ")).toBe(true);
+    expect(log.decisions.length).toBe(1);
+    expect(log.decisions[0]?.event).toBe("invalid");
+    expect(log.decisions[0]?.verdict.kind).toBe("refuse");
+  });
+
+  test("a handler made to refuse everything refuses every event with that refusal, and records it", async () => {
+    const log = new FakeLog();
+    const handler = new JudgeEventHandler(null, log, clock, { refuseEverything: Verdict.refuse("The configuration cannot be loaded: broken", "Fix bounded.config.ts") });
+    expect<unknown>(await handler.execute(command("src/a.ts"))).toEqual({ kind: "refuse", reason: "The configuration cannot be loaded: broken", redirect: "Fix bounded.config.ts" });
+    expect(log.decisions[0]?.verdict.kind).toBe("refuse");
+  });
+
   test("records within two seconds by default", () => {
     expect(JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS).toBe(2000);
   });
