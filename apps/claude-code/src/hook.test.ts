@@ -25,7 +25,10 @@ describe("respond: a verdict in Claude Code's words", () => {
 describe("runHook: stdin to stdout, fail closed", () => {
   test("decide sees the translated event; its allow is empty output", () => {
     const seen: ToolUse[] = [];
-    const out = runHook(stdin("Edit", { file_path: "/p/src/a.ts" }), hook((event) => (seen.push(event), Verdict.allow), "builder"));
+    const out = runHook(stdin("Edit", { file_path: "/p/src/a.ts" }), hook((event) => {
+        seen.push(event);
+        return Verdict.allow;
+      }, "builder"));
     expect(out).toBe("");
     expect(seen).toEqual([{ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] }] as never);
   });
@@ -37,7 +40,10 @@ describe("runHook: stdin to stdout, fail closed", () => {
 
   test("input that cannot be translated is denied without asking decide", () => {
     let asked = false;
-    const decide: Decide = () => ((asked = true), Verdict.allow);
+    const decide: Decide = () => {
+      asked = true;
+      return Verdict.allow;
+    };
     expect(runHook("", hook(decide))).toBe(deny("The hook was given no input", "Register bounded's hook for PreToolUse only, as the install helper does"));
     expect(runHook("{oops", hook(decide))).toStartWith('{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The hook\'s input is not JSON: ');
     expect(runHook(stdin("Read", {}), hook(decide))).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
@@ -48,7 +54,10 @@ describe("runHook: stdin to stdout, fail closed", () => {
     const seen: ToolUse[] = [];
     const relative: PathResolver = { resolve: (raw, cwd) => ({ ok: true, value: { path: `${cwd}|${raw}`.replace(/^\/p\|/, ""), exists: true } }) };
     const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "a.ts" } });
-    runHook(payload, { ...hook((event) => (seen.push(event), Verdict.allow)), paths: relative });
+    runHook(payload, { ...hook((event) => {
+        seen.push(event);
+        return Verdict.allow;
+      }), paths: relative });
     expect(seen[0]?.effects).toEqual([{ kind: "read", path: "a.ts" }] as never);
   });
 

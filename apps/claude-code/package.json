@@ -1,0 +1,11 @@
+{
+  "name": "bounded-claude-code",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bounded-claude-code": "./src/main.ts"
+  },
+  "dependencies": {
+    "bounded": "workspace:*"
+  }
+}

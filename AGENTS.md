@@ -47,6 +47,8 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 ```
 contexts/
   core/          @bounded/core       the mechanism (spec Parts 1 and 2; slice 1 so far)
+apps/
+  claude-code/   bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
 architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below
@@ -86,6 +88,9 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **A context imports another context only when its `package.json` declares
   it as a dependency**, and only through that package's export paths. The
   core depends on nothing and never imports a pack.
+- **Apps** (`apps/*`) host contexts: no layers, no rules of their own. An app
+  imports its own files by relative path, a context only through its export
+  paths and only when its `package.json` declares it, and never another app.
 - **Value objects** have a private constructor and `parse(raw: unknown):
   Result<X>`; entities are built with `new` from valid value objects.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a

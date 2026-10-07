@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Verdict } from "bounded/domain";
 import { composeHook, decideFromConfig } from "./composition-root.ts";
 import type { ToolUse } from "./event.ts";
+import type { Decide } from "./hook.ts";
 
 let root = "";
 beforeAll(() => {
@@ -14,6 +15,12 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
+const recording =
+  (seen: ToolUse[]): Decide =>
+  (event) => {
+    seen.push(event);
+    return Verdict.allow;
+  };
 const reasonOf = (out: string): string => JSON.parse(out).hookSpecificOutput.permissionDecisionReason;
 const write = (cwd: string): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(root, "src", "a.ts"), content: "" }, cwd });
 
@@ -21,7 +28,7 @@ describe("composeHook: the hook wired to the file system, the environment and ar
   test("builds events from real paths, with the role from --role", () => {
     for (const argv of [["--role", "builder"], ["--role=builder"]]) {
       const seen: ToolUse[] = [];
-      const hook = composeHook({ env: { CLAUDE_PROJECT_DIR: root }, argv, decide: (event) => (seen.push(event), Verdict.allow) });
+      const hook = composeHook({ env: { CLAUDE_PROJECT_DIR: root }, argv, decide: recording(seen) });
       expect(hook(write(join(root, "src")))).toBe("");
       expect(seen).toEqual([{ kind: "tool-use", role: "builder", tool: "write", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] }] as never);
     }
@@ -29,7 +36,7 @@ describe("composeHook: the hook wired to the file system, the environment and ar
 
   test("no --role is no role", () => {
     const seen: ToolUse[] = [];
-    composeHook({ env: { CLAUDE_PROJECT_DIR: root }, argv: [], decide: (event) => (seen.push(event), Verdict.allow) })(write(root));
+    composeHook({ env: { CLAUDE_PROJECT_DIR: root }, argv: [], decide: recording(seen) })(write(root));
     expect(seen[0]?.role).toBeNull();
   });
 
