@@ -145,8 +145,17 @@ the `...FromConfig` ones, which open the project the same way):
   answers `{"decision":"block","reason":"<message>"}`, which Claude Code shows
   to Claude; when nothing was, it answers nothing. If checking fails or runs
   past the deadline, the answer says so and asks for the files to be checked
-  against version control: never silence. Without `afterTool`, `PostToolUse`
-  answers nothing.
+  against version control: never silence; the failure is also recorded.
+  Without `afterTool`, `PostToolUse` answers nothing.
+- A call that fails (a Bash command exiting non-zero, a tool that errors)
+  reaches `PostToolUseFailure`, not `PostToolUse`, so `echo x > protected;
+  exit 1` would otherwise escape the check. It is checked the same way, as a
+  result with `ok: false`; since that event cannot block, the message is
+  given as `{"hookSpecificOutput":{"hookEventName":"PostToolUseFailure","additionalContext":"<message>"}}`.
+  A call the hook denied fires neither event. Interrupting a running call
+  (Esc) fires no hook at all, per Claude Code's documentation: the
+  interruption reaches Claude in the tool result. Such a call goes unchecked
+  and its snapshot expires (see [drift.md](drift.md)).
 
 To install, read `.claude/settings.json` (or `{}`), pass it to
 `withHooks(settings, command)` with the command that runs `src/main.ts`, and
@@ -154,7 +163,8 @@ write the result back when `changed`. `hookCommand({ bun, main, role })`
 builds that command with every path shell-quoted, such as
 `'bun' '/path/to/apps/claude-code/src/main.ts' --role 'builder'`. Claude Code runs hooks with its own `PATH`, so
 either make sure `bun` is on it or give bun's absolute path in the command.
-`withHooks` installs the same command for `PreToolUse` and `PostToolUse`
+`withHooks` installs the same command for `PreToolUse`, `PostToolUse` and
+`PostToolUseFailure`
 (`withHook(settings, command, event)` does one event, `PreToolUse` by
 default). Each gets one entry with an empty matcher (every tool),
 the fail-closed wrapper and the timeout, and keeps every other setting and

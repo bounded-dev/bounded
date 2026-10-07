@@ -133,7 +133,8 @@ The decide also carries the project's `afterTool` and `refuse`:
   shell command changed in watched files (see [drift.md](drift.md)). What it
   undid is appended to the result's content as text and the result is marked
   as an error, so the agent sees it; nothing undone leaves the result alone.
-  A check that fails or runs past the deadline is appended the same way.
+  A check that fails or runs past the deadline is appended the same way, and
+  recorded through `refuse`.
 
 `end-to-end.test.ts` runs this with a real `bounded.config.ts`; the other
 tests inject their own `load`. `piLoader()` is pure: the caller writes the

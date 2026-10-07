@@ -17,6 +17,13 @@ describe("ProtectedPath — a deny-only rule", () => {
     expect(Object.isFrozen(parsed.value.except)).toBe(true);
   });
 
+  test("file: true makes the rule name files only; it is stored only when true, and must be true or false", () => {
+    expect(ProtectedPath.parse({ ...rule, match: ".env", file: true })).toMatchObject({ ok: true, value: { match: ".env", file: true } });
+    const plain = ProtectedPath.parse({ ...rule, file: false });
+    expect(plain.ok && Object.hasOwn(plain.value, "file")).toBe(false);
+    expect(refused({ ...rule, file: "yes" })).toBe("A rule's file, when given, is true (its match names files, not their contents) or false");
+  });
+
   test("`writes` is the convenience for every write: create, modify and delete", () => {
     expect(writes).toEqual(["create", "modify", "delete"]);
     expect(ProtectedPath.parse({ ...rule, deny: [...writes] })).toMatchObject({ ok: true, value: { deny: ["create", "modify", "delete"] } });
@@ -29,7 +36,7 @@ describe("ProtectedPath — a deny-only rule", () => {
   });
 
   test("a rule is an object with match, deny and redirect, and optional except and why; nothing else", () => {
-    const form = "A protected-path rule is { match, except?, deny, redirect, why? }";
+    const form = "A protected-path rule is { match, except?, deny, redirect, why?, file? }";
     expect(refused(null)).toBe(form);
     expect(refused(["packages/**"])).toBe(form);
     expect(refused({ deny: ["read"], redirect: "x" })).toBe(form);

@@ -95,6 +95,17 @@ const callIdOf = (event: unknown): { callId?: string } => {
   return typeof id === "string" && id !== "" ? { callId: id } : {};
 };
 
+/** Hands a refusal the extension made itself to the project's refuse, without waiting for it or letting it fail. */
+function record(decide: Decide, event: unknown, reason: string, redirect: string): void {
+  const { refuse } = decide;
+  if (refuse === undefined) return;
+  const tool = field(event, "toolName");
+  const refusal: AdapterRefusal = { tool: typeof tool === "string" && tool !== "" ? tool : "unknown", reason, redirect, role: null, input: field(event, "input") ?? null };
+  Promise.resolve()
+    .then(() => refuse(refusal))
+    .catch(() => {});
+}
+
 /** The extension pi loads: `(pi) => void`, given the project and its composition root. */
 export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadlineMs = 15000, composeBackoffMs = 30000 }: ExtensionOptions): (pi: Pi) => void {
   const locate = locator(root, home);
@@ -139,10 +150,7 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
         if (!project.ok) return block(`bounded could not start: ${project.error}`, "Fix the project's bounded configuration, then start a new pi session");
         // A block made here, not by the project's guards: recorded without waiting, never failing the block.
         const blocked = (reason: string, redirect: string): PiBlock => {
-          const { refuse } = project.decide;
-          const tool = field(event, "toolName");
-          const refusal: AdapterRefusal = { tool: typeof tool === "string" && tool !== "" ? tool : "unknown", reason, redirect, role: null, input: field(event, "input") ?? null };
-          if (refuse !== undefined) Promise.resolve().then(() => refuse(refusal)).catch(() => {});
+          record(project.decide, event, reason, redirect);
           return block(reason, redirect);
         };
         try {
@@ -169,8 +177,9 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
     // After a tool ran: the project checks it; what it undid, or that checking failed, is added to what the agent sees.
     pi.on("tool_result", async (event, context) => {
       const project = started ? await composed : undefined;
-      const afterTool = project?.ok ? project.decide.afterTool : undefined;
-      if (afterTool === undefined) return undefined;
+      const decide = project?.ok ? project.decide : undefined;
+      const afterTool = decide?.afterTool;
+      if (decide === undefined || afterTool === undefined) return undefined;
       let told: string | null;
       try {
         const [toolName, cwd] = [field(event, "toolName"), field(context, "cwd")];
@@ -186,6 +195,7 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
         told = (await within(() => afterTool(result.value), deadlineMs, `no answer within ${deadlineMs} ms`)).message;
       } catch (error) {
         told = `bounded could not check protected files after this call: ${message(error)}. Check them against version control.`;
+        record(decide, event, told, "Check the protected files against version control");
       }
       if (told === null) return undefined;
       const content = field(event, "content");

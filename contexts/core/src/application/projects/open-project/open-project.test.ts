@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, type Result, Verdict, type WriteEffect } from "bounded/domain";
+import type { WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
 import type { ProjectConfigSource, ProjectDecisionLogs } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
+const sha256 = (content: string): string => createHash("sha256").update(content).digest("hex");
 const clock: Clock = { now: () => "2026-10-07T12:00:00.000Z" };
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
@@ -91,11 +94,15 @@ describe("OpenProjectHandler", () => {
 
   test("with drift watching, a shell command's changes to watched files are put back after it runs", async () => {
     const working = new Map([["generated/a.ts", "a"]]);
-    const files = {
-      hash: async () => ({ ok: true as const, value: Object.fromEntries([...working].map(([path, content]) => [path, { hash: content, rule: 0 }])) }),
-      restore: async (paths: readonly string[]) => {
-        for (const path of paths) working.set(path, "a");
-        return { ok: true as const, value: undefined };
+    const watched = (entries: Iterable<[string, string]>) => ({ ok: true as const, value: Object.fromEntries([...entries].map(([path, content]) => [path, { hash: sha256(content), size: content.length, rule: 0 }])) });
+    const files: WatchedFiles = {
+      hash: async () => watched(working),
+      head: async () => ({ ok: true, value: "c0" }),
+      committed: async () => watched([["generated/a.ts", "a"]]),
+      copy: async (path) => ({ ok: true, value: { hash: sha256(working.get(path) ?? ""), size: (working.get(path) ?? "").length, content: btoa(working.get(path) ?? "") } }),
+      restore: async (path) => {
+        working.set(path, "a");
+        return { ok: true, value: undefined };
       },
     };
     const kept = new Map<string, unknown>();

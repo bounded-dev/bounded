@@ -1,11 +1,14 @@
 // The hook as Claude Code runs it: a subprocess given the payload on stdin,
 // answering on stdout, always exiting 0.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const APP = join(import.meta.dir, "..");
+// Snapshots go to the user's state directory: a temporary one here, which the hook processes inherit.
+process.env.XDG_STATE_HOME = mkdtempSync(join(tmpdir(), "bounded-cc-state-"));
 let root = "";
 beforeAll(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cc-e2e-")));
@@ -105,6 +108,43 @@ export default defineConfig({ packs: [corePack, noGenerated] });
 
       const lines = readFileSync(join(project, ".bounded", "guard-log.jsonl"), "utf8").split("\n").filter((line) => line !== "");
       expect(lines.map((line) => JSON.parse(line).verdict.kind)).toEqual(["refuse", "allow"]);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  test("with a real bounded.config.ts under git: a command that changes a protected file and then fails is caught after the failure, and the file restored", async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cc-drift-")));
+    try {
+      mkdirSync(join(project, "node_modules"));
+      symlinkSync(join(APP, "..", "..", "contexts", "core"), join(project, "node_modules", "bounded"), "dir");
+      writeFileSync(
+        join(project, "bounded.config.ts"),
+        `import { contribution, corePack, defineConfig } from "bounded/domain";
+export default defineConfig({
+  packs: [corePack],
+  contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/**", why: "generated/ is written by the generator", redirect: "Change the generator's input" }])],
+});
+`,
+      );
+      mkdirSync(join(project, "generated"));
+      writeFileSync(join(project, "generated", "a.ts"), "original\n");
+      writeFileSync(join(project, ".gitignore"), "node_modules/\n.bounded/\n");
+      const git = (...args: string[]) => spawnSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args], { cwd: project });
+      git("init", "--quiet");
+      git("add", "-A");
+      git("commit", "--quiet", "-m", "base");
+
+      const call = { tool_name: "Bash", tool_input: { command: "echo x > generated/a.ts; exit 1" }, tool_use_id: "toolu_e2e", cwd: project };
+      const before = await run("src/main.ts", JSON.stringify({ hook_event_name: "PreToolUse", ...call }), APP, 10_000, project);
+      expect(before.stdout).toBe("");
+      writeFileSync(join(project, "generated", "a.ts"), "x\n");
+      const after = await run("src/main.ts", JSON.stringify({ hook_event_name: "PostToolUseFailure", ...call, error: "Exit code 1" }), APP, 10_000, project);
+      expect(after.exitCode).toBe(0);
+      const answer = JSON.parse(after.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
+      expect(answer.hookSpecificOutput.hookEventName).toBe("PostToolUseFailure");
+      expect(answer.hookSpecificOutput.additionalContext).toStartWith("This command changed protected files, and they were restored: generated/a.ts was modified.");
+      expect(readFileSync(join(project, "generated", "a.ts"), "utf8")).toBe("original\n");
     } finally {
       rmSync(project, { recursive: true, force: true });
     }

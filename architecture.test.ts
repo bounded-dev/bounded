@@ -166,6 +166,7 @@ for (const path of files) {
   if (!isTest) violations.push(...packIdViolations(path, text, context.name));
   violations.push(...shippedPackViolations(path, importsOf(path, text), context));
   if (pure && /\b(Bun|process|fetch|require)\s*[.(]/.test(text)) violations.push(`${path} — ${layer} code does no I/O`);
+  if (!isTest && /\bBun\s*\./.test(text)) violations.push(`${path} — runtime code uses no Bun API: hosts such as pi run the core under node`);
   for (const { spec, line, typeOnly } of importsOf(path, text)) {
     const at = `${path}:${line} imports "${spec}"`;
     if (spec.startsWith(".")) {
@@ -298,6 +299,10 @@ describe("architecture", () => {
       'a.ts:1 — PackId.parse is the core\'s; build this workspace\'s ids with packIdsFor("my-pack")',
     ]);
     expect(packIdViolations("a.ts", 'const id = PackId.parse("bounded/core");', "bounded")).toEqual([]);
+  });
+
+  test("no runtime code in a context uses Bun's API: pi runs the core under node", () => {
+    expect(violations.filter((violation) => violation.includes("uses no Bun API"))).toEqual([]);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {

@@ -11,7 +11,8 @@ export const writes = Object.freeze(["create", "modify", "delete"] as const);
 /**
  * A protected-path rule: deny-only. It denies `deny` on every project path
  * its `match` glob matches, except the paths its own `except` globs match.
- * A match ending in a literal name also covers everything under that name.
+ * A match ending in a literal name also covers everything under that name,
+ * unless `file` is true: then it names files only, and covers exactly them.
  * An exception never reaches another rule, and there are no allow rules, so
  * a denial from any rule wins. `redirect` is the permitted next step.
  */
@@ -21,6 +22,8 @@ export interface ProtectedPath {
   readonly deny: readonly [PathAccess, ...PathAccess[]];
   readonly redirect: string;
   readonly why?: string;
+  /** True when the match names files only, not what is under them; absent otherwise. */
+  readonly file?: true;
 }
 
 export interface ProtectedPathFactory {
@@ -34,8 +37,8 @@ export interface ProtectedPathFactory {
   parse(raw: unknown): Result<ProtectedPath>;
 }
 
-const FORM = "A protected-path rule is { match, except?, deny, redirect, why? }";
-const KEYS = ["match", "except", "deny", "redirect", "why"];
+const FORM = "A protected-path rule is { match, except?, deny, redirect, why?, file? }";
+const KEYS = ["match", "except", "deny", "redirect", "why", "file"];
 const DENY = `A rule's deny must name at least one of ${ACCESSES.join(", ")}`;
 const MAX_PATTERN = 512;
 /** Wildcards (* or ?) allowed in one part: each more multiplies picomatch's backtracking on a long name. */
@@ -139,12 +142,16 @@ function parse(raw: unknown): Result<ProtectedPath> {
     if (text.trim().length > MAX_TEXT) return refuse(`A rule's ${name} must be at most ${MAX_TEXT} characters`);
   }
 
+  const file = field("file");
+  if (file !== undefined && typeof file !== "boolean") return refuse("A rule's file, when given, is true (its match names files, not their contents) or false");
+
   const rule: ProtectedPath = {
     match: match.value,
     except: Object.freeze(except),
     deny: Object.freeze([first, ...rest] as const),
     redirect: redirect.trim(),
     ...(why === undefined ? {} : { why: why.trim() }),
+    ...(file === true ? { file: true as const } : {}),
   };
   return { ok: true, value: Object.freeze(rule) };
 }
