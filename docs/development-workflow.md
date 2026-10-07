@@ -70,9 +70,9 @@ every role in turn, as long as the red commit and the checks stay mechanical.
 (strict, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Biome's
 linter, and `bun test`, which includes the architecture test and the
 compile-time fixtures that prove an undeclared contribution does not compile.
-`bun run mutate` runs StrykerJS over the core's and the path gate's domain and
-application code; run it before final review when either changed, and give
-the reviewer the surviving mutants.
+Mutation testing (StrykerJS, as `bun run mutate`) is planned for a later
+slice; once it exists, run it before final review and give the reviewer the
+surviving mutants.
 
 ## The red-first check
 
