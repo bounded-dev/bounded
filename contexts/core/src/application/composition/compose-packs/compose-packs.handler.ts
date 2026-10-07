@@ -1,4 +1,4 @@
-import { Composition, type AnyPack, type Result } from "@bounded/core/domain";
+import { Composition, type AnyPack, type Result } from "bounded/domain";
 import type { ComposePacks, ComposePacksCatalog, ComposePacksCommand } from "./compose-packs.contract.ts";
 
 export class ComposePacksHandler implements ComposePacks {
@@ -12,6 +12,13 @@ export class ComposePacksHandler implements ComposePacks {
       const why = error instanceof Error ? error.message : String(error);
       return { ok: false, error: `The available packs cannot be listed (${why}). Fix the pack catalog; nothing is composed until then` };
     }
-    return Composition.compose(available, command.selected.map((name) => name.value));
+    // The wire names packs by id; composition selects the pack objects.
+    const selected: AnyPack[] = [];
+    for (const id of command.selected) {
+      const pack = available.find((candidate) => candidate.id === id);
+      if (pack === undefined) return { ok: false, error: `Pack '${id}' is selected but not available. Make it available, or remove it from the selection` };
+      selected.push(pack);
+    }
+    return Composition.compose(available, selected);
   }
 }

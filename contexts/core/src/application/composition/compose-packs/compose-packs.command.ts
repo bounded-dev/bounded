@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PackName, type Result } from "@bounded/core/domain";
+import { PackId, type Result } from "bounded/domain";
 import type * as Contract from "./compose-packs.contract.ts";
 
 // Wire contract: what an in adapter validates before calling the feature.
@@ -9,14 +9,14 @@ export const composePacksSchema = z.object({
 
 class ComposePacksCommandImpl implements Contract.ComposePacksCommand {
   declare readonly __brand: "ComposePacksCommand";
-  private constructor(readonly selected: readonly PackName[]) {}
+  private constructor(readonly selected: readonly PackId[]) {}
 
   static parse(raw: unknown): Result<ComposePacksCommand> {
     const input = composePacksSchema.safeParse(raw);
-    if (!input.success) return { ok: false, error: "Invalid compose packs input: give { selected: [pack names] }" };
-    const selected: PackName[] = [];
+    if (!input.success) return { ok: false, error: "Invalid compose packs input: give { selected: [pack ids] }" };
+    const selected: PackId[] = [];
     for (const name of input.data.selected) {
-      const parsed = PackName.parse(name);
+      const parsed = PackId.parse(name);
       if (!parsed.ok) return parsed;
       selected.push(parsed.value);
     }

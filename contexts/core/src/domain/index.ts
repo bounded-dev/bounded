@@ -15,5 +15,5 @@ export type {
   StrictSpec,
 } from "./packs/pack.contract.ts";
 export { contribution, definePack, point } from "./packs/pack.ts";
-export type { PackNameFactory } from "./packs/pack-name.contract.ts";
-export { PackName } from "./packs/pack-name.ts";
+export type { IsExact, PackIdFactory, Refused } from "./packs/pack-id.contract.ts";
+export { PackId, packIdsFor } from "./packs/pack-id.ts";

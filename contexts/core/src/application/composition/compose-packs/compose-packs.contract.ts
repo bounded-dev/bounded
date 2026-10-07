@@ -1,4 +1,4 @@
-import type { AnyPack, Composition, PackName, Result } from "@bounded/core/domain";
+import type { AnyPack, Composition, PackId, Result } from "bounded/domain";
 
 // Wire input: what callers send.
 export interface ComposePacksInput {
@@ -8,7 +8,7 @@ export interface ComposePacksInput {
 // Command: the input once validated into value objects.
 export interface ComposePacksCommand {
   readonly __brand: "ComposePacksCommand";
-  readonly selected: readonly PackName[];
+  readonly selected: readonly PackId[];
 }
 
 export interface ComposePacksCommandFactory {

@@ -1,101 +1,90 @@
-import { checkValue, hasCheck, isGenuine, ownValuesOf } from "../packs/pack.ts";
+import { checkValue, declarationOf, isGenuine } from "../packs/pack.ts";
 import type { AnyPack, AnyPoint, ExtensionPoint } from "../packs/pack.contract.ts";
-import { PackName } from "../packs/pack-name.ts";
+import type { PackId as PackIdType } from "../packs/pack-id.contract.ts";
+import { PackId } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./composition.contract.ts";
 
-const COPY = "by this copy of @bounded/core";
+const COPY = "by this copy of bounded";
 
 class CompositionImpl implements Contract.Composition {
   declare readonly __brand: "Composition";
   private constructor(
-    readonly packs: readonly string[],
-    private readonly selected: ReadonlyMap<string, AnyPack>,
+    readonly packs: readonly AnyPack[],
     private readonly slots: ReadonlyMap<AnyPoint, readonly unknown[]>,
   ) {
     Object.freeze(this);
   }
 
-  static compose(available: readonly AnyPack[], selected: readonly string[]): Result<Composition> {
-    if (!Array.isArray(available) || !Array.isArray(selected)) return refuse("Compose takes a list of available packs and a list of selected pack names");
-    const entries: readonly unknown[] = available;
-    for (const entry of entries) {
-      if (!isGenuine(entry, "Pack")) {
-        const label = typeof entry === "object" && entry !== null && "id" in entry ? String(entry.id) : String(entry);
-        return refuse(
-          `Available pack '${label}' was not built with definePack(...), or was built by a different copy of @bounded/core. Build every pack with definePack from one copy`,
-        );
-      }
-    }
+  static compose(available: readonly AnyPack[], selected: readonly AnyPack[]): Result<Composition> {
+    if (!Array.isArray(available) || !Array.isArray(selected)) return refuse("Compose takes a list of available packs and a list of selected packs");
+    const notGenuine = (which: string, list: readonly unknown[]) => {
+      const entry = list.find((x) => !isGenuine(x, "Pack"));
+      const id = typeof entry === "object" && entry !== null && "id" in entry ? String(entry.id) : String(entry);
+      return `${which} pack '${id}' was not built with definePack(...), or was built by a different copy of bounded. Build every pack with definePack from one copy`;
+    };
+    if (available.some((x) => !isGenuine(x, "Pack"))) return refuse(notGenuine("Available", available));
     for (const pack of available) {
-      const label = PackName.parse(pack.id);
-      if (!label.ok) return refuse(`Available pack '${String(pack.id)}' has an invalid label: ${label.error}. Give it a valid id, such as 'path-gate'`);
+      const id = PackId.parse(pack.id);
+      if (!id.ok) return refuse(`Available pack '${String(pack.id)}' has an invalid id: ${id.error}. Give it an id from packIdsFor(...)`);
     }
-    // Every check runs over sorted labels, so which refusal comes first never
+    // Every check runs in id order, so which refusal comes first never
     // depends on the order packs were listed in.
-    const labels = available.map((pack) => pack.id).sort();
-    const duplicate = labels.find((label, i) => labels[i + 1] === label);
-    if (duplicate !== undefined) return refuse(`Two available packs are labelled '${duplicate}'. A label names a pack in selections and messages: rename one of them`);
-    const byLabel = new Map(available.map((pack) => [pack.id, pack]));
+    const ids = available.map((pack) => pack.id).sort();
+    const duplicate = ids.find((id, i) => ids[i + 1] === id);
+    if (duplicate !== undefined) return refuse(`Two available packs have the id '${duplicate}'. An id names one pack in selections and messages: give each pack its own`);
 
-    for (const raw of selected) {
-      const name = PackName.parse(raw);
-      if (!name.ok) return name;
+    if (selected.some((x) => !isGenuine(x, "Pack"))) return refuse(notGenuine("Selected", selected));
+    const chosen = [...selected].sort(byId);
+    for (const [i, pack] of chosen.entries()) {
+      if (chosen[i + 1] === pack) return refuse(`Pack '${pack.id}' is selected twice. Select each pack once`);
+      if (!available.includes(pack)) return refuse(`Pack '${pack.id}' is selected but not available. Make it available, or remove it from the selection`);
     }
-    const sorted = [...selected].sort();
-    const chosen = new Map<string, AnyPack>();
-    for (const [i, label] of sorted.entries()) {
-      if (sorted[i + 1] === label) return refuse(`Pack '${label}' is selected twice. Select each pack once`);
-      const pack = byLabel.get(label);
-      if (pack === undefined) return refuse(`Pack '${label}' is selected but not available. Make it available, or remove it from the selection`);
-      chosen.set(label, pack);
-    }
-    for (const pack of chosen.values()) {
+    for (const pack of chosen) {
       const problem = shapeProblem(pack);
       if (problem !== undefined) return refuse(`Pack '${pack.id}' is malformed: ${problem}. Fix its definition`);
     }
-    for (const pack of chosen.values()) {
+    for (const pack of chosen) {
       for (const dependency of [...pack.dependsOn].sort(byId)) {
-        if (chosen.get(dependency.id) === dependency) continue;
+        if (chosen.includes(dependency)) continue;
         return refuse(
-          chosen.has(dependency.id)
-            ? `Pack '${pack.id}' depends on a pack labelled '${dependency.id}' that is not the available '${dependency.id}' (another pack with that label, or another copy of it). Make the pack it depends on available instead`
-            : `Pack '${pack.id}' depends on pack '${dependency.id}', which is not selected. Select '${dependency.id}' as well, or remove the dependency`,
+          chosen.some((other) => other.id === dependency.id)
+            ? `Pack '${pack.id}' depends on a pack with the id '${dependency.id}' that is not the available one (another pack with that id, or another copy of it). Make the pack it depends on available instead`
+            : `Pack '${pack.id}' depends on pack '${dependency.id}', which is not selected. Select it as well, or remove the dependency`,
         );
       }
     }
 
-    const order = dependencyOrder([...chosen.values()]);
+    const order = dependencyOrder(chosen);
     const slots = new Map<AnyPoint, unknown[]>();
     for (const pack of order) {
       for (const point of Object.values(pack.points)) {
         slots.set(point, []);
-        const own = ownValuesOf(point);
-        const placed = place(pack, point, Array.isArray(own) ? own : [], slots);
+        const placed = place(pack, point, declarationOf(point)?.values ?? [], slots);
         if (placed !== undefined) return refuse(placed);
       }
       for (const { point, values } of pack.contributes) {
-        if (!pack.dependsOn.includes(point.owner)) {
-          const owner = point.owner.id;
+        const owner = point.owner;
+        if (!pack.dependsOn.includes(owner)) {
           return refuse(
-            `Pack '${pack.id}' contributes to extension point '${point.id}', owned by pack '${owner}', but does not depend on '${owner}'. Add '${owner}' to the dependencies of '${pack.id}', or remove the contribution`,
+            `Pack '${pack.id}' contributes to extension point '${point.id}', owned by pack '${owner.id}', but does not depend on it. Add '${owner.id}' to its dependencies, or remove the contribution`,
           );
         }
         const placed = place(pack, point, values, slots);
         if (placed !== undefined) return refuse(placed);
       }
     }
-    return { ok: true, value: new CompositionImpl(Object.freeze(order.map((pack) => pack.id)), chosen, slots) };
+    return { ok: true, value: new CompositionImpl(Object.freeze(order), slots) };
   }
 
-  read<Value>(point: ExtensionPoint<Value, AnyPack>): Result<readonly Value[]> {
+  read<Value>(point: ExtensionPoint<Value, PackIdType>): Result<readonly Value[]> {
     const values = this.slots.get(point);
     if (values === undefined) {
       const owner = point.owner.id;
       return refuse(
-        this.selected.has(owner)
-          ? `Extension point '${point.id}' belongs to a pack labelled '${owner}' that is not the selected '${owner}' (another pack with that label, or another copy of it). Read the point of the selected pack`
-          : `Extension point '${point.id}' does not exist in this composition: its owner '${owner}' is not selected. Select '${owner}' to use it`,
+        this.packs.some((pack) => pack.id === owner)
+          ? `Extension point '${point.id}' belongs to a pack with the id '${owner}' that is not the selected one (another pack with that id, or another copy of it). Read the point of the selected pack`
+          : `Extension point '${point.id}' does not exist in this composition: its owner '${owner}' is not selected. Select it to use the point`,
       );
     }
     // The one cast in composition: every value on this point's slot was
@@ -110,13 +99,14 @@ function refuse(error: string): { ok: false; error: string } {
 
 const byId = (a: AnyPack, b: AnyPack): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** Check each value with the point's own check and store what the check returns; a refusal message, or undefined. */
+/** Check each value with the point's own check and store what it returns; a refusal message, or undefined. */
 function place(pack: AnyPack, point: AnyPoint, values: readonly unknown[], slots: Map<AnyPoint, unknown[]>): string | undefined {
   const slot = slots.get(point);
+  if (slot === undefined) return `Pack '${pack.id}' contributes to extension point '${point.id}', which has no place in this composition. Report this as a defect`;
   for (const raw of values) {
     const checked = checkValue(point, raw);
     if (!checked.ok) return `Pack '${pack.id}' contributes an invalid value to extension point '${point.id}': ${checked.error}. Fix the value, or remove the contribution`;
-    slot?.push(checked.value);
+    slot.push(checked.value);
   }
   return undefined;
 }
@@ -130,8 +120,9 @@ function shapeProblem(pack: AnyPack): string | undefined {
   for (const [key, point] of Object.entries(points)) {
     if (!/^[a-z][a-zA-Z0-9]*$/.test(key)) return `its point key '${key}' must be a camelCase word, such as 'protectedPaths'`;
     if (!isGenuine(point, "ExtensionPoint") || point.owner !== pack) return `its points must each be declared with point(...) ${COPY}`;
-    if (!hasCheck(point)) return `its point '${key}' has no check: every point parses the values it accepts`;
-    if (!Array.isArray(ownValuesOf(point))) return `the own values of its point '${key}' must be a list`;
+    const declaration = declarationOf(point);
+    if (typeof declaration?.check !== "function") return `its point '${key}' has no check: every point parses the values it accepts`;
+    if (!Array.isArray(declaration.values)) return `the own values of its point '${key}' must be a list`;
   }
   const genuineContribution = (c: unknown) => isGenuine(c, "Contribution") && isGenuine(c.point, "ExtensionPoint") && Array.isArray(c.values);
   if (!Array.isArray(contributes) || !contributes.every(genuineContribution)) return `its contributes must be a list of contributions made with contribution(...) ${COPY}`;
@@ -146,7 +137,7 @@ function dependencyOrder(packs: readonly AnyPack[]): AnyPack[] {
     for (const dependency of [...pack.dependsOn].sort(byId)) visit(dependency);
     order.push(pack);
   };
-  for (const pack of [...packs].sort(byId)) visit(pack);
+  for (const pack of packs) visit(pack);
   return order;
 }
 

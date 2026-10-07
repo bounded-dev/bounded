@@ -13,8 +13,8 @@ const upcast: AnyPack = tags;
 // 1. Only points of the pack's direct dependencies.
 export const rogue = definePack({ id: packId("rogue"), contributes: [contribution(base.points.words, ["x"])] }); // rejected: is not assignable to type 'Contribution<never>'
 export const emptyDeps = definePack({ id: packId("empty"), dependsOn: [], contributes: [contribution(base.points.words, ["x"])] }); // rejected: is not assignable to type 'Contribution<never>'
-export const wrongEdge = definePack({ id: packId("edge"), dependsOn: [tags], contributes: [contribution(base.points.words, ["x"])] }); // rejected: Type '"test-packs/base"' is not assignable to type '"test-packs/tags"'
-export const transitive = definePack({ id: packId("top"), dependsOn: [ext], contributes: [contribution(base.points.words, ["x"])] }); // rejected: Type '"test-packs/base"' is not assignable to type '"test-packs/ext"'
+export const wrongEdge = definePack({ id: packId("edge"), dependsOn: [tags], contributes: [contribution(base.points.words, ["x"])] }); // rejected: Type 'PackId<"test-packs/base">' is not assignable to type 'PackId<"test-packs/tags">'
+export const transitive = definePack({ id: packId("top"), dependsOn: [ext], contributes: [contribution(base.points.words, ["x"])] }); // rejected: Type 'PackId<"test-packs/base">' is not assignable to type 'PackId<"test-packs/ext">'
 export const selfish = definePack({ id: packId("selfish"), dependsOn: [selfish] }); // rejected: used before its declaration
 // 2. Values of exactly the point's type, nested types included; never any.
 export const wrongType = contribution(base.points.words, [42]); // rejected: Type 'number' is not assignable to type 'string'
@@ -37,7 +37,7 @@ export const capital = definePack({ id: packId("capital"), points: { Words: poin
 export const unchecked = point({ description: "No check" }); // rejected: Property 'check' is missing
 // 5. Ids: exact, branded, from one factory per npm package.
 export const widenedId = definePack({ id: anyId }); // rejected: give the pack an exact id from packIdsFor
-export const plainId = definePack({ id: "test-packs/plain" }); // rejected: Type '"test-packs/plain"' is not assignable to type 'PackId<string>'
+export const plainId = definePack({ id: "test-packs/plain" }); // rejected: Type 'string' is not assignable to type '{ readonly __packId: string; }'
 export const widenedPackage = packIdsFor(anyText); // rejected: write the npm package name as a string literal
 export const upperPackage = packIdsFor("Acme"); // rejected: npm package names are lowercase
 export const deepPackage = packIdsFor("acme/rules"); // rejected: an npm package name is name or @scope/name

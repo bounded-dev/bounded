@@ -140,7 +140,7 @@ describe("Composition — every refusal names the pack, the extension point and 
     ["a dependency listed twice", [base, untypedPack({ id: "test-packs/bad", dependsOn: [base, base] })], [],
       malformed("it lists 'test-packs/base' twice in dependsOn")],
     ["an available pack not built with definePack", [base, plain], [base], notBuilt("Available", "test-packs/plain")],
-    ["a forged pack copied from a genuine one", [base, { ...other, id: "test-packs/forged" }], [base], notBuilt("Available", "test-packs/forged")],
+    ["a forged pack copied from a genuine one", [base, { ...other, id: "test-packs/forged" } as unknown as AnyPack], [base], notBuilt("Available", "test-packs/forged")],
     ["an invalid contributed value",
       [base, definePack({ id: packId("ext"), dependsOn: [base], contributes: [contribution(words, ["ok", " "])] })], [],
       "Pack 'test-packs/ext' contributes an invalid value to extension point 'test-packs/base.words': a word is a non-empty string. Fix the value, or remove the contribution"],

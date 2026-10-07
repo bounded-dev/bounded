@@ -5,13 +5,13 @@ const FORM = "must be an npm package name, '/', and lowercase words joined by hy
 
 describe("PackId — boundaries", () => {
   test("an id is the npm package name and the pack's local id", () => {
-    expect(packIdsFor("bounded")("path-gate")).toBe("bounded/path-gate");
-    expect(packIdsFor("@acme/rules")("web-2")).toBe("@acme/rules/web-2");
+    expect<string>(packIdsFor("bounded")("path-gate")).toBe("bounded/path-gate");
+    expect<string>(packIdsFor("@acme/rules")("web-2")).toBe("@acme/rules/web-2");
   });
 
   test("parse accepts an unscoped or scoped package with a lowercase-hyphen local id", () => {
     for (const raw of ["bounded/core", "bounded/path-gate", "@acme/rules/web-2", "my.pkg/a"]) {
-      expect(PackId.parse(raw)).toEqual({ ok: true, value: raw });
+      expect<unknown>(PackId.parse(raw)).toEqual({ ok: true, value: raw });
     }
   });
 

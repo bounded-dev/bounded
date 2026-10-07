@@ -12,7 +12,7 @@ describe("ComposePacksCommand laws", () => {
 
   test("validates each id through PackId, in order", () => {
     const result = ComposePacksCommand.parse({ selected: ["bounded/path-gate", "bounded/core"] });
-    expect(result.ok && result.value.selected).toEqual(["bounded/path-gate", "bounded/core"]);
+    expect(result.ok && result.value.selected.map(String)).toEqual(["bounded/path-gate", "bounded/core"]);
     expect(ComposePacksCommand.parse({ selected: [] }).ok).toBe(true);
     expect(ComposePacksCommand.parse({ selected: ["bounded/core", "Bad", "../x"] })).toEqual({
       ok: false,
@@ -22,6 +22,6 @@ describe("ComposePacksCommand laws", () => {
 
   test("ignores fields the input does not declare", () => {
     const result = ComposePacksCommand.parse({ selected: ["bounded/core"], extra: true });
-    expect(result.ok && result.value.selected).toEqual(["bounded/core"]);
+    expect(result.ok && result.value.selected.map(String)).toEqual(["bounded/core"]);
   });
 });

@@ -1,5 +1,5 @@
-import type { ComposePacksCatalog } from "@bounded/core/application";
-import type { AnyPack } from "@bounded/core/domain";
+import type { ComposePacksCatalog } from "bounded/application";
+import type { AnyPack } from "bounded/domain";
 
 /** The packs a host already holds in memory: the catalog for tests and for hosts that import their packs. */
 export class InMemoryComposePacksCatalog implements ComposePacksCatalog {
