@@ -43,6 +43,24 @@ describe("ComposePacksHandler", () => {
     });
   });
 
+  test("refuses ids the catalog does not offer in id order, whatever the selection order", async () => {
+    const refusal = {
+      ok: false as const,
+      error: "Pack 'test-packs/abc' is selected but not available. Make it available, or remove it from the selection",
+    };
+    const handler = new ComposePacksHandler(new FakeCatalog([base]));
+    expect(await handler.execute(command("test-packs/zed", "test-packs/abc"))).toEqual(refusal);
+    expect(await handler.execute(command("test-packs/abc", "test-packs/zed"))).toEqual(refusal);
+  });
+
+  test("refuses a catalog that returns something other than a list, never throws", async () => {
+    const odd = { available: async () => null } as unknown as ComposePacksCatalog;
+    expect(await new ComposePacksHandler(odd).execute(command("test-packs/base"))).toEqual({
+      ok: false,
+      error: "The pack catalog returned something other than a list of packs. Fix the pack catalog; nothing is composed until then",
+    });
+  });
+
   test("refuses when the catalog cannot be read", async () => {
     const broken: ComposePacksCatalog = {
       available: async () => {

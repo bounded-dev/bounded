@@ -22,6 +22,8 @@ export const nestedArray = contribution(base.points.rules, [{ paths: [1], owner:
 export const nestedObject = contribution(base.points.rules, [{ paths: [], owner: { name: 7 } }]); // rejected: Type 'number' is not assignable to type 'string'
 export const wrongOwnValues = point({ description: "Own values", check: text, values: [1] }); // rejected: Type 'number' is not assignable to type 'string'
 export const anyValues = point({ description: "Parsed", check: (raw: unknown) => ({ ok: true as const, value: JSON.parse(String(raw)) }) }); // rejected: a point's check must return a precise type, not any
+export const anyArray = point({ description: "Parsed list", check: (raw: unknown) => ({ ok: true as const, value: [JSON.parse(String(raw))] }) }); // rejected: a point's check must return a precise type, not any
+export const anyField = point({ description: "Parsed field", check: (raw: unknown) => ({ ok: true as const, value: { data: JSON.parse(String(raw)) } }) }); // rejected: a point's check must return a precise type, not any
 // 3. dependsOn is a tuple of distinct packs, each with an exact id.
 export const notTuple = definePack({ id: packId("list"), dependsOn: somePacks }); // rejected: list dependsOn as a tuple of packs
 export const unionDep = definePack({ id: packId("union"), dependsOn: [either], contributes: [contribution(base.points.words, ["x"])] }); // rejected: each dependency is a pack with an exact id
@@ -42,6 +44,9 @@ export const widenedPackage = packIdsFor(anyText); // rejected: write the npm pa
 export const upperPackage = packIdsFor("Acme"); // rejected: npm package names are lowercase
 export const deepPackage = packIdsFor("acme/rules"); // rejected: an npm package name is name or @scope/name
 export const slashLocal = packId("a/b"); // rejected: a pack's local id is lowercase words joined by hyphens, without '/'
+export const leadingHyphen = packId("-a"); // rejected: a pack's local id is lowercase words joined by hyphens, without '/'
+export const doubleHyphen = packId("a--b"); // rejected: a pack's local id is lowercase words joined by hyphens, without '/'
+export const leadingDigit = packId("1a"); // rejected: a pack's local id is lowercase words joined by hyphens, without '/'
 export const widenedLocal = packId(anyText); // rejected: write the pack's local id as a string literal
 // 6. Reads are typed by the point object.
 export function read(composition: Composition): readonly number[] {
