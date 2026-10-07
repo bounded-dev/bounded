@@ -26,7 +26,7 @@ workspace package. A project configures its packs in `bounded.config.ts`
    the locator.
 4. `src/extension.ts` — the extension: `session_start` composes, `tool_call`
    translates, decides and answers; every failure, and every deadline
-   missed, blocks.
+   missed, blocks. `tool_result` checks the finished call.
 5. `src/install.ts` and `src/index.ts` — the loader file a project needs, and
    `bounded(root)`, the extension it hands the project to.
 
@@ -118,6 +118,23 @@ configuration that cannot be used gives a judge that refuses every event, so
 every call is blocked with the core's reason and redirect. The composition
 root also guards itself: if opening the project rejects, or the judge
 rejects or throws, the event is refused, and the call blocked, saying why.
+The decide also carries the project's `afterTool` and `refuse`:
+
+- Each tool use carries pi's `toolCallId` as its `callId`.
+- A block the extension makes itself once the project is composed (an
+  unreadable event or context, an untranslatable call, the deadline, a
+  decision that is not a verdict) is handed to `refuse`, which records it as
+  an `"adapter"` decision. It is not awaited, so it never delays or changes
+  the block. Blocks before the project is composed cannot be recorded: there
+  is no project log yet.
+- On `tool_result` the finished call becomes the core's `ToolResult`
+  (translated as for `tool_call`; one that cannot be translated is an
+  `invoke` of its tool name; `ok` is `!isError`) and `afterTool` undoes what a
+  shell command changed in watched files (see [drift.md](drift.md)). What it
+  undid is appended to the result's content as text and the result is marked
+  as an error, so the agent sees it; nothing undone leaves the result alone.
+  A check that fails or runs past the deadline is appended the same way.
+
 `end-to-end.test.ts` runs this with a real `bounded.config.ts`; the other
 tests inject their own `load`. `piLoader()` is pure: the caller writes the
 file.

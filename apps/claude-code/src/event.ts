@@ -16,13 +16,15 @@ export interface Resolving {
   /** The directory relative host paths are resolved against. */
   readonly cwd: string;
   readonly paths: PathResolver;
+  /** The host's id for the call, when it gives one. */
+  readonly callId?: string;
 }
 
 type Resolved = Result<{ path: ProjectPath; exists: boolean }, Refuse>;
 type Wire<E> = { -readonly [K in keyof E]: E[K] };
 
 /** The translated call as the core's event, every path resolved and checked; any refused path refuses the call. */
-export function toToolUse(call: HostCall, { role, cwd, paths }: Resolving): Result<ToolUse, Refuse> {
+export function toToolUse(call: HostCall, { role, cwd, paths, callId }: Resolving): Result<ToolUse, Refuse> {
   let checkedRole: Role | null = null;
   if (role !== null) {
     const parsed = Role.parse(role);
@@ -55,6 +57,6 @@ export function toToolUse(call: HostCall, { role, cwd, paths }: Resolving): Resu
     } else effects.push({ ...effect });
   }
   // The core checks and freezes the event; a refusal here is the adapter's mistake.
-  const event = ToolUse.parse({ kind: "tool-use", role: checkedRole, tool: call.tool, effects });
+  const event = ToolUse.parse({ kind: "tool-use", role: checkedRole, tool: call.tool, effects, ...(callId === undefined ? {} : { callId }) });
   return event.ok ? event : { ok: false, error: Verdict.refuse(event.error, "Report this to the maintainers of bounded") };
 }

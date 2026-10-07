@@ -1,12 +1,12 @@
 // The composition root: the only place that chooses the adapters and reads
 // the environment. It returns the hook, ready to host; run.ts hosts it.
 //
-// THE SEAM: `decide`. main.ts passes `decideFromConfig`, which opens the
-// project with its bounded.config.ts and asks the core's judge; tests inject
-// their own.
+// THE SEAM: `decide`, with the optional `afterTool` and `record`. main.ts
+// passes the `...FromConfig` ones, which open the project with its
+// bounded.config.ts and ask the core's judge; tests inject their own.
 import { Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
-import { type Decide, respond, runHook } from "./hook.ts";
+import { type AfterTool, type Decide, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
 
 /**
@@ -24,6 +24,8 @@ export interface Wiring {
   /** The hook command's own arguments, after the script. */
   readonly argv: readonly string[];
   readonly decide: Decide;
+  readonly afterTool?: AfterTool;
+  readonly record?: RecordRefusal;
   /** Defaults to DEADLINE_MS; tests inject a short one. */
   readonly deadlineMs?: number;
 }
@@ -39,8 +41,17 @@ export const decideFromConfig: Decide = async (event, { projectDir }) => {
   return project.judge(event);
 };
 
+/** After a call ran: the project's judge undoes what a shell command changed in watched files, and says so. */
+export const afterToolFromConfig: AfterTool = async (result, { projectDir }) => {
+  const { message } = await (await openProject(projectDir)).afterTool(result);
+  return { message };
+};
+
+/** Records a refusal the hook made itself in the project's decision log. */
+export const recordFromConfig: RecordRefusal = async (refusal, { projectDir }) => (await openProject(projectDir)).refuse(refusal);
+
 /** The hook for one process: stdin text in, stdout text out. */
-export function composeHook({ env, argv, decide, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
+export function composeHook({ env, argv, decide, afterTool, record, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
   const projectDir = env.CLAUDE_PROJECT_DIR;
   if (projectDir === undefined || !projectDir.startsWith("/")) {
     return refuseAll(
@@ -50,7 +61,8 @@ export function composeHook({ env, argv, decide, deadlineMs = DEADLINE_MS }: Wir
   }
   const role = roleFrom(argv);
   if (role === undefined) return refuseAll("--role is given without a role label", "Give the role after it, as in --role builder");
-  return (stdin) => runHook(stdin, { projectDir, role, decide, paths: projectPaths(projectDir), deadlineMs });
+  const extras = { ...(afterTool === undefined ? {} : { afterTool }), ...(record === undefined ? {} : { record }) };
+  return (stdin) => runHook(stdin, { projectDir, role, decide, paths: projectPaths(projectDir), deadlineMs, ...extras });
 }
 
 /** `--role <label>` or `--role=<label>`; null when absent, undefined when given without a label. */

@@ -1,4 +1,4 @@
-// Claude Code's PreToolUse payload, read and translated into host-neutral
+// Claude Code's PreToolUse (or PostToolUse) payload, read and translated into host-neutral
 // effects. Pure: no file system, no process. Paths stay as Claude Code gave
 // them; event.ts resolves them through a port.
 import { isAbsolute, join } from "node:path";
@@ -11,7 +11,12 @@ export interface Payload {
   readonly tool_name: string;
   readonly tool_input: Readonly<Record<string, unknown>>;
   readonly cwd: string | null;
+  /** Claude Code's tool_use_id, when it gives one: the id that pairs this call with its result. */
+  readonly callId?: string;
 }
+
+/** The hook events bounded answers. */
+export type HookEvent = "PreToolUse" | "PostToolUse";
 
 /** An effect with its paths still in the host's words. A Write's change depends on whether the file exists. */
 export type HostEffect =
@@ -30,14 +35,14 @@ export interface HostCall {
 
 const ok = <T>(value: T): Result<T, Refuse> => ({ ok: true, value });
 const NOT_A_CALL = "The hook's input is not a PreToolUse call: an object with tool_name and tool_input";
-const REGISTRATION = "Register bounded's hook for PreToolUse only, as the install helper does";
+const REGISTRATION = "Register bounded's hook for PreToolUse and PostToolUse, as the install helper does";
 const refuse = (tool: string, key: string, problem: string): { ok: false; error: Refuse } => ({
   ok: false,
   error: Verdict.refuse(`Claude Code's ${tool} call ${problem}`, `Retry the call with its ${key} given as text`),
 });
 
-/** The hook's stdin, or why it cannot be read. Only the fields the translation needs are kept. */
-export function readPayload(stdin: string): Result<Payload, Refuse> {
+/** The hook's stdin for `expected`, or why it cannot be read. Only the fields the translation needs are kept. */
+export function readPayload(stdin: string, expected: HookEvent = "PreToolUse"): Result<Payload, Refuse> {
   if (stdin.trim() === "") return { ok: false, error: Verdict.refuse("The hook was given no input", REGISTRATION) };
   let raw: unknown;
   try {
@@ -46,10 +51,10 @@ export function readPayload(stdin: string): Result<Payload, Refuse> {
     return { ok: false, error: Verdict.refuse(`The hook's input is not JSON: ${thrown instanceof Error ? thrown.message : String(thrown)}`, REGISTRATION) };
   }
   if (!isRecord(raw)) return { ok: false, error: Verdict.refuse(NOT_A_CALL, REGISTRATION) };
-  const { hook_event_name: event, tool_name, tool_input, cwd } = raw;
-  if (event !== undefined && event !== "PreToolUse") return { ok: false, error: Verdict.refuse(`The hook is registered for ${String(event)}; it answers only PreToolUse`, REGISTRATION) };
+  const { hook_event_name: event, tool_name, tool_input, cwd, tool_use_id: id } = raw;
+  if (event !== undefined && event !== expected) return { ok: false, error: Verdict.refuse(`The hook is registered for ${String(event)}; it answers only ${expected}`, REGISTRATION) };
   if (typeof tool_name !== "string" || tool_name === "" || !isRecord(tool_input)) return { ok: false, error: Verdict.refuse(NOT_A_CALL, REGISTRATION) };
-  return ok({ tool_name, tool_input, cwd: typeof cwd === "string" && cwd.startsWith("/") ? cwd : null });
+  return ok({ tool_name, tool_input, cwd: typeof cwd === "string" && cwd.startsWith("/") ? cwd : null, ...(typeof id === "string" && id !== "" ? { callId: id } : {}) });
 }
 
 /** One Claude Code tool call as a host-neutral call, or why it cannot be checked. */

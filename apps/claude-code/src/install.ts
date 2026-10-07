@@ -1,4 +1,4 @@
-// Installing the hook: bounded's PreToolUse entry merged into a project's
+// Installing the hook: bounded's PreToolUse and PostToolUse entries merged into a project's
 // .claude/settings.json object. Pure; the caller reads and writes the file.
 import type { Result } from "bounded/domain";
 import { isRecord } from "./json.ts";
@@ -24,7 +24,10 @@ export function hookCommand({ bun, main, role }: { bun: string; main: string; ro
   return [quote(bun), quote(main), ...(role === undefined ? [] : ["--role", quote(role)])].join(" ");
 }
 
-/** Whether a PreToolUse entry is ours: it runs `command` as a command hook for every tool. */
+/** The hook events bounded is installed for: before every call to judge it, after it to undo what it changed. */
+type HookEvent = "PreToolUse" | "PostToolUse";
+
+/** Whether a hook entry is ours: it runs `command` as a command hook for every tool. */
 function isOurs(entry: unknown, command: string): boolean {
   if (!isRecord(entry) || !(entry.matcher === undefined || entry.matcher === "" || entry.matcher === "*")) return false;
   const hooks = entry.hooks;
@@ -42,20 +45,28 @@ function withoutOlder(entries: readonly unknown[], command: string): unknown[] {
   });
 }
 
-/** The settings with bounded's hook running `command` before every tool call. Idempotent; everything else is kept. */
-export function withHook(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
+/** The settings with bounded's hook running `command` before and after every tool call. Idempotent; everything else is kept. */
+export function withHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
+  const before = withHook(settings, command);
+  if (!before.ok) return before;
+  const after = withHook(before.value.settings, command, "PostToolUse");
+  return after.ok ? { ok: true, value: { settings: after.value.settings, changed: before.value.changed || after.value.changed } } : after;
+}
+
+/** The settings with bounded's hook running `command` on every tool call's `event`, PreToolUse by default. Idempotent; everything else is kept. */
+export function withHook(settings: unknown, command: string, event: HookEvent = "PreToolUse"): Result<{ settings: Settings; changed: boolean }> {
   if (command.trim() === "") return { ok: false, error: "The hook command is empty" };
   if (!isRecord(settings)) return { ok: false, error: ".claude/settings.json is not a JSON object" };
   if (settings.disableAllHooks === true) return { ok: false, error: ".claude/settings.json sets disableAllHooks, so bounded's hook would never run. Remove it, then install again" };
   const hooks = settings.hooks ?? {};
   if (!isRecord(hooks)) return { ok: false, error: ".claude/settings.json's 'hooks' is not an object" };
-  const entries = hooks.PreToolUse ?? [];
-  if (!Array.isArray(entries)) return { ok: false, error: ".claude/settings.json's 'hooks.PreToolUse' is not a list" };
+  const entries = hooks[event] ?? [];
+  if (!Array.isArray(entries)) return { ok: false, error: `.claude/settings.json's 'hooks.${event}' is not a list` };
   const installed = failClosed(command);
   const kept = withoutOlder(entries, command);
   const replaced = kept.length !== entries.length || kept.some((entry, at) => entry !== entries[at]);
   if (!replaced && kept.some((entry) => isOurs(entry, installed))) return { ok: true, value: { settings, changed: false } };
   const ours = { matcher: "", hooks: [{ type: "command", command: installed, timeout: HOOK_TIMEOUT_SECONDS }] };
   const merged = kept.some((entry) => isOurs(entry, installed)) ? kept : [...kept, ours];
-  return { ok: true, value: { settings: { ...settings, hooks: { ...hooks, PreToolUse: merged } }, changed: true } };
+  return { ok: true, value: { settings: { ...settings, hooks: { ...hooks, [event]: merged } }, changed: true } };
 }

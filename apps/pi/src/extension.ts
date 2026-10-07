@@ -1,14 +1,31 @@
 // The pi extension: composes the project's guards at session start, then
 // turns every tool call into a tool use, decides it and answers pi. Anything
-// it cannot read, translate or decide in time blocks the call: it fails closed.
+// it cannot read, translate or decide in time blocks the call: it fails
+// closed, and records the block when the project can. After a tool ran, the
+// project checks it, and what it undid is added to the result the agent sees.
 import { isAbsolute } from "node:path";
-import { Verdict } from "bounded/domain";
+import { ToolResult, ToolUse as Use, Verdict } from "bounded/domain";
 import type { ToolUse } from "./event.ts";
 import { locator } from "./pi-path.ts";
 import { translate } from "./translate.ts";
 
+/** A block the extension made itself, before the project judged anything: what the project's decision log records. */
+export interface AdapterRefusal {
+  readonly tool: string;
+  readonly reason: string;
+  readonly redirect: string;
+  readonly role: null;
+  readonly input: unknown;
+}
+
 /** Decides one tool use: the composed project's guards, dispatched. */
-export type Decide = (event: ToolUse) => Promise<Verdict>;
+export interface Decide {
+  (event: ToolUse): Promise<Verdict>;
+  /** After a tool ran: what the project undid, to tell the agent; null when nothing. */
+  readonly afterTool?: (result: ToolResult) => Promise<{ readonly message: string | null }>;
+  /** Records a block the extension made itself. Its outcome never changes or delays the block. */
+  readonly refuse?: (refusal: AdapterRefusal) => Promise<unknown>;
+}
 
 /** The composition root's seam: composes the project once and gives its decide. May reject. */
 export type Load = () => Promise<Decide>;
@@ -19,12 +36,18 @@ export interface PiBlock {
   readonly reason: string;
 }
 
+/** What pi does with a tool_result handler's answer: the result's content and error flag, replaced. */
+export interface PiResultPatch {
+  readonly content: readonly unknown[];
+  readonly isError: true;
+}
+
 /** A handler as pi calls it, and awaits. Event and context are read defensively: they come from the host. */
-export type PiHandler = (event: unknown, context: unknown) => Promise<PiBlock | undefined>;
+export type PiHandler = (event: unknown, context: unknown) => Promise<PiBlock | PiResultPatch | undefined>;
 
 /** The part of pi's ExtensionAPI this extension uses. */
 export interface Pi {
-  on(event: "session_start" | "tool_call", handler: PiHandler): unknown;
+  on(event: "session_start" | "tool_call" | "tool_result", handler: PiHandler): unknown;
 }
 
 export interface ExtensionOptions {
@@ -65,6 +88,12 @@ function deepFreeze(value: unknown, seen = new Set<object>()): void {
 }
 
 type Composed = { ok: true; decide: Decide } | { ok: false; error: string; timedOut: boolean };
+
+/** pi's call id, when it gives one. */
+const callIdOf = (event: unknown): { callId?: string } => {
+  const id = field(event, "toolCallId");
+  return typeof id === "string" && id !== "" ? { callId: id } : {};
+};
 
 /** The extension pi loads: `(pi) => void`, given the project and its composition root. */
 export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadlineMs = 15000, composeBackoffMs = 30000 }: ExtensionOptions): (pi: Pi) => void {
@@ -108,19 +137,59 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
           );
         }
         if (!project.ok) return block(`bounded could not start: ${project.error}`, "Fix the project's bounded configuration, then start a new pi session");
-        const [toolName, input, cwd] = [field(event, "toolName"), field(event, "input"), field(context, "cwd")];
-        deepFreeze(input);
-        if (typeof toolName !== "string") return block("bounded could not read pi's tool call: it names no tool", "Report this to the maintainers of bounded-pi");
-        if (typeof cwd !== "string" || !isAbsolute(cwd)) return block(`bounded could not read pi's context for the ${toolName} call: its cwd is not an absolute directory`, "Report this to the maintainers of bounded-pi");
-        const use = translate({ toolName, input }, cwd, locate);
-        if (!use.ok) return block(`bounded cannot check pi's ${toolName} call: ${use.error}`, "Use paths inside the project, spelled plainly, and the tool's documented arguments");
-        const decided = await within(() => project.decide(use.value), deadlineMs, `bounded did not decide within ${deadlineMs} ms on pi's ${toolName} call`);
-        const verdict = Verdict.parse(decided);
-        if (!verdict.ok) return block(`bounded's decision for the ${toolName} call is not a verdict: ${verdict.error}`, "Report this to the maintainers of the project's packs");
-        return verdict.value.kind === "refuse" ? block(verdict.value.reason, verdict.value.redirect) : undefined;
+        // A block made here, not by the project's guards: recorded without waiting, never failing the block.
+        const blocked = (reason: string, redirect: string): PiBlock => {
+          const { refuse } = project.decide;
+          const tool = field(event, "toolName");
+          const refusal: AdapterRefusal = { tool: typeof tool === "string" && tool !== "" ? tool : "unknown", reason, redirect, role: null, input: field(event, "input") ?? null };
+          if (refuse !== undefined) Promise.resolve().then(() => refuse(refusal)).catch(() => {});
+          return block(reason, redirect);
+        };
+        try {
+          const [toolName, input, cwd] = [field(event, "toolName"), field(event, "input"), field(context, "cwd")];
+          deepFreeze(input);
+          if (typeof toolName !== "string") return blocked("bounded could not read pi's tool call: it names no tool", "Report this to the maintainers of bounded-pi");
+          if (typeof cwd !== "string" || !isAbsolute(cwd)) return blocked(`bounded could not read pi's context for the ${toolName} call: its cwd is not an absolute directory`, "Report this to the maintainers of bounded-pi");
+          const translated = translate({ toolName, input }, cwd, locate);
+          if (!translated.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${translated.error}`, "Use paths inside the project, spelled plainly, and the tool's documented arguments");
+          const use = Use.parse({ ...translated.value, ...callIdOf(event) });
+          if (!use.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${use.error}`, "Report this to the maintainers of bounded-pi");
+          const decided = await within(() => project.decide(use.value), deadlineMs, `bounded did not decide within ${deadlineMs} ms on pi's ${toolName} call`);
+          const verdict = Verdict.parse(decided);
+          if (!verdict.ok) return blocked(`bounded's decision for the ${toolName} call is not a verdict: ${verdict.error}`, "Report this to the maintainers of the project's packs");
+          return verdict.value.kind === "refuse" ? block(verdict.value.reason, verdict.value.redirect) : undefined;
+        } catch (error) {
+          return blocked(`bounded failed while checking this call: ${message(error)}`, "The call stays blocked until the failure is fixed; report it to the maintainers");
+        }
       } catch (error) {
         return block(`bounded failed while checking this call: ${message(error)}`, "The call stays blocked until the failure is fixed; report it to the maintainers");
       }
+    });
+
+    // After a tool ran: the project checks it; what it undid, or that checking failed, is added to what the agent sees.
+    pi.on("tool_result", async (event, context) => {
+      const project = started ? await composed : undefined;
+      const afterTool = project?.ok ? project.decide.afterTool : undefined;
+      if (afterTool === undefined) return undefined;
+      let told: string | null;
+      try {
+        const [toolName, cwd] = [field(event, "toolName"), field(context, "cwd")];
+        if (typeof toolName !== "string" || toolName === "") throw new Error("pi's tool result names no tool");
+        const use = typeof cwd === "string" && isAbsolute(cwd) ? translate({ toolName, input: field(event, "input") }, cwd, locate) : undefined;
+        const result = ToolResult.parse({
+          ...(use?.ok ? use.value : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
+          kind: "tool-result",
+          ok: field(event, "isError") !== true,
+          ...callIdOf(event),
+        });
+        if (!result.ok) throw new Error(result.error);
+        told = (await within(() => afterTool(result.value), deadlineMs, `no answer within ${deadlineMs} ms`)).message;
+      } catch (error) {
+        told = `bounded could not check protected files after this call: ${message(error)}. Check them against version control.`;
+      }
+      if (told === null) return undefined;
+      const content = field(event, "content");
+      return { content: [...(Array.isArray(content) ? content : []), { type: "text", text: told }], isError: true };
     });
   };
 }

@@ -125,16 +125,38 @@ deny from the hook, and both count against the 20-second deadline. Tests
 inject their own decide through `run` (`test/fixtures/refusing-hook.ts`).
 
 Events are the core's `ToolUse`, built with `ToolUse.parse`, so the adapter
-cannot hand the core a shape it does not accept. Only `PreToolUse` is handled
-for now.
+cannot hand the core a shape it does not accept. Claude Code's `tool_use_id`,
+when given, is the event's `callId`.
+
+Two more seams, both optional, are passed beside `decide` (`main.ts` passes
+the `...FromConfig` ones, which open the project the same way):
+
+- `record(refusal, project)`: every deny the hook makes itself (unreadable
+  input, an untranslatable call, a refused path, the deadline, a decide that
+  fails) is handed to the project's `refuse`, which records it in the
+  decision log as an `"adapter"` decision with Claude Code's tool name and
+  input. It is not awaited: a recording that fails or hangs never changes or
+  delays the deny. Refusals from the core are already recorded by its judge.
+- `afterTool(result, project)`: on `PostToolUse` the finished call becomes the
+  core's `ToolResult` (translated as before the call; a call that cannot be
+  translated is an `invoke` of its tool name, so it is still checked) and the
+  project's `afterTool` undoes what a shell command changed in watched files
+  (see [drift.md](drift.md)). When it says something was undone, the hook
+  answers `{"decision":"block","reason":"<message>"}`, which Claude Code shows
+  to Claude; when nothing was, it answers nothing. If checking fails or runs
+  past the deadline, the answer says so and asks for the files to be checked
+  against version control: never silence. Without `afterTool`, `PostToolUse`
+  answers nothing.
 
 To install, read `.claude/settings.json` (or `{}`), pass it to
-`withHook(settings, command)` with the command that runs `src/main.ts`, and
+`withHooks(settings, command)` with the command that runs `src/main.ts`, and
 write the result back when `changed`. `hookCommand({ bun, main, role })`
 builds that command with every path shell-quoted, such as
 `'bun' '/path/to/apps/claude-code/src/main.ts' --role 'builder'`. Claude Code runs hooks with its own `PATH`, so
 either make sure `bun` is on it or give bun's absolute path in the command.
-`withHook` appends one `PreToolUse` entry with an empty matcher (every tool),
+`withHooks` installs the same command for `PreToolUse` and `PostToolUse`
+(`withHook(settings, command, event)` does one event, `PreToolUse` by
+default). Each gets one entry with an empty matcher (every tool),
 the fail-closed wrapper and the timeout, and keeps every other setting and
 hook. The wrapper puts the command on its own line inside a group (`{`, a
 newline, the command, a newline, then

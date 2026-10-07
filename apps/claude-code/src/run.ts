@@ -2,6 +2,7 @@
 import { Verdict } from "bounded/domain";
 import { composeHook, DEADLINE_MS, DRAIN_MS } from "./composition-root.ts";
 import { type Decide, FAILED, respond } from "./hook.ts";
+import type { Wiring } from "./composition-root.ts";
 
 export interface Timing {
   readonly deadlineMs?: number;
@@ -13,10 +14,10 @@ export interface Timing {
  * (a decision log's follow-up line) can finish, but for at most `drainMs`:
  * after that it exits, so nothing outlasts Claude Code's timeout for the hook.
  */
-export async function run(decide: Decide, { deadlineMs = DEADLINE_MS, drainMs = DRAIN_MS }: Timing = {}): Promise<void> {
+export async function run(decide: Decide, { deadlineMs = DEADLINE_MS, drainMs = DRAIN_MS }: Timing = {}, extras: Pick<Wiring, "afterTool" | "record"> = {}): Promise<void> {
   let answer: string;
   try {
-    const hook = composeHook({ env: process.env, argv: process.argv.slice(2), decide, deadlineMs });
+    const hook = composeHook({ ...extras, env: process.env, argv: process.argv.slice(2), decide, deadlineMs });
     answer = await hook(await Bun.stdin.text());
   } catch (thrown) {
     answer = respond(Verdict.refuse(`bounded's Claude Code hook failed: ${thrown instanceof Error ? thrown.message : String(thrown)}`, FAILED));

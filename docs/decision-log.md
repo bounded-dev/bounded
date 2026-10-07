@@ -59,6 +59,17 @@ once the late record settles, whether it landed or failed; if it never
 settles, there is no second line. Read the log by id: **when two lines share
 an id, the later one says what was enforced.**
 
+## Refusals a host adapter makes itself
+
+Some calls never become events: the host adapter cannot read or translate
+them, or a deadline passes. The adapter still refuses them, and records them
+through the project's `refuse({ tool, reason, redirect, role, input })`
+(`ProjectJudge`, `bounded/open-project`). The record is a refusal with
+`event: "adapter"`, no effects, and `host: { tool, input }`: the host's tool
+name and its input written as JSON text (each cut to 4096 code points).
+Both adapters hand their own refusals to it without waiting, so a log that
+fails never changes or delays what the host is told.
+
 A host adapter must let its process's event loop drain after answering (no
 `process.exit` straight after the verdict), or a late line can be lost.
 
