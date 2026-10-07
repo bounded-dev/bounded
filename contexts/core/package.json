@@ -6,7 +6,7 @@
     "./domain": "./src/domain/index.ts",
     "./application": "./src/application/index.ts",
     "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts",
-    "./path-gate": "./src/pack/path-gate/index.ts"
+    "./path-gate": "./src/packs/path-gate/index.ts"
   },
   "dependencies": {
     "picomatch": "4.0.7",

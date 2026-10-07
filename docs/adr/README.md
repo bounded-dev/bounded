@@ -13,4 +13,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-005](2026-005-events-verdicts-dispatch.md) | Host-neutral events, verdicts and a pure dispatch |
 | [2026-006](2026-006-effects.md) | A tool use is a list of precise effects |
 | [2026-007](2026-007-guards-over-a-composition.md) | Guards over a composition: the core pack and per-effect dispatch |
-| [2026-008](2026-008-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules |
+| [2026-009](2026-009-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules |

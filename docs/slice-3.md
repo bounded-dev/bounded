@@ -3,7 +3,7 @@
 Slice 3 builds the protected paths of Part 3 of [the spec](spec.md) as an
 ordinary pack, `bounded/path-gate`, shipped in the `bounded` package and
 imported from `bounded/path-gate`. Role path rules come later. All code is in
-`contexts/core/src/pack/path-gate/`.
+`contexts/core/src/packs/path-gate/`.
 
 ## Reading order (about 10 minutes)
 
@@ -17,7 +17,7 @@ imported from `bounded/path-gate`. Role path rules come later. All code is in
    (end to end); the fixtures `path-gate-accepted.ts` and
    `path-gate-rejected.ts` show what compiles and what does not.
 
-The decisions are in [ADR 2026-008](adr/2026-008-path-gate-pack.md).
+The decisions are in [ADR 2026-009](adr/2026-009-path-gate-pack.md).
 
 ## Worked example
 

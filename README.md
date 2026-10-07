@@ -39,7 +39,7 @@ worked example.
   glob, its own exceptions, what it denies, a redirect); its guards refuse
   reads, listings and writes a rule denies, naming the rule and the pack
   that contributed it. A denial always wins, and it protects the project's
-  Bounded configuration itself (ADR 2026-008).
+  Bounded configuration itself (ADR 2026-009).
 
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
