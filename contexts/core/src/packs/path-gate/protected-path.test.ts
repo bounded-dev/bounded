@@ -105,4 +105,11 @@ describe("ProtectedPath — a deny-only rule", () => {
     expect(refused({ ...rule, redirect: "a".repeat(1001) })).toBe("A rule's redirect must be at most 1000 characters");
     expect(refused({ ...rule, why: "a".repeat(1001) })).toBe("A rule's why must be at most 1000 characters");
   });
+
+  test("more than three wildcards in one part of a pattern are refused: matching them can take seconds", () => {
+    for (const match of ["**/*a*a*a*a*b", "src/????", "a/*?*?"]) {
+      expect(refused({ ...rule, match })).toContain(`match pattern '${match}' has more than three wildcards (* or ?) in one part`);
+    }
+    expect(ProtectedPath.parse({ ...rule, match: "**/*a*a*b/**" }).ok).toBe(true);
+  });
 });

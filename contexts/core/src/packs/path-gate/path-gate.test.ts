@@ -246,6 +246,27 @@ describe("the path gate — listing is judged conservatively", () => {
   });
 });
 
+describe("the path gate — limits and honest redirects", () => {
+  test("a three-wildcard part stays fast against a long name", () => {
+    const slow = rules("a", { match: "**/*a*a*b", deny: ["read"], redirect: "x" });
+    const started = performance.now();
+    expect(decide([slow], [read(`x/${"a".repeat(255)}`)])).toBe(Verdict.allow);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("when no filter or root can avoid a '**'-led rule ending in a name, the redirect says so", () => {
+    const env = rules("a", { match: "**/.env", deny: ["read", "list"], redirect: "Ask a maintainer" });
+    expect(decide([env], [list("src", "*.ts"), read("src")], "search")).toMatchObject({
+      kind: "refuse",
+      redirect: "No search can avoid '**/.env'; read the files you need directly, or ask a person — Ask a maintainer",
+    });
+    expect(decide([env], [list("src", "*.ts")])).toMatchObject({
+      kind: "refuse",
+      redirect: "No listing can avoid '**/.env'; name the files you need directly, or ask a person — Ask a maintainer",
+    });
+  });
+});
+
 describe("the path gate — what it does not judge in this slice", () => {
   test("execute, fetch, delegate and invoke are not judged by path", () => {
     const everything = rules("a", { match: "**", deny: ["read", "list", ...writes], redirect: "Nothing" });
