@@ -10,3 +10,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-002](2026-002-typed-extension-points.md) | Typed extension points with compile-time ownership; deviations from the example |
 | [2026-003](2026-003-packs-refer-to-packs.md) | Packs refer to each other as objects; strict typing is binding |
 | [2026-004](2026-004-namespaced-pack-ids.md) | npm-namespaced pack ids; selection by pack objects; workspace package `bounded` |
+| [2026-005](2026-005-events-verdicts-dispatch.md) | Host-neutral events, verdicts and a pure dispatch |

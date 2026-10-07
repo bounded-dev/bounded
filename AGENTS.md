@@ -49,7 +49,7 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 
 ```
 contexts/
-  core/          bounded             the mechanism (spec Parts 1 and 2; slice 1 so far)
+  core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
 architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below
