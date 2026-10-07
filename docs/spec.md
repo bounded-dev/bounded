@@ -92,6 +92,14 @@ action on a file path is allowed.
 - It applies when no role is active, too. Role rules use the same decision and
   redirect contract.
 - Overlapping rules: a denial from any applicable rule wins.
+- Protected-path rules are deny-only, and a denial always wins: there are no
+  separate allow rules that could override another pack's protection. A rule
+  may carry an `except` list of patterns, owned by the same rule, that carve
+  paths out of its own `match` (for example match `packages/db/**`, except
+  `packages/db/src/schema/**`). An exception never reaches another rule.
+- Role path rules are allowlists: a role's read and write zones. The decision
+  is: allowed by the active role's zone for that action, if the role has one,
+  and not denied by any protected-path rule.
 - A path that escapes the project (absolute outside it, or climbing out with
   `..`) is refused.
 - Fail closed: a missing or invalid selected rule set refuses every action with
