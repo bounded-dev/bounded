@@ -2,13 +2,14 @@ import type { Composition } from "../composition/composition.contract.ts";
 import type { Effect } from "../events/effect.contract.ts";
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
+import { isComposition } from "../composition/composition.ts";
 import { Event as EventFactory } from "../events/event.ts";
 import type { PackId } from "../packs/pack-id.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { Verdict } from "../verdicts/verdict.ts";
 import type { Judgement } from "./guard.contract.ts";
 import { corePack } from "./core-pack.ts";
-import { firstRefusal, invalidEvent, type LabelledGuard, unfinished } from "./dispatch.ts";
+import { firstRefusal, invalidEvent, type LabelledGuard, outermost, unfinished } from "./dispatch.ts";
 
 const CORE = corePack.id;
 const { points } = corePack;
@@ -68,8 +69,12 @@ function judged(refusal: ReturnType<typeof firstRefusal>, effect: Effect | null)
  * core pack. Never throws.
  */
 export function decideEvent(composition: Composition, event: Event): Judgement {
+  return outermost(() => decide(composition, event), (verdict) => plain(verdict));
+}
+
+function decide(composition: Composition, event: Event): Judgement {
   try {
-    if (typeof composition !== "object" || composition === null || typeof composition.entries !== "function") {
+    if (!isComposition(composition)) {
       return plain(Verdict.refuse("Dispatch was given something that is not a composition", "Compose the selected packs with Composition.compose and dispatch over the result"));
     }
     const checked = EventFactory.parse(event);

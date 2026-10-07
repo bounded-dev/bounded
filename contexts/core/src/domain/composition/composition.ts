@@ -146,5 +146,10 @@ function dependencyOrder(packs: readonly AnyPack[]): AnyPack[] {
   return order;
 }
 
+/** Whether `x` was made by Composition.compose in this copy of bounded: look-alikes are not. */
+export function isComposition(x: unknown): x is Contract.Composition {
+  return x instanceof CompositionImpl;
+}
+
 export type Composition = Contract.Composition;
 export const Composition: Contract.CompositionFactory = CompositionImpl;

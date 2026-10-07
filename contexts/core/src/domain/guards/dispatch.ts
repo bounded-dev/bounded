@@ -54,6 +54,24 @@ export function firstRefusal(guards: readonly LabelledGuard[], args: readonly un
   }
 }
 
+let dispatching = false;
+
+/**
+ * Runs `run` unless a dispatch is already running: a guard that dispatches
+ * again gets a short refusal instead of recursing until the stack overflows.
+ */
+export function outermost<T>(run: () => T, refused: (verdict: Verdict) => T): T {
+  if (dispatching) {
+    return refused(Verdict.refuse("Dispatch was called from inside a guard; guards decide events, they do not dispatch them", "Remove the call to dispatch from the guard"));
+  }
+  dispatching = true;
+  try {
+    return run();
+  } finally {
+    dispatching = false;
+  }
+}
+
 /** The refusal when dispatch itself cannot finish. */
 export function unfinished(thrown: unknown): Verdict {
   return Verdict.refuse(`Dispatch could not finish: ${show(thrown)}`, UNFINISHED);
@@ -64,7 +82,9 @@ export function invalidEvent(error: string): Verdict {
   return Verdict.refuse(`Dispatch was given an invalid event: ${error}`, "Build the event with Event.parse, ToolUse.parse or SessionStart.parse");
 }
 
-export const dispatch: Contract.Dispatch = (guards, event, ...context) => {
+export const dispatch: Contract.Dispatch = (guards, event, ...context) => outermost(() => run(guards, event, context[0]), (verdict) => verdict);
+
+function run(guards: unknown, event: unknown, context: unknown): Verdict {
   try {
     if (!Array.isArray(guards)) return Verdict.refuse("Dispatch was given guards that are not a list", "Pass the guards for this event as a list; with no guards, pass []");
     const checked = Event.parse(event);
@@ -72,8 +92,8 @@ export const dispatch: Contract.Dispatch = (guards, event, ...context) => {
     // Named by position: function names do not survive every bundler. Every
     // guard gets the checked event: frozen, normalised, vocabulary fields only.
     const labelled = guards.map((guard, i) => ({ guard, label: `Guard ${i + 1} of ${guards.length}` }));
-    return firstRefusal(labelled, [checked.value, context[0]])?.verdict ?? Verdict.allow;
+    return firstRefusal(labelled, [checked.value, context])?.verdict ?? Verdict.allow;
   } catch (thrown) {
     return unfinished(thrown);
   }
-};
+}
