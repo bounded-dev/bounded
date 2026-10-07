@@ -323,7 +323,7 @@ function ruleOf(change: Change, before: WatchedHashes, after: WatchedHashes): nu
   return (before[change.path] ?? after[change.path])?.rule ?? 0;
 }
 
-/** For each rule, in rule order: its files and what they became, why they are watched, then what to do instead. */
+/** For each rule, in rule order: "<its files and what they became> — protected because <why>. <what to do instead>." */
 function describe(changed: readonly Change[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): string {
   const groups = new Map<number, Change[]>();
   for (const change of changed) {
@@ -334,8 +334,8 @@ function describe(changed: readonly Change[], before: WatchedHashes, after: Watc
     .sort(([a], [b]) => a - b)
     .map(([index, files]) => {
       const rule = rules[index]?.rule;
-      const what = sentence(files.map((f) => `${f.path} was ${f.change}`).join(", "));
-      return rule === undefined ? what : `${what} ${sentence(rule.why)} ${sentence(rule.redirect)}`;
+      const what = files.map((f) => `${f.path} was ${f.change}`).join(", ");
+      return rule === undefined ? sentence(what) : `${what} — protected because ${sentence(rule.why)} ${sentence(rule.redirect)}`;
     })
     .join(" ");
 }

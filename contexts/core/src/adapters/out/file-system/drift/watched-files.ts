@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSyn
 import { dirname, join } from "node:path";
 import type { RestoreFrom, WatchedFiles, WatchedHashes } from "bounded/application";
 import type { Result, WatchedPath } from "bounded/domain";
-import { isInside, mayHold, watcher } from "../../shared/watching.ts";
+import { isInside, isOwnState, mayHold, watcher } from "../../shared/watching.ts";
 
 const text = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
@@ -15,10 +15,11 @@ const MAX_BUFFER = 1024 * 1024 * 1024;
 const executableMode = (mode: number): number => (mode & 0o777) | ((mode & 0o444) >> 2);
 
 /**
- * The project's files on disk, under git. Hashing walks only the directories
- * a rule's fixed leading part can lead to, never node_modules, .git or a
- * linked directory; a link a rule matches is recorded by where it points,
- * never followed. Restoring writes one file's bytes and executable bit, from
+ * The project's files on disk, under git. Hashing takes the files git lists
+ * (tracked, untracked and ignored; outside git, a walk of only the
+ * directories a rule's fixed leading part can lead to), never inside
+ * node_modules, .git or a linked directory; a link a rule matches is
+ * recorded by where it points, never followed. Restoring writes one file's bytes and executable bit, from
  * a copy or from a commit, and leaves git's index alone. What a command
  * created is moved into a new directory under `quarantine`, never deleted.
  */
@@ -33,30 +34,65 @@ export class FileSystemWatchedFiles implements WatchedFiles {
       const watching = watcher(rules);
       const enter = mayHold(rules);
       const out: Record<string, { hash: string; size: number; rule: number; link?: true }> = {};
+      /** A file or link, hashed when a rule watches it. */
+      const take = (path: string, kind: "file" | "link"): void => {
+        const rule = watching(path);
+        if (rule < 0) return;
+        if (kind === "link") {
+          const target = Buffer.from(readlinkSync(join(this.root, path)));
+          out[path] = { hash: sha256(Buffer.concat([Buffer.from("link\0"), target])), size: target.length, rule, link: true };
+        } else {
+          const bytes = readFileSync(join(this.root, path));
+          out[path] = { hash: sha256(bytes), size: bytes.length, rule };
+        }
+      };
       const walk = (dir: string): void => {
         for (const entry of readdirSync(join(this.root, dir), { withFileTypes: true })) {
           const path = dir === "" ? entry.name : `${dir}/${entry.name}`;
           // A directory entry is never a link here: readdir does not follow them.
           if (entry.isDirectory()) {
             if (enter(path)) walk(path);
-            continue;
-          }
-          const rule = entry.isFile() || entry.isSymbolicLink() ? watching(path) : -1;
-          if (rule < 0) continue;
-          if (entry.isSymbolicLink()) {
-            const target = Buffer.from(readlinkSync(join(this.root, path)));
-            out[path] = { hash: sha256(Buffer.concat([Buffer.from("link\0"), target])), size: target.length, rule, link: true };
-          } else {
-            const bytes = readFileSync(join(this.root, path));
-            out[path] = { hash: sha256(bytes), size: bytes.length, rule };
-          }
+          } else if (entry.isFile()) take(path, "file");
+          else if (entry.isSymbolicLink()) take(path, "link");
         }
       };
-      if (rules.length > 0) walk("");
+      if (rules.length === 0) return { ok: true, value: out };
+      const listed = this.listed();
+      if (!listed.ok) return listed;
+      if (listed.value === null) walk("");
+      for (const path of listed.value ?? []) {
+        // An ignored directory git lists whole: walked only where a rule may reach.
+        if (path.endsWith("/")) {
+          const dir = path.slice(0, -1);
+          if (enter(dir)) walk(dir);
+          continue;
+        }
+        const found = lstatSync(join(this.root, path), { throwIfNoEntry: false });
+        if (found?.isFile()) take(path, "file");
+        else if (found?.isSymbolicLink()) take(path, "link");
+      }
       return { ok: true, value: out };
     } catch (thrown) {
       return { ok: false, error: text(thrown) };
     }
+  }
+
+  /**
+   * The project's files as git lists them: tracked and untracked files, then
+   * ignored files and ignored directories (ending in '/') whole, so nothing
+   * protected is missed for being ignored. Null when the project is not a git
+   * repository (or git cannot run), so the files are walked instead.
+   */
+  private listed(): Result<readonly string[] | null> {
+    const inside = this.git(["rev-parse", "--is-inside-work-tree"]);
+    if (inside.error !== undefined || inside.status !== 0) return { ok: true, value: null };
+    const paths: string[] = [];
+    for (const args of [["ls-files", "-z", "-c", "-o", "--exclude-standard"], ["ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"]]) {
+      const run = this.git(args);
+      if (run.error !== undefined || run.status !== 0) return { ok: false, error: `git could not list the project's files: ${run.error?.message ?? run.stderr.toString().trim()}` };
+      paths.push(...run.stdout.toString().split("\0").filter((path) => path !== "" && !isOwnState(path.replace(/\/$/, ""))));
+    }
+    return { ok: true, value: [...new Set(paths)] };
   }
 
   async head(): Promise<Result<string | null>> {

@@ -143,7 +143,7 @@ export default defineConfig({
       expect(after.exitCode).toBe(0);
       const answer = JSON.parse(after.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
       expect(answer.hookSpecificOutput.hookEventName).toBe("PostToolUseFailure");
-      expect(answer.hookSpecificOutput.additionalContext).toStartWith("This command changed protected files, and they were restored: generated/a.ts was modified.");
+      expect(answer.hookSpecificOutput.additionalContext).toStartWith("This command changed protected files, and they were restored: generated/a.ts was modified — protected because");
       expect(readFileSync(join(project, "generated", "a.ts"), "utf8")).toBe("original\n");
     } finally {
       rmSync(project, { recursive: true, force: true });

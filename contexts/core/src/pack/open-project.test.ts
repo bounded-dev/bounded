@@ -115,7 +115,7 @@ export default defineConfig({
     const check = await afterTool({ ...shell, kind: "tool-result", ok: true });
     const where = /What it created was moved, not deleted, to (.+)\.$/.exec(check.message ?? "")?.[1] ?? "";
     expect(check.message).toBe(
-      `This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Change the generator's input instead. What it created was moved, not deleted, to ${where}.`,
+      `This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created — protected because generated/ is written by the generator. Change the generator's input instead. What it created was moved, not deleted, to ${where}.`,
     );
     expect(where.startsWith(join(process.env.XDG_STATE_HOME ?? "", "bounded"))).toBe(true);
     expect(readFileSync(join(where, "generated", "new.ts"), "utf8")).toBe("created\n");

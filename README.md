@@ -4,12 +4,32 @@ The small, pure core of the Bounded harness, a set of guardrails for coding
 agents: the mechanism by which packs (selectable bundles of behaviour) extend
 one another. [docs/spec.md](docs/spec.md) is the requirement.
 
-**Status: slices 1 to 3** — packs, typed extension points, contributions
-and composition ([docs/slice-1.md](docs/slice-1.md)); host-neutral events
-made of precise effects, verdicts, guards and dispatch over a composition
-([docs/slice-2.md](docs/slice-2.md)); the path gate, the first pack
-([docs/slice-3.md](docs/slice-3.md)). Each guide has a reading order and a
-worked example.
+## Status
+
+Built and running on two real hosts:
+
+- **Slices 1 to 3.** Packs, typed extension points, contributions and
+  composition ([docs/slice-1.md](docs/slice-1.md)); host-neutral events made
+  of precise effects, verdicts, guards and dispatch over a composition
+  ([docs/slice-2.md](docs/slice-2.md)); the path gate, the first pack
+  ([docs/slice-3.md](docs/slice-3.md)). Each guide has a reading order and a
+  worked example.
+- **The path gate** (`bounded/path-gate`): deny-only rules on reads,
+  listings and writes, file rules, honest redirects, and protection of the
+  project's own configuration ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)).
+- **The decision log**: every decision, and every refusal a host adapter
+  makes itself, recorded in `.bounded/guard-log.jsonl`
+  ([docs/decision-log.md](docs/decision-log.md)).
+- **Configuration**: `bounded.config.ts` selects packs; `openProject(root)`
+  gives the judge hosts ask, and refuses everything when the configuration
+  is broken ([docs/configuration.md](docs/configuration.md)).
+- **Drift**: what a shell command changes in protected files is put back, or
+  moved aside, reported and recorded; tampered snapshots are detected
+  ([docs/drift.md](docs/drift.md)).
+- **Host adapters**: Claude Code hooks (PreToolUse, PostToolUse,
+  PostToolUseFailure; [docs/adapter-claude-code.md](docs/adapter-claude-code.md))
+  and a pi extension (tool_call, tool_result;
+  [docs/adapter-pi.md](docs/adapter-pi.md)), in `apps/`.
 
 ## Design in brief
 
@@ -44,10 +64,11 @@ worked example.
   about every event. A broken configuration refuses everything
   ([docs/configuration.md](docs/configuration.md), ADR 2026-010).
 
-- **Drift.** Files contributed to `watchedPaths` are hashed before every
-  allowed shell command and put back after it if it changed them, with a
-  message for the agent and a record ([docs/drift.md](docs/drift.md),
-  ADR 2026-011).
+- **Drift.** Files contributed to `watchedPaths` (the path gate contributes
+  what it protects from writes) are snapshotted before every allowed shell
+  command and put back after it if it changed them, with a message for the
+  agent and a record; what a command created is moved aside, never deleted
+  ([docs/drift.md](docs/drift.md), ADR 2026-011).
 
 - **The path gate** (`bounded/path-gate`) is an ordinary pack. Packs and
   projects contribute deny-only rules to its `protectedPaths` point (a
