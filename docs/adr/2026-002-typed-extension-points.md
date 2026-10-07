@@ -1,6 +1,6 @@
 # 2026-002: Typed extension points, and where they depart from the example
 
-**Status:** accepted
+**Status:** superseded in part by [ADR 2026-003](2026-003-packs-refer-to-packs.md): packs now refer to each other as objects, `definePack` replaces `new Pack`, `ExtensionPoint.ownedBy` and `new Contribution`, and literal pack names are no longer needed. The deviations from the example listed below still apply.
 
 ## Decision
 

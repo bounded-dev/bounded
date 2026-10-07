@@ -92,7 +92,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   test beside every adapter that implements it.
 - Generic types, function-valued contributions and synchronous reads are
   allowed where the extension mechanism needs them; each such deviation from
-  the example is recorded in an ADR (ADR 2026-002).
+  the example is recorded in an ADR (ADRs 2026-002 and 2026-003).
 
 ## The extension model — binding
 
@@ -102,15 +102,23 @@ Rules, enforced by `architecture.test.ts` unless stated:
   later slice). It holds no opinion about any application and names no
   programming language, framework, tool or agent host.
 - **Packs own content.** A pack declares its own extension points and
-  contributes values to its own points or to those of packs it lists as
-  dependencies. Contributing across an undeclared dependency does not compile
-  (the owner is a literal type checked with `NoInfer`) and is refused at
-  composition if it is built dynamically.
+  gives values to its own points and contributes to points of packs it lists
+  in `dependsOn` (pack objects, so imports are the dependency graph).
+  Contributing across an undeclared dependency does not compile and is
+  refused at composition if it is built from untyped data.
 - **Composition is per project.** Only selected packs take part; a pack that
   is not selected leaves no trace. Every refusal names the pack, the extension
   point and the fix.
 - **Fail closed.** A missing, unreadable or malformed input is a refusal with
   an actionable message, never "contributes nothing".
+- **Strict typing (ADR 2026-003).** Anything not explicitly wired fails to
+  compile: a pack contributes only to points of packs directly in its
+  `dependsOn` tuple, with values of exactly the point's type; points are
+  declared only inside their own pack; reads are typed by the point object.
+  Composition repeats every rule at run time for untyped data. A change that
+  loosens a rule, or adds one, comes with a rejected fixture line stating
+  its reason (`contexts/core/test/fixtures/compile-time/`) and a run-time
+  refusal test.
 - If a change needs the core to learn a technology's name or an opinion, it is
   in the wrong place: put it in a pack and give the core a mechanism.
 

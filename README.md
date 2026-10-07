@@ -10,13 +10,14 @@ and a worked example.
 
 ## Design in brief
 
-- A **pack** has a name, the packs it depends on, the extension points it
-  declares and the contributions it makes.
-- An **extension point** is declared by one pack, its owner, and accepts
-  values of one type, optionally checking each.
-- A pack may contribute only to its own extension points or those of a pack it
-  depends on. Anything else does not compile, and is refused at composition
-  if it is built from untyped data.
+- A **pack** has a label, the packs it depends on (the pack objects
+  themselves), the extension points it declares and the contributions it
+  makes.
+- An **extension point** is declared inside its pack, which owns it, and
+  accepts values of one type: its check parses each value and may normalise it.
+- A pack may contribute only to the points of packs it lists directly in
+  `dependsOn`. Anything else does not compile, and is refused at composition
+  if it is built from untyped data (ADR 2026-003).
 - **Composition** takes the available packs and a project's selection, and
   either refuses with a message naming the pack, the extension point and the
   fix, or returns a result from which each extension point is read, typed,
