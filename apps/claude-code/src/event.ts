@@ -17,7 +17,9 @@ export type Effect =
   | { readonly kind: "write"; readonly path: ProjectPath; readonly change: Change }
   | { readonly kind: "execute"; readonly command: string }
   | { readonly kind: "fetch"; readonly url: string }
-  | { readonly kind: "delegate"; readonly agent: string };
+  | { readonly kind: "delegate"; readonly agent: string }
+  /** A tool call whose effects cannot be described, by the tool's name. */
+  | { readonly kind: "invoke"; readonly name: string };
 
 /** An agent using a tool: what it is, and everything it does (at least one effect). */
 export interface ToolUse {

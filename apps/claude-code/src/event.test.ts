@@ -38,7 +38,7 @@ describe("toToolUse: a translated call, its paths resolved, as a host-neutral ev
   });
 
   test("effects without paths pass as they are", () => {
-    const effects = [{ kind: "execute", command: "ls" }, { kind: "fetch", url: "https://example.com" }, { kind: "delegate", agent: "Explore" }] as const;
+    const effects = [{ kind: "execute", command: "ls" }, { kind: "fetch", url: "https://example.com" }, { kind: "delegate", agent: "Explore" }, { kind: "invoke", name: "Skill" }] as const;
     expect(event({ tool: "other", effects: [...effects] }).effects).toEqual([...effects] as never);
   });
 

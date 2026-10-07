@@ -18,7 +18,8 @@ export type HostEffect =
   | { readonly kind: "write"; readonly path: string; readonly change: Change | "create-or-modify" }
   | { readonly kind: "execute"; readonly command: string }
   | { readonly kind: "fetch"; readonly url: string }
-  | { readonly kind: "delegate"; readonly agent: string };
+  | { readonly kind: "delegate"; readonly agent: string }
+  | { readonly kind: "invoke"; readonly name: string };
 
 export interface HostCall {
   readonly tool: ToolKind;
@@ -101,12 +102,13 @@ export function translate({ tool_name: name, tool_input: input }: Payload): Resu
       return one("subagent", "subagent_type", (agent) => ({ kind: "delegate", agent }), "general-purpose");
     case "WebFetch":
       return one("web", "url", (url) => ({ kind: "fetch", url }));
-    // A search names no URL, and an effect without one would be invented: Claude Code
-    // runs the search, so it is an execute of the tool, as for any tool not known here.
+    // Tools whose effects cannot be described are an invoke of the tool by name:
+    // a search names no URL to fetch, and an unknown tool's effects are unknown.
+    // Never an execute, which is strictly a shell command.
     case "WebSearch":
-      return ok({ tool: "web", effects: [{ kind: "execute", command: name }] });
+      return ok({ tool: "web", effects: [{ kind: "invoke", name }] });
     default:
-      return ok({ tool: "other", effects: [{ kind: "execute", command: name }] });
+      return ok({ tool: "other", effects: [{ kind: "invoke", name }] });
   }
 }
 

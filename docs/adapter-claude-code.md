@@ -34,13 +34,14 @@ of its own and imports the core only through its export paths.
 | Bash | shell | execute `command` |
 | Agent, Task | subagent | delegate to `subagent_type` (Claude Code's default, `general-purpose`, when absent) |
 | WebFetch | web | fetch `url` |
-| WebSearch | web | execute `WebSearch` |
-| anything else (Skill, `mcp__*`, ...) | other | execute the tool's name |
+| WebSearch | web | invoke `WebSearch` |
+| anything else (Skill, `mcp__*`, ...) | other | invoke the tool's name |
 
-WebSearch names no URL, and inventing one would mislead a guard, so it is
-recorded as what it is: the host executing a capability bounded cannot see
-into. Unknown tools are the same, under `other`, so a project that refuses
-unknown capabilities does it with one guard on `execute` outside `shell`.
+An invoke is a tool call whose effects cannot be described: WebSearch names
+no URL, and inventing one would mislead a guard, and an unknown tool's effects
+are unknown. It is never an execute, which is strictly a shell command that
+gates parse as one. A project that refuses unknown capabilities does it with
+one guard on `invoke`.
 
 A required field that is missing or not text refuses the call; nothing is
 passed through unchecked.
