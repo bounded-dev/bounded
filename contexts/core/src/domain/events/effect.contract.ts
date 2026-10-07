@@ -23,7 +23,7 @@ export interface WriteEffect {
   readonly change: Change;
 }
 
-/** Runs a shell command. */
+/** Runs a shell command, and nothing else. */
 export interface ExecuteEffect {
   readonly kind: "execute";
   readonly command: string;
@@ -41,8 +41,14 @@ export interface DelegateEffect {
   readonly agent: string;
 }
 
+/** Calls a tool whose effects the host cannot describe: an unknown tool, a tool from another server, a skill. */
+export interface InvokeEffect {
+  readonly kind: "invoke";
+  readonly name: string;
+}
+
 /** One precise thing a tool call does. A call has one or more. */
-export type Effect = ReadEffect | ListEffect | WriteEffect | ExecuteEffect | FetchEffect | DelegateEffect;
+export type Effect = ReadEffect | ListEffect | WriteEffect | ExecuteEffect | FetchEffect | DelegateEffect | InvokeEffect;
 export type EffectKind = Effect["kind"];
 
 export interface EffectFactory {

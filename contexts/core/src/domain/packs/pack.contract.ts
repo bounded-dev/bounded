@@ -114,7 +114,8 @@ type LeafOf<T> = Leaf extends infer L ? (L extends unknown ? (T extends L ? L : 
  * type arguments of Promise (any PromiseLike), ReadonlyMap/Map,
  * ReadonlySet/Set and arrays and tuples; a function's own parameters and
  * result; a constructor's own parameters and instance type; and the own
- * properties of any other object. Leaves (Date, RegExp, URL, Error,
+ * properties of any other object. Primitives, branded or not, are leaves,
+ * as are Date, RegExp, URL, Error,
  * ArrayBuffer, SharedArrayBuffer, DataView and the typed arrays) are matched
  * by assignability, and only the members a type adds to its leaf are
  * inspected. Library method signatures are never inspected, so precise
@@ -124,7 +125,9 @@ type ContainsAny<T, Depth extends readonly unknown[] = []> = IsAny<T> extends tr
   ? true
   : Depth["length"] extends 8
     ? false
-    : [LeafOf<T>] extends [never]
+    : T extends string | number | boolean | bigint | symbol | null | undefined
+      ? false
+      : [LeafOf<T>] extends [never]
       ? StructureContainsAny<T, [...Depth, 1]>
       : AnyIn<{ [K in Exclude<keyof T, keyof LeafOf<T>>]-?: ContainsAny<T[K], [...Depth, 1]> }[Exclude<keyof T, keyof LeafOf<T>>]>;
 

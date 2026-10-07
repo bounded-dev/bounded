@@ -11,7 +11,7 @@ class CompositionImpl implements Contract.Composition {
   declare readonly __brand: "Composition";
   private constructor(
     readonly packs: readonly AnyPack[],
-    private readonly slots: ReadonlyMap<AnyPoint, readonly unknown[]>,
+    private readonly slots: ReadonlyMap<AnyPoint, readonly Contract.Entry<unknown>[]>,
   ) {
     Object.freeze(this);
   }
@@ -56,7 +56,7 @@ class CompositionImpl implements Contract.Composition {
     }
 
     const order = dependencyOrder(chosen);
-    const slots = new Map<AnyPoint, unknown[]>();
+    const slots = new Map<AnyPoint, Contract.Entry<unknown>[]>();
     for (const pack of order) {
       for (const point of Object.values(pack.points)) {
         slots.set(point, []);
@@ -78,8 +78,13 @@ class CompositionImpl implements Contract.Composition {
   }
 
   read<Value>(point: ExtensionPoint<Value, PackIdType>): Result<readonly Value[]> {
-    const values = this.slots.get(point);
-    if (values === undefined) {
+    const entries = this.entries(point);
+    return entries.ok ? { ok: true, value: Object.freeze(entries.value.map((entry) => entry.value)) } : entries;
+  }
+
+  entries<Value>(point: ExtensionPoint<Value, PackIdType>): Result<readonly Contract.Entry<Value>[]> {
+    const entries = this.slots.get(point);
+    if (entries === undefined) {
       const owner = point.owner.id;
       return refuse(
         this.packs.some((pack) => pack.id === owner)
@@ -89,7 +94,7 @@ class CompositionImpl implements Contract.Composition {
     }
     // The one cast in composition: every value on this point's slot was
     // returned by this point's own check, whose type is (raw) => Result<Value>.
-    return { ok: true, value: Object.freeze([...values]) as readonly Value[] };
+    return { ok: true, value: Object.freeze([...entries]) as readonly Contract.Entry<Value>[] };
   }
 }
 
@@ -100,13 +105,13 @@ function refuse(error: string): { ok: false; error: string } {
 const byId = (a: AnyPack, b: AnyPack): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /** Check each value with the point's own check and store what it returns; a refusal message, or undefined. */
-function place(pack: AnyPack, point: AnyPoint, values: readonly unknown[], slots: Map<AnyPoint, unknown[]>): string | undefined {
+function place(pack: AnyPack, point: AnyPoint, values: readonly unknown[], slots: Map<AnyPoint, Contract.Entry<unknown>[]>): string | undefined {
   const slot = slots.get(point);
   if (slot === undefined) return `Pack '${pack.id}' contributes to extension point '${point.id}', which has no place in this composition. Report this as a defect`;
   for (const raw of values) {
     const checked = checkValue(point, raw);
     if (!checked.ok) return `Pack '${pack.id}' contributes an invalid value to extension point '${point.id}': ${checked.error}. Fix the value, or remove the contribution`;
-    slot.push(checked.value);
+    slot.push(Object.freeze({ from: pack.id, value: checked.value }));
   }
   return undefined;
 }

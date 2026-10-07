@@ -4,7 +4,7 @@ import type * as Contract from "./effect.contract.ts";
 import { ProjectPath } from "./project-path.ts";
 
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
-const KINDS = "An effect has kind read, list, write, execute, fetch or delegate";
+const KINDS = "An effect has kind read, list, write, execute, fetch, delegate or invoke";
 const CHANGES: readonly Contract.Change[] = ["create", "modify", "delete"];
 /** Each kind's fields, required first; a field not listed does not belong. */
 const SHAPES = {
@@ -14,6 +14,7 @@ const SHAPES = {
   execute: { fields: ["command"], optional: [], form: "An execute effect is { kind, command }" },
   fetch: { fields: ["url"], optional: [], form: "A fetch effect is { kind, url }" },
   delegate: { fields: ["agent"], optional: [], form: "A delegate effect is { kind, agent }" },
+  invoke: { fields: ["name"], optional: [], form: "An invoke effect is { kind, name }" },
 } as const satisfies Record<Contract.EffectKind, { fields: readonly string[]; optional: readonly string[]; form: string }>;
 
 const control = (text: string, allowed = ""): boolean => [...text].some((c) => (c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f) && !allowed.includes(c));
@@ -66,6 +67,12 @@ function check(raw: unknown): Result<Contract.Effect> {
       if (control(agent)) return refuse("An agent's name must not contain control characters");
       return made({ kind, agent });
     }
+    case "invoke": {
+      const name = own(raw, "name");
+      if (typeof name !== "string" || name.trim() === "") return refuse("An invoke effect must name the tool it invokes");
+      if (control(name)) return refuse("A tool name must not contain NUL or control characters");
+      return made({ kind, name });
+    }
   }
 }
 
@@ -88,6 +95,8 @@ export function describeEffect(effect: Contract.Effect): string {
       return `fetch ${effect.url}`;
     case "delegate":
       return `delegate to ${effect.agent}`;
+    case "invoke":
+      return `invoke ${effect.name}`;
   }
 }
 

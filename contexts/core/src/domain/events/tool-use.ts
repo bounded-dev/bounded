@@ -6,7 +6,7 @@ import { roleOf } from "./role.ts";
 import type * as Contract from "./tool-use.contract.ts";
 
 const TOOLS: readonly Contract.ToolKind[] = ["read", "search", "edit", "write", "shell", "web", "subagent", "other"];
-const EFFECTS = "A tool use's effects must be a non-empty list of what the call reads, lists, writes, executes, fetches or delegates";
+const EFFECTS = "A tool use's effects must be a non-empty list of what the call reads, lists, writes, executes, fetches, delegates or invokes";
 
 const one = <T extends string>(list: readonly T[], raw: unknown): raw is T => list.some((item) => item === raw);
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });

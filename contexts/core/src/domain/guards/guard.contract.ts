@@ -1,4 +1,6 @@
+import type { Effect } from "../events/effect.contract.ts";
 import type { Event } from "../events/event.contract.ts";
+import type { ToolUse } from "../events/tool-use.contract.ts";
 import type { Verdict } from "../verdicts/verdict.contract.ts";
 
 /**
@@ -9,6 +11,13 @@ import type { Verdict } from "../verdicts/verdict.contract.ts";
  * any list.
  */
 export type Guard<E extends Event, Context = unknown> = (event: E, context: Context) => Verdict;
+
+/**
+ * Decides one effect of a tool call: given the effect, the context and the
+ * whole call (for its role and tool). Synchronous and pure. A guard for one
+ * effect kind cannot serve another kind's point.
+ */
+export type EffectGuard<F extends Effect, Context = unknown> = (effect: F, context: Context, call: ToolUse) => Verdict;
 
 /**
  * Runs the guards in the order given; the first refusal wins and later
