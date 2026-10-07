@@ -13,12 +13,14 @@ events, guards, data manifests or path gate yet. All code is in
 2. `domain/packs/contribution.contract.ts` and `domain/packs/pack.contract.ts`
    — a contribution remembers the owner of the point it targets; `PackSpec`
    accepts only contributions to its own or a declared dependency's points.
-   This is the compile-time check.
+   This is the compile-time check. `domain/packs/one-literal.contract.ts`
+   keeps it from being switched off by a widened name.
 3. `test/fixtures/compile-time/rejected.ts` — the code that must not compile,
-   one line per rule; `compile-time.test.ts` (repository root) runs the
-   TypeScript compiler on it.
-4. `domain/composition/composition.ts` — composition, every refusal, the
-   dependency order, and the one unchecked cast in `read` with why it is sound.
+   one line per rule with the reason its error must give;
+   `compile-time.test.ts` (repository root) runs the TypeScript compiler on it.
+4. `domain/composition/composition.ts` — composition, every refusal (it never
+   throws), the dependency order, and the one cast in `read` with why it is
+   sound.
 5. `domain/composition/composition.test.ts` — the behaviour, one refusal per row.
 6. `application/composition/compose-packs/` — the same as a feature: wire
    input, command, in port, out port (the pack catalog) and handler.
