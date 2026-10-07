@@ -27,21 +27,20 @@ function diagnostics(file: string): Diagnostic[] {
   });
 }
 
-/** What does not hold: a marked line no matching error covers, or an error covering no marked line. */
-function mismatches(file: string, text: string): string[] {
-  const marked = text.split("\n").flatMap((line, i) => {
+interface Marker {
+  readonly line: number;
+  readonly reason: string;
+}
+
+/** Lines of code ending in `// rejected: <reason>`. */
+function markers(text: string): Marker[] {
+  return text.split("\n").flatMap((line, i) => {
     const reason = /^(?!\s*\/\/).*\/\/ rejected: (.+?)\s*$/.exec(line)?.[1];
     return reason === undefined ? [] : [{ line: i + 1, reason }];
   });
-  const found = diagnostics(file);
-  const covers = (d: Diagnostic, line: number) => d.first <= line && line <= d.last;
-  return [
-    ...marked
-      .filter((m) => !found.some((d) => covers(d, m.line) && d.message.includes(m.reason)))
-      .map((m) => `line ${m.line} compiles, or fails for another reason than "${m.reason}": ${found.filter((d) => covers(d, m.line)).map((d) => d.message).join(" | ") || "no error"}`),
-    ...found.filter((d) => !marked.some((m) => covers(d, m.line))).map((d) => `line ${d.first} fails unexpectedly: ${d.message}`),
-  ];
 }
+
+const covers = (d: Diagnostic, line: number): boolean => d.first <= line && line <= d.last;
 
 const fixtures = [...new Glob("contexts/*/test/fixtures/compile-time/*.ts").scanSync({ cwd: ROOT })].sort();
 
@@ -52,9 +51,19 @@ describe("compile-time ownership check", () => {
   });
 
   for (const fixture of fixtures) {
+    const file = `${ROOT}/${fixture}`;
+
     test(`${fixture}: exactly the lines marked rejected fail to compile`, async () => {
-      const file = `${ROOT}/${fixture}`;
-      expect(mismatches(file, await Bun.file(file).text())).toEqual([]);
+      const marked = markers(await Bun.file(file).text());
+      const found = diagnostics(file);
+      expect(marked.filter((m) => !found.some((d) => covers(d, m.line))).map((m) => `line ${m.line} compiles`)).toEqual([]);
+      expect(found.filter((d) => !marked.some((m) => covers(d, m.line))).map((d) => `line ${d.first}: ${d.message}`)).toEqual([]);
+    }, 30_000);
+
+    test(`${fixture}: exactly the lines marked rejected fail, each for its stated reason`, async () => {
+      const found = diagnostics(file);
+      const wrong = markers(await Bun.file(file).text()).filter((m) => !found.some((d) => covers(d, m.line) && d.message.includes(m.reason)));
+      expect(wrong.map((m) => `line ${m.line} does not fail with "${m.reason}"`)).toEqual([]);
     }, 30_000);
   }
 });
