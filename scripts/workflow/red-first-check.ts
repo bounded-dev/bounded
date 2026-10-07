@@ -30,6 +30,14 @@
 //                 placeholders (%s, $name) or as templates or expressions
 //                 match any reported title in that position.
 //
+// Superseded cases. A red case later replaced by design is recorded in
+// superseded-tests.json (see parseSupersessions): it is then exempt from
+// checks 3 and 4, its successor (if any) must exist, run and pass at the
+// head, and each record is printed as a note. A red commit may itself carry
+// that file, delete test paths, and delete a test file when every case in it
+// is recorded. A red commit that changes fixtures under fixtures/compile-time/
+// also runs compile-time.test.ts at the red commit, which must fail there.
+//
 // Exit status: 0 all checks pass, 1 a check failed, 2 usage or environment
 // error (no such commit, red commit not on the branch, the test run produced
 // no report).
@@ -77,9 +85,61 @@ function underFixtureDirectory(path: string): boolean {
   return path.split("/").slice(0, -1).some((segment) => FIXTURE_SEGMENTS.has(segment));
 }
 
-/** A path a red commit may touch: a test file, shared test code or a test fixture. */
+/** The record of superseded test cases, at the repository root. */
+export const SUPERSESSIONS = "superseded-tests.json";
+
+/** A path a red commit may touch: a test file, shared test code, a test fixture or the supersession record. */
 export function isTestPath(path: string): boolean {
-  return TEST_FILE.test(path) || TEST_SUPPORT.test(path) || underFixtureDirectory(path);
+  return TEST_FILE.test(path) || TEST_SUPPORT.test(path) || underFixtureDirectory(path) || path === SUPERSESSIONS;
+}
+
+/** Fixture directories whose files are exercised by a test elsewhere: a change to them runs that test too. */
+const FIXTURE_RUNNERS: readonly { readonly fixtures: string; readonly test: string }[] = [
+  { fixtures: "/fixtures/compile-time/", test: "compile-time.test.ts" },
+];
+
+/** The tests that exercise fixtures among `paths`. */
+export function fixtureRunners(paths: readonly string[]): string[] {
+  return FIXTURE_RUNNERS.filter((runner) => paths.some((path) => path.includes(runner.fixtures))).map((runner) => runner.test);
+}
+
+// ---------------------------------------------------------------------------
+// Supersession records
+//
+// A test case a red commit owns may later be replaced by design. It is then
+// recorded in superseded-tests.json: its file and case id (as this script
+// reads them), its successor (a case that must exist, run and pass at the
+// head) or null, and the reason. Recorded cases are not reported as deleted,
+// weakened or not run; each record is printed as a note for the reviewer.
+
+export interface Supersession {
+  readonly file: string;
+  readonly case: string;
+  readonly successor: { readonly file: string; readonly case: string } | null;
+  readonly reason: string;
+}
+
+/** The records in the file's text (none when the file is absent), or why they cannot be read. */
+export function parseSupersessions(text: string | undefined): { ok: true; value: Supersession[] } | { ok: false; error: string } {
+  if (text === undefined) return { ok: true, value: [] };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { ok: false, error: `${SUPERSESSIONS} is not valid JSON` };
+  }
+  const isText = (x: unknown): x is string => typeof x === "string" && x.trim() !== "";
+  const records: Supersession[] = [];
+  for (const entry of Array.isArray(raw) ? raw : [null]) {
+    const e = (typeof entry === "object" && entry !== null ? entry : {}) as Record<string, unknown>;
+    const next = (typeof e.successor === "object" && e.successor !== null ? e.successor : {}) as Record<string, unknown>;
+    const successorOk = e.successor === null || (isText(next.file) && isText(next.case));
+    if (!isText(e.file) || !isText(e.case) || !isText(e.reason) || !successorOk) {
+      return { ok: false, error: `${SUPERSESSIONS} must be a list of { file, case, successor: { file, case } | null, reason }, each with a reason` };
+    }
+    records.push({ file: e.file, case: e.case, successor: e.successor === null ? null : { file: String(next.file), case: String(next.case) }, reason: e.reason });
+  }
+  return { ok: true, value: records };
 }
 
 /** A test file the test command runs: a test file outside fixture directories. */
@@ -523,20 +583,40 @@ function run(args: readonly string[], print: (line: string) => void): number {
   const failures: string[] = [];
   const notes: string[] = [];
 
+  const recordsAt = (commit: string): Supersession[] => {
+    const parsed = parseSupersessions(show(repo, commit, SUPERSESSIONS));
+    if (!parsed.ok) throw new UsageError(`${parsed.error} at ${commit.slice(0, 12)}`);
+    return parsed.value;
+  };
+  const atRedRecords = recordsAt(red);
+  const headRecords = recordsAt(head);
+  const recorded = (records: readonly Supersession[], file: string, id: string) => records.find((r) => r.file === file && r.case === id);
+
   // 1. scope
   const changes = parseNameStatus(git(repo, "diff-tree", "-r", "--no-commit-id", "--name-status", "-M", `${red}^`, red));
   for (const change of changes) {
-    if (change.status === "D") failures.push(`scope: the red commit deletes ${change.path}`);
-    else if (!isTestPath(change.path)) failures.push(`scope: ${change.path} is not a test file, test support or test fixture`);
+    if (change.status === "D") {
+      // A red commit may delete a test path; a runnable test file only when
+      // every case in it is recorded as superseded by the red commit's record.
+      if (!isTestPath(change.path)) failures.push(`scope: the red commit deletes ${change.path}, which is not a test path`);
+      else if (isRunnableTestPath(change.path)) {
+        for (const c of extractTestCases(show(repo, `${red}^`, change.path) ?? "", change.path)) {
+          if (recorded(atRedRecords, change.path, c.id) === undefined) {
+            failures.push(`scope: the red commit deletes ${change.path}, whose case "${c.id}" no record in ${SUPERSESSIONS} supersedes`);
+          }
+        }
+      }
+    } else if (!isTestPath(change.path)) failures.push(`scope: ${change.path} is not a test file, test support or test fixture`);
     else if (change.from !== undefined && !isTestPath(change.from)) failures.push(`scope: ${change.path} was moved from ${change.from}, which is not a test path`);
   }
   const testFiles = changes.filter((c) => c.status !== "D" && isRunnableTestPath(c.path)).map((c) => c.path);
   if (testFiles.length === 0) failures.push("scope: the red commit adds or changes no runnable test file");
-  print(`scope: ${changes.length} path(s) in the red commit, ${testFiles.length} runnable test file(s)`);
+  const runners = fixtureRunners(changes.map((c) => c.path)).filter((f) => !testFiles.includes(f) && show(repo, red, f) !== undefined);
+  print(`scope: ${changes.length} path(s) in the red commit, ${testFiles.length} runnable test file(s)${runners.length > 0 ? `, plus ${runners.join(", ")} for its fixtures` : ""}`);
 
   // 2. red
-  if (testFiles.length > 0) {
-    const result = runAtRed(repo, red, testFiles, print);
+  if (testFiles.length > 0 || runners.length > 0) {
+    const result = runAtRed(repo, red, [...testFiles, ...runners], print);
     failures.push(...result.failures.map((f) => `red: ${f}`));
     notes.push(...result.notes);
   }
@@ -544,11 +624,34 @@ function run(args: readonly string[], print: (line: string) => void): number {
   // 3. preserved
   let ownedCount = 0;
   const atHead = new Map<string, TestCase[]>();
+  const addAtHead = (file: string, cases: readonly TestCase[]) => {
+    if (cases.length > 0) atHead.set(file, [...(atHead.get(file) ?? []), ...cases]);
+  };
   for (const file of testFiles) {
-    const cases = redCases(show(repo, `${red}^`, file), show(repo, red, file) ?? "", file);
-    ownedCount += cases.length;
+    const owned = redCases(show(repo, `${red}^`, file), show(repo, red, file) ?? "", file);
+    ownedCount += owned.length;
+    const cases: TestCase[] = [];
+    for (const c of owned) {
+      const record = recorded(headRecords, file, c.id);
+      if (record === undefined) {
+        cases.push(c);
+        continue;
+      }
+      if (record.successor === null) {
+        notes.push(`${file}: "${c.id}" is superseded with no successor (${record.reason})`);
+        continue;
+      }
+      const { file: nextFile, case: nextCase } = record.successor;
+      const successor = extractTestCases(show(repo, head, nextFile) ?? "", nextFile).find((n) => n.id === nextCase);
+      if (successor === undefined) {
+        failures.push(`preserved: ${file}: "${c.id}" is superseded by ${nextFile}: "${nextCase}", which does not exist at the head`);
+        continue;
+      }
+      notes.push(`${file}: "${c.id}" is superseded by ${nextFile}: "${nextCase}" (${record.reason})`);
+      addAtHead(nextFile, [successor]);
+    }
     const at = headPathOf(repo, red, head, file);
-    if (at !== undefined && cases.length > 0) atHead.set(at, [...(atHead.get(at) ?? []), ...cases]);
+    if (at !== undefined) addAtHead(at, cases);
     const source = at === undefined ? undefined : show(repo, head, at);
     const headCases = source === undefined ? undefined : extractTestCases(source, at);
     for (const w of compareCases(cases, headCases)) failures.push(`preserved: ${file}: "${w.id}" ${w.kind} (${w.detail})`);

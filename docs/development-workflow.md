@@ -87,9 +87,9 @@ after `bun install --frozen-lockfile`, so the workspace links point into that
 tree.
 
 - **Scope:** the red commit only adds or modifies `*.test.ts` / `*.test.tsx`
-  files, `*.test-support.ts` files and fixtures under `testdata/`,
-  `fixtures/`, `__fixtures__/` or `__snapshots__/`, and adds at least one
-  runnable test file.
+  files, `*.test-support.ts` files, fixtures under `testdata/`,
+  `fixtures/`, `__fixtures__/` or `__snapshots__/` and `superseded-tests.json`,
+  and adds at least one runnable test file.
 - **Red:** at the red commit, `bun test` run on each of those test files
   alone fails (a failing test or a file that does not load). A new case that
   already passes inside a failing file is a note.
@@ -101,6 +101,15 @@ tree.
 - **Head:** at the branch head, `bun test` on those files exits 0 and, by its
   JUnit report, collects, runs and passes every red case, and sees each make
   at least one assertion.
+
+- **Superseded cases:** when a design change replaces a case an earlier red
+  commit owns, the red commit of that change records it in
+  `superseded-tests.json` (file, case, successor or `null`, reason). A
+  recorded case is exempt from the two checks above; its successor must
+  exist, run and pass at the head, and each record is printed as a note for
+  the reviewer to judge. A red commit may delete a test file only when every
+  case in it is recorded. A red commit that changes the compile-time
+  fixtures also runs `compile-time.test.ts`, which must fail at the red commit.
 
 **The comparison counts assertions; it never reads them.** A red
 `expect(add(1, 2)).toBe(3)` replaced by `expect(1).toBe(1)` passes every
