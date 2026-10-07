@@ -304,5 +304,14 @@
       "case": "piLoader — loaded by pi's own jiti, under node > hands the project root to bounded-pi's extension"
     },
     "reason": "the loader is now an async factory that fails closed when bounded-pi cannot be loaded, so it is exercised as pi loads it: through pi's jiti, under node"
+  },
+  {
+    "file": "apps/pi/src/extension.test.ts",
+    "case": "piExtension — freezing and deadlines > a composition that times out is retried on the next tool call",
+    "successor": {
+      "file": "apps/pi/src/extension.test.ts",
+      "case": "piExtension — freezing and deadlines > a composition that times out is retried after a back-off, not on every call"
+    },
+    "reason": "recomposing on every call after a timeout piles up pending imports; a timed-out composition is now cached as failed for a back-off, and the block says when it retries"
   }
 ]

@@ -36,7 +36,7 @@ const noGenerated: Decide = async (event) => {
 const loads = (decide: Decide): Load => async () => decide;
 const never = <T>(): Promise<T> => new Promise<T>(() => {});
 
-async function started(load: Load, deadlines: Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs"> = {}) {
+async function started(load: Load, deadlines: Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs" | "composeBackoffMs"> = {}) {
   const fake = fakePi();
   piExtension({ root: project, load, home: "/home/agent", ...deadlines })(fake.pi);
   await fake.start();
@@ -181,15 +181,20 @@ describe("piExtension — freezing and deadlines", () => {
     expect(Object.isFrozen(edit)).toBe(true);
   });
 
-  test("a composition that times out is retried on the next tool call", async () => {
+  test("a composition that times out is retried after a back-off, not on every call", async () => {
     let count = 0;
     const fake = await started(async () => {
       count += 1;
       return count === 1 ? never() : noGenerated;
-    }, { composeDeadlineMs: 50 });
+    }, { composeDeadlineMs: 50, composeBackoffMs: 200 });
     const first = await fake.call("read", { path: "a.ts" });
     expect(first).toMatchObject({ block: true });
     expect((first as { reason: string }).reason).toContain("within 50 ms");
+    const during = await fake.call("read", { path: "a.ts" });
+    expect((during as { reason: string }).reason).toContain("timed out");
+    expect((during as { reason: string }).reason).toMatch(/retries in 0\.\d s/);
+    expect(count).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     expect(await fake.call("read", { path: "a.ts" })).toBeUndefined();
     expect(count).toBe(2);
   });
