@@ -19,7 +19,7 @@ describe("show", () => {
   });
 
   test("keeps dispatch total when a guard throws such an error", () => {
-    const event = ToolUse.parse({ role: null, tool: "edit", action: "write", paths: ["a.ts"] });
+    const event = ToolUse.parse({ role: null, tool: "edit", effects: [{ kind: "write", path: "a.ts", change: "modify" }] });
     if (!event.ok) throw new Error(event.error);
     const throwing = () => {
       throw errorWithMessage(unprintable);

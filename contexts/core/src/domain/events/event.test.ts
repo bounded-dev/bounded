@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
 import { Event } from "./event.ts";
 
-const write = { kind: "tool-use", role: "builder", tool: "write", action: "write", paths: ["a.ts"] };
+const write = { kind: "tool-use", role: "builder", tool: "write", effects: [{ kind: "write", path: "a.ts", change: "create" }] };
 const start = { kind: "session-start", role: "builder" };
 
 valueObjectLaws("Event", Event, [write, start], [{ kind: "tool-use", role: null }, { role: null }, { kind: "session-end", role: null }]);
@@ -22,7 +22,7 @@ describe("Event — boundaries", () => {
   });
 
   test("refuses a malformed event of a known kind with that kind's reason", () => {
-    expect(Event.parse({ ...write, action: "delete" })).toEqual({ ok: false, error: "Action 'delete' is not one of: read, write, run" });
+    expect(Event.parse({ ...write, tool: "bash" })).toEqual({ ok: false, error: "Tool kind 'bash' is not one of: read, search, edit, write, shell, web, subagent, other" });
   });
 });
 
