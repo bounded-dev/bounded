@@ -1,4 +1,4 @@
-import { type Composition, Decision, decideEvent, Event, Verdict } from "bounded/domain";
+import { type Composition, Decision, decideEvent, Event, type Judgement, Verdict } from "bounded/domain";
 import type { Clock, DecisionLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
 
 const UNRECORDED_REDIRECT = "Make the decision log writable; until decisions can be recorded, every action is refused";
@@ -30,36 +30,64 @@ export class JudgeEventHandler implements JudgeEvent {
   /** How long a decision may take to record before the action is refused: a hook must answer promptly. */
   static readonly DEFAULT_RECORD_WITHIN_MS = 2000;
   private readonly recordWithinMs: number;
+  private readonly decide: (event: Event) => Judgement;
 
+  /**
+   * `options.refuseEverything` makes every event get that refusal, recorded
+   * as usual: for a project whose configuration cannot be used. Without it,
+   * events are decided by the composition's guards.
+   */
   constructor(
-    private readonly composition: Composition,
+    composition: Composition | null,
     private readonly log: DecisionLog,
     private readonly clock: Clock,
-    options: { readonly recordWithinMs?: number } = {},
+    options: { readonly recordWithinMs?: number; readonly refuseEverything?: Verdict } = {},
   ) {
     const bound = options.recordWithinMs ?? JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS;
     if (!Number.isFinite(bound) || bound <= 0) throw new RangeError("recordWithinMs must be a finite number of milliseconds above zero");
     this.recordWithinMs = bound;
+    const refusal = options.refuseEverything;
+    this.decide = refusal === undefined ? (event) => decideEvent(composition, event) : () => ({ verdict: refusal, refusedBy: null });
   }
 
   async execute(command: JudgeEventCommand): Promise<Verdict> {
     try {
       const event = Event.parse(typeof command === "object" && command !== null ? command.event : undefined);
       if (!event.ok) return Verdict.refuse(`The handler was given something that is not a judge-event command: ${event.error}`, "Build the command with JudgeEventCommand.parse");
-      const judgement = decideEvent(this.composition, event.value);
-      const failure = await this.record(() => Decision.of(crypto.randomUUID(), this.now(), event.value, judgement));
-      if (failure === undefined) return judgement.verdict;
-      // Fail closed: a refusal stays a refusal; an allow that left no record is refused.
-      const { verdict } = judgement;
-      const enforced =
-        verdict.kind === "refuse"
-          ? Verdict.refuse(`${verdict.reason} (this decision could not be recorded: ${failure.why})`, verdict.redirect)
-          : Verdict.refuse(`The guards allowed this, but the decision could not be recorded: ${failure.why}`, UNRECORDED_REDIRECT);
-      if (failure.late !== undefined) this.followUp(failure.late.decision, failure.late.landing, enforced);
-      return enforced;
+      const judgement = this.decide(event.value);
+      return await this.settle(judgement, () => Decision.of(crypto.randomUUID(), this.now(), event.value, judgement));
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
     }
+  }
+
+  /** Judge an event in its wire form: one that cannot be read is refused and recorded as invalid. Never throws. */
+  async judge(raw: unknown): Promise<Verdict> {
+    try {
+      const event = Event.parse(raw);
+      if (event.ok) {
+        const judgement = this.decide(event.value);
+        return await this.settle(judgement, () => Decision.of(crypto.randomUUID(), this.now(), event.value, judgement));
+      }
+      const refusal = Verdict.refuse(`The host sent an event that cannot be read: ${event.error}`, "Report this to the maintainers of the host adapter; the action is refused meanwhile");
+      return await this.settle({ verdict: refusal, refusedBy: null }, () => Decision.invalid(crypto.randomUUID(), this.now(), refusal));
+    } catch (thrown) {
+      return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
+    }
+  }
+
+  /** Record the decision and return the verdict to enforce: fail closed when it cannot be recorded. */
+  private async settle(judgement: Judgement, build: () => Decision): Promise<Verdict> {
+    const failure = await this.record(build);
+    if (failure === undefined) return judgement.verdict;
+    // Fail closed: a refusal stays a refusal; an allow that left no record is refused.
+    const { verdict } = judgement;
+    const enforced =
+      verdict.kind === "refuse"
+        ? Verdict.refuse(`${verdict.reason} (this decision could not be recorded: ${failure.why})`, verdict.redirect)
+        : Verdict.refuse(`The guards allowed this, but the decision could not be recorded: ${failure.why}`, UNRECORDED_REDIRECT);
+    if (failure.late !== undefined) this.followUp(failure.late.decision, failure.late.landing, enforced);
+    return enforced;
   }
 
   private now(): string {

@@ -11,3 +11,7 @@ export { ComposePacksHandler } from "./composition/compose-packs/compose-packs.h
 export type { Clock, DecisionLog, JudgeEvent, JudgeEventCommandFactory, JudgeEventInput } from "./judging/judge-event/judge-event.contract.ts";
 export { JudgeEventCommand } from "./judging/judge-event/judge-event.command.ts";
 export { JudgeEventHandler } from "./judging/judge-event/judge-event.handler.ts";
+
+export type { OpenProject, OpenProjectCommandFactory, OpenProjectInput, ProjectConfigSource, ProjectDecisionLogs, ProjectJudge } from "./projects/open-project/open-project.contract.ts";
+export { OpenProjectCommand } from "./projects/open-project/open-project.command.ts";
+export { OpenProjectHandler } from "./projects/open-project/open-project.handler.ts";

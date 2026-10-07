@@ -16,12 +16,12 @@ describe("defineConfig", () => {
     const composed = composeConfig(config);
     if (!composed.ok) throw new Error(composed.error);
     expect(composed.value.read(words.points.list)).toEqual({ ok: true, value: ["alpha", "beta"] });
-    expect(composed.value.packs.map((pack) => pack.id)).toEqual(["bounded/core", "test-packs/words", "bounded/project"]);
+    expect(composed.value.packs.map((pack) => String(pack.id))).toEqual(["bounded/core", "test-packs/words", "bounded/project"]);
   });
 
   test("the project acts as a final pack that depends on every selected pack", () => {
     const config = defineConfig({ packs: [corePack, words] });
-    expect(config.project.id).toBe("bounded/project");
+    expect<string>(config.project.id).toBe("bounded/project");
     expect(config.project.dependsOn).toEqual([corePack, words]);
     expect(config.packs).toEqual([corePack, words]);
   });

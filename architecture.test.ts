@@ -132,7 +132,11 @@ for (const path of files) {
       else if (target === context && layer === "domain") violations.push(`${at} — domain files import each other by relative path`);
       continue;
     }
-    if (spec === "<computed>") violations.push(`${at} — an import with a computed specifier cannot be checked`);
+    // Only an out adapter may load code chosen at run time (a project's
+    // configuration file, ADR 2026-009); anywhere else it cannot be checked.
+    if (spec === "<computed>") {
+      if (!rest.join("/").startsWith("adapters/out/")) violations.push(`${at} — an import with a computed specifier cannot be checked; only an out adapter may load code at run time`);
+    }
     else if (pure && !typeOnly && spec !== "zod") violations.push(`${at} — ${layer} code uses no library but zod${IO_MODULES.test(spec) ? " and does no I/O" : ""}`);
   }
 }

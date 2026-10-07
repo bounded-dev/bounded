@@ -18,7 +18,8 @@ export interface Decision {
   readonly id: string;
   /** When it was decided (or, for a follow-up, noted), ISO 8601 in UTC. */
   readonly time: string;
-  readonly event: Event["kind"];
+  /** The event's kind, or "invalid" for an event that could not be read. */
+  readonly event: Event["kind"] | "invalid";
   readonly role: string | null;
   /** The tool kind of a tool use; null for a session start. */
   readonly tool: ToolKind | null;
@@ -32,6 +33,8 @@ export interface Decision {
 export interface DecisionFactory {
   /** The decision `id` on `event`, judged as `judgement`, at `time`. */
   of(id: string, time: string, event: Event, judgement: Judgement): Decision;
+  /** The decision `id` on an event that could not be read: always a refusal. */
+  invalid(id: string, time: string, refusal: Verdict): Decision;
   /** A follow-up to `decision`, with its id: what was enforced instead, and why. */
   enforced(decision: Decision, time: string, verdict: Verdict, note: string): Decision;
 }

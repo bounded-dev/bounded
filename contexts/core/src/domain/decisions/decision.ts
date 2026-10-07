@@ -37,5 +37,9 @@ function enforced(decision: Decision, time: string, verdict: Verdict, note: stri
   return Object.freeze({ ...decision, time: bounded(time), verdict: verdictOf(verdict, null), note: bounded(note) });
 }
 
+function invalid(id: string, time: string, refusal: Verdict): Decision {
+  return Object.freeze({ id: bounded(id), time: bounded(time), event: "invalid", role: null, tool: null, effects: Object.freeze([]), verdict: verdictOf(refusal, null), note: null });
+}
+
 export type Decision = Contract.Decision;
-export const Decision: Contract.DecisionFactory = { of, enforced };
+export const Decision: Contract.DecisionFactory = { of, invalid, enforced };

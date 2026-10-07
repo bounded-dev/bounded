@@ -10,6 +10,7 @@ export type {
   ExtensionPoint,
   Pack,
   PackFactory,
+  PackListRules,
   PackSpec,
   PointDeclaration,
   StrictSpec,
@@ -37,5 +38,7 @@ export { corePack } from "./guards/core-pack.ts";
 export { decideEvent, dispatchEvent } from "./guards/dispatch-event.ts";
 export type { DecisionFactory, RecordedVerdict } from "./decisions/decision.contract.ts";
 export { Decision } from "./decisions/decision.ts";
+export type { Config, ConfigFactory, ConfigSpec } from "./config/config.contract.ts";
+export { composeConfig, defineConfig, isConfig } from "./config/config.ts";
 export type { Allow, Refuse, VerdictFactory } from "./verdicts/verdict.contract.ts";
 export { Verdict } from "./verdicts/verdict.ts";

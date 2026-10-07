@@ -68,11 +68,11 @@ function judged(refusal: ReturnType<typeof firstRefusal>, effect: Effect | null)
  * effect refused. Every failure refuses, including a composition without the
  * core pack. Never throws.
  */
-export function decideEvent(composition: Composition, event: Event): Judgement {
+export function decideEvent(composition: Composition | null, event: Event): Judgement {
   return outermost(() => decide(composition, event), (verdict) => plain(verdict));
 }
 
-function decide(composition: Composition, event: Event): Judgement {
+function decide(composition: Composition | null, event: Event): Judgement {
   try {
     if (!isComposition(composition)) {
       return plain(Verdict.refuse("Dispatch was given something that is not a composition", "Compose the selected packs with Composition.compose and dispatch over the result"));
