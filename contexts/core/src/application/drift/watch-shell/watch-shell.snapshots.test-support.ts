@@ -8,7 +8,7 @@ export function shellSnapshotsConformance(name: string, fixture: () => Promise<S
       commit: "c0",
       files: {
         "generated/a.ts": { hash: "a".repeat(64), size: 1, rule: 0, kept: { from: "commit" } },
-        "src/b.ts": { hash: "b".repeat(64), size: 2, rule: 1, kept: { from: "copy", content: "Yg==" } },
+        "src/b.ts": { hash: "b".repeat(64), size: 2, rule: 1, kept: { from: "copy", content: "Yg==", executable: false } },
       },
     };
 

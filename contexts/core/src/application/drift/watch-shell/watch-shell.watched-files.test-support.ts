@@ -9,6 +9,8 @@ export interface WatchedFilesFixture {
   write(path: string, content: string): Promise<void>;
   remove(path: string): Promise<void>;
   read(path: string): Promise<string | undefined>;
+  /** What a file moved aside to `location` holds now. */
+  readQuarantined(location: string, path: string): Promise<string | undefined>;
 }
 
 const sha256 = (content: string): string => createHash("sha256").update(content).digest("hex");
@@ -44,20 +46,23 @@ export function watchedFilesConformance(name: string, fixture: (committed: Reado
       expect(after.value["generated/a.ts"]?.hash).not.toBe(before.value["generated/a.ts"]?.hash ?? "missing");
     });
 
-    test("restores modified and deleted files from version control and removes files it never held", async () => {
-      const { files, write, remove, read } = await fixture(committed);
+    test("restores modified and deleted files from version control, and moves files it never held aside", async () => {
+      const { files, write, remove, read, readQuarantined } = await fixture(committed);
       const head = await files.head();
       if (!head.ok || head.value === null) throw new Error("expected a commit");
       const commit = { from: "commit", commit: head.value } as const;
       await write("generated/a.ts", "changed");
       await remove("generated/keep.md");
       await write("generated/new.ts", "created");
-      for (const [path, from] of [["generated/a.ts", commit], ["generated/keep.md", commit], ["generated/new.ts", { from: "absent" }]] as const) {
-        expect(await files.restore(path, from)).toEqual({ ok: true, value: undefined });
-      }
+      for (const path of ["generated/a.ts", "generated/keep.md"]) expect(await files.restore(path, commit)).toEqual({ ok: true, value: undefined });
+      const moved = await files.quarantine(["generated/new.ts"]);
+      if (!moved.ok) throw new Error(moved.error);
       expect(await read("generated/a.ts")).toBe("a");
       expect(await read("generated/keep.md")).toBe("k");
       expect(await read("generated/new.ts")).toBeUndefined();
+      expect(await readQuarantined(moved.value, "generated/new.ts")).toBe("created");
+      const again = await files.quarantine(["generated/a.ts"]);
+      expect(again.ok && again.value !== moved.value).toBe(true);
     });
 
     test("a hash is the SHA-256 of the file's bytes, given with its size", async () => {
@@ -86,8 +91,9 @@ export function watchedFilesConformance(name: string, fixture: (committed: Reado
       if (!copied.ok) throw new Error(copied.error);
       expect(copied.value.hash).toBe(sha256("uncommitted ✓"));
       expect(copied.value.size).toBe(Buffer.byteLength("uncommitted ✓"));
+      expect(copied.value.executable).toBe(false);
       await write("generated/a.ts", "tampered");
-      expect(await files.restore("generated/a.ts", { from: "copy", content: copied.value.content })).toEqual({ ok: true, value: undefined });
+      expect(await files.restore("generated/a.ts", { from: "copy", content: copied.value.content, executable: false })).toEqual({ ok: true, value: undefined });
       expect(await read("generated/a.ts")).toBe("uncommitted ✓");
       expect((await files.copy("generated/missing.ts")).ok).toBe(false);
     });
@@ -103,8 +109,10 @@ export function watchedFilesConformance(name: string, fixture: (committed: Reado
 
     test("restores only paths inside the project", async () => {
       const { files } = await fixture(committed);
-      expect((await files.restore("../outside.ts", { from: "absent" })).ok).toBe(false);
-      expect((await files.restore("/etc/passwd", { from: "absent" })).ok).toBe(false);
+      const nothing = { from: "copy", content: "", executable: false } as const;
+      expect((await files.restore("../outside.ts", nothing)).ok).toBe(false);
+      expect((await files.restore("/etc/passwd", nothing)).ok).toBe(false);
+      expect((await files.quarantine(["../outside.ts"])).ok).toBe(false);
     });
 
     test("with no rules, hashes nothing", async () => {

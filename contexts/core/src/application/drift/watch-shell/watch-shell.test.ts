@@ -10,6 +10,7 @@ const RULES_REDIRECT = "Change the generator's input instead";
 const sha = (content: string): string => new Bun.CryptoHasher("sha256").update(content).digest("hex");
 const base64 = (content: string): string => Buffer.from(content).toString("base64");
 const COMMIT = "c0";
+const QUARANTINE = "/state/bounded/project/quarantine/1";
 
 /** Files in memory: `committed` is version control at commit c0, `working` the files now. */
 class FakeFiles implements WatchedFiles {
@@ -18,6 +19,9 @@ class FakeFiles implements WatchedFiles {
   restoreFailure: string | undefined;
   gitThrows: string | undefined;
   restored: string[] = [];
+  /** Files moved aside, by path, and the paths that are links. */
+  readonly quarantined = new Map<string, string>();
+  readonly links = new Set<string>();
   constructor(private readonly committedFiles: Record<string, string>) {
     this.working = new Map(Object.entries(committedFiles));
   }
@@ -26,7 +30,7 @@ class FakeFiles implements WatchedFiles {
     const out: Record<string, WatchedFile> = {};
     for (const [path, content] of files) {
       const rule = rules.findIndex((r) => new Bun.Glob(r.match).match(path) && !(r.except ?? []).some((e) => new Bun.Glob(e).match(path)));
-      if (rule >= 0) out[path] = { hash: sha(content), size: content.length, rule };
+      if (rule >= 0) out[path] = { hash: sha(content), size: content.length, rule, ...(this.links.has(path) ? { link: true as const } : {}) };
     }
     return out;
   }
@@ -47,23 +51,32 @@ class FakeFiles implements WatchedFiles {
     return { ok: true, value: this.hashes(Object.entries(this.committedFiles), rules) };
   }
 
-  async copy(path: string): Promise<Result<{ hash: string; size: number; content: string }>> {
+  async copy(path: string): Promise<Result<{ hash: string; size: number; content: string; executable: boolean }>> {
+    if (this.links.has(path)) return { ok: false, error: `${path} is a link` };
     const content = this.working.get(path);
     if (content === undefined) return { ok: false, error: `${path} does not exist` };
-    return { ok: true, value: { hash: sha(content), size: content.length, content: base64(content) } };
+    return { ok: true, value: { hash: sha(content), size: content.length, content: base64(content), executable: false } };
   }
 
   async restore(path: string, from: RestoreFrom): Promise<Result<void>> {
     if (this.restoreFailure !== undefined) return { ok: false, error: this.restoreFailure };
     this.restored.push(path);
-    if (from.from === "absent") this.working.delete(path);
-    else if (from.from === "copy") this.working.set(path, Buffer.from(from.content, "base64").toString());
+    if (from.from === "copy") this.working.set(path, Buffer.from(from.content, "base64").toString());
     else {
       const content = this.committedFiles[path];
       if (content === undefined) this.working.delete(path);
       else this.working.set(path, content);
     }
     return { ok: true, value: undefined };
+  }
+
+  async quarantine(paths: readonly string[]): Promise<Result<string>> {
+    if (this.restoreFailure !== undefined) return { ok: false, error: this.restoreFailure };
+    for (const path of paths) {
+      this.quarantined.set(path, this.working.get(path) ?? "");
+      this.working.delete(path);
+    }
+    return { ok: true, value: QUARANTINE };
   }
 }
 
@@ -140,8 +153,16 @@ describe("WatchShellHandler — before a shell command", () => {
     await watch.snapshot(use(shell));
     const saved = snapshots.saved("c1").files;
     expect(saved["bounded.config.ts"]).toEqual({ hash: sha("c"), size: 1, rule: 1, kept: { from: "commit" } });
-    expect(saved["generated/a.ts"]).toEqual({ hash: sha("uncommitted work"), size: 16, rule: 0, kept: { from: "copy", content: base64("uncommitted work") } });
-    expect(saved["generated/untracked.ts"]?.kept).toEqual({ from: "copy", content: base64("never committed") });
+    expect(saved["generated/a.ts"]).toEqual({ hash: sha("uncommitted work"), size: 16, rule: 0, kept: { from: "copy", content: base64("uncommitted work"), executable: false } });
+    expect(saved["generated/untracked.ts"]?.kept).toEqual({ from: "copy", content: base64("never committed"), executable: false });
+  });
+
+  test("a link a rule watches is kept by its hash alone: it is never copied", async () => {
+    const { watch, files, snapshots } = setup();
+    files.working.set("generated/link.ts", "-> ../elsewhere");
+    files.links.add("generated/link.ts");
+    expect((await watch.snapshot(use(shell))).kind).toBe("allow");
+    expect(snapshots.saved("c1").files["generated/link.ts"]?.kept).toEqual({ from: "nowhere" });
   });
 
   test("a file over the copy limits is kept by its hash alone", async () => {
@@ -208,8 +229,9 @@ describe("WatchShellHandler — after a shell command", () => {
     ]);
     expect(check.restored).toBe(true);
     expect(check.message).toBe(
-      "This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Change the generator's input instead. bounded.config.ts was deleted. the configuration decides what agents may do. Ask the project's owner.",
+      `This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Change the generator's input instead. bounded.config.ts was deleted. the configuration decides what agents may do. Ask the project's owner. What it created was moved, not deleted, to ${QUARANTINE}.`,
     );
+    expect(files.quarantined.get("generated/new.ts")).toBe("created");
     expect(files.working.get("generated/a.ts")).toBe("a");
     expect(files.working.get("bounded.config.ts")).toBe("c");
     expect(files.working.has("generated/new.ts")).toBe(false);
@@ -231,6 +253,19 @@ describe("WatchShellHandler — after a shell command", () => {
       "This command changed protected files, and restoring them FAILED (not a git repository); restore them by hand: generated/a.ts was modified. generated/ is written by the generator. Change the generator's input instead.",
     );
     expect(log.decisions[0]?.note).toBe("changed by a shell command; restore failed");
+  });
+
+  test("a file whose snapshot entry was removed is moved aside, never deleted", async () => {
+    const { watch, files, snapshots, log } = setup();
+    await watch.snapshot(use(shell));
+    const saved = snapshots.kept.get("c1") as { files: Record<string, unknown> };
+    delete saved.files["bounded.config.ts"];
+    const check = await watch.verify(result());
+    expect(check.changed).toEqual([{ path: "bounded.config.ts", change: "created" }]);
+    expect(files.working.has("bounded.config.ts")).toBe(false);
+    expect(files.quarantined.get("bounded.config.ts")).toBe("c");
+    expect(check.message).toContain(QUARANTINE);
+    expect(log.decisions[0]?.verdict.kind === "refuse" && log.decisions[0].verdict.reason).toContain(QUARANTINE);
   });
 
   test("uncommitted work in a watched file is put back from the snapshot's copy, not from the commit", async () => {
