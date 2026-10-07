@@ -206,8 +206,10 @@ describe("red-first-check end to end", () => {
 
     test("the successor is a whole table of cases generated in a loop", () => {
       const table = `${HEADER}for (const [a, b] of [[1, 2]]) test(String(a), () => { expect(sum(a ?? 0, b ?? 0)).toBe(3); expect(sum(2, 2)).toBe(4); });\n`;
-      expect(check([{ "sum.test.ts": table, "superseded-tests.json": record({ file: "sum.test.ts", case: "`${String(a)}`" }) }])).toContain(
-        'FAIL preserved: sum.test.ts: "adds" is superseded by sum.test.ts: "`${String(a)}`", a computed title (a table of cases); name one specific case',
+      // The id of a case with a computed title is its source text, a template.
+      const computed = ["`$", "{String(a)}`"].join("");
+      expect(check([{ "sum.test.ts": table, "superseded-tests.json": record({ file: "sum.test.ts", case: computed }) }])).toContain(
+        `FAIL preserved: sum.test.ts: "adds" is superseded by sum.test.ts: "${computed}", a computed title (a table of cases); name one specific case`,
       );
     }, 60_000);
 

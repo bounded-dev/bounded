@@ -37,6 +37,11 @@
 // that file, delete test paths, and delete a test file when every case in it
 // is recorded. A red commit that changes fixtures under fixtures/compile-time/
 // also runs compile-time.test.ts at the red commit, which must fail there.
+// A record may change only in test-only commits after the red commit; a
+// merge counts by the paths it changed itself (differing from every parent).
+// A case recorded as superseded must not still exist at the head under the
+// same id in its own file, followed through renames by git's rename
+// detection; a case moved to an unrelated file is not detected.
 //
 // Exit status: 0 all checks pass, 1 a check failed, 2 usage or environment
 // error (no such commit, red commit not on the branch, the test run produced
@@ -642,7 +647,12 @@ function run(args: readonly string[], print: (line: string) => void): number {
   // The record may change only in test-only commits after the red commit, so
   // a build can never quietly supersede the tests it should pass.
   for (const commit of git(repo, "log", "--format=%H", `${red}..${head}`, "--", SUPERSESSIONS).split("\n").filter((l) => l !== "")) {
-    const paths = git(repo, "diff-tree", "-r", "--no-commit-id", "--name-only", "--root", commit).split("\n").filter((l) => l !== "");
+    // For a merge, the paths it changed itself: those differing from every
+    // parent (--cc). Its parents' own commits are listed and checked here too.
+    const merge = git(repo, "rev-list", "--parents", "-n", "1", commit).trim().split(" ").length > 2;
+    const paths = git(repo, "diff-tree", ...(merge ? ["--cc"] : ["-r", "--root"]), "--no-commit-id", "--name-only", commit)
+      .split("\n")
+      .filter((l) => l !== "");
     if (!paths.every(isTestPath)) failures.push(`supersessions: ${SUPERSESSIONS} was changed by ${commit.slice(0, 12)}, which is not a test-only commit`);
   }
 
