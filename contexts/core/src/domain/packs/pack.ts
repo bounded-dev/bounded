@@ -1,7 +1,8 @@
 import type * as Contract from "./pack.contract.ts";
 
-// Entity: a pack is identified by its name. The constructor copies and
-// freezes what it is given, so a pack cannot change after composition.
+// Entity: a pack is identified by its name. The constructor copies and freezes
+// the lists it is given and never throws: a pack built from untyped data keeps
+// whatever it was given, and composition refuses it with a message.
 class PackImpl implements Contract.Pack {
   declare readonly __brand: "Pack";
   readonly name: string;
@@ -9,13 +10,21 @@ class PackImpl implements Contract.Pack {
   readonly declares: Contract.Pack["declares"];
   readonly contributes: Contract.Pack["contributes"];
 
-  constructor(spec: Contract.PackSpec<string, string>) {
+  constructor(spec: Contract.PackSpec<string, readonly string[]>) {
     this.name = spec.name;
-    this.dependsOn = Object.freeze([...(spec.dependsOn ?? [])]);
-    this.declares = Object.freeze([...(spec.declares ?? [])]);
-    this.contributes = Object.freeze([...(spec.contributes ?? [])]);
+    this.dependsOn = copy(spec.dependsOn);
+    this.declares = copy(spec.declares);
+    this.contributes = copy(spec.contributes);
     Object.freeze(this);
   }
+
+  static isPack(x: unknown): x is Contract.Pack {
+    return x instanceof PackImpl;
+  }
+}
+
+function copy<T>(list: readonly T[] | undefined): readonly T[] {
+  return Array.isArray(list) ? Object.freeze([...list]) : (list ?? Object.freeze([]));
 }
 
 export type Pack = Contract.Pack;

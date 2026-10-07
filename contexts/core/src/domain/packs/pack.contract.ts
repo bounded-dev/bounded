@@ -1,5 +1,6 @@
 import type { ExtensionPointHandle } from "../extension-points/extension-point.contract.ts";
 import type { Contribution } from "./contribution.contract.ts";
+import type { OneLiteral } from "./one-literal.contract.ts";
 
 /** A pack as composition sees it: a name, its dependencies, what it declares and contributes. */
 export interface Pack {
@@ -11,24 +12,27 @@ export interface Pack {
 }
 
 /**
- * The typed door in. `NoInfer` stops the compiler from widening `Name` or
- * `Dependency` to fit a contribution: they are inferred from `name` and
- * `dependsOn` alone, and then every declaration must be owned by `Name` and
- * every contribution must target `Name` or a `Dependency`.
+ * The typed door in. `Name` and `Dependencies` are inferred from `name` and
+ * the `dependsOn` tuple alone (`NoInfer` stops a contribution from widening
+ * them); then every declaration must be owned by `Name` and every
+ * contribution must target `Name` or one of the `Dependencies`.
  */
-export interface PackSpec<Name extends string, Dependency extends string> {
+export interface PackSpec<Name extends string, Dependencies extends readonly string[]> {
   readonly name: Name;
-  readonly dependsOn?: readonly Dependency[];
+  readonly dependsOn?: Dependencies;
   readonly declares?: readonly ExtensionPointHandle<NoInfer<Name>>[];
-  readonly contributes?: readonly Contribution<NoInfer<Name | Dependency>>[];
+  readonly contributes?: readonly Contribution<NoInfer<Name | Dependencies[number]>>[];
 }
 
-/** A name or dependency widened to `string` would switch the check off, so it does not compile. */
-export type LiteralNames<Name extends string, Dependency extends string> = (string extends Name ? { readonly name: never } : unknown) &
-  (string extends Dependency ? { readonly dependsOn: never } : unknown);
+/** Every name is one literal, and `dependsOn` is written whenever there are dependencies. */
+export type CheckedNames<Name extends string, Dependencies extends readonly string[]> = { readonly name: OneLiteral<Name> } & (Dependencies extends readonly []
+  ? unknown
+  : { readonly dependsOn: { readonly [K in keyof Dependencies]: OneLiteral<Extract<Dependencies[K], string>> } });
 
 export interface PackFactory {
-  new <const Name extends string, const Dependency extends string = never>(
-    spec: PackSpec<Name, Dependency> & LiteralNames<Name, Dependency>,
+  new <const Name extends string, const Dependencies extends readonly string[] = []>(
+    spec: PackSpec<Name, Dependencies> & CheckedNames<Name, Dependencies>,
   ): Pack;
+  /** Whether `x` was made by `new Pack`: composition accepts no other. */
+  isPack(x: unknown): x is Pack;
 }

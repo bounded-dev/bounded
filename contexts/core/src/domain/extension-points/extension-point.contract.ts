@@ -1,9 +1,4 @@
-/**
- * A string type the compiler sees as a literal ("path-gate"), or never when it
- * has widened to `string`. Ownership is checked on literal pack names, so a
- * widened name would switch the check off; this makes it a compile error.
- */
-export type Literal<S extends string> = string extends S ? never : S;
+import type { OneLiteral } from "../packs/one-literal.contract.ts";
 
 /**
  * What a pack declares: an extension point with its value type forgotten,
@@ -21,8 +16,6 @@ export interface ExtensionPointHandle<Owner extends string> {
  * values of type `Value` from the owner and from packs that depend on it.
  */
 export interface ExtensionPoint<Value, Owner extends string> extends ExtensionPointHandle<Owner> {
-  /** Refuses a contributed value with a message, or accepts it with undefined. */
-  check(value: Value): string | undefined;
   /**
    * Never present at run time. Using `Value` as both parameter and result
    * makes the point invariant in its value type, so a point for strings
@@ -34,6 +27,7 @@ export interface ExtensionPoint<Value, Owner extends string> extends ExtensionPo
 export interface ExtensionPointSpec<Value> {
   readonly id: string;
   readonly description: string;
+  /** Refuses a contributed value with a message, or accepts it with undefined. */
   readonly check?: (value: Value) => string | undefined;
 }
 
@@ -44,5 +38,9 @@ export interface ExtensionPointDeclarer<Owner extends string> {
 
 export interface ExtensionPointFactory {
   /** `ExtensionPoint.ownedBy("path-gate").declare<Rule>({ id, description, check })`. */
-  ownedBy<const Owner extends string>(owner: Owner & Literal<Owner>): ExtensionPointDeclarer<Owner>;
+  ownedBy<const Owner extends string>(owner: Owner & OneLiteral<Owner>): ExtensionPointDeclarer<Owner>;
+  /** Whether `x` was made by `ownedBy(...).declare(...)`: composition accepts no other. */
+  isExtensionPoint(x: unknown): x is ExtensionPointHandle<string>;
+  /** Run a point's own check on a contributed value; a check that throws refuses the value. */
+  checkValue(point: ExtensionPointHandle<string>, value: unknown): string | undefined;
 }

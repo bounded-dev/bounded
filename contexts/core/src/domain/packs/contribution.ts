@@ -1,8 +1,7 @@
 import type { ExtensionPoint } from "../extension-points/extension-point.contract.ts";
 import type * as Contract from "./contribution.contract.ts";
 
-// Entity: built from a point and values already typed against it. The values
-// keep their real type inside the closure, so the point's check needs no cast.
+// Entity: a point and values already typed against it, nothing more.
 class ContributionImpl<Value, Owner extends string> implements Contract.Contribution<Owner> {
   declare readonly __brand: "Contribution";
   readonly values: readonly Value[];
@@ -15,15 +14,8 @@ class ContributionImpl<Value, Owner extends string> implements Contract.Contribu
     Object.freeze(this);
   }
 
-  problems(): readonly string[] {
-    return this.values.flatMap((value) => {
-      try {
-        const problem = this.point.check(value);
-        return problem === undefined ? [] : [problem];
-      } catch (error) {
-        return [`its check failed (${error instanceof Error ? error.message : String(error)})`];
-      }
-    });
+  static isContribution(x: unknown): x is Contract.Contribution<string> {
+    return x instanceof ContributionImpl;
   }
 }
 

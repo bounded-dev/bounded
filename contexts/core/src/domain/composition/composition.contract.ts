@@ -6,7 +6,12 @@ import type { Result } from "../shared/result.ts";
 /** The selected packs, composed: what every extension point holds. */
 export interface Composition {
   readonly __brand: "Composition";
-  /** The selected packs, dependencies before dependents, ties broken by name. */
+  /**
+   * The selected packs in composition order: depth-first over the names in
+   * sorted order, each pack after its dependencies (also visited in sorted
+   * order). Every dependency comes before its dependents, and the order
+   * depends only on names and edges, never on listing order.
+   */
   readonly packs: readonly string[];
   /**
    * Every value contributed to `point`, typed, in pack order. A point that
