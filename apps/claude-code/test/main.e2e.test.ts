@@ -13,10 +13,10 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-async function run(entry: string, stdin: string, at = APP): Promise<{ stdout: string; exitCode: number }> {
+async function run(entry: string, stdin: string, at = APP): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const child = Bun.spawn(["bun", join(at, entry)], { stdin: new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_PROJECT_DIR: root } });
-  const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-  return { stdout, exitCode };
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  return { stdout, stderr, exitCode };
 }
 const deny = (reason: string): string => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
 
@@ -53,5 +53,13 @@ describe("main.ts as a Claude Code PreToolUse hook", () => {
     } finally {
       rmSync(lonely, { recursive: true, force: true });
     }
+  });
+
+  test("the process is not cut short after answering: work still pending, such as a late log line, finishes", async () => {
+    const payload = { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: join(root, "src") }, cwd: root };
+    const { stdout, stderr, exitCode } = await run("test/fixtures/late-writing-hook.ts", JSON.stringify(payload));
+    expect(stdout).toBe(deny("No\nAsk"));
+    expect(stderr).toContain("late decision-log line");
+    expect(exitCode).toBe(0);
   });
 });

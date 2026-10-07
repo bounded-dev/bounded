@@ -95,6 +95,10 @@ after the hook answers); the hook judges the state it sees.
   module or a syntax error is still a deny with exit 0. When the process
   cannot start at all (bun not on `PATH`, killed for memory), the installed
   command's `|| { echo "bounded hook failed" >&2; exit 2; }` blocks the call.
+- After writing its answer the hook sets `process.exitCode` and never calls
+  `process.exit`: the event loop drains, so work still pending (the core's
+  decision log may write a follow-up line after a late record settles)
+  finishes. Claude Code's hook timeout bounds how long that can take.
 
 ## Plugging it in
 
