@@ -10,6 +10,12 @@
         "typescript": "5.9.3",
       },
     },
+    "apps/pi": {
+      "name": "bounded-pi",
+      "dependencies": {
+        "bounded": "workspace:*",
+      },
+    },
     "contexts/core": {
       "name": "bounded",
       "dependencies": {
@@ -41,6 +47,8 @@
     "@types/node": ["@types/node@26.6.4", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg=="],
 
     "bounded": ["bounded@workspace:contexts/core"],
+
+    "bounded-pi": ["bounded-pi@workspace:apps/pi"],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 

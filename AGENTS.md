@@ -47,6 +47,8 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 ```
 contexts/
   core/          @bounded/core       the mechanism (spec Parts 1 and 2; slice 1 so far)
+apps/
+  pi/            bounded-pi          the pi host adapter (docs/adapter-pi.md)
 architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below
@@ -83,6 +85,10 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **Domain and application do no I/O** and import no library but zod.
 - **Within a context, layers import each other through the package's own
   export paths** (`@bounded/core/domain`), domain files by relative path.
+- **Apps** (`apps/<name>/src`) are programs built on the contexts, such as
+  host adapters. They may do I/O and use libraries, reach a context only
+  through its export paths and declared dependencies, and never import
+  another app.
 - **A context imports another context only when its `package.json` declares
   it as a dependency**, and only through that package's export paths. The
   core depends on nothing and never imports a pack.
