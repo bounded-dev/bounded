@@ -81,10 +81,9 @@ for (const path of files) {
       else if (layer !== "domain" && targetLayer !== layer && !isTest) violations.push(`${at} — import another layer through the package's export path`);
       continue;
     }
-    const [scope = "", name = "", ...sub] = spec.split("/");
-    const target = byName.get(`${scope}/${name}`);
+    const target = contexts.find((c) => spec === c.name || spec.startsWith(`${c.name}/`));
     if (target !== undefined) {
-      const exportPath = sub.join("/");
+      const exportPath = spec.slice(target.name.length + 1);
       const targetLayer = layerOf(exportPath);
       if (!(`./${exportPath}` in target.exports) || targetLayer === undefined) violations.push(`${at} — import a context only through its export paths`);
       else if (target !== context && !context.dependencies.includes(target.name)) violations.push(`${at} — ${context.name} does not declare ${target.name} as a dependency`);
@@ -99,7 +98,7 @@ for (const path of files) {
 
 describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
-    const core = byName.get("@bounded/core");
+    const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
     expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/in-memory", "./application", "./domain"]);
   });

@@ -1,0 +1,80 @@
+[
+  {
+    "file": "contexts/core/src/application/composition/compose-packs/compose-packs.command.laws.test.ts",
+    "case": "ComposePacksCommand laws > validates each name through PackName, in order",
+    "successor": { "file": "contexts/core/src/application/composition/compose-packs/compose-packs.command.laws.test.ts", "case": "ComposePacksCommand laws > validates each id through PackId, in order" },
+    "reason": "selections name packs by id (ADR 2026-004), so the command validates PackIds, not PackNames"
+  },
+  {
+    "file": "contexts/core/src/domain/composition/composition.test.ts",
+    "case": "Composition — reading an extension point > returns every contributed value, typed, dependencies' before dependents'",
+    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — reading an extension point > returns every value, typed and as its check stored it, dependencies' before dependents'" },
+    "reason": "a point's check now parses and may normalise, so the read returns what the check stored (ADR 2026-003)"
+  },
+  {
+    "file": "contexts/core/src/domain/composition/composition.test.ts",
+    "case": "Composition — reading an extension point > reading with a look-alike point object (same id, other value type) is refused",
+    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — reading an extension point > reading the point of another pack with the selected one's id is refused" },
+    "reason": "points are declared inside their pack, so a look-alike point can only come from another pack with the same id"
+  },
+  {
+    "file": "contexts/core/src/domain/composition/composition.test.ts",
+    "case": "Composition — reading an extension point > a point its selected owner does not declare is told apart from an unselected owner's",
+    "successor": null,
+    "reason": "a point now exists only as a point its pack declares (ADR 2026-003), so a selected owner that does not declare it cannot occur"
+  },
+  {
+    "file": "contexts/core/src/domain/composition/composition.test.ts",
+    "case": "Composition — reading an extension point > reading the point of another pack with the selected one's label is refused",
+    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — reading an extension point > reading the point of another pack with the selected one's id is refused" },
+    "reason": "labels became pack ids (ADR 2026-004)"
+  },
+  {
+    "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",
+    "case": "ExtensionPointId — boundaries > accepts dot-separated segments of lowercase words joined by hyphens",
+    "successor": null,
+    "reason": "point ids are no longer written by hand: they are '<pack id>.<key>', with keys checked at compile and run time (ADR 2026-003)"
+  },
+  {
+    "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",
+    "case": "ExtensionPointId — boundaries > refuses anything else with a reason that names it and shows the form",
+    "successor": { "file": "contexts/core/src/domain/composition/composition.test.ts", "case": "Composition — every refusal names the pack, the extension point and the fix > `${title}` #9" },
+    "reason": "the remaining id rule is the point key, refused at composition when it could collide with the id scheme"
+  },
+  {
+    "file": "contexts/core/src/domain/extension-points/extension-point-id.test.ts",
+    "case": "ExtensionPointId — boundaries > refuses a value that is not a string",
+    "successor": null,
+    "reason": "point ids are built by definePack from a pack id and an object key, never parsed from untyped input"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-name.test.ts",
+    "case": "PackName — boundaries > accepts lowercase words joined by single hyphens",
+    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse accepts an unscoped or scoped package with a lowercase-hyphen local id" },
+    "reason": "pack names became npm-namespaced pack ids (ADR 2026-004)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-name.test.ts",
+    "case": "PackName — boundaries > refuses anything else with a reason that names it and shows the form",
+    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse refuses anything else with a reason that names it and shows the form" },
+    "reason": "pack names became npm-namespaced pack ids (ADR 2026-004)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-name.test.ts",
+    "case": "PackName — boundaries > refuses every name that could reach outside the packs' folder",
+    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse refuses anything else with a reason that names it and shows the form" },
+    "reason": "an id is never a path; its refusals cover '..', '/' in the local id, leading '/' and empty parts"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-name.test.ts",
+    "case": "PackName — boundaries > refuses a value that is not a string",
+    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse refuses a value that is not a string" },
+    "reason": "pack names became npm-namespaced pack ids (ADR 2026-004)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-name.test.ts",
+    "case": "PackName — boundaries > its wire form is the name",
+    "successor": { "file": "contexts/core/src/domain/packs/pack-id.test.ts", "case": "PackId — boundaries > parse accepts an unscoped or scoped package with a lowercase-hyphen local id" },
+    "reason": "a pack id is its own wire form: a branded string, so parse returns the text itself"
+  }
+]

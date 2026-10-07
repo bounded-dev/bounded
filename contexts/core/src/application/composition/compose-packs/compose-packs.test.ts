@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type AnyPack, definePack, point } from "@bounded/core/domain";
+import { type AnyPack, definePack, packIdsFor, point } from "bounded/domain";
 import { ComposePacksCommand } from "./compose-packs.command.ts";
 import type { ComposePacksCatalog } from "./compose-packs.contract.ts";
 import { ComposePacksHandler } from "./compose-packs.handler.ts";
@@ -12,11 +12,9 @@ class FakeCatalog implements ComposePacksCatalog {
   }
 }
 
-const base = definePack({
-  id: "base",
-  points: { items: point({ description: "Items", check: (raw) => (typeof raw === "string" ? { ok: true, value: raw } : { ok: false, error: "not text" }), values: ["x"] }) },
-});
-const { items } = base.points;
+const packId = packIdsFor("test-packs");
+const text = (raw: unknown) => (typeof raw === "string" ? { ok: true as const, value: raw } : { ok: false as const, error: "not text" });
+const base = definePack({ id: packId("base"), points: { items: point({ description: "Items", check: text, values: ["x"] }) } });
 
 function command(...selected: string[]): ComposePacksCommand {
   const parsed = ComposePacksCommand.parse({ selected });
@@ -26,14 +24,22 @@ function command(...selected: string[]): ComposePacksCommand {
 
 describe("ComposePacksHandler", () => {
   test("composes the selected packs from the catalog", async () => {
-    const result = await new ComposePacksHandler(new FakeCatalog([base])).execute(command("base"));
-    expect(result.ok && result.value.read(items)).toEqual({ ok: true, value: ["x"] });
+    const result = await new ComposePacksHandler(new FakeCatalog([base])).execute(command("test-packs/base"));
+    expect(result.ok && result.value.read(base.points.items)).toEqual({ ok: true, value: ["x"] });
   });
 
   test("passes a composition refusal through unchanged", async () => {
-    expect(await new ComposePacksHandler(new FakeCatalog([base])).execute(command("nope"))).toEqual({
+    const twin = definePack({ id: packId("base") });
+    expect(await new ComposePacksHandler(new FakeCatalog([base, twin])).execute(command("test-packs/base"))).toEqual({
       ok: false,
-      error: "Pack 'nope' is selected but not available. Make it available, or remove it from the selection",
+      error: "Two available packs have the id 'test-packs/base'. An id names one pack in selections and messages: give each pack its own",
+    });
+  });
+
+  test("refuses an id the catalog does not offer", async () => {
+    expect(await new ComposePacksHandler(new FakeCatalog([base])).execute(command("test-packs/nope"))).toEqual({
+      ok: false,
+      error: "Pack 'test-packs/nope' is selected but not available. Make it available, or remove it from the selection",
     });
   });
 
@@ -43,7 +49,7 @@ describe("ComposePacksHandler", () => {
         throw new Error("disk gone");
       },
     };
-    expect(await new ComposePacksHandler(broken).execute(command("base"))).toEqual({
+    expect(await new ComposePacksHandler(broken).execute(command("test-packs/base"))).toEqual({
       ok: false,
       error: "The available packs cannot be listed (disk gone). Fix the pack catalog; nothing is composed until then",
     });

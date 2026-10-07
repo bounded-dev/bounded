@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type AnyPack, contribution, definePack, point } from "../packs/pack.ts";
+import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import type { Composition as CompositionContract } from "./composition.contract.ts";
 import { Composition } from "./composition.ts";
@@ -9,20 +10,21 @@ function word(raw: unknown): Result<string> {
   return typeof raw === "string" && raw.trim() !== "" ? { ok: true, value: raw.trim() } : { ok: false, error: "a word is a non-empty string" };
 }
 const anything = (raw: unknown): Result<unknown> => ({ ok: true, value: raw });
+const packId = packIdsFor("test-packs");
 
 // "base" declares an extension point for words and gives it one of its own;
 // "ext" depends on base and adds more; "other" is unrelated.
 const base = definePack({
-  id: "base",
+  id: packId("base"),
   points: {
     words: point({ description: "Words any dependent pack may add", check: word, values: ["alpha"] }),
   },
 });
 const { words } = base.points;
-const ext = definePack({ id: "ext", dependsOn: [base], contributes: [contribution(words, ["beta", " gamma "])] });
-const other = definePack({ id: "other" });
+const ext = definePack({ id: packId("ext"), dependsOn: [base], contributes: [contribution(words, ["beta", " gamma "])] });
+const other = definePack({ id: packId("other") });
 
-function composed(available: readonly AnyPack[], selected: readonly string[]): CompositionContract {
+function composed(available: readonly AnyPack[], selected: readonly AnyPack[]): CompositionContract {
   const result = Composition.compose(available, selected);
   if (!result.ok) throw new Error(result.error);
   return result.value;
@@ -33,15 +35,17 @@ function untypedPack(spec: object): AnyPack {
   return (definePack as unknown as (spec: object) => AnyPack)(spec);
 }
 
-/** A pack labelled `id` that depends on base (and `more`) and adds `values` to its words. */
-function wordsPack(id: string, more: readonly AnyPack[], values: string[]): AnyPack {
-  return untypedPack({ id, dependsOn: [base, ...more], contributes: [contribution(words, values)] });
+/** A pack `test-packs/<local>` that depends on base (and `more`) and adds `values` to its words. */
+function wordsPack(local: string, more: readonly AnyPack[], values: string[]): AnyPack {
+  return untypedPack({ id: `test-packs/${local}`, dependsOn: [base, ...more], contributes: [contribution(words, values)] });
 }
+
+const ids = (packs: readonly AnyPack[]): string[] => packs.map((pack) => pack.id);
 
 describe("Composition — reading an extension point", () => {
   test("returns every value, typed and as its check stored it, dependencies' before dependents'", () => {
-    const composition = composed([ext, base], ["ext", "base"]);
-    expect(composition.packs).toEqual(["base", "ext"]);
+    const composition = composed([ext, base], [ext, base]);
+    expect(ids(composition.packs)).toEqual(["test-packs/base", "test-packs/ext"]);
     const read = composition.read(words);
     expect(read).toEqual({ ok: true, value: ["alpha", "beta", "gamma"] });
     expect(read.ok && read.value.map((word) => word.toUpperCase())).toEqual(["ALPHA", "BETA", "GAMMA"]);
@@ -51,26 +55,26 @@ describe("Composition — reading an extension point", () => {
     const b = wordsPack("b", [], ["b"]);
     const a = wordsPack("a", [b], ["a"]);
     const c = wordsPack("c", [], ["c"]);
-    const one = composed([a, b, c, base], ["a", "b", "c", "base"]);
-    const two = composed([base, c, b, a], ["base", "c", "b", "a"]);
-    expect(one.packs).toEqual(["base", "b", "a", "c"]);
+    const one = composed([a, b, c, base], [a, b, c, base]);
+    const two = composed([base, c, b, a], [base, c, b, a]);
+    expect(ids(one.packs)).toEqual(["test-packs/base", "test-packs/b", "test-packs/a", "test-packs/c"]);
     expect(two.packs).toEqual(one.packs);
     expect(two.read(words)).toEqual({ ok: true, value: ["alpha", "b", "a", "c"] });
   });
 
   test("a pack that is not selected leaves no trace", () => {
-    expect(composed([base, ext], ["base"]).read(words)).toEqual({ ok: true, value: ["alpha"] });
-    expect(composed([base, other], ["other"]).read(words)).toEqual({
+    expect(composed([base, ext], [base]).read(words)).toEqual({ ok: true, value: ["alpha"] });
+    expect(composed([base, other], [other]).read(words)).toEqual({
       ok: false,
-      error: "Extension point 'base.words' does not exist in this composition: its owner 'base' is not selected. Select 'base' to use it",
+      error: "Extension point 'test-packs/base.words' does not exist in this composition: its owner 'test-packs/base' is not selected. Select it to use the point",
     });
   });
 
-  test("reading the point of another pack with the selected one's label is refused", () => {
-    const twin = definePack({ id: "base", points: { words: point({ description: "Not the real one", check: anything }) } });
-    expect(composed([base], ["base"]).read(twin.points.words)).toEqual({
+  test("reading the point of another pack with the selected one's id is refused", () => {
+    const twin = definePack({ id: packId("base"), points: { words: point({ description: "Not the real one", check: anything }) } });
+    expect(composed([base], [base]).read(twin.points.words)).toEqual({
       ok: false,
-      error: "Extension point 'base.words' belongs to a pack labelled 'base' that is not the selected 'base' (another pack with that label, or another copy of it). Read the point of the selected pack",
+      error: "Extension point 'test-packs/base.words' belongs to a pack with the id 'test-packs/base' that is not the selected one (another pack with that id, or another copy of it). Read the point of the selected pack",
     });
   });
 
@@ -79,91 +83,104 @@ describe("Composition — reading an extension point", () => {
     expect(Object.isFrozen(ext.dependsOn)).toBe(true);
     expect(Object.isFrozen(base.points)).toBe(true);
   });
+
+  test("a point keyed __proto__ is an ordinary key, refused as not camelCase, never a prototype", () => {
+    const sneaky = untypedPack({ id: "test-packs/bad", points: JSON.parse('{"__proto__": null}') });
+    expect(Object.keys(sneaky.points)).toEqual(["__proto__"]);
+  });
 });
 
 describe("Composition — every refusal names the pack, the extension point and the fix", () => {
-  const twinBase = definePack({ id: "base" });
-  const notBuilt = (label: string) =>
-    `Available pack '${label}' was not built with definePack(...), or was built by a different copy of @bounded/core. Build every pack with definePack from one copy`;
-  const malformed = (what: string) => `Pack 'bad' is malformed: ${what}. Fix its definition`;
+  const twinBase = definePack({ id: packId("base") });
+  const notBuilt = (which: string, id: string) =>
+    `${which} pack '${id}' was not built with definePack(...), or was built by a different copy of bounded. Build every pack with definePack from one copy`;
+  const malformed = (what: string) => `Pack 'test-packs/bad' is malformed: ${what}. Fix its definition`;
+  const COPY = "by this copy of bounded";
+  const keyRefusal = (key: string) => malformed(`its point key '${key}' must be a camelCase word, such as 'protectedPaths'`);
+  const plain = { __brand: "Pack", id: "test-packs/plain", dependsOn: [], points: {}, contributes: [] } as unknown as AnyPack;
 
-  const refusals: [string, readonly AnyPack[], readonly string[], string][] = [
-    ["a selected pack that is not available", [base], ["base", "nope"],
-      "Pack 'nope' is selected but not available. Make it available, or remove it from the selection"],
-    ["a pack selected twice", [base], ["base", "base"],
-      "Pack 'base' is selected twice. Select each pack once"],
-    ["a selected name that is not a pack name", [base], ["base", "Bad"],
-      "Pack name 'Bad' must be lowercase words joined by single hyphens, such as 'path-gate'"],
-    ["a selected pack whose dependency is not selected", [base, ext], ["ext"],
-      "Pack 'ext' depends on pack 'base', which is not selected. Select 'base' as well, or remove the dependency"],
-    ["a dependency that is another pack with the selected one's label", [twinBase, ext], ["base", "ext"],
-      "Pack 'ext' depends on a pack labelled 'base' that is not the available 'base' (another pack with that label, or another copy of it). Make the pack it depends on available instead"],
-    ["two packs with the same name", [base, twinBase], ["base"],
-      "Two available packs are labelled 'base'. A label names a pack in selections and messages: rename one of them"],
-    ["duplicate names, reported by name order whatever the listing order",
-      [definePack({ id: "b" }), definePack({ id: "b" }), definePack({ id: "a" }), definePack({ id: "a" })], ["a"],
-      "Two available packs are labelled 'a'. A label names a pack in selections and messages: rename one of them"],
-    ["an available pack whose label is not a pack name", [untypedPack({ id: "Bad Label" })], [],
-      "Available pack 'Bad Label' has an invalid label: Pack name 'Bad Label' must be lowercase words joined by single hyphens, such as 'path-gate'. Give it a valid id, such as 'path-gate'"],
-    ["an extension point key that could collide with the label scheme", [untypedPack({ id: "bad", points: { "a.b": point({ description: "Dotted", check: anything }) } })], ["bad"],
-      malformed("its point key 'a.b' must be a camelCase word, such as 'protectedPaths'")],
-    ["a point declared on another pack's behalf", [untypedPack({ id: "bad", points: { stolen: words } })], ["bad"],
-      malformed("its points must each be declared with point(...) by this copy of @bounded/core")],
-    ["a contribution across an undeclared dependency that reaches composition anyway",
-      [base, untypedPack({ id: "rogue", contributes: [contribution(words, ["x"])] })], ["base", "rogue"],
-      "Pack 'rogue' contributes to extension point 'base.words', owned by pack 'base', but does not depend on 'base'. Add 'base' to the dependencies of 'rogue', or remove the contribution"],
-    ["a contribution through a transitive dependency only",
-      [base, ext, untypedPack({ id: "top", dependsOn: [ext], contributes: [contribution(words, ["x"])] })], ["base", "ext", "top"],
-      "Pack 'top' contributes to extension point 'base.words', owned by pack 'base', but does not depend on 'base'. Add 'base' to the dependencies of 'top', or remove the contribution"],
-    ["a contribution that is not a genuine contribution, whatever it claims",
-      [base, untypedPack({ id: "bad", dependsOn: [base], contributes: [{ __brand: "Contribution", point: words, values: [42, ""] }] })], ["base", "bad"],
-      malformed("its contributes must be a list of contributions made with contribution(...) by this copy of @bounded/core")],
-    ["dependencies that are not a list", [untypedPack({ id: "bad", dependsOn: 5 })], ["bad"],
-      malformed("its dependsOn must be a list of packs made with definePack(...) by this copy of @bounded/core")],
-    ["dependencies given by label, not as packs", [base, untypedPack({ id: "bad", dependsOn: ["base"] })], ["base", "bad"],
-      malformed("its dependsOn must be a list of packs made with definePack(...) by this copy of @bounded/core")],
-    ["an available pack not built with definePack", [base, { __brand: "Pack", id: "plain", dependsOn: [], points: {}, contributes: [] } as unknown as AnyPack], ["base"],
-      notBuilt("plain")],
-    ["a forged pack copied from a genuine one", [base, { ...other, id: "forged" }], ["base"], notBuilt("forged")],
-    ["an invalid contributed value",
-      [base, definePack({ id: "ext", dependsOn: [base], contributes: [contribution(words, ["ok", " "])] })], ["base", "ext"],
-      "Pack 'ext' contributes an invalid value to extension point 'base.words': a word is a non-empty string. Fix the value, or remove the contribution"],
-    ["a value of the wrong type from untyped data, refused by the point's check",
-      [base, untypedPack({ id: "bad", dependsOn: [base], contributes: [contribution(words, [42 as unknown as string])] })], ["base", "bad"],
-      "Pack 'bad' contributes an invalid value to extension point 'base.words': a word is a non-empty string. Fix the value, or remove the contribution"],
-    ["a dependency listed twice", [base, untypedPack({ id: "bad", dependsOn: [base, base] })], ["base", "bad"],
-      malformed("it lists 'base' twice in dependsOn")],
-    ["a point declared without a check", [untypedPack({ id: "bad", points: { loose: point({ description: "No check" } as never) } })], ["bad"],
+  const refusals: [string, readonly AnyPack[], readonly AnyPack[], string][] = [
+    ["a selected pack that is not available", [base], [base, other],
+      "Pack 'test-packs/other' is selected but not available. Make it available, or remove it from the selection"],
+    ["a pack selected twice", [base], [base, base],
+      "Pack 'test-packs/base' is selected twice. Select each pack once"],
+    ["a selected pack not built with definePack", [base], [plain], notBuilt("Selected", "test-packs/plain")],
+    ["a selected pack whose dependency is not selected", [base, ext], [ext],
+      "Pack 'test-packs/ext' depends on pack 'test-packs/base', which is not selected. Select it as well, or remove the dependency"],
+    ["a dependency that is another pack with the selected one's id", [twinBase, ext], [twinBase, ext],
+      "Pack 'test-packs/ext' depends on a pack with the id 'test-packs/base' that is not the available one (another pack with that id, or another copy of it). Make the pack it depends on available instead"],
+    ["two packs with the same id", [base, twinBase], [base],
+      "Two available packs have the id 'test-packs/base'. An id names one pack in selections and messages: give each pack its own"],
+    ["duplicate ids, reported in id order whatever the listing order",
+      [definePack({ id: packId("b") }), definePack({ id: packId("b") }), definePack({ id: packId("a") }), definePack({ id: packId("a") })], [],
+      "Two available packs have the id 'test-packs/a'. An id names one pack in selections and messages: give each pack its own"],
+    ["an available pack whose id is not a pack id", [untypedPack({ id: "Bad Label" })], [],
+      "Available pack 'Bad Label' has an invalid id: Pack id 'Bad Label' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'. Give it an id from packIdsFor(...)"],
+    ["an extension point key that could collide with the id scheme", [untypedPack({ id: "test-packs/bad", points: { "a.b": point({ description: "Dotted", check: anything }) } })], [],
+      keyRefusal("a.b")],
+    ["a point key that is __proto__", [untypedPack({ id: "test-packs/bad", points: JSON.parse('{"__proto__": 1}') })], [],
+      keyRefusal("__proto__")],
+    ["a point declared on another pack's behalf", [untypedPack({ id: "test-packs/bad", points: { stolen: words } })], [],
+      malformed(`its points must each be declared with point(...) ${COPY}`)],
+    ["a point declared without a check", [untypedPack({ id: "test-packs/bad", points: { loose: point({ description: "No check" } as never) } })], [],
       malformed("its point 'loose' has no check: every point parses the values it accepts")],
+    ["a contribution across an undeclared dependency that reaches composition anyway",
+      [base, untypedPack({ id: "test-packs/rogue", contributes: [contribution(words, ["x"])] })], [],
+      "Pack 'test-packs/rogue' contributes to extension point 'test-packs/base.words', owned by pack 'test-packs/base', but does not depend on it. Add 'test-packs/base' to its dependencies, or remove the contribution"],
+    ["a contribution through a transitive dependency only",
+      [base, ext, untypedPack({ id: "test-packs/top", dependsOn: [ext], contributes: [contribution(words, ["x"])] })], [],
+      "Pack 'test-packs/top' contributes to extension point 'test-packs/base.words', owned by pack 'test-packs/base', but does not depend on it. Add 'test-packs/base' to its dependencies, or remove the contribution"],
+    ["a contribution that is not a genuine contribution, whatever it claims",
+      [base, untypedPack({ id: "test-packs/bad", dependsOn: [base], contributes: [{ __brand: "Contribution", point: words, values: [42, ""] }] })], [],
+      malformed(`its contributes must be a list of contributions made with contribution(...) ${COPY}`)],
+    ["dependencies that are not a list", [untypedPack({ id: "test-packs/bad", dependsOn: 5 })], [],
+      malformed(`its dependsOn must be a list of packs made with definePack(...) ${COPY}`)],
+    ["dependencies given by id, not as packs", [base, untypedPack({ id: "test-packs/bad", dependsOn: ["test-packs/base"] })], [],
+      malformed(`its dependsOn must be a list of packs made with definePack(...) ${COPY}`)],
+    ["a dependency listed twice", [base, untypedPack({ id: "test-packs/bad", dependsOn: [base, base] })], [],
+      malformed("it lists 'test-packs/base' twice in dependsOn")],
+    ["an available pack not built with definePack", [base, plain], [base], notBuilt("Available", "test-packs/plain")],
+    ["a forged pack copied from a genuine one", [base, { ...other, id: "test-packs/forged" }], [base], notBuilt("Available", "test-packs/forged")],
+    ["an invalid contributed value",
+      [base, definePack({ id: packId("ext"), dependsOn: [base], contributes: [contribution(words, ["ok", " "])] })], [],
+      "Pack 'test-packs/ext' contributes an invalid value to extension point 'test-packs/base.words': a word is a non-empty string. Fix the value, or remove the contribution"],
+    ["a value of the wrong type from untyped data, refused by the point's check",
+      [base, untypedPack({ id: "test-packs/bad", dependsOn: [base], contributes: [contribution(words, [42 as unknown as string])] })], [],
+      "Pack 'test-packs/bad' contributes an invalid value to extension point 'test-packs/base.words': a word is a non-empty string. Fix the value, or remove the contribution"],
     ["an invalid value the owner gives its own point",
-      [definePack({ id: "base", points: { words: point({ description: "Words", check: (): Result<string> => ({ ok: false, error: "no" }), values: ["x"] }) } })], ["base"],
-      "Pack 'base' contributes an invalid value to extension point 'base.words': no. Fix the value, or remove the contribution"],
+      [definePack({ id: packId("base"), points: { words: point({ description: "Words", check: (): Result<string> => ({ ok: false, error: "no" }), values: ["x"] }) } })], [],
+      "Pack 'test-packs/base' contributes an invalid value to extension point 'test-packs/base.words': no. Fix the value, or remove the contribution"],
+    ["a check that accepts without returning a value",
+      [definePack({ id: packId("base"), points: { words: point({ description: "Words", check: () => ({ ok: true }) as unknown as Result<string>, values: ["x"] }) } })], [],
+      "Pack 'test-packs/base' contributes an invalid value to extension point 'test-packs/base.words': its check returned no result. Fix the value, or remove the contribution"],
   ];
 
   for (const [title, available, selected, message] of refusals) {
     test(title, () => {
-      expect(Composition.compose(available, selected)).toEqual({ ok: false, error: message });
+      // Rows that select nothing select every available pack.
+      expect(Composition.compose(available, selected.length === 0 ? available : selected)).toEqual({ ok: false, error: message });
     });
   }
 
   test("garbage instead of lists is refused, never thrown", () => {
-    const refusal = { ok: false as const, error: "Compose takes a list of available packs and a list of selected pack names" };
+    const refusal = { ok: false as const, error: "Compose takes a list of available packs and a list of selected packs" };
     expect(Composition.compose(null as unknown as AnyPack[], [])).toEqual(refusal);
-    expect(Composition.compose([], "base" as unknown as string[])).toEqual(refusal);
-    expect(Composition.compose([null as unknown as AnyPack], [])).toEqual({ ok: false, error: notBuilt("null") });
-    expect(Composition.compose([base], [7 as unknown as string])).toEqual({ ok: false, error: "A pack name must be a string" });
+    expect(Composition.compose([], "base" as unknown as AnyPack[])).toEqual(refusal);
+    expect(Composition.compose([null as unknown as AnyPack], [])).toEqual({ ok: false, error: notBuilt("Available", "null") });
+    expect(Composition.compose([base], [7 as unknown as AnyPack])).toEqual({ ok: false, error: notBuilt("Selected", "7") });
   });
 
   test("the same faults give the same refusal whatever the listing order", () => {
-    const one = Composition.compose([ext, base, other], ["ext", "zed", "other"]);
-    const two = Composition.compose([other, base, ext], ["other", "zed", "ext"]);
+    const zed = definePack({ id: packId("zed") });
+    const one = Composition.compose([ext, base, other], [ext, zed, other]);
+    const two = Composition.compose([other, base, ext], [other, zed, ext]);
     expect(one).toEqual(two);
-    expect(one).toEqual({ ok: false, error: "Pack 'zed' is selected but not available. Make it available, or remove it from the selection" });
+    expect(one).toEqual({ ok: false, error: "Pack 'test-packs/zed' is selected but not available. Make it available, or remove it from the selection" });
   });
 
   test("a check that throws refuses the value instead of letting it through", () => {
     const fragile = definePack({
-      id: "base",
+      id: packId("base"),
       points: {
         words: point({
           description: "Its check throws",
@@ -174,14 +191,14 @@ describe("Composition — every refusal names the pack, the extension point and 
         }),
       },
     });
-    expect(Composition.compose([fragile], ["base"])).toEqual({
+    expect(Composition.compose([fragile], [fragile])).toEqual({
       ok: false,
-      error: "Pack 'base' contributes an invalid value to extension point 'base.words': its check failed (boom). Fix the value, or remove the contribution",
+      error: "Pack 'test-packs/base' contributes an invalid value to extension point 'test-packs/base.words': its check failed (boom). Fix the value, or remove the contribution",
     });
   });
 
   test("an unselected pack's faults are not checked", () => {
-    const broken = untypedPack({ id: "broken", dependsOn: [other], contributes: [contribution(words, [""])] });
-    expect(composed([base, broken], ["base"]).packs).toEqual(["base"]);
+    const broken = untypedPack({ id: "test-packs/broken", dependsOn: [other], contributes: [contribution(words, [""])] });
+    expect(ids(composed([base, broken], [base]).packs)).toEqual(["test-packs/base"]);
   });
 });
