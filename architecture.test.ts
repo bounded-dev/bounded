@@ -56,6 +56,31 @@ function importsOf(path: string, text: string): { spec: string; line: number; ty
   return out;
 }
 
+/**
+ * Every packIdsFor(...) (or PackId.forPackage(...)) call in a workspace's
+ * source names that workspace's npm package, so a pack's id always starts
+ * with the package it ships in (ADR 2026-004). Tests and fixtures build
+ * packs of imaginary packages and are exempt.
+ */
+function packIdViolations(path: string, text: string, packageName: string): string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const named = (ts.isIdentifier(callee) && callee.text === "packIdsFor") || (ts.isPropertyAccessExpression(callee) && callee.name.text === "forPackage");
+      const argument = node.arguments[0];
+      if (named && !(argument !== undefined && ts.isStringLiteral(argument) && argument.text === packageName)) {
+        const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
+        out.push(`${path}:${line} — pack ids in this workspace come from packIdsFor("${packageName}"), the name in its package.json`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+}
+
 const violations: string[] = [];
 const files = [...new Glob("contexts/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
 for (const path of files) {
@@ -69,6 +94,7 @@ for (const path of files) {
   }
   const text = await Bun.file(`${ROOT}/${path}`).text();
   const pure = (layer === "domain" || layer === "application") && !isTest;
+  if (!isTest) violations.push(...packIdViolations(path, text, context.name));
   if (pure && /\b(Bun|process|fetch|require)\s*[.(]/.test(text)) violations.push(`${path} — ${layer} code does no I/O`);
   for (const { spec, line, typeOnly } of importsOf(path, text)) {
     const at = `${path}:${line} imports "${spec}"`;
@@ -111,6 +137,14 @@ describe("architecture", () => {
 
   test("the scan reads source files", () => {
     expect(files.length).toBeGreaterThan(0);
+  });
+
+  test("the pack-id rule flags a call that does not name the workspace's package", () => {
+    expect(packIdViolations("a.ts", 'packIdsFor("bounded")("core");', "bounded")).toEqual([]);
+    expect(packIdViolations("a.ts", 'packIdsFor("other")("core");', "bounded")).toEqual([
+      'a.ts:1 — pack ids in this workspace come from packIdsFor("bounded"), the name in its package.json',
+    ]);
+    expect(packIdViolations("a.ts", "const p = PackId.forPackage(name);", "bounded")).toHaveLength(1);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {
