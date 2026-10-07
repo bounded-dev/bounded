@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compareCases, extractTestCases, isRunnableTestPath, isTestPath, main, parseJunit, redCases } from "./red-first-check.ts";
+import { compareCases, extractTestCases, fixtureRunners, isRunnableTestPath, isTestPath, main, parseJunit, parseSupersessions, redCases } from "./red-first-check.ts";
 
 describe("red-first-check paths", () => {
   test("test files, test support and fixtures may be in a red commit; nothing else", () => {
@@ -12,6 +12,12 @@ describe("red-first-check paths", () => {
     expect(isTestPath("contexts/core/test/fixtures/bad.ts")).toBe(true);
     expect(isTestPath("contexts/core/src/a.ts")).toBe(false);
     expect(isTestPath("package.json")).toBe(false);
+    expect(isTestPath("superseded-tests.json")).toBe(true);
+  });
+
+  test("a change to the compile-time fixtures also runs the test that compiles them", () => {
+    expect(fixtureRunners(["contexts/core/test/fixtures/compile-time/rejected.ts", "a.test.ts"])).toEqual(["compile-time.test.ts"]);
+    expect(fixtureRunners(["contexts/core/test/fixtures/other/x.ts"])).toEqual([]);
   });
 
   test("only test files outside fixture directories are runnable", () => {
@@ -61,6 +67,29 @@ describe("red-first-check cases", () => {
       ["d", "deleted"],
     ]);
     expect(compareCases(red, undefined).every((w) => w.kind === "deleted")).toBe(true);
+  });
+});
+
+describe("red-first-check supersession records", () => {
+  test("reads records naming the case, its successor or none, and the reason", () => {
+    const text = JSON.stringify([
+      { file: "a.test.ts", case: "g > old", successor: { file: "b.test.ts", case: "g > new" }, reason: "moved" },
+      { file: "a.test.ts", case: "gone", successor: null, reason: "the behaviour was removed by design" },
+    ]);
+    expect(parseSupersessions(text)).toEqual({
+      ok: true,
+      value: [
+        { file: "a.test.ts", case: "g > old", successor: { file: "b.test.ts", case: "g > new" }, reason: "moved" },
+        { file: "a.test.ts", case: "gone", successor: null, reason: "the behaviour was removed by design" },
+      ],
+    });
+    expect(parseSupersessions(undefined)).toEqual({ ok: true, value: [] });
+  });
+
+  test("refuses a record without a reason, or malformed", () => {
+    expect(parseSupersessions(JSON.stringify([{ file: "a.test.ts", case: "x", successor: null, reason: " " }])).ok).toBe(false);
+    expect(parseSupersessions("{").ok).toBe(false);
+    expect(parseSupersessions(JSON.stringify([{ file: "a.test.ts" }])).ok).toBe(false);
   });
 });
 
@@ -129,6 +158,43 @@ describe("red-first-check end to end", () => {
     expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
     expect(lines.some((l) => l.startsWith("FAIL red: ok.test.ts: every test passes at the red commit"))).toBe(true);
   }, 30_000);
+
+  test("a red case superseded by a recorded successor passes; the successor must exist, run and pass", () => {
+    const repo = repository();
+    const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+    repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b;\n" }, "green");
+    const replaced = `import { expect, test } from "bun:test";\nimport { sum } from "./sum.ts";\ntest("adds two numbers", () => { expect(sum(2, 2)).toBe(4); });\n`;
+    repo.commit({ "sum.test.ts": replaced }, "rename without a record");
+    const without: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => without.push(l))).toBe(1);
+    const record = (successor: string) =>
+      JSON.stringify([{ file: "sum.test.ts", case: "adds", successor: { file: "sum.test.ts", case: successor }, reason: "renamed to say what it adds" }]);
+    repo.commit({ "superseded-tests.json": record("adds two numbers") }, "record it");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+    expect(lines).toContain('note: sum.test.ts: "adds" is superseded by sum.test.ts: "adds two numbers" (renamed to say what it adds)');
+    repo.commit({ "superseded-tests.json": record("no such case") }, "record a successor that does not exist");
+    const missing: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => missing.push(l))).toBe(1);
+    expect(missing).toContain('FAIL preserved: sum.test.ts: "adds" is superseded by sum.test.ts: "no such case", which does not exist at the head');
+  }, 60_000);
+
+  test("a red commit may delete a test file only when every case in it is recorded as superseded", () => {
+    const OLD = `import { expect, test } from "bun:test";\ntest("old", () => { expect(1).toBe(1); });\n`;
+    const run = (record: string | undefined): string[] => {
+      const repo = repository();
+      repo.commit({ "old.test.ts": OLD }, "old");
+      rmSync(join(repo.dir, "old.test.ts"));
+      const red = repo.commit({ "sum.test.ts": RED_TEST, ...(record === undefined ? {} : { "superseded-tests.json": record }) }, "red");
+      repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b;\n" }, "green");
+      const lines: string[] = [];
+      main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l));
+      return lines;
+    };
+    expect(run(undefined)).toContain('FAIL scope: the red commit deletes old.test.ts, whose case "old" no record in superseded-tests.json supersedes');
+    const recorded = run(JSON.stringify([{ file: "old.test.ts", case: "old", successor: null, reason: "replaced by sum" }]));
+    expect(recorded.at(-1)).toBe("PASS red-first check");
+  }, 60_000);
 
   test("reports a usage error for an unknown commit", () => {
     const repo = repository();
