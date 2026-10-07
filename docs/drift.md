@@ -21,14 +21,26 @@ first rule that matches it and does not except it. `match` ignores case, as
 the path gate's does, so a file cannot be dodged by its case on a
 case-insensitive file system; `except` is exact.
 
-What is never watched: `.bounded/`, and every `node_modules/` and `.git/`
-directory at any depth, with everything under them. Protecting files inside
-`node_modules` against shell commands is out of scope: dependencies are
-rewritten by installs all the time, and walking them would make every command
-slow. The walk enters only the directories a rule's fixed leading part leads
-to (`generated/**` walks `generated/`; a `**`-led rule walks the project), and
-never follows a link: a linked directory is never entered, and a link a rule
-matches is recorded as a link, by where it points.
+**Never watched:** `.bounded/` (bounded's own state, including the decision
+log `.bounded/guard-log.jsonl`), and every `node_modules/` and `.git/`
+directory at any depth, with everything under them. So a shell command can
+edit or delete the decision log, and nothing undoes it: the log's value as
+evidence rests on the same limit as the snapshots (anything running as the
+same user can change it). Protecting files inside `node_modules` is out of
+scope: installs rewrite dependencies all the time, and reading them would make
+every command slow.
+
+**Finding the files.** In a git repository the files come from git: tracked
+and untracked files (`git ls-files -c -o --exclude-standard`), and ignored
+files and ignored directories (`git ls-files -o -i --exclude-standard
+--directory`), so a protected file that is ignored, such as `.env`, is still
+watched; an ignored directory is walked only where a rule's fixed leading
+part may lead. Outside git the project is walked the same way, entering only
+the directories a rule's fixed leading part leads to (`generated/**` walks
+`generated/`; a `**`-led rule walks the project). Either way a link is never
+followed: a linked directory is never entered, and a link a rule matches is
+recorded as a link, by where it points. If git cannot list a repository's
+files, the command is refused.
 
 ## Before and after
 
@@ -51,9 +63,10 @@ matches is recorded as a link, by where it points.
    by a shell command; restored") and returns a message for the agent:
 
    > This command changed protected files, and they were restored:
-   > generated/a.ts was modified, generated/new.ts was created. generated/ is
-   > written by the generator. Change the generator's input instead. What it
-   > created was moved, not deleted, to ~/.local/state/bounded/…/quarantine/….
+   > generated/a.ts was modified, generated/new.ts was created — protected
+   > because generated/ is written by the generator. Change the generator's
+   > input instead. What it created was moved, not deleted, to
+   > ~/.local/state/bounded/…/quarantine/….
 
 So uncommitted work in a watched file, and a watched file git does not hold,
 come back as they were before the command. A file too large to copy that the
@@ -84,12 +97,19 @@ can no longer be told from earlier work:
 > The snapshot for this command was missing or altered (generated/a.ts does
 > not match the commit it was kept by), so its changes cannot be told from
 > earlier work and nothing was restored. Protected files that differ from the
-> last commit: generated/a.ts was modified. … Check them against version
-> control.
+> last commit: generated/a.ts was modified — protected because … Check them
+> against version control.
 
 A snapshot that is simply missing (deleted, or expired) is treated the same
 way, but says nothing when no watched file differs from the last commit.
 Every failure while checking is recorded too.
+
+Detection has a limit: a snapshot forged consistently by the same user (each
+copy rewritten together with its hash, and each file kept by the commit
+pointing at a commit that holds the forgery) passes every check, and then the
+forgery is what is restored. Drift stops agents' shell commands from changing
+protected files by accident or in passing, not a determined process running
+as the same user.
 
 ## For host adapters
 
