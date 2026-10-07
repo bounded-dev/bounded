@@ -28,9 +28,9 @@ describe("translate: every Claude Code tool to a host-neutral call", () => {
     ["Agent", { subagent_type: "Explore", prompt: "look" }, { tool: "subagent", effects: [{ kind: "delegate", agent: "Explore" }] }],
     ["Task", { prompt: "look" }, { tool: "subagent", effects: [{ kind: "delegate", agent: "general-purpose" }] }],
     ["WebFetch", { url: "https://example.com", prompt: "x" }, { tool: "web", effects: [{ kind: "fetch", url: "https://example.com" }] }],
-    ["WebSearch", { query: "x" }, { tool: "web", effects: [{ kind: "execute", command: "WebSearch" }] }],
-    ["Skill", { skill: "x" }, { tool: "other", effects: [{ kind: "execute", command: "Skill" }] }],
-    ["mcp__docs__read", { id: "1" }, { tool: "other", effects: [{ kind: "execute", command: "mcp__docs__read" }] }],
+    ["WebSearch", { query: "x" }, { tool: "web", effects: [{ kind: "invoke", name: "WebSearch" }] }],
+    ["Skill", { skill: "x" }, { tool: "other", effects: [{ kind: "invoke", name: "Skill" }] }],
+    ["mcp__docs__read", { id: "1" }, { tool: "other", effects: [{ kind: "invoke", name: "mcp__docs__read" }] }],
   ])("%s %j", (tool, input, expected) => {
     expect(call(tool, input)).toEqual(expected as never);
   });
