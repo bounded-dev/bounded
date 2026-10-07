@@ -127,9 +127,10 @@ builds that command with every path shell-quoted, such as
 either make sure `bun` is on it or give bun's absolute path in the command.
 `withHook` appends one `PreToolUse` entry with an empty matcher (every tool),
 the fail-closed wrapper and the timeout, and keeps every other setting and
-hook. The wrapper puts the command on its own lines inside a group,
-`{⏎<command>⏎} || { echo "bounded hook failed" >&2; exit 2; }`, so a comment
-or `;` in the command cannot escape it. A hook running an older form of the
+hook. The wrapper puts the command on its own line inside a group (`{`, a
+newline, the command, a newline, then
+`} || { echo "bounded hook failed" >&2; exit 2; }`), so a comment or `;` in
+the command cannot escape it. A hook running an older form of the
 same command (unwrapped, or the earlier one-line wrapper) is removed and
 replaced rather than left beside the new one. An existing entry counts as already installed only when it runs the
 same wrapped command as a `command` hook for every tool (matcher `""`, `"*"`
