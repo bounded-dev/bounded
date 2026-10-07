@@ -349,5 +349,23 @@
       "case": "piExtension — end to end through a fake pi > registers for session_start, tool_call and tool_result only"
     },
     "reason": "the extension now also checks each finished call on tool_result (drift), so it registers for that event too"
+  },
+  {
+    "file": "contexts/core/src/application/drift/watch-shell/watch-shell.test.ts",
+    "case": "WatchShellHandler — after a shell command > a restore that leaves a file different from before the command is a failed restore",
+    "successor": {
+      "file": "contexts/core/src/application/drift/watch-shell/watch-shell.test.ts",
+      "case": "WatchShellHandler — after a shell command > uncommitted work in a watched file is put back from the snapshot's copy, not from the commit"
+    },
+    "reason": "the snapshot now keeps a copy of work git does not hold, so restoring puts that work back instead of failing (review M1)"
+  },
+  {
+    "file": "apps/claude-code/src/install.test.ts",
+    "case": "withHooks: the same command before and after every tool call > installs the hook for PreToolUse and PostToolUse, idempotently",
+    "successor": {
+      "file": "apps/claude-code/src/install.test.ts",
+      "case": "withHooks: the same command before and after every tool call > installs the hook before every tool call, after it, and after its failure, idempotently"
+    },
+    "reason": "a command that fails reaches Claude Code's PostToolUseFailure, not PostToolUse, so the hook is installed for it too (review B2)"
   }
 ]

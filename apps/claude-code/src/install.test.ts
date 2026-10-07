@@ -60,9 +60,14 @@ describe("withHook: bounded's PreToolUse hook merged into .claude/settings.json"
 });
 
 describe("withHooks: the same command before and after every tool call", () => {
-  test("installs the hook for PreToolUse and PostToolUse, idempotently", () => {
+  test("a settings file with only the earlier two events gains PostToolUseFailure", () => {
+    const earlier = { hooks: { PreToolUse: [ours], PostToolUse: [ours] } };
+    expect(withHooks(earlier, COMMAND)).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours] } }, changed: true } });
+  });
+
+  test("installs the hook before every tool call, after it, and after its failure, idempotently", () => {
     const both = withHooks({}, COMMAND);
-    expect(both).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours] } }, changed: true } });
+    expect(both).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours] } }, changed: true } });
     if (!both.ok) throw new Error(both.error);
     expect(withHooks(both.value.settings, COMMAND)).toEqual({ ok: true, value: { settings: both.value.settings, changed: false } });
   });

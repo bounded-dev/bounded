@@ -142,6 +142,21 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
     });
   });
 
+  test("an afterTool that fails is recorded through refuse as well as told", async () => {
+    const recorded: AdapterRefusal[] = [];
+    const fake = await started(withExtras({ afterTool: async () => { throw new Error("boom"); }, refuse: async (refusal) => void recorded.push(refusal) }));
+    await fake.finished("bash", { command: "ls" });
+    expect(recorded).toEqual([
+      {
+        tool: "bash",
+        reason: "bounded could not check protected files after this call: boom. Check them against version control.",
+        redirect: "Check the protected files against version control",
+        role: null,
+        input: { command: "ls" },
+      },
+    ]);
+  });
+
   test("a call the adapter blocks itself is recorded through refuse, and still blocked", async () => {
     const recorded: AdapterRefusal[] = [];
     const fake = await started(withExtras({ refuse: async (refusal) => void recorded.push(refusal) }));

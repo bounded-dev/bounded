@@ -7,6 +7,8 @@ import { Composition, Verdict } from "bounded/domain";
 import { openProject } from "./open-project.ts";
 
 const CORE = resolve(import.meta.dir, "../..");
+// Snapshots go to the user's state directory: a temporary one here.
+process.env.XDG_STATE_HOME = mkdtempSync(join(tmpdir(), "bounded-state-"));
 const CONFIG = `import { contribution, corePack, defineConfig, Verdict } from "bounded/domain";
 export default defineConfig({
   packs: [corePack],
@@ -112,7 +114,7 @@ export default defineConfig({
     writeFileSync(join(root, "generated", "new.ts"), "created\n");
     const check = await afterTool({ ...shell, kind: "tool-result", ok: true });
     expect(check.message).toBe(
-      "This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Instead: Change the generator's input instead.",
+      "This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Change the generator's input instead.",
     );
     expect(readFileSync(join(root, "generated", "a.ts"), "utf8")).toBe("original\n");
     expect(existsSync(join(root, "generated", "new.ts"))).toBe(false);

@@ -59,7 +59,43 @@ describe("FileSystemWatchedFiles", () => {
   test("restoring outside a git repository fails, saying why", async () => {
     const root = mkdtempSync(join(tmpdir(), "watched-files-"));
     writeFileSync(join(root, "a.ts"), "a");
-    const restored = await new FileSystemWatchedFiles(root).restore(["a.ts"]);
-    expect(restored.ok).toBe(false);
+    const files = new FileSystemWatchedFiles(root);
+    expect((await files.restore("a.ts", { from: "commit", commit: "HEAD" })).ok).toBe(false);
+    expect(await files.head()).toEqual({ ok: true, value: null });
+  });
+
+  test("restoring from a commit leaves the index alone: staged work stays staged", async () => {
+    const root = repository({ "a.ts": "a", "b.ts": "b" });
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    writeFileSync(join(root, "b.ts"), "staged");
+    git("add", "b.ts");
+    writeFileSync(join(root, "a.ts"), "tampered");
+    const files = new FileSystemWatchedFiles(root);
+    const head = await files.head();
+    if (!head.ok || head.value === null) throw new Error("expected a commit");
+    expect(await files.restore("a.ts", { from: "commit", commit: head.value })).toEqual({ ok: true, value: undefined });
+    expect(readFileSync(join(root, "a.ts"), "utf8")).toBe("a");
+    expect(git("diff", "--cached", "--name-only").stdout.trim()).toBe("b.ts");
+  });
+
+  test("runs under node, as pi runs it: no Bun API", () => {
+    const root = repository({ "generated/a.ts": "a", "src/b.ts": "b" });
+    const script = join(mkdtempSync(join(tmpdir(), "node-drift-")), "run.mjs");
+    writeFileSync(
+      script,
+      `import { FileSystemWatchedFiles } from ${JSON.stringify(join(import.meta.dir, "watched-files.ts"))};
+const files = new FileSystemWatchedFiles(${JSON.stringify(root)});
+const rules = [{ match: "generated/**", except: [], why: "w", redirect: "r" }];
+const head = await files.head();
+const out = { hash: await files.hash(rules), committed: await files.committed(rules, head.value) };
+process.stdout.write(JSON.stringify(out));
+`,
+    );
+    // pi loads extensions through jiti, which compiles TypeScript fully; node needs transform-types for that.
+    const run = spawnSync("node", ["--experimental-transform-types", "--no-warnings", script], { encoding: "utf8" });
+    expect(run.stderr).toBe("");
+    const out = JSON.parse(run.stdout) as { hash: { ok: boolean; value: object }; committed: { ok: boolean; value: object } };
+    expect(Object.keys(out.hash.value)).toEqual(["generated/a.ts"]);
+    expect(out.committed).toEqual(out.hash);
   });
 });
