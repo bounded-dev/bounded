@@ -30,6 +30,10 @@ export const anySet = point({ description: "Set", check: parsed<ReadonlySet<any>
 export const anyMapValue = point({ description: "Map", check: parsed<ReadonlyMap<string, any>>() }); // rejected: a point's check must return a precise type, not any
 export const anyParameter = point({ description: "Guard", check: parsed<(event: any) => Promise<boolean>>() }); // rejected: a point's check must return a precise type, not any
 export const anyConstructor = point({ description: "Maker", check: parsed<new (x: any) => object>() }); // rejected: a point's check must return a precise type, not any
+interface DetailedError extends Error {
+  readonly data: any;
+}
+export const anyInLeaf = point({ description: "Errors", check: parsed<DetailedError>() }); // rejected: a point's check must return a precise type, not any
 // 3. dependsOn is a tuple of distinct packs, each with an exact id.
 export const notTuple = definePack({ id: packId("list"), dependsOn: somePacks }); // rejected: list dependsOn as a tuple of packs
 export const unionDep = definePack({ id: packId("union"), dependsOn: [either], contributes: [contribution(base.points.words, ["x"])] }); // rejected: each dependency is a pack with an exact id

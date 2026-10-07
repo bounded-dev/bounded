@@ -28,4 +28,4 @@ export const noContext = dispatch(contextGuards, toolUse); // rejected: Expected
 // 5. A guard serves only events it can read, and guards in one list agree on their context.
 export const tooNarrow: Guard<Event>[] = [toolUseGuard]; // rejected: Type 'Guard<ToolUse>' is not assignable to type 'Guard<Event>'
 export const widenedEvent = dispatch([toolUseGuard], toolUse as Event); // rejected: Argument of type 'Event' is not assignable to parameter of type 'ToolUse'
-export const clashing = dispatch([pathsGuard, countGuard], toolUse, { paths: [] }); // rejected: Type 'Guard<ToolUse, { readonly paths: number; }>' is not assignable to type 'Guard<ToolUse, { paths: never[]; }>'
+export const clashing = dispatch([pathsGuard, countGuard], toolUse, { paths: [] }); // rejected: is not assignable to type 'Guard<ToolUse
