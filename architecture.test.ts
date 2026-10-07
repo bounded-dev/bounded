@@ -1,6 +1,6 @@
 // The layer and dependency rules (AGENTS.md "Layout"), adapted from the Bounded
 // harness's hexagonal worked example. Every import of every file under
-// contexts/*/src is read with the TypeScript parser.
+// contexts/*/src and apps/*/src is read with the TypeScript parser.
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import * as ts from "typescript";
@@ -143,7 +143,56 @@ for (const path of files) {
   }
 }
 
+// Apps (AGENTS.md "Layout"): each is a workspace package that hosts contexts.
+// It has no layers; it imports its own files by relative path, contexts only
+// through their export paths and only when it declares them, and never
+// another app.
+interface App {
+  readonly dir: string;
+  readonly name: string;
+  readonly dependencies: readonly string[];
+}
+const apps: App[] = [];
+for (const manifest of new Glob("apps/*/package.json").scanSync({ cwd: ROOT })) {
+  const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name: string; dependencies?: Record<string, string> };
+  apps.push({ dir: manifest.replace("/package.json", ""), name: pkg.name, dependencies: Object.keys(pkg.dependencies ?? {}) });
+}
+const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
+for (const path of appFiles) {
+  const app = apps.find((a) => path.startsWith(`${a.dir}/`));
+  if (app === undefined) {
+    violations.push(`${path} — every app file sits in an app with a package.json`);
+    continue;
+  }
+  for (const { spec, line } of importsOf(path, await Bun.file(`${ROOT}/${path}`).text())) {
+    const at = `${path}:${line} imports "${spec}"`;
+    if (spec.startsWith(".")) {
+      const target = new URL(spec, `file:///${path}`).pathname.slice(1);
+      if (!target.startsWith(`${app.dir}/`)) violations.push(`${at} — an app imports only its own files by relative path`);
+      continue;
+    }
+    if (spec === "<computed>") {
+      violations.push(`${at} — an import with a computed specifier cannot be checked`);
+      continue;
+    }
+    if (apps.some((other) => spec === other.name || spec.startsWith(`${other.name}/`))) violations.push(`${at} — an app never imports another app`);
+    const target = contexts.find((c) => spec === c.name || spec.startsWith(`${c.name}/`));
+    if (target === undefined) continue;
+    if (!(`./${spec.slice(target.name.length + 1)}` in target.exports)) violations.push(`${at} — import a context only through its export paths`);
+    else if (!app.dependencies.includes(target.name)) violations.push(`${at} — ${app.name} does not declare ${target.name} as a dependency`);
+  }
+}
+
 describe("architecture", () => {
+  test("the Claude Code adapter is an app depending on the core", () => {
+    const app = apps.find((a) => a.name === "bounded-claude-code");
+    expect(app?.dir).toBe("apps/claude-code");
+    // The core, and picomatch to split a search filter's fixed part from its pattern.
+    expect(app?.dependencies).toEqual(["bounded", "picomatch"]);
+    expect(appFiles.some((path) => path.startsWith("apps/claude-code/src/"))).toBe(true);
+  });
+
+
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
