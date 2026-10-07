@@ -235,13 +235,33 @@ describe("red-first-check end to end", () => {
     repo.git("checkout", "--quiet", "main");
     repo.commit({ "notes.test.ts": `import { expect, test } from "bun:test";\ntest("n", () => { expect(1).toBe(1); });\n` }, "test-only on main");
     repo.git("merge", "--quiet", "--no-ff", "--no-commit", "build");
-    writeFileSync(join(repo.dir, "superseded-tests.json"), "[]\n");
+    // The merge invents a record neither side had, and changes code.
+    writeFileSync(join(repo.dir, "superseded-tests.json"), JSON.stringify([{ file: "x.test.ts", case: "x", successor: null, reason: "invented in the merge" }]));
     writeFileSync(join(repo.dir, "sum.ts"), "export const sum = (a: number, b: number): number => b + a;\n");
     repo.git("add", "-A");
     repo.git("commit", "--quiet", "--no-edit");
     const lines: string[] = [];
     expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
     expect(lines.some((l) => /^FAIL supersessions: superseded-tests\.json was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+  }, 60_000);
+
+  test("a merge whose record is exactly the union of its parents' records passes, whatever else it resolves", () => {
+    const record = (reason: string) => ({ file: "old.test.ts", case: reason, successor: null, reason });
+    const repo = repository();
+    const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+    repo.git("checkout", "--quiet", "-b", "build");
+    repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b;\n", "notes.md": "build\n" }, "green");
+    repo.commit({ "superseded-tests.json": JSON.stringify([record("from build")]) }, "record on build");
+    repo.git("checkout", "--quiet", "main");
+    repo.commit({ "notes.md": "main\n" }, "docs on main");
+    repo.commit({ "superseded-tests.json": JSON.stringify([record("from main")]) }, "record on main");
+    repo.git("merge", "--quiet", "--no-ff", "--no-commit", "build");
+    writeFileSync(join(repo.dir, "superseded-tests.json"), JSON.stringify([record("from main"), record("from build")]));
+    writeFileSync(join(repo.dir, "notes.md"), "main and build\n");
+    repo.git("add", "-A");
+    repo.git("commit", "--quiet", "--no-edit");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
   }, 60_000);
 
   test("an ordinary merge of a build branch passes", () => {
