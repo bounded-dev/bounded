@@ -207,7 +207,7 @@ describe("the path gate — listing is judged conservatively", () => {
 
   test("a part with '**' anywhere in it may span parts of a path", () => {
     expect(decide([hidden("a/b**/c")], [list("a/bz/d")]).kind).toBe("refuse");
-    expect(decide([hidden("a/b**/c")], [list("a/x/d")])).toBe(Verdict.allow);
+    expect(decide([hidden("a/b**/c")], [list("z/bz/d")])).toBe(Verdict.allow);
   });
 
   test("a listing refusal composes its redirect: list elsewhere or filter it out, then the rule's own redirect", () => {
