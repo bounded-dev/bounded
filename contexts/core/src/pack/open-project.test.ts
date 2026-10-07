@@ -126,6 +126,51 @@ export default defineConfig({
     expect(lines[1]?.verdict.kind).toBe("refuse");
   });
 
+  describe("a file whose name holds a control character, such as a newline, is still watched", () => {
+    const WEIRD = "we\nird.ts";
+    async function watched(files: Record<string, string>) {
+      const config = `import { contribution, corePack, defineConfig } from "bounded/domain";
+export default defineConfig({
+  packs: [corePack],
+  contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/*.ts", why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
+});
+`;
+      const root = project({ "bounded.config.ts": config });
+      mkdirSync(join(root, "generated"));
+      for (const [name, text] of Object.entries(files)) writeFileSync(join(root, "generated", name), text);
+      writeFileSync(join(root, ".gitignore"), "node_modules/\n.bounded/\n");
+      const git = (...args: string[]) => spawnSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args], { cwd: root });
+      git("init", "--quiet");
+      git("add", "-A");
+      git("commit", "--quiet", "-m", "base");
+      const opened = await openProject(root);
+      const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_weird" };
+      expect((await opened.judge(shell)).kind).toBe("allow");
+      return { root, after: () => opened.afterTool({ ...shell, kind: "tool-result", ok: true }) };
+    }
+
+    test("one a command creates is moved aside and reported by an escaped name", async () => {
+      const { root, after } = await watched({ "a.ts": "a" });
+      writeFileSync(join(root, "generated", WEIRD), "created\n");
+      const check = await after();
+      expect(check.changed).toEqual([{ path: `generated/${WEIRD}`, change: "created" }]);
+      expect(check.message).toContain("generated/we\\nird.ts was created");
+      expect(check.message).not.toContain("\n");
+      expect(existsSync(join(root, "generated", WEIRD))).toBe(false);
+      const where = /moved, not deleted, to (.+)\.$/.exec(check.message ?? "")?.[1] ?? "";
+      expect(readFileSync(join(where, "generated", WEIRD), "utf8")).toBe("created\n");
+    });
+
+    test("one that existed before and a command modifies is restored", async () => {
+      const { root, after } = await watched({ [WEIRD]: "original\n" });
+      writeFileSync(join(root, "generated", WEIRD), "tampered\n");
+      const check = await after();
+      expect(check.restored).toBe(true);
+      expect(check.message).toContain("generated/we\\nird.ts was modified");
+      expect(readFileSync(join(root, "generated", WEIRD), "utf8")).toBe("original\n");
+    });
+  });
+
   test("a root that is not an absolute path gives a judge that refuses everything", async () => {
     const { judge, problem } = await openProject("relative/root");
     expect(problem).toBe("A project root is an absolute directory path, such as /home/me/project");
