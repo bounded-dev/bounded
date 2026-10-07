@@ -15,3 +15,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-007](2026-007-guards-over-a-composition.md) | Guards over a composition: the core pack and per-effect dispatch |
 | [2026-008](2026-008-decision-log.md) | Every decision is recorded, and an unrecorded decision fails closed |
 | [2026-010](2026-010-project-configuration.md) | A project's configuration (defineConfig), and opening a project for judging |
+| [2026-011](2026-011-drift.md) | Undoing what shell commands change in watched files |

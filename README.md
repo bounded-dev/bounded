@@ -43,6 +43,11 @@ worked example.
   about every event. A broken configuration refuses everything
   ([docs/configuration.md](docs/configuration.md), ADR 2026-010).
 
+- **Drift.** Files contributed to `watchedPaths` are hashed before every
+  allowed shell command and put back after it if it changed them, with a
+  message for the agent and a record ([docs/drift.md](docs/drift.md),
+  ADR 2026-011).
+
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
 

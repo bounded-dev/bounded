@@ -137,6 +137,9 @@ Rules, enforced by `architecture.test.ts` unless stated:
   project's contributions into the pack `bounded/project`, which depends on
   every selected pack; a project never contributes to an unselected pack's
   point. A configuration that cannot be used makes every event refused.
+- **Shell commands cannot change watched files (ADR 2026-011).** Hosts call
+  `judge` before a tool call and `afterTool` after it, passing the call id;
+  changes to watched files are undone and reported.
 - If a change needs the core to learn a technology's name or an opinion, it is
   in the wrong place: put it in a pack and give the core a mechanism.
 
