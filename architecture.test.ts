@@ -1,6 +1,6 @@
 // The layer and dependency rules (AGENTS.md "Layout"), adapted from the Bounded
 // harness's hexagonal worked example. Every import of every file under
-// contexts/*/src is read with the TypeScript parser.
+// contexts/*/src and apps/*/src is read with the TypeScript parser.
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import * as ts from "typescript";
@@ -30,6 +30,15 @@ for (const manifest of new Glob("contexts/*/package.json").scanSync({ cwd: ROOT 
   contexts.push({ dir: manifest.replace("/package.json", ""), name: pkg.name, exports: pkg.exports ?? {}, dependencies: Object.keys(pkg.dependencies ?? {}) });
 }
 const byName = new Map(contexts.map((c) => [c.name, c]));
+
+// Apps (apps/<name>) are the programs built on the contexts, such as host
+// adapters. An app may do I/O and use libraries, but reaches a context only
+// through its export paths and declared dependencies, and never another app.
+const apps: Context[] = [];
+for (const manifest of new Glob("apps/*/package.json").scanSync({ cwd: ROOT })) {
+  const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name: string; exports?: Record<string, string>; dependencies?: Record<string, string> };
+  apps.push({ dir: manifest.replace("/package.json", ""), name: pkg.name, exports: pkg.exports ?? {}, dependencies: Object.keys(pkg.dependencies ?? {}) });
+}
 
 /** The layer an export path or a source path belongs to. */
 function layerOf(inner: string): Layer | undefined {
@@ -96,6 +105,38 @@ for (const path of files) {
   }
 }
 
+const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
+for (const path of appFiles) {
+  const [, appName = ""] = path.split("/");
+  const app = apps.find((a) => a.dir === `apps/${appName}`);
+  if (app === undefined) {
+    violations.push(`${path} — every app file sits in src/ of an app with a package.json`);
+    continue;
+  }
+  const text = await Bun.file(`${ROOT}/${path}`).text();
+  for (const { spec, line } of importsOf(path, text)) {
+    const at = `${path}:${line} imports "${spec}"`;
+    if (spec.startsWith(".")) {
+      const target = new URL(spec, `file:///${path}`).pathname.slice(1);
+      if (!target.startsWith(`${app.dir}/src/`)) violations.push(`${at} — an app reaches outside its own src only through packages`);
+      continue;
+    }
+    const isPackage = (name: string): boolean => spec === name || spec.startsWith(`${name}/`);
+    const otherApp = apps.find((a) => isPackage(a.name));
+    if (otherApp !== undefined) {
+      violations.push(`${at} — an app never imports an app`);
+      continue;
+    }
+    const target = contexts.find((c) => isPackage(c.name));
+    if (target !== undefined) {
+      if (!(`./${spec.slice(target.name.length + 1)}` in target.exports)) violations.push(`${at} — import a context only through its export paths`);
+      else if (!app.dependencies.includes(target.name)) violations.push(`${at} — ${app.name} does not declare ${target.name} as a dependency`);
+      continue;
+    }
+    if (spec === "<computed>") violations.push(`${at} — an import with a computed specifier cannot be checked`);
+  }
+}
+
 describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
@@ -103,14 +144,21 @@ describe("architecture", () => {
     expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/in-memory", "./application", "./domain"]);
   });
 
+  test("the pi host adapter is an app depending on the core", () => {
+    const pi = apps.find((a) => a.name === "bounded-pi");
+    expect(pi?.dir).toBe("apps/pi");
+    expect(pi?.dependencies).toContain("bounded");
+  });
+
   test("every export path points at a file that exists", async () => {
-    for (const context of contexts) {
+    for (const context of [...contexts, ...apps]) {
       for (const target of Object.values(context.exports)) expect(await Bun.file(`${ROOT}/${context.dir}/${target}`).exists()).toBe(true);
     }
   });
 
   test("the scan reads source files", () => {
     expect(files.length).toBeGreaterThan(0);
+    expect(appFiles.length).toBeGreaterThan(0);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {
