@@ -55,6 +55,14 @@ describe("Decision", () => {
     expect(effect).toBe(`execute \`${"x".repeat(4096 - "execute `".length)}… (shortened from ${10_000 + "execute ``".length} characters)`);
   });
 
+  test("shortening a field never splits a character made of two code units", () => {
+    const emoji = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "😀".repeat(5000) }] });
+    if (!emoji.ok) throw new Error(emoji.error);
+    const [effect] = Decision.of("d-11", TIME, emoji.value, { verdict: Verdict.allow, refusedBy: null }).effects;
+    expect(effect?.includes("\ud83d…")).toBe(false);
+    expect(effect?.endsWith("… (shortened from 5010 characters)")).toBe(true);
+  });
+
   test("a follow-up keeps the decision's id and says what was enforced instead", () => {
     const decision = Decision.of("d-8", TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
     const late = Decision.enforced(decision, "2026-10-07T12:00:05.000Z", Verdict.refuse("Not recorded in time", "Fix the log"), "not recorded in time; enforced: refuse");

@@ -45,6 +45,15 @@ describe("Verdict — boundaries", () => {
     expect<unknown>(Verdict.parse({ kind: "refuse", reason: "a\u0000b", redirect: "c\nd" })).toEqual({ ok: true, value: { kind: "refuse", reason: "a b", redirect: "c d" } });
   });
 
+  test("Unicode line and paragraph separators and next-line become single spaces too", () => {
+    expect(Verdict.refuse("a\u2028b\u2029c\u0085d", "x").reason).toBe("a b c d");
+  });
+
+  test("shortening never splits a character made of two code units", () => {
+    const verdict = Verdict.refuse(`${"x".repeat(1999)}😀😀`, "d");
+    expect(verdict.reason).toBe(`${"x".repeat(1999)}😀… (shortened from 2001 characters)`);
+  });
+
   test("a refusal's text longer than 2,000 characters is shortened, saying so", () => {
     const verdict = Verdict.refuse("x".repeat(5000), "y".repeat(2500));
     expect(verdict.reason).toBe(`${"x".repeat(2000)}… (shortened from 5000 characters)`);

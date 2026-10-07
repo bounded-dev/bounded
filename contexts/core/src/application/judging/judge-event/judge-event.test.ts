@@ -93,6 +93,13 @@ describe("JudgeEventHandler", () => {
     expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: it did not finish within 20 ms");
   });
 
+  test("takes decision ids from its ids port", async () => {
+    const log = new FakeLog();
+    let n = 0;
+    await new JudgeEventHandler(composition, log, clock, { ids: { next: () => `id-${++n}` } }).execute(command("src/a.ts"));
+    expect(log.decisions[0]?.id).toBe("id-1");
+  });
+
   test("every decision has its own id", async () => {
     const log = new FakeLog();
     const handler = new JudgeEventHandler(composition, log, clock);

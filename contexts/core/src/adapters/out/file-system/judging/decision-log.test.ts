@@ -43,6 +43,13 @@ describe("FileSystemDecisionLog", () => {
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
+  test("makes an existing log file readable and writable by its owner only", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "decision-log-")), "log.jsonl");
+    writeFileSync(file, "", { mode: 0o644 });
+    await new FileSystemDecisionLog(file).record(decision);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
   test("two processes appending at once leave only whole lines", async () => {
     const file = join(mkdtempSync(join(tmpdir(), "decision-log-")), "log.jsonl");
     const worker = join(import.meta.dir, "../../../../../test/fixtures/append-worker.ts");
