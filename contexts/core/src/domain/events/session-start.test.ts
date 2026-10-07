@@ -25,3 +25,21 @@ describe("SessionStart — boundaries", () => {
     expect(result.ok && Object.isFrozen(result.value)).toBe(true);
   });
 });
+
+describe("SessionStart — never throws", () => {
+  test("refuses an input whose fields cannot be read, saying so", () => {
+    const hostile = new Proxy({}, { get: () => { throw new Error("trap"); }, has: () => { throw new Error("trap"); }, getOwnPropertyDescriptor: () => { throw new Error("trap"); } });
+    expect(SessionStart.parse(hostile)).toEqual({ ok: false, error: "A session start could not be read: trap" });
+    const getter = Object.defineProperty({ ...{ role: "planner" } }, "role", { enumerable: true, get: () => { throw new Error("no role"); } });
+    expect(SessionStart.parse(getter)).toEqual({ ok: false, error: "A session start could not be read: no role" });
+  });
+
+  test("a field whose text cannot be printed is refused, not thrown", () => {
+    const trap = { toString: () => { throw new Error("no"); } };
+    expect(SessionStart.parse({ ...{ role: "planner" }, kind: trap }).ok).toBe(false);
+  });
+
+  test("reads only its own fields, never inherited ones", () => {
+    expect(SessionStart.parse(Object.create({ role: "planner" })).ok).toBe(false);
+  });
+});

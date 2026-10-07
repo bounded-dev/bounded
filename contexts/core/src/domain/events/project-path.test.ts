@@ -46,4 +46,23 @@ describe("ProjectPath — boundaries", () => {
     expect(normalised("a\0b")).toBe("A path must not contain a NUL character");
     expect(ProjectPath.parse(7)).toEqual({ ok: false, error: "A path must be a string" });
   });
+
+  test("is Unicode-normalised (NFC), so one name has one spelling", () => {
+    expect(normalised("cafe\u0301/a.ts")).toBe("caf\u00e9/a.ts");
+  });
+
+  test("refuses other control characters, as NUL", () => {
+    for (const raw of ["a\nb", "a\tb", "a\u001fb", "a\u007fb"]) expect(normalised(raw)).toBe("A path must not contain a control character");
+  });
+
+  test("refuses a URL", () => {
+    for (const raw of ["file:///etc/passwd", "https://example.com/a", "git+ssh://host/x"]) {
+      expect(normalised(raw)).toBe(`Path '${raw}' is a URL. Give a path relative to the project root, such as 'src/a.ts'`);
+    }
+  });
+
+  test("a drive letter is absolute only when followed by '/' or nothing", () => {
+    expect(normalised("C:")).toBe("Path 'C:' is absolute. Give it relative to the project root, such as 'src/a.ts'");
+    expect(normalised("a:b")).toBe("a:b");
+  });
 });

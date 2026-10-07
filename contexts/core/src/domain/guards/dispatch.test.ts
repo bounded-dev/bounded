@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { Event as EventType } from "../events/event.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
+import { SessionStart as SessionStartFactory } from "../events/session-start.ts";
 import { ToolUse } from "../events/tool-use.ts";
 import type { ToolUse as ToolUseType } from "../events/tool-use.contract.ts";
 import { Verdict } from "../verdicts/verdict.ts";
@@ -52,9 +54,58 @@ describe("dispatch — the verdict", () => {
   });
 
   test("dispatches a session start like any other event", () => {
-    const start = { kind: "session-start", role: null } as unknown as SessionStart;
+    const started = SessionStartFactory.parse({ role: null });
+    if (!started.ok) throw new Error(started.error);
+    const start = started.value;
     const parsedStart = dispatch([(event: SessionStart) => Verdict.refuse(`No session without a role (${String(event.role)})`, "Start the session as a role")], start);
     expect<unknown>(parsedStart).toEqual({ kind: "refuse", reason: "No session without a role (null)", redirect: "Start the session as a role" });
+  });
+});
+
+describe("dispatch — guards see only the checked event", () => {
+  /** An event as untyped data would bring it, unchecked. */
+  const raw = (fields: object): ToolUseType => fields as ToolUseType;
+  const seenBy = (event: ToolUseType): EventType[] => {
+    const seen: EventType[] = [];
+    dispatch([(e) => { seen.push(e); return Verdict.allow; }], event);
+    return seen;
+  };
+
+  test("a guard receives normalised paths, so it cannot be dodged by spelling a path differently", () => {
+    const noGenerated: Guard<ToolUseType> = (event) => (event.paths.some((path) => path.startsWith("generated/")) ? Verdict.refuse("Generated file", "Change the generator's input instead") : Verdict.allow);
+    const event = raw({ kind: "tool-use", role: null, tool: "edit", action: "write", paths: ["./generated//api.ts"] });
+    expect(dispatch([noGenerated], event).kind).toBe("refuse");
+    expect<unknown>(seenBy(event)[0]).toEqual({ kind: "tool-use", role: null, tool: "edit", action: "write", paths: ["generated/api.ts"], command: null, search: null });
+  });
+
+  test("extra fields never reach a guard, and missing optional ones arrive as null", () => {
+    const [seen] = seenBy(raw({ kind: "tool-use", role: null, tool: "edit", action: "write", paths: ["a.ts"], content: "secret", command: undefined }));
+    expect(seen !== undefined && Object.hasOwn(seen, "content")).toBe(false);
+    expect(seen?.kind === "tool-use" && seen.command === null && seen.search === null).toBe(true);
+  });
+
+  test("a guard sees a frozen copy: one that tries to change it affects neither later guards nor the caller", () => {
+    const event = raw({ kind: "tool-use", role: null, tool: "edit", action: "write", paths: ["a.ts"] });
+    const meddler: Guard<ToolUseType> = (e) => {
+      try {
+        (e.paths as unknown as string[]).push("b.ts");
+      } catch {
+        // frozen: the change is refused
+      }
+      return Verdict.allow;
+    };
+    const later: string[][] = [];
+    dispatch([meddler, (e) => { later.push([...e.paths]); return Verdict.allow; }], event);
+    expect(later).toEqual([["a.ts"]]);
+    expect<unknown>(event.paths).toEqual(["a.ts"]);
+  });
+
+  test("a getter on the input is read once, by the check; guards see the value it gave", () => {
+    let reads = 0;
+    const event = raw({ kind: "tool-use", role: null, tool: "edit", action: "write", get paths() { reads += 1; return reads === 1 ? ["generated/a.ts"] : ["safe.ts"]; } });
+    const seen = seenBy(event);
+    expect(reads).toBe(1);
+    expect<unknown>(seen[0]?.kind === "tool-use" && seen[0].paths).toEqual(["generated/a.ts"]);
   });
 });
 
@@ -117,6 +168,15 @@ describe("dispatch — fail closed, never throws", () => {
       kind: "refuse",
       reason: "Dispatch was given an invalid event: Path '../x' climbs out of the project with '..'. Only paths inside the project can be checked",
       redirect: "Build the event with Event.parse, ToolUse.parse or SessionStart.parse",
+    });
+  });
+
+  test("extra fields on a verdict are dropped; an unknown verdict kind is refused", () => {
+    expect<unknown>(dispatch(untyped(() => ({ kind: "refuse", reason: "r", redirect: "d", rewrite: "x" })), write)).toEqual({ kind: "refuse", reason: "r", redirect: "d" });
+    expect<unknown>(dispatch(untyped(() => ({ kind: "rewrite", input: {} })), write)).toEqual({
+      kind: "refuse",
+      reason: "Guard 1 of 1 returned something that is not a verdict: A verdict is { kind: 'allow' } or { kind: 'refuse', reason, redirect } with a non-empty reason and redirect",
+      redirect: FIX,
     });
   });
 

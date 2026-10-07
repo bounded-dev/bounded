@@ -88,3 +88,32 @@ describe("ToolUse — boundaries", () => {
     expect(result.ok && Object.isFrozen(result.value) && Object.isFrozen(result.value.paths) && Object.isFrozen(result.value.search)).toBe(true);
   });
 });
+
+describe("ToolUse — never throws", () => {
+  test("refuses an input whose fields cannot be read, saying so", () => {
+    const hostile = new Proxy({}, { get: () => { throw new Error("trap"); }, has: () => { throw new Error("trap"); }, getOwnPropertyDescriptor: () => { throw new Error("trap"); } });
+    expect(ToolUse.parse(hostile)).toEqual({ ok: false, error: "A tool use could not be read: trap" });
+    const getter = Object.defineProperty({ ...edit }, "role", { enumerable: true, get: () => { throw new Error("no role"); } });
+    expect(ToolUse.parse(getter)).toEqual({ ok: false, error: "A tool use could not be read: no role" });
+  });
+
+  test("a field whose text cannot be printed is refused, not thrown", () => {
+    const trap = { toString: () => { throw new Error("no"); } };
+    expect(ToolUse.parse({ ...edit, kind: trap }).ok).toBe(false);
+  });
+
+  test("reads only its own fields, never inherited ones", () => {
+    expect(ToolUse.parse(Object.create(edit)).ok).toBe(false);
+  });
+});
+
+describe("ToolUse — independent parts", () => {
+  test("tool kind and action are independent: the host classifies both", () => {
+    expect(ToolUse.parse({ ...edit, tool: "shell", action: "write" }).ok).toBe(true);
+    expect(ToolUse.parse({ ...run, tool: "web" }).ok).toBe(true);
+  });
+
+  test("a command must not contain a NUL character", () => {
+    expect(error({ ...run, command: "rm a\0b" })).toBe("A command must not contain a NUL character");
+  });
+});

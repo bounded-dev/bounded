@@ -1,10 +1,13 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
-import { dispatch, type Guard, type ProjectPath, type Role, type SessionStart, type ToolKind, type ToolUse, Verdict } from "bounded/domain";
+import { dispatch, type Event, type Guard, type ProjectPath, type Role, type SessionStart, type ToolKind, type ToolUse, Verdict } from "bounded/domain";
 
 declare const toolUse: ToolUse;
 declare const sessionGuards: Guard<SessionStart>[];
 declare const contextGuards: Guard<ToolUse, { readonly protectedPaths: readonly string[] }>[];
+declare const toolUseGuard: Guard<ToolUse>;
+declare const pathsGuard: Guard<ToolUse, { readonly paths: readonly string[] }>;
+declare const countGuard: Guard<ToolUse, { readonly paths: number }>;
 
 // 1. A guard returns a Verdict built by Verdict: not a look-alike object, not a boolean, not a promise.
 export const literal: Guard<ToolUse> = () => ({ kind: "allow" }); // rejected: Property '__brand' is missing
@@ -22,3 +25,7 @@ export const writeCommand: Guard<ToolUse> = (event) => (event.action === "write"
 // 4. Dispatch runs the guards of the event it is given, with the context they need.
 export const wrongEvent = dispatch(sessionGuards, toolUse); // rejected: is not assignable to parameter of type 'SessionStart'
 export const noContext = dispatch(contextGuards, toolUse); // rejected: Expected 3 arguments, but got 2
+// 5. A guard serves only events it can read, and guards in one list agree on their context.
+export const tooNarrow: Guard<Event>[] = [toolUseGuard]; // rejected: Type 'Guard<ToolUse>' is not assignable to type 'Guard<Event>'
+export const widenedEvent = dispatch([toolUseGuard], toolUse as Event); // rejected: Argument of type 'Event' is not assignable to parameter of type 'ToolUse'
+export const clashing = dispatch([pathsGuard, countGuard], toolUse, { paths: [] }); // rejected: Type 'Guard<ToolUse, { readonly paths: number; }>' is not assignable to type 'Guard<ToolUse, { paths: never[]; }>'

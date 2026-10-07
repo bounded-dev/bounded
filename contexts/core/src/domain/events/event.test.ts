@@ -25,3 +25,14 @@ describe("Event — boundaries", () => {
     expect(Event.parse({ ...write, action: "delete" })).toEqual({ ok: false, error: "Action 'delete' is not one of: read, write, run" });
   });
 });
+
+describe("Event — never throws", () => {
+  test("refuses an input whose kind cannot be read, saying so", () => {
+    const hostile = new Proxy({}, { get: () => { throw new Error("trap"); }, has: () => { throw new Error("trap"); }, getOwnPropertyDescriptor: () => { throw new Error("trap"); } });
+    expect(Event.parse(hostile)).toEqual({ ok: false, error: "An event could not be read: trap" });
+  });
+
+  test("reads only its own kind, never an inherited one", () => {
+    expect(Event.parse(Object.create(start))).toEqual({ ok: false, error: "An event has kind 'tool-use' or 'session-start'" });
+  });
+});

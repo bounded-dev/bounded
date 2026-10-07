@@ -43,3 +43,25 @@ describe("Verdict — boundaries", () => {
     }
   });
 });
+
+describe("Verdict — open to a third form, closed today", () => {
+  test("extra fields are dropped", () => {
+    expect<unknown>(Verdict.parse({ kind: "refuse", reason: "r", redirect: "d", input: { path: "x" } })).toEqual({ ok: true, value: { kind: "refuse", reason: "r", redirect: "d" } });
+    expect<unknown>(Verdict.parse({ kind: "allow", input: { path: "x" } })).toEqual({ ok: true, value: { kind: "allow" } });
+  });
+
+  test("an unknown kind, such as a rewrite, is refused: it fails closed until it exists", () => {
+    expect(Verdict.parse({ kind: "rewrite", input: {} })).toEqual({ ok: false, error: INVALID });
+  });
+});
+
+describe("Verdict — never throws", () => {
+  test("refuses an input whose fields cannot be read, saying so", () => {
+    const hostile = new Proxy({}, { get: () => { throw new Error("trap"); }, has: () => { throw new Error("trap"); }, getOwnPropertyDescriptor: () => { throw new Error("trap"); } });
+    expect(Verdict.parse(hostile)).toEqual({ ok: false, error: "A verdict could not be read: trap" });
+  });
+
+  test("reads only its own fields, never inherited ones", () => {
+    expect(Verdict.parse(Object.create({ kind: "allow" }))).toEqual({ ok: false, error: INVALID });
+  });
+});

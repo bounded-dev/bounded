@@ -19,3 +19,5 @@ export const verdicts: Verdict[] = [dispatch([noGenerated, noForce, wholeProject
 export const withContext: Guard<ToolUse, { readonly protectedPaths: readonly string[] }> = (event, context) =>
   event.paths.some((path) => context.protectedPaths.includes(path)) ? Verdict.refuse("Protected", "Ask the owner") : Verdict.allow;
 export const contextual: Verdict = dispatch([withContext], toolUse, { protectedPaths: [".git"] });
+// A guard that needs no context sits in a list with guards that do: every guard is given it.
+export const mixed: Verdict = dispatch([noGenerated, withContext], toolUse, { protectedPaths: [".git"] });
