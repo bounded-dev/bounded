@@ -1,1 +1,4 @@
 node_modules/
+.agent-state/
+.stryker-tmp/
+reports/

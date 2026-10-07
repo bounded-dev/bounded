@@ -1,0 +1,139 @@
+import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { compareCases, extractTestCases, isRunnableTestPath, isTestPath, main, parseJunit, redCases } from "./red-first-check.ts";
+
+describe("red-first-check paths", () => {
+  test("test files, test support and fixtures may be in a red commit; nothing else", () => {
+    expect(isTestPath("contexts/core/src/a.test.ts")).toBe(true);
+    expect(isTestPath("contexts/core/src/a.store.test-support.ts")).toBe(true);
+    expect(isTestPath("contexts/core/test/fixtures/bad.ts")).toBe(true);
+    expect(isTestPath("contexts/core/src/a.ts")).toBe(false);
+    expect(isTestPath("package.json")).toBe(false);
+  });
+
+  test("only test files outside fixture directories are runnable", () => {
+    expect(isRunnableTestPath("a.test.ts")).toBe(true);
+    expect(isRunnableTestPath("fixtures/a.test.ts")).toBe(false);
+    expect(isRunnableTestPath("a.test-support.ts")).toBe(false);
+  });
+});
+
+describe("red-first-check cases", () => {
+  const source = `
+    describe("group", () => {
+      test("one", () => { expect(1).toBe(1); expect(2).toBe(2); });
+      test.skip("two", () => { expect(1).toBe(1); });
+      test.if(false)("three", () => { expect(1).toBe(1); });
+      test("four", () => {});
+    });`;
+
+  test("reads titles, skips, statements and assertions", () => {
+    const cases = extractTestCases(source);
+    expect(cases.map((c) => [c.id, c.skipped, c.statements, c.assertions])).toEqual([
+      ["group > one", false, 2, 2],
+      ["group > two", true, 1, 1],
+      ["group > three", true, 1, 1],
+      ["group > four", false, 0, 0],
+    ]);
+  });
+
+  test("a .only elsewhere skips every other case", () => {
+    const cases = extractTestCases(`test.only("a", () => { expect(1).toBe(1); }); test("b", () => { expect(1).toBe(1); });`);
+    expect(cases.map((c) => c.skipped)).toEqual([false, true]);
+  });
+
+  test("a red commit owns the cases it added or changed", () => {
+    const before = `test("a", () => { expect(1).toBe(1); }); test("b", () => { expect(1).toBe(1); });`;
+    const after = `test("a", () => { expect(1).toBe(1); }); test("b", () => { expect(2).toBe(2); }); test("c", () => { expect(3).toBe(3); });`;
+    expect(redCases(before, after).map((c) => c.id)).toEqual(["b", "c"]);
+  });
+
+  test("finds deleted, skipped, emptied and weakened cases", () => {
+    const red = extractTestCases(`test("a", () => { expect(1).toBe(1); expect(2).toBe(2); }); test("b", () => { expect(1).toBe(1); }); test("c", () => { expect(1).toBe(1); }); test("d", () => { expect(1).toBe(1); });`);
+    const head = extractTestCases(`test("a", () => { expect(1).toBe(1); }); test.skip("b", () => { expect(1).toBe(1); }); test("c", () => {});`);
+    expect(compareCases(red, head).map((w) => [w.id, w.kind])).toEqual([
+      ["a", "assertions-removed"],
+      ["b", "skipped"],
+      ["c", "emptied"],
+      ["d", "deleted"],
+    ]);
+    expect(compareCases(red, undefined).every((w) => w.kind === "deleted")).toBe(true);
+  });
+});
+
+describe("red-first-check JUnit", () => {
+  test("reads nested describes, statuses and assertion counts", () => {
+    const xml = `<?xml version="1.0"?><testsuites><testsuite name="a.test.ts" file="a.test.ts"><testsuite name="g &amp; h" file="a.test.ts">
+      <testcase name="ok" classname="g" assertions="2" />
+      <testcase name="bad" classname="g" assertions="1"><failure type="AssertionError" /></testcase>
+      <testcase name="skip" classname="g" assertions="0"><skipped /></testcase>
+    </testsuite><testcase name="top" assertions="1" /></testsuite></testsuites>`;
+    expect(parseJunit(xml)).toEqual([
+      { file: "a.test.ts", titles: ["g & h", "ok"], status: "passed", assertions: 2 },
+      { file: "a.test.ts", titles: ["g & h", "bad"], status: "failed", assertions: 1 },
+      { file: "a.test.ts", titles: ["g & h", "skip"], status: "skipped", assertions: 0 },
+      { file: "a.test.ts", titles: ["top"], status: "passed", assertions: 1 },
+    ]);
+  });
+});
+
+/** A throwaway repository: a base commit, a red commit, and a build on top. */
+function repository(): { dir: string; commit: (files: Record<string, string>, message: string) => string } {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "red-first-repo-")));
+  const git = (...args: string[]): string => {
+    const run = spawnSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args], { cwd: dir, encoding: "utf8" });
+    if (run.status !== 0) throw new Error(run.stderr);
+    return run.stdout.trim();
+  };
+  git("init", "--quiet", "-b", "main");
+  const commit = (files: Record<string, string>, message: string): string => {
+    for (const [path, text] of Object.entries(files)) writeFileSync(join(dir, path), text);
+    git("add", "-A");
+    git("commit", "--quiet", "-m", message);
+    return git("rev-parse", "HEAD");
+  };
+  commit({ "package.json": '{"name":"t","private":true}\n' }, "base");
+  return { dir, commit };
+}
+
+const RED_TEST = `import { expect, test } from "bun:test";\nimport { sum } from "./sum.ts";\ntest("adds", () => { expect(sum(1, 2)).toBe(3); });\n`;
+
+describe("red-first-check end to end", () => {
+  test("passes a red commit whose test fails, then passes unweakened", () => {
+    const repo = repository();
+    const red = repo.commit({ "sum.test.ts": RED_TEST }, "red");
+    repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b;\n" }, "green");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+    expect(lines.at(-1)).toBe("PASS red-first check");
+  }, 30_000);
+
+  test("fails a red commit that ships implementation, and a test weakened at the head", () => {
+    const repo = repository();
+    const red = repo.commit({ "sum.test.ts": RED_TEST, "sum.ts": "export const sum = (a: number, b: number): number => a - b;\n" }, "red");
+    repo.commit({ "sum.test.ts": `import { test } from "bun:test";\ntest("adds", () => { void 0; });\n` }, "weaken");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+    expect(lines).toContain("FAIL scope: sum.ts is not a test file, test support or test fixture");
+    expect(lines).toContain('FAIL preserved: sum.test.ts: "adds" assertions-removed (assertions went from 1 to 0)');
+    expect(lines.some((l) => l.startsWith('FAIL head: sum.test.ts: "adds" passed with no assertions'))).toBe(true);
+  }, 30_000);
+
+  test("fails a red commit whose tests already pass", () => {
+    const repo = repository();
+    const red = repo.commit({ "ok.test.ts": `import { expect, test } from "bun:test";\ntest("t", () => { expect(1).toBe(1); });\n` }, "red");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
+    expect(lines.some((l) => l.startsWith("FAIL red: ok.test.ts: every test passes at the red commit"))).toBe(true);
+  }, 30_000);
+
+  test("reports a usage error for an unknown commit", () => {
+    const repo = repository();
+    const lines: string[] = [];
+    expect(main(["nope", "--repo", repo.dir], (l) => lines.push(l))).toBe(2);
+    expect(lines[0]).toBe("error: no such commit: nope");
+  });
+});
