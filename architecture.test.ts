@@ -140,7 +140,8 @@ describe("architecture", () => {
   test("the Claude Code adapter is an app depending on the core", () => {
     const app = apps.find((a) => a.name === "bounded-claude-code");
     expect(app?.dir).toBe("apps/claude-code");
-    expect(app?.dependencies).toEqual(["bounded"]);
+    // The core, and picomatch to split a search filter's fixed part from its pattern.
+    expect(app?.dependencies).toEqual(["bounded", "picomatch"]);
     expect(appFiles.some((path) => path.startsWith("apps/claude-code/src/"))).toBe(true);
   });
 
