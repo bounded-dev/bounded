@@ -1,14 +1,18 @@
-// Compiles without errors: a pack contributes to its own extension point and
-// to the extension point of a pack it declares as a dependency.
-import { Contribution, ExtensionPoint, Pack } from "@bounded/core/domain";
+// Compiles without errors: packs contribute to their own extension points and
+// to those of packs they declare as dependencies.
+import { Contribution, Pack } from "@bounded/core/domain";
+import { BASE, sizes, tags, words } from "./points.ts";
 
-const words = ExtensionPoint.ownedBy("base").declare<string>({ id: "base.words", description: "Words" });
-const tags = ExtensionPoint.ownedBy("ext").declare<number>({ id: "ext.tags", description: "Tags" });
+// A pack that only declares, its name held in a constant.
+export const base = new Pack({ name: BASE, declares: [words, sizes] });
+export const tagPack = new Pack({ name: "tags", declares: [tags], contributes: [new Contribution(tags, ["core"])] });
 
-export const base = new Pack({ name: "base", declares: [words], contributes: [new Contribution(words, ["alpha"])] });
+// Several dependencies, contributing to each.
 export const ext = new Pack({
   name: "ext",
-  dependsOn: ["base"],
-  declares: [tags],
-  contributes: [new Contribution(words, ["beta"]), new Contribution(tags, [1, 2])],
+  dependsOn: [BASE, "tags"],
+  contributes: [new Contribution(words, ["beta"]), new Contribution(sizes, [1, 2]), new Contribution(tags, ["extra"])],
 });
+
+// No dependencies at all.
+export const plain = new Pack({ name: "plain" });

@@ -63,6 +63,14 @@ describe("Composition — reading an extension point", () => {
     });
   });
 
+  test("a point its selected owner does not declare is told apart from an unselected owner's", () => {
+    const unlisted = ExtensionPoint.ownedBy("base").declare<string>({ id: "base.unlisted", description: "Never declared" });
+    expect(composed([basePack], ["base"]).read(unlisted)).toEqual({
+      ok: false,
+      error: "Extension point 'base.unlisted' does not exist in this composition: its owner 'base' is selected but does not declare it. Declare it in 'base', or read a point 'base' declares",
+    });
+  });
+
   test("reading with a look-alike point object (same id, other value type) is refused", () => {
     const lookAlike = ExtensionPoint.ownedBy("base").declare<number>({ id: "base.words", description: "Not the real one" });
     expect(composed([basePack], ["base"]).read(lookAlike)).toEqual({
@@ -99,6 +107,23 @@ describe("Composition — every refusal names the pack, the extension point and 
     ["a contribution to a point its owner does not declare",
       [basePack, new Pack({ name: "ext", dependsOn: ["base"], contributes: [new Contribution(ExtensionPoint.ownedBy("base").declare<string>({ id: "base.missing", description: "Never declared" }), ["x"])] })], ["base", "ext"],
       "Pack 'ext' contributes to extension point 'base.missing', which its owner 'base' does not declare. Declare 'base.missing' in 'base', or contribute to a point 'base' declares"],
+    ["a contribution through a transitive dependency only",
+      [basePack, extPack, untypedPack({ name: "top", dependsOn: ["ext"], contributes: [new Contribution(words, ["x"])] })], ["base", "ext", "top"],
+      "Pack 'top' contributes to extension point 'base.words', owned by pack 'base', but does not depend on 'base'. Add 'base' to the dependencies of 'top', or remove the contribution"],
+    ["a contribution that is not a genuine Contribution, whatever it claims",
+      [basePack, untypedPack({ name: "fake", dependsOn: ["base"], contributes: [{ point: words, values: [42, ""], problems: () => [] }] })], ["base", "fake"],
+      "Pack 'fake' is malformed: its contributes must be a list of contributions made with new Contribution(...). Fix its definition"],
+    ["a declaration that is not an extension point", [untypedPack({ name: "bad", declares: [null] })], ["bad"],
+      "Pack 'bad' is malformed: its declares must be a list of extension points made with ExtensionPoint.ownedBy(...).declare(...). Fix its definition"],
+    ["dependencies that are not a list", [untypedPack({ name: "bad", dependsOn: 5 })], ["bad"],
+      "Pack 'bad' is malformed: its dependsOn must be a list of pack names. Fix its definition"],
+    ["dependencies given as one string, not a list", [basePack, untypedPack({ name: "bad", dependsOn: "base" })], ["base", "bad"],
+      "Pack 'bad' is malformed: its dependsOn must be a list of pack names. Fix its definition"],
+    ["an available pack not built with new Pack", [basePack, { name: "plain", dependsOn: [], declares: [], contributes: [] } as unknown as Pack], ["base"],
+      "Available pack 'plain' was not built with new Pack(...). Build every pack with new Pack({ name, ... })"],
+    ["duplicate names, reported by name order whatever the listing order",
+      [new Pack({ name: "b" }), new Pack({ name: "b" }), new Pack({ name: "a" }), new Pack({ name: "a" })], ["a"],
+      "Two available packs are named 'a'. Pack names identify packs: rename one of them"],
     ["an invalid contributed value",
       [basePack, new Pack({ name: "ext", dependsOn: ["base"], contributes: [new Contribution(words, ["ok", ""])] })], ["base", "ext"],
       "Pack 'ext' contributes an invalid value to extension point 'base.words': a word is not empty. Fix the value, or remove the contribution"],
@@ -109,6 +134,13 @@ describe("Composition — every refusal names the pack, the extension point and 
       expect(compose(available, selected)).toEqual({ ok: false, error: message });
     });
   }
+
+  test("the same faults give the same refusal whatever the listing order", () => {
+    const one = compose([extPack, basePack, otherPack], ["ext", "zed", "other"]);
+    const two = compose([otherPack, basePack, extPack], ["other", "zed", "ext"]);
+    expect(one).toEqual(two);
+    expect(one).toEqual({ ok: false, error: "Pack 'zed' is selected but not available. Make it available, or remove it from the selection" });
+  });
 
   test("a check that throws refuses the value instead of letting it through", () => {
     const fragile = ExtensionPoint.ownedBy("base").declare<string>({
