@@ -47,6 +47,15 @@ describe("FileSystemWatchedFiles", () => {
     expect(hashed.ok && Object.keys(hashed.value).every((path) => !path.startsWith(".git/"))).toBe(true);
   });
 
+  test("never looks inside .bounded, where bounded keeps its own state", async () => {
+    const root = repository({ "a.ts": "a" });
+    mkdirSync(join(root, ".bounded"));
+    writeFileSync(join(root, ".bounded", "guard-log.jsonl"), "{}\n");
+    const hashed = await new FileSystemWatchedFiles(root).hash([rule("**")]);
+    expect(hashed.ok && Object.keys(hashed.value).every((path) => !path.startsWith(".bounded/"))).toBe(true);
+    expect(hashed.ok && Object.keys(hashed.value)).toContain("a.ts");
+  });
+
   test("restoring outside a git repository fails, saying why", async () => {
     const root = mkdtempSync(join(tmpdir(), "watched-files-"));
     writeFileSync(join(root, "a.ts"), "a");

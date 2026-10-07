@@ -110,6 +110,25 @@ describe("Decision", () => {
     });
   });
 
+  test("records a call the host adapter refused before the core saw an event: the host's tool and a bounded summary of its input", () => {
+    expect<unknown>(Decision.adapter("d-13", TIME, { role: "builder", tool: "Bash", input: { command: "ls" }, verdict: Verdict.refuse("outside the project", "Stay inside") })).toEqual({
+      id: "d-13",
+      time: TIME,
+      event: "adapter",
+      role: "builder",
+      tool: null,
+      effects: [],
+      verdict: { kind: "refuse", reason: "outside the project", redirect: "Stay inside", pack: null, effect: null },
+      note: null,
+      host: { tool: "Bash", input: '{"command":"ls"}' },
+    });
+    const huge = Decision.adapter("d-14", TIME, { role: null, tool: "Write", input: { content: "x".repeat(10_000) }, verdict: Verdict.refuse("r", "d") });
+    expect(huge.host?.input.endsWith("characters)")).toBe(true);
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(Decision.adapter("d-15", TIME, { role: null, tool: "X", input: cyclic, verdict: Verdict.refuse("r", "d") }).host?.input).toBe("an input that cannot be shown");
+  });
+
   test("is plain, frozen, serialisable data", () => {
     const decision = Decision.of("d-6", TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
     expect(JSON.parse(JSON.stringify(decision))).toEqual(decision);

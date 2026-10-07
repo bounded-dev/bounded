@@ -5,6 +5,7 @@ import * as system from "bounded/adapters/system";
 import * as application from "bounded/application";
 import * as domain from "bounded/domain";
 import * as openProject from "bounded/open-project";
+import * as pathGate from "bounded/path-gate";
 
 // Everything a configuration (or a pack it imports) can reach through the
 // public entry points must be frozen, so loading bounded.config.ts cannot
@@ -17,6 +18,7 @@ const ENTRY_POINTS: Record<string, Record<string, unknown>> = {
   "bounded/adapters/file-system": fileSystem,
   "bounded/adapters/system": system,
   "bounded/open-project": openProject,
+  "bounded/path-gate": pathGate,
 };
 
 function unfrozen(name: string, value: unknown): string[] {

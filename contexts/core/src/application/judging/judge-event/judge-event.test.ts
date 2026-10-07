@@ -201,6 +201,24 @@ describe("JudgeEventHandler", () => {
     expect(verdict.kind === "refuse" && verdict.reason).toBe("The check before allowing this failed: no snapshot");
   });
 
+  test("a refusal the host adapter made itself is recorded and returned", async () => {
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(composition, log, clock).refuse({ role: "builder", tool: "Bash", reason: "the path is outside the project", redirect: "Use a path inside it", input: { command: "cat /etc/passwd" } });
+    expect<unknown>(verdict).toEqual({ kind: "refuse", reason: "the path is outside the project", redirect: "Use a path inside it" });
+    expect(log.decisions[0]?.event).toBe("adapter");
+    expect(log.decisions[0]?.host).toEqual({ tool: "Bash", input: '{"command":"cat /etc/passwd"}' });
+  });
+
+  test("an adapter refusal that cannot be recorded stays a refusal, and says so; garbage input still refuses", async () => {
+    const failing = new FakeLog(async () => {
+      throw new Error("disk full");
+    });
+    const verdict = await new JudgeEventHandler(composition, failing, clock).refuse({ tool: "Bash", reason: "outside", redirect: "inside" });
+    expect(verdict.kind === "refuse" && verdict.reason).toBe("outside (this decision could not be recorded: disk full)");
+    const odd = await new JudgeEventHandler(composition, new FakeLog(), clock).refuse(null as never);
+    expect(odd.kind).toBe("refuse");
+  });
+
   test("records within two seconds by default", () => {
     expect(JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS).toBe(2000);
   });

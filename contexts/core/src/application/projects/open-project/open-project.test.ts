@@ -119,6 +119,15 @@ describe("OpenProjectHandler", () => {
     expect(check.message?.startsWith("The host sent a tool result that cannot be read: ")).toBe(true);
   });
 
+  test("records a refusal the host adapter made itself, even when the configuration is broken", async () => {
+    const logs = new Logs();
+    const healthy = await new OpenProjectHandler(source(async () => ({ ok: true, value: config })), logs, clock).execute(command);
+    expect((await healthy.refuse({ tool: "Bash", reason: "outside", redirect: "inside" })).kind).toBe("refuse");
+    const broken = await new OpenProjectHandler(source(async () => ({ ok: false, error: "no config" })), logs, clock).execute(command);
+    expect((await broken.refuse({ tool: "Bash", reason: "outside", redirect: "inside" })).kind).toBe("refuse");
+    expect(logs.decisions.map((d) => d.event)).toEqual(["adapter", "adapter"]);
+  });
+
   test("a project whose log cannot be opened still refuses: nothing is allowed unrecorded", async () => {
     const logs: ProjectDecisionLogs = {
       forProject: () => {
