@@ -11,8 +11,8 @@ of its own and imports the core only through its export paths.
 1. `src/translate.ts` — the hook's stdin read and checked (`readPayload`),
    then every Claude Code tool mapped to a tool kind and its effects, with
    paths still as Claude Code wrote them (`translate`). Pure.
-2. `src/event.ts` — the event (`ToolUse`, `Effect`), the `PathResolver` port,
-   and `toToolUse`, which resolves every path through the port.
+2. `src/event.ts` — the `PathResolver` port, and `toToolUse`, which resolves
+   every path through the port and builds the core's `ToolUse` with its parse.
 3. `src/paths.ts` — the port's file-system adapter: how a path is judged by
    where it really lands.
 4. `src/hook.ts` — one call from stdin to stdout, under a deadline, and how it
@@ -111,13 +111,22 @@ after the hook answers); the hook judges the state it sees.
 ## Plugging it in
 
 `composeHook({ env, argv, decide })` is the composition root; `decide` is the
-seam. Today `main.ts` passes `decideFromConfig`, a placeholder that refuses
-every call (an installed hook is never silently open), and tests inject their
-own through `run` (`test/fixtures/refusing-hook.ts`). After the core
-integration, `decideFromConfig` loads the project's `bounded.config.ts`,
-composes its packs and judges the event; nothing else changes. At the same
-time `event.ts`'s local `ToolUse`, `Effect`, `ToolKind` and `Change` give way
-to the core's exports of the same names.
+seam, and it is told the project (`{ projectDir }`, from
+`CLAUDE_PROJECT_DIR`). `main.ts` passes `decideFromConfig`, which calls the
+core's `openProject(projectDir)` (`bounded/open-project`) and then
+`judge(event)`: the core composes the packs `bounded.config.ts` selects,
+decides, and records the decision in `.bounded/guard-log.jsonl`. A refusal
+from the core already names the refusing pack and effect (`test-packs/no-generated
+refused write (create) generated/api.ts: ...`) and is passed to Claude Code as
+it is, reason then redirect. A project whose configuration is missing or
+broken is refused by the core with "This project's configuration cannot be
+used: ...". Anything `openProject` or the judge throws or rejects with is a
+deny from the hook, and both count against the 20-second deadline. Tests
+inject their own decide through `run` (`test/fixtures/refusing-hook.ts`).
+
+Events are the core's `ToolUse`, built with `ToolUse.parse`, so the adapter
+cannot hand the core a shape it does not accept. Only `PreToolUse` is handled
+for now.
 
 To install, read `.claude/settings.json` (or `{}`), pass it to
 `withHook(settings, command)` with the command that runs `src/main.ts`, and

@@ -2,9 +2,8 @@
 // effects. Pure: no file system, no process. Paths stay as Claude Code gave
 // them; event.ts resolves them through a port.
 import { isAbsolute, join } from "node:path";
-import { type Refuse, type Result, Verdict } from "bounded/domain";
+import { type Change, type Refuse, type Result, type ToolKind, Verdict } from "bounded/domain";
 import picomatch from "picomatch";
-import type { Change, ToolKind } from "./event.ts";
 import { isRecord } from "./json.ts";
 
 /** The payload fields the translation reads. `cwd` is the session's directory, when absolute. */

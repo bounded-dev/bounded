@@ -1,5 +1,5 @@
-// The hook with a refusing decide injected, as the end-to-end test runs it:
-// what a composed bounded.config.ts will later supply.
+// The hook with a refusing decide injected in place of the project's
+// configuration, as the end-to-end test runs it.
 import { Verdict } from "bounded/domain";
 import { run } from "../../src/run.ts";
 

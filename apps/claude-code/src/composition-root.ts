@@ -1,11 +1,11 @@
 // The composition root: the only place that chooses the adapters and reads
 // the environment. It returns the hook, ready to host; run.ts hosts it.
 //
-// THE SEAM: `decide`. Today it is injected (tests, test/fixtures). Once the
-// core integration lands, `decideFromConfig` loads the project's
-// bounded.config.ts, composes its packs and dispatches over the composed
-// guards; nothing else here changes.
+// THE SEAM: `decide`. main.ts passes `decideFromConfig`, which opens the
+// project with its bounded.config.ts and asks the core's judge; tests inject
+// their own.
 import { Verdict } from "bounded/domain";
+import { openProject } from "bounded/open-project";
 import { type Decide, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
 
@@ -28,12 +28,16 @@ export interface Wiring {
   readonly deadlineMs?: number;
 }
 
-/** Until bounded.config.ts is wired in, an installed hook refuses: installed means enforced, never silently open. */
-export const decideFromConfig: Decide = () =>
-  Verdict.refuse(
-    "bounded's Claude Code hook is installed, but this version cannot load bounded.config.ts yet",
-    "Remove bounded's PreToolUse hook from .claude/settings.json until a version that loads bounded.config.ts is installed",
-  );
+/**
+ * Judges with the project's bounded.config.ts: the core composes its packs,
+ * decides and records the decision in .bounded/guard-log.jsonl. Its refusal
+ * names the refusing pack and effect. Anything openProject or the judge
+ * throws or rejects with reaches the hook, which denies.
+ */
+export const decideFromConfig: Decide = async (event, { projectDir }) => {
+  const project = await openProject(projectDir);
+  return project.judge(event);
+};
 
 /** The hook for one process: stdin text in, stdout text out. */
 export function composeHook({ env, argv, decide, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {

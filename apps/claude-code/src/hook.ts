@@ -5,8 +5,14 @@ import { type Result, Verdict } from "bounded/domain";
 import { type PathResolver, type ToolUse, toToolUse } from "./event.ts";
 import { readPayload, translate } from "./translate.ts";
 
+/** The project a decision is for. */
+export interface Project {
+  /** Claude Code's project root, CLAUDE_PROJECT_DIR. */
+  readonly projectDir: string;
+}
+
 /** What bounded decides about one event; the core's judging is asynchronous. The composition root supplies it. */
-export type Decide = (event: ToolUse) => Verdict | Promise<Verdict>;
+export type Decide = (event: ToolUse, project: Project) => Verdict | Promise<Verdict>;
 
 export interface Hook {
   /** Claude Code's project root; the session's cwd falls back to it. */
@@ -54,7 +60,7 @@ async function verdictFor(stdin: string, { projectDir, role, decide, paths }: Ho
   const event = toToolUse(call.value, { role, cwd: payload.value.cwd ?? projectDir, paths });
   if (!event.ok) return event.error;
   // decide may be untyped code: hold what it returns to the verdict's form.
-  const verdict: Result<Verdict> = Verdict.parse(await decide(event.value));
+  const verdict: Result<Verdict> = Verdict.parse(await decide(event.value, { projectDir }));
   if (!verdict.ok) throw new Error(verdict.error);
   return verdict.value;
 }

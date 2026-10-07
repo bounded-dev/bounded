@@ -34,6 +34,8 @@ describe("main.ts as a Claude Code PreToolUse hook", () => {
     expect(exitCode).toBe(0);
   });
 
+  // The title is kept from the first red commit: main.ts now judges with the
+  // project's configuration, and this project has none, so it still refuses.
   test("main.ts alone, before bounded.config.ts is wired in, refuses", async () => {
     const payload = { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: join(root, "src") }, cwd: root };
     const { stdout, exitCode } = await run("src/main.ts", JSON.stringify(payload));
