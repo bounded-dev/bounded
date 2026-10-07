@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Pi, PiHandler } from "./extension.ts";
 import { bounded } from "./index.ts";
+import { piRuntimeAvailable, reportPiRuntime, underPi } from "./pi-runtime.test-support.ts";
 
 // The project resolves `bounded` as an installed project would: from its node_modules.
 const CORE = resolve(import.meta.dir, "../../../contexts/core");
@@ -65,5 +66,45 @@ describe("bounded-pi end to end — a project's bounded.config.ts judging pi's c
     expect(reason).toContain("This project's configuration cannot be used");
     expect(redirect).not.toBe("");
     expect(logged(root).map((line) => line.verdict.kind)).toEqual(["refuse"]);
+  });
+});
+
+/** The same session, run as pi runs it: bounded-pi loaded through pi's jiti, under node. */
+function sessionUnderPi(root: string, calls: readonly (readonly [string, unknown])[]): { results: unknown[]; log: string[] } {
+  const body = `const [index, root, calls] = process.argv.slice(2);
+const { bounded } = await load(index);
+const handlers = {};
+bounded(root)({ on(event, handler) { handlers[event] = handler; } });
+await handlers.session_start({ type: "session_start", reason: "startup" }, { cwd: root });
+const results = [];
+for (const [toolName, input] of JSON.parse(calls)) results.push((await handlers.tool_call({ type: "tool_call", toolCallId: "1", toolName, input }, { cwd: root })) ?? null);
+const { readFileSync } = await import("node:fs");
+const log = readFileSync(root + "/.bounded/guard-log.jsonl", "utf8").split("\\n").filter((line) => line !== "").map((line) => JSON.parse(line).verdict.kind);
+console.log(JSON.stringify({ results, log }));`;
+  return underPi(body, join(import.meta.dir, "index.ts"), root, JSON.stringify(calls)) as { results: unknown[]; log: string[] };
+}
+
+describe("bounded-pi end to end — under pi's runtime (node, through pi's jiti)", () => {
+  reportPiRuntime();
+
+  test.skipIf(!piRuntimeAvailable)("blocks a write its guard refuses, allows another write, and records both decisions", () => {
+    const root = project(CONFIG);
+    const { results, log } = sessionUnderPi(root, [
+      ["write", { path: "generated/api.ts", content: "x" }],
+      ["write", { path: "src/a.ts", content: "x" }],
+    ]);
+    expect(results).toEqual([
+      { block: true, reason: "bounded/project refused write (create) generated/api.ts: generated/ is written by the generator\nChange the generator's input instead" },
+      null,
+    ]);
+    expect(log).toEqual(["refuse", "allow"]);
+  });
+
+  test.skipIf(!piRuntimeAvailable)("a configuration that cannot be used blocks every call", () => {
+    const root = project("export default 42;\n");
+    const { results, log } = sessionUnderPi(root, [["read", { path: "a.ts" }]]);
+    expect(results).toMatchObject([{ block: true }]);
+    expect((results[0] as { reason: string }).reason).toContain("This project's configuration cannot be used");
+    expect(log).toEqual(["refuse"]);
   });
 });
