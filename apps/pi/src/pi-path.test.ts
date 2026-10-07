@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { locator, piRewrite } from "./pi-path.ts";
+import { piRuntimeAvailable, underPi } from "./pi-runtime.test-support.ts";
 
 const HOME = "/home/agent";
 
@@ -106,5 +107,70 @@ describe("locator — where a pi path argument really acts, relative to the proj
   test("refuses when the project root itself cannot be found", () => {
     const result = locator(join(spelled, "missing"), HOME)("a.ts", join(spelled, "missing"));
     expect(result.ok).toBe(false);
+  });
+});
+
+// A volume that finds GENERATED when generated exists ignores case.
+const caseInsensitive = existsSync(join(root, "SRC"));
+
+describe("locator — what pi really opens", () => {
+  test.skipIf(!caseInsensitive)("on a case-insensitive volume, a path spelled in another case is judged as the file it names", () => {
+    expect(at("SRC/A.ts")).toMatchObject({ ok: true, value: { path: "src/a.ts", exists: true } });
+    expect(at("Src/deep/New.ts")).toMatchObject({ ok: true, value: { path: "src/deep/New.ts", exists: false } });
+  });
+
+  test("refuses a link loop, saying it is one", () => {
+    symlinkSync(join(root, "loop-b"), join(root, "loop-a"));
+    symlinkSync(join(root, "loop-a"), join(root, "loop-b"));
+    const result = at("loop-a/x.ts");
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("a loop of links");
+  });
+});
+
+// pi's read opens another spelling when the path it resolved does not exist:
+// a narrow no-break space before AM/PM, the NFD form, a curly apostrophe, or
+// NFD with a curly apostrophe, the first that exists (resolveReadPath).
+const reads = mkdtempSync(join(tmpdir(), "bounded-pi-read-"));
+const readRoot = join(reads, "project");
+mkdirSync(join(readRoot, "shots"), { recursive: true });
+mkdirSync(join(reads, "outside"));
+writeFileSync(join(reads, "outside", "secret.txt"), "");
+writeFileSync(join(readRoot, "shots", "Shot 10.00.00\u202FPM.png"), "");
+writeFileSync(join(readRoot, "shots", "Capture d\u2019e\u0301cran.png"), "");
+symlinkSync(join(reads, "outside"), join(readRoot, "docs\u2019"));
+const read = locator(readRoot, HOME);
+
+describe("locator — a read is judged as the file pi's read will open", () => {
+  test("judges the AM/PM, NFD and curly-apostrophe spellings pi falls back to", () => {
+    expect(read("shots/Shot 10.00.00 PM.png", readRoot, "read")).toMatchObject({ ok: true, value: { path: "shots/Shot 10.00.00\u202FPM.png", exists: true } });
+    expect(read("shots/Capture d'\u00E9cran.png", readRoot, "read")).toMatchObject({ ok: true, value: { path: "shots/Capture d\u2019\u00E9cran.png", exists: true } });
+  });
+
+  test("refuses a read whose fallback spelling leads out of the project", () => {
+    const result = read("docs'/secret.txt", readRoot, "read");
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toContain("outside the project");
+  });
+
+  test("other uses take the path as spelled: only pi's read falls back", () => {
+    expect(read("docs'/secret.txt", readRoot)).toMatchObject({ ok: true, value: { path: "docs'/secret.txt", exists: false } });
+  });
+});
+
+describe("locator — under pi's runtime (node, through pi's jiti)", () => {
+  test.skipIf(!piRuntimeAvailable)("locates as it does under bun, links and case included", () => {
+    const raws = ["src/a.ts", "SRC/A.ts", "alias/a.ts", "escape/secret.txt", "dangling.txt", "loop-a/x.ts"];
+    const body = `const { locator } = await load(${JSON.stringify(join(import.meta.dir, "pi-path.ts"))});
+const [root, home, ...raws] = process.argv.slice(2);
+console.log(JSON.stringify(raws.map((raw) => locator(root, home)(raw, root))));`;
+    expect(underPi(body, root, HOME, ...raws)).toEqual(JSON.parse(JSON.stringify(raws.map((raw) => at(raw)))));
+  });
+
+  test.skipIf(!piRuntimeAvailable)("judges a read's fallback spelling as it does under bun", () => {
+    const body = `const { locator } = await load(${JSON.stringify(join(import.meta.dir, "pi-path.ts"))});
+const [root, home] = process.argv.slice(2);
+console.log(JSON.stringify(locator(root, home)("docs'/secret.txt", root, "read")));`;
+    expect(underPi(body, readRoot, HOME)).toEqual(JSON.parse(JSON.stringify(read("docs'/secret.txt", readRoot, "read"))));
   });
 });

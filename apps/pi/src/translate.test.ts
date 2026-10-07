@@ -50,8 +50,13 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
   });
 
   test("bash and powershell execute their command", () => {
-    expect(pi("bash", { command: "ls -la", timeout: 5 })).toEqual(use("shell", { kind: "execute", command: "ls -la" }));
-    expect(pi("powershell", { command: "Get-ChildItem" })).toEqual(use("shell", { kind: "execute", command: "Get-ChildItem" }));
+    expect(pi("bash", { command: "ls -la", timeout: 5 })).toEqual(use("shell", { kind: "execute", command: "ls -la", cwd: "." }));
+    expect(pi("powershell", { command: "Get-ChildItem" })).toEqual(use("shell", { kind: "execute", command: "Get-ChildItem", cwd: "." }));
+  });
+
+  test("a shell command runs in the session's directory, project-relative, which must be in the project", () => {
+    expect(pi("bash", { command: "ls" }, `${ROOT}/src`)).toEqual(use("shell", { kind: "execute", command: "ls", cwd: "src" }));
+    expect(refusal(pi("bash", { command: "ls" }, "/elsewhere"))).toContain("outside the project");
   });
 
   test("subagent delegates to every agent it names, single, parallel or chained", () => {
@@ -65,17 +70,18 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
     expect(pi("web_search", { query: "bun sqlite" })).toEqual(use("web", { kind: "invoke", name: "web_search" }));
   });
 
-  test("an unknown tool is 'other': it is invoked by name, never executed, and writes its path, if it names one", () => {
+  test("an unknown tool is 'other', invoked by name only, whatever its arguments", () => {
     expect(pi("deploy", { target: "prod" })).toEqual(use("other", { kind: "invoke", name: "deploy" }));
     expect(pi("mcp__github__create_issue", {})).toEqual(use("other", { kind: "invoke", name: "mcp__github__create_issue" }));
-    expect(pi("remove", { path: "src/a.ts" })).toEqual(use("other", { kind: "invoke", name: "remove" }, { kind: "write", path: "src/a.ts", change: "modify" }));
-    expect(pi("remove", { path: "src/gone.ts" })).toEqual(use("other", { kind: "invoke", name: "remove" }, { kind: "write", path: "src/gone.ts", change: "create" }));
+    expect(pi("remove", { path: "src/a.ts", cwd: "../elsewhere" })).toEqual(use("other", { kind: "invoke", name: "remove" }));
   });
 
-  test("a tool's cwd parameter is where its paths are resolved from, and must itself be in the project", () => {
-    expect(pi("remove", { cwd: "src", path: "a.ts" })).toEqual(use("other", { kind: "invoke", name: "remove" }, { kind: "write", path: "src/a.ts", change: "modify" }));
-    expect(pi("read", { cwd: "src", path: "a.ts" })).toEqual(use("read", { kind: "read", path: "src/a.ts" }));
-    expect(refusal(pi("git", { cwd: "../elsewhere" }))).toContain("outside the project");
+  test("pi's built-in tools ignore a cwd argument, so it changes nothing they are judged by", () => {
+    expect(pi("read", { cwd: "public", path: "secrets.env" })).toEqual(use("read", { kind: "read", path: "secrets.env" }));
+    expect(pi("write", { cwd: "src", path: "a.ts" })).toEqual(use("write", { kind: "write", path: "a.ts", change: "create" }));
+    expect(pi("ls", { cwd: "../elsewhere" })).toEqual(use("search", { kind: "list", root: "." }));
+    expect(pi("grep", { cwd: "src", pattern: "x" })).toEqual(use("search", { kind: "list", root: "." }, { kind: "read", path: "." }));
+    expect(pi("bash", { cwd: "src", command: "ls" })).toEqual(use("shell", { kind: "execute", command: "ls", cwd: "." }));
   });
 });
 
@@ -89,7 +95,7 @@ describe("translate — refuses what it cannot translate", () => {
   });
 
   test("a path outside the project, refused by the locator, for any tool", () => {
-    for (const [tool, input] of [["read", { path: "../x" }], ["ls", { path: "/etc" }], ["grep", { pattern: "x", path: "../" }], ["remove", { path: "../x" }]] as const) {
+    for (const [tool, input] of [["read", { path: "../x" }], ["ls", { path: "/etc" }], ["grep", { pattern: "x", path: "../" }], ["subagent", { agent: "a", output: "../x.md" }]] as const) {
       expect(refusal(pi(tool, input))).toContain("outside the project");
     }
   });
@@ -107,7 +113,7 @@ describe("translate — refuses what it cannot translate", () => {
 
   test("a path or cwd that is not a string", () => {
     expect(refusal(pi("ls", { path: 3 }))).toBe("pi's ls call has a 'path' that is not a string");
-    expect(refusal(pi("remove", { cwd: 3 }))).toBe("pi's remove call has a 'cwd' that is not a string");
+    expect(refusal(pi("subagent", { agent: "a", cwd: 3 }))).toBe("pi's subagent call has a 'cwd' that is not a string");
   });
 
   test("never throws, even on input whose fields cannot be read", () => {
@@ -122,14 +128,50 @@ describe("translate — with the real locator", () => {
   writeFileSync(join(project, "pkg", "src", "a.ts"), "");
   const real = locator(project, "/home/agent");
 
-  test("a cwd parameter is resolved before paths are made project-relative", () => {
-    const result = translate({ toolName: "remove", input: { cwd: "pkg", path: "src/a.ts" } }, project, real);
-    expect<unknown>(result).toEqual(use("other", { kind: "invoke", name: "remove" }, { kind: "write", path: "pkg/src/a.ts", change: "modify" }));
+  test("a subagent's cwd is located before its output path, which starts there", () => {
+    const result = translate({ toolName: "subagent", input: { agent: "scout", cwd: "pkg", output: "src/a.ts" } }, project, real);
+    expect<unknown>(result).toEqual(use("subagent", { kind: "delegate", agent: "scout" }, { kind: "write", path: "pkg/src/a.ts", change: "modify" }));
   });
 
   test("a write's change comes from whether the file really exists", () => {
     const write = (path: string): Result<unknown> => translate({ toolName: "write", input: { path } }, project, real);
     expect(write("pkg/src/a.ts")).toEqual(use("write", { kind: "write", path: "pkg/src/a.ts", change: "modify" }));
     expect(write("pkg/src/b.ts")).toEqual(use("write", { kind: "write", path: "pkg/src/b.ts", change: "create" }));
+  });
+});
+
+describe("translate — pi-subagents' subagent tool, read strictly", () => {
+  test("recurses into a chain step's parallel tasks", () => {
+    expect(pi("subagent", { chain: [{ agent: "a", task: "x" }, { parallel: [{ agent: "b" }, { agent: "c" }] }] })).toEqual(
+      use("subagent", { kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }, { kind: "delegate", agent: "c" }),
+    );
+  });
+
+  test("every task and step names its agent", () => {
+    expect(refusal(pi("subagent", { tasks: [{ agent: "a" }, { task: "x" }] }))).toBe("pi's subagent call has a task or step that names no agent");
+    expect(refusal(pi("subagent", { chain: [{ agent: 3 }] }))).toBe("pi's subagent call has a task or step that names no agent");
+    expect(refusal(pi("subagent", { chain: [{ parallel: [{ task: "x" }] }] }))).toBe("pi's subagent call has a task or step that names no agent");
+    expect(refusal(pi("subagent", { tasks: "a" }))).toBe("pi's subagent call has a 'tasks' that is not a list of tasks");
+  });
+
+  test("refuses fields it does not know, at any level, naming them", () => {
+    expect(refusal(pi("subagent", { agent: "a", workflowScript: "return 1" }))).toContain("'workflowScript'");
+    expect(refusal(pi("subagent", { tasks: [{ agent: "a", reads: ["x"] }] }))).toContain("'reads'");
+    expect(refusal(pi("subagent", { chain: [{ parallel: [{ agent: "a", progress: true }] }] }))).toContain("'progress'");
+  });
+
+  test("an output file is a write, from the call's cwd or the task's own", () => {
+    expect(pi("subagent", { agent: "a", output: "notes/out.md" })).toEqual(use("subagent", { kind: "delegate", agent: "a" }, { kind: "write", path: "notes/out.md", change: "create" }));
+    expect(pi("subagent", { tasks: [{ agent: "a", cwd: "src", output: "a.ts" }] })).toEqual(use("subagent", { kind: "delegate", agent: "a" }, { kind: "write", path: "src/a.ts", change: "modify" }));
+    expect(pi("subagent", { agent: "a", output: false })).toEqual(use("subagent", { kind: "delegate", agent: "a" }));
+    expect(refusal(pi("subagent", { agent: "a", output: true }))).toBe("pi's subagent call has an 'output' that is not a file path or false");
+  });
+
+  test("status and resume are invoked by name; other actions are refused", () => {
+    expect(pi("subagent", { action: "status" })).toEqual(use("subagent", { kind: "invoke", name: "subagent.status" }));
+    expect(pi("subagent", { action: "status", id: "r1", view: "transcript" })).toEqual(use("subagent", { kind: "invoke", name: "subagent.status" }));
+    expect(pi("subagent", { action: "resume", id: "r1", message: "go on" })).toEqual(use("subagent", { kind: "invoke", name: "subagent.resume" }));
+    expect(refusal(pi("subagent", { action: "delete", agent: "x" }))).toBe("pi's subagent call uses action 'delete', which bounded does not translate");
+    expect(refusal(pi("subagent", { action: "status", agent: "a", task: "x" }))).toContain("'task'");
   });
 });
