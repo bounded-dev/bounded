@@ -10,13 +10,10 @@ describe("ComposePacksCommand laws", () => {
     }
   });
 
-  test("keeps valid names in order, and an empty selection", () => {
+  test("validates each name through PackName, in order", () => {
     const result = ComposePacksCommand.parse({ selected: ["path-gate", "core"] });
     expect(result.ok && result.value.selected.map((n) => n.value)).toEqual(["path-gate", "core"]);
     expect(ComposePacksCommand.parse({ selected: [] }).ok).toBe(true);
-  });
-
-  test("refuses with the first invalid name's reason", () => {
     expect(ComposePacksCommand.parse({ selected: ["core", "Bad", "../x"] })).toEqual({
       ok: false,
       error: "Pack name 'Bad' must be lowercase words joined by single hyphens, such as 'path-gate'",

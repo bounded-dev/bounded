@@ -52,7 +52,7 @@ describe("compile-time ownership check", () => {
   });
 
   for (const fixture of fixtures) {
-    test(`${fixture}: exactly the lines marked rejected fail, each for its stated reason`, async () => {
+    test(`${fixture}: exactly the lines marked rejected fail to compile`, async () => {
       const file = `${ROOT}/${fixture}`;
       expect(mismatches(file, await Bun.file(file).text())).toEqual([]);
     }, 30_000);
