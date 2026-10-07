@@ -50,6 +50,7 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 ```
 contexts/
   core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
+    src/packs/path-gate/              the path gate (slice 3): a pack shipped in bounded, exported as bounded/path-gate
 apps/
   claude-code/   bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
   pi/            bounded-pi          the pi host adapter (docs/adapter-pi.md)
@@ -80,12 +81,13 @@ src/
   adapters/in/<tech>/     driving adapters: depend on in ports, never handlers
   adapters/out/<tech>/    driven adapters: implement out ports; each runs its port's conformance suite
   pack/                   the context's composition root: openProject, which host adapters call (ADR 2026-010)
-  packs/                  packs the core ships, each in its own folder (the path gate, when merged)
+  packs/<name>/           a pack shipped in the context's package, such as path-gate/ (ADR 2026-009)
 ```
 
 Rules, enforced by `architecture.test.ts` unless stated:
 
-- **Dependencies point inwards:** domain <- application <- adapters <- pack.
+- **Dependencies point inwards:** domain <- application <- adapters <- pack;
+  a shipped pack (`packs/<name>/`) depends on the domain only.
   Adapters never import other adapters' technologies.
 - **Domain and application do no I/O** and import no library but zod.
 - **Within a context, layers import each other through the package's own
@@ -104,6 +106,11 @@ Rules, enforced by `architecture.test.ts` unless stated:
   Result<X>`; entities are built with `new` from valid value objects.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a
   test beside every adapter that implements it.
+- **A shipped pack is an ordinary pack** (ADR 2026-009): its code under
+  `src/packs/<name>/` imports only the package's `domain` export path, its
+  own directory and libraries the package declares, and does no I/O; nothing
+  outside that directory imports it but tests under the composition root
+  (`src/pack/`), so the core never depends on a pack.
 - **Pack ids root at their own package**: every `packIdsFor(...)` call in a
   workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are

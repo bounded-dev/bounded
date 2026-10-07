@@ -331,5 +331,14 @@
       "case": "piExtension — freezing and deadlines > a composition that times out is retried after a back-off, not on every call"
     },
     "reason": "recomposing on every call after a timeout piles up pending imports; a timed-out composition is now cached as failed for a back-off, and the block says when it retries"
+  },
+  {
+    "file": "contexts/core/src/pack/path-gate/path-gate.test.ts",
+    "case": "the path gate — listing is judged conservatively > a filter excludes a protected path only provably: when the rule ends in a literal name the filter does not match",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+      "case": "the path gate — listing is judged conservatively > a filter excludes a protected path only provably: a literal name, or disjoint literal suffixes or prefixes"
+    },
+    "reason": "a literal name now covers its contents, so a filter cannot rule it out; disjoint literal suffixes and prefixes now can, so config/*.pem is out of reach of *.ts (ADR 2026-009)"
   }
 ]
