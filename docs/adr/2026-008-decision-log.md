@@ -20,6 +20,19 @@
   fails, a refusal stays a refusal with its reason extended ("(this decision
   could not be recorded: …)"), and an allow becomes a refusal saying the
   decision could not be recorded. The handler never throws.
+- **The log never contradicts what was enforced.** Every decision has an id.
+  When a record lands after the bound, the handler appends, once it has
+  settled, a line with the same id, the enforced verdict and the note "not
+  recorded in time; enforced: refuse"; readers take the later line for an id.
+- **Bounded and private.** Text fields are shortened past 4,096 characters.
+  The file log creates its file with mode 0600 and writes each record in one
+  append of one complete line; readers skip a line that does not parse.
+  Installers ignore `.bounded/` in version control. Redaction is left as a
+  later hook.
+- **Strict inputs.** The clock must give an ISO 8601 time, or recording has
+  failed; input that is not a command is refused without throwing and is not
+  recorded; a bound that is not a finite number of milliseconds above zero
+  stops the handler from being built.
 - **Adapters.** An in-memory log, a JSON-lines file log (append-only, one
   object per line, creating its folders; the composition root picks the
   file) and the system clock, each running its port's conformance suite.
