@@ -168,4 +168,49 @@ process.stdout.write(JSON.stringify(out));
     expect(statSync(join(root, "run.sh")).mode & 0o100).toBe(0o100);
     expect(statSync(join(root, "tool.sh")).mode & 0o100).toBe(0o100);
   });
+
+  test("with git, the files are listed by git: tracked, untracked and ignored files a rule matches are all watched", async () => {
+    const root = repository({ "a.ts": "a", ".gitignore": ".env\ndist/\n" });
+    writeFileSync(join(root, ".env"), "SECRET=1");
+    mkdirSync(join(root, "dist"));
+    writeFileSync(join(root, "dist", "out.js"), "x");
+    writeFileSync(join(root, "new.ts"), "n");
+    const hashed = await filesAt(root).hash([rule(".env"), rule("dist/**"), rule("*.ts")]);
+    if (!hashed.ok) throw new Error(hashed.error);
+    expect(Object.keys(hashed.value).sort()).toEqual([".env", "a.ts", "dist/out.js", "new.ts"]);
+  });
+
+  test("with git or without, the same files are found, with the same exclusions and links", async () => {
+    const large = mkdtempSync(join(tmpdir(), "large-tree-"));
+    for (let i = 0; i < 20; i++) writeFileSync(join(large, `f${i}.js`), "x");
+    const lay = (root: string): void => {
+      mkdirSync(join(root, "src", "node_modules", "dep"), { recursive: true });
+      writeFileSync(join(root, "src", "a.ts"), "a");
+      writeFileSync(join(root, "src", "node_modules", "dep", "index.js"), "x");
+      symlinkSync(large, join(root, "node_modules"), "dir");
+      symlinkSync(large, join(root, "src", "vendor"), "dir");
+      symlinkSync("a.ts", join(root, "src", "alias.ts"));
+    };
+    const plain = mkdtempSync(join(tmpdir(), "not-git-"));
+    lay(plain);
+    const tracked = repository({ "README.md": "r" });
+    lay(tracked);
+    const found = async (root: string) => {
+      const hashed = await filesAt(root).hash([rule("**")]);
+      if (!hashed.ok) throw new Error(hashed.error);
+      return Object.entries(hashed.value)
+        .filter(([path]) => path !== "README.md")
+        .map(([path, file]) => [path, file.link === true])
+        .sort();
+    };
+    const expected = [["src/a.ts", false], ["src/alias.ts", true], ["src/vendor", true]];
+    expect(await found(plain)).toEqual(expected);
+    expect(await found(tracked)).toEqual(expected);
+  });
+
+  test("when git cannot list the files of a repository, hashing fails, so the command is refused", async () => {
+    const root = repository({ "a.ts": "a" });
+    writeFileSync(join(root, ".git", "index"), "not an index");
+    expect((await filesAt(root).hash([rule("**")])).ok).toBe(false);
+  });
 });

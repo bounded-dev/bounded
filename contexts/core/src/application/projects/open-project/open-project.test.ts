@@ -116,7 +116,7 @@ describe("OpenProjectHandler", () => {
     working.set("generated/a.ts", "tampered");
     const check = await project.afterTool({ ...shell, kind: "tool-result", ok: true });
     expect(check.restored).toBe(true);
-    expect(check.message?.startsWith("This command changed protected files, and they were restored: generated/a.ts was modified.")).toBe(true);
+    expect(check.message?.startsWith("This command changed protected files, and they were restored: generated/a.ts was modified — protected because")).toBe(true);
     expect(working.get("generated/a.ts")).toBe("a");
   });
 

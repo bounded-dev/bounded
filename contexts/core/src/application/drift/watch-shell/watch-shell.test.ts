@@ -229,7 +229,7 @@ describe("WatchShellHandler — after a shell command", () => {
     ]);
     expect(check.restored).toBe(true);
     expect(check.message).toBe(
-      `This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Change the generator's input instead. bounded.config.ts was deleted. the configuration decides what agents may do. Ask the project's owner. What it created was moved, not deleted, to ${QUARANTINE}.`,
+      `This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created — protected because generated/ is written by the generator. Change the generator's input instead. bounded.config.ts was deleted — protected because the configuration decides what agents may do. Ask the project's owner. What it created was moved, not deleted, to ${QUARANTINE}.`,
     );
     expect(files.quarantined.get("generated/new.ts")).toBe("created");
     expect(files.working.get("generated/a.ts")).toBe("a");
@@ -250,7 +250,7 @@ describe("WatchShellHandler — after a shell command", () => {
     const check = await watch.verify(result());
     expect(check.restored).toBe(false);
     expect(check.message).toBe(
-      "This command changed protected files, and restoring them FAILED (not a git repository); restore them by hand: generated/a.ts was modified. generated/ is written by the generator. Change the generator's input instead.",
+      "This command changed protected files, and restoring them FAILED (not a git repository); restore them by hand: generated/a.ts was modified — protected because generated/ is written by the generator. Change the generator's input instead.",
     );
     expect(log.decisions[0]?.note).toBe("changed by a shell command; restore failed");
   });
@@ -277,7 +277,7 @@ describe("WatchShellHandler — after a shell command", () => {
     expect(check.restored).toBe(true);
     expect(check.changed).toEqual([{ path: "generated/a.ts", change: "modified" }]);
     expect(files.working.get("generated/a.ts")).toBe("uncommitted edit");
-    expect(check.message?.startsWith("This command changed protected files, and they were restored: generated/a.ts was modified.")).toBe(true);
+    expect(check.message?.startsWith("This command changed protected files, and they were restored: generated/a.ts was modified — protected because")).toBe(true);
     expect(log.decisions[0]?.note).toBe("changed by a shell command; restored");
   });
 
