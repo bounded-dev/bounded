@@ -31,10 +31,47 @@ for (const manifest of new Glob("contexts/*/package.json").scanSync({ cwd: ROOT 
 }
 const byName = new Map(contexts.map((c) => [c.name, c]));
 
-/** The layer an export path or a source path belongs to. */
+/** The layer a source path (relative to src/) belongs to. */
 function layerOf(inner: string): Layer | undefined {
   const head = inner.split("/")[0];
   return LAYERS.find((layer) => layer === head);
+}
+
+/** The layer an export path belongs to: the layer of the file it points at. */
+function exportLayerOf(context: Context, exportPath: string): Layer | undefined {
+  const target = context.exports[`./${exportPath}`];
+  return target === undefined ? undefined : layerOf(target.replace(/^\.\/src\//, ""));
+}
+
+/**
+ * A pack shipped in a context's package lives in its own directory,
+ * src/pack/<name>/, and is an ordinary pack: its code depends only on the
+ * package's public `domain` export path, its own directory and the libraries
+ * the package declares, and does no I/O. Nothing outside that directory
+ * imports it, so the core never depends on a pack (ADR 2026-008).
+ */
+function shippedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
+  const packDir = (file: string | undefined) => (file === undefined ? undefined : /^contexts\/[^/]+\/src\/pack\/[^/]+\//.exec(file)?.[0]);
+  const own = packDir(path);
+  const out: string[] = [];
+  for (const { spec, line } of imports) {
+    const at = `${path}:${line} imports "${spec}"`;
+    const relative = spec.startsWith(".");
+    const exported = relative ? undefined : contexts.find((c) => spec.startsWith(`${c.name}/`));
+    const exportTarget = exported?.exports[`./${spec.slice((exported?.name.length ?? 0) + 1)}`];
+    const file = relative ? new URL(spec, `file:///${path}`).pathname.slice(1) : exportTarget === undefined ? undefined : `${exported?.dir}/${exportTarget.slice(2)}`;
+    const into = packDir(file);
+    if (into !== undefined && into !== own) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
+    if (own === undefined || /\.test(-support)?\.ts$/.test(path)) continue;
+    if (relative) {
+      if (into !== own) out.push(`${at} — a shipped pack reaches the core through \`${context.name}/domain\` only`);
+    } else if (exported !== undefined) {
+      if (spec !== `${context.name}/domain`) out.push(`${at} — a shipped pack depends only on \`${context.name}/domain\`, the core's public exports`);
+    } else if (IO_MODULES.test(spec) || !context.dependencies.includes(spec)) {
+      out.push(`${at} — a shipped pack uses only libraries its package declares, and does no I/O`);
+    }
+  }
+  return out;
 }
 
 function importsOf(path: string, text: string): { spec: string; line: number; typeOnly: boolean }[] {
@@ -108,8 +145,10 @@ for (const path of files) {
     continue;
   }
   const text = await Bun.file(`${ROOT}/${path}`).text();
-  const pure = (layer === "domain" || layer === "application") && !isTest;
+  const shippedPack = layer === "pack" && rest.length > 2;
+  const pure = (layer === "domain" || layer === "application" || shippedPack) && !isTest;
   if (!isTest) violations.push(...packIdViolations(path, text, context.name));
+  violations.push(...shippedPackViolations(path, importsOf(path, text), context));
   if (pure && /\b(Bun|process|fetch|require)\s*[.(]/.test(text)) violations.push(`${path} — ${layer} code does no I/O`);
   for (const { spec, line, typeOnly } of importsOf(path, text)) {
     const at = `${path}:${line} imports "${spec}"`;
@@ -125,7 +164,7 @@ for (const path of files) {
     const target = contexts.find((c) => spec === c.name || spec.startsWith(`${c.name}/`));
     if (target !== undefined) {
       const exportPath = spec.slice(target.name.length + 1);
-      const targetLayer = layerOf(exportPath);
+      const targetLayer = exportLayerOf(target, exportPath);
       if (!(`./${exportPath}` in target.exports) || targetLayer === undefined) violations.push(`${at} — import a context only through its export paths`);
       else if (target !== context && !context.dependencies.includes(target.name)) violations.push(`${at} — ${context.name} does not declare ${target.name} as a dependency`);
       else if (target === context && !ALLOWED[layer].includes(targetLayer)) violations.push(`${at} — ${layer} may not depend on ${targetLayer}`);
@@ -133,7 +172,7 @@ for (const path of files) {
       continue;
     }
     if (spec === "<computed>") violations.push(`${at} — an import with a computed specifier cannot be checked`);
-    else if (pure && !typeOnly && spec !== "zod") violations.push(`${at} — ${layer} code uses no library but zod${IO_MODULES.test(spec) ? " and does no I/O" : ""}`);
+    else if (pure && !shippedPack && !typeOnly && spec !== "zod") violations.push(`${at} — ${layer} code uses no library but zod${IO_MODULES.test(spec) ? " and does no I/O" : ""}`);
   }
 }
 
@@ -141,7 +180,28 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/in-memory", "./application", "./domain"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/in-memory", "./application", "./domain", "./path-gate"]);
+  });
+
+  test("the path gate is a pack shipped in the bounded package, in its own directory", () => {
+    expect(byName.get("bounded")?.exports["./path-gate"]).toBe("./src/pack/path-gate/index.ts");
+  });
+
+  test("the shipped-pack rule: only a pack's own directory imports it, and it depends only on the core's public exports", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const gate = "contexts/core/src/pack/path-gate/gate.ts";
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    expect(shippedPackViolations(gate, imports("bounded/domain", "./rule.ts", "picomatch"), core)).toEqual([]);
+    expect(shippedPackViolations(gate, imports("bounded/application", "../../domain/index.ts", "node:fs"), core)).toEqual([
+      `${gate}:1 imports "bounded/application" — a shipped pack depends only on \`bounded/domain\`, the core's public exports`,
+      `${gate}:1 imports "../../domain/index.ts" — a shipped pack reaches the core through \`bounded/domain\` only`,
+      `${gate}:1 imports "node:fs" — a shipped pack uses only libraries its package declares, and does no I/O`,
+    ]);
+    expect(shippedPackViolations("contexts/core/src/domain/guards/x.ts", imports("bounded/path-gate", "../../pack/path-gate/index.ts"), core)).toEqual([
+      'contexts/core/src/domain/guards/x.ts:1 imports "bounded/path-gate" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
+      'contexts/core/src/domain/guards/x.ts:1 imports "../../pack/path-gate/index.ts" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
+    ]);
   });
 
   test("every export path points at a file that exists", async () => {
