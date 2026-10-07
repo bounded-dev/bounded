@@ -179,6 +179,52 @@ describe("red-first-check end to end", () => {
     expect(missing).toContain('FAIL preserved: sum.test.ts: "adds" is superseded by sum.test.ts: "no such case", which does not exist at the head');
   }, 60_000);
 
+  describe("a supersession record is refused when", () => {
+    const SUM = "export const sum = (a: number, b: number): number => a + b;\n";
+    const HEADER = `import { expect, test } from "bun:test";\nimport { sum } from "./sum.ts";\n`;
+    const record = (successor: { file: string; case: string } | null) => JSON.stringify([{ file: "sum.test.ts", case: "adds", successor, reason: "replaced" }]);
+    /** A red commit owning "adds" (two assertions), a build, then `later` commits; the check's output lines. */
+    const check = (later: Record<string, string>[]): string[] => {
+      const repo = repository();
+      const red = repo.commit({ "sum.test.ts": `${HEADER}test("adds", () => { expect(sum(1, 2)).toBe(3); expect(sum(2, 2)).toBe(4); });\n` }, "red");
+      repo.commit({ "sum.ts": SUM }, "green");
+      later.forEach((files, i) => repo.commit(files, `later ${i}`));
+      const lines: string[] = [];
+      main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l));
+      return lines;
+    };
+
+    test("the case it supersedes still exists at the head", () => {
+      expect(check([{ "superseded-tests.json": record(null) }])).toContain('FAIL preserved: sum.test.ts: "adds" is recorded as superseded but still exists at the head');
+    }, 60_000);
+
+    test("a case names itself as its successor", () => {
+      expect(check([{ "superseded-tests.json": record({ file: "sum.test.ts", case: "adds" }) }])).toContain(
+        'FAIL preserved: sum.test.ts: "adds" names itself as its successor',
+      );
+    }, 60_000);
+
+    test("the successor is a whole table of cases generated in a loop", () => {
+      const table = `${HEADER}for (const [a, b] of [[1, 2]]) test(String(a), () => { expect(sum(a ?? 0, b ?? 0)).toBe(3); expect(sum(2, 2)).toBe(4); });\n`;
+      expect(check([{ "sum.test.ts": table, "superseded-tests.json": record({ file: "sum.test.ts", case: "`${String(a)}`" }) }])).toContain(
+        'FAIL preserved: sum.test.ts: "adds" is superseded by sum.test.ts: "`${String(a)}`", a computed title (a table of cases); name one specific case',
+      );
+    }, 60_000);
+
+    test("the successor makes fewer assertions than the case it replaces", () => {
+      const weaker = `${HEADER}test("adds two numbers", () => { expect(sum(1, 2)).toBe(3); });\n`;
+      expect(check([{ "sum.test.ts": weaker, "superseded-tests.json": record({ file: "sum.test.ts", case: "adds two numbers" }) }])).toContain(
+        'FAIL preserved: sum.test.ts: "adds" is superseded by sum.test.ts: "adds two numbers", which makes 1 assertion(s), fewer than its 2',
+      );
+    }, 60_000);
+
+    test("the record was changed by a commit that is not test-only", () => {
+      const renamed = `${HEADER}test("adds two numbers", () => { expect(sum(1, 2)).toBe(3); expect(sum(2, 2)).toBe(4); });\n`;
+      const lines = check([{ "sum.test.ts": renamed, "sum.ts": `${SUM}// touched\n`, "superseded-tests.json": record({ file: "sum.test.ts", case: "adds two numbers" }) }]);
+      expect(lines.some((l) => /^FAIL supersessions: superseded-tests\.json was changed by [0-9a-f]{12}, which is not a test-only commit$/.test(l))).toBe(true);
+    }, 60_000);
+  });
+
   test("a red commit may delete a test file only when every case in it is recorded as superseded", () => {
     const OLD = `import { expect, test } from "bun:test";\ntest("old", () => { expect(1).toBe(1); });\n`;
     const run = (record: string | undefined): string[] => {
