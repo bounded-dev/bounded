@@ -1,19 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { Contribution, ExtensionPoint, Pack } from "@bounded/core/domain";
+import { type AnyPack, definePack, point } from "@bounded/core/domain";
 import { ComposePacksCommand } from "./compose-packs.command.ts";
 import type { ComposePacksCatalog } from "./compose-packs.contract.ts";
 import { ComposePacksHandler } from "./compose-packs.handler.ts";
 
 class FakeCatalog implements ComposePacksCatalog {
-  constructor(private readonly packs: readonly Pack[]) {}
+  constructor(private readonly packs: readonly AnyPack[]) {}
 
-  async available(): Promise<readonly Pack[]> {
+  async available(): Promise<readonly AnyPack[]> {
     return this.packs;
   }
 }
 
-const items = ExtensionPoint.ownedBy("base").declare<string>({ id: "base.items", description: "Items" });
-const base = new Pack({ name: "base", declares: [items], contributes: [new Contribution(items, ["x"])] });
+const base = definePack({
+  id: "base",
+  points: { items: point({ description: "Items", check: (raw) => (typeof raw === "string" ? { ok: true, value: raw } : { ok: false, error: "not text" }), values: ["x"] }) },
+});
+const { items } = base.points;
 
 function command(...selected: string[]): ComposePacksCommand {
   const parsed = ComposePacksCommand.parse({ selected });
