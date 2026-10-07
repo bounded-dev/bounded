@@ -2,13 +2,14 @@
   "name": "bounded-core",
   "private": true,
   "type": "module",
-  "workspaces": ["contexts/*"],
+  "workspaces": [
+    "contexts/*"
+  ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "lint": "biome lint .",
     "test": "bun test",
-    "check": "bun run typecheck && bun run lint && bun run test",
-    "mutate": "stryker run"
+    "check": "bun run typecheck && bun run lint && bun run test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

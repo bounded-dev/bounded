@@ -6,7 +6,8 @@
 			"!**/node_modules",
 			"!**/.stryker-tmp",
 			"!**/reports",
-			"!**/fixtures"
+			"!**/fixtures",
+			"!**/.agent-state"
 		]
 	},
 	"formatter": { "enabled": false },

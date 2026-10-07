@@ -1,0 +1,13 @@
+{
+  "name": "@bounded/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./domain": "./src/domain/index.ts",
+    "./application": "./src/application/index.ts",
+    "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.4"
+  }
+}
