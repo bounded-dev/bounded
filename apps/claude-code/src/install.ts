@@ -1,4 +1,4 @@
-// Installing the hook: bounded's PreToolUse and PostToolUse entries merged into a project's
+// Installing the hook: bounded's PreToolUse, PostToolUse and PostToolUseFailure entries merged into a project's
 // .claude/settings.json object. Pure; the caller reads and writes the file.
 import type { Result } from "bounded/domain";
 import { isRecord } from "./json.ts";
@@ -25,7 +25,7 @@ export function hookCommand({ bun, main, role }: { bun: string; main: string; ro
 }
 
 /** The hook events bounded is installed for: before every call to judge it, after it to undo what it changed. */
-type HookEvent = "PreToolUse" | "PostToolUse";
+type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
 
 /** Whether a hook entry is ours: it runs `command` as a command hook for every tool. */
 function isOurs(entry: unknown, command: string): boolean {
@@ -45,12 +45,18 @@ function withoutOlder(entries: readonly unknown[], command: string): unknown[] {
   });
 }
 
-/** The settings with bounded's hook running `command` before and after every tool call. Idempotent; everything else is kept. */
+/** The events bounded is installed for: before every call, after it, and after it failed (a command exiting non-zero). */
+const EVENTS: readonly HookEvent[] = ["PreToolUse", "PostToolUse", "PostToolUseFailure"];
+
+/** The settings with bounded's hook running `command` before every tool call, after it and after its failure. Idempotent; everything else is kept. */
 export function withHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
-  const before = withHook(settings, command);
-  if (!before.ok) return before;
-  const after = withHook(before.value.settings, command, "PostToolUse");
-  return after.ok ? { ok: true, value: { settings: after.value.settings, changed: before.value.changed || after.value.changed } } : after;
+  let out: { settings: Settings; changed: boolean } = { settings: settings as Settings, changed: false };
+  for (const event of EVENTS) {
+    const next = withHook(out.settings, command, event);
+    if (!next.ok) return next;
+    out = { settings: next.value.settings, changed: out.changed || next.value.changed };
+  }
+  return { ok: true, value: out };
 }
 
 /** The settings with bounded's hook running `command` on every tool call's `event`, PreToolUse by default. Idempotent; everything else is kept. */

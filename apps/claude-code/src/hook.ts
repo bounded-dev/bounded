@@ -1,7 +1,8 @@
 // One hook call, stdin to stdout. PreToolUse: read, translate, resolve,
 // decide, answer. It fails closed: whatever goes wrong is a deny, never an
 // empty answer, which Claude Code would read as allow; a deny the hook makes
-// itself is also recorded. PostToolUse: the finished call is checked after
+// itself is also recorded. PostToolUse and PostToolUseFailure (a call that
+// failed, such as a command exiting 1): the finished call is checked after
 // the fact, and what bounded undid, or could not check, is told to Claude.
 import { type Refuse, type Result, ToolResult, Verdict } from "bounded/domain";
 import { type PathResolver, type ToolUse, toToolUse } from "./event.ts";
@@ -40,7 +41,7 @@ export interface Hook {
   readonly paths: PathResolver;
   /** How long decide may take before the call is denied: below Claude Code's timeout for the hook. */
   readonly deadlineMs: number;
-  /** Checks a finished call; without it, PostToolUse answers nothing. */
+  /** Checks a finished call; without it, PostToolUse and PostToolUseFailure answer nothing. */
   readonly afterTool?: AfterTool;
   readonly record?: RecordRefusal;
 }
@@ -57,7 +58,8 @@ export function respond(verdict: Verdict): string {
 
 /** The hook's answer to its stdin. Never rejects. */
 export async function runHook(stdin: string, hook: Hook): Promise<string> {
-  if (peek(stdin, "hook_event_name") === "PostToolUse") return afterToolUse(stdin, hook);
+  const event = peek(stdin, "hook_event_name");
+  if (event === "PostToolUse" || event === "PostToolUseFailure") return afterToolUse(stdin, hook, event);
   const refused = (verdict: Refuse): Refuse => record(verdict, stdin, hook);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<Verdict>((settle) => {
@@ -86,20 +88,28 @@ async function verdictFor(stdin: string, { projectDir, role, decide, paths }: Ho
   return verdict.value;
 }
 
-/** Answers a PostToolUse call: nothing when nothing was undone, else a block telling Claude what was, or that checking failed. */
-async function afterToolUse(stdin: string, hook: Hook): Promise<string> {
+/** The redirect recorded when checking a finished call fails. */
+const CHECK_BY_HAND = "Check the protected files against version control";
+
+/** What Claude Code shows Claude after a call: a block's reason after PostToolUse, added context after PostToolUseFailure (it cannot block). */
+function tell(event: "PostToolUse" | "PostToolUseFailure", message: string): string {
+  return event === "PostToolUse" ? JSON.stringify({ decision: "block", reason: message }) : JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: message } });
+}
+
+/** Answers a finished call: nothing when nothing was undone, else what was, or that checking failed (which is also recorded). */
+async function afterToolUse(stdin: string, hook: Hook, event: "PostToolUse" | "PostToolUseFailure"): Promise<string> {
   const { afterTool, projectDir, deadlineMs } = hook;
   if (afterTool === undefined) return "";
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const payload = readPayload(stdin, "PostToolUse");
+    const payload = readPayload(stdin, event);
     if (!payload.ok) throw new Error(payload.error.reason);
     const use = toolUseOf(payload.value, hook);
     const response = peek(stdin, "tool_response");
     const result = ToolResult.parse({
       ...(use.ok ? use.value : { role: null, tool: "other", effects: [{ kind: "invoke", name: payload.value.tool_name }] }),
       kind: "tool-result",
-      ok: !(isRecord(response) && response.success === false),
+      ok: event === "PostToolUse" && !(isRecord(response) && response.success === false),
       ...(payload.value.callId === undefined ? {} : { callId: payload.value.callId }),
     });
     if (!result.ok) throw new Error(result.error);
@@ -107,9 +117,11 @@ async function afterToolUse(stdin: string, hook: Hook): Promise<string> {
       timer = setTimeout(() => reject(new Error(`no answer within ${deadlineMs} ms`)), deadlineMs);
     });
     const checked = await Promise.race([afterTool(result.value, { projectDir }), late]);
-    return checked.message === null ? "" : JSON.stringify({ decision: "block", reason: checked.message });
+    return checked.message === null ? "" : tell(event, checked.message);
   } catch (thrown) {
-    return JSON.stringify({ decision: "block", reason: `bounded could not check protected files after this call: ${message(thrown)}. Check them against version control.` });
+    const reason = `bounded could not check protected files after this call: ${message(thrown)}. Check them against version control.`;
+    record(Verdict.refuse(reason, CHECK_BY_HAND), stdin, hook);
+    return tell(event, reason);
   } finally {
     clearTimeout(timer);
   }

@@ -1,4 +1,4 @@
-// Claude Code's PreToolUse (or PostToolUse) payload, read and translated into host-neutral
+// Claude Code's PreToolUse (or PostToolUse, PostToolUseFailure) payload, read and translated into host-neutral
 // effects. Pure: no file system, no process. Paths stay as Claude Code gave
 // them; event.ts resolves them through a port.
 import { isAbsolute, join } from "node:path";
@@ -16,7 +16,7 @@ export interface Payload {
 }
 
 /** The hook events bounded answers. */
-export type HookEvent = "PreToolUse" | "PostToolUse";
+export type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
 
 /** An effect with its paths still in the host's words. A Write's change depends on whether the file exists. */
 export type HostEffect =
@@ -35,7 +35,7 @@ export interface HostCall {
 
 const ok = <T>(value: T): Result<T, Refuse> => ({ ok: true, value });
 const NOT_A_CALL = "The hook's input is not a PreToolUse call: an object with tool_name and tool_input";
-const REGISTRATION = "Register bounded's hook for PreToolUse and PostToolUse, as the install helper does";
+const REGISTRATION = "Register bounded's hook for PreToolUse, PostToolUse and PostToolUseFailure, as the install helper does";
 const refuse = (tool: string, key: string, problem: string): { ok: false; error: Refuse } => ({
   ok: false,
   error: Verdict.refuse(`Claude Code's ${tool} call ${problem}`, `Retry the call with its ${key} given as text`),
