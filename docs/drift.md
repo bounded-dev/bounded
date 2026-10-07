@@ -19,8 +19,16 @@ contribution(corePack.points.watchedPaths, [
 `match` and `except` are project-relative globs; a file is watched by the
 first rule that matches it and does not except it. `match` ignores case, as
 the path gate's does, so a file cannot be dodged by its case on a
-case-insensitive file system; `except` is exact. `.git/` and `.bounded/` are
-never watched.
+case-insensitive file system; `except` is exact.
+
+What is never watched: `.bounded/`, and every `node_modules/` and `.git/`
+directory at any depth, with everything under them. Protecting files inside
+`node_modules` against shell commands is out of scope: dependencies are
+rewritten by installs all the time, and walking them would make every command
+slow. The walk enters only the directories a rule's fixed leading part leads
+to (`generated/**` walks `generated/`; a `**`-led rule walks the project), and
+never follows a link: a linked directory is never entered, and a link a rule
+matches is recorded as a link, by where it points.
 
 ## Before and after
 
@@ -33,14 +41,19 @@ never watched.
    cannot be read, or the call has no `callId`, the command is refused.
 2. **After** the call, the host passes its result to `afterTool`. The judge
    checks the snapshot, hashes again and puts back every file that was
-   modified, deleted or created: from its copy, from the commit it matched,
-   or by removing it when it did not exist before. It checks the files now
+   modified or deleted, from its copy or from the commit it matched, with its
+   executable bit. A file the command created is never deleted: it is moved
+   into a quarantine directory of its own,
+   `$XDG_STATE_HOME/bounded/<sha256 of the project root>/quarantine/<time>/<path>`
+   (directories 0700, files 0600), and the message and the record say where.
+   It checks the files now
    match the snapshot, records a refusal in the decision log (note "changed
    by a shell command; restored") and returns a message for the agent:
 
    > This command changed protected files, and they were restored:
-   > generated/a.ts was modified. generated/ is written by the generator.
-   > Change the generator's input instead.
+   > generated/a.ts was modified, generated/new.ts was created. generated/ is
+   > written by the generator. Change the generator's input instead. What it
+   > created was moved, not deleted, to ~/.local/state/bounded/…/quarantine/….
 
 So uncommitted work in a watched file, and a watched file git does not hold,
 come back as they were before the command. A file too large to copy that the
@@ -91,9 +104,11 @@ Every failure while checking is recorded too.
 
 The check covers watched files only and runs after the command, so a command
 can still read or send protected content while it runs. A file larger than the
-copy limits, and every file when the snapshot was tampered with, is reported
-rather than restored. Restoring from the commit writes the file's bytes and
-leaves git's index alone; it does not restore the file's mode. Claude Code
+copy limits, a link, and every file when the snapshot was tampered with, is
+reported rather than restored. Restoring writes the file's bytes and its
+executable bit, and leaves git's index alone. Quarantined files are kept until
+someone removes them. Removing a file's entry from a snapshot makes the file
+look created, so it is moved aside: reported, never lost. Claude Code
 fires no hook when a user interrupts a running call (the interruption reaches
 Claude in the tool result instead), so such a call is not checked; its
 snapshot expires.

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { chmodSync, copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RestoreFrom, WatchedFiles, WatchedHashes } from "bounded/application";
 import type { Result, WatchedPath } from "bounded/domain";
@@ -11,28 +11,42 @@ const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).dig
 /** Enough for the watched files of a large commit in one read. */
 const MAX_BUFFER = 1024 * 1024 * 1024;
 
+/** A file mode with execute added wherever it can be read. */
+const executableMode = (mode: number): number => (mode & 0o777) | ((mode & 0o444) >> 2);
+
 /**
  * The project's files on disk, under git. Hashing walks only the directories
- * a rule's fixed leading part can lead to, and sees regular files only (a
- * link is never followed). Restoring writes one file's bytes, from a copy or
- * from a commit, and leaves git's index alone.
+ * a rule's fixed leading part can lead to, never node_modules, .git or a
+ * linked directory; a link a rule matches is recorded by where it points,
+ * never followed. Restoring writes one file's bytes and executable bit, from
+ * a copy or from a commit, and leaves git's index alone. What a command
+ * created is moved into a new directory under `quarantine`, never deleted.
  */
 export class FileSystemWatchedFiles implements WatchedFiles {
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    private readonly quarantineDir: string,
+  ) {}
 
   async hash(rules: readonly WatchedPath[]): Promise<Result<WatchedHashes>> {
     try {
       const watching = watcher(rules);
       const enter = mayHold(rules);
-      const out: Record<string, { hash: string; size: number; rule: number }> = {};
+      const out: Record<string, { hash: string; size: number; rule: number; link?: true }> = {};
       const walk = (dir: string): void => {
         for (const entry of readdirSync(join(this.root, dir), { withFileTypes: true })) {
           const path = dir === "" ? entry.name : `${dir}/${entry.name}`;
+          // A directory entry is never a link here: readdir does not follow them.
           if (entry.isDirectory()) {
             if (enter(path)) walk(path);
-          } else if (entry.isFile()) {
-            const rule = watching(path);
-            if (rule < 0) continue;
+            continue;
+          }
+          const rule = entry.isFile() || entry.isSymbolicLink() ? watching(path) : -1;
+          if (rule < 0) continue;
+          if (entry.isSymbolicLink()) {
+            const target = Buffer.from(readlinkSync(join(this.root, path)));
+            out[path] = { hash: sha256(Buffer.concat([Buffer.from("link\0"), target])), size: target.length, rule, link: true };
+          } else {
             const bytes = readFileSync(join(this.root, path));
             out[path] = { hash: sha256(bytes), size: bytes.length, rule };
           }
@@ -81,11 +95,12 @@ export class FileSystemWatchedFiles implements WatchedFiles {
     return { ok: true, value: out };
   }
 
-  async copy(path: string): Promise<Result<{ hash: string; size: number; content: string }>> {
+  async copy(path: string): Promise<Result<{ hash: string; size: number; content: string; executable: boolean }>> {
     try {
-      if (!isInside(path) || !lstatSync(join(this.root, path)).isFile()) return { ok: false, error: `${path} is not a file inside the project` };
+      const found = isInside(path) ? lstatSync(join(this.root, path)) : undefined;
+      if (found === undefined || !found.isFile()) return { ok: false, error: `${path} is not a file inside the project` };
       const bytes = readFileSync(join(this.root, path));
-      return { ok: true, value: { hash: sha256(bytes), size: bytes.length, content: bytes.toString("base64") } };
+      return { ok: true, value: { hash: sha256(bytes), size: bytes.length, content: bytes.toString("base64"), executable: (found.mode & 0o100) !== 0 } };
     } catch (thrown) {
       return { ok: false, error: `${path} could not be copied: ${text(thrown)}` };
     }
@@ -93,28 +108,63 @@ export class FileSystemWatchedFiles implements WatchedFiles {
 
   async restore(path: string, from: RestoreFrom): Promise<Result<void>> {
     if (!isInside(path)) return { ok: false, error: `${path} is not inside the project` };
-    let bytes: Buffer | undefined;
-    if (from.from === "copy") bytes = Buffer.from(from.content, "base64");
-    else if (from.from === "commit") {
+    let bytes: Buffer;
+    let executable: boolean;
+    if (from.from === "copy") [bytes, executable] = [Buffer.from(from.content, "base64"), from.executable];
+    else {
+      const failed = (run: ReturnType<FileSystemWatchedFiles["git"]>) => `${path} could not be restored from commit ${from.commit}: ${run.error?.message ?? run.stderr.toString().trim()}`;
       const shown = this.git(["cat-file", "blob", `${from.commit}:./${path}`]);
-      if (shown.error !== undefined || shown.status !== 0) return { ok: false, error: `${path} could not be restored from commit ${from.commit}: ${shown.error?.message ?? shown.stderr.toString().trim()}` };
-      bytes = shown.stdout;
+      if (shown.error !== undefined || shown.status !== 0) return { ok: false, error: failed(shown) };
+      const listed = this.git(["ls-tree", from.commit, "--", path]);
+      if (listed.error !== undefined || listed.status !== 0) return { ok: false, error: failed(listed) };
+      [bytes, executable] = [shown.stdout, listed.stdout.toString().startsWith("100755")];
     }
     const file = join(this.root, path);
     try {
-      // Whatever is there now goes first, so a link the command left is never written through.
+      // The command left something there: it goes first, so a link is never written through.
       rmSync(file, { force: true });
-      if (bytes !== undefined) {
-        mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, bytes);
-      }
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, bytes);
+      if (executable) chmodSync(file, executableMode(statSync(file).mode));
       return { ok: true, value: undefined };
     } catch (thrown) {
       return { ok: false, error: `${path} could not be restored: ${text(thrown)}` };
     }
   }
 
+  async quarantine(paths: readonly string[]): Promise<Result<string>> {
+    const outside = paths.find((path) => !isInside(path));
+    if (outside !== undefined) return { ok: false, error: `${outside} is not inside the project` };
+    const location = join(this.quarantineDir, `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`);
+    try {
+      mkdirSync(location, { recursive: true, mode: 0o700 });
+      chmodSync(this.quarantineDir, 0o700);
+      chmodSync(location, 0o700);
+      for (const path of paths) {
+        const [from, to] = [join(this.root, path), join(location, path)];
+        mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
+        move(from, to);
+        if (!lstatSync(to).isSymbolicLink()) chmodSync(to, 0o600);
+      }
+      return { ok: true, value: location };
+    } catch (thrown) {
+      return { ok: false, error: `moving files to ${location} failed: ${text(thrown)}` };
+    }
+  }
+
   private git(args: readonly string[], input?: string) {
     return spawnSync("git", args, { cwd: this.root, maxBuffer: MAX_BUFFER, ...(input === undefined ? {} : { input }) });
+  }
+}
+
+/** Moves a file or link, copying it across file systems when it cannot be renamed. */
+function move(from: string, to: string): void {
+  try {
+    renameSync(from, to);
+  } catch (thrown) {
+    if ((thrown as { code?: unknown }).code !== "EXDEV") throw thrown;
+    if (lstatSync(from).isSymbolicLink()) symlinkSync(readlinkSync(from), to);
+    else copyFileSync(from, to);
+    rmSync(from);
   }
 }

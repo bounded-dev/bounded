@@ -5,13 +5,14 @@ import picomatch from "picomatch";
 // which runs on any JavaScript runtime. A rule's match ignores case, as the
 // path gate's does, so a protected file cannot be dodged by its case on a
 // case-insensitive file system; its except is exact, so a carve-out never
-// grows. Version control's and bounded's own directories are never watched.
+// grows. Version control's and bounded's own directories are never watched,
+// nor anything inside node_modules: drift does not protect dependencies.
 
 const MATCH = { dot: true, nocase: true, noextglob: true } as const;
 const EXCEPT = { dot: true, noextglob: true } as const;
 
-/** Whether `path` is inside .git or .bounded, which bounded never watches. */
-export const isOwnState = (path: string): boolean => [".git", ".bounded"].some((dir) => path === dir || path.startsWith(`${dir}/`));
+/** Whether `path` is, or is inside, .bounded at the root, or a node_modules or .git directory at any depth: never watched. */
+export const isOwnState = (path: string): boolean => path === ".bounded" || path.startsWith(".bounded/") || path.split("/").some((part) => part === "node_modules" || part === ".git");
 
 /** For `rules`: the index of the first rule that watches a path, or -1 when none does. */
 export function watcher(rules: readonly WatchedPath[]): (path: string) => number {

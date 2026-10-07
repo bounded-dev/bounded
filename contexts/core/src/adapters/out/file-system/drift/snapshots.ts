@@ -3,6 +3,9 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import type { ShellSnapshots, Snapshot } from "bounded/application";
 
+/** Where bounded keeps a project's state for this user: `<stateHome>/bounded/<sha256 of the root>`. */
+export const stateDirFor = (stateHome: string, root: string): string => join(stateHome, "bounded", createHash("sha256").update(root).digest("hex"));
+
 /** How long a snapshot is kept: a command whose result never came (the host denied it after bounded allowed it) leaves one behind. */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -24,7 +27,7 @@ export class FileSystemShellSnapshots implements ShellSnapshots {
     root: string,
     private readonly stateHome: string,
   ) {
-    this.project = join(stateHome, "bounded", createHash("sha256").update(root).digest("hex"));
+    this.project = stateDirFor(stateHome, root);
     this.dir = join(this.project, "snapshots");
   }
 
