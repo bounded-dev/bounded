@@ -27,6 +27,8 @@ interface Rule {
 const runsShell = (call: ToolUse | ToolResult): boolean => call.effects.some((effect) => effect.kind === "execute");
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+/** A text as it can be shown on one line: control characters (a newline in a file's name) escaped, as in JSON. */
+const shown = (text: string): string => [...text].map((char) => (char === "\u007f" ? "\\u007f" : char < " " ? JSON.stringify(char).slice(1, -1) : char)).join("");
 /** A text as one sentence: without trailing full stops or spaces, then one full stop. */
 const sentence = (words: string): string => `${words.replace(/[.\s]+$/, "")}.`;
 
@@ -170,19 +172,19 @@ export class WatchShellHandler implements WatchShell {
     if (!committed.ok) return altered(`its commit cannot be read: ${committed.error}`);
     const files: Record<string, SnapshotFile> = {};
     for (const [path, file] of Object.entries(stored.files)) {
-      if (!isRecord(file) || typeof file.hash !== "string" || !SHA256.test(file.hash)) return altered(`${path} has a hash that is not a SHA-256`);
+      if (!isRecord(file) || typeof file.hash !== "string" || !SHA256.test(file.hash)) return altered(`${shown(path)} has a hash that is not a SHA-256`);
       const { hash, size, rule, kept, link } = file;
-      if (!isCount(size) || !isCount(rule) || rule >= rules.length || !isRecord(kept) || !(link === undefined || link === true)) return altered(`${path} is not a snapshot's file`);
+      if (!isCount(size) || !isCount(rule) || rule >= rules.length || !isRecord(kept) || !(link === undefined || link === true)) return altered(`${shown(path)} is not a snapshot's file`);
       let keptAs: Kept;
       if (kept.from === "commit") {
-        if (commit === null || committed.value[path]?.hash !== hash) return altered(`${path} does not match the commit it was kept by`);
+        if (commit === null || committed.value[path]?.hash !== hash) return altered(`${shown(path)} does not match the commit it was kept by`);
         keptAs = { from: "commit" };
       } else if (kept.from === "copy") {
         const copy = typeof kept.content === "string" ? await digest(kept.content) : undefined;
-        if (copy === undefined || copy.hash !== hash || copy.size !== size || typeof kept.executable !== "boolean") return altered(`the copy of ${path} does not match its hash`);
+        if (copy === undefined || copy.hash !== hash || copy.size !== size || typeof kept.executable !== "boolean") return altered(`the copy of ${shown(path)} does not match its hash`);
         keptAs = { from: "copy", content: kept.content as string, executable: kept.executable };
       } else if (kept.from === "nowhere") keptAs = { from: "nowhere" };
-      else return altered(`${path} is not a snapshot's file`);
+      else return altered(`${shown(path)} is not a snapshot's file`);
       files[path] = { hash, size, rule, kept: keptAs, ...(link === true ? { link } : {}) };
     }
     return { ok: true, value: { commit, files } };
@@ -214,7 +216,7 @@ export class WatchShellHandler implements WatchShell {
       if (before.files[path] === undefined) continue;
       const from = restoreFrom(before, path);
       if (from === undefined) {
-        failures.add(before.files[path]?.link === true ? `${path} was a link, which is not kept, so it was left as the command left it` : `${path} was too large to keep a copy of, so it was left as the command left it`);
+        failures.add(before.files[path]?.link === true ? `${shown(path)} was a link, which is not kept, so it was left as the command left it` : `${shown(path)} was too large to keep a copy of, so it was left as the command left it`);
         continue;
       }
       const failure = await this.restore(path, from);
@@ -226,14 +228,14 @@ export class WatchShellHandler implements WatchShell {
       if (!again.ok) failures.add(`the files could not be checked after restoring: ${again.error}`);
       else {
         const different = restored.filter((path) => again.value[path]?.hash !== before.files[path]?.hash);
-        if (different.length > 0) failures.add(`after restoring, ${different.join(", ")} still ${different.length === 1 ? "differs" : "differ"} from before the command`);
+        if (different.length > 0) failures.add(`after restoring, ${different.map(shown).join(", ")} still ${different.length === 1 ? "differs" : "differ"} from before the command`);
       }
     }
     const groups = describe(changed, before.files, after.value, rules) + (movedTo === undefined ? "" : ` What it created was moved, not deleted, to ${movedTo}.`);
     const message =
       failures.size === 0
         ? `This command changed protected files, and they were restored: ${groups}`
-        : `This command changed protected files, and restoring them FAILED (${[...failures].join("; ")}); restore them by hand: ${groups}`;
+        : `This command changed protected files, and restoring them FAILED (${shown([...failures].join("; "))}); restore them by hand: ${groups}`;
     const first = rules[Math.min(...changed.map((change) => ruleOf(change, before.files, after.value)))];
     await this.record(result, message, first, failures.size === 0 ? "changed by a shell command; restored" : "changed by a shell command; restore failed");
     return { changed, restored: failures.size === 0, message };
@@ -334,7 +336,7 @@ function describe(changed: readonly Change[], before: WatchedHashes, after: Watc
     .sort(([a], [b]) => a - b)
     .map(([index, files]) => {
       const rule = rules[index]?.rule;
-      const what = files.map((f) => `${f.path} was ${f.change}`).join(", ");
+      const what = files.map((f) => `${shown(f.path)} was ${f.change}`).join(", ");
       return rule === undefined ? sentence(what) : `${what} — protected because ${sentence(rule.why)} ${sentence(rule.redirect)}`;
     })
     .join(" ");
