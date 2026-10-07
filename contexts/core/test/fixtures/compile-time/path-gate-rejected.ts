@@ -15,5 +15,5 @@ export const noRedirect: ProtectedPath = { match: "a/**", deny: ["read"] }; // r
 // A rule's except is a list of patterns.
 export const exceptText: ProtectedPath = { match: "a/**", except: "a/b/**", deny: ["read"], redirect }; // rejected: Type 'string' is not assignable to type 'readonly string[]'
 // Contributing rules needs pathGate in dependsOn; depending on the core pack is not enough.
-export const coreOnly = definePack({ id: packId("core-only"), dependsOn: [corePack], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<"bounded/core">'
+export const coreOnly = definePack({ id: packId("core-only"), dependsOn: [corePack], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<NoInfer<PackId<"bounded/core">>>'
 export const noDependency = definePack({ id: packId("no-dependency"), contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<never>'

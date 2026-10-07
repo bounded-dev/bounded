@@ -5,9 +5,10 @@ import { pathGate, type ProtectedPath, writes } from "bounded/path-gate";
 const packId = packIdsFor("test-packs");
 const { protectedPaths } = pathGate.points;
 
-/** A pack that contributes `rules` to the path gate's point. */
-function rules(local: "a" | "b" | "c", ...given: ProtectedPath[]): AnyPack {
-  return definePack({ id: packId(local), dependsOn: [pathGate], contributes: [contribution(protectedPaths, given)] });
+/** A pack, test-packs/a or test-packs/b, that contributes `given` to the path gate's point. */
+function rules(local: "a" | "b", ...given: ProtectedPath[]): AnyPack {
+  const contributes = [contribution(protectedPaths, given)];
+  return local === "a" ? definePack({ id: packId("a"), dependsOn: [pathGate], contributes }) : definePack({ id: packId("b"), dependsOn: [pathGate], contributes });
 }
 
 /** Dispatch one tool call, its effects in wire form, over the core, the path gate and `packs`. */
