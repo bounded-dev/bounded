@@ -40,7 +40,13 @@ the directories a rule's fixed leading part leads to (`generated/**` walks
 `generated/`; a `**`-led rule walks the project). Either way a link is never
 followed: a linked directory is never entered, and a link a rule matches is
 recorded as a link, by where it points. If git cannot list a repository's
-files, the command is refused.
+files, the command is refused. Files inside a git submodule are not watched:
+git lists the submodule as one entry, and its files are never read.
+
+A glob never matches a control character, so a file whose name holds one
+(such as a newline, `generated/we\nird.ts`) is watched conservatively, by the
+first rule whose fixed leading folder holds it (any rule without one), its
+exceptions aside. Messages show such names escaped, as in JSON.
 
 ## Before and after
 
