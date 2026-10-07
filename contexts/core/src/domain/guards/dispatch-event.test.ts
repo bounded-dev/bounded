@@ -246,6 +246,40 @@ describe("dispatchEvent — fails closed", () => {
   });
 });
 
+describe("dispatchEvent — refuses what it cannot trust", () => {
+  test("a look-alike composition, however well it imitates one, is refused", () => {
+    const forged = { packs: [corePack], entries: () => ({ ok: true, value: [] }), read: () => ({ ok: true, value: [] }) } as unknown as CompositionType;
+    expect<unknown>(dispatchEvent(forged, write)).toEqual({
+      kind: "refuse",
+      reason: "Dispatch was given something that is not a composition",
+      redirect: "Compose the selected packs with Composition.compose and dispatch over the result",
+    });
+  });
+
+  test("a guard that dispatches again is refused briefly, not with a stack overflow", () => {
+    let composition: CompositionType | undefined;
+    const looping = definePack({
+      id: packId("looping"),
+      dependsOn: [corePack],
+      contributes: [contribution(guards.toolUseGuards, [(use) => (composition === undefined ? Verdict.allow : dispatchEvent(composition, use))])],
+    });
+    composition = composed([looping, corePack]);
+    const verdict = dispatchEvent(composition, write);
+    expect<unknown>(verdict).toEqual({
+      kind: "refuse",
+      reason: "test-packs/looping refused: Dispatch was called from inside a guard; guards decide events, they do not dispatch them",
+      redirect: "Remove the call to dispatch from the guard",
+    });
+  });
+
+  test("a guard's very long refusal is shortened", () => {
+    const wordy = definePack({ id: packId("wordy"), dependsOn: [corePack], contributes: [contribution(guards.toolUseGuards, [() => Verdict.refuse("w".repeat(10_000), "Ask")])] });
+    const verdict = dispatchEvent(composed([wordy, corePack]), write);
+    expect(verdict.kind === "refuse" && verdict.reason.length).toBeLessThan(2100);
+    expect(verdict.kind === "refuse" && verdict.reason.endsWith("characters)")).toBe(true);
+  });
+});
+
 describe("decideEvent — the verdict and who refused", () => {
   test("names the refusing pack and effect, or the pack alone for a whole call, or nobody", () => {
     const gate = definePack({
