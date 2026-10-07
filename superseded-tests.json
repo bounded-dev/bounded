@@ -340,5 +340,14 @@
       "case": "the path gate — listing is judged conservatively > a filter excludes a protected path only provably: a literal name, or disjoint literal suffixes or prefixes"
     },
     "reason": "a literal name now covers its contents, so a filter cannot rule it out; disjoint literal suffixes and prefixes now can, so config/*.pem is out of reach of *.ts (ADR 2026-009)"
+  },
+  {
+    "file": "apps/pi/src/extension.test.ts",
+    "case": "piExtension — end to end through a fake pi > registers for session_start and tool_call only",
+    "successor": {
+      "file": "apps/pi/src/extension.test.ts",
+      "case": "piExtension — end to end through a fake pi > registers for session_start, tool_call and tool_result only"
+    },
+    "reason": "the extension now also checks each finished call on tool_result (drift), so it registers for that event too"
   }
 ]
