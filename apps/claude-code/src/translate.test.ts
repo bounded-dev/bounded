@@ -17,14 +17,19 @@ describe("translate: every Claude Code tool to a host-neutral call", () => {
   test.each([
     ["Read", { file_path: "/p/a.ts" }, { tool: "read", effects: [{ kind: "read", path: "/p/a.ts" }] }],
     ["Write", { file_path: "/p/a.ts", content: "x" }, { tool: "write", effects: [{ kind: "write", path: "/p/a.ts", change: "create-or-modify" }] }],
-    ["Edit", { file_path: "/p/a.ts", old_string: "a", new_string: "b" }, { tool: "edit", effects: [{ kind: "write", path: "/p/a.ts", change: "modify" }] }],
+    // An Edit with an empty old_string creates a missing file, so it is told apart by existence, as a Write.
+    ["Edit", { file_path: "/p/a.ts", old_string: "a", new_string: "b" }, { tool: "edit", effects: [{ kind: "write", path: "/p/a.ts", change: "create-or-modify" }] }],
     ["NotebookEdit", { notebook_path: "/p/n.ipynb", new_source: "" }, { tool: "edit", effects: [{ kind: "write", path: "/p/n.ipynb", change: "modify" }] }],
     ["LS", { path: "/p/src" }, { tool: "search", effects: [{ kind: "list", root: "/p/src" }] }],
     ["Glob", { pattern: "**/*.ts", path: "/p/src" }, { tool: "search", effects: [{ kind: "list", root: "/p/src", filter: "**/*.ts" }] }],
     ["Glob", { pattern: "**/*.ts" }, { tool: "search", effects: [{ kind: "list", root: ".", filter: "**/*.ts" }] }],
     ["Grep", { pattern: "TODO", glob: "*.md", path: "docs" }, { tool: "search", effects: [{ kind: "list", root: "docs", filter: "*.md" }, { kind: "read", path: "docs" }] }],
     ["Grep", { pattern: "TODO" }, { tool: "search", effects: [{ kind: "list", root: "." }, { kind: "read", path: "." }] }],
-    ["Bash", { command: "ls -la", description: "list" }, { tool: "shell", effects: [{ kind: "execute", command: "ls -la" }] }],
+    // A shell command runs in the session's directory: '.' resolves against it.
+    ["Bash", { command: "ls -la", description: "list" }, { tool: "shell", effects: [{ kind: "execute", command: "ls -la", cwd: "." }] }],
+    ["PowerShell", { command: "Get-ChildItem" }, { tool: "shell", effects: [{ kind: "execute", command: "Get-ChildItem", cwd: "." }] }],
+    ["Monitor", { command: "tail -f log" }, { tool: "shell", effects: [{ kind: "execute", command: "tail -f log", cwd: "." }] }],
+    ["NotebookRead", { notebook_path: "/p/n.ipynb" }, { tool: "read", effects: [{ kind: "read", path: "/p/n.ipynb" }] }],
     ["Agent", { subagent_type: "Explore", prompt: "look" }, { tool: "subagent", effects: [{ kind: "delegate", agent: "Explore" }] }],
     ["Task", { prompt: "look" }, { tool: "subagent", effects: [{ kind: "delegate", agent: "general-purpose" }] }],
     ["WebFetch", { url: "https://example.com", prompt: "x" }, { tool: "web", effects: [{ kind: "fetch", url: "https://example.com" }] }],
@@ -35,15 +40,31 @@ describe("translate: every Claude Code tool to a host-neutral call", () => {
     expect(call(tool, input)).toEqual(expected as never);
   });
 
+  // The title is kept from the first red commit; each path is now a create-or-modify,
+  // since an edit with an empty old_string creates a missing file.
   test("MultiEdit modifies the top-level path and every edit's own path, once each, in order", () => {
     const edits = [{ old_string: "a", new_string: "b" }, { file_path: "/p/b.ts", old_string: "a", new_string: "b" }, { file_path: "/p/a.ts" }];
     expect(call("MultiEdit", { file_path: "/p/a.ts", edits })).toEqual({
       tool: "edit",
       effects: [
-        { kind: "write", path: "/p/a.ts", change: "modify" },
-        { kind: "write", path: "/p/b.ts", change: "modify" },
+        { kind: "write", path: "/p/a.ts", change: "create-or-modify" },
+        { kind: "write", path: "/p/b.ts", change: "create-or-modify" },
       ],
     });
+  });
+
+  test("a filter that climbs with '..' or is absolute has its fixed part folded into the root, which is then resolved", () => {
+    expect(call("Glob", { pattern: "../../out/*", path: "/p/src" })).toEqual({ tool: "search", effects: [{ kind: "list", root: "/out", filter: "*" }] });
+    expect(call("Glob", { pattern: "/etc/*" })).toEqual({ tool: "search", effects: [{ kind: "list", root: "/etc", filter: "*" }] });
+    expect(call("Glob", { pattern: "/etc/passwd", path: "/p" })).toEqual({ tool: "search", effects: [{ kind: "list", root: "/etc/passwd" }] });
+    expect(call("Glob", { pattern: "src/../../x/**/*.ts" })).toEqual({ tool: "search", effects: [{ kind: "list", root: "../x", filter: "**/*.ts" }] });
+    expect(call("Grep", { pattern: "x", glob: "../*.ts", path: "docs" })).toEqual({ tool: "search", effects: [{ kind: "list", root: ".", filter: "*.ts" }, { kind: "read", path: "." }] });
+    expect(call("Glob", { pattern: "src/**/*.ts", path: "/p" })).toEqual({ tool: "search", effects: [{ kind: "list", root: "/p", filter: "src/**/*.ts" }] });
+  });
+
+  test("a filter that climbs after a wildcard, or a negated one that climbs, is refused: its reach cannot be judged", () => {
+    expect(refusal("Glob", { pattern: "*/../../x" })).toBe("Claude Code's Glob call has a pattern that climbs with '..' where its reach cannot be judged");
+    expect(refusal("Grep", { pattern: "x", glob: "!../*.ts" })).toBe("Claude Code's Grep call has a glob that climbs with '..' where its reach cannot be judged");
   });
 
   test("a call without the path or command its tool needs is refused, never passed through", () => {

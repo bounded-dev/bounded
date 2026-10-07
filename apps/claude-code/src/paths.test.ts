@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectPaths } from "./paths.ts";
 
 // A project and a sibling directory outside it, under a temporary directory
 // that may itself sit behind a link (macOS's /var -> /private/var).
+// Whether the temporary volume ignores case, probed once.
+const probe = mkdtempSync(join(tmpdir(), "bounded-cc-case-"));
+const ignoresCase = existsSync(probe.replace("bounded-cc-case-", "BOUNDED-CC-CASE-"));
+rmSync(probe, { recursive: true });
+
 let base = "";
 let root = "";
 let outside = "";
@@ -93,6 +98,21 @@ describe("projectPaths: a Claude Code path to a project-relative one", () => {
     expect(refused("file:///etc/passwd")).toBe("Path 'file:///etc/passwd' starts with 'file:'. Give the path itself: absolute under the project, or relative to it");
     expect(refused("")).toBe("A path must not be empty");
     expect(refused("a\0b")).toBe("A path must not contain a NUL character");
+  });
+
+  test("a path is trimmed exactly as Claude Code trims it before use, and the trimmed path is judged", () => {
+    expect(refused(` ${join(outside, "secret")}`)).toMatch(/^Path '.*outside\/secret' is outside the project at /);
+    expect(refused(" ~/x")).toBe("Path '~/x' starts with '~'. Give the path itself: absolute under the project, or relative to it");
+    expect(refused("\u00a0@src/a.ts")).toBe("Path '@src/a.ts' starts with '@'. Give the path itself: absolute under the project, or relative to it");
+    expect(resolved("\u00a0src/a.ts\ufeff")).toBe("src/a.ts");
+    expect(resolved(`${join(root, "src", "a.ts")} \n`)).toBe("src/a.ts");
+    expect(refused(" \t\u00a0")).toBe("A path must not be empty");
+  });
+
+  // Only meaningful where the volume ignores case (macOS and Windows by default).
+  test.skipIf(!ignoresCase)("on a volume that ignores case, a path takes the case on disk; a tail not yet on disk keeps its written case", () => {
+    expect(resolved(join(root, "SRC", "A.TS"))).toBe("src/a.ts");
+    expect(resolved(join(root, "SRC", "New.ts"))).toBe("src/New.ts");
   });
 
   test("a project directory that does not exist refuses every path", () => {

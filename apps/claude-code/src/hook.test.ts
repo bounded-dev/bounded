@@ -8,7 +8,14 @@ const deny = (reason: string, redirect: string): string =>
 
 const paths: PathResolver = { resolve: (raw) => ({ ok: true, value: { path: raw.replace(/^\/p\/?/, "") || ".", exists: true } }) };
 const stdin = (tool_name: string, tool_input: Record<string, unknown>): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name, tool_input, cwd: "/p", session_id: "s" });
-const hook = (decide: Decide, role: string | null = null) => ({ projectDir: "/p", role, decide, paths });
+const hook = (decide: Decide, role: string | null = null) => ({ projectDir: "/p", role, decide, paths, deadlineMs: 1000 });
+const recording =
+  (seen: ToolUse[]): Decide =>
+  (event) => {
+    seen.push(event);
+    return Verdict.allow;
+  };
+const FAILED = "Report this to the maintainers of bounded; the call stays refused until it is fixed";
 
 describe("respond: a verdict in Claude Code's words", () => {
   test("allow is empty output, so Claude Code's own permissions still apply", () => {
@@ -23,55 +30,63 @@ describe("respond: a verdict in Claude Code's words", () => {
 });
 
 describe("runHook: stdin to stdout, fail closed", () => {
-  test("decide sees the translated event; its allow is empty output", () => {
+  test("decide sees the translated event; its allow is empty output", async () => {
     const seen: ToolUse[] = [];
-    const out = runHook(stdin("Edit", { file_path: "/p/src/a.ts" }), hook((event) => {
-        seen.push(event);
-        return Verdict.allow;
-      }, "builder"));
+    const out = await runHook(stdin("Edit", { file_path: "/p/src/a.ts" }), hook(recording(seen), "builder"));
     expect(out).toBe("");
     expect(seen).toEqual([{ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] }] as never);
   });
 
-  test("decide's refusal is a deny", () => {
-    const out = runHook(stdin("Bash", { command: "rm -rf /" }), hook(() => Verdict.refuse("No", "Ask")));
+  test("decide's refusal is a deny", async () => {
+    const out = await runHook(stdin("Bash", { command: "rm -rf /" }), hook(() => Verdict.refuse("No", "Ask")));
     expect(out).toBe(deny("No", "Ask"));
   });
 
-  test("input that cannot be translated is denied without asking decide", () => {
+  test("input that cannot be translated is denied without asking decide", async () => {
     let asked = false;
     const decide: Decide = () => {
       asked = true;
       return Verdict.allow;
     };
-    expect(runHook("", hook(decide))).toBe(deny("The hook was given no input", "Register bounded's hook for PreToolUse only, as the install helper does"));
-    expect(runHook("{oops", hook(decide))).toStartWith('{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The hook\'s input is not JSON: ');
-    expect(runHook(stdin("Read", {}), hook(decide))).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
+    expect(await runHook("", hook(decide))).toBe(deny("The hook was given no input", "Register bounded's hook for PreToolUse only, as the install helper does"));
+    expect(await runHook("{oops", hook(decide))).toStartWith('{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The hook\'s input is not JSON: ');
+    expect(await runHook(stdin("Read", {}), hook(decide))).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
     expect(asked).toBe(false);
   });
 
-  test("a payload without a usable cwd is resolved from the project directory", () => {
+  test("a payload without a usable cwd is resolved from the project directory", async () => {
     const seen: ToolUse[] = [];
     const relative: PathResolver = { resolve: (raw, cwd) => ({ ok: true, value: { path: `${cwd}|${raw}`.replace(/^\/p\|/, ""), exists: true } }) };
     const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "a.ts" } });
-    runHook(payload, { ...hook((event) => {
-        seen.push(event);
-        return Verdict.allow;
-      }), paths: relative });
+    await runHook(payload, { ...hook(recording(seen)), paths: relative });
     expect(seen[0]?.effects).toEqual([{ kind: "read", path: "a.ts" }] as never);
   });
 
-  test("a decide that throws, or returns no verdict, is a deny, never an allow", () => {
+  test("a decide that throws, or returns no verdict, is a deny, never an allow", async () => {
     const boom: Decide = () => {
       throw new Error("boom");
     };
-    expect(runHook(stdin("Read", { file_path: "/p/a" }), hook(boom))).toBe(deny("bounded's Claude Code hook failed: boom", "Report this to the maintainers of bounded; the call stays refused until it is fixed"));
+    expect(await runHook(stdin("Read", { file_path: "/p/a" }), hook(boom))).toBe(deny("bounded's Claude Code hook failed: boom", FAILED));
     const notAVerdict = (() => true) as unknown as Decide;
-    expect(runHook(stdin("Read", { file_path: "/p/a" }), hook(notAVerdict))).toBe(
+    expect(await runHook(stdin("Read", { file_path: "/p/a" }), hook(notAVerdict))).toBe(
       deny(
         "bounded's Claude Code hook failed: A verdict is { kind: 'allow' } or { kind: 'refuse', reason, redirect } with a non-empty reason and redirect",
         "Report this to the maintainers of bounded; the call stays refused until it is fixed",
       ),
     );
+  });
+
+  test("decide may be asynchronous: its settled verdict is the answer, its rejection a deny", async () => {
+    expect(await runHook(stdin("Read", { file_path: "/p/a" }), hook(async () => Verdict.refuse("Later no", "Ask")))).toBe(deny("Later no", "Ask"));
+    expect(await runHook(stdin("Read", { file_path: "/p/a" }), hook(async () => Verdict.allow))).toBe("");
+    const rejects: Decide = () => Promise.reject(new Error("nope"));
+    expect(await runHook(stdin("Read", { file_path: "/p/a" }), hook(rejects))).toBe(deny("bounded's Claude Code hook failed: nope", FAILED));
+  });
+
+  test("a decide that never settles is denied at the deadline, before Claude Code's own timeout", async () => {
+    const started = Date.now();
+    const out = await runHook(stdin("Read", { file_path: "/p/a" }), { ...hook(() => new Promise<Verdict>(() => {})), deadlineMs: 50 });
+    expect(out).toBe(deny("bounded did not decide within 50 ms", "Retry the call; if it keeps timing out, report it to the maintainers of bounded"));
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 });

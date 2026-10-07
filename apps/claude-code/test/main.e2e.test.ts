@@ -1,7 +1,7 @@
 // The hook as Claude Code runs it: a subprocess given the payload on stdin,
 // answering on stdout, always exiting 0.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,8 +13,8 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-async function run(entry: string, stdin: string): Promise<{ stdout: string; exitCode: number }> {
-  const child = Bun.spawn(["bun", join(APP, entry)], { stdin: new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_PROJECT_DIR: root } });
+async function run(entry: string, stdin: string, at = APP): Promise<{ stdout: string; exitCode: number }> {
+  const child = Bun.spawn(["bun", join(at, entry)], { stdin: new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_PROJECT_DIR: root } });
   const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   return { stdout, exitCode };
 }
@@ -39,5 +39,19 @@ describe("main.ts as a Claude Code PreToolUse hook", () => {
     const { stdout, exitCode } = await run("src/main.ts", JSON.stringify(payload));
     expect(JSON.parse(stdout).hookSpecificOutput.permissionDecision).toBe("deny");
     expect(exitCode).toBe(0);
+  });
+
+  test("if the rest of the hook cannot even load, main.ts still denies, exit 0", async () => {
+    // main.ts alone in a directory: nothing it loads is there.
+    const lonely = mkdtempSync(join(tmpdir(), "bounded-cc-lonely-"));
+    copyFileSync(join(APP, "src", "main.ts"), join(lonely, "main.ts"));
+    try {
+      const { stdout, exitCode } = await run("main.ts", JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "a" } }), lonely);
+      expect(stdout).toStartWith('{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"bounded\'s Claude Code hook failed to start: ');
+      expect(JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason).toEndWith("\nReport this to the maintainers of bounded; the call stays refused until it is fixed");
+      expect(exitCode).toBe(0);
+    } finally {
+      rmSync(lonely, { recursive: true, force: true });
+    }
   });
 });

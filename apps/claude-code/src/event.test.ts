@@ -42,6 +42,13 @@ describe("toToolUse: a translated call, its paths resolved, as a host-neutral ev
     expect(event({ tool: "other", effects: [...effects] }).effects).toEqual([...effects] as never);
   });
 
+  test("an execute's cwd is resolved to a project-relative directory; one the resolver refuses refuses the call", () => {
+    expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }, { ...at, cwd: "/p/src" }).effects).toEqual([{ kind: "execute", command: "ls", cwd: "src" }] as never);
+    expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }).effects).toEqual([{ kind: "execute", command: "ls", cwd: "." }] as never);
+    const outside = toToolUse({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "bad-dir" }] }, at);
+    expect(outside).toEqual({ ok: false, error: Verdict.refuse("Path 'bad-dir' is bad", "Use a good one") });
+  });
+
   test("the role is a checked role label, or null", () => {
     expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls" }] }, { ...at, role: "builder" }).role).toBe("builder" as never);
     const bad = toToolUse({ tool: "shell", effects: [{ kind: "execute", command: "ls" }] }, { ...at, role: "Not A Role" });

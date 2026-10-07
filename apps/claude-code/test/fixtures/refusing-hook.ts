@@ -1,6 +1,6 @@
-// The entry point with a refusing decide injected, as the end-to-end test
-// runs it: what a composed bounded.config.ts will later supply.
+// The hook with a refusing decide injected, as the end-to-end test runs it:
+// what a composed bounded.config.ts will later supply.
 import { Verdict } from "bounded/domain";
-import { main } from "../../src/main.ts";
+import { run } from "../../src/run.ts";
 
-await main((event) => Verdict.refuse(`Refused ${event.tool}: ${JSON.stringify(event.effects)}`, "Ask the project's maintainer"));
+await run((event) => Verdict.refuse(`Refused ${event.tool}: ${JSON.stringify(event.effects)}`, "Ask the project's maintainer"));
