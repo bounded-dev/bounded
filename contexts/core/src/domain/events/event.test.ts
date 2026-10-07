@@ -1,0 +1,27 @@
+import { describe, expect, test } from "bun:test";
+import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
+import { Event } from "./event.ts";
+
+const write = { kind: "tool-use", role: "builder", tool: "write", action: "write", paths: ["a.ts"] };
+const start = { kind: "session-start", role: "builder" };
+
+valueObjectLaws("Event", Event, [write, start], [{ kind: "tool-use", role: null }, { role: null }, { kind: "session-end", role: null }]);
+
+describe("Event — boundaries", () => {
+  test("an event is a tool use or a session start, chosen by its kind", () => {
+    const tool = Event.parse(write);
+    expect(tool.ok && tool.value.kind).toBe("tool-use");
+    const session = Event.parse(start);
+    expect(session.ok && session.value.kind).toBe("session-start");
+  });
+
+  test("refuses an event of another or no kind, naming the kinds there are", () => {
+    for (const raw of [{ kind: "session-end", role: null }, { role: null }, "tool-use", null]) {
+      expect(Event.parse(raw)).toEqual({ ok: false, error: "An event has kind 'tool-use' or 'session-start'" });
+    }
+  });
+
+  test("refuses a malformed event of a known kind with that kind's reason", () => {
+    expect(Event.parse({ ...write, action: "delete" })).toEqual({ ok: false, error: "Action 'delete' is not one of: read, write, run" });
+  });
+});

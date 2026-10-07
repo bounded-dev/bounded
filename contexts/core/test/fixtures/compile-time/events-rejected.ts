@@ -1,0 +1,24 @@
+// Every line of code marked `// rejected: <reason>` must fail to compile with
+// an error whose message contains <reason>, and no other line may fail.
+import { dispatch, type Guard, type ProjectPath, type Role, type SessionStart, type ToolKind, type ToolUse, Verdict } from "bounded/domain";
+
+declare const toolUse: ToolUse;
+declare const sessionGuards: Guard<SessionStart>[];
+declare const contextGuards: Guard<ToolUse, { readonly protectedPaths: readonly string[] }>[];
+
+// 1. A guard returns a Verdict built by Verdict: not a look-alike object, not a boolean, not a promise.
+export const literal: Guard<ToolUse> = () => ({ kind: "allow" }); // rejected: Property '__brand' is missing
+export const yes: Guard<ToolUse> = () => true; // rejected: Type 'boolean' is not assignable to type 'Verdict'
+export const later: Guard<ToolUse> = async () => Verdict.allow; // rejected: Type 'Promise<Allow>' is not assignable to type 'Verdict'
+export const noRedirect = Verdict.refuse("Generated file"); // rejected: Expected 2 arguments, but got 1
+// 2. Events are built by parse, from the vocabulary only.
+export const fake: ToolUse = { kind: "tool-use", role: null, tool: "edit", action: "write", paths: [], command: null, search: null }; // rejected: Property '__brand' is missing
+export const role: Role = "builder"; // rejected: is not assignable to type 'Role'
+export const path: ProjectPath = "src/a.ts"; // rejected: is not assignable to type 'ProjectPath'
+export const product: ToolKind = "bash"; // rejected: Type '"bash"' is not assignable to type 'ToolKind'
+// 3. A guard reads only what its event has: a session start has no paths, only a run has a command.
+export const startPaths: Guard<SessionStart> = (event) => (event.paths.length > 0 ? Verdict.allow : Verdict.allow); // rejected: Property 'paths' does not exist on type 'SessionStart'
+export const writeCommand: Guard<ToolUse> = (event) => (event.action === "write" && event.command.length > 0 ? Verdict.allow : Verdict.allow); // rejected: 'event.command' is possibly 'null'
+// 4. Dispatch runs the guards of the event it is given, with the context they need.
+export const wrongEvent = dispatch(sessionGuards, toolUse); // rejected: is not assignable to parameter of type 'SessionStart'
+export const noContext = dispatch(contextGuards, toolUse); // rejected: Expected 3 arguments, but got 2
