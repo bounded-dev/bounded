@@ -6,14 +6,14 @@ turns pi's call into a host-neutral tool use, decides it, and answers pi.
 Anything it cannot read, translate or decide in time blocks the call.
 
 bounded-pi is not installable outside this workspace yet: it is a private
-workspace package, and its composition root refuses until the core
-integration lands (below).
+workspace package. A project configures its packs in `bounded.config.ts`
+([configuring a project](configuration.md)).
 
 ## Reading order (about 15 minutes)
 
-1. `src/event.ts` — the tool use the adapter produces: a tool kind and its
-   effects (read, list, write, execute, fetch, delegate, invoke). Defined
-   here with the core's names until the core exports it.
+1. `src/event.ts` — the tool use the adapter produces: the core's `ToolUse`,
+   a tool kind and its effects (read, list, write, execute, fetch, delegate,
+   invoke), built through the core's own `ToolUse.parse`.
 2. `src/pi-path.ts` — where a path argument really acts: pi's own rewrite
    (unicode spaces to " ", one leading `@` stripped, `~` and `~/` expanded,
    `file://` decoded), resolved against the session's directory, kept inside
@@ -93,7 +93,7 @@ such calls are refused.
   -> import("bounded-pi")            fails closed: if this or the extension throws, every tool call is blocked
   -> bounded(root)                   src/index.ts
      -> piExtension({ root, load })  src/extension.ts; load is the composition root's seam
-        -> composeProject(root)      src/composition-root.ts
+        -> composeProject(root)      src/composition-root.ts: openProject(root) from bounded/open-project
 ```
 
 `load: () => Promise<decide>` starts at each `session_start`, without
@@ -109,10 +109,14 @@ session. pi gets `undefined` to run the call, or
 deep-frozen before it is translated, so nothing can change what is judged:
 a later handler or tool that tries throws, and pi blocks the call.
 
-Until the core integration lands, `composeProject` refuses (there is no
-`bounded.config.ts` reading or composed dispatch yet), so an installed
-loader blocks every call, saying why. Tests inject their own `load`.
-`piLoader()` is pure: the caller writes the file.
+`composeProject` opens the project with the core's `openProject(root)`;
+`decide` is its judge, which decides each tool use with the composed packs
+and records the decision in `<root>/.bounded/guard-log.jsonl`. A
+configuration that cannot be used gives a judge that refuses every event, so
+every call is blocked with the core's reason and redirect.
+`end-to-end.test.ts` runs this with a real `bounded.config.ts`; the other
+tests inject their own `load`. `piLoader()` is pure: the caller writes the
+file.
 
 ## Trust and residual risks
 

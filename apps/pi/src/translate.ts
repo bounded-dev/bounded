@@ -44,7 +44,7 @@ function builtIn(toolName: string, input: Input, cwd: string, locate: Locate): T
     if (!root.ok) return root;
     const filter = filterField === undefined ? undefined : text(filterField);
     if (filter !== undefined && !filter.ok) return filter;
-    const effect: Effect = filter?.value?.trim() ? { kind: "list", root: root.value.path, filter: filter.value } : { kind: "list", root: root.value.path };
+    const effect: Effect = { kind: "list", root: root.value.path, filter: filter?.value?.trim() ? filter.value : null };
     return { ok: true, value: { root: root.value, effect } };
   };
 
