@@ -50,8 +50,12 @@ A search filter that is absolute or climbs with `..` (`../../out/*`,
 `/etc/*`) reaches outside its root, so its fixed part (split off by
 picomatch) is folded into the root, which is then resolved and judged like
 any path: `{ path: "/p/src", pattern: "../../out/*" }` lists `/out` with
-filter `*`. A filter that climbs after a wildcard, or a negated one that
-climbs, cannot be judged and is refused.
+filter `*`. Glob syntax can hide a climb or an absolute path where folding
+cannot see it (`{../out,src}/*`, `{/etc,src}/*`, `@(..)/x`, `\.\./x`,
+`[.][.]/x`), so the adapter refuses, conservatively: any escape (`\`), any
+`/` inside a brace or extglob group, any character class that can match `.`,
+`..` anywhere in the part after the fixed prefix, and a negated filter that
+climbs. Ordinary filters (`**/*.{ts,tsx}`, `src/[abc]*.ts`) pass unchanged.
 
 A required field that is missing or not text refuses the call; nothing is
 passed through unchecked.
@@ -87,18 +91,22 @@ after the hook answers); the hook judges the state it sees.
   missing `CLAUDE_PROJECT_DIR`, a decide that throws, rejects or returns no
   verdict: all refuse.
 - `decide` is asynchronous (the core's judging awaits its decision log). If
-  it has not settled within 20 seconds the call is refused, well inside the
-  30-second `timeout` the install helper sets on the hook entry.
+  it has not settled within 20 seconds the call is refused. The deadline
+  bounds asynchronous work only: a decide that is busy synchronously holds
+  the process and can still overrun it.
 - Claude Code proceeds when a hook exits with anything but 0 or 2, so the
   hook never relies on its own exit code to refuse. `main.ts` is a bootstrap
   with no static imports: it loads the rest inside a `try`, so a missing
   module or a syntax error is still a deny with exit 0. When the process
   cannot start at all (bun not on `PATH`, killed for memory), the installed
-  command's `|| { echo "bounded hook failed" >&2; exit 2; }` blocks the call.
-- After writing its answer the hook sets `process.exitCode` and never calls
-  `process.exit`: the event loop drains, so work still pending (the core's
-  decision log may write a follow-up line after a late record settles)
-  finishes. Claude Code's hook timeout bounds how long that can take.
+  command's wrapper (`... || { echo "bounded hook failed" >&2; exit 2; }`)
+  blocks the call.
+- After writing its answer the hook sets `process.exitCode` and lets the
+  event loop drain, so work still pending (the core's decision log may write
+  a follow-up line after a late record settles) can finish, but for at most
+  5 seconds: then it exits. Deadline plus drain (25 seconds) ends well before
+  the 30-second `timeout` the install helper sets on the hook entry, because
+  Claude Code does not block a call whose hook it had to abort.
 
 ## Plugging it in
 
@@ -112,13 +120,18 @@ time `event.ts`'s local `ToolUse`, `Effect`, `ToolKind` and `Change` give way
 to the core's exports of the same names.
 
 To install, read `.claude/settings.json` (or `{}`), pass it to
-`withHook(settings, command)` with the command that runs `src/main.ts`, such
-as `bun /path/to/apps/claude-code/src/main.ts --role builder`, and write the
-result back when `changed`. Claude Code runs hooks with its own `PATH`, so
+`withHook(settings, command)` with the command that runs `src/main.ts`, and
+write the result back when `changed`. `hookCommand({ bun, main, role })`
+builds that command with every path shell-quoted, such as
+`'bun' '/path/to/apps/claude-code/src/main.ts' --role 'builder'`. Claude Code runs hooks with its own `PATH`, so
 either make sure `bun` is on it or give bun's absolute path in the command.
 `withHook` appends one `PreToolUse` entry with an empty matcher (every tool),
 the fail-closed wrapper and the timeout, and keeps every other setting and
-hook. An existing entry counts as already installed only when it runs the
+hook. The wrapper puts the command on its own lines inside a group,
+`{⏎<command>⏎} || { echo "bounded hook failed" >&2; exit 2; }`, so a comment
+or `;` in the command cannot escape it. A hook running an older form of the
+same command (unwrapped, or the earlier one-line wrapper) is removed and
+replaced rather than left beside the new one. An existing entry counts as already installed only when it runs the
 same wrapped command as a `command` hook for every tool (matcher `""`, `"*"`
 or none). It refuses settings with `disableAllHooks: true`, where no hook
 would run.

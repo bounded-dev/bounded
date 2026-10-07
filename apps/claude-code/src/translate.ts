@@ -125,17 +125,37 @@ export function translate({ tool_name: name, tool_input: input }: Payload): Resu
 /**
  * A search of `root` limited by `filter`. A filter that is absolute or climbs
  * with '..' reaches outside its root, so its fixed part (picomatch's base) is
- * folded into the root, which is then resolved like any path. Climbing after
- * a wildcard, or in a negated filter, cannot be judged and is refused.
+ * folded into the root, which is then resolved like any path. Whatever cannot
+ * be judged that way is refused, conservatively: an escape, a '/' inside a
+ * brace or extglob group, a character class that can match '.', '..' anywhere
+ * in the part that is a pattern, or a negated filter that climbs.
  */
 function listing(tool: string, key: string, root: string, filter: string | undefined): Result<{ kind: "list"; root: string; filter?: string }, Refuse> {
   if (filter === undefined) return ok({ kind: "list", root });
+  const hidden = hiddenReach(filter);
+  if (hidden !== null) return refuse(tool, key, `has a ${key} with ${hidden}, so its reach cannot be judged`);
   const { base, glob, negated } = picomatch.scan(filter);
-  const climbs = (part: string): boolean => part.split("/").includes("..");
-  if (!isAbsolute(base) && !climbs(base) && !climbs(glob)) return ok({ kind: "list", root, filter });
-  if (negated || climbs(glob)) return refuse(tool, key, `has a ${key} that climbs with '..' where its reach cannot be judged`);
+  const climbs = base.split("/").includes("..");
+  if (glob.includes("..") || (negated && (climbs || isAbsolute(base)))) return refuse(tool, key, `has a ${key} that climbs with '..' where its reach cannot be judged`);
+  if (!isAbsolute(base) && !climbs) return ok({ kind: "list", root, filter });
   const folded = isAbsolute(base) ? base : join(root, base);
   return ok(glob === "" ? { kind: "list", root: folded } : { kind: "list", root: folded, filter: glob });
+}
+
+/** Glob syntax that could hide a climb or an absolute path, named; null when there is none. */
+function hiddenReach(filter: string): string | null {
+  if (filter.includes("\\")) return "an escape ('\\')";
+  let depth = 0;
+  for (const char of filter) {
+    if (char === "{" || char === "(") depth++;
+    else if ((char === "}" || char === ")") && depth > 0) depth--;
+    else if (char === "/" && depth > 0) return "a '/' inside a group";
+  }
+  for (const [, inner = ""] of filter.matchAll(/\[([^\]]*)\]/g)) {
+    const ranges = [...inner.matchAll(/(.)-(.)/g)].some(([, from = "", to = ""]) => from <= "." && "." <= to);
+    if (inner.includes(".") || /^[!^]/.test(inner) || inner.includes("[:") || ranges) return "a character class that can match '.'";
+  }
+  return null;
 }
 
 /** MultiEdit edits its file_path and any path an edit names itself, each once; each may create. */

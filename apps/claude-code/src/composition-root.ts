@@ -9,14 +9,23 @@ import { Verdict } from "bounded/domain";
 import { type Decide, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
 
-/** How long bounded may take to decide: well below the installed hook's timeout (install.ts). */
+/**
+ * How long bounded may take to decide, then how long work still pending after
+ * the answer may run before the process exits. Together they end well before
+ * the installed hook's timeout (install.ts): a hook Claude Code aborts is not
+ * blocking, so the deny must be out and the process gone first. The deadline
+ * bounds asynchronous work only: a decide busy synchronously can still overrun.
+ */
 export const DEADLINE_MS = 20_000;
+export const DRAIN_MS = 5_000;
 
 export interface Wiring {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** The hook command's own arguments, after the script. */
   readonly argv: readonly string[];
   readonly decide: Decide;
+  /** Defaults to DEADLINE_MS; tests inject a short one. */
+  readonly deadlineMs?: number;
 }
 
 /** Until bounded.config.ts is wired in, an installed hook refuses: installed means enforced, never silently open. */
@@ -27,7 +36,7 @@ export const decideFromConfig: Decide = () =>
   );
 
 /** The hook for one process: stdin text in, stdout text out. */
-export function composeHook({ env, argv, decide }: Wiring): (stdin: string) => Promise<string> {
+export function composeHook({ env, argv, decide, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
   const projectDir = env.CLAUDE_PROJECT_DIR;
   if (projectDir === undefined || !projectDir.startsWith("/")) {
     return refuseAll(
@@ -37,7 +46,7 @@ export function composeHook({ env, argv, decide }: Wiring): (stdin: string) => P
   }
   const role = roleFrom(argv);
   if (role === undefined) return refuseAll("--role is given without a role label", "Give the role after it, as in --role builder");
-  return (stdin) => runHook(stdin, { projectDir, role, decide, paths: projectPaths(projectDir), deadlineMs: DEADLINE_MS });
+  return (stdin) => runHook(stdin, { projectDir, role, decide, paths: projectPaths(projectDir), deadlineMs });
 }
 
 /** `--role <label>` or `--role=<label>`; null when absent, undefined when given without a label. */
