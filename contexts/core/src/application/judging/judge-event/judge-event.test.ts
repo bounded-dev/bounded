@@ -1,0 +1,114 @@
+import { describe, expect, test } from "bun:test";
+import { Composition, type Composition as CompositionType, contribution, corePack, type Decision, definePack, packIdsFor, Verdict } from "bounded/domain";
+import { JudgeEventCommand } from "./judge-event.command.ts";
+import type { Clock, DecisionLog } from "./judge-event.contract.ts";
+import { JudgeEventHandler } from "./judge-event.handler.ts";
+
+const TIME = "2026-10-07T12:00:00.000Z";
+const clock: Clock = { now: () => TIME };
+const UNRECORDED_REDIRECT = "Make the decision log writable; until decisions can be recorded, every action is refused";
+
+class FakeLog implements DecisionLog {
+  readonly decisions: Decision[] = [];
+  constructor(private readonly behaviour: (decision: Decision) => Promise<void> = async () => {}) {}
+
+  record(decision: Decision): Promise<void> {
+    this.decisions.push(decision);
+    return this.behaviour(decision);
+  }
+}
+
+const gate = definePack({
+  id: packIdsFor("test-packs")("gate"),
+  dependsOn: [corePack],
+  contributes: [contribution(corePack.points.writeGuards, [(effect) => (effect.path.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow)])],
+});
+const composed = Composition.compose([gate, corePack], [gate, corePack]);
+if (!composed.ok) throw new Error(composed.error);
+const composition: CompositionType = composed.value;
+
+function command(path: string): JudgeEventCommand {
+  const parsed = JudgeEventCommand.parse({ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
+
+describe("JudgeEventHandler", () => {
+  test("allows, and records the decision once with its time, role, tool and effects", async () => {
+    const log = new FakeLog();
+    expect(await new JudgeEventHandler(composition, log, clock).execute(command("src/a.ts"))).toBe(Verdict.allow);
+    expect<unknown>(log.decisions).toEqual([{ time: TIME, event: "tool-use", role: "builder", tool: "edit", effects: ["write (modify) src/a.ts"], verdict: { kind: "allow" } }]);
+  });
+
+  test("refuses, and records the refusal with the pack and the effect that refused", async () => {
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(composition, log, clock).execute(command("generated/a.ts"));
+    expect<unknown>(verdict).toEqual({ kind: "refuse", reason: "test-packs/gate refused write (modify) generated/a.ts: Generated", redirect: "Change the generator's input" });
+    expect<unknown>(log.decisions[0]?.verdict).toEqual({
+      kind: "refuse",
+      reason: "test-packs/gate refused write (modify) generated/a.ts: Generated",
+      redirect: "Change the generator's input",
+      pack: "test-packs/gate",
+      effect: "write (modify) generated/a.ts",
+    });
+  });
+
+  test("a refusal that cannot be recorded stays a refusal, and says so", async () => {
+    const log = new FakeLog(async () => {
+      throw new Error("disk full");
+    });
+    expect<unknown>(await new JudgeEventHandler(composition, log, clock).execute(command("generated/a.ts"))).toEqual({
+      kind: "refuse",
+      reason: "test-packs/gate refused write (modify) generated/a.ts: Generated (this decision could not be recorded: disk full)",
+      redirect: "Change the generator's input",
+    });
+  });
+
+  test("an allow that cannot be recorded becomes a refusal", async () => {
+    const log = new FakeLog(async () => {
+      throw new Error("disk full");
+    });
+    expect<unknown>(await new JudgeEventHandler(composition, log, clock).execute(command("src/a.ts"))).toEqual({
+      kind: "refuse",
+      reason: "The guards allowed this, but the decision could not be recorded: disk full",
+      redirect: UNRECORDED_REDIRECT,
+    });
+  });
+
+  test("a log that throws instead of rejecting is a failure to record", async () => {
+    const log: DecisionLog = {
+      record: () => {
+        throw new Error("no log");
+      },
+    };
+    const verdict = await new JudgeEventHandler(composition, log, clock).execute(command("src/a.ts"));
+    expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: no log");
+  });
+
+  test("a log that does not finish within the bound is a failure to record", async () => {
+    const log = new FakeLog(() => new Promise<void>(() => {}));
+    const verdict = await new JudgeEventHandler(composition, log, clock, { recordWithinMs: 20 }).execute(command("src/a.ts"));
+    expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: it did not finish within 20 ms");
+  });
+
+  test("records within two seconds by default", () => {
+    expect(JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS).toBe(2000);
+  });
+
+  test("a clock that fails is a failure to record", async () => {
+    const broken: Clock = {
+      now: () => {
+        throw new Error("no time");
+      },
+    };
+    const verdict = await new JudgeEventHandler(composition, new FakeLog(), broken).execute(command("src/a.ts"));
+    expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: no time");
+  });
+
+  test("never throws: a broken composition is refused, and that refusal is recorded", async () => {
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(null as unknown as CompositionType, log, clock).execute(command("src/a.ts"));
+    expect(verdict.kind).toBe("refuse");
+    expect(log.decisions.length).toBe(1);
+  });
+});

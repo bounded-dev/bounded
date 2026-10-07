@@ -11,7 +11,7 @@ import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import { Verdict } from "../verdicts/verdict.ts";
 import { corePack } from "./core-pack.ts";
-import { dispatchEvent } from "./dispatch-event.ts";
+import { decideEvent, dispatchEvent } from "./dispatch-event.ts";
 import type { EffectGuard, Guard } from "./guard.contract.ts";
 
 const packId = packIdsFor("test-packs");
@@ -243,6 +243,32 @@ describe("dispatchEvent — fails closed", () => {
       ok: false,
       error: "Pack 'test-packs/bad' contributes an invalid value to extension point 'bounded/core.writeGuards': a guard is a function. Fix the value, or remove the contribution",
     });
+  });
+});
+
+describe("decideEvent — the verdict and who refused", () => {
+  test("names the refusing pack and effect, or the pack alone for a whole call, or nobody", () => {
+    const gate = definePack({
+      id: packId("gate"),
+      dependsOn: [corePack],
+      contributes: [contribution(guards.writeGuards, [() => Verdict.refuse("No writes", "Ask")]), contribution(guards.toolUseGuards, [(use) => (use.tool === "shell" ? Verdict.refuse("No shell", "Ask") : Verdict.allow)])],
+    });
+    const composition = composed([gate, corePack]);
+    const refused = decideEvent(composition, call([{ kind: "read", path: "a.ts" }, { kind: "write", path: "b.ts", change: "create" }]));
+    expect(refused.verdict.kind).toBe("refuse");
+    expect<unknown>(refused.refusedBy).toEqual({ pack: "test-packs/gate", effect: { kind: "write", path: "b.ts", change: "create" } });
+    const shell = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }] });
+    if (!shell.ok) throw new Error(shell.error);
+    expect<unknown>(decideEvent(composition, shell.value).refusedBy).toEqual({ pack: "test-packs/gate", effect: null });
+    expect(decideEvent(composition, call([{ kind: "read", path: "a.ts" }]))).toEqual({ verdict: Verdict.allow, refusedBy: null });
+    expect(decideEvent(composed([gate, corePack], [corePack]), write).refusedBy).toBeNull();
+    expect(decideEvent(composed([definePack({ id: packId("other") })]), write).refusedBy).toBeNull();
+  });
+
+  test("a failing guard is attributed to its pack", () => {
+    const broken = definePack({ id: packId("broken"), dependsOn: [corePack], contributes: [contribution(guards.readGuards, [() => { throw new Error("x"); }])] });
+    const judged = decideEvent(composed([broken, corePack]), call([{ kind: "read", path: "a.ts" }]));
+    expect<unknown>(judged.refusedBy).toEqual({ pack: "test-packs/broken", effect: { kind: "read", path: "a.ts" } });
   });
 });
 
