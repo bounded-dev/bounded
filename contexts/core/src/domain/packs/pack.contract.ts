@@ -86,6 +86,22 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
         : { readonly dependsOn: { readonly [K in keyof Dependencies]: [ExactId<Dependencies[K]["id"]>] extends [true] ? unknown : Refused<"each dependency is a pack with an exact id"> } });
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
+/** Whether `any` appears anywhere in T: itself, array elements, tuple members, properties, function parameters or results (to a depth of 8). */
+type ContainsAny<T, Depth extends readonly unknown[] = []> = IsAny<T> extends true
+  ? true
+  : Depth["length"] extends 8
+    ? false
+    : T extends readonly (infer Element)[]
+      ? ContainsAny<Element, [...Depth, 1]>
+      : T extends (...args: infer Parameters) => infer Returned
+        ? true extends ContainsAny<Returned, [...Depth, 1]> | ContainsAny<Parameters, [...Depth, 1]>
+          ? true
+          : false
+        : T extends object
+          ? true extends { [K in keyof T]-?: ContainsAny<T[K], [...Depth, 1]> }[keyof T]
+            ? true
+            : false
+          : false;
 
 export interface PackFactory {
   /** Define a pack: its id, the packs it depends on, the points it declares and what it contributes. */
@@ -94,10 +110,11 @@ export interface PackFactory {
   ): Pack<Id, Points>;
   /**
    * Declare an extension point inside a pack definition; its value type is
-   * what `check` returns. `unknown` is allowed (readers must narrow), `any` is not.
+   * what `check` returns. `unknown` is allowed (readers must narrow); `any`, anywhere
+   * in the type, is not.
    */
   point<Value>(
-    spec: { readonly description: string; readonly check: (raw: unknown) => Result<Value>; readonly values?: readonly NoInfer<Value>[] } & (IsAny<Value> extends true
+    spec: { readonly description: string; readonly check: (raw: unknown) => Result<Value>; readonly values?: readonly NoInfer<Value>[] } & (true extends ContainsAny<Value>
       ? { readonly check: Refused<"a point's check must return a precise type, not any"> }
       : unknown),
   ): PointDeclaration<Value>;

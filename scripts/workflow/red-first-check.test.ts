@@ -188,7 +188,7 @@ describe("red-first-check end to end", () => {
       const repo = repository();
       const red = repo.commit({ "sum.test.ts": `${HEADER}test("adds", () => { expect(sum(1, 2)).toBe(3); expect(sum(2, 2)).toBe(4); });\n` }, "red");
       repo.commit({ "sum.ts": SUM }, "green");
-      later.forEach((files, i) => repo.commit(files, `later ${i}`));
+      for (const [i, files] of later.entries()) repo.commit(files, `later ${i}`);
       const lines: string[] = [];
       main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l));
       return lines;

@@ -36,7 +36,7 @@ type PackageCheck<P extends string> = IsExact<P> extends false
 
 type LocalCheck<L extends string> = IsExact<L> extends false
   ? Refused<"write the pack's local id as a string literal">
-  : L extends "" | `${string}${"/" | "." | "_" | " " | "@"}${string}`
+  : L extends "" | `${string}${"/" | "." | "_" | " " | "@" | "--"}${string}` | `-${string}` | `${string}-` | `${0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}${string}`
     ? Refused<"a pack's local id is lowercase words joined by hyphens, without '/'">
     : L extends Lowercase<L>
       ? unknown
