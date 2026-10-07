@@ -14,6 +14,8 @@ const ALLOWED: Record<Layer, readonly Layer[]> = {
   application: ["domain", "application"],
   adapters: ["domain", "application", "adapters"],
   packs: ["domain", "packs"],
+  // The composition root lists packs because its tests may import a shipped
+  // pack; shippedPackViolations refuses the import in its non-test code.
   pack: ["domain", "application", "adapters", "packs", "pack"],
 };
 const IO_MODULES = /^(bun|bun:.*|node:.*|fs|path|child_process|net|os)$/;

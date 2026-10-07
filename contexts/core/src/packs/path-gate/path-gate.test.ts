@@ -256,7 +256,8 @@ describe("the path gate — limits and honest redirects", () => {
 
   test("when no filter or root can avoid a '**'-led rule ending in a name, the redirect says so", () => {
     const env = rules("a", { match: "**/.env", deny: ["read", "list"], redirect: "Ask a maintainer" });
-    expect(decide([env], [list("src", "*.ts"), read("src")], "search")).toMatchObject({
+    const unreadable = rules("a", { match: "**/.env", deny: ["read"], redirect: "Ask a maintainer" });
+    expect(decide([unreadable], [list("src", "*.ts"), read("src")], "search")).toMatchObject({
       kind: "refuse",
       redirect: "No search can avoid '**/.env'; read the files you need directly, or ask a person — Ask a maintainer",
     });

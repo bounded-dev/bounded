@@ -88,9 +88,19 @@ rule-owned exceptions means no pack can weaken another's protection.
   so change the guardrails. The loader slice closes this: it computes the
   configuration's import closure and protects it, or requires project packs
   to live under `.bounded/`.
-- **Known gap: deleting directories under `**`-led rules.** Deleting
-  `apps` is not refused for a file only `**/.env` protects. Directory
-  deletes are rare outside the shell, which the hash-check slice covers.
+- **Adapters describe directory deletes file by file.** It is an adapter
+  obligation (ADR 2026-006) that deleting or renaming a directory reaches the
+  gate as one write effect per file it contains, plus one for the directory
+  itself; `contains()` stays as a backstop for an adapter that sends only the
+  directory. Without that, deleting `apps` is not refused for a file only
+  `**/.env` protects. Shell deletes are covered by the hash-check slice.
+- **Wildcards per part.** More than three `*` or `?` in one part of a pattern
+  are refused: picomatch backtracks polynomially on a long name
+  (`**/*a*a*a*a*b` took seconds on 255 characters), and a guard must stay fast.
+- **Honest redirects.** A `**`-led rule ending in a literal name reaches
+  every listing and search (its name may be a directory of any file), so its
+  refusals say no listing or search can avoid it, and to name or read the
+  files directly or ask a person, instead of suggesting another root.
 - **Planned: `exclude` on the list effect** (a core change, its own ADR). A
   host whose search skips paths (for example ignored or hidden files) could
   say so on the list effect, and the path gate could then allow a listing

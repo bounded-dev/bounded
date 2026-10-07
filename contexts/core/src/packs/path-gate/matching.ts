@@ -52,6 +52,16 @@ function compile(rule: ProtectedPath): Compiled {
 
 const partsOf = (path: string): string[] => (path === "." ? [] : path.split("/"));
 
+/**
+ * Whether no root or filter can keep a listing away from the rule: it is
+ * `**`-led, so it reaches from every root, and ends in a literal name, which
+ * covers that name's contents, so no filter rules it out.
+ */
+export function unavoidable(rule: ProtectedPath): boolean {
+  const parts = rule.match.split("/");
+  return parts[0] === "**" && !isGlob(parts[parts.length - 1] ?? "**");
+}
+
 /** Whether the rule applies to this exact path: its match covers it and none of its exceptions does. */
 export function matches(rule: ProtectedPath, path: string): boolean {
   const { match, except } = compile(rule);

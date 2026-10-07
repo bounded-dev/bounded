@@ -11,7 +11,7 @@ import {
   Verdict,
   type WriteEffect,
 } from "bounded/domain";
-import { contains, matches, reaches } from "./matching.ts";
+import { contains, matches, reaches, unavoidable } from "./matching.ts";
 import { ProtectedPath, writes } from "./protected-path.ts";
 
 /**
@@ -58,9 +58,17 @@ function firstDenial(composition: Composition, denies: (rule: ProtectedPath) => 
   return Verdict.allow;
 }
 
-/** The redirect for a listing or search that could reach a rule's paths. */
-const elsewhere = (verb: "List" | "Search", rule: ProtectedPath): string =>
-  `${verb} a root outside '${rule.match}', or give a filter that cannot match it — ${rule.redirect}`;
+/**
+ * The redirect for a listing or search that could reach a rule's paths:
+ * another root or a filter, or, when neither can help, the honest options.
+ */
+function elsewhere(verb: "List" | "Search", rule: ProtectedPath): string {
+  if (unavoidable(rule)) {
+    const [noun, act] = verb === "List" ? ["listing", "name"] : ["search", "read"];
+    return `No ${noun} can avoid '${rule.match}'; ${act} the files you need directly, or ask a person — ${rule.redirect}`;
+  }
+  return `${verb} a root outside '${rule.match}', or give a filter that cannot match it — ${rule.redirect}`;
+}
 
 /**
  * A read of a file is judged by the file. A read over a root the same call

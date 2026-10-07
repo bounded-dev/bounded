@@ -38,6 +38,8 @@ const FORM = "A protected-path rule is { match, except?, deny, redirect, why? }"
 const KEYS = ["match", "except", "deny", "redirect", "why"];
 const DENY = `A rule's deny must name at least one of ${ACCESSES.join(", ")}`;
 const MAX_PATTERN = 512;
+/** Wildcards (* or ?) allowed in one part: each more multiplies picomatch's backtracking on a long name. */
+const MAX_WILDCARDS = 3;
 const MAX_TEXT = 1000;
 const ABSOLUTE = /^([/~]|[A-Za-z]:(\/|$))/;
 const CLIMBS = /(^|[/{,(|])\.\.($|[/},)|])/;
@@ -78,6 +80,10 @@ function pattern(raw: unknown, role: "match" | "except"): Result<string> {
   if (span !== undefined) return refuse(`${named} has ${span} inside a group. Keep each group within one part of the path, or write two rules`);
   if (text.length > 1 && text.endsWith("/")) {
     return refuse(`${named} ends in '/'. Write '${text.replace(/\/+$/, "")}': a name covers everything under it`);
+  }
+  const crowded = text.split("/").find((part) => part !== "**" && [...part].filter((c) => c === "*" || c === "?").length > MAX_WILDCARDS);
+  if (crowded !== undefined) {
+    return refuse(`${named} has more than three wildcards (* or ?) in one part ('${crowded}'). Matching that can take seconds: use fewer, or write several rules`);
   }
   const tidy = text
     .split("/")
