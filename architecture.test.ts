@@ -133,7 +133,7 @@ for (const path of files) {
       continue;
     }
     // Only an out adapter may load code chosen at run time (a project's
-    // configuration file, ADR 2026-009); anywhere else it cannot be checked.
+    // configuration file, ADR 2026-010); anywhere else it cannot be checked.
     if (spec === "<computed>") {
       if (!rest.join("/").startsWith("adapters/out/")) violations.push(`${at} — an import with a computed specifier cannot be checked; only an out adapter may load code at run time`);
     }

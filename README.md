@@ -41,7 +41,7 @@ worked example.
 - **Configuration.** A project selects its packs in `bounded.config.ts` with
   `defineConfig`; host adapters call `openProject(root)` and ask its judge
   about every event. A broken configuration refuses everything
-  ([docs/configuration.md](docs/configuration.md), ADR 2026-009).
+  ([docs/configuration.md](docs/configuration.md), ADR 2026-010).
 
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).

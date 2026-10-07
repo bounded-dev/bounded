@@ -76,7 +76,8 @@ src/
     index.ts              the application barrel
   adapters/in/<tech>/     driving adapters: depend on in ports, never handlers
   adapters/out/<tech>/    driven adapters: implement out ports; each runs its port's conformance suite
-  pack/                   reserved: the context's pack, its composition root
+  pack/                   the context's composition root: openProject, which host adapters call (ADR 2026-010)
+  packs/                  packs the core ships, each in its own folder (the path gate, when merged)
 ```
 
 Rules, enforced by `architecture.test.ts` unless stated:
@@ -132,7 +133,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **Every decision is recorded (ADR 2026-008).** Hosts judge events through
   the judge-event feature, which records each decision; a decision that
   cannot be recorded within the bound is refused, never allowed.
-- **The project is a pack too (ADR 2026-009).** `defineConfig` turns a
+- **The project is a pack too (ADR 2026-010).** `defineConfig` turns a
   project's contributions into the pack `bounded/project`, which depends on
   every selected pack; a project never contributes to an unselected pack's
   point. A configuration that cannot be used makes every event refused.

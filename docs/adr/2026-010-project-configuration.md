@@ -1,4 +1,4 @@
-# 2026-009: A project's configuration, and opening a project for judging
+# 2026-010: A project's configuration, and opening a project for judging
 
 **Status:** accepted.
 
