@@ -28,6 +28,9 @@ Bun is the runtime, package manager and test runner.
 Every non-trivial change follows [the development lifecycle](docs/development-workflow.md)
 (ADR 2026-001): plan, plan review, red commit, build, final review, report.
 
+- **Superseded tests are recorded.** A design change that replaces a test an
+  earlier red commit owns records it in `superseded-tests.json` (successor
+  and reason), in the red commit of that change.
 - **Red first, never weakened.** Commit the failing tests alone before
   implementing: test files, `*.test-support.ts` conformance suites and
   fixtures only. Before review, run
@@ -46,7 +49,7 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 
 ```
 contexts/
-  core/          @bounded/core       the mechanism (spec Parts 1 and 2; slice 1 so far)
+  core/          bounded             the mechanism (spec Parts 1 and 2; slice 1 so far)
 architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below
@@ -82,7 +85,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   Adapters never import other adapters' technologies.
 - **Domain and application do no I/O** and import no library but zod.
 - **Within a context, layers import each other through the package's own
-  export paths** (`@bounded/core/domain`), domain files by relative path.
+  export paths** (`bounded/domain`), domain files by relative path.
 - **A context imports another context only when its `package.json` declares
   it as a dependency**, and only through that package's export paths. The
   core depends on nothing and never imports a pack.
@@ -111,10 +114,12 @@ Rules, enforced by `architecture.test.ts` unless stated:
   point and the fix.
 - **Fail closed.** A missing, unreadable or malformed input is a refusal with
   an actionable message, never "contributes nothing".
-- **Strict typing (ADR 2026-003).** Anything not explicitly wired fails to
-  compile: a pack contributes only to points of packs directly in its
-  `dependsOn` tuple, with values of exactly the point's type; points are
-  declared only inside their own pack; reads are typed by the point object.
+- **Strict typing (ADRs 2026-003, 2026-004).** Anything not explicitly wired
+  fails to compile: a pack contributes only to points of packs directly in
+  its `dependsOn` tuple (each with an exact id from `packIdsFor`), with
+  values of exactly the point's type, never `any`; points are declared only
+  inside their own pack under camelCase keys; reads are typed by the point
+  object.
   Composition repeats every rule at run time for untyped data. A change that
   loosens a rule, or adds one, comes with a rejected fixture line stating
   its reason (`contexts/core/test/fixtures/compile-time/`) and a run-time

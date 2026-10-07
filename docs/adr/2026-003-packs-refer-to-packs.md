@@ -1,6 +1,6 @@
 # 2026-003: Packs refer to each other as objects; strict typing is binding
 
-**Status:** accepted. Supersedes the typing parts of ADR 2026-002.
+**Status:** accepted. Supersedes the typing parts of ADR 2026-002. Its id and selection parts (labels, selection by label, string ids) are superseded by [ADR 2026-004](2026-004-namespaced-pack-ids.md).
 
 ## Decision
 
