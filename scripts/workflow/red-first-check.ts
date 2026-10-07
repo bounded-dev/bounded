@@ -38,7 +38,9 @@
 // is recorded. A red commit that changes fixtures under fixtures/compile-time/
 // also runs compile-time.test.ts at the red commit, which must fail there.
 // A record may change only in test-only commits after the red commit; a
-// merge counts by the paths it changed itself (differing from every parent).
+// merge that keeps exactly the union of its parents' records passes, and any
+// other merge counts by the paths it changed itself (differing from every
+// parent).
 // A case recorded as superseded must not still exist at the head under the
 // same id in its own file, followed through renames by git's rename
 // detection; a case moved to an unrelated file is not detected.
@@ -649,7 +651,16 @@ function run(args: readonly string[], print: (line: string) => void): number {
   for (const commit of git(repo, "log", "--format=%H", `${red}..${head}`, "--", SUPERSESSIONS).split("\n").filter((l) => l !== "")) {
     // For a merge, the paths it changed itself: those differing from every
     // parent (--cc). Its parents' own commits are listed and checked here too.
-    const merge = git(repo, "rev-list", "--parents", "-n", "1", commit).trim().split(" ").length > 2;
+    const parents = git(repo, "rev-list", "--parents", "-n", "1", commit).trim().split(" ").slice(1);
+    const merge = parents.length > 1;
+    // A merge that keeps exactly the union of its parents' records adds no
+    // supersession, whatever else it resolves.
+    if (merge) {
+      const key = (r: Supersession) => JSON.stringify([r.file, r.case, r.successor, r.reason]);
+      const inParents = new Set(parents.flatMap((parent) => recordsAt(parent).map(key)));
+      const merged = recordsAt(commit).map(key);
+      if (merged.every((r) => inParents.has(r)) && [...inParents].every((r) => merged.includes(r))) continue;
+    }
     const paths = git(repo, "diff-tree", ...(merge ? ["--cc"] : ["-r", "--root"]), "--no-commit-id", "--name-only", commit)
       .split("\n")
       .filter((l) => l !== "");

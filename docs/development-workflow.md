@@ -114,8 +114,10 @@ tree.
   names itself as its successor, when the successor is a computed title (a
   table of cases generated in a loop), when the successor makes fewer
   assertions than the case it replaces, and when any commit after the red
-  commit that changed the record is not test-only (a merge counts by the
-  paths it changed itself, those differing from every parent).
+  commit that changed the record is not test-only. A merge whose record is
+  exactly the union of its parents' records passes, whatever else it
+  resolves; any other merge counts by the paths it changed itself, those
+  differing from every parent.
 
 **What a supersession record cannot prove.** A record says a case was
 replaced; the check confirms the successor exists, is a single named case,
