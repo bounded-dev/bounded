@@ -46,7 +46,11 @@
 - **Ids root at the package they ship in (binding).** In a workspace's
   source, every `packIdsFor(...)` call names that workspace's package.json
   `name`; the architecture test enforces it (tests and fixtures, which build
-  packs of imaginary packages, are exempt). The future file-backed pack
+  packs of imaginary packages, are exempt). The rule guards against
+  mistakes, not deliberate bypass: it also flags an aliased import of
+  `packIdsFor` and `PackId.parse` outside the core's own source, but a cast
+  or a computed call can still forge an id, which is why composition checks
+  every id at run time. The future file-backed pack
   catalog must, at load time, refuse any pack whose id does not start with
   the npm package it was loaded from, followed by `/`.
 

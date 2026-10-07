@@ -62,10 +62,25 @@ function importsOf(path: string, text: string): { spec: string; line: number; ty
  * with the package it ships in (ADR 2026-004). Tests and fixtures build
  * packs of imaginary packages and are exempt.
  */
+const CORE = "bounded";
+
+/**
+ * It guards against mistakes, not deliberate bypass: an alias of the
+ * factory, PackId.parse outside the core and casts are flagged where they
+ * can be seen, but code determined to forge an id can still do so.
+ */
 function packIdViolations(path: string, text: string, packageName: string): string[] {
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
   const out: string[] = [];
+  const at = (node: ts.Node) => `${path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1}`;
   const visit = (node: ts.Node): void => {
+    if (ts.isImportSpecifier(node) && node.propertyName?.text === "packIdsFor") {
+      out.push(`${at(node)} — import packIdsFor under its own name, so this rule can see every call`);
+    }
+    if (ts.isCallExpression(node) && packageName !== CORE && ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) && node.expression.expression.text === "PackId" && node.expression.name.text === "parse") {
+      out.push(`${at(node)} — PackId.parse is the core's; build this workspace's ids with packIdsFor("${packageName}")`);
+    }
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const named = (ts.isIdentifier(callee) && callee.text === "packIdsFor") || (ts.isPropertyAccessExpression(callee) && callee.name.text === "forPackage");
@@ -145,6 +160,13 @@ describe("architecture", () => {
       'a.ts:1 — pack ids in this workspace come from packIdsFor("bounded"), the name in its package.json',
     ]);
     expect(packIdViolations("a.ts", "const p = PackId.forPackage(name);", "bounded")).toHaveLength(1);
+    expect(packIdViolations("a.ts", 'import { packIdsFor as ids } from "bounded/domain";', "my-pack")).toEqual([
+      "a.ts:1 — import packIdsFor under its own name, so this rule can see every call",
+    ]);
+    expect(packIdViolations("a.ts", 'const id = PackId.parse("bounded/core");', "my-pack")).toEqual([
+      'a.ts:1 — PackId.parse is the core\'s; build this workspace\'s ids with packIdsFor("my-pack")',
+    ]);
+    expect(packIdViolations("a.ts", 'const id = PackId.parse("bounded/core");', "bounded")).toEqual([]);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {
