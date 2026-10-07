@@ -19,6 +19,15 @@ export interface JudgeEvent {
   execute(command: JudgeEventCommand): Promise<Verdict>;
 }
 
+/** A refusal the host adapter made itself: the host's tool name, its input, the role, and the reason and redirect. */
+export interface AdapterRefusalInput {
+  readonly tool: string;
+  readonly reason: string;
+  readonly redirect: string;
+  readonly role?: string | null;
+  readonly input?: unknown;
+}
+
 // Out ports: exactly what this feature needs.
 /**
  * Where decisions are kept, append-only. Asynchronous, so it can be a file

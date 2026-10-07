@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ToolUse } from "bounded/domain";
+import { ToolUse, Verdict } from "bounded/domain";
 import type { openProject } from "bounded/open-project";
 import { composeProject } from "./composition-root.ts";
 import { type Pi, type PiHandler, piExtension } from "./extension.ts";
@@ -16,7 +16,7 @@ type Open = typeof openProject;
 const rejecting: Open = async () => {
   throw new Error("the log directory cannot be created");
 };
-const judging = (judge: (event: unknown) => Promise<never>): Open => async () => ({ judge, afterTool: async () => ({ changed: [], restored: true, message: null }), problem: null });
+const judging = (judge: (event: unknown) => Promise<never>): Open => async () => ({ judge, afterTool: async () => ({ changed: [], restored: true, message: null }), refuse: async () => Verdict.refuse("refused", "fix it"), problem: null });
 
 describe("composeProject — never fails open, whatever openProject or its judge does", () => {
   test("an openProject that rejects gives a decide that refuses every event, saying why", async () => {

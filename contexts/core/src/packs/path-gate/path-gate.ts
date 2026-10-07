@@ -9,6 +9,8 @@ import {
   point,
   type ReadEffect,
   Verdict,
+  type WatchedPath,
+  type WatchedPathSource,
   type WriteEffect,
 } from "bounded/domain";
 import { contains, matches, reaches, unavoidable } from "./matching.ts";
@@ -110,12 +112,32 @@ const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) =>
     return undefined;
   });
 
+/** Whether a pattern's last part is a literal name, which the path gate reads as covering everything under it too. */
+const endsInName = (match: string): boolean => !/[*?[\]{}]/.test(match.split("/").at(-1) ?? "");
+
+/**
+ * What the path gate protects from writes, as watched paths for the core's
+ * check around shell commands: every rule that denies a create, modify or
+ * delete, with its own exceptions (a literal name also covers what is under
+ * it). Never `.bounded/`: bounded writes its own state there while judging.
+ */
+const watchedFromRules: WatchedPathSource = (composition) => {
+  const rules = composition.entries(pathGate.points.protectedPaths);
+  if (!rules.ok) throw new Error(rules.error);
+  return rules.value.flatMap(({ value: rule }): WatchedPath[] => {
+    if (!writes.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) return [];
+    const watched = { except: rule.except ?? [], why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
+    return endsInName(rule.match) ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
+  });
+};
+
 /**
  * The path gate, `bounded/path-gate`: an ordinary pack. Packs and projects
  * contribute deny-only rules to `protectedPaths`; its guards judge reads,
  * listings and writes against them. Execute, fetch, delegate and invoke
  * effects are not judged by path here: a shell command's paths cannot be
- * read from its text (a later hash check covers them).
+ * read from its text, so the path gate gives what it protects from writes
+ * to the core's watched paths, which undo a shell command's changes.
  */
 export const pathGate = definePack({
   id: packIdsFor("bounded")("path-gate"),
@@ -131,5 +153,6 @@ export const pathGate = definePack({
     contribution(corePack.points.readGuards, [onRead]),
     contribution(corePack.points.listGuards, [onList]),
     contribution(corePack.points.writeGuards, [onWrite]),
+    contribution(corePack.points.watchedPaths, [watchedFromRules]),
   ],
 });

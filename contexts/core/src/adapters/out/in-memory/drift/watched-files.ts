@@ -20,7 +20,7 @@ export class InMemoryWatchedFiles implements WatchedFiles {
   async hash(rules: readonly WatchedPath[]): Promise<Result<WatchedHashes>> {
     const out: Record<string, { hash: string; rule: number }> = {};
     for (const [path, content] of this.working) {
-      const rule = watchingRule(rules, path);
+      const rule = path.startsWith(".bounded/") ? -1 : watchingRule(rules, path);
       if (rule >= 0) out[path] = { hash: digest(content), rule };
     }
     return { ok: true, value: out };

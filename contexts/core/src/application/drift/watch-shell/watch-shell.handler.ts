@@ -1,4 +1,4 @@
-import { type Composition, corePack, Decision, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedPath } from "bounded/domain";
+import { type Composition, Decision, watchedPathsOf, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedPath } from "bounded/domain";
 import type { Clock, DecisionIds, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 import type { Change, DriftCheck, ShellSnapshots, WatchedFiles, WatchedHashes, WatchShell } from "./watch-shell.contract.ts";
 
@@ -82,10 +82,10 @@ export class WatchShellHandler implements WatchShell {
   }
 
   /** The composed watched paths, with the pack each came from. */
-  private rules(): Rule[] {
-    const entries = this.composition.entries(corePack.points.watchedPaths);
-    if (!entries.ok) throw new Error(entries.error);
-    return entries.value.map(({ from, value }) => ({ rule: value, from }));
+  private rules(): readonly Rule[] {
+    const watched = watchedPathsOf(this.composition);
+    if (!watched.ok) throw new Error(watched.error);
+    return watched.value;
   }
 
   private async hash(rules: readonly Rule[]): Promise<Result<WatchedHashes>> {

@@ -46,5 +46,29 @@ function invalid(id: string, time: string, refusal: Verdict): Decision {
   return Object.freeze({ id: bounded(id), time: bounded(time), event: "invalid", role: null, tool: null, effects: Object.freeze([]), verdict: verdictOf(refusal, null), note: null });
 }
 
+/** The host's input as JSON text, bounded; text for an input that cannot be shown. */
+function summary(input: unknown): string {
+  try {
+    const text = JSON.stringify(input);
+    return bounded(text === undefined ? String(input) : text);
+  } catch {
+    return "an input that cannot be shown";
+  }
+}
+
+function adapter(id: string, time: string, { role, tool, input, verdict }: Contract.AdapterRefusal): Decision {
+  return Object.freeze({
+    id: bounded(id),
+    time: bounded(time),
+    event: "adapter",
+    role: typeof role === "string" ? bounded(role) : null,
+    tool: null,
+    effects: Object.freeze([]),
+    verdict: verdictOf(verdict, null),
+    note: null,
+    host: Object.freeze({ tool: bounded(String(tool)), input: summary(input) }),
+  });
+}
+
 export type Decision = Contract.Decision;
-export const Decision: Contract.DecisionFactory = Object.freeze({ of, invalid, enforced });
+export const Decision: Contract.DecisionFactory = Object.freeze({ of, invalid, adapter, enforced });

@@ -1,6 +1,6 @@
 import type { Config, Result, Verdict } from "bounded/domain";
 import type { DriftCheck, ShellSnapshots, WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
-import type { DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
+import type { AdapterRefusalInput, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 
 // Wire input: what a host's composition root sends.
 export interface OpenProjectInput {
@@ -31,6 +31,8 @@ export interface ProjectJudge {
    * nothing changed. Never throws.
    */
   afterTool(result: unknown): Promise<DriftCheck>;
+  /** Record a refusal the host adapter made itself, before an event existed, and return it. Never throws. */
+  refuse(refusal: AdapterRefusalInput): Promise<Verdict>;
   readonly problem: string | null;
 }
 

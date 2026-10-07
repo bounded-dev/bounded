@@ -2,6 +2,7 @@ import type { Composition } from "../composition/composition.contract.ts";
 import type { DelegateEffect, Effect, ExecuteEffect, FetchEffect, InvokeEffect, ListEffect, ReadEffect, WriteEffect } from "../events/effect.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
+import type { WatchedPath as WatchedPathType, WatchedPathSource } from "../drift/watched-path.contract.ts";
 import { WatchedPath } from "../drift/watched-path.ts";
 import { definePack, point } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
@@ -18,6 +19,11 @@ function guardOf<G>(raw: unknown): Result<G> {
   return typeof raw === "function" ? { ok: true, value: raw as G } : { ok: false, error: "a guard is a function" };
 }
 const forCall = guardOf<Guard<ToolUse, Composition>>;
+
+/** A watched path, checked; or a source of them, which can only be checked when it is called. */
+function watchedOf(raw: unknown): Result<WatchedPathType | WatchedPathSource> {
+  return typeof raw === "function" ? guardOf<WatchedPathSource>(raw) : WatchedPath.parse(raw);
+}
 const forStart = guardOf<Guard<SessionStart, Composition>>;
 const forEffect = <F extends Effect>() => guardOf<EffectGuard<F, Composition>>;
 
@@ -40,6 +46,6 @@ export const corePack = definePack({
     fetchGuards: point({ description: "Guards for reaching the network", check: forEffect<FetchEffect>() }),
     delegateGuards: point({ description: "Guards for handing work to another agent", check: forEffect<DelegateEffect>() }),
     invokeGuards: point({ description: "Guards for tools whose effects the host cannot describe", check: forEffect<InvokeEffect>() }),
-    watchedPaths: point({ description: "Files a shell command must not change: its changes to them are undone", check: WatchedPath.parse }),
+    watchedPaths: point({ description: "Files a shell command must not change, or sources that work them out: a command's changes to them are undone", check: watchedOf }),
   },
 });

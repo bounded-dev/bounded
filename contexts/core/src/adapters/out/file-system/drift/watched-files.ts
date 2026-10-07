@@ -11,7 +11,7 @@ function text(thrown: unknown): string {
 
 /**
  * The project's files on disk, under git: hashing the files the rules watch
- * (never inside .git), and putting files back from the last commit, removing
+ * (never inside .git or .bounded), and putting files back from the last commit, removing
  * those it never held.
  */
 export class FileSystemWatchedFiles implements WatchedFiles {
@@ -24,7 +24,8 @@ export class FileSystemWatchedFiles implements WatchedFiles {
         const excepts = (rule.except ?? []).map((except) => new Bun.Glob(except));
         for await (const path of new Bun.Glob(rule.match).scan({ cwd: this.root, dot: true, onlyFiles: true, followSymlinks: false })) {
           const normal = path.split("\\").join("/");
-          if (normal === ".git" || normal.startsWith(".git/") || out[normal] !== undefined || excepts.some((except) => except.match(normal))) continue;
+          // Never .git or bounded's own state in .bounded/, which changes as decisions are recorded.
+          if (normal.startsWith(".git/") || normal.startsWith(".bounded/") || out[normal] !== undefined || excepts.some((except) => except.match(normal))) continue;
           out[normal] = { hash: createHash("sha256").update(readFileSync(join(this.root, normal))).digest("hex"), rule: index };
         }
       }

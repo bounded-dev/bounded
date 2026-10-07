@@ -1,5 +1,5 @@
 import { type Composition, Decision, decideEvent, Event, type Judgement, Verdict } from "bounded/domain";
-import type { Clock, DecisionIds, DecisionLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
+import type { AdapterRefusalInput, Clock, DecisionIds, DecisionLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
 
 const UNRECORDED_REDIRECT = "Make the decision log writable; until decisions can be recorded, every action is refused";
 const LATE_NOTE = "not recorded in time; enforced: refuse";
@@ -93,6 +93,24 @@ export class JudgeEventHandler implements JudgeEvent {
       }
       const refusal = Verdict.refuse(`The host sent an event that cannot be read: ${event.error}`, "Report this to the maintainers of the host adapter; the action is refused meanwhile");
       return await this.settle({ verdict: refusal, refusedBy: null }, () => Decision.invalid(this.ids.next(), this.now(), refusal));
+    } catch (thrown) {
+      return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
+    }
+  }
+
+  /**
+   * Record a refusal the host adapter made itself, before the core saw an
+   * event (a path outside the project, a call it cannot translate, a
+   * deadline), and return it. Recorded like any decision. Never throws.
+   */
+  async refuse(refusal: AdapterRefusalInput): Promise<Verdict> {
+    try {
+      const given = typeof refusal === "object" && refusal !== null ? refusal : ({} as Partial<AdapterRefusalInput>);
+      const verdict = Verdict.refuse(String(given.reason ?? ""), String(given.redirect ?? ""));
+      const role = typeof given.role === "string" ? given.role : null;
+      return await this.settle({ verdict, refusedBy: null }, () =>
+        Decision.adapter(this.ids.next(), this.now(), { role, tool: String(given.tool ?? "unknown"), input: given.input, verdict }),
+      );
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
     }

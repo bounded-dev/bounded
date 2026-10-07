@@ -41,7 +41,12 @@ export async function openProject(root: string, options: OpenProjectOptions = {}
 
 function refusingAll(reason: string, redirect: string, problem: string): ProjectJudge {
   const refusal = Verdict.refuse(reason, redirect);
-  return Object.freeze({ judge: async () => refusal, afterTool: async () => ({ changed: [], restored: true, message: null }), problem });
+  return Object.freeze({
+    judge: async () => refusal,
+    afterTool: async () => ({ changed: [], restored: true, message: null }),
+    refuse: async (given: { readonly reason?: string; readonly redirect?: string } | null) => Verdict.refuse(String(given?.reason ?? ""), String(given?.redirect ?? "")),
+    problem,
+  });
 }
 
 // Frozen, so code loaded later cannot patch it.

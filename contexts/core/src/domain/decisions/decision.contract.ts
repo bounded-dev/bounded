@@ -20,7 +20,7 @@ export interface Decision {
   /** When it was decided (or, for a follow-up, noted), ISO 8601 in UTC. */
   readonly time: string;
   /** The event's kind ("tool-result" after a tool ran), or "invalid" for an event that could not be read. */
-  readonly event: Event["kind"] | ToolResult["kind"] | "invalid";
+  readonly event: Event["kind"] | ToolResult["kind"] | "invalid" | "adapter";
   readonly role: string | null;
   /** The tool kind of a tool use; null for a session start. */
   readonly tool: ToolKind | null;
@@ -29,6 +29,16 @@ export interface Decision {
   readonly verdict: RecordedVerdict;
   /** Null for a decision; for a follow-up, why it supersedes the earlier record with its id. */
   readonly note: string | null;
+  /** For a call the host adapter refused before the core saw an event: the host's tool name and a summary of its input. */
+  readonly host?: { readonly tool: string; readonly input: string };
+}
+
+/** A call the host adapter refused itself, before it became an event. */
+export interface AdapterRefusal {
+  readonly role: string | null;
+  readonly tool: string;
+  readonly input: unknown;
+  readonly verdict: Verdict;
 }
 
 export interface DecisionFactory {
@@ -36,6 +46,8 @@ export interface DecisionFactory {
   of(id: string, time: string, event: Event | ToolResult, judgement: Judgement, note?: string): Decision;
   /** The decision `id` on an event that could not be read: always a refusal. */
   invalid(id: string, time: string, refusal: Verdict): Decision;
+  /** The decision `id` on a call the host adapter refused itself: always a refusal. */
+  adapter(id: string, time: string, refusal: AdapterRefusal): Decision;
   /** A follow-up to `decision`, with its id: what was enforced instead, and why. */
   enforced(decision: Decision, time: string, verdict: Verdict, note: string): Decision;
 }
