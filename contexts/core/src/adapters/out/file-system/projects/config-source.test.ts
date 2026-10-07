@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isConfig } from "bounded/domain";
@@ -35,12 +35,33 @@ describe("FileSystemProjectConfigSource", () => {
 
   test("refuses a project without a configuration", async () => {
     const root = project({});
-    expect(await source.load(root)).toEqual({ ok: false, error: `No configuration in ${root}: create bounded.config.ts there with export default defineConfig({ packs: [...] })` });
+    expect(await source.load(root)).toEqual({
+      ok: false,
+      error: `No configuration in ${root}: create bounded.config.ts (or bounded.config.js, bounded.config.mjs) there with export default defineConfig({ packs: [...] })`,
+    });
   });
 
   test("refuses a project with more than one configuration", async () => {
     const root = project({ "bounded.config.ts": VALID, "bounded.config.mjs": VALID });
     expect(await source.load(root)).toEqual({ ok: false, error: `More than one configuration in ${root} (bounded.config.ts, bounded.config.mjs): keep one` });
+  });
+
+  test("refuses a configuration file that resolves outside the project", async () => {
+    const elsewhere = project({ "bounded.config.ts": VALID });
+    const root = project({});
+    symlinkSync(join(elsewhere, "bounded.config.ts"), join(root, "bounded.config.ts"));
+    expect(await source.load(root)).toEqual({ ok: false, error: `bounded.config.ts resolves outside ${root}: the configuration must live in the project` });
+  });
+
+  test("loads a changed configuration again, not a cached copy", async () => {
+    const root = project({ "bounded.config.ts": VALID });
+    const first = await source.load(root);
+    writeFileSync(join(root, "bounded.config.ts"), "export default 42;\n");
+    const later = new Date(Date.now() + 5000);
+    utimesSync(join(root, "bounded.config.ts"), later, later);
+    const second = await source.load(root);
+    expect(first.ok).toBe(true);
+    expect(second).toEqual({ ok: false, error: "bounded.config.ts must export default defineConfig({ packs: [...] }); its default export is a number" });
   });
 
   test("refuses a configuration that throws when loaded", async () => {
@@ -51,7 +72,7 @@ describe("FileSystemProjectConfigSource", () => {
   test("refuses a default export that defineConfig did not make, saying what it is", async () => {
     expect(await source.load(project({ "bounded.config.ts": "export default { packs: [] };\n" }))).toEqual({
       ok: false,
-      error: "bounded.config.ts must export default defineConfig({ packs: [...] }); its default export is an object that defineConfig did not make",
+      error: "bounded.config.ts must export default defineConfig({ packs: [...] }); its default export is an object that defineConfig did not make, or that another copy of bounded made",
     });
     expect(await source.load(project({ "bounded.config.ts": "export const packs = [];\n" }))).toEqual({
       ok: false,

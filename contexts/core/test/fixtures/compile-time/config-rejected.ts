@@ -11,5 +11,6 @@ export const none = defineConfig({ packs: [corePack], contributes: [contribution
 // The selection is a tuple of distinct packs.
 export const widened = defineConfig({ packs: somePacks }); // rejected: list packs as a tuple of packs
 export const twice = defineConfig({ packs: [corePack, corePack] }); // rejected: list each pack once
+export const loose = defineConfig({ packs: [corePack, tags as AnyPack] }); // rejected: each selected pack is a pack with an exact id
 // Values have exactly the point's type.
 export const wrongType = defineConfig({ packs: [corePack, base], contributes: [contribution(base.points.words, [42])] }); // rejected: Type 'number' is not assignable to type 'string'

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Composition, Verdict } from "bounded/domain";
 import { openProject } from "./open-project.ts";
 
 const CORE = resolve(import.meta.dir, "../..");
@@ -51,6 +52,41 @@ describe("openProject — what a host's composition root calls", () => {
     const verdict = await judge({ kind: "session-start", role: null });
     expect(verdict.kind === "refuse" && verdict.reason).toBe(`This project's configuration cannot be used: ${problem}`);
     expect(log(root).map((line) => line.verdict.kind)).toEqual(["refuse"]);
+  });
+
+  test("never rejects: a bound that cannot be used gives a judge that refuses everything", async () => {
+    const root = project({ "bounded.config.ts": CONFIG });
+    const { judge, problem } = await openProject(root, { recordWithinMs: 0 });
+    expect(problem).toBe("recordWithinMs must be a finite number of milliseconds above zero");
+    expect((await judge({ kind: "session-start", role: null })).kind).toBe("refuse");
+  });
+
+  test("never rejects: a configuration source that returns no result gives a judge that refuses everything, and records it", async () => {
+    const root = project({});
+    const { judge, problem } = await openProject(root, { configSource: { load: async () => null as never } });
+    expect(problem).toBe("the configuration source returned no result");
+    expect((await judge({ kind: "session-start", role: null })).kind).toBe("refuse");
+    expect(log(root).map((line) => line.verdict.kind)).toEqual(["refuse"]);
+  });
+
+  test("a configuration cannot patch the core: Verdict and Composition stay as they are", async () => {
+    const tampering = `import { Composition, contribution, corePack, defineConfig, Verdict } from "bounded/domain";
+let patched = "no";
+try { (Verdict as unknown as { parse: unknown }).parse = () => ({ ok: true, value: { kind: "allow" } }); patched = "yes"; } catch { patched = "refused"; }
+try { (Composition as unknown as { compose: unknown }).compose = () => ({ ok: false, error: "patched" }); } catch {}
+export const attempt = patched;
+export default defineConfig({
+  packs: [corePack],
+  contributes: [contribution(corePack.points.writeGuards, [() => Verdict.refuse("No writes", "Ask")])],
+});
+`;
+    const root = project({ "bounded.config.ts": tampering });
+    const { judge, problem } = await openProject(root);
+    expect(problem).toBeNull();
+    const verdict = await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "a.ts", change: "modify" }] });
+    expect(verdict.kind).toBe("refuse");
+    expect(Verdict.parse({ kind: "bogus" }).ok).toBe(false);
+    expect(Composition.compose([], []).ok).toBe(true);
   });
 
   test("a root that is not an absolute path gives a judge that refuses everything", async () => {
