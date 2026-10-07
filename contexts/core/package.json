@@ -5,7 +5,9 @@
   "exports": {
     "./domain": "./src/domain/index.ts",
     "./application": "./src/application/index.ts",
-    "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts"
+    "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts",
+    "./adapters/file-system": "./src/adapters/out/file-system/index.ts",
+    "./adapters/system": "./src/adapters/out/system/index.ts"
   },
   "dependencies": {
     "zod": "4.6.4"

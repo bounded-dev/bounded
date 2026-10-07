@@ -1,6 +1,7 @@
 import { Event } from "../events/event.ts";
 import { show } from "../shared/read.ts";
 import { Verdict } from "../verdicts/verdict.ts";
+import type { PackId } from "../packs/pack-id.contract.ts";
 import type * as Contract from "./guard.contract.ts";
 
 const FIX = "Fix the guard so it returns Verdict.allow or Verdict.refuse(reason, redirect), or remove it. Until then the action is refused";
@@ -14,6 +15,7 @@ export interface LabelledGuard {
   readonly guard: unknown;
   readonly label: string;
   readonly refusedBy?: string;
+  readonly from?: PackId;
 }
 
 function decide({ guard, label, refusedBy }: LabelledGuard, args: readonly unknown[]): Verdict | undefined {
@@ -36,16 +38,19 @@ function decide({ guard, label, refusedBy }: LabelledGuard, args: readonly unkno
   }
 }
 
-/** Runs guards in order with the same arguments; the first refusal wins, or undefined when none refuses. Never throws. */
-export function firstRefusal(guards: readonly LabelledGuard[], args: readonly unknown[]): Verdict | undefined {
+/**
+ * Runs guards in order with the same arguments; the first refusal wins, with
+ * the guard that made it, or undefined when none refuses. Never throws.
+ */
+export function firstRefusal(guards: readonly LabelledGuard[], args: readonly unknown[]): { readonly verdict: Verdict; readonly by?: LabelledGuard } | undefined {
   try {
     for (const guard of guards) {
       const refusal = decide(guard, args);
-      if (refusal !== undefined) return refusal;
+      if (refusal !== undefined) return { verdict: refusal, by: guard };
     }
     return undefined;
   } catch (thrown) {
-    return unfinished(thrown);
+    return { verdict: unfinished(thrown) };
   }
 }
 
@@ -67,7 +72,7 @@ export const dispatch: Contract.Dispatch = (guards, event, ...context) => {
     // Named by position: function names do not survive every bundler. Every
     // guard gets the checked event: frozen, normalised, vocabulary fields only.
     const labelled = guards.map((guard, i) => ({ guard, label: `Guard ${i + 1} of ${guards.length}` }));
-    return firstRefusal(labelled, [checked.value, context[0]]) ?? Verdict.allow;
+    return firstRefusal(labelled, [checked.value, context[0]])?.verdict ?? Verdict.allow;
   } catch (thrown) {
     return unfinished(thrown);
   }
