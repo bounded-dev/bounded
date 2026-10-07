@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { locator, piRewrite } from "./pi-path.ts";
-import { piRuntimeAvailable, underPi } from "./pi-runtime.test-support.ts";
+import { piRuntimeAvailable, reportPiRuntime, underPi } from "./pi-runtime.test-support.ts";
 
 const HOME = "/home/agent";
 
@@ -159,6 +159,8 @@ describe("locator — a read is judged as the file pi's read will open", () => {
 });
 
 describe("locator — under pi's runtime (node, through pi's jiti)", () => {
+  reportPiRuntime();
+
   test.skipIf(!piRuntimeAvailable)("locates as it does under bun, links and case included", () => {
     const raws = ["src/a.ts", "SRC/A.ts", "alias/a.ts", "escape/secret.txt", "dangling.txt", "loop-a/x.ts"];
     const body = `const { locator } = await load(${JSON.stringify(join(import.meta.dir, "pi-path.ts"))});

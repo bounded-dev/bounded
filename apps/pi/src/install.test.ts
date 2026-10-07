@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { piLoader } from "./install.ts";
-import { piRuntimeAvailable, underPi } from "./pi-runtime.test-support.ts";
+import { piRuntimeAvailable, reportPiRuntime, underPi } from "./pi-runtime.test-support.ts";
 
 describe("piLoader — the file pi loads as the project's bounded extension", () => {
   test("lives where pi discovers project extensions", () => {
@@ -45,6 +45,8 @@ console.log(JSON.stringify({ events: Object.keys(handlers).sort(), root: pi.root
 }
 
 describe("piLoader — loaded by pi's own jiti, under node", () => {
+  reportPiRuntime();
+
   test.skipIf(!piRuntimeAvailable)("hands the project root to bounded-pi's extension", () => {
     const root = project('export const bounded = (root) => (pi) => { pi.root = root; pi.on("session_start", () => {}); };\n');
     expect(load(root)).toEqual({ events: ["session_start"], root, result: null });
