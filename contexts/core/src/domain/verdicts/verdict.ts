@@ -1,3 +1,4 @@
+import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./verdict.contract.ts";
 
@@ -16,13 +17,19 @@ function refuse(reason: string, redirect: string): Contract.Refuse {
   }) as Contract.Refuse;
 }
 
+const filled = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
+
+// Own fields only; extra fields are dropped. An unknown kind is refused, so
+// a later third form fails closed until it exists.
 function parse(raw: unknown): Result<Verdict> {
-  if (typeof raw !== "object" || raw === null) return { ok: false, error: INVALID };
-  const { kind, reason, redirect } = raw as Partial<Record<"kind" | "reason" | "redirect", unknown>>;
-  if (kind === "allow") return { ok: true, value: allow };
-  const filled = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
-  if (kind === "refuse" && filled(reason) && filled(redirect)) return { ok: true, value: refuse(reason, redirect) };
-  return { ok: false, error: INVALID };
+  return readSafely<Verdict>("A verdict", () => {
+    if (typeof raw !== "object" || raw === null) return { ok: false, error: INVALID };
+    const kind = own(raw, "kind");
+    if (kind === "allow") return { ok: true, value: allow };
+    const [reason, redirect] = [own(raw, "reason"), own(raw, "redirect")];
+    if (kind === "refuse" && filled(reason) && filled(redirect)) return { ok: true, value: refuse(reason, redirect) };
+    return { ok: false, error: INVALID };
+  });
 }
 
 export type Verdict = Contract.Verdict;

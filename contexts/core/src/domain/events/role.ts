@@ -1,3 +1,4 @@
+import { own } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./role.contract.ts";
 
@@ -13,8 +14,9 @@ function parse(raw: unknown): Result<Role> {
 
 /** An event's role: a role label, or null when none is active. A missing role is refused, never read as none. */
 export function roleOf(event: object, name: string): Result<Role | null> {
-  if (!("role" in event) || event.role === undefined) return { ok: false, error: `${name} must name its role: a role label, or null when no role is active` };
-  return event.role === null ? { ok: true, value: null } : parse(event.role);
+  const role = own(event, "role");
+  if (role === undefined) return { ok: false, error: `${name} must name its role: a role label, or null when no role is active` };
+  return role === null ? { ok: true, value: null } : parse(role);
 }
 
 export type Role = Contract.Role;

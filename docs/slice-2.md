@@ -22,12 +22,16 @@ The decisions are in [ADR 2026-005](adr/2026-005-events-verdicts-dispatch.md).
 
 ## What a host adapter and a guard can rely on
 
+- A guard sees only the **checked event**: frozen, its paths normalised, and
+  none of the host's extra fields.
 - A tool use lists **every path** the call touches, already resolved by the
   adapter; a guard that refuses any one of them refuses the whole call.
 - A search may say **where** it searches (`search.root`) and the file-name
   filter that limits it; the content pattern is not part of the event.
+- Tool kind and action are independent: a `shell` tool may `write`.
 - Verdicts are discriminated by `kind`. Only allow and refuse exist; a third
-  form (allowing with rewritten input) is left open, not built.
+  form (allowing with rewritten input) is left open, not built, and until
+  it exists a guard returning one is refused.
 
 ## Worked example
 
