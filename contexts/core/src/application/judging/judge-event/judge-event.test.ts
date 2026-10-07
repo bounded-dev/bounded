@@ -176,6 +176,31 @@ describe("JudgeEventHandler", () => {
     expect(log.decisions[0]?.verdict.kind).toBe("refuse");
   });
 
+  test("a check before allowing can still refuse; the refusal is what is recorded", async () => {
+    const log = new FakeLog();
+    const seen: string[] = [];
+    const handler = new JudgeEventHandler(composition, log, clock, {
+      beforeAllow: async (event) => {
+        seen.push(event.kind);
+        return Verdict.refuse("Not now", "Later");
+      },
+    });
+    expect<unknown>(await handler.execute(command("src/a.ts"))).toEqual({ kind: "refuse", reason: "Not now", redirect: "Later" });
+    expect(log.decisions[0]?.verdict.kind).toBe("refuse");
+    await handler.execute(command("generated/a.ts"));
+    expect(seen).toEqual(["tool-use"]);
+  });
+
+  test("a check before allowing that throws refuses", async () => {
+    const handler = new JudgeEventHandler(composition, new FakeLog(), clock, {
+      beforeAllow: async () => {
+        throw new Error("no snapshot");
+      },
+    });
+    const verdict = await handler.execute(command("src/a.ts"));
+    expect(verdict.kind === "refuse" && verdict.reason).toBe("The check before allowing this failed: no snapshot");
+  });
+
   test("records within two seconds by default", () => {
     expect(JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS).toBe(2000);
   });

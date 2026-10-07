@@ -65,6 +65,21 @@ describe("ToolUse — boundaries", () => {
   });
 });
 
+describe("ToolUse — the call's id", () => {
+  test("a tool use may carry the host's id for the call, kept as given", () => {
+    const result = ToolUse.parse({ ...run, callId: "toolu_01ABC" });
+    expect(result.ok && result.value.callId).toBe("toolu_01ABC");
+    const without = ToolUse.parse(run);
+    expect(without.ok && Object.hasOwn(without.value, "callId")).toBe(false);
+  });
+
+  test("a call id is non-empty text without control characters, at most 256 characters", () => {
+    for (const callId of ["", " ", "a\nb", "x".repeat(257), 7]) {
+      expect(error({ ...run, callId })).toBe("A tool call id is non-empty text without control characters, at most 256 characters");
+    }
+  });
+});
+
 describe("ToolUse — never throws", () => {
   test("refuses an input whose fields cannot be read, saying so", () => {
     const hostile = new Proxy({}, { get: () => { throw new Error("trap"); }, has: () => { throw new Error("trap"); }, getOwnPropertyDescriptor: () => { throw new Error("trap"); } });

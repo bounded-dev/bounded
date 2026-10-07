@@ -89,6 +89,36 @@ describe("OpenProjectHandler", () => {
     expect(verdict.kind === "refuse" && verdict.reason.startsWith("This project's configuration cannot be used: its packs cannot be composed")).toBe(true);
   });
 
+  test("with drift watching, a shell command's changes to watched files are put back after it runs", async () => {
+    const working = new Map([["generated/a.ts", "a"]]);
+    const files = {
+      hash: async () => ({ ok: true as const, value: Object.fromEntries([...working].map(([path, content]) => [path, { hash: content, rule: 0 }])) }),
+      restore: async (paths: readonly string[]) => {
+        for (const path of paths) working.set(path, "a");
+        return { ok: true as const, value: undefined };
+      },
+    };
+    const kept = new Map<string, unknown>();
+    const snapshots = { save: async (id: string, hashes: unknown) => void kept.set(id, hashes), take: async (id: string) => kept.get(id) as never };
+    const watching = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/**", why: "generated", redirect: "Change the input" }])] });
+    const logs = new Logs();
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: watching })), logs, clock, { drift: { forProject: () => ({ files, snapshots }) } }).execute(command);
+    const shell = { kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "make" }], callId: "c1" };
+    expect((await project.judge(shell)).kind).toBe("allow");
+    working.set("generated/a.ts", "tampered");
+    const check = await project.afterTool({ ...shell, kind: "tool-result", ok: true });
+    expect(check.restored).toBe(true);
+    expect(check.message?.startsWith("This command changed protected files, and they were restored: generated/a.ts was modified.")).toBe(true);
+    expect(working.get("generated/a.ts")).toBe("a");
+  });
+
+  test("a tool result that cannot be read is reported, and changes nothing", async () => {
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: config })), new Logs(), clock).execute(command);
+    const check = await project.afterTool({ kind: "tool-result" });
+    expect(check.changed).toEqual([]);
+    expect(check.message?.startsWith("The host sent a tool result that cannot be read: ")).toBe(true);
+  });
+
   test("a project whose log cannot be opened still refuses: nothing is allowed unrecorded", async () => {
     const logs: ProjectDecisionLogs = {
       forProject: () => {

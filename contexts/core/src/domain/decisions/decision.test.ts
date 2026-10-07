@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { SessionStart } from "../events/session-start.ts";
+import { ToolResult } from "../events/tool-result.ts";
 import { ToolUse } from "../events/tool-use.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import { Verdict } from "../verdicts/verdict.ts";
@@ -90,6 +91,22 @@ describe("Decision", () => {
       effects: [],
       verdict: { kind: "refuse", reason: "The event cannot be read", redirect: "Fix the adapter", pack: null, effect: null },
       note: null,
+    });
+  });
+
+  test("records a finished tool call, with a note", () => {
+    const result = ToolResult.parse({ kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make" }], ok: true, callId: "c1" });
+    if (!result.ok) throw new Error(result.error);
+    const decision = Decision.of("d-12", TIME, result.value, { verdict: Verdict.refuse("changed", "restore"), refusedBy: null }, "changed by a shell command; restored");
+    expect<unknown>(decision).toEqual({
+      id: "d-12",
+      time: TIME,
+      event: "tool-result",
+      role: "builder",
+      tool: "shell",
+      effects: ["execute `make`"],
+      verdict: { kind: "refuse", reason: "changed", redirect: "restore", pack: null, effect: null },
+      note: "changed by a shell command; restored",
     });
   });
 

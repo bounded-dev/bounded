@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Composition, Verdict } from "bounded/domain";
@@ -87,6 +88,37 @@ export default defineConfig({
     expect(verdict.kind).toBe("refuse");
     expect(Verdict.parse({ kind: "bogus" }).ok).toBe(false);
     expect(Composition.compose([], []).ok).toBe(true);
+  });
+
+  test("a shell command that changes a watched file is undone after it runs, reported and recorded", async () => {
+    const watching = `import { contribution, corePack, defineConfig } from "bounded/domain";
+export default defineConfig({
+  packs: [corePack],
+  contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/**", why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
+});
+`;
+    const root = project({ "bounded.config.ts": watching });
+    mkdirSync(join(root, "generated"));
+    writeFileSync(join(root, "generated", "a.ts"), "original\n");
+    const git = (...args: string[]) => spawnSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args], { cwd: root });
+    writeFileSync(join(root, ".gitignore"), "node_modules/\n.bounded/\n");
+    git("init", "--quiet");
+    git("add", "-A");
+    git("commit", "--quiet", "-m", "base");
+    const { judge, afterTool } = await openProject(root);
+    const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_1" };
+    expect((await judge(shell)).kind).toBe("allow");
+    writeFileSync(join(root, "generated", "a.ts"), "tampered\n");
+    writeFileSync(join(root, "generated", "new.ts"), "created\n");
+    const check = await afterTool({ ...shell, kind: "tool-result", ok: true });
+    expect(check.message).toBe(
+      "This command changed protected files, and they were restored: generated/a.ts was modified, generated/new.ts was created. generated/ is written by the generator. Instead: Change the generator's input instead.",
+    );
+    expect(readFileSync(join(root, "generated", "a.ts"), "utf8")).toBe("original\n");
+    expect(existsSync(join(root, "generated", "new.ts"))).toBe(false);
+    const lines = log(root);
+    expect(lines.map((line) => line.event)).toEqual(["tool-use", "tool-result"]);
+    expect(lines[1]?.verdict.kind).toBe("refuse");
   });
 
   test("a root that is not an absolute path gives a judge that refuses everything", async () => {
