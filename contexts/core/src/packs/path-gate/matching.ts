@@ -10,7 +10,9 @@ import type { ProtectedPath } from "./protected-path.ts";
 // Matching sees dotfiles. A rule's `match` ignores case, as the file systems
 // of macOS and Windows do, so a rule cannot be dodged by changing case; its
 // `except` is matched exactly, so a carve-out never grows. A match ending in
-// a literal name also covers everything under that name, as in .gitignore.
+// a literal name also covers everything under that name, as in .gitignore,
+// unless the rule is a file rule (`file: true`), which covers exactly its
+// paths: then a filter that cannot match the name keeps a listing from it.
 
 type Test = (text: string) => boolean;
 
@@ -19,7 +21,7 @@ interface Compiled {
   readonly except: readonly Test[];
   /** Each part of the match, as a test of one path part; null for a part that may span parts. */
   readonly parts: readonly (Test | null)[];
-  /** The match's last part when it is a glob of one part, such as '*.pem'. */
+  /** The match's last part when it names the files themselves: a glob of one part, such as '*.pem', or a file rule's name. */
   readonly tail: string | undefined;
   /** Each `except` that ends in '**', as tests of its leading parts. */
   readonly subtrees: readonly (readonly Test[])[];
@@ -35,7 +37,7 @@ function compile(rule: ProtectedPath): Compiled {
   if (known !== undefined) return known;
   const parts = rule.match.split("/");
   const last = parts[parts.length - 1] ?? "";
-  const name = !isGlob(last);
+  const name = !isGlob(last) && rule.file !== true;
   const except = rule.except ?? [];
   const made: Compiled = {
     match: picomatch(name ? [rule.match, `${rule.match}/**`] : rule.match, DENYING),
@@ -58,8 +60,12 @@ const partsOf = (path: string): string[] => (path === "." ? [] : path.split("/")
  * covers that name's contents, so no filter rules it out.
  */
 export function unavoidable(rule: ProtectedPath): boolean {
-  const parts = rule.match.split("/");
-  return parts[0] === "**" && !isGlob(parts[parts.length - 1] ?? "**");
+  return rule.match.split("/")[0] === "**" && !filterable(rule);
+}
+
+/** Whether a file-name filter can ever keep a listing away from the rule: only when its last part names the files themselves. */
+export function filterable(rule: ProtectedPath): boolean {
+  return compile(rule).tail !== undefined;
 }
 
 /** Whether the rule applies to this exact path: its match covers it and none of its exceptions does. */
@@ -78,6 +84,8 @@ export function matches(rule: ProtectedPath, path: string): boolean {
  */
 function outOfReach(tail: string, filter: string): boolean {
   if (filter.includes("/") || filter.includes("**")) return false;
+  // A file rule's literal name: the filter is a glob over names, so ask it directly.
+  if (!isGlob(tail)) return !picomatch(filter, DENYING)(tail);
   if (!isGlob(filter)) return !picomatch(tail, DENYING)(filter);
   const [a, b] = [tail.toLowerCase(), filter.toLowerCase()];
   const suffix = (glob: string) => (glob.startsWith("*") && !isGlob(glob.slice(1)) ? glob.slice(1) : undefined);

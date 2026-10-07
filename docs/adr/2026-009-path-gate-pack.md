@@ -16,7 +16,7 @@
   composition root), and takes an export path's layer from the file it
   points at.
 - **Rules are deny-only.** The point `protectedPaths` takes
-  `{ match, except?, deny, redirect, why? }`. `deny` is a non-empty list of
+  `{ match, except?, deny, redirect, why?, file? }`. `deny` is a non-empty list of
   `read`, `list`, `create`, `modify`, `delete`; `writes` is a convenience for
   the last three, spread into the list, so a stored rule is always explicit
   (the spec's coarse "read, write or both" became precise effect kinds, ADR
@@ -37,6 +37,11 @@
   carve-out never grows). A match ending in a literal name also covers
   everything under that name, as in .gitignore: `packages/db` protects
   `packages/db/x.ts`. A match ending in a glob covers only what it matches.
+  A **file rule** (`file: true`, stored only when true) covers exactly the
+  paths its match names, never what is under them: `{ match: ".env", file:
+  true }` protects the file `.env`, so a filter that cannot match the name
+  (`*.ts`) keeps a search of the whole project away from it. Directory
+  semantics stay the default.
 - **Per effect.** `read`, `create` and `modify` are judged by the exact path.
   `list` is judged conservatively: refused when the root, or anything below
   it, could be a path the rule applies to, walking the rule's parts along the
@@ -47,7 +52,8 @@
   `*.ts`) or prefixes (`key*`, `id*`) neither of which extends the other. A
   filter with `/` or `**` proves nothing, and two other globs may share a name
   (`.env*` and `*.tsx` both match `.env.tsx`). A rule ending in a literal name
-  covers that name's contents, so no filter rules it out. A read over a root
+  covers that name's contents, so no filter rules it out, unless it is a file
+  rule: then the filter is asked whether it matches the name. A read over a root
   the same call lists (compared ignoring case) is a content search, judged as
   reaching everything the listing could. A `delete` is also refused when the
   path could hold a path the rule denies delete for, walking the rule only up
@@ -60,8 +66,11 @@
   prefix), the rule's `match`, the pack that contributed the rule (from the
   composition's entries) and the rule's `why`. The redirect is the rule's;
   a listing or search refusal composes its own: "List (or Search) a root
-  outside '<match>', or give a filter that cannot match it — <rule's
-  redirect>". When several rules deny, the first in pack order is named.
+  outside '<match>' — <rule's redirect>", or for the project root "List (or
+  Search) a narrower path (not the whole project) that cannot reach
+  '<match>' — …". Where a filter can help (the rule's last part names the
+  files: a one-part glob or a file rule's name) it adds ", or give a filter
+  that cannot match '<match>'". When several rules deny, the first in pack order is named.
 - **Its own guardrails.** The path gate gives its own point two rules:
   every write to `**/bounded.config.*` (any depth, any extension a loader
   might pick up) and to `.bounded/**` is refused. They are ordinary rules,
@@ -97,7 +106,7 @@ rule-owned exceptions means no pack can weaken another's protection.
 - **Wildcards per part.** More than three `*` or `?` in one part of a pattern
   are refused: picomatch backtracks polynomially on a long name
   (`**/*a*a*a*a*b` took seconds on 255 characters), and a guard must stay fast.
-- **Honest redirects.** A `**`-led rule ending in a literal name reaches
+- **Honest redirects.** A `**`-led rule ending in a literal name (not a file rule) reaches
   every listing and search (its name may be a directory of any file), so its
   refusals say no listing or search can avoid it, and to name or read the
   files directly or ask a person, instead of suggesting another root.

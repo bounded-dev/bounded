@@ -13,7 +13,7 @@ import {
   type WatchedPathSource,
   type WriteEffect,
 } from "bounded/domain";
-import { contains, matches, reaches, unavoidable } from "./matching.ts";
+import { contains, filterable, matches, reaches, unavoidable } from "./matching.ts";
 import { ProtectedPath, writes } from "./protected-path.ts";
 
 /**
@@ -61,15 +61,18 @@ function firstDenial(composition: Composition, denies: (rule: ProtectedPath) => 
 }
 
 /**
- * The redirect for a listing or search that could reach a rule's paths:
- * another root or a filter, or, when neither can help, the honest options.
+ * The redirect for a listing or search of `root` that could reach a rule's
+ * paths: a narrower root, and a filter only where one can help; or, when
+ * neither can, the honest options.
  */
-function elsewhere(verb: "List" | "Search", rule: ProtectedPath): string {
+function elsewhere(verb: "List" | "Search", rule: ProtectedPath, root: string): string {
   if (unavoidable(rule)) {
     const [noun, act] = verb === "List" ? ["listing", "name"] : ["search", "read"];
     return `No ${noun} can avoid '${rule.match}'; ${act} the files you need directly, or ask a person — ${rule.redirect}`;
   }
-  return `${verb} a root outside '${rule.match}', or give a filter that cannot match it — ${rule.redirect}`;
+  const filter = filterable(rule) ? `, or give a filter that cannot match '${rule.match}'` : "";
+  if (root === ".") return `${verb} a narrower path (not the whole project)${filter === "" ? ` that cannot reach '${rule.match}'` : filter} — ${rule.redirect}`;
+  return `${verb} a root outside '${rule.match}'${filter} — ${rule.redirect}`;
 }
 
 /**
@@ -85,14 +88,14 @@ const onRead: EffectGuard<ReadEffect, Composition> = (effect, composition, call)
     if (matches(rule, effect.path)) return { what: `denies read of '${effect.path}'` };
     const search = searches.find((list) => reaches(rule, list.root, list.filter));
     if (search === undefined) return undefined;
-    return { what: `denies read, and searching '${search.root}' could read a path it matches`, redirect: elsewhere("Search", rule) };
+    return { what: `denies read, and searching '${search.root}' could read a path it matches`, redirect: elsewhere("Search", rule, search.root) };
   });
 };
 
 const onList: EffectGuard<ListEffect, Composition> = (effect, composition) =>
   firstDenial(composition, (rule) =>
     rule.deny.includes("list") && reaches(rule, effect.root, effect.filter)
-      ? { what: `denies list, and listing '${effect.root}' could reveal a path it matches`, redirect: elsewhere("List", rule) }
+      ? { what: `denies list, and listing '${effect.root}' could reveal a path it matches`, redirect: elsewhere("List", rule, effect.root) }
       : undefined,
   );
 
@@ -112,7 +115,7 @@ const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) =>
     return undefined;
   });
 
-/** Whether a pattern's last part is a literal name, which the path gate reads as covering everything under it too. */
+/** Whether a pattern's last part is a literal name, which the path gate reads as covering everything under it too (but for a file rule). */
 const endsInName = (match: string): boolean => !/[*?[\]{}]/.test(match.split("/").at(-1) ?? "");
 
 /**
@@ -127,7 +130,7 @@ const watchedFromRules: WatchedPathSource = (composition) => {
   return rules.value.flatMap(({ value: rule }): WatchedPath[] => {
     if (!writes.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) return [];
     const watched = { except: rule.except ?? [], why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
-    return endsInName(rule.match) ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
+    return endsInName(rule.match) && rule.file !== true ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
   });
 };
 

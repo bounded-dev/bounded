@@ -72,7 +72,10 @@ protected, not the modules it imports (ADR 2026-009 lists the known gaps).
 ## Writing rules
 
 - A literal name covers everything under it: `packages/db` protects the
-  whole directory. Do not end a pattern in `/`.
+  whole directory. Do not end a pattern in `/`. For a file, say so with
+  `file: true` (`{ match: ".env", file: true, … }`): the rule then covers the
+  file alone, and a search of the whole project with a filter that cannot
+  match the name (`*.ts`) is allowed.
 - Prefer literal last parts or pure suffixes (`**/.env`, `**/.env.local`,
   `**/*.pem`) to open globs (`**/.env*`): exact paths match the same, and a
   pure suffix can be ruled out by a listing's filter (`*.ts`).
