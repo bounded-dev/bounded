@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Verdict } from "bounded/domain";
 import type { ToolUse } from "./event.ts";
-import { type Decide, type Load, type Pi, type PiHandler, piExtension } from "./extension.ts";
+import { type Decide, type ExtensionOptions, type Load, type Pi, type PiHandler, piExtension } from "./extension.ts";
+import { bounded } from "./index.ts";
 
 const project = mkdtempSync(join(tmpdir(), "bounded-pi-extension-"));
 mkdirSync(join(project, "generated"), { recursive: true });
@@ -35,9 +36,9 @@ const noGenerated: Decide = async (event) => {
 const loads = (decide: Decide): Load => async () => decide;
 const never = <T>(): Promise<T> => new Promise<T>(() => {});
 
-async function started(load: Load, deadlineMs?: number) {
+async function started(load: Load, deadlines: Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs"> = {}) {
   const fake = fakePi();
-  piExtension({ root: project, load, home: "/home/agent", ...(deadlineMs === undefined ? {} : { deadlineMs }) })(fake.pi);
+  piExtension({ root: project, load, home: "/home/agent", ...deadlines })(fake.pi);
   await fake.start();
   return fake;
 }
@@ -156,12 +157,55 @@ describe("piExtension — fails closed", () => {
   });
 
   test("a decide that never settles blocks at the deadline instead of hanging pi", async () => {
-    const fake = await started(loads(() => never()), 50);
+    const fake = await started(loads(() => never()), { deadlineMs: 50 });
     blocked(await fake.call("read", { path: "a.ts" }), "did not decide within 50 ms");
   });
 
   test("a composition that never settles neither hangs the session start nor lets calls through", async () => {
-    const fake = await started(() => never(), 50);
+    const fake = await started(() => never(), { composeDeadlineMs: 50 });
     blocked(await fake.call("read", { path: "a.ts" }), "bounded could not start", "within 50 ms");
+  });
+});
+
+describe("piExtension — freezing and deadlines", () => {
+  test("freezes the input before translating, everything inside it, frozen parents included", async () => {
+    const edit = { oldText: "a", newText: "b" };
+    const input = { path: "a.ts", edits: Object.freeze([edit]) };
+    let frozenWhenDecided = false;
+    const fake = await started(loads(async () => {
+      frozenWhenDecided = Object.isFrozen(input) && Object.isFrozen(edit);
+      return Verdict.allow;
+    }));
+    expect(await fake.call("edit", input)).toBeUndefined();
+    expect(frozenWhenDecided).toBe(true);
+    expect(Object.isFrozen(edit)).toBe(true);
+  });
+
+  test("a composition that times out is retried on the next tool call", async () => {
+    let count = 0;
+    const fake = await started(async () => {
+      count += 1;
+      return count === 1 ? never() : noGenerated;
+    }, { composeDeadlineMs: 50 });
+    const first = await fake.call("read", { path: "a.ts" });
+    expect(first).toMatchObject({ block: true });
+    expect((first as { reason: string }).reason).toContain("within 50 ms");
+    expect(await fake.call("read", { path: "a.ts" })).toBeUndefined();
+    expect(count).toBe(2);
+  });
+
+  test("composing has its own deadline, longer than each decision's", async () => {
+    const slow: Load = () => new Promise((resolve) => setTimeout(() => resolve(noGenerated), 100));
+    const fake = await started(slow, { deadlineMs: 50, composeDeadlineMs: 1000 });
+    expect(await fake.call("read", { path: "a.ts" })).toBeUndefined();
+  });
+
+  test("bounded(root, options) passes its deadlines to the extension", async () => {
+    const fake = fakePi();
+    bounded(project, { composeDeadlineMs: 50, deadlineMs: 50 })(fake.pi);
+    await fake.start();
+    const result = await fake.call("read", { path: "a.ts" });
+    expect(result).toMatchObject({ block: true });
+    expect((result as { reason: string }).reason).toContain("bounded could not start");
   });
 });

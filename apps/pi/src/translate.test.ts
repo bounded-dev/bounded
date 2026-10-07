@@ -175,3 +175,19 @@ describe("translate — pi-subagents' subagent tool, read strictly", () => {
     expect(refusal(pi("subagent", { action: "status", agent: "a", task: "x" }))).toContain("'task'");
   });
 });
+
+describe("translate — the subagent tool's reach", () => {
+  test("only project agents are translated: another agentScope is refused", () => {
+    expect(pi("subagent", { agent: "a", agentScope: "project" })).toEqual(use("subagent", { kind: "delegate", agent: "a" }));
+    for (const scope of ["user", "both", 3]) {
+      expect(refusal(pi("subagent", { agent: "a", agentScope: scope }))).toBe(`pi's subagent call uses agentScope '${scope}'; only 'project' is translated`);
+    }
+  });
+
+  test("a status or resume run directory must be inside the project", () => {
+    expect(pi("subagent", { action: "status", dir: "runs/r1" })).toEqual(use("subagent", { kind: "invoke", name: "subagent.status" }));
+    expect(refusal(pi("subagent", { action: "status", dir: "../elsewhere" }))).toContain("outside the project");
+    expect(refusal(pi("subagent", { action: "resume", dir: "/tmp/run", message: "go" }))).toContain("outside the project");
+    expect(refusal(pi("subagent", { action: "status", dir: 3 }))).toBe("pi's subagent call has a 'dir' that is not a string");
+  });
+});
