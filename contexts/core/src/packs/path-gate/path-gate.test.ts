@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
+import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict, watchedPathsOf } from "bounded/domain";
 import { pathGate, type ProtectedPath, writes } from "bounded/path-gate";
 
 const packId = packIdsFor("test-packs");
@@ -213,7 +213,7 @@ describe("the path gate — listing is judged conservatively", () => {
   test("a listing refusal composes its redirect: list elsewhere or filter it out, then the rule's own redirect", () => {
     expect(decide([hidden("secrets/**")], [list(".")])).toMatchObject({
       kind: "refuse",
-      redirect: "List a root outside 'secrets/**', or give a filter that cannot match it — Do not look there",
+      redirect: "List a narrower path (not the whole project) that cannot reach 'secrets/**' — Do not look there",
     });
   });
 
@@ -236,13 +236,51 @@ describe("the path gate — listing is judged conservatively", () => {
     expect(decide([keys], [list("docs"), read("docs")], "search")).toBe(Verdict.allow);
     expect(decide([keys], [list("src"), read("src")], "search")).toMatchObject({
       kind: "refuse",
-      redirect: "Search a root outside 'src/keys/**', or give a filter that cannot match it — Search elsewhere",
+      redirect: "Search a root outside 'src/keys/**' — Search elsewhere",
     });
   });
 
   test("a search is recognised whatever the case of its root", () => {
     const keys = rules("a", { match: "src/keys/**", deny: ["read"], redirect: "Search elsewhere" });
     expect(decide([keys], [list("SRC"), read("src")], "search").kind).toBe("refuse");
+  });
+});
+
+describe("the path gate — rules that name files only", () => {
+  const env = (match: string, deny: ProtectedPath["deny"] = ["read", "list"]) => rules("a", { match, deny, redirect: "Ask for the values you need", file: true });
+
+  test("a file rule covers exactly the paths it matches, not what is under them", () => {
+    expect(decide([env(".env")], [read(".env")]).kind).toBe("refuse");
+    expect(decide([env(".ENV")], [read(".env")]).kind).toBe("refuse");
+    expect(decide([env(".env")], [read(".env/inner")])).toBe(Verdict.allow);
+    expect(decide([env(".env")], [read("src/.env")])).toBe(Verdict.allow);
+  });
+
+  test("a filter that cannot match a file rule's name keeps a listing or search of the whole project away from it", () => {
+    expect(decide([env(".env")], [list(".", "*.ts")])).toBe(Verdict.allow);
+    expect(decide([env(".env")], [list(".", "*.ts"), read(".")], "search")).toBe(Verdict.allow);
+    expect(decide([env(".env")], [list(".", ".env*")]).kind).toBe("refuse");
+    expect(decide([env(".env")], [list(".", "*")]).kind).toBe("refuse");
+    expect(decide([env("**/.env")], [list("src", "*.ts")])).toBe(Verdict.allow);
+  });
+
+  test("refusing a listing or search of the whole project says to narrow it or filter the name out, never to look outside the name", () => {
+    expect(decide([env(".env")], [list(".")])).toMatchObject({
+      kind: "refuse",
+      redirect: "List a narrower path (not the whole project), or give a filter that cannot match '.env' — Ask for the values you need",
+    });
+    expect(decide([env(".env", ["read"])], [list("."), read(".")], "search")).toMatchObject({
+      kind: "refuse",
+      redirect: "Search a narrower path (not the whole project), or give a filter that cannot match '.env' — Ask for the values you need",
+    });
+  });
+
+  test("a file rule that denies writes is watched as the file alone", () => {
+    const all = [corePack, pathGate, rules("a", { match: ".env", deny: [...writes], redirect: "Ask", file: true })];
+    const composed = Composition.compose(all, all);
+    if (!composed.ok) throw new Error(composed.error);
+    const watched = watchedPathsOf(composed.value);
+    expect(watched.ok && watched.value.map(({ rule }) => rule.match).filter((match) => match.includes(".env"))).toEqual([".env"]);
   });
 });
 
