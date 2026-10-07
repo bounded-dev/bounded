@@ -30,7 +30,15 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
   if (action !== undefined) {
     if (typeof action !== "string" || !ACTIONS.has(action)) return refuse(`uses action '${String(action)}', which bounded does not translate`);
     const unknown = unknownFields(input, ACTION_FIELDS);
-    return unknown === undefined ? { ok: true, value: [{ kind: "invoke", name: `${toolName}.${action}` }] } : refuse(unknown);
+    if (unknown !== undefined) return refuse(unknown);
+    // A run directory names where the run's files are; it must be in the project.
+    const dir = own(input, "dir");
+    if (dir !== undefined) {
+      if (typeof dir !== "string") return refuse("has a 'dir' that is not a string");
+      const located = locate(dir, sessionCwd);
+      if (!located.ok) return located;
+    }
+    return { ok: true, value: [{ kind: "invoke", name: `${toolName}.${action}` }] };
   }
 
   const effects: Effect[] = [];
@@ -73,6 +81,9 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
 
   const unknown = unknownFields(input, RUN_FIELDS);
   if (unknown !== undefined) return refuse(unknown);
+  // Agents found outside the project are not the project's to vouch for.
+  const scope = own(input, "agentScope");
+  if (scope !== undefined && scope !== "project") return refuse(`uses agentScope '${String(scope)}'; only 'project' is translated`);
   const top = add(input, sessionCwd, false);
   if (!top.ok) return top;
   const [list, chain] = [own(input, "tasks"), own(input, "chain")];

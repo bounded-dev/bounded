@@ -33,8 +33,10 @@ integration lands (below).
 The tests beside each file show the behaviour. `extension.test.ts` drives
 the whole extension through a fake pi; `pi-path.test.ts` and
 `install.test.ts` also run under pi's own runtime (node, through the jiti pi
-loads extensions with, via `pi-runtime.test-support.ts`), skipped where pi is
-not installed.
+loads extensions with and pi's options, via `pi-runtime.test-support.ts`).
+pi is found through `PI_CODING_AGENT_DIR`, else the `pi` on PATH, else the
+global npm root; where it is not found those cases are skipped and the
+test run prints why.
 
 ## The translation
 
@@ -72,7 +74,12 @@ Read strictly, so nothing it does goes undescribed:
   writes nothing; `true` refuses, as its file is not named.
 - `action: "status"` and `action: "resume"` are invoked by name
   (`subagent.status`, `subagent.resume`) with no delegate, so a guard allows
-  or refuses them by name. Every other action refuses.
+  or refuses them by name. A run directory (`dir`) they name must be inside
+  the project. Every other action refuses.
+- An `agentScope` other than `"project"` refuses: agents found outside the
+  project are not the project's to vouch for. Deferred: when `agentScope` is
+  absent, pi-subagents searches user and project agents (`"both"`); the call
+  is translated, and guards see the agent's name but not where it was found.
 
 This reading follows the shapes of pi-subagents' schema (single agent,
 tasks, chain with parallel). Version 0.52.1 runs workflows through
@@ -92,11 +99,15 @@ such calls are refused.
 `load: () => Promise<decide>` starts at each `session_start`, without
 delaying the session; tool calls await it. `decide(toolUse)` returns a
 `Promise<Verdict>` (`bounded/domain`), as the core's judging is
-asynchronous. Composing and each decision have a deadline (3 s by default):
-a promise that never settles blocks the call instead of hanging pi. pi gets
-`undefined` to run the call, or `{ block: true, reason: "<reason>\n<redirect>" }`.
-On allow, the call's input is deep-frozen, so a later handler that tries to
-change what was judged throws, and pi blocks the call.
+asynchronous. Composing has a deadline of 15 s, each decision one of 3 s
+(both set through `bounded(root, { composeDeadlineMs, deadlineMs })`): a
+promise that never settles blocks the call instead of hanging pi. A
+composition that runs out of time blocks the calls waiting for it, and the
+next call composes again; one that fails blocks every call until a new
+session. pi gets `undefined` to run the call, or
+`{ block: true, reason: "<reason>\n<redirect>" }`. The call's input is
+deep-frozen before it is translated, so nothing can change what is judged:
+a later handler or tool that tries throws, and pi blocks the call.
 
 Until the core integration lands, `composeProject` refuses (there is no
 `bounded.config.ts` reading or composed dispatch yet), so an installed
@@ -111,7 +122,7 @@ loader blocks every call, saying why. Tests inject their own `load`.
   session started in a subdirectory does not find the project's loader.
 - **Other extensions.** Global (user) extensions run after project ones
   and could mutate `event.input`; the deep freeze turns such a change into
-  a blocked call, but an extension that runs before bounded, or that does
+  a blocked call (and makes a tool that mutates its own arguments fail), but an extension that runs before bounded, or that does
   its own I/O, is outside what bounded can see.
 - **Parallel tool batches.** pi prepares every call of an assistant
   message (running `tool_call` handlers) before executing any of them, then

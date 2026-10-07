@@ -39,6 +39,8 @@ export const piRuntimeAvailable = node !== null && pi !== undefined;
 export function reportPiRuntime(): void {
   if (piRuntimeAvailable) return;
   const why = node === null ? "node is not on PATH" : "pi not found; set PI_CODING_AGENT_DIR to its package directory";
+  // bun counts skipped cases but does not print their titles, so the reason is printed too.
+  console.warn(`bounded-pi: pi-runtime tests skipped: ${why}`);
   test.skip(`skipped: ${why}`, () => {});
 }
 
