@@ -113,7 +113,9 @@ a later handler or tool that tries throws, and pi blocks the call.
 `decide` is its judge, which decides each tool use with the composed packs
 and records the decision in `<root>/.bounded/guard-log.jsonl`. A
 configuration that cannot be used gives a judge that refuses every event, so
-every call is blocked with the core's reason and redirect.
+every call is blocked with the core's reason and redirect. The composition
+root also guards itself: if opening the project rejects, or the judge
+rejects or throws, the event is refused, and the call blocked, saying why.
 `end-to-end.test.ts` runs this with a real `bounded.config.ts`; the other
 tests inject their own `load`. `piLoader()` is pure: the caller writes the
 file.
