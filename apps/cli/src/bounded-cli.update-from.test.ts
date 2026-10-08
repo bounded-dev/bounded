@@ -70,6 +70,16 @@ describe("bounded update --from <dir>: the one bounded tarball", () => {
     expect(readFileSync(join(root, "bounded.config.ts"), "utf8")).toBe("// mine\n");
   });
 
+  test("hands the version bounded was before the upgrade to a bounded that accepts it (3.1.1 or later)", async () => {
+    const root = project();
+    const release9 = join(scratch, "release-9");
+    pack(release9, "bounded", "9.0.0", { bin: true });
+    const ran = await runBoundedCli(["update", "--from", release9], root);
+    expect(ran.stderr).toBe("");
+    expect(ran.exitCode).toBe(0);
+    expect(ran.stdout).toContain("handed over to bounded 9.0.0: update --no-upgrade --previous-version 1.0.0\n");
+  });
+
   test("refuses a directory that cannot be read", async () => {
     const root = project();
     const ran = await runBoundedCli(["update", "--from", join(scratch, "no-such-directory")], root);

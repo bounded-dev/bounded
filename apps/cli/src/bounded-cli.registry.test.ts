@@ -179,6 +179,20 @@ describe("bounded update from the registry: the one bounded package", () => {
     }
   });
 
+  test("hands the version bounded was before the upgrade to a bounded that accepts it (3.1.1 or later), so its restart notice knows whether the version changed", async () => {
+    const root = initialised("bun");
+    const runner = stub(root, upgradeTo(root, "bun", "9.0.0"));
+    const ran = await runBoundedCli(["update"], root, runner.run);
+    expect(ran.stderr).toBe("");
+    expect(ran.exitCode).toBe(0);
+    expect(runner.commands).toEqual([UPGRADE.bun, handOver(root, "update", "--no-upgrade", "--previous-version", "3.0.0")]);
+    // A bounded older than 3.1.1 does not understand --previous-version: it is handed `update --no-upgrade` alone.
+    const older = initialised("bun");
+    const olderRunner = stub(older, upgradeTo(older, "bun", "3.1.0"));
+    expect((await runBoundedCli(["update"], older, olderRunner.run)).exitCode).toBe(0);
+    expect(olderRunner.commands[1]).toEqual(handOver(older, "update", "--no-upgrade"));
+  });
+
   test("upgrades bounded where the project lists it: in dependencies", async () => {
     const root = initialised("npm", false);
     const runner = stub(root, upgradeTo(root, "npm", "3.1.0"));
