@@ -38,7 +38,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   command changed in protected files.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
-- **One package, `bounded` 3.1.0, ready to publish; 3.0.0 is published**
+- **One package, `bounded` 3.1.1, ready to publish; 3.1.0 is published**
   (issue #65, first slice;
   [ADR 2026-016](adr/2026-016-cli-app.md)). It carries the library, the path
   gate, the `bounded` command (source `apps/cli`) and the Claude Code and pi
@@ -67,9 +67,16 @@ when written; keep it current (AGENTS.md, "Working with the user").
     for (never adding one), and any third-party installer. It is
     idempotent and never writes the configuration. Any failed install
     restores `package.json` and the lockfiles.
+  - Both end with a restart notice per host (3.1.1): Claude Code restarts
+    only when its settings changed; pi when its loader or `bounded`'s
+    version changed, or the version it replaced is not known; a
+    third-party host when its installer changed a file, or the version
+    changed or is not known. Otherwise one line says no restart is needed.
   - The hand-offs are the contract between versions: every version must
     keep accepting `bounded init --no-install [--host <host>]...` and
-    `bounded update --no-upgrade`.
+    `bounded update --no-upgrade`; from 3.1.1 also
+    `--previous-version <version>`, handed only to a `bounded` at 3.1.1 or
+    later ([ADR 2026-016](adr/2026-016-cli-app.md)).
   - `--from <dir>` installs or upgrades from `bounded`'s packed tarball, for
     local development (README, "From a checkout").
   - The Claude Code hook runs
@@ -180,12 +187,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
     new version. Measured: the rule adds no time to a Bash Pre and Post
     round through the bundled hook (median 318 ms with and without; mostly
     two Node starts).
-  - `bounded@3.0.0` is on npm as `latest`, the new major above the legacy
-    2.x ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)):
+  - `bounded@3.1.0` is on npm as `latest`, above the legacy
+    2.x ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)), with
+    the adapters grouped by port
+    ([ADR 2026-017](adr/2026-017-adapters-by-port.md)):
     `npx bounded init` in a fresh project installs it from the registry,
-    with no `--from`. Not on npm yet: 3.1.0's changes (the adapters grouped
-    by port, [ADR 2026-017](adr/2026-017-adapters-by-port.md)) and the
-    discourage-defaults rules. `--from <dir>` stays only for installing a
+    with no `--from`. Not on npm yet: 3.1.1's per-host restart notice and
+    its `--previous-version` hand-off. `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
@@ -244,7 +252,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the guard log ([guard log](guard-log.md),
   [ADR 2026-008](adr/2026-008-guard-log.md)).
-- Publishing `bounded` 3.1.0 to npm (3.0.0, the new major above the legacy
+- Publishing `bounded` 3.1.1 to npm (3.1.0, above the legacy
   2.x, is published,
   [ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
   package is ready ([releasing](releasing.md)); the publish waits for review.
