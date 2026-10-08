@@ -22,8 +22,7 @@ const HOOK = 'node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-c
 /** The restart notice's lines (bounded-cli.restart-notice.test.ts has every case). */
 const CLAUDE_CODE_RESTART = "Restart Claude Code sessions in this project so they load the new hooks.";
 const piRestart = (version: string): string => `Restart pi sessions in this project to load bounded ${version}.`;
-const piRestartVersionUnknown = (version: string): string => `Restart pi sessions in this project to load bounded ${version} (the version it replaced is not known).`;
-const noRestart = (version: string): string => `No need to restart existing sessions: bounded ${version} is live on the next tool call.`;
+const claudeCodeNoRestart = (version: string): string => `No need to restart Claude Code sessions: bounded ${version} is live on their next tool call.`;
 
 /** PATH as a user's shell has it, or with every directory holding a `bun` removed. */
 function pathWith(bun: boolean): string {
@@ -143,6 +142,7 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     // The hooks did not change, so Claude Code needs no restart; pi loaded the old version in-process, so it does.
     expect(update.stdout).toContain(piRestart("99.0.0"));
     expect(update.stdout).not.toContain(CLAUDE_CODE_RESTART);
+    expect(update.stdout).toContain(claudeCodeNoRestart("99.0.0"));
     expect(versionOf(project)).toBe("99.0.0");
     expect(json<{ overrides: Record<string, string> }>(join(project, "package.json")).overrides.bounded).toBe(`file:${tarball(second, "99.0.0")}`);
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
@@ -152,8 +152,9 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     const refresh = run(["npx", "--no-install", "bounded", "update", "--no-upgrade"], project);
     expect(refresh.exitCode).toBe(0);
     expect(refresh.stdout).toContain("up to date");
-    // Run by hand, with no previous version: whether pi's bounded changed is not known.
-    expect(refresh.stdout).toContain(piRestartVersionUnknown("99.0.0"));
+    // The CLI cannot know which bounded a running pi session loaded, so pi is told to restart after every update.
+    expect(refresh.stdout).toContain(piRestart("99.0.0"));
+    expect(refresh.stdout).toContain(claudeCodeNoRestart("99.0.0"));
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsText);
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
   }, 300_000);
@@ -222,7 +223,7 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
       expect(update.stdout).toContain("with npm");
       expect(update.stdout).toContain("bounded 99.0.0");
       // Claude Code alone, its hooks unchanged: the new version is live on the next tool call.
-      expect(update.stdout).toContain(noRestart("99.0.0"));
+      expect(update.stdout).toContain(claudeCodeNoRestart("99.0.0"));
       expect(update.stdout).not.toMatch(/^Restart/m);
       expect(versionOf(project)).toBe("99.0.0");
       expect(json<{ overrides: Record<string, string> }>(join(project, "package.json")).overrides.bounded).toBe("$bounded");
@@ -230,7 +231,7 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
       const refresh = run(["npx", "--no-install", "bounded", "update", "--no-upgrade"], project, { bun: false });
       expect(refresh.exitCode).toBe(0);
       expect(refresh.stdout).toContain("up to date");
-      expect(refresh.stdout).toContain(noRestart("99.0.0"));
+      expect(refresh.stdout).toContain(claudeCodeNoRestart("99.0.0"));
 
       // The installed tarball's bin, run by node itself (npx above ran it too).
       const usage = run(["node", join(project, "node_modules", "bounded", "dist", "cli.js")], project, { bun: false });
