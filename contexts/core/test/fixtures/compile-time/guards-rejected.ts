@@ -48,3 +48,5 @@ declare function needsSnapshots(key: PortKey<Snapshots>): void;
 export const wrongAdapter = Ports.provide(filesPort, () => snapshotsAdapter); // rejected: required in type 'Files'
 export const wrongKey = needsSnapshots(filesPort); // rejected: is not assignable to parameter of type 'PortKey<Snapshots
 export const _snapshots = snapshotsPort;
+// The core keeps no watched paths: what a shell command must not change is the path gate's, from its protected paths.
+export const watchedByCore = contribution(guards.watchedPaths, []); // rejected: Property 'watchedPaths' does not exist on type 'CorePackPoints'

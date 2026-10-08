@@ -44,6 +44,16 @@ class CompositionImpl implements Contract.Composition {
       }
     }
 
+    // Each point has a declaration of its own, so a pack's code finds its point by its declaration alone.
+    const declared: BasePoint[] = [];
+    for (const pack of [...chosen].sort(byId)) {
+      for (const point of pointsOf(pack)) {
+        const earlier = declared.find((other) => other.sharesDeclarationWith(point));
+        if (earlier !== undefined) return refuse(`Pack '${pack.id.value}' declares extension point '${point.id}' with the declaration of '${earlier.id}'. Declare each point with its own point(...)`);
+        declared.push(point);
+      }
+    }
+
     const order = dependencyOrder(chosen);
     const slots = new Map<BasePoint, Contract.Entry<unknown>[]>();
     for (const pack of order) {

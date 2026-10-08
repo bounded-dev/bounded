@@ -109,6 +109,10 @@ class ExtensionPointImpl implements Contract.BasePoint {
   declaredBy(declaration: Contract.BaseDeclaration): boolean {
     return this.declaration === declaration;
   }
+
+  sharesDeclarationWith(other: Contract.BasePoint): boolean {
+    return other instanceof ExtensionPointImpl && other.declaration === this.declaration;
+  }
 }
 
 /** A group's member points, keyed by member, as own properties only. */
@@ -219,7 +223,7 @@ class PackImpl implements Contract.BasePack {
     }
     if (!Array.isArray(contributes) || !contributes.every(ContributionImpl.genuine)) return `its contributes must be a list of contributions made with contribution(...) ${COPY}`;
     for (const [key, port] of Object.entries(this.ports)) {
-      if (!CAMEL_CASE.test(key)) return `its port key '${key}' must be a camelCase word, such as 'watchedFiles'`;
+      if (!CAMEL_CASE.test(key)) return `its port key '${key}' must be a camelCase word, such as 'sourceFiles'`;
       if (!isPortKey(port)) return `its port '${key}' must be declared with portKeysFor(...) ${COPY}`;
       if (port.owner.value !== packIdText(this.id)) return `its port '${key}' belongs to ${port.owner.value}: a pack declares only its own ports`;
     }

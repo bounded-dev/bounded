@@ -33,6 +33,8 @@ export interface Composition {
   /**
    * The point a selected pack made from `declaration`, or undefined: how a
    * pack's own code finds its points without importing the pack itself.
+   * Composition refuses a declaration used for two points, so there is at
+   * most one.
    */
   pointDeclaredBy<Value>(declaration: PointDeclaration<Value>): ExtensionPoint<Value, PackId> | undefined;
   /** The ports the selected packs need a host to provide, in composition order. */

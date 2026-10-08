@@ -217,7 +217,8 @@ tool lifecycle, recorded below when it lands).
   `application/judge-calls/`, its point declaration and own rules are in
   `domain/protected-path.ts`. Its own code finds its point through
   `composition.pointDeclaredBy(protectedPathsPoint)`, so nothing imports the
-  overview. The core pack follows the convention: `domain/core-pack/core.pack.ts`
+  overview; composition refuses a declaration used for two points, so the
+  point found is the declaring pack's. The core pack follows the convention: `domain/core-pack/core.pack.ts`
   (sections `id` and `points`), `core.contract.ts`, the declarations and
   `functionOf` in `guard-points.ts`.
 - **R7** checks both: a shipped pack's layout, and every overview's sections,
