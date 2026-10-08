@@ -1,6 +1,6 @@
 {
   "name": "bounded-pi",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Bounded's pi host adapter, in source. Not published: bounded's prepack bundles it into bounded (ADR 2026-016)",
   "private": true,
   "type": "module",

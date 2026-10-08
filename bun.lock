@@ -13,7 +13,7 @@
     },
     "apps/claude-code": {
       "name": "bounded-claude-code",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "bin": {
         "bounded-claude-code": "./src/main.ts",
       },
@@ -27,7 +27,7 @@
     },
     "apps/cli": {
       "name": "bounded-cli",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "bin": {
         "bounded": "./src/main.ts",
       },
@@ -37,14 +37,14 @@
     },
     "apps/pi": {
       "name": "bounded-pi",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "dependencies": {
         "bounded": "workspace:*",
       },
     },
     "contexts/core": {
       "name": "bounded",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "bin": {
         "bounded": "dist/cli.js",
       },
