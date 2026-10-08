@@ -1,6 +1,10 @@
 # 2026-010: A project's configuration, and opening a project for judging
 
-**Status:** accepted.
+**Status:** accepted; amended by [ADR 2026-013](2026-013-restructure.md):
+the feature lives in `application/project-config`, and `openProject`'s
+`ports` option (adapters for the selected packs' ports) replaces its
+`drift` and `pathKinds` options; a selected pack's port not provided refuses
+every event.
 
 ## Decision
 
