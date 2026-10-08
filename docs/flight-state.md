@@ -147,7 +147,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   in-place edits (`sed -i`, `perl -i`), what a script file or program opens
   itself, and brace expansion in a command name (`{cat,.env}`). PowerShell
   (pi's `powershell` tool) is read as bash. What it cannot resolve the
-  path gate allows. The real control is
+  path gate allows. A copy or move whose sources are unknown records no
+  write into its destination directory (`xargs cp -t dir`, `cp $X dir/`), so
+  nothing there is judged (ADR 2026-020, "Limits"). The real control is
   confining commands at the operating-system level (for example a sandbox
   profile, or the host's own Bash sandbox settings, generated from
   `protectedPaths`): planned, not built.

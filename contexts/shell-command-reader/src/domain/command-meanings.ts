@@ -91,7 +91,7 @@ function runs(args: readonly ShellWord[], optionsWithValues: readonly string[] =
 }
 const run = (words: readonly ShellWord[]): CommandMeaning => {
   const [name, ...args] = words;
-  return name === undefined ? NONE : meaning({ runs: [{ name, args }] });
+  return name === undefined ? NONE : meaning({ runs: [{ name, args, trailing: true }] });
 };
 
 /**
@@ -115,7 +115,7 @@ function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
     let directory: ShellWord | undefined;
     const ran = (words: readonly ShellWord[]): CommandMeaning => {
       const [name, ...rest] = words;
-      return name === undefined ? NONE : meaning({ runs: [{ name, args: rest, ...(directory === undefined ? {} : { directory }) }] });
+      return name === undefined ? NONE : meaning({ runs: [{ name, args: rest, trailing: true, ...(directory === undefined ? {} : { directory }) }] });
     };
     for (let index = 0; index < args.length; index++) {
       const word = args[index] as ShellWord;
@@ -182,7 +182,7 @@ function git(args: readonly ShellWord[]): CommandMeaning {
     const text = literal(args[index]);
     if (text === "-C") {
       const directory = args[index + 1];
-      return directory === undefined ? NONE : meaning({ runs: [{ name: literalWord("git"), args: args.slice(index + 2), directory }] });
+      return directory === undefined ? NONE : meaning({ runs: [{ name: literalWord("git"), args: args.slice(index + 2), directory, trailing: true }] });
     }
     // Global options git accepts with their value as the next word (checked against git 2.54).
     if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace" || text === "--config-env" || text === "--attr-source") index++;
@@ -243,26 +243,61 @@ function curl(args: readonly ShellWord[]): CommandMeaning {
 
 /** xargs: the command it runs, with the arguments given to it literally (the rest come from its input). */
 function xargs(args: readonly ShellWord[]): CommandMeaning {
-  const fromFile: ShellWord[] = [];
-  for (let index = 0; index < args.length; index++) {
-    const text = literal(args[index]);
-    const value = text === undefined ? undefined : attached(text, "-a");
-    if (text === "-a" && args[index + 1] !== undefined) fromFile.push(args[index + 1] as ShellWord);
-    else if (value !== undefined) fromFile.push(literalWord(value));
-  }
-  const withValues = ["-I", "-J", "-L", "-l", "-n", "-P", "-d", "-E", "-e", "-s", "-a"];
-  const ran = runs(args, withValues);
+  const { command, replace, argFiles } = xargsOptions(args);
+  const [name, ...rest] = command;
+  if (name === undefined) return meaning({ reads: argFiles });
   // With a replace string (-I, -i, --replace, BSD -J) the input is substituted in place, among the literal words; without one, more
   // arguments come after them from its input, which only the run can tell. Either way the literal words are judged as written.
-  let replaces = false;
+  return meaning({ runs: [{ name, args: rest, ...(replace === undefined ? { input: true as const } : { replace }) }], reads: argFiles });
+}
+
+/** xargs's short options that take a value: the rest of their word, or the next word when they end it (GNU and BSD). */
+const XARGS_VALUE_LETTERS = "IJLnPdEsaRS";
+/** xargs's short options whose value, if any, is only the rest of their word: -e[eof], -l[lines], -i[replace]. */
+const XARGS_ATTACHED_LETTERS = "eli";
+/** xargs's long options that take a value: after `=`, or the next word. */
+const XARGS_VALUE_OPTIONS = ["--max-args", "--max-procs", "--delimiter", "--arg-file", "--max-chars", "--process-slot-var"];
+
+/**
+ * xargs's own options, walked as getopt walks them, in one pass: where its
+ * command starts, its replace string (undefined when it has none; -i and a
+ * bare --replace mean `{}`), and the files it reads its input from (-a).
+ * Long options with an optional value (--replace, --eof, --max-lines) take
+ * it only after `=`, as getopt_long gives it.
+ */
+function xargsOptions(args: readonly ShellWord[]): { readonly command: readonly ShellWord[]; readonly replace: ShellWord | undefined; readonly argFiles: readonly ShellWord[] } {
+  let replace: ShellWord | undefined;
+  const argFiles: ShellWord[] = [];
   for (let index = 0; index < args.length; index++) {
     const text = literal(args[index]);
-    if (text === "--" || !isOption(args[index] as ShellWord)) break;
-    if (text === undefined) break;
-    if (text === "--replace" || text.startsWith("--replace=") || /^-[IJi]/.test(text)) replaces = true;
-    if (withValues.includes(text)) index++;
+    if (text === "--") return { command: args.slice(index + 1), replace, argFiles };
+    if (text === undefined || !text.startsWith("-") || text === "-") return { command: args.slice(index), replace, argFiles };
+    if (text.startsWith("--")) {
+      const equals = text.indexOf("=");
+      const option = equals === -1 ? text : text.slice(0, equals);
+      const given = equals === -1 ? undefined : literalWord(text.slice(equals + 1));
+      if (XARGS_VALUE_OPTIONS.includes(option)) {
+        const value = given ?? args[++index];
+        if (option === "--arg-file" && value !== undefined) argFiles.push(value);
+      } else if (option === "--replace") replace = given ?? literalWord("{}");
+      continue;
+    }
+    for (let at = 1; at < text.length; at++) {
+      const letter = text.charAt(at);
+      const rest = text.slice(at + 1);
+      if (XARGS_VALUE_LETTERS.includes(letter)) {
+        const value = rest === "" ? args[++index] : literalWord(rest);
+        if ((letter === "I" || letter === "J") && value !== undefined) replace = value;
+        if (letter === "a" && value !== undefined) argFiles.push(value);
+        break;
+      }
+      if (XARGS_ATTACHED_LETTERS.includes(letter)) {
+        if (letter === "i") replace = literalWord(rest === "" ? "{}" : rest);
+        break;
+      }
+    }
   }
-  return meaning({ ...ran, runs: replaces ? ran.runs : ran.runs.map((run) => ({ ...run, input: true as const })), reads: fromFile });
+  return { command: [], replace, argFiles };
 }
 
 /** The arguments xargs reads from its input, as one word only the run can resolve. */
@@ -371,7 +406,7 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   python: inlineCode("c", "WXQm"),
   python3: inlineCode("c", "WXQm"),
   node: inlineCode("ep", "rC", ["--eval", "--print"], false),
-  perl: inlineCode("eE", "MmIxCi"),
+  perl: inlineCode("eE", "MmIxCidDF0"),
   ruby: inlineCode("e", "rIECFKxTWi"),
   awk,
   gawk: awk,

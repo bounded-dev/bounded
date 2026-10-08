@@ -44,12 +44,26 @@ names no tool or language (AGENTS.md). It can own the shape.
     that is not literal, and inline code for another language: `python -c`,
     `node -e`/`--eval`/`-p`/`--print`, `perl -e`/`-E`, `ruby -e`, awk's
     program without `-f`; short options cluster as getopt reads them, as in
-    `perl -ne` or `python3 -Bc`). Without a replace string, xargs's command
-    gets one more unresolved argument, `(input)`, reported as an unresolved
-    part with each role it could have; it is never an operand, so the
-    command's literal words (a `cp` destination) are judged as written. With
-    one (`-I`, `-i`, `--replace`, BSD `-J`) the input is substituted in
-    place. Nothing is guessed (AGENTS.md).
+    `perl -ne` or `python3 -Bc`, a value-taking letter ending the cluster).
+  - **xargs.** Its own options are walked once, as getopt walks them, both
+    to find its command and to find a replace string: in a cluster a
+    value-taking letter (`I J L n P d E s a R S`) ends it and takes the rest
+    of the word, or the next word when it ends the word; `-e`, `-l` and `-i`
+    take only an attached value; long options with a value (`--max-args`,
+    `--max-procs`, `--delimiter`, `--arg-file`, `--max-chars`,
+    `--process-slot-var`) take `=value` or the next word, and those whose
+    value is optional (`--replace`, `--eof`, `--max-lines`) only `=value`,
+    as getopt_long gives it. A replace string is given by `-I X`, `-J X`
+    (BSD), `-iX`, `--replace=X`, or a bare `-i` or `--replace` (`{}`). With
+    one, the input stands where the string is written: that word has no
+    effect of its own, the input is an unresolved part with the role the
+    command gives it (`xargs -I % rm %`: `(input)`, `write`), and the literal
+    words around it are judged as written. Without one, the command gets one
+    more argument, `(input)`, reported as an unresolved part with each role
+    it could have, never an operand, so the command's literal words (a `cp`
+    destination) are judged as written. The input reaches a command a
+    wrapper under xargs runs (`xargs sudo rm`, `xargs env -C d cp a`).
+  - Nothing is guessed (AGENTS.md).
 - **Why a field, not more effects of the tool use.** ADR 2026-006's effects
   are what the call does, as the host describes it; a command's files are
   bounded's best-effort reading of one execute, with unknown existence and
@@ -197,6 +211,13 @@ every moved or replaced case is recorded in `superseded-tests.json`.
 - In-place edits (`sed -i`, `perl -i`) are not recognised as writes.
 - What programs and scripts do themselves is not seen; their code is
   unresolved where it is given inline.
+- Inline-code scanning does not stop at a script operand: in
+  `python3 script.py -c x`, the script's own `-c x` is also reported as
+  unresolved code. It errs towards more unresolved parts, never fewer.
+- A transfer whose sources are unknown records no write: `xargs cp -t dir`
+  (the sources come from the input) and `cp $X dir/` (an unresolved source
+  into a directory) name no file in `dir`, so nothing there is judged. This
+  gap is the transfer reading's, older than this ADR, and not fixed here.
 - A pack judging writes must look in readings as well as write effects.
 - `bounded/prereqs` does not use readings yet (item (ii)).
 

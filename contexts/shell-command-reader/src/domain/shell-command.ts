@@ -38,10 +38,25 @@ function inputRoles(name: ShellWord, args: readonly ShellWord[], depth = 0): Unr
   if (meaning.location?.to === XARGS_INPUT) roles.push("directory");
   if (has(meaning.scripts) || has(meaning.unresolved)) roles.push("code");
   for (const ran of meaning.runs) {
+    // A command the input would name is code; a trailing run (a wrapper's command) is given the input itself, and reports it there.
     if (ran.name === XARGS_INPUT) roles.push("code");
-    else if (has(ran.args)) roles.push(...inputRoles(ran.name, ran.args.filter((word) => word !== XARGS_INPUT), depth + 1));
+    else if (ran.trailing !== true && has(ran.args)) roles.push(...inputRoles(ran.name, ran.args.filter((word) => word !== XARGS_INPUT), depth + 1));
   }
   return [...new Set(roles)];
+}
+
+/**
+ * `words` with xargs's replace string `replace` substituted: a literal word
+ * that is it becomes the input, one that holds it a word only the run can
+ * resolve. A replace string only the shell can resolve substitutes nothing:
+ * the words are judged as written.
+ */
+function substituted(words: readonly ShellWord[], replace: ShellWord): ShellWord[] {
+  if (replace.kind !== "literal" || replace.text === "") return [...words];
+  return words.map((word) => {
+    if (word.kind !== "literal" || !word.text.includes(replace.text)) return word;
+    return word.text === replace.text ? XARGS_INPUT : { kind: "unresolved" as const, text: word.text, commands: [] };
+  });
 }
 
 /** Where a scope runs, as a project path ("." for the root), or null when it cannot be known. */
@@ -123,10 +138,13 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * last argument and an unresolved part with each role they could have,
    * never an operand, so the literal words are judged as written.
    */
-  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean } = {}): void => {
-    if (name === null) return;
+  const command = (givenName: ShellWord | null, givenArgs: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
+    if (givenName === null) return;
+    // With xargs's replace string, the input stands where the string is written: it is resolved there (never judged), and the literal words around it as written.
+    const [name = givenName, ...args] = how.replace === undefined ? [givenName, ...givenArgs] : substituted([givenName, ...givenArgs], how.replace);
     if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
     if (how.input === true) for (const role of inputRoles(name, args)) unresolved.push({ text: XARGS_INPUT.text, role });
+    if (name === XARGS_INPUT) unresolved.push({ text: XARGS_INPUT.text, role: "code" });
     const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args);
     for (const word of meaning.reads) {
       const path = resolve(word, scope, "read");
@@ -173,11 +191,13 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
     for (const ran of meaning.runs) {
-      if (ran.directory === undefined) command(ran.name, ran.args, scope, { input: ran.input === true });
+      // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
+      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(ran.replace === undefined ? {} : { replace: ran.replace }) };
+      if (ran.directory === undefined) command(ran.name, ran.args, scope, passed);
       else {
         // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.
         const from = ran.directory === null ? undefined : resolve(ran.directory, scope, "directory");
-        command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) }, { input: ran.input === true });
+        command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) }, passed);
       }
     }
     if (meaning.location !== undefined) {

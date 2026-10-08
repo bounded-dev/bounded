@@ -30,6 +30,10 @@ export interface CommandMeaning {
      * unresolved part.
      */
     readonly input?: true;
+    /** xargs's replace string (-I, -i, --replace, BSD -J): each literal word that is it, or holds it, is the input substituted in place. */
+    readonly replace?: ShellWord;
+    /** The run's words are the last of the command's (a wrapper's, builtin's or git -C's), so words appended to the command, such as xargs's input, are appended to it. */
+    readonly trailing?: true;
   }[];
   /** Code a nested shell runs (sh -c '…'), parsed and walked in a shell of its own. */
   readonly scripts: readonly ShellWord[];

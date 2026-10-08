@@ -198,7 +198,16 @@ describe("read by bounded's shell command reader — the path gate — what each
     const generated = rules("a", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
     const hooks = rules("b", { match: ".git/hooks/**", deny: ["create", "modify", "delete"], redirect: "Ask a person to add or change git hooks" });
     const shell = await shellWith([generated, hooks], { src: "directory", "src/a.ts": "file", generated: "directory", ".git": "directory", ".git/hooks": "directory" });
-    for (const command of ["ls src | xargs -I % cp % generated/a.ts", "ls | xargs -I % cp % .git/hooks/pre-commit", "echo x | xargs cp src/a.ts generated/a.ts"]) {
+    for (const command of [
+      "ls src | xargs -I % cp % generated/a.ts",
+      "ls | xargs -I % cp % .git/hooks/pre-commit",
+      "echo x | xargs cp src/a.ts generated/a.ts",
+      // xargs's own options walked as getopt walks them: clusters, value-taking letters, long options with their values.
+      "ls | xargs -0I % cp % .git/hooks/pre-commit",
+      "ls | xargs -rI % cp % .git/hooks/pre-commit",
+      "echo x | xargs --max-args 1 cp src/a.ts .git/hooks/pre-commit",
+      "xargs -l rm .git/hooks/pre-commit",
+    ]) {
       expect([command, (await shell(command)).kind]).toEqual([command, "refuse"]);
     }
     expect(reason(await shell("ls | xargs -I{} mv {} .git/hooks/pre-commit"))).toContain("this command writes '.git/hooks/pre-commit'");
