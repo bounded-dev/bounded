@@ -14,7 +14,9 @@ imported from `bounded/path-gate`. Role path rules come later. All code is in
 3. `path-gate.ts` — the pack: its own rules for `**/bounded.config.*` and
    `.bounded/**`, and the read, list, write and shell guards;
    `shell-command.ts`, the translation of a parsed command into the paths it
-   reads and writes, behind the parser port in `shell-command.contract.ts`.
+   reads, lists and writes, with `command-meanings.ts`, the table of what
+   commands do with their arguments; the parser's port and syntax tree are in
+   `shell-command.contract.ts`.
 4. `protected-path.test.ts`, `path-gate.test.ts`, then `rocketflare.test.ts`
    (end to end); the fixtures `path-gate-accepted.ts` and
    `path-gate-rejected.ts` show what compiles and what does not.
@@ -66,15 +68,20 @@ without `pathGate` in `dependsOn` does not compile either.
 ## What it does not judge yet
 
 Fetch, delegate and invoke effects pass the path gate. A shell command is
-translated by a shell parser into the paths it reads (its arguments, option
-values, `<` sources) and writes (`>` and `>>` targets), and each is judged
-exactly as a file tool's read or write: `cat ./.env`, `less "./.env"`, `grep
-KEY .env`, `cd sub && cat ../.env`, `$(cat .env)` and `--env-file=.env` are
-refused as reading `.env`, `echo x > generated/a.ts` as writing it. What only
-the shell can resolve is not guessed at and is allowed: globs, variables, the
-output of command substitution, `~`, absolute paths, and files a program or
-script opens by itself. Confining the command at the operating-system level is
-the real control (planned). Drift (see [drift.md](drift.md)) undoes what a command changes in
+parsed into a syntax tree and translated into the paths it reads, lists and
+writes, and each is judged exactly as a file tool's read, listing or write:
+`cat ./.env`, `less "./.env"`, `grep KEY .env`, `cd sub && cat ../.env`,
+`echo $(cat .env)` and `` echo `cat .env` `` are refused as reading `.env`;
+`ls secrets` as listing it; `echo x > generated/a.ts` as writing it (a create
+when the file is missing, a modify when it exists). A small table says what
+each command does with its arguments (`echo .env`, `test -f .env`, `ls .env`
+and `git add .env` read nothing); an unknown command reads its operands. What
+only the shell can resolve is not guessed at and is allowed: globs,
+variables, `~`, paths outside the project, and files a program or script opens
+by itself. Confining the command at the operating-system level is the real
+control (planned). The check is prepared when `openProject` opens the
+project; one that cannot be prepared refuses shell commands. ADR 2026-009 has
+the details and the table. Drift (see [drift.md](drift.md)) undoes what a command changes in
 protected files. A content search is refused whenever it could read a
 read-protected file, so `**`-led read rules make project-wide searches
 refuse; search a narrower root. Only the configuration's entry file is

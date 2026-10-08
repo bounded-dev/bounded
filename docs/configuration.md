@@ -64,6 +64,13 @@ if (project.problem !== null) console.error(project.problem);
 const verdict = await project.judge(eventFromTheHost);
 ```
 
+Before judging anything, `openProject` runs what each selected pack
+contributes to the core's `onProjectOpen` point, given the project's root and
+a way to ask what is at a project path (the path gate loads its shell parser
+there). A pack whose preparation fails does not stop the project opening: its
+own guards refuse what they cannot check. A host may pass its own
+`pathKinds`.
+
 The judge decides each event with the composed packs and records the decision
 in `<root>/.bounded/guard-log.jsonl` (see [the decision log](decision-log.md)).
 A host may pass its own `configSource`, `log`, `clock` or `recordWithinMs`.

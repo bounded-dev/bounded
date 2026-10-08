@@ -8,6 +8,7 @@ import { definePack, point } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import type { EffectGuard, Guard } from "./guard.contract.ts";
+import type { ProjectOpenHandler } from "./project-opening.contract.ts";
 
 /**
  * A check for guards: a contributed value must be a function. Its signature
@@ -25,6 +26,7 @@ function watchedOf(raw: unknown): Result<WatchedPathType | WatchedPathSource> {
   return typeof raw === "function" ? guardOf<WatchedPathSource>(raw) : WatchedPath.parse(raw);
 }
 const forStart = guardOf<Guard<SessionStart, Composition>>;
+const forOpening = guardOf<ProjectOpenHandler>;
 const forEffect = <F extends Effect>() => guardOf<EffectGuard<F, Composition>>;
 
 /**
@@ -46,6 +48,7 @@ export const corePack = definePack({
     fetchGuards: point({ description: "Guards for reaching the network", check: forEffect<FetchEffect>() }),
     delegateGuards: point({ description: "Guards for handing work to another agent", check: forEffect<DelegateEffect>() }),
     invokeGuards: point({ description: "Guards for tools whose effects the host cannot describe", check: forEffect<InvokeEffect>() }),
+    onProjectOpen: point({ description: "What a pack does once when a project opens, before any event is judged, such as loading what its guards need", check: forOpening }),
     watchedPaths: point({ description: "Files a shell command must not change, or sources that work them out: a command's changes to them are undone", check: watchedOf }),
   },
 });

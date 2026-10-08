@@ -61,39 +61,76 @@
   a directory: `packages/db/**` refuses deleting `packages`, and deleting `.`
   is always refused, but `**`-led rules do not refuse every delete. Fetch,
   delegate and invoke are not judged by path.
-- **Shell commands: translated, then judged as file tools are.** The path
-  gate's execute guard decides nothing itself. A **parser port**
-  (`ShellParser`, `shell-command.contract.ts`) gives a command's tokens:
-  words with quotes removed, operators, and globs as unresolved. A **pure
-  translation** (`describeShellCommand`, `shell-command.ts`) turns them, with
-  the effect's `cwd` and any `cd` before them, into
-  `{ reads, writes, unresolved }`: a command's arguments (not its name),
-  option values (`--env-file=.env`) and assignment values are reads of the
-  paths they name, a `<` source is a read, a `>` or `>>` target a write
-  (`create-or-modify`, as which it is cannot be known before it runs). Each
-  read and write is then judged by the same functions as the read and write
-  guards (`readDenial`, `writeDenial`), so rules, `except`, file rules, case
-  and messages are identical; the refusal reads "this command reads '.env'
-  — <the read guard's refusal>" with the rule's redirect, and a
-  redirection's write is judged as a create and as a modify.
-  **Unresolved is never guessed at**: globs, variables, `~`, absolute paths,
-  paths leaving the project, the output of command substitution, scripts
-  and every file a program opens by itself are out of reach for a static
-  check, and allowed, as is a command the parser cannot read. Confining
-  commands at the operating-system level is the real control (planned); the
-  drift check (ADR 2026-011) still undoes writes to watched files afterwards.
-  **Placement:** the translation is domain-pure and the parser sits behind
-  its port, both inside the path gate pack (the core names no parser), so
-  the planned restructure can give the path gate its own hexagon with the
-  translation in its domain and the parser as an adapter.
-  **The parser:** shell-quote, pinned at 1.12.0, the port's one adapter
-  (`shell-parser.shell-quote.ts`). Guards are synchronous and must run under
-  Bun and node (pi) with no native addon or network: shell-quote is a small,
-  synchronous, dependency-free tokeniser, widely used and maintained, that
-  yields words, operators (including redirections), globs and comments.
-  `mvdan-sh` is deprecated in favour of `sh-syntax`, which, like
-  `web-tree-sitter` with `tree-sitter-bash`, needs an asynchronous
-  WebAssembly load (and `tree-sitter-bash` ships a native addon);
+- **Shell commands: parsed, translated, then judged as file tools are.**
+  The execute guard decides nothing itself. A **parser port**
+  (`ShellParser`, `shell-command.contract.ts`) turns a command line into a
+  syntax tree of the port's own: commands (name, words, redirections,
+  assignments), lists (`;`, `&&`, `||`, `&`), pipelines, subshells, groups,
+  conditionals (if, loops, case, functions) and text it could not read.
+  Words are literal (quotes and escapes removed) or unresolved, carrying the
+  commands substituted in them (`$()` and backquotes). A **pure translation**
+  (`describeShellCommand`, `shell-command.ts`) walks the tree with the
+  effect's `cwd` into `{ reads, lists, writes, unresolved }`:
+  - Where each command runs is followed as the shell would: `cd` and `pushd`
+    carry on to later commands in the same shell, never out of a subshell, a
+    substitution, a background command or a pipeline stage; after `popd`,
+    `cd -`, `cd` alone, a target that cannot be resolved or lies outside the
+    project, or a cd that may or may not have run (inside an if or a loop, on
+    the left of `||`), where later commands run is unknown and their
+    relative paths are unresolved. `builtin`, `command`, `exec`, `xargs`
+    (its literal arguments) and `find -exec` are looked past.
+  - Redirections: `<` reads; `>`, `>>`, `>|`, `&>`, `&>>` and `>&` to a file
+    write; `<>` both; `>&1`-style duplications, heredoc bodies and
+    here-strings are text, though commands substituted in them still run.
+    A write is a create when the file is missing and a modify when it exists,
+    exactly as for the Write tool, asked through a file-existence port; when
+    that cannot be told it is judged as both, and the refusal says so.
+  - **What each command does with its arguments** is a small explicit table
+    (`command-meanings.ts`, its contract in `command-meanings.contract.ts`):
+    `ls`, `tree` and `find`'s roots list (where it runs when none is given);
+    `echo`, `printf`, `test`/`[`/`[[`, `true`, `false` and the shell's
+    declaration and job builtins name nothing; `touch` creates a missing file
+    (an existing one's content is not changed); `mkdir` creates; `rm`,
+    `rmdir`, `unlink` delete; `cp` reads its sources and `mv` deletes them,
+    both writing the destination (inside it by name when it is a directory);
+    `git add` stages (nothing), `git rm` deletes (but `--cached`), `git mv`
+    moves, other git subcommands read their operands, and paths given with
+    `git -C` are unresolved; `eval`'s code is unresolved. **Any other
+    command reads every operand and every `--option=value`'s value** (the
+    conservative default). Short options with an attached value (`grep
+    -f.env`) are a known gap.
+  - Absolute paths inside the project root are project paths; outside, as
+    with `~`, variables and globs, they are unresolved.
+  Each read, listing and write is then judged by the same functions as the
+  read, list and write guards (`readDenial`, `listDenial`, `writeDenial`), so
+  rules, `except`, file rules, case and messages are identical; the refusal
+  reads "this command reads '.env' — <the read guard's refusal>" with the
+  rule's redirect. **Unresolved is never guessed at**: it is allowed, and so
+  is anything a program or script opens by itself; confining commands at the
+  operating-system level is the real control (planned), and the drift check
+  (ADR 2026-011) still undoes writes to watched files afterwards.
+  **Preparation:** guards are synchronous, but loading a parser is not. So
+  the core gives packs a point, `onProjectOpen` (ADR 2026-010), run once by
+  `openProject` before any event is judged, given the project's root and a
+  way to ask what is at a path. The path gate loads its parser there (once
+  per program) and keeps, per composition, the root and the existence port
+  for its check. A command that cannot be checked at all, because the
+  project was not opened with `openProject` or the parser could not load, is
+  refused with what to do (fail closed).
+  **Placement:** the syntax tree, the translation and the table are pure,
+  inside the path gate pack, with the parser behind its port (the core names
+  no parser); the planned restructure can give the path gate its own hexagon
+  with these in its domain and the parser as an adapter.
+  **The parser:** tree-sitter's bash grammar compiled to WebAssembly, from
+  `@vscode/tree-sitter-wasm`, pinned at 0.3.1: Microsoft's package of
+  prebuilt grammars with the web-tree-sitter runtime, WebAssembly only (no
+  native addon, no install script, no dependencies). It loads asynchronously
+  once and then parses synchronously, and runs under Bun, node and pi's
+  jiti. It supersedes shell-quote (a tokeniser: the translation had to guess
+  structure it did not have). `sh-syntax` (mvdan/sh) was the other full
+  parser considered: its API instantiates WebAssembly asynchronously on every
+  parse, which a synchronous guard cannot wait for. `tree-sitter-bash`
+  itself ships a native addon and install script; `mvdan-sh` is deprecated;
   `bash-parser` has not been released since 2022.
 - **Provenance and redirects.** A refusal names the path (via dispatch's
   prefix), the rule's `match`, the pack that contributed the rule (from the

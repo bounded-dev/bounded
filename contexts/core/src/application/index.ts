@@ -12,7 +12,7 @@ export type { AdapterRefusalInput, Clock, DecisionIds, DecisionLog, JudgeEvent, 
 export { JudgeEventCommand } from "./judging/judge-event/judge-event.command.ts";
 export { JudgeEventHandler } from "./judging/judge-event/judge-event.handler.ts";
 
-export type { OpenProject, OpenProjectCommandFactory, OpenProjectInput, ProjectConfigSource, ProjectDecisionLogs, ProjectDrift, ProjectJudge } from "./projects/open-project/open-project.contract.ts";
+export type { OpenProject, OpenProjectCommandFactory, OpenProjectInput, ProjectConfigSource, ProjectDecisionLogs, ProjectDrift, ProjectJudge, ProjectPathKinds } from "./projects/open-project/open-project.contract.ts";
 export type { Change, DriftCheck, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFile, WatchedFiles, WatchedHashes, WatchShell } from "./drift/watch-shell/watch-shell.contract.ts";
 export { WatchShellHandler } from "./drift/watch-shell/watch-shell.handler.ts";
 export { OpenProjectCommand } from "./projects/open-project/open-project.command.ts";

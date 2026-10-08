@@ -1,4 +1,4 @@
-import type { Config, Result, Verdict } from "bounded/domain";
+import type { Config, PathKind, Result, Verdict } from "bounded/domain";
 import type { DriftCheck, ShellSnapshots, WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { AdapterRefusalInput, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 
@@ -65,4 +65,13 @@ export interface ProjectDrift {
  */
 export interface ProjectDecisionLogs {
   forProject(root: string): DecisionLog;
+}
+
+/**
+ * What is at a path in each project, for the packs that prepare when it
+ * opens: undefined when it cannot be told.
+ * @implementedBy file-system
+ */
+export interface ProjectPathKinds {
+  forProject(root: string): (path: string) => PathKind | undefined;
 }
