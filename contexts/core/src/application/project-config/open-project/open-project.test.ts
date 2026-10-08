@@ -111,6 +111,7 @@ describe("OpenProjectHandler", () => {
         return { ok: true, value: undefined };
       },
       quarantine: async () => ({ ok: true, value: "/state/quarantine" }),
+      rulesWatching: () => [0],
     };
     const kept = new Map<string, unknown>();
     const snapshots = { save: async (id: string, hashes: unknown) => void kept.set(id, hashes), take: async (id: string) => kept.get(id) as never };

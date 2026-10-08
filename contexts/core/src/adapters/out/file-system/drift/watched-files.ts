@@ -95,6 +95,10 @@ export class FileSystemWatchedFiles implements WatchedFiles {
     return { ok: true, value: [...new Set(paths)] };
   }
 
+  rulesWatching(rules: readonly WatchedPath[], path: string): readonly number[] {
+    return watcher(rules)(path);
+  }
+
   async head(): Promise<Result<string | null>> {
     const head = this.git(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
     // No git, no repository, or no commit yet: there is no commit to compare with.

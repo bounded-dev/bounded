@@ -14,8 +14,12 @@ export interface CommandMeaning {
   readonly writes: readonly { readonly word: ShellWord; readonly change: MeaningChange }[];
   /** Copies (moves when `moves`) from `sources` to `destination`, a file or a directory to put them in: sources are read either way, and deleted when moved. */
   readonly transfers: readonly { readonly sources: readonly ShellWord[]; readonly destination: ShellWord; readonly moves: boolean }[];
-  /** Commands it runs with arguments given literally (builtin, command, exec, xargs, find -exec). */
-  readonly runs: readonly { readonly name: ShellWord; readonly args: readonly ShellWord[] }[];
+  /**
+   * Commands it runs with arguments given literally (builtin, command, exec,
+   * xargs, find -exec, sudo, env …), from `directory` when it sets one
+   * (env -C, sudo -D): null when that directory cannot be known.
+   */
+  readonly runs: readonly { readonly name: ShellWord; readonly args: readonly ShellWord[]; readonly directory?: ShellWord | null }[];
   /** Code a nested shell runs (sh -c '…'), parsed and walked in a shell of its own. */
   readonly scripts: readonly ShellWord[];
   /** Operands naming a path in the repository as <rev>:<path>: the path is read, relative to the repository's root, or to where the command runs when it starts with ./ or ../. */

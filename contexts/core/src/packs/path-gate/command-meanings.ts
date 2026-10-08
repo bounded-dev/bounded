@@ -81,17 +81,51 @@ const run = (words: readonly ShellWord[]): CommandMeaning => {
  * `withValues`, then its own `leading` operands (timeout's duration) and, when
  * `assignments`, NAME=value words.
  */
-function wrapper(withValues: readonly string[], options: { readonly leading?: number; readonly assignments?: boolean } = {}) {
+interface WrapperOptions {
+  readonly leading?: number;
+  readonly assignments?: boolean;
+  /** Options whose value is the directory the command runs from (env -C, sudo -D). */
+  readonly directory?: readonly string[];
+  /** Options whose value is a command line of its own (env -S). */
+  readonly script?: readonly string[];
+}
+
+/** An option's value given in the same word: `--name=value`, or `-Xvalue` for a short one; undefined when it is not `option`'s. */
+function attached(text: string, option: string): string | undefined {
+  if (option.startsWith("--")) return text.startsWith(`${option}=`) ? text.slice(option.length + 1) : undefined;
+  return text.startsWith(option) && text.length > option.length ? text.slice(option.length) : undefined;
+}
+
+function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
   return (args: readonly ShellWord[]): CommandMeaning => {
     let leading = options.leading ?? 0;
+    let directory: ShellWord | undefined;
+    const ran = (words: readonly ShellWord[]): CommandMeaning => {
+      const [name, ...rest] = words;
+      return name === undefined ? NONE : meaning({ runs: [{ name, args: rest, ...(directory === undefined ? {} : { directory }) }] });
+    };
     for (let index = 0; index < args.length; index++) {
-      const text = literal(args[index]);
-      if (text === "--") return run(args.slice(index + 1));
+      const word = args[index] as ShellWord;
+      const text = literal(word);
+      if (text === "--") return ran(args.slice(index + 1));
       if (text?.startsWith("-") === true && text !== "-") {
+        const scriptOption = (options.script ?? []).find((option) => text === option || attached(text, option) !== undefined);
+        if (scriptOption !== undefined) {
+          // The command is the string; any words after it are handed to it, unresolved here.
+          const value = attached(text, scriptOption);
+          const code = value === undefined ? args[index + 1] : literalWord(value);
+          return code === undefined ? NONE : meaning({ scripts: [code], unresolved: args.slice(index + (value === undefined ? 2 : 1)) });
+        }
+        const directoryOption = (options.directory ?? []).find((option) => text === option || attached(text, option) !== undefined);
+        if (directoryOption !== undefined) {
+          const value = attached(text, directoryOption);
+          directory = value === undefined ? args[++index] : literalWord(value);
+          continue;
+        }
         if (withValues.includes(text)) index++;
       } else if (options.assignments === true && text !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) continue;
       else if (leading > 0) leading--;
-      else return run(args.slice(index));
+      else return ran(args.slice(index));
     }
     return NONE;
   };
@@ -231,9 +265,9 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   cd: moves,
   pushd: moves,
   popd: () => meaning({ location: { to: null } }),
-  sudo: wrapper(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"], { assignments: true }),
+  sudo: wrapper(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"], { assignments: true, directory: ["-D", "--chdir"] }),
   doas: wrapper(["-u", "-C"]),
-  env: wrapper(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"], { assignments: true }),
+  env: wrapper(["-u", "--unset"], { assignments: true, directory: ["-C", "--chdir"], script: ["-S", "--split-string"] }),
   timeout: wrapper(["-s", "--signal", "-k", "--kill-after"], { leading: 1 }),
   nice: wrapper(["-n", "--adjustment"]),
   nohup: wrapper([]),

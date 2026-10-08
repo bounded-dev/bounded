@@ -20,6 +20,10 @@ export class InMemoryWatchedFiles implements WatchedFiles {
     return { ok: true, value: hashes(this.working, rules) };
   }
 
+  rulesWatching(rules: readonly WatchedPath[], path: string): readonly number[] {
+    return watcher(rules)(path);
+  }
+
   async head(): Promise<Result<string | null>> {
     return { ok: true, value: COMMIT };
   }
