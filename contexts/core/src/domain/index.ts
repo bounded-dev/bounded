@@ -74,6 +74,25 @@ export type {
   WriteEffectJSON,
 } from "./events/effect.contract.ts";
 export { describeEffect, Effect } from "./events/effect.ts";
+export type {
+  ReadShellCommandReading,
+  ReadShellCommandReadingJSON,
+  ShellCommandReadingFactory,
+  ShellCommandReadingJSON,
+  ShellCommandWord,
+  ShellCommandWordJSON,
+  ShellFileEffect,
+  ShellFileEffectJSON,
+  ShellProgramRun,
+  ShellProgramRunJSON,
+  UnreadShellCommandCause,
+  UnreadShellCommandReading,
+  UnreadShellCommandReadingJSON,
+  UnresolvedShellPart,
+  UnresolvedShellPartJSON,
+  UnresolvedShellRole,
+} from "./events/shell-command-reading.contract.ts";
+export { ShellCommandReading } from "./events/shell-command-reading.ts";
 export { ToolUse } from "./events/tool-use.ts";
 export type { DelegatedAgentRun, ToolResultFactory, ToolResultJSON } from "./events/tool-result.contract.ts";
 export { ToolResult } from "./events/tool-result.ts";

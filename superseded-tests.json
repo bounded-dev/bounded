@@ -3955,5 +3955,599 @@
       "case": "piExtension — after a tool ran, and refusals the adapter makes > an async subagent's tool_result says none did, as this host never reports their finish"
     },
     "reason": "pi's result entries also say finishNeverReported, so the agent is told the host cannot meet a requirement yet rather than to re-run (final review of prereqs, ADR 2026-019)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a redirect target is a write, judged as a file write; a redirect source is a read",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a redirect target is a write, judged as a file write; a redirect source is a read"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — where a shell command runs from: cd, pushd and their scope > a cd takes later commands with it; one that cannot be known leaves later relative paths unresolved",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — where a shell command runs from: cd, pushd and their scope > a cd takes later commands with it; one that cannot be known leaves later relative paths unresolved"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — where a shell command runs from: cd, pushd and their scope > a cd in a subshell, a substitution or a pipeline stage does not leak",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — where a shell command runs from: cd, pushd and their scope > a cd in a subshell, a substitution or a pipeline stage does not leak"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — where a shell command runs from: cd, pushd and their scope > after a cd that may or may not have run, where later commands run is unknown",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — where a shell command runs from: cd, pushd and their scope > after a cd that may or may not have run, where later commands run is unknown"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what each command does with its arguments > echo, printf, test and [ take text, not paths; listing commands list; git add stages",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > echo, printf, test and [ take text, not paths; listing commands list; git add stages"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what each command does with its arguments > ls, find and tree are judged as listings, by the list guard",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > ls, find and tree are judged as listings, by the list guard"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what each command does with its arguments > rm deletes, touch creates a missing file, mkdir creates, each judged as a file write",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > rm deletes, touch creates a missing file, mkdir creates, each judged as a file write"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what each command does with its arguments > cp reads its sources and writes its destination, into a directory by name; mv deletes its sources",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > cp reads its sources and writes its destination, into a directory by name; mv deletes its sources"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what each command does with its arguments > git rm deletes and git mv moves; other git commands read what they name",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > git rm deletes and git mv moves; other git commands read what they name"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what each command does with its arguments > xargs and find -exec run their command with the literal arguments they are given",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > xargs and find -exec run their command with the literal arguments they are given"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what each command does with its arguments > builtin, command and exec are looked past; an unknown command's arguments are reads",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > builtin, command and exec are looked past; an unknown command's arguments are reads"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — redirections > a redirect to a missing file is a create, and to an existing one a modify, as for the Write tool",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — redirections > a redirect to a missing file is a create, and to an existing one a modify, as for the Write tool"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — redirections > &> writes; heredoc bodies and here-strings are text, not paths; backquotes run like $()",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — redirections > &> writes; heredoc bodies and here-strings are text, not paths; backquotes run like $()"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — absolute paths > an absolute path inside the project is judged as the project path; outside, it is unresolved",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — absolute paths > an absolute path inside the project is judged as the project path; outside, it is unresolved"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > brace expansion is expanded, not taken as a path",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > brace expansion is expanded, not taken as a path"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > bash, sh, zsh and dash -c run their code as a nested command line",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > bash, sh, zsh and dash -c run their code as a nested command line"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > git <rev>:<path> reads the path from the repository root",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > git <rev>:<path> reads the path from the repository root"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > mv and git mv read what they move, as cp does",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > mv and git mv read what they move, as cp does"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > ANSI-C strings, $(< file), curl's @file data, dd and tee are read as they act",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > ANSI-C strings, $(< file), curl's @file data, dd and tee are read as they act"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — commands that run another command > sudo, doas, env, timeout, nice, nohup, stdbuf and ionice run the rest as a command, nested shells included",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — commands that run another command > sudo, doas, env, timeout, nice, nohup, stdbuf and ionice run the rest as a command, nested shells included"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — wrappers that set where or what their command runs > env -S runs its string as a nested command line",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — wrappers that set where or what their command runs > env -S runs its string as a nested command line"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — wrappers that set where or what their command runs > env -C and sudo -D run their command from that directory",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — wrappers that set where or what their command runs > env -C and sudo -D run their command from that directory"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — git -C and short options with an attached value > git -C dir runs git from dir, as cd dir && git does: its paths are judged from there",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — git -C and short options with an attached value > git -C dir runs git from dir, as cd dir && git does: its paths are judged from there"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — git -C and short options with an attached value > git -C with a directory only the shell can resolve leaves its paths unresolved, never guessed",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — git -C and short options with an attached value > git -C with a directory only the shell can resolve leaves its paths unresolved, never guessed"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
+    "case": "the path gate — git -C and short options with an attached value > a short option's attached value is read as the word after it would be (grep -f.env), in a cluster too",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — git -C and short options with an attached value > a short option's attached value is read as the word after it would be (grep -f.env), in a cluster too"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > arguments are reads, the command's name is not; `>` and `>>` targets are writes and `<` sources reads",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > arguments are reads, the command's name is not; `>` and `>>` targets are writes and `<` sources reads"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > paths resolve from the directory given, and from a cd before them; ./ and quotes are gone already",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > paths resolve from the directory given, and from a cd before them; ./ and quotes are gone already"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > an option's value is read; a bare option is not a path",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > an option's value is read; a bare option is not a path"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > what only the shell can resolve is unresolved: the parser's unresolved tokens, variables, home, absolute paths and paths leaving the project",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > what only the shell can resolve is unresolved: the parser's unresolved tokens, variables, home, absolute paths and paths leaving the project"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > a file-descriptor duplication (2>&1) names no path",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > a file-descriptor duplication (2>&1) names no path"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > listing commands give lists, deleting and moving commands deletes, and an undetermined write says so",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing > listing commands give lists, deleting and moving commands deletes, and an undetermined write says so"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: braces, nested shells and repository paths, as the shell reads them > brace expansion of literals gives each word; braces inside quotes are text",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > brace expansion of literals gives each word; braces inside quotes are text"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: braces, nested shells and repository paths, as the shell reads them > a shell given code with -c runs it as a nested command line, in a shell of its own",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > a shell given code with -c runs it as a nested command line, in a shell of its own"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: braces, nested shells and repository paths, as the shell reads them > git's <rev>:<path> reads the path from the repository root, or from where it runs with ./; unresolved without a repository at the root",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > git's <rev>:<path> reads the path from the repository root, or from where it runs with ./; unresolved without a repository at the root"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: braces, nested shells and repository paths, as the shell reads them > git -C dir runs git from dir, nested -C from the one before; a dir only the shell can resolve leaves its paths unresolved",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > git -C dir runs git from dir, nested -C from the one before; a dir only the shell can resolve leaves its paths unresolved"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: braces, nested shells and repository paths, as the shell reads them > git's global options that take a separate value word (--config-env, --attr-source) skip it, so a later -C is still found",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > git's global options that take a separate value word (--config-env, --attr-source) skip it, so a later -C is still found"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: braces, nested shells and repository paths, as the shell reads them > a short option's attached value is read for every way it could be one (-rf.env reads f.env and .env); a known option's attached value is that option's",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > a short option's attached value is read for every way it could be one (-rf.env reads f.env and .env); a known option's attached value is that option's"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "describeShellCommand: braces, nested shells and repository paths, as the shell reads them > ANSI-C strings with simple escapes are literal, others unresolved; $(< file) reads the file",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them > ANSI-C strings with simple escapes are literal, others unresolved; $(< file) reads the file"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "commandMeaning: the small table of what a command does with its arguments > a command it does not know reads every operand and every long option's value",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/domain/command-meanings.test.ts",
+      "case": "read by bounded's shell command reader — commandMeaning: the small table of what a command does with its arguments > a command it does not know reads every operand and every long option's value"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "commandMeaning: the small table of what a command does with its arguments > text commands name nothing; ls with no operand lists where it runs",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/domain/command-meanings.test.ts",
+      "case": "read by bounded's shell command reader — commandMeaning: the small table of what a command does with its arguments > text commands name nothing; ls with no operand lists where it runs"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "commandMeaning: the small table of what a command does with its arguments > cd and pushd move, popd and an argument-less or dashed cd leave the place unknown",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/domain/command-meanings.test.ts",
+      "case": "read by bounded's shell command reader — commandMeaning: the small table of what a command does with its arguments > cd and pushd move, popd and an argument-less or dashed cd leave the place unknown"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "the shell check: the parser, loaded once when the project opens > a parser used before it is prepared, or that cannot load, refuses rather than guesses",
+    "successor": {
+      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.test.ts",
+      "case": "JudgeEventHandler — reading shell commands > a reader that rejects leaves the command unread, saying why"
+    },
+    "reason": "the judge reads commands through the core's port; a reading that fails leaves the command unread and the path gate refuses it (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "the shell check: the parser, loaded once when the project opens > a parser still loading when the project opened refuses, saying it timed out",
+    "successor": {
+      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.test.ts",
+      "case": "JudgeEventHandler — reading shell commands > a reader that does not answer within readWithinMs leaves the command unread, saying it timed out"
+    },
+    "reason": "the judge reads commands through the core's port; a reading that fails leaves the command unread and the path gate refuses it (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "the shell check: the parser, loaded once when the project opens > a project the path gate was never opened for refuses shell commands, saying how to open it",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+      "case": "the path gate — shell commands, judged from bounded's reading > a shell command bounded did not read is refused, saying so"
+    },
+    "reason": "the judge reads commands through the core's port; a reading that fails leaves the command unread and the path gate refuses it (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "treeSitterShellParser: the shell parser behind the port > gives commands with their words, redirections, lists, pipelines, subshells, groups and substitutions",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — treeSitterShellParser: the shell parser behind the port > gives commands with their words, redirections, lists, pipelines, subshells, groups and substitutions"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+    "case": "treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/shell-command-effects.test.ts",
+      "case": "read by bounded's shell command reader — treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/command-meanings.test.ts",
+    "case": "commandMeaning — what a command's name and words say it does > cat reads its operands; rm deletes them; touch creates them if missing",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/domain/command-meanings.test.ts",
+      "case": "read by bounded's shell command reader — commandMeaning — what a command's name and words say it does > cat reads its operands; rm deletes them; touch creates them if missing"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/command-meanings.test.ts",
+    "case": "commandMeaning — what a command's name and words say it does > a command it does not know is taken to read its operands, and to write nothing",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/domain/command-meanings.test.ts",
+      "case": "read by bounded's shell command reader — commandMeaning — what a command's name and words say it does > a command it does not know is taken to read its operands, and to write nothing"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+    "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/path-kinds.test.ts",
+      "case": "read by bounded's shell command reader — fileSystemPathKind: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+    "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/adapters/out/shell-command-reader/path-kinds.test.ts",
+      "case": "read by bounded's shell command reader — fileSystemPathKind: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.in-memory-path-kinds.test.ts",
+    "case": "InMemoryPathKinds: what is at a path, as given > a path given as unknown cannot be told",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the path gate — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
+    "case": "pathGate — the path gate's overview > contributes its guards, its work on opening a project, and its checks around tool calls",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
+      "case": "pathGate — the path gate's overview > contributes its guards, and its checks around tool calls"
+    },
+    "reason": "the path gate no longer prepares a parser or declares the path-kinds and shell-parser ports (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
+    "case": "pathGate — the path gate's overview > declares the ports a host provides: watched files, shell snapshots, path kinds and the shell parser",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
+      "case": "pathGate — the path gate's overview > declares the ports a host provides: watched files and shell snapshots"
+    },
+    "reason": "the path gate no longer prepares a parser or declares the path-kinds and shell-parser ports (ADR 2026-020)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/adapters/out/port-provisions.test.ts",
+    "case": "pathGatePortProvisions > provides every port the path gate uses for a project: watched files, shell snapshots, path kinds and the shell parser",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/adapters/out/port-provisions.test.ts",
+      "case": "pathGatePortProvisions > provides every port the path gate uses for a project, and only those: watched files and shell snapshots"
+    },
+    "reason": "the path gate no longer declares the path-kinds and shell-parser ports (ADR 2026-020); the successor asserts the two it keeps, that every declared port is provided, and nothing more"
+  },
+  {
+    "file": "contexts/core/src/composition-root/open-project.test.ts",
+    "case": "openProject — what a host's composition root calls > openProject prepares the path gate's shell check: reads by absolute path, and redirects judged by whether the file exists",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/open-project-shell-commands.test.ts",
+      "case": "openProject with bounded's shell command reader > openProject, given a shell command reader, reads each command before the path gate judges it: reads by absolute path, and redirects judged by whether the file exists"
+    },
+    "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   }
 ]

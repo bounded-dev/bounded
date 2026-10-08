@@ -1,5 +1,5 @@
 import type { CommandMeaning } from "./command-meanings.contract.ts";
-import type { ShellWord } from "./shell-command.contract.ts";
+import type { ShellWord, WorkBudget } from "./shell-command.contract.ts";
 
 // What a command does with its arguments: a small table, kept explicit. A
 // command not in it reads every operand and every long option's value (the
@@ -27,6 +27,24 @@ function operands(args: readonly ShellWord[]): ShellWord[] {
     else if (!options || !isOption(word)) out.push(word);
   }
   return out;
+}
+
+/** What handling `words`' text costs beyond a step each: a step per 64 characters. */
+export const textCost = (words: readonly ShellWord[]): number => words.reduce((steps, word) => steps + (word.text.length >> 6), 0);
+
+/**
+ * What reading a short option cluster for every value it could carry costs
+ * (attachedValues gives a suffix per leading letter or digit): the
+ * suffixes' total length, a step per 64 characters, so a cluster thousands
+ * of letters long spends the budget instead of the time.
+ */
+function clusterCost(word: ShellWord): number {
+  const text = literal(word);
+  if (text === undefined || !text.startsWith("-") || text.startsWith("--")) return 0;
+  let run = 1;
+  while (run + 1 < text.length && /[A-Za-z0-9]/.test(text.charAt(run))) run++;
+  // Division, not a shift: the product passes 2^31 for a long cluster, and a shift would wrap it negative.
+  return Math.floor(((run - 1) * text.length) / 64);
 }
 
 /**
@@ -91,7 +109,7 @@ function runs(args: readonly ShellWord[], optionsWithValues: readonly string[] =
 }
 const run = (words: readonly ShellWord[]): CommandMeaning => {
   const [name, ...args] = words;
-  return name === undefined ? NONE : meaning({ runs: [{ name, args }] });
+  return name === undefined ? NONE : meaning({ runs: [{ name, args, trailing: true }] });
 };
 
 /**
@@ -115,7 +133,7 @@ function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
     let directory: ShellWord | undefined;
     const ran = (words: readonly ShellWord[]): CommandMeaning => {
       const [name, ...rest] = words;
-      return name === undefined ? NONE : meaning({ runs: [{ name, args: rest, ...(directory === undefined ? {} : { directory }) }] });
+      return name === undefined ? NONE : meaning({ runs: [{ name, args: rest, trailing: true, ...(directory === undefined ? {} : { directory }) }] });
     };
     for (let index = 0; index < args.length; index++) {
       const word = args[index] as ShellWord;
@@ -182,7 +200,7 @@ function git(args: readonly ShellWord[]): CommandMeaning {
     const text = literal(args[index]);
     if (text === "-C") {
       const directory = args[index + 1];
-      return directory === undefined ? NONE : meaning({ runs: [{ name: literalWord("git"), args: args.slice(index + 2), directory }] });
+      return directory === undefined ? NONE : meaning({ runs: [{ name: literalWord("git"), args: args.slice(index + 2), directory, trailing: true }] });
     }
     // Global options git accepts with their value as the next word (checked against git 2.54).
     if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace" || text === "--config-env" || text === "--attr-source") index++;
@@ -241,17 +259,193 @@ function curl(args: readonly ShellWord[]): CommandMeaning {
   return meaning({ reads, writes });
 }
 
-/** xargs: the command it runs, with the arguments given to it literally (the rest come from its input). */
-function xargs(args: readonly ShellWord[]): CommandMeaning {
-  const fromFile: ShellWord[] = [];
+/**
+ * xargs: the command it runs, with the arguments given to it literally, each
+ * judged as written. Without a replace string more arguments come after them
+ * from its input; with one (-I, -i, --replace, BSD -J) the input is
+ * substituted in place, which is reported, never judged in the words' stead.
+ * When which word is its command cannot be told (an unknown or ambiguous
+ * long option, a word only the shell can resolve among its options), every
+ * plausible reading runs, and the words that follow are also read as
+ * operands: the strictest verdict wins, and nothing leaves judgement.
+ */
+function xargs(args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
+  const ran: { name: ShellWord; args: ShellWord[]; input?: true; replace?: ShellWord }[] = [];
+  const reads: ShellWord[] = [];
+  const seen = new Set<string>();
+  for (const reading of xargsReadings(args, 0, { replace: undefined, argFiles: [] }, budget)) {
+    reads.push(...reading.argFiles, ...reading.operands);
+    const [name, ...rest] = reading.command;
+    if (name === undefined) continue;
+    if (!spend(budget, 1 + rest.length + textCost(rest))) break;
+    const key = JSON.stringify([name.text, rest.map((word) => word.text), reading.replace?.text ?? null]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ran.push({ name, args: rest, ...(reading.replace === undefined ? { input: true as const } : { replace: reading.replace }) });
+  }
+  return meaning({ runs: ran, reads: [...new Set(reads)] });
+}
+
+/** The arguments xargs reads from its input, as one word only the run can resolve. */
+export const XARGS_INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(input)", commands: Object.freeze([]) });
+
+/** xargs's short options that take a value: the rest of their word, or the next word when they end it (GNU and BSD). */
+const XARGS_VALUE_LETTERS = "IJLnPdEsaRS";
+/** xargs's short options whose value, if any, is only the rest of their word: -e[eof], -l[lines], -i[replace]. */
+const XARGS_ATTACHED_LETTERS = "eli";
+/** GNU xargs's long options, each with how it takes a value: always (`=value` or the next word), optionally (only `=value`), or never. */
+const XARGS_LONG_OPTIONS: Readonly<Record<string, "value" | "optional" | "none">> = Object.freeze({
+  "--null": "none",
+  "--arg-file": "value",
+  "--delimiter": "value",
+  "--eof": "optional",
+  "--replace": "optional",
+  "--max-lines": "optional",
+  "--max-args": "value",
+  "--max-chars": "value",
+  "--interactive": "none",
+  "--max-procs": "value",
+  "--no-run-if-empty": "none",
+  "--exit": "none",
+  "--open-tty": "none",
+  "--process-slot-var": "value",
+  "--show-limits": "none",
+  "--verbose": "none",
+  "--version": "none",
+  "--help": "none",
+});
+
+/** A long option as getopt_long matches it: exactly, else by a prefix of exactly one option; undefined when unknown or ambiguous. */
+function xargsLongOption(name: string): string | undefined {
+  if (Object.hasOwn(XARGS_LONG_OPTIONS, name)) return name;
+  const matches = Object.keys(XARGS_LONG_OPTIONS).filter((option) => option.startsWith(name));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+interface XargsReading {
+  readonly command: readonly ShellWord[];
+  readonly replace: ShellWord | undefined;
+  readonly argFiles: readonly ShellWord[];
+  /** Words also read as operands, where its command starts could not be told. */
+  readonly operands: readonly ShellWord[];
+}
+
+/**
+ * xargs's own options, walked from `start` as getopt walks them: where its
+ * command starts, its replace string (undefined when it has none; -i and a
+ * bare --replace mean `{}`), and the files it reads its input from (-a).
+ * Where the walk cannot tell (an unknown or ambiguous long option, or a word
+ * only the shell can resolve), it goes on every plausible way: that the
+ * word, or the word and the next, were options, and, for a resolvable word,
+ * that the command starts there. Every reading is returned.
+ */
+function xargsReadings(args: readonly ShellWord[], start: number, given: { readonly replace: ShellWord | undefined; readonly argFiles: readonly ShellWord[] }, budget: WorkBudget): XargsReading[] {
+  // Every reading spends from the whole command's budget; once it is spent, the command is unread, so what is returned no longer matters.
+  if (!spend(budget, 1 + args.length - start)) return [];
+  let replace = given.replace;
+  const argFiles = [...given.argFiles];
+  const reading = (command: readonly ShellWord[], operands: readonly ShellWord[] = []): XargsReading => ({ command, replace, argFiles, operands });
+  /** Every way on after an option at `index` the walk cannot read: it took no value, or the next word, and the words after are also operands. */
+  const uncertain = (index: number, commandHere: boolean, takesNoNextWord = false): XargsReading[] => {
+    const rest = args.slice(index);
+    const state = { replace, argFiles };
+    return [
+      ...(commandHere ? [reading(rest, rest)] : [reading([], rest)]),
+      ...xargsReadings(args, index + 1, state, budget),
+      ...(takesNoNextWord ? [] : xargsReadings(args, index + 2, state, budget)),
+    ];
+  };
+  for (let index = start; index < args.length; index++) {
+    const word = args[index] as ShellWord;
+    const text = literal(word);
+    if (text === undefined) return uncertain(index, true);
+    if (text === "--") return [reading(args.slice(index + 1))];
+    if (!text.startsWith("-") || text === "-") return [reading(args.slice(index))];
+    if (text.startsWith("--")) {
+      const equals = text.indexOf("=");
+      const option = xargsLongOption(equals === -1 ? text : text.slice(0, equals));
+      const given = equals === -1 ? undefined : literalWord(text.slice(equals + 1));
+      if (option === undefined) return uncertain(index, false, equals !== -1);
+      const takes = XARGS_LONG_OPTIONS[option];
+      if (takes === "value") {
+        const value = given ?? args[++index];
+        if (option === "--arg-file" && value !== undefined) argFiles.push(value);
+      } else if (option === "--replace") replace = given ?? literalWord("{}");
+      continue;
+    }
+    for (let at = 1; at < text.length; at++) {
+      const letter = text.charAt(at);
+      const rest = text.slice(at + 1);
+      if (XARGS_VALUE_LETTERS.includes(letter)) {
+        const value = rest === "" ? args[++index] : literalWord(rest);
+        if ((letter === "I" || letter === "J") && value !== undefined) replace = value;
+        if (letter === "a" && value !== undefined) argFiles.push(value);
+        break;
+      }
+      if (XARGS_ATTACHED_LETTERS.includes(letter)) {
+        if (letter === "i") replace = literalWord(rest === "" ? "{}" : rest);
+        break;
+      }
+    }
+  }
+  return [reading([])];
+}
+
+/**
+ * A program given code inline (python -c, node -e, perl -ne): what it reads
+ * is taken as an unknown command's is, and the code, another language's, is
+ * unresolved: only the program can say what it does. Short options cluster
+ * as getopt reads them (-Bc, -lne, -pe): a letter in `codeLetters` takes the
+ * rest of its word, or the next word when it ends it; a letter in
+ * `valueLetters` takes the rest of its word as its value, so the cluster
+ * ends there. A long option in `codeOptions` takes `=code` or the next word.
+ * Without `codeAttached` (node), a code letter takes only the next word, and
+ * only when it ends its cluster (-pe: -p, then -e and its code).
+ */
+function inlineCode(codeLetters: string, valueLetters: string, codeOptions: readonly string[] = [], codeAttached = true) {
+  return (args: readonly ShellWord[]): CommandMeaning => {
+    const code: ShellWord[] = [];
+    for (let index = 0; index < args.length; index++) {
+      const text = literal(args[index]);
+      if (text === "--") break;
+      if (text === undefined || !text.startsWith("-") || text === "-") continue;
+      if (text.startsWith("--")) {
+        const option = codeOptions.find((each) => text === each || text.startsWith(`${each}=`));
+        const word = option === undefined ? undefined : text === option ? args[++index] : literalWord(text.slice(option.length + 1));
+        if (word !== undefined) code.push(word);
+        continue;
+      }
+      for (let at = 1; at < text.length; at++) {
+        const letter = text.charAt(at);
+        if (codeLetters.includes(letter) && (codeAttached || at === text.length - 1)) {
+          const rest = text.slice(at + 1);
+          const word = rest === "" ? args[++index] : literalWord(rest);
+          if (word !== undefined) code.push(word);
+          break;
+        }
+        if (valueLetters.includes(letter)) break;
+      }
+    }
+    return meaning({ reads: readsOf(args), unresolved: code });
+  };
+}
+
+/** awk and its kin: without -f, the first operand is its program, unresolved; the rest as an unknown command's. */
+function awk(args: readonly ShellWord[]): CommandMeaning {
+  let program: ShellWord | undefined;
   for (let index = 0; index < args.length; index++) {
     const text = literal(args[index]);
-    const value = text === undefined ? undefined : attached(text, "-a");
-    if (text === "-a" && args[index + 1] !== undefined) fromFile.push(args[index + 1] as ShellWord);
-    else if (value !== undefined) fromFile.push(literalWord(value));
+    if (text === "-f" || text === "--file" || text?.startsWith("--file=") === true || (text?.startsWith("-f") === true && !text.startsWith("--"))) return meaning({ reads: readsOf(args) });
+    if (text === "-F" || text === "-v" || text === "--field-separator" || text === "--assign") index++;
+    else if (text === "--") {
+      program = args[index + 1];
+      break;
+    } else if (!isOption(args[index] as ShellWord)) {
+      program = args[index];
+      break;
+    }
   }
-  const ran = runs(args, ["-I", "-L", "-l", "-n", "-P", "-d", "-E", "-e", "-s", "-a"]);
-  return meaning({ ...ran, reads: fromFile });
+  return meaning({ reads: readsOf(args), unresolved: program === undefined ? [] : [program] });
 }
 
 const TEXT = [
@@ -260,7 +454,7 @@ const TEXT = [
   "umask", "break", "continue", "read",
 ];
 
-const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMeaning>> = Object.freeze({
+const TABLE: Readonly<Record<string, (args: readonly ShellWord[], budget: WorkBudget) => CommandMeaning>> = Object.freeze({
   ...Object.fromEntries(TEXT.map((name) => [name, () => NONE])),
   ls: (args) => meaning({ lists: operands(args).length === 0 ? [here] : operands(args) }),
   tree: (args) => meaning({ lists: operands(args).length === 0 ? [here] : operands(args) }),
@@ -297,10 +491,54 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   command: (args) => (args.some((word) => ["-v", "-V"].includes(literal(word) ?? "")) ? NONE : runs(args)),
   xargs,
   eval: (args) => meaning({ unresolved: args }),
+  python: inlineCode("c", "WXQm"),
+  python3: inlineCode("c", "WXQm"),
+  node: inlineCode("ep", "rC", ["--eval", "--print"], false),
+  perl: inlineCode("eE", "MmIxCidDF0"),
+  ruby: inlineCode("e", "rIECFKxTWi"),
+  awk,
+  gawk: awk,
+  mawk: awk,
 });
 
-/** What the command `name` does with `args`. */
-export function commandMeaning(name: string, args: readonly ShellWord[]): CommandMeaning {
-  const known = Object.hasOwn(TABLE, name) ? TABLE[name] : undefined;
-  return known === undefined ? meaning({ reads: readsOf(args) }) : known(args);
+/**
+ * The work reading one whole command may take, in steps: a step for each
+ * command, each node of its syntax tree, each word a command is given or a
+ * reading of xargs's options slices, each word resolved (and one more per 64
+ * of its characters), and each look at what is at a path. The budget counts
+ * work, not calls, so time is bounded by it. 200,000 steps run in tens of
+ * milliseconds; a command built to multiply its readings (nested xargs over
+ * words that cannot be told) stops there, since the reader is synchronous
+ * and no timer can stop it (ADR 2026-020, which gives the measured costs).
+ */
+export const WORK_BUDGET_STEPS = 200_000;
+/** How deep commands may nest (a wrapper's command, a nested shell's code, a substitution): far past any written by hand. */
+export const MAX_NESTING = 64;
+
+/** A fresh budget for reading one command. */
+export const newWorkBudget = (outOfTime: () => boolean = () => false): WorkBudget => ({ left: WORK_BUDGET_STEPS, exhausted: false, timedOut: false, charges: 0, outOfTime });
+
+/** How many charges pass between two looks at the time. */
+const CHARGES_PER_TIME_CHECK = 64;
+
+/** Spends `steps`; false once the budget or the time is spent, which marks it exhausted for good. */
+export function spend(budget: WorkBudget, steps = 1): boolean {
+  if (budget.exhausted) return false;
+  // A cost that is not a count of steps (negative, not finite) spends the whole budget: it can never give steps back.
+  budget.left -= Number.isFinite(steps) && steps >= 0 ? steps : budget.left + 1;
+  if (budget.left < 0) budget.exhausted = true;
+  else if (++budget.charges % CHARGES_PER_TIME_CHECK === 0 && budget.outOfTime()) {
+    budget.exhausted = true;
+    budget.timedOut = true;
+  }
+  return !budget.exhausted;
 }
+
+/** What the command `name` does with `args`, spending from `budget`, the whole command's: a step for the command and one per word. */
+export function commandMeaning(name: string, args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
+  // Each word costs a step and one per 64 characters; a short option cluster, read for every value it could carry, costs its suffixes' length.
+  if (!spend(budget, 1 + args.length + textCost(args) + args.reduce((steps, word) => steps + clusterCost(word), 0))) return NONE;
+  const known = Object.hasOwn(TABLE, name) ? TABLE[name] : undefined;
+  return known === undefined ? meaning({ reads: readsOf(args) }) : known(args, budget);
+}
+

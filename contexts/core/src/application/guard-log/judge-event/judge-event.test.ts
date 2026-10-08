@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Composition, type Composition as CompositionType, contribution, corePack, type Decision, DecisionId, DecisionTime, definePack, packIdsFor, Verdict } from "bounded/domain";
 import { JudgeEventCommand } from "./judge-event.command.ts";
-import type { Clock, DecisionIds, GuardLog } from "./judge-event.contract.ts";
+import type { Clock, DecisionIds, GuardLog, ShellCommandReader } from "./judge-event.contract.ts";
 import { JudgeEventHandler } from "./judge-event.handler.ts";
 
 const TIME = "2026-10-07T12:00:00.000Z";
@@ -270,5 +270,141 @@ describe("JudgeEventHandler", () => {
     const verdict = await new JudgeEventHandler(null as unknown as CompositionType, log, clock).execute(command("src/a.ts"));
     expect(verdict.kind).toBe("refuse");
     expect(log.decisions.length).toBe(1);
+  });
+});
+
+describe("JudgeEventHandler — reading shell commands", () => {
+  const ROOT = "/work/project";
+  /** A pack whose execute guard refuses with the reading it was given, as JSON, so a test can see it. */
+  const showsReading = definePack({
+    id: packIdsFor("test-packs")("shows-reading"),
+    dependsOn: [corePack],
+    contributes: [contribution(corePack.points.effectGuards.execute, [(effect) => Verdict.refuse(JSON.stringify(effect.reading), "Seen")])],
+  });
+  const shown = Composition.compose([showsReading, corePack], [showsReading, corePack]);
+  if (!shown.ok) throw new Error(shown.error);
+  const showing: CompositionType = shown.value;
+  const reading = (name: string) => ({ outcome: "read", programs: [{ name: { kind: "literal", text: name }, arguments: [{ kind: "literal", text: "x" }], workingDirectory: "." }], fileEffects: [{ effect: { kind: "read", path: "x" } }], unresolved: [] });
+  const shell = (effects: object[]) => ({ kind: "tool-use", role: null, tool: "shell", effects, callId: "c-1" });
+  const unread = (why: string) => JSON.stringify({ outcome: "unread", why });
+  const reasonOf = (verdict: Verdict): string => (verdict.kind === "refuse" ? verdict.reason : "allowed");
+  const answering = (answer: (command: string) => Promise<unknown>): ShellCommandReader => ({ prepare: async () => {}, read: (_root, command) => answer(command.value) });
+
+  test("every execute effect is read by the project's reader before guards run, and guards see the reading", async () => {
+    const calls: unknown[] = [];
+    const reader: ShellCommandReader = {
+      prepare: async () => {},
+      read: async (projectRoot, command, cwd) => {
+        calls.push([projectRoot, command.value, cwd === null ? null : cwd.value]);
+        return reading("tool-a");
+      },
+    };
+    const handler = new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: reader, projectRoot: ROOT });
+    const verdict = await handler.judge(shell([{ kind: "execute", command: "tool-a x", cwd: "app" }]));
+    expect(reasonOf(verdict)).toBe(`test-packs/shows-reading refused execute \`tool-a x\` in app: ${JSON.stringify(reading("tool-a"))}`);
+    expect(calls).toEqual([[ROOT, "tool-a x", "app"]]);
+  });
+
+  test("a reading the host sent is replaced, never trusted", async () => {
+    const handler = new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: answering(async () => reading("tool-a")), projectRoot: ROOT });
+    const verdict = await handler.judge(shell([{ kind: "execute", command: "tool-a x", reading: reading("harmless") }]));
+    expect(reasonOf(verdict)).toEndWith(`: ${JSON.stringify(reading("tool-a"))}`);
+  });
+
+  test("without a reader, every execute is judged unread, saying the host passes one", async () => {
+    const verdict = await new JudgeEventHandler(showing, new FakeLog(), clock).judge(shell([{ kind: "execute", command: "ls" }]));
+    expect(reasonOf(verdict)).toBe(`test-packs/shows-reading refused execute \`ls\`: ${unread("this project was opened without a shell command reader: the host passes one to openProject")}`);
+  });
+
+  test("a reader that rejects leaves the command unread, saying why", async () => {
+    const log = new FakeLog();
+    const reader = answering(async () => {
+      throw new Error("bounded's shell parser could not load (main.wasm is missing)");
+    });
+    const verdict = await new JudgeEventHandler(showing, log, clock, { shellCommandReader: reader, projectRoot: ROOT }).judge(shell([{ kind: "execute", command: "ls" }]));
+    expect(reasonOf(verdict)).toEndWith(`: ${unread("bounded's shell parser could not load (main.wasm is missing)")}`);
+    expect(log.decisions.length).toBe(1);
+  });
+
+  test("a reader that throws instead of rejecting leaves the command unread, saying why", async () => {
+    const reader: ShellCommandReader = {
+      prepare: async () => {},
+      read: () => {
+        throw new Error("no grammar");
+      },
+    };
+    const verdict = await new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: reader, projectRoot: ROOT }).judge(shell([{ kind: "execute", command: "ls" }]));
+    expect(reasonOf(verdict)).toEndWith(`: ${unread("no grammar")}`);
+  });
+
+  test("a reader that does not answer within readWithinMs leaves the command unread, saying it timed out", async () => {
+    const reader = answering(() => new Promise(() => {}));
+    const verdict = await new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: reader, projectRoot: ROOT, readWithinMs: 30 }).judge(shell([{ kind: "execute", command: "ls" }]));
+    expect(reasonOf(verdict)).toEndWith(`: ${unread("reading the command did not finish within 30 ms (timed out)")}`);
+  });
+
+  test("readWithinMs bounds the whole event, not each read", async () => {
+    const seen: string[] = [];
+    const collects = definePack({
+      id: packIdsFor("test-packs")("collects"),
+      dependsOn: [corePack],
+      contributes: [
+        contribution(corePack.points.effectGuards.execute, [
+          (effect) => {
+            seen.push(effect.reading?.outcome ?? "none");
+            return Verdict.allow;
+          },
+        ]),
+      ],
+    });
+    const composed = Composition.compose([collects, corePack], [collects, corePack]);
+    if (!composed.ok) throw new Error(composed.error);
+    const slow = answering(async (command) => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return reading(command);
+    });
+    const handler = new JudgeEventHandler(composed.value, new FakeLog(), clock, { shellCommandReader: slow, projectRoot: ROOT, readWithinMs: 150 });
+    expect(await handler.judge(shell([{ kind: "execute", command: "tool-a" }, { kind: "execute", command: "tool-b" }]))).toBe(Verdict.allow);
+    expect(seen).toEqual(["read", "read"]);
+  });
+
+  test("a reading the reader gives that cannot be used leaves the command unread", async () => {
+    const verdict = await new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: answering(async () => ({ outcome: "maybe" })), projectRoot: ROOT }).judge(shell([{ kind: "execute", command: "ls" }]));
+    expect(reasonOf(verdict)).toEndWith(
+      `: ${unread("the shell command reader gave a reading that cannot be used: A shell command reading is { outcome: 'read', programs, fileEffects, unresolved } or { outcome: 'unread', why }")}`,
+    );
+  });
+
+  test("beforeAllow sees the read event", async () => {
+    const seen: unknown[] = [];
+    const handler = new JudgeEventHandler(composition, new FakeLog(), clock, {
+      shellCommandReader: answering(async () => reading("tool-a")),
+      projectRoot: ROOT,
+      beforeAllow: async (event) => {
+        if (event.kind === "tool-use") for (const effect of event.effects) if (effect.kind === "execute") seen.push(effect.reading?.toJSON());
+        return Verdict.allow;
+      },
+    });
+    expect(await handler.judge(shell([{ kind: "execute", command: "tool-a x" }]))).toBe(Verdict.allow);
+    expect(seen).toEqual([reading("tool-a")]);
+  });
+
+  test("a handler refusing everything reads no command", async () => {
+    let reads = 0;
+    const reader: ShellCommandReader = {
+      prepare: async () => {},
+      read: () => {
+        reads++;
+        throw new Error("read must not be called");
+      },
+    };
+    const refusal = Verdict.refuse("The configuration cannot be loaded: broken", "Fix bounded.config.ts");
+    const verdict = await new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: reader, projectRoot: ROOT, refuseEverything: refusal }).judge(shell([{ kind: "execute", command: "ls" }]));
+    expect<unknown>(verdict).toEqual({ kind: "refuse", reason: "The configuration cannot be loaded: broken", redirect: "Fix bounded.config.ts" });
+    expect(reads).toBe(0);
+  });
+
+  test("a reader without the project's root is refused when the handler is made", () => {
+    expect(() => new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: answering(async () => reading("tool-a")) })).toThrow(new RangeError("a shell command reader needs the project's root"));
   });
 });

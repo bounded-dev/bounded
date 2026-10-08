@@ -4,6 +4,7 @@ import {
   type AgentName,
   type CallId,
   type DelegateEffectJSON,
+  type ExecuteEffectJSON,
   type Command,
   type DecisionId,
   dispatch,
@@ -71,3 +72,5 @@ export const completeAllow: Verdict = { __brand: "Verdict", kind: "allow", equal
 // 6. A delegation's flags and a run's finish are true or false, never text.
 export const isolatedText: DelegateEffectJSON = { kind: "delegate", agent: "reviewer", isolated: "no" }; // rejected: Type 'string' is not assignable to type 'boolean'
 export const finishedText: ToolResultJSON = { role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "a" }], ok: true, delegatedAgentRuns: [{ finished: "yes" }] }; // rejected: Type 'string' is not assignable to type 'boolean'
+// 7. A reading of a shell command was read or unread: nothing else.
+export const maybeRead: ExecuteEffectJSON = { kind: "execute", command: "ls", reading: { outcome: "maybe" } }; // rejected: Type '"maybe"' is not assignable to type

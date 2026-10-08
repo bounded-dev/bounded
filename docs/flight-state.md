@@ -35,10 +35,21 @@ when written; keep it current (AGENTS.md, "Working with the user").
   ADR's "Release").
 - **The path gate pack** (`bounded/path-gate`, [slice 3](slice-3.md),
   [ADR 2026-009](adr/2026-009-path-gate-pack.md)): deny-only protected
-  paths on reads, listings and writes; a shell guard that parses each command
-  with tree-sitter-bash and judges the files it names; [drift](drift.md)
+  paths on reads, listings and writes; a shell guard that judges the files
+  a command names from the core's reading of it; [drift](drift.md)
   ([ADR 2026-011](adr/2026-011-drift.md)), which puts back what a shell
   command changed in protected files.
+- **Shell commands read once, in the core's judge**
+  ([ADR 2026-020](adr/2026-020-shell-command-reading.md)): before any guard
+  runs, the judge reads every execute effect's command through the host's
+  `ShellCommandReader` and the effect carries the reading (the programs it
+  runs, the files it reads, lists and writes, and what only the shell could
+  resolve). The reader, tree-sitter-bash and the table of what commands do
+  with their words are a private context, `bounded-shell-command-reader`
+  (`contexts/shell-command-reader`), built into `bounded` as
+  `bounded/shell-command-reader`; both hosts pass it to `openProject`, and
+  its conformance suite is published as
+  `bounded/testing/shell-command-reader-conformance`.
 - **The prerequisites pack** (`bounded/prereqs`,
   [ADR 2026-019](adr/2026-019-prereqs-pack.md), [its README](../contexts/core/src/packs/prereqs/README.md)),
   shipping in 3.2.0: a project's rules make an action (a
@@ -105,7 +116,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
     (init's default rule) and of `secrets/` (a project rule), allows another
     edit, and refuses `echo hi > secrets/x` and
     `echo x > .git/hooks/pre-commit`, which shows tree-sitter loading under
-    Node.
+    Node. The bun run sends that Bash call through the installed hook too,
+    and `apps/pi/test/bundle.e2e.test.ts` loads the built pi host under
+    Node: both read the command with `bounded/shell-command-reader`.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository
@@ -127,18 +140,42 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - writes delayed into the background, after the call is judged;
   - drift's snapshots live in a user-writable state directory
     (`$XDG_STATE_HOME/bounded`, else `~/.local/state/bounded`).
-- **The shell guard cannot see everything** ([ADR 2026-009](adr/2026-009-path-gate-pack.md),
-  "Known gaps"; [slice 3](slice-3.md)): globs, variables and loop variables,
-  `xargs` input, other-language scripts (`python -c`, `node -e`, `awk`,
-  `perl -e`), in-place edits (`sed -i`, `perl -i`), what a script file or
-  program opens itself, and brace expansion in a command name
-  (`{cat,.env}`). Paths it cannot resolve are allowed. The real control is
+- **The shell command reader cannot see everything** ([ADR 2026-020](adr/2026-020-shell-command-reading.md),
+  "Limits"; ADR 2026-009, "Known gaps"; [slice 3](slice-3.md)): globs,
+  variables and loop variables, `xargs` input, other-language code
+  (`python -c`, `node -e`, `awk`, `perl -e`: reported as unresolved code),
+  in-place edits (`sed -i`, `perl -i`), what a script file or program opens
+  itself, and brace expansion in a command name (`{cat,.env}`). PowerShell
+  (pi's `powershell` tool) is read as bash. What it cannot resolve the
+  path gate allows. A copy or move whose sources are unknown records no
+  write into its destination directory (`xargs cp -t dir` without a replace
+  string, `cp $X dir/`), so
+  nothing there is judged (ADR 2026-020, "Limits"). A command past the
+  reader's bounds (1,000 ms per read on the clock, 65,536 characters,
+  brace expansion past 1,000,000 characters of work, a syntax tree past
+  1,000 levels, 200,000 steps of work, nesting past 64) is unread as too
+  complex and refused, told to split or simplify it. The real control is
   confining commands at the operating-system level (for example a sandbox
   profile, or the host's own Bash sandbox settings, generated from
   `protectedPaths`): planned, not built.
+  - **Unresolved word hides a literal one; planned: every-plausible-reading,
+    as xargs now does** (ADR 2026-020, "Limits"; already so before it):
+    - `sudo "$OPT" rm x`, `doas "$X" rm x`, `env "$X" rm x`,
+      `nice "$N" rm x`, `nohup "$X" rm x`, `stdbuf "$X" rm x`,
+      `ionice "$X" rm x`, `builtin "$X" rm x`, `command "$X" rm x`,
+      `exec "$X" rm x`: read as reads of `rm` and `x`; lost: the delete of
+      `x`.
+    - `bash "$X" -c "rm x"`, and the same with `sh`, `zsh`, `dash` and
+      `ksh`: read as nothing; lost: the code `rm x` and its delete of `x`.
+    - `git $OPTS rm x`: read as reads of `rm` and `x`; lost: `git rm`'s
+      delete of `x`.
+    - `cp -t "$D" x`: read as a read of `x`; lost: the write into the
+      directory.
+    - `env -S $S rm x`: read as nothing; lost: `rm x` and its delete of `x`.
 - **The prerequisites pack's limits** ([ADR 2026-019](adr/2026-019-prereqs-pack.md)):
   - `before: { write }` matches file tools' writes only; a shell command's
-    writes are not matched.
+    writes are not matched yet, though the core now carries them in each
+    execute effect's reading (item `prereqs-execute`).
   - Drift never watches `.bounded/`, so records forged by a shell command
     the path gate does not see are kept: the records rest on the path gate's
     `.bounded/**` rule.
@@ -240,11 +277,16 @@ when written; keep it current (AGENTS.md, "Working with the user").
     selection that brings in its packs' dependencies
     ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)), the
     prerequisites pack, `bounded/prereqs`
-    ([ADR 2026-019](adr/2026-019-prereqs-pack.md)), and
+    ([ADR 2026-019](adr/2026-019-prereqs-pack.md)), shell commands read in
+    the core's judge with `bounded/shell-command-reader`
+    ([ADR 2026-020](adr/2026-020-shell-command-reading.md)), and
     3.1.1's per-host restart notice, never published on its own. ADR
     2026-018 breaks the types 3.0.0 and 3.1.0 published
     (`Config.selectedPacks`, compose-packs' `selectedPackIds`, the meaning
-    of `SelectedPacks.packs`); the maintainer chose to ship that break in a
+    of `SelectedPacks.packs`); ADR 2026-020 makes `openProject` require a
+    `shellCommandReader`, gives `pathGatePortProvisions()` two provisions,
+    and removes the path gate's path-kinds and shell-parser ports and their
+    adapters (its "Release"); the maintainer chose to ship these breaks in a
     minor. `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
@@ -302,9 +344,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - The prerequisites pack's next items (ADR 2026-019, "Future work"):
   observing an agent run's finish (`prereqs-run-finish`, gated on a capture
   of Claude Code's SubagentStop payloads), pi-subagents' asynchronous
-  completion (`prereqs-pi-async`), `before: { execute }` with shell writes,
-  and a Claude Code status widget listing each requirement as holds, stale
-  or missing.
+  completion (`prereqs-pi-async`), `before: { execute }` with shell writes
+  (`prereqs-execute`, item (ii) of ADR 2026-020: matched against each
+  execute effect's reading, refusing where it cannot see), and a Claude
+  Code status widget listing each requirement as holds, stale or missing.
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the guard log ([guard log](guard-log.md),

@@ -1,5 +1,5 @@
 import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge } from "bounded/application";
-import type { Clock } from "bounded/application";
+import type { Clock, ShellCommandReader } from "bounded/application";
 import { CheckedProjectConfigSource, FileSystemProjectConfigSource, FileSystemProjectGuardLogs, RandomDecisionIds, SystemClock } from "bounded/adapters";
 import { AdapterRefusal, type PortProvision, Verdict } from "bounded/domain";
 
@@ -14,15 +14,24 @@ export interface OpenProjectOptions {
   readonly prepareWithinMs?: number;
   /** Adapters for the ports the selected packs declare (a pack's adapter package makes them); none by default: the core cannot import a pack. */
   readonly ports?: readonly PortProvision[];
+  /**
+   * Reads every shell command before it is judged (ADR 2026-020): bounded's
+   * own is published as bounded/shell-command-reader.
+   * Required: without one every shell command is judged unread.
+   */
+  readonly shellCommandReader: ShellCommandReader;
 }
 
 /**
  * The composition root a host adapter calls: open the project at `root` (an
- * absolute path) for judging. The judge decides each event with the project's
- * bounded.config.ts and records it; if the configuration cannot be used, or
- * the root is not absolute, it refuses every event.
+ * absolute path) for judging. The judge reads each shell command with the
+ * host's reader, decides each event with the project's bounded.config.ts and
+ * records it; if the configuration cannot be used, or the root is not
+ * absolute, it refuses every event.
  */
-export async function openProject(projectRoot: string, options: OpenProjectOptions = {}): Promise<ProjectJudge> {
+export async function openProject(projectRoot: string, givenOptions: OpenProjectOptions): Promise<ProjectJudge> {
+  // An untyped caller may leave the options out: it still gets a judge, whose guards see every command unread.
+  const options: Partial<OpenProjectOptions> = givenOptions ?? {};
   try {
     const command = OpenProjectCommand.parse({ projectRoot });
     if (!command.ok) return refusingAll(`This project cannot be opened: ${command.error}`, "Pass the project's absolute root directory to openProject", command.error);
@@ -32,6 +41,7 @@ export async function openProject(projectRoot: string, options: OpenProjectOptio
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
       ...(options.prepareWithinMs === undefined ? {} : { prepareWithinMs: options.prepareWithinMs }),
       ...(options.ports === undefined ? {} : { ports: options.ports }),
+      ...(options.shellCommandReader === undefined ? {} : { shellCommandReader: options.shellCommandReader }),
       ids: new RandomDecisionIds(),
     });
     return await handler.execute(command.value);

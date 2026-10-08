@@ -23,7 +23,8 @@
     "src",
     "!src/**/*.test.ts",
     "!src/{adapters,composition-root,domain,packs}/**/*.test-support.ts",
-    "!src/application/{composition,guard-log,lifecycle,project-config}/**/*.test-support.ts",
+    "!src/application/{composition,lifecycle,project-config}/**/*.test-support.ts",
+    "!src/application/guard-log/**/*.{clock,decision-ids,guard-log,in-memory-guard-log}.test-support.ts",
     "!src/application/project-setup/**/*{-source,-files}.test-support.ts",
     "!src/**/fixtures/**"
   ],
@@ -76,6 +77,14 @@
       "bun": "./src/packs/prereqs/adapters/out/index.ts",
       "types": "./dist/types/packs/prereqs/adapters/out/index.d.ts",
       "default": "./dist/packs/prereqs/adapters/out/index.js"
+    },
+    "./shell-command-reader": {
+      "types": "./dist/types/shell-command-reader/index.d.ts",
+      "default": "./dist/shell-command-reader/index.js"
+    },
+    "./testing/shell-command-reader-conformance": {
+      "bun": "./src/application/guard-log/judge-event/judge-event.shell-command-reader.test-support.ts",
+      "types": "./src/application/guard-log/judge-event/judge-event.shell-command-reader.test-support.ts"
     },
     "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",
     "./hosts/pi": "./dist/hosts/pi/index.js",

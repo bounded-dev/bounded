@@ -8,6 +8,11 @@ written as object literals (its wire form). Amended by
 ports a host provides (watched files, shell snapshots, path kinds, the
 shell parser); it no longer contributes to a core `watchedPaths` point, it
 watches what it protects through the core's `beforeTool`/`afterTool`.
+Amended by [ADR 2026-020](2026-020-shell-command-reading.md): shell
+parsing (the syntax tree, the command-meanings table, tree-sitter) moves to
+the private context `bounded-shell-command-reader`; the path gate judges a
+command from the reading the judge gives its execute effect, and declares
+no path-kinds or shell-parser port.
 
 ## Decision
 

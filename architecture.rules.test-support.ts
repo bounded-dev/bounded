@@ -209,11 +209,22 @@ const importsFile = (file: SourceFile, target: string): boolean => importSpecs(f
  * named in that port's tag; the port's conformance suite is exactly
  * `<feature>.<port>.test-support.ts` beside the contract (see suitePathOf),
  * and a test beside each adapter class runs it. `exempt` names ports
- * excused, each with its reason.
+ * excused, each with its reason. An untagged port (the core names no
+ * adapter, as for HostInstaller and ShellCommandReader) may be implemented
+ * by an adapter in another context only when its suite exists beside the
+ * contract and a test beside the adapter imports it through an export path
+ * of the declaring package (one of `packages`, ADR 2026-020); in its own
+ * context it is still refused, its tag not naming the adapter.
  */
-export function implementedByViolations(files: readonly SourceFile[], barrels: ReadonlyMap<string, ReadonlyMap<string, string>>, exempt: ReadonlyMap<string, string> = new Map()): string[] {
+export function implementedByViolations(
+  files: readonly SourceFile[],
+  barrels: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  exempt: ReadonlyMap<string, string> = new Map(),
+  packages: readonly PackageExports[] = [],
+): string[] {
   const out: string[] = [];
   const adapters = adapterClasses(files, barrels);
+  const contextOf = (path: string): string | undefined => /^contexts\/[^/]+/.exec(path)?.[0];
   const tags = new Map<string, readonly string[]>();
   for (const contract of files.filter((file) => isApplicationContract(file.path))) {
     for (const { name, classes } of implementedBy(contract)) {
@@ -236,12 +247,34 @@ export function implementedByViolations(files: readonly SourceFile[], barrels: R
   for (const adapter of adapters) {
     for (const port of adapter.ports) {
       if (port.contract === undefined || !isApplicationContract(port.contract) || exempt.has(port.name)) continue;
-      if (!(tags.get(`${port.contract}#${port.name}`) ?? []).includes(adapter.name)) {
+      const tag = tags.get(`${port.contract}#${port.name}`);
+      const declaring = contextOf(port.contract);
+      if (tag === undefined && declaring !== undefined && contextOf(adapter.path) !== declaring) {
+        // An untagged port (the core names no adapter of it, as for HostInstaller) implemented in another context: its suite runs beside the adapter, through the declaring package's export path.
+        out.push(...untaggedPortViolations(files, adapter, port.name, port.contract, packages.find((pkg) => pkg.dir === declaring)));
+        continue;
+      }
+      if (!(tag ?? []).includes(adapter.name)) {
         out.push(`${adapter.path} — ${adapter.name} implements ${port.name}, but ${port.name}'s @implementedBy in ${port.contract} does not name it`);
       }
     }
   }
   return out;
+}
+
+/**
+ * R2 for an untagged port implemented in another context: the port's suite
+ * (suitePathOf) exists beside its contract, and a test beside the adapter
+ * imports it through an export path of the declaring package, `declaring`.
+ */
+function untaggedPortViolations(files: readonly SourceFile[], adapter: AdapterClass, port: string, contract: string, declaring: PackageExports | undefined): string[] {
+  const suite = suitePathOf(contract, port);
+  if (!files.some((file) => file.path === suite)) return [`${contract} — ${port} has no conformance suite: add ${suite.split("/").at(-1)} beside the contract, which every adapter of it runs`];
+  const exported = declaring === undefined ? [] : Object.entries(declaring.exports).filter(([, target]) => `${declaring.dir}/${target.replace(/^\.\//, "")}` === suite).map(([path]) => `${declaring.name}/${path.slice(2)}`);
+  const tested = files.some((file) => file.path.endsWith(".test.ts") && dirOf(file.path) === dirOf(adapter.path) && importSpecs(file).some((spec) => exported.includes(spec)));
+  if (tested) return [];
+  const through = exported.length === 0 ? `an export path of ${declaring?.name ?? "its package"}, which has none for it yet` : exported.join(" or ");
+  return [`${adapter.path} — ${adapter.name} implements ${port}, an untagged port of another context; a test beside it runs the port's conformance suite through ${through}`];
 }
 
 /** A package's name, directory and export paths, each mapped to the source file it serves. */

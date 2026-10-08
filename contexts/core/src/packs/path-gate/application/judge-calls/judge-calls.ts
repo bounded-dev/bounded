@@ -1,16 +1,13 @@
-import { type Composition, Verdict, type ListEffect, type WriteEffect } from "bounded/domain";
+import { type Composition, type ListEffect, type UnreadShellCommandCause, Verdict, type WriteEffect } from "bounded/domain";
 import { pathGateId } from "../../domain/path-gate-id.ts";
 import type { ProtectedPath } from "../../domain/protected-path.contract.ts";
 import { protectedPathsIn } from "../../domain/protected-path.ts";
 import type * as Contract from "./judge-calls.contract.ts";
-import { pathKindsPort, type ShellCheck, shellParserPort } from "./judge-calls.contract.ts";
-import { startShellCheck } from "./shell-check.ts";
 
 // The path gate's guards: reads, listings and writes judged against its
-// protected paths, and shell commands by what their text says they read,
-// list and write. Each reads the protected paths from the composition it is
-// given; a shell command is described by the project's shell check, prepared
-// when the project opens.
+// protected paths, and shell commands by what the core's reading of them
+// says they read, list and write (ADR 2026-020). Each reads the protected
+// paths from the composition it is given.
 
 /** Why a rule denies, and the redirect when it is not the rule's own. */
 type Denial = { readonly what: string; readonly redirect?: string } | undefined;
@@ -101,58 +98,46 @@ export const judgeList: Contract.JudgeList = (effect, composition) => firstDenia
 
 export const judgeWrite: Contract.JudgeWrite = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
 
-/**
- * Each opened project's shell check, by its composition: set when the
- * project opens, read by the synchronous execute guard (a guard cannot await
- * a port).
- */
-const shellChecks = new WeakMap<Composition, ShellCheck>();
-
-/** When a project opens: prepare its shell parser, and keep the project's root and what is at its paths for its check. */
-export const prepareShell: Contract.PrepareShell = async (project, { composition, ports }) => {
-  const parser = ports.get(shellParserPort);
-  const pathKinds = ports.get(pathKindsPort);
-  if (!parser.ok || !pathKinds.ok) {
-    const why = parser.ok ? (pathKinds.ok ? "" : pathKinds.error) : parser.error;
-    shellChecks.set(composition, { describe: () => ({ ok: false, error: `bounded's shell parser could not load (${why})` }) });
-    return;
-  }
-  const { check, ready } = startShellCheck(parser.value, project.root, pathKinds.value);
-  shellChecks.set(composition, check);
-  await ready;
-};
-
 const UNCHECKED = "the path gate cannot check shell commands";
+const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project) and a shell command reader, and reinstall bounded's dependencies if its parser cannot load; shell commands are refused until then";
+/** The redirect for each cause a reader gives: what would let the command be read. */
+const UNREAD_REDIRECTS: Readonly<Record<UnreadShellCommandCause, string>> = Object.freeze({
+  "too-complex": "Split the command into simpler commands, or simplify it (fewer nested commands, no words only the shell can resolve where a program's options are), and run each on its own; this one is refused as it is",
+});
 
 /**
- * A shell command is parsed and translated (shell-command.ts) into the paths
- * it reads, lists and writes, and each is judged exactly as a file tool's
- * read, listing or write. What only the shell can resolve (globs,
- * variables, substitutions' output, files programs open by themselves) is
- * not guessed at: it is allowed. A command that cannot be checked at all is
- * refused. Confining the command at the operating-system level is the real
- * control; drift undoes its writes to watched files.
+ * A shell command is judged by the core's reading of it (ADR 2026-020): the
+ * paths it reads, lists and writes, each judged exactly as a file tool's
+ * read, listing or write, reads first, then listings, then writes. What only
+ * the shell can resolve (globs, variables, substitutions' output, files
+ * programs open by themselves) is not guessed at: it is allowed. A command
+ * bounded did not read, or could not, is refused. Confining the command at
+ * the operating-system level is the real control; drift undoes its writes
+ * to watched files.
  */
 export const judgeExecute: Contract.JudgeExecute = (effect, composition) => {
-  const check = shellChecks.get(composition);
-  if (check === undefined) {
-    return Verdict.refuse(`${UNCHECKED}: this project was not opened with openProject, which prepares the check`, "Open the project with openProject (bounded/open-project); shell commands are refused until then");
-  }
-  const described = check.describe(effect.command, effect.cwd);
-  if (!described.ok) return Verdict.refuse(`${UNCHECKED}: ${described.error}`, "Reinstall bounded's dependencies (bun install), then start a new session; shell commands are refused until the parser loads");
-  const { reads, lists, writes } = described.value;
+  const { reading } = effect;
+  if (reading === null) return Verdict.refuse(`${UNCHECKED}: bounded did not read this command; openProject's judge, given a shell command reader, reads every command`, UNREAD_REDIRECT);
+  if (reading.outcome === "unread") return Verdict.refuse(`${UNCHECKED}: ${reading.why}`, reading.cause === undefined ? UNREAD_REDIRECT : UNREAD_REDIRECTS[reading.cause]);
   const judged = (what: string, verdict: Verdict): Verdict | undefined => (verdict.kind === "refuse" ? Verdict.refuse(`this command ${what} — ${verdict.reason}`, verdict.redirect) : undefined);
-  for (const { value: path } of reads) {
+  for (const { effect: read } of reading.fileEffects) {
+    if (read.kind !== "read") continue;
+    const path = read.path.value;
     const refused = judged(`reads '${path}'`, firstDenial(composition, (rule) => readDenial(rule, path)));
     if (refused !== undefined) return refused;
   }
-  for (const { value: root } of lists) {
-    const refused = judged(`lists '${root}'`, firstDenial(composition, (rule) => listDenial(rule, root, null)));
+  for (const { effect: list } of reading.fileEffects) {
+    if (list.kind !== "list") continue;
+    const root = list.root.value;
+    const refused = judged(`lists '${root}'`, firstDenial(composition, (rule) => listDenial(rule, root, filterOf(list))));
     if (refused !== undefined) return refused;
   }
-  for (const { path, change, undetermined } of writes) {
-    const both = undetermined === true ? " (whether it exists could not be determined, so it is judged as both a create and a modify)" : "";
-    const refused = judged(`${change === "delete" ? "deletes" : "writes"} '${path.value}'${both}`, firstDenial(composition, (rule) => writeDenial(rule, path.value, change)));
+  for (const { effect: write, existenceUnknown } of reading.fileEffects) {
+    if (write.kind !== "write") continue;
+    const { change } = write;
+    const path = write.path.value;
+    const both = existenceUnknown === true ? " (whether it exists could not be determined, so it is judged as both a create and a modify)" : "";
+    const refused = judged(`${change === "delete" ? "deletes" : "writes"} '${path}'${both}`, firstDenial(composition, (rule) => writeDenial(rule, path, change)));
     if (refused !== undefined) return refused;
   }
   return Verdict.allow;

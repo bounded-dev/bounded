@@ -19,6 +19,7 @@
       },
       "dependencies": {
         "bounded": "workspace:*",
+        "bounded-shell-command-reader": "workspace:*",
         "picomatch": "4.0.7",
       },
       "devDependencies": {
@@ -34,12 +35,16 @@
       "dependencies": {
         "bounded": "workspace:*",
       },
+      "devDependencies": {
+        "bounded-shell-command-reader": "workspace:*",
+      },
     },
     "apps/pi": {
       "name": "bounded-pi",
       "version": "3.2.0",
       "dependencies": {
         "bounded": "workspace:*",
+        "bounded-shell-command-reader": "workspace:*",
       },
     },
     "contexts/core": {
@@ -52,6 +57,14 @@
         "@vscode/tree-sitter-wasm": "0.3.1",
         "picomatch": "4.0.7",
         "zod": "4.6.4",
+      },
+    },
+    "contexts/shell-command-reader": {
+      "name": "bounded-shell-command-reader",
+      "version": "3.2.0",
+      "dependencies": {
+        "@vscode/tree-sitter-wasm": "0.3.1",
+        "bounded": "workspace:*",
       },
     },
   },
@@ -89,6 +102,8 @@
     "bounded-cli": ["bounded-cli@workspace:apps/cli"],
 
     "bounded-pi": ["bounded-pi@workspace:apps/pi"],
+
+    "bounded-shell-command-reader": ["bounded-shell-command-reader@workspace:contexts/shell-command-reader"],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 

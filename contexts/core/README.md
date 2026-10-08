@@ -86,7 +86,31 @@ brings in every pack its listed packs depend on, so `Config.selectedPacks`
 is `Config.listedPacks`, compose-packs' input field `selectedPackIds` is
 `listedPackIds`, and `SelectedPacks.packs` holds every selected pack, listed
 or brought in, beside the new `listedPacks` (the repository's ADR
-2026-018).
+2026-018). It also reads shell commands once, in the core's judge (the
+repository's ADR 2026-020): `openProject` requires a `shellCommandReader`,
+`pathGatePortProvisions()` gives two provisions, and `bounded/path-gate`
+no longer exports `PathKind`, `PathKinds`, `ShellCheck`, `ShellParser`,
+`pathKindsPort` or `shellParserPort` (nor its adapters
+`TreeSitterShellParser` and `FileSystemPathKinds`).
+
+A host other than the two this package carries opens a project with the
+shell command reader bounded publishes:
+
+```ts
+import { openProject } from "bounded/open-project";
+import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { prereqsPortProvisions } from "bounded/prereqs/adapters";
+import { TreeSitterShellCommandReader } from "bounded/shell-command-reader";
+
+const shellCommandReader = new TreeSitterShellCommandReader();
+const project = await openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+```
+
+Without a reader every shell command is read as unread, and the path gate
+refuses it. A host with a shell of its own may write its own reader of the
+core's `ShellCommandReader` port (`bounded/application`); its tests run the
+suite every reader runs, `bounded/testing/shell-command-reader-conformance`
+(under bun's test runner).
 
 ## More
 

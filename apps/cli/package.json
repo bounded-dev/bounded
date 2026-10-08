@@ -9,5 +9,8 @@
   },
   "dependencies": {
     "bounded": "workspace:*"
+  },
+  "devDependencies": {
+    "bounded-shell-command-reader": "workspace:*"
   }
 }

@@ -66,6 +66,14 @@ describe("ToolResult", () => {
     expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, finishNeverReported: false }] })).toEqual({ ok: false, error: never });
   });
 
+  test("a tool result's execute effects carry no reading", () => {
+    const reading = { outcome: "unread", why: "the parser could not load" };
+    expect(ToolResult.parse({ ...done, effects: [{ kind: "execute", command: "make", reading }] })).toEqual({
+      ok: false,
+      error: "A tool result's execute effects carry no reading: bounded reads a command only when it judges it",
+    });
+  });
+
   test("is frozen", () => {
     const parsed = ToolResult.parse(done);
     expect(parsed.ok && Object.isFrozen(parsed.value) && Object.isFrozen(parsed.value.effects)).toBe(true);

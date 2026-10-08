@@ -152,7 +152,7 @@ snapshot expires.
 
 The path gate reads the project's files and keeps snapshots through two
 ports, `watchedFiles` and `shellSnapshots`, which a host supplies when it
-opens a project: `openProject(root, { ports: pathGatePortProvisions() })`
+opens a project: `openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader })`
 (`bounded/path-gate/adapters`, which gives every port the path gate uses;
 tests use the in-memory doubles beside each port, ADR 2026-017). A host
 that selects the path gate without them refuses every event, saying what to

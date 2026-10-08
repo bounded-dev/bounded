@@ -1,8 +1,9 @@
-import type { ProjectPath, Result } from "bounded/domain";
+import type { ProjectPath, Result, UnresolvedShellRole } from "bounded/domain";
 
-// What the path gate makes of a shell command (its parser is a port of the
-// judge-calls feature): a syntax tree, then a translation into the paths the command
-// reads, lists and writes. Neither decides anything; the guards judge.
+// What bounded's shell command reader makes of a command: a syntax tree (the
+// adapter's parser builds it), then a translation into the programs it runs,
+// the paths it reads, lists and writes, and what only the shell can resolve.
+// Neither decides anything: packs judge the reading (ADR 2026-020).
 
 /** A word of a command: literal text (quotes and escapes removed), or text only the shell can resolve, with the commands it runs (substitutions). */
 export type ShellWord =
@@ -21,8 +22,13 @@ export interface ShellRedirect {
 
 /** A parsed command line, as the shell would run it. */
 export type ShellNode =
-  /** A simple command; `name` is null for a bare assignment. Assignment values may run commands. */
-  | { readonly kind: "command"; readonly name: ShellWord | null; readonly args: readonly ShellWord[]; readonly redirects: readonly ShellRedirect[]; readonly assignments: readonly ShellWord[] }
+  /**
+   * A simple command; `name` is null for a bare assignment. Assignment values
+   * may run commands. `standIn` marks one the parser made for text the shell
+   * does not run as a program (a loop's words, an assignment): what is
+   * substituted in it runs, but it is no program.
+   */
+  | { readonly kind: "command"; readonly name: ShellWord | null; readonly args: readonly ShellWord[]; readonly redirects: readonly ShellRedirect[]; readonly assignments: readonly ShellWord[]; readonly standIn?: true }
   /** Two parts joined by ';', '&&', '||' or '&'. */
   | { readonly kind: "list"; readonly left: ShellNode; readonly operator: ";" | "&&" | "||" | "&"; readonly right: ShellNode }
   /** Commands joined by '|': each stage runs in a subshell of its own. */
@@ -45,6 +51,12 @@ export interface ShellPlace {
   readonly root: string;
   kindOfPath(path: ProjectPath): PathKind | undefined;
   parseScript(script: string): Result<readonly ShellNode[]>;
+  /**
+   * Whether the time for reading this command has run out: given by the
+   * reader from its clock (the domain only asks), checked as the budget is
+   * spent; once true, the command is unread. Never, when not given.
+   */
+  readonly outOfTime?: () => boolean;
 }
 
 /** A write a command makes; `undetermined` when whether the file exists could not be told, so it is judged as both a create and a modify. */
@@ -54,10 +66,44 @@ export interface ShellWrite {
   readonly undetermined?: true;
 }
 
-/** The project paths a command reads, lists and writes, and what in it only the shell can resolve. */
+/**
+ * The steps reading one whole command may take, shared by everything its
+ * reading does (each command, each xargs reading, each report of xargs's
+ * input), and how deep its commands may nest. Once spent, the command is
+ * unread: never a reduced reading (ADR 2026-020).
+ */
+export interface WorkBudget {
+  left: number;
+  exhausted: boolean;
+  /** Whether it ran out because the time did, not the steps. */
+  timedOut: boolean;
+  /** Charges so far: the time is asked every few charges, not at each. */
+  charges: number;
+  readonly outOfTime: () => boolean;
+}
+
+/** A program a command runs: its name and arguments as words, and the project directory it runs in, null when that cannot be known. */
+export interface ShellProgram {
+  readonly name: ShellWord;
+  readonly arguments: readonly ShellWord[];
+  readonly workingDirectory: ProjectPath | null;
+}
+
+/** Text only the shell (or the program at run time) can resolve, and the role it would have had. */
+export interface UnresolvedWord {
+  readonly text: string;
+  readonly role: UnresolvedShellRole;
+}
+
+/** The programs a command runs, in the order met, the project paths it reads, lists and writes, and what in it only the shell can resolve. */
 export interface ShellCommandEffects {
+  readonly programs: readonly ShellProgram[];
   readonly reads: readonly ProjectPath[];
   readonly lists: readonly ProjectPath[];
   readonly writes: readonly ShellWrite[];
-  readonly unresolved: readonly string[];
+  readonly unresolved: readonly UnresolvedWord[];
+  /** Why the command cannot be read, when reading it outgrew the work budget: then nothing above is a reading of it. */
+  readonly unreadWhy?: string;
+  /** The work steps reading it took, out of the budget (WORK_BUDGET_STEPS). */
+  readonly workSpent: number;
 }
