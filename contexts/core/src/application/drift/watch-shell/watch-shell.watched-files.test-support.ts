@@ -98,6 +98,15 @@ export function watchedFilesConformance(name: string, fixture: (committed: Reado
       expect((await files.copy("generated/missing.ts")).ok).toBe(false);
     });
 
+    test("names every rule that watches a file, the first as its rule, when more than one does", async () => {
+      const { files } = await fixture(committed);
+      const hashed = await files.hash([rule("src/**"), rule("generated/**"), rule("generated/a.ts"), rule("**/*.ts", ["src/**"])]);
+      if (!hashed.ok) throw new Error(hashed.error);
+      expect(hashed.value["generated/a.ts"]).toMatchObject({ rule: 1, rules: [1, 2, 3] });
+      expect(hashed.value["src/b.ts"]?.rule).toBe(0);
+      expect(hashed.value["src/b.ts"]?.rules).toBeUndefined();
+    });
+
     test("a rule's match ignores case, as the path gate's does; its except does not", async () => {
       const { files, write } = await fixture(committed);
       await write("Docs/Guide.md", "g");

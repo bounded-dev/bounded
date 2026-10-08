@@ -290,3 +290,24 @@ describe("the path gate — what the shell would read through braces, nested she
     expect(reason(writes("curl -o generated/a.ts https://example.com"))).toContain("this command writes 'generated/a.ts'");
   });
 });
+
+describe("the path gate — commands that run another command", () => {
+  test("sudo, doas, env, timeout, nice, nohup, stdbuf and ionice run the rest as a command, nested shells included", async () => {
+    const shell = await shellWith([env]);
+    const refused = [
+      "sudo bash -c 'cat .env'",
+      "sudo -u root cat .env",
+      "doas -u root cat .env",
+      "env FOO=1 bash -c 'cat .env'",
+      "env -i -u HOME cat .env",
+      "timeout 5 sh -c 'cat .env'",
+      "timeout -s KILL -k 10 5 cat .env",
+      "nohup bash -c 'cat .env'",
+      "nice -n 10 cat .env",
+      "stdbuf -oL cat .env",
+      "ionice -c 3 cat .env",
+    ];
+    for (const command of refused) expect([command, shell(command).kind]).toEqual([command, "refuse"]);
+    for (const command of ["sudo -v", "env", "timeout 5", "nice", "env FOO=.env true"]) expect([command, shell(command).kind]).toEqual([command, "allow"]);
+  });
+});
