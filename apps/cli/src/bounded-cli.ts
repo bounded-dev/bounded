@@ -13,10 +13,13 @@
 //   configuration and installs the hooks of the hosts named or found;
 // - `bounded update` upgrades bounded, to its latest from the registry or
 //   from the tarball in `--from <dir>`, then runs the installed
-//   `bounded update --no-upgrade`, which refreshes the hooks.
+//   `bounded update --no-upgrade --previous-version <version>`, which
+//   refreshes the hooks and says which agent host sessions must restart.
 // Those two hand-offs are the contract between versions: every version
 // accepts `bounded init --no-install [--host <host>]...` and
-// `bounded update --no-upgrade`.
+// `bounded update --no-upgrade`; from 3.1.1 on, also
+// `--previous-version <version>`, which is passed only to a bounded that
+// accepts it (ADR 2026-016).
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -79,7 +82,9 @@ export const USAGE = `Usage:
                                                      rules), and the hooks of the hosts named or found
   bounded update [--from <dir>]                      upgrade bounded to its latest from the npm registry, or from its tarball
                                                      in <dir>, then refresh the hooks
-  bounded update --no-upgrade                        refresh the hooks of the hosts found to point at the installed version
+  bounded update --no-upgrade [--previous-version <version>]
+                                                     refresh the hooks of the hosts found to point at the installed version;
+                                                     <version> is the bounded it replaced, so the notice knows whether pi must restart
 `;
 
 /** The hosts bounded carries an adapter for, found by their directory in the project. */
@@ -103,23 +108,78 @@ function ownVersion(): string {
   return typeof version === "string" ? version : "(unknown version)";
 }
 
-const RESTART = "Restart each agent host's session in this project (start a new session) so it loads the hooks.";
+/** The first bounded whose `update --no-upgrade` accepts `--previous-version <version>`: an older one is handed over to without it. */
+const FIRST_VERSION_TAKING_PREVIOUS_VERSION = "3.1.1";
+
+/** A version as `--previous-version` gives it: major.minor.patch, with any prerelease or build suffix, so it can name nothing else. */
+const isVersion = (text: string): boolean => /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(text);
+
+/**
+ * What this run knows of the bounded installed before it: none, since init
+ * sets the hosts up for the first time; the version it replaced, as the
+ * hand-off gave it; or nothing, when `update --no-upgrade` was run without
+ * `--previous-version` (by hand, or by a CLI older than 3.1.1).
+ */
+type VersionBefore = { readonly kind: "first-setup" } | { readonly kind: "known"; readonly version: string } | { readonly kind: "unknown" };
+
+/**
+ * How a host's sessions take a new bounded:
+ * - `per-tool-call`: the session reads its hooks at its start, and each tool
+ *   call runs bounded in a new process, so only changed hooks need a restart;
+ * - `in-process`: the session loads bounded into its own process at its
+ *   start, through hooks that are its loader;
+ * - `not-known`: a host another package installs. Its sessions may hold
+ *   bounded in their process, so they are told to restart as `in-process`
+ *   ones are, but for changed hooks, which they load.
+ */
+type BoundedLoading = "per-tool-call" | "in-process" | "not-known";
+
+/** bounded's bundled hosts, by host name: their name for people, and how their sessions take a new bounded. */
+const BUNDLED_HOST_SESSIONS: Readonly<Record<string, { readonly name: string; readonly loading: BoundedLoading }>> = {
+  // Claude Code runs the hook command, the same in every version, in a new node process on every tool call.
+  "claude-code": { name: "Claude Code", loading: "per-tool-call" },
+  // pi loads bounded's extension, through the loader under .pi/extensions/, into its own process.
+  pi: { name: "pi", loading: "in-process" },
+};
+
+/**
+ * The restart notice: for each host set up, the line saying its sessions
+ * must restart, and why; or, when none must, the one line saying so.
+ * A host's sessions restart when init set it up or its installer changed a
+ * file; those that may hold bounded in their process also when bounded's
+ * version changed, or when that is not known.
+ */
+function restartNotice(report: SetupReport, versionBefore: VersionBefore, version: string): string[] {
+  const lines: string[] = [];
+  for (const host of report.hosts) {
+    if (host.skippedBecause !== null) continue;
+    const { name, loading } = BUNDLED_HOST_SESSIONS[host.host] ?? { name: host.host, loading: "not-known" };
+    const hooksChanged = versionBefore.kind === "first-setup" || host.changedPaths.length > 0;
+    const toLoadBounded = `Restart ${name} sessions in this project to load bounded ${version}`;
+    if (hooksChanged) lines.push(loading === "in-process" ? `${toLoadBounded}.` : `Restart ${name} sessions in this project so they load the new hooks.`);
+    else if (loading === "per-tool-call") continue;
+    else if (versionBefore.kind === "unknown") lines.push(`${toLoadBounded} (the version it replaced is not known).`);
+    else if (versionBefore.kind === "known" && versionBefore.version !== version) lines.push(`${toLoadBounded}.`);
+  }
+  return lines.length > 0 ? lines : [`No need to restart existing sessions: bounded ${version} is live on the next tool call.`];
+}
 
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 
-function reportText(report: SetupReport): string {
-  const lines = [`bounded ${ownVersion()}`];
+function reportText(report: SetupReport, versionBefore: VersionBefore): string {
+  const version = ownVersion();
+  const lines = [`bounded ${version}`];
   if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the core and the path gate, with two default rules protecting the configuration and .bounded/; add your own rules there.`);
   for (const host of report.hosts) {
     if (host.skippedBecause !== null) lines.push(`${host.host}: skipped (${host.skippedBecause})`);
     else if (host.changedPaths.length > 0) lines.push(`${host.host}: updated ${host.changedPaths.join(", ")}`);
     else lines.push(`${host.host}: up to date`);
   }
-  lines.push(RESTART);
+  lines.push(...restartNotice(report, versionBefore, version));
   return `${lines.join("\n")}\n`;
 }
 
-const done = (outcome: Result<SetupReport>): CliRun => (outcome.ok ? { exitCode: 0, stdout: reportText(outcome.value), stderr: "" } : refused(outcome.error));
+const done = (outcome: Result<SetupReport>, versionBefore: VersionBefore): CliRun => (outcome.ok ? { exitCode: 0, stdout: reportText(outcome.value, versionBefore), stderr: "" } : refused(outcome.error));
 const refused = (error: string, stdout = ""): CliRun => ({ exitCode: 1, stdout, stderr: `bounded: ${error}\n` });
 const usage = (): CliRun => ({ exitCode: 2, stdout: "", stderr: USAGE });
 
@@ -213,10 +273,11 @@ interface Installation {
 
 /**
  * Runs `installation` with the project's package manager, then the
- * installed bounded's bin with `handOverArgs`. Any failure before the
- * hand-off restores package.json and the lockfiles.
+ * installed bounded's bin with the arguments `handOverArgsFor` gives for
+ * the version installed. Any failure before the hand-off restores
+ * package.json and the lockfiles.
  */
-function installThenHandOver(projectRoot: string, manager: PackageManager, installation: Installation, handOverArgs: readonly string[], run: CommandRunner): CliRun {
+function installThenHandOver(projectRoot: string, manager: PackageManager, installation: Installation, handOverArgsFor: (installedBoundedVersion: string) => readonly string[], run: CommandRunner): CliRun {
   // package.json and every lockfile as they were, as bytes (bun.lockb is binary; undefined: absent), so a failed install can be undone.
   const saved = new Map<string, Buffer | undefined>(["package.json", ...LOCKFILE_NAMES].map((name) => [name, existsSync(join(projectRoot, name)) ? readFileSync(join(projectRoot, name)) : undefined]));
   /** Puts package.json and the lockfiles back as they were, byte for byte, rewriting only a file that changed, so a failed install leaves the project's manifest and lock unchanged. */
@@ -246,16 +307,19 @@ function installThenHandOver(projectRoot: string, manager: PackageManager, insta
   const installed = installation.check();
   if (!installed.ok) return restored(installed.error);
   const log = `Upgraded ${installed.value} with ${manager}; handing over to the installed bounded.\n`;
-  const retry = `bounded ${handOverArgs.join(" ")}`;
   let installedBin: string;
+  let handOverArgs: readonly string[] = handOverArgsFor("");
   try {
     const bounded = readJson(join(projectRoot, "node_modules", "bounded", "package.json"));
+    if (typeof bounded.version === "string") handOverArgs = handOverArgsFor(bounded.version);
     const bin = typeof bounded.bin === "string" ? bounded.bin : isRecord(bounded.bin) ? bounded.bin.bounded : undefined;
     if (typeof bin !== "string") throw new Error("it has no bounded bin");
     installedBin = join(projectRoot, "node_modules", "bounded", bin);
   } catch (thrown) {
+    const retry = `bounded ${handOverArgs.join(" ")}`;
     return refused(`the installed bounded cannot be run (${message(thrown)}), so the hooks were not set: run \`${retry}\` with it yourself`, log);
   }
+  const retry = `bounded ${handOverArgs.join(" ")}`;
   const handedOver = run([process.execPath, installedBin, ...handOverArgs], projectRoot);
   const startError = handedOver.error === undefined ? "" : `bounded: the installed bounded could not be started (${handedOver.error}): run \`${retry}\` yourself\n`;
   return { exitCode: handedOver.status ?? 1, stdout: `${log}${handedOver.stdout}`, stderr: `${handedOver.stderr}${startError}` };
@@ -330,7 +394,7 @@ async function initInstalling(projectRoot: string, from: string | undefined, nam
     const wanted = packages.map(({ name, dev }) => ({ name, dev, spec: version, version }));
     installation = { manifest: withUpgradedSpecs(manifest, wanted), commands: [installCommand(manager)], check: exactly(projectRoot, wanted, "this CLI's own") };
   }
-  return installThenHandOver(projectRoot, manager, installation, ["init", "--no-install", ...hosts.flatMap((host) => ["--host", host])], run);
+  return installThenHandOver(projectRoot, manager, installation, () => ["init", "--no-install", ...hosts.flatMap((host) => ["--host", host])], run);
 }
 
 /** The manifest without any override of `bounded` (overrides, resolutions, pnpm.overrides) a `--from` install wrote, so the registry's version is installed. */
@@ -413,19 +477,27 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
       if (!parsed.noInstall) return await initInstalling(projectRoot, parsed.from, parsed.hosts, files, run);
       const invalid = invalidHost(parsed.hosts);
       if (invalid !== undefined) return refused(`"${invalid}" is not a host name: name a host such as claude-code or pi`);
-      return done(await new InitProjectHandler(files, selectedSource(projectRoot, { kind: "hosts", hosts: new Set(hostsFor(projectRoot, parsed.hosts)) }), INITIAL_CONFIG).execute(projectRoot));
+      return done(await new InitProjectHandler(files, selectedSource(projectRoot, { kind: "hosts", hosts: new Set(hostsFor(projectRoot, parsed.hosts)) }), INITIAL_CONFIG).execute(projectRoot), { kind: "first-setup" });
     }
     if (command !== "update") return usage();
-    const refreshOnly = options.length === 1 && options[0] === "--no-upgrade";
+    const refreshOnly = options[0] === "--no-upgrade";
     const fromDir = options.length === 2 && options[0] === "--from" ? options[1] : undefined;
     if (!refreshOnly && fromDir === undefined && options.length > 0) return usage();
+    let versionBefore: VersionBefore = { kind: "unknown" };
+    if (refreshOnly && options.length > 1) {
+      const [flag, previous, ...rest] = options.slice(1);
+      if (flag !== "--previous-version" || previous === undefined || !isVersion(previous) || rest.length > 0) return usage();
+      versionBefore = { kind: "known", version: previous };
+    }
     const initialised = await requireInitialised(files, projectRoot);
     if (!initialised.ok) return refused(initialised.error);
-    if (refreshOnly) return done(await new UpdateProjectHandler(files, selectedSource(projectRoot, { kind: "installed", found: new Set(hostsFor(projectRoot, [])) })).execute(projectRoot));
+    if (refreshOnly) return done(await new UpdateProjectHandler(files, selectedSource(projectRoot, { kind: "installed", found: new Set(hostsFor(projectRoot, [])) })).execute(projectRoot), versionBefore);
     const packages = boundedPackage(projectRoot);
     if (!packages.ok) return refused(packages.error);
     const manifest = readJson(join(projectRoot, "package.json"));
     const manager = packageManagerOf(readdirSync(projectRoot), manifest, process.env.npm_config_user_agent);
+    // The version installed before the upgrade, for the restart notice of the bounded handed over to; unknown when it cannot be read.
+    const previous = installedVersion(projectRoot, "bounded");
     let installation: Installation;
     if (fromDir !== undefined) {
       const wanted = fromTarballs(resolve(projectRoot, fromDir), packages.value);
@@ -436,7 +508,11 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
       if (!upgrade.ok) return refused(upgrade.error);
       installation = upgrade.value;
     }
-    return installThenHandOver(projectRoot, manager, installation, ["update", "--no-upgrade"], run);
+    const handOverArgsFor = (installedBoundedVersion: string): readonly string[] =>
+      previous.ok && isVersion(previous.value) && compareVersions(installedBoundedVersion, FIRST_VERSION_TAKING_PREVIOUS_VERSION) >= 0
+        ? ["update", "--no-upgrade", "--previous-version", previous.value]
+        : ["update", "--no-upgrade"];
+    return installThenHandOver(projectRoot, manager, installation, handOverArgsFor, run);
   } catch (thrown) {
     return refused(`failed: ${message(thrown)}`);
   }

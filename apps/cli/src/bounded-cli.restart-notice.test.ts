@@ -20,12 +20,11 @@ const PI_RESTART = `Restart pi sessions in this project to load bounded ${OWN}.`
 const PI_RESTART_VERSION_UNKNOWN = `Restart pi sessions in this project to load bounded ${OWN} (the version it replaced is not known).`;
 const NO_RESTART = `No need to restart existing sessions: bounded ${OWN} is live on the next tool call.`;
 
-/** An installer for `host` that writes `<host>.hook` once and reports it; afterwards it changes nothing, and says it is installed. */
+/** An installer for `host` that writes `<host>.hook` once and reports it; afterwards it changes nothing. It cannot say whether it is installed, so update runs it for its host's directory. */
 const writesOnce = (host: string) => `import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 export const hostInstaller = {
   host: "${host}",
-  isInstalled: async (root) => existsSync(join(root, "${host}.hook")),
   install: async (root) => {
     const path = join(root, "${host}.hook");
     if (existsSync(path)) return { ok: true, value: { host: "${host}", changedPaths: [], skippedBecause: null } };
