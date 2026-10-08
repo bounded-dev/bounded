@@ -102,11 +102,22 @@ when written; keep it current (AGENTS.md, "Working with the user").
   of the project are judged as inside it; check-then-use races; pi runs tool
   calls in parallel batches and offers no sequential mode
   ([Claude Code adapter](adapter-claude-code.md), [pi adapter](adapter-pi.md)).
-- **Only `bounded.config.*` is protected**, by the default rule `bounded init`
-  writes into the configuration (the path gate ships none; a project that
-  removes it protects nothing), and not the modules it imports
-  ([configuration](configuration.md); ADR 2026-009, "the configuration's
-  imports"). Protecting the import closure is planned.
+- **The guardrails are protected only by init's five default rules**, and
+  only as written: the path gate ships none, so a project that removes them
+  protects nothing.
+  - They cover `bounded.config.*`, `.bounded/**`,
+    `.claude/settings*.json`, `.pi/extensions/bounded/**` and
+    `node_modules/bounded/**`.
+  - Not covered: the modules the configuration imports
+    ([configuration](configuration.md); ADR 2026-009, "the configuration's
+    imports"; protecting the import closure is planned), and the user-level
+    `~/.claude/settings.json`, outside the project.
+- **The Claude Code hook command must stay identical across versions.**
+  Drift does not watch `node_modules`, so after an upgrade only the command
+  in `.claude/settings.json`, which drift does watch, names the hook. A
+  release that changed the command would leave a settings file that
+  `bounded update` must rewrite, and an agent-run update
+  would have that rewrite put back.
 - **`invoke` effects pass** (MCP tools, skills, any tool the host cannot
   describe) unless a selected pack guards `invoke`; no shipped pack does
   ([ADR 2026-007](adr/2026-007-guards-over-a-composition.md)).

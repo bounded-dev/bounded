@@ -115,9 +115,18 @@ does two things.
 - **It writes `bounded.config.ts`**, selecting the core and the path gate.
   The path gate ships no rules of its own
   ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)). The configuration
-  `init` writes contributes five default rules: agents may not change
-  `bounded.config.*`, Bounded's own state in `.bounded/`, Claude Code's settings (`.claude/settings.json`, which hold the hook), pi's loader (`.pi/extensions/bounded/**`) and Bounded's installed code (`node_modules/bounded/**`). Keep, change or
-  remove them.
+  `init` writes contributes five default rules. Agents may not change:
+  - `bounded.config.*`;
+  - Bounded's own state in `.bounded/`;
+  - Claude Code's project settings files (`.claude/settings*.json`): they
+    hold the hook, and `settings.local.json` could turn every hook off. The
+    rest of `.claude/`, such as agents and skills, stays open to agents. Your
+    user-level `~/.claude/settings.json` is outside the project and not
+    covered;
+  - pi's loader (`.pi/extensions/bounded/**`);
+  - Bounded's installed code (`node_modules/bounded/**`).
+
+  Keep, change or remove them.
 - **It installs the hooks of your agent hosts.** These are the hosts whose
   directory the project has (`.claude/`, `.pi/`), or those named with
   `--host claude-code` or `--host pi`.
