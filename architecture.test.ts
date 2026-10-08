@@ -149,9 +149,11 @@ function packIdViolations(path: string, text: string, packageName: string): stri
 }
 
 /**
- * Value objects are classes, as in the worked example (ADR 2026-005): never a
- * type alias that brands a primitive (`string & { readonly __role: true }`)
- * or anything else with a type-only `__` property.
+ * Value objects are classes, as in the worked example (ADR 2026-012): never a
+ * branded primitive. Refused anywhere in source: an intersection of a
+ * primitive with anything else (`string & { readonly __role: true }`,
+ * `string & Brand<"Role">`), and a type alias intersecting an object type
+ * that declares a `__` property (`Text & { readonly __packId: Text }`).
  */
 function brandedPrimitiveViolations(path: string, text: string): string[] {
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
@@ -159,18 +161,45 @@ function brandedPrimitiveViolations(path: string, text: string): string[] {
   const PRIMITIVES = new Set([ts.SyntaxKind.StringKeyword, ts.SyntaxKind.NumberKeyword, ts.SyntaxKind.BooleanKeyword, ts.SyntaxKind.BigIntKeyword, ts.SyntaxKind.SymbolKeyword]);
   const declaresDunder = (node: ts.TypeNode): boolean =>
     ts.isTypeLiteralNode(node) && node.members.some((member) => member.name !== undefined && ts.isIdentifier(member.name) && member.name.text.startsWith("__"));
+  const flag = (node: ts.Node): void => {
+    out.push(`${path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1} — a value object is a class with a private constructor, as in the worked example, never a branded primitive or object: ${node.getText(file)}`);
+  };
   const visit = (node: ts.Node): void => {
-    const type = ts.isTypeAliasDeclaration(node) ? node.type : undefined;
-    if (type !== undefined && ts.isIntersectionTypeNode(type)) {
-      const primitive = type.types.some((member) => PRIMITIVES.has(member.kind));
-      const objectType = type.types.some((member) => ts.isTypeLiteralNode(member));
-      if ((primitive && objectType) || type.types.some(declaresDunder)) {
-        out.push(`${path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1} — a value object is a class with a private constructor, as in the worked example, never a branded primitive or object: ${node.getText(file)}`);
-      }
-    }
+    if (ts.isIntersectionTypeNode(node) && node.types.some((member) => PRIMITIVES.has(member.kind)) && node.types.some((member) => !PRIMITIVES.has(member.kind))) flag(node);
+    else if (ts.isTypeAliasDeclaration(node) && ts.isIntersectionTypeNode(node.type) && !node.type.types.some((member) => PRIMITIVES.has(member.kind)) && node.type.types.some(declaresDunder)) flag(node);
     ts.forEachChild(node, visit);
   };
   visit(file);
+  return out;
+}
+
+/**
+ * A value-object class keeps its constructor private, and its file exports
+ * that class as the factory (`export const X: Contract.XFactory = XImpl`), as
+ * in the worked example. `classes` maps each contract a class implements to
+ * the class.
+ */
+function valueObjectClassViolations(path: string, text: string, isValueObject: (contract: string) => boolean): string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const at = (node: ts.Node) => `${path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1}`;
+  const classes = new Map<string, string>();
+  for (const node of file.statements.filter(ts.isClassDeclaration)) {
+    const contracts = (node.heritageClauses ?? []).filter((clause) => clause.token === ts.SyntaxKind.ImplementsKeyword).flatMap((clause) => clause.types.map((type) => type.expression.getText(file).replace(/^Contract\./, "")));
+    const valueObjects = contracts.filter(isValueObject);
+    if (node.name === undefined || valueObjects.length === 0) continue;
+    for (const contract of valueObjects) classes.set(contract, node.name.text);
+    const declared = node.members.find(ts.isConstructorDeclaration);
+    const isPrivate = declared?.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword) === true;
+    if (!isPrivate) out.push(`${at(node)} — ${node.name.text} is a value object: give it a private constructor, so only its parse and named constructors make one`);
+  }
+  for (const statement of file.statements.filter(ts.isVariableStatement)) {
+    for (const declaration of statement.declarationList.declarations) {
+      const factory = declaration.type?.getText(file).match(/^Contract\.(\w+)Factory$/)?.[1];
+      const made = factory === undefined ? undefined : classes.get(factory);
+      if (made !== undefined && declaration.initializer?.getText(file) !== made) out.push(`${at(declaration)} — export the class ${made} itself as the ${factory} factory, as in the worked example`);
+    }
+  }
   return out;
 }
 
@@ -264,6 +293,8 @@ for (const context of contexts) {
       }
     }
   }
+  const valueObjects = new Set(texts.filter(({ path }) => path.endsWith(".contract.ts")).flatMap(({ path, text }) => brandedContracts(path, text)).filter((name) => !IDENTITY_OBJECTS.has(name)));
+  for (const { path, text } of texts) violations.push(...valueObjectClassViolations(path, text, (contract) => valueObjects.has(contract)));
 }
 
 const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
@@ -374,7 +405,18 @@ describe("architecture", () => {
     expect(brandedPrimitiveViolations("a.ts", "export type Role = string & { readonly __role: true };")).toHaveLength(1);
     expect(brandedPrimitiveViolations("a.ts", "export type PackId<T extends string> = T & { readonly __packId: T };")).toHaveLength(1);
     expect(brandedPrimitiveViolations("a.ts", "type Owned = AnyPack & { readonly id: Owner };")).toEqual([]);
+    expect(brandedPrimitiveViolations("a.ts", "export type Role = string & Brand<\"Role\">;")).toHaveLength(1);
+    expect(brandedPrimitiveViolations("a.ts", "export interface Use { readonly path: string & { readonly __path: true } }")).toHaveLength(1);
+    expect(brandedPrimitiveViolations("a.ts", "function f<P extends string>(pkg: P & Check<P>): void {}")).toEqual([]);
     expect(brandedPrimitiveViolations("a.ts", "export interface Role { readonly __brand: \"Role\"; readonly value: string }")).toEqual([]);
+  });
+
+  test("the value-object rule wants a private constructor and the class itself as the factory", () => {
+    const isValueObject = (name: string) => name === "Role";
+    const good = "class RoleImpl implements Contract.Role {\n  private constructor(readonly value: string) {}\n}\nexport const Role: Contract.RoleFactory = RoleImpl;";
+    expect(valueObjectClassViolations("a.ts", good, isValueObject)).toEqual([]);
+    const open = "class RoleImpl implements Contract.Role {\n  constructor(readonly value: string) {}\n}\nexport const Role: Contract.RoleFactory = Object.freeze({ parse });";
+    expect(valueObjectClassViolations("a.ts", open, isValueObject)).toHaveLength(2);
   });
 
   test("the value-object rule finds every branded contract, including one that inherits its brand", () => {

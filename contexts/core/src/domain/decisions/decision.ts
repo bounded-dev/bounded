@@ -6,7 +6,7 @@ import { TOOL_KINDS } from "../events/tool-use.ts";
 import type { Judgement } from "../guards/guard.contract.ts";
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
-import { sameWire } from "../shared/wire.ts";
+import { sameWire, wireFormOf } from "../shared/wire.ts";
 import type { Verdict } from "../verdicts/verdict.contract.ts";
 import type * as Contract from "./decision.contract.ts";
 import type { DecisionId as DecisionIdType } from "./decision-id.contract.ts";
@@ -70,7 +70,7 @@ class DecisionImpl implements Contract.Decision {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is DecisionImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -114,7 +114,7 @@ class DecisionImpl implements Contract.Decision {
 
   static parse(raw: unknown): Result<Decision> {
     return readSafely("A decision", () => {
-      if (DecisionImpl.made(raw)) return { ok: true, value: raw };
+      if (DecisionImpl.made(raw)) return DecisionImpl.parse(wireFormOf(raw));
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: FORM };
       const id = DecisionId.parse(own(raw, "id"));
       if (!id.ok) return id;

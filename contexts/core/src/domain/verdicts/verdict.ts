@@ -1,6 +1,6 @@
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
-import { sameWire } from "../shared/wire.ts";
+import { sameWire, wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./verdict.contract.ts";
 
 // Dispatch re-checks every verdict a guard returns with parse, so untyped
@@ -44,7 +44,7 @@ class AllowImpl implements Contract.Allow {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is AllowImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -70,7 +70,7 @@ class RefuseImpl implements Contract.Refuse {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is RefuseImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -92,7 +92,7 @@ class RefuseImpl implements Contract.Refuse {
 // a later third form fails closed until it exists.
 function parse(raw: unknown): Result<Verdict> {
   return readSafely<Verdict>("A verdict", () => {
-    if (AllowImpl.made(raw) || RefuseImpl.made(raw)) return { ok: true, value: raw };
+    if (AllowImpl.made(raw) || RefuseImpl.made(raw)) return parse(wireFormOf(raw));
     if (typeof raw !== "object" || raw === null) return { ok: false, error: INVALID };
     const kind = own(raw, "kind");
     if (kind === "allow") return { ok: true, value: AllowImpl.allow };

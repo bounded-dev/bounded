@@ -1,5 +1,6 @@
 import { own } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
+import { wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./role.contract.ts";
 
 const LABEL = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
@@ -12,13 +13,13 @@ class RoleImpl implements Contract.Role {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is RoleImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
 
   static parse(raw: unknown): Result<Role> {
-    if (RoleImpl.made(raw)) return { ok: true, value: raw };
+    if (RoleImpl.made(raw)) return RoleImpl.parse(wireFormOf(raw));
     if (typeof raw !== "string") return { ok: false, error: "A role must be a string" };
     if (!LABEL.test(raw)) return { ok: false, error: `Role '${raw}' must be lowercase words joined by single hyphens, such as 'builder'` };
     return { ok: true, value: new RoleImpl(raw) };

@@ -1,6 +1,6 @@
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
-import { sameWire } from "../shared/wire.ts";
+import { sameWire, wireFormOf } from "../shared/wire.ts";
 import type { CallId } from "./call-id.contract.ts";
 import type { Effect } from "./effect.contract.ts";
 import type { Role } from "./role.contract.ts";
@@ -27,14 +27,14 @@ class ToolResultImpl implements Contract.ToolResult {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is ToolResultImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
 
   static parse(raw: unknown): Result<ToolResult> {
     return readSafely("A tool result", () => {
-      if (ToolResultImpl.made(raw)) return { ok: true, value: raw };
+      if (ToolResultImpl.made(raw)) return ToolResultImpl.parse(wireFormOf(raw));
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "A tool result is an object: { role, tool, effects, ok, callId? }" };
       const kind = own(raw, "kind");
       if (kind !== undefined && kind !== "tool-result") return { ok: false, error: `A tool result has kind 'tool-result', not '${show(kind)}'` };

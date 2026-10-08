@@ -27,10 +27,12 @@ objects with type-only brands; Role and ProjectPath as branded strings) and
   composite compares its wire forms); `toJSON` gives the primitive, or the
   plain object the value was before this decision, so decision logs,
   snapshots and anything crossing an adapter are byte-for-byte unchanged.
-- **Made, frozen, trusted.** Each instance freezes itself. `parse` gives an
-  instance its class made back as it is, so a re-check (dispatch, a tool
-  result) costs nothing; an instance is recognised by a private class field,
-  so an object that merely inherits from one is parsed as untyped data.
+- **Made, frozen, checked again.** Each instance freezes itself. A private
+  constructor is TypeScript's only, and can be called at run time, so `parse`
+  never trusts an instance: it parses the instance's wire form again (a
+  value forged with the constructor is refused like its text would be). An
+  instance is recognised by a private class field, so an object that merely
+  inherits from one is parsed as untyped data.
 - **Strict typing is kept.** `PackId<Text>` is typed by its exact text
   (`packIdsFor("bounded")("core")` is a `PackId<"bounded/core">` whose
   `value` is `"bounded/core"`), so ownership checks still compile only for
@@ -66,6 +68,10 @@ one shape, one place that makes it, and a run-time identity.
   `packIdsFor` calls make two objects.
 - Host adapters build events from wire forms (`EffectJSON`, `ToolUseJSON`)
   and let `ToolUse.parse` check them.
-- `architecture.test.ts` refuses a type alias that brands a primitive, and a
+- `architecture.test.ts` refuses a branded primitive anywhere (`string &
+  { … }`, `string & Brand<…>`, or a type alias adding a `__` property), a
   branded contract no class implements (the identity objects above
-  excepted), so the deviation cannot return unnoticed.
+  excepted), a value-object class without a private constructor, and a
+  factory that is not the class itself. These rules guard against mistakes,
+  not deliberate bypass: a cast can still defeat them, and the run-time
+  parse is what holds.

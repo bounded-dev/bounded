@@ -1,6 +1,7 @@
 import type { Result } from "bounded/domain";
 import picomatch from "picomatch";
 import type * as Contract from "./protected-path.contract.ts";
+import { sameWire, wireFormOf } from "./wire.ts";
 import type { PathAccess } from "./protected-path.contract.ts";
 
 const ACCESSES: readonly PathAccess[] = ["read", "list", "create", "modify", "delete"];
@@ -150,13 +151,13 @@ class ProtectedPathImpl implements Contract.ProtectedPath {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is ProtectedPathImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
 
   static parse(raw: unknown): Result<ProtectedPath> {
-    if (ProtectedPathImpl.made(raw)) return { ok: true, value: raw };
+    if (ProtectedPathImpl.made(raw)) return ProtectedPathImpl.parse(wireFormOf(raw));
     const fields = check(raw);
     return fields.ok ? { ok: true, value: new ProtectedPathImpl(fields.value) } : fields;
   }
@@ -170,9 +171,6 @@ class ProtectedPathImpl implements Contract.ProtectedPath {
     return { ...json, ...(this.why === undefined ? {} : { why: this.why }), ...(this.file === true ? { file: true } : {}) };
   }
 }
-
-/** Whether two rules have the same wire form. */
-const sameWire = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 export type ProtectedPath = Contract.ProtectedPath;
 export const ProtectedPath: Contract.ProtectedPathFactory = ProtectedPathImpl;

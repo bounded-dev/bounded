@@ -1,6 +1,6 @@
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
-import { sameWire } from "../shared/wire.ts";
+import { sameWire, wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./watched-path.contract.ts";
 
 const SAYS = "A watched path says why its files are watched and what to do instead: why and redirect are non-empty text";
@@ -27,7 +27,7 @@ class WatchedPathImpl implements Contract.WatchedPath {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is WatchedPathImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -37,7 +37,7 @@ class WatchedPathImpl implements Contract.WatchedPath {
   }
 
   private static check(raw: unknown): Result<WatchedPath> {
-    if (WatchedPathImpl.made(raw)) return { ok: true, value: raw };
+    if (WatchedPathImpl.made(raw)) return WatchedPathImpl.parse(wireFormOf(raw));
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "A watched path is { match, except?, why, redirect }" };
     const [match, except, why, redirect] = [own(raw, "match"), own(raw, "except") ?? [], own(raw, "why"), own(raw, "redirect")];
     if (!text(why) || !text(redirect)) return { ok: false, error: SAYS };

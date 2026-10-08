@@ -1,6 +1,6 @@
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
-import { sameWire } from "../shared/wire.ts";
+import { sameWire, wireFormOf } from "../shared/wire.ts";
 import { AgentName } from "./agent-name.ts";
 import { Command } from "./command.ts";
 import type * as Contract from "./effect.contract.ts";
@@ -37,7 +37,7 @@ class ReadEffectImpl implements Contract.ReadEffect {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is ReadEffectImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -68,7 +68,7 @@ class ListEffectImpl implements Contract.ListEffect {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is ListEffectImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -103,7 +103,7 @@ class WriteEffectImpl implements Contract.WriteEffect {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is WriteEffectImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -137,7 +137,7 @@ class ExecuteEffectImpl implements Contract.ExecuteEffect {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is ExecuteEffectImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -169,7 +169,7 @@ class FetchEffectImpl implements Contract.FetchEffect {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is FetchEffectImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -197,7 +197,7 @@ class DelegateEffectImpl implements Contract.DelegateEffect {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is DelegateEffectImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -225,7 +225,7 @@ class InvokeEffectImpl implements Contract.InvokeEffect {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is InvokeEffectImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
@@ -255,7 +255,7 @@ const CLASSES = {
 } as const satisfies Record<Contract.EffectKind, { made(raw: unknown): boolean; parse(raw: object): Result<Contract.Effect> }>;
 
 function check(raw: unknown): Result<Contract.Effect> {
-  for (const type of Object.values(CLASSES)) if (type.made(raw)) return { ok: true, value: raw };
+  for (const type of Object.values(CLASSES)) if (type.made(raw)) return check(wireFormOf(raw));
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse(KINDS);
   const kind = own(raw, "kind");
   if (!isKind(kind)) return refuse(KINDS);

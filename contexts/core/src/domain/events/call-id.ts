@@ -1,4 +1,5 @@
 import type { Result } from "../shared/result.ts";
+import { wireFormOf } from "../shared/wire.ts";
 import { hasControl } from "../shared/text.ts";
 import type * as Contract from "./call-id.contract.ts";
 
@@ -10,13 +11,13 @@ class CallIdImpl implements Contract.CallId {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is CallIdImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
 
   static parse(raw: unknown): Result<CallId> {
-    if (CallIdImpl.made(raw)) return { ok: true, value: raw };
+    if (CallIdImpl.made(raw)) return CallIdImpl.parse(wireFormOf(raw));
     if (typeof raw !== "string" || raw.trim() === "" || raw.length > 256 || hasControl(raw)) {
       return { ok: false, error: "A tool call id is non-empty text without control characters, at most 256 characters" };
     }

@@ -1,4 +1,5 @@
 import type { Result } from "../shared/result.ts";
+import { wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./project-path.contract.ts";
 
 const URL_FORM = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
@@ -33,13 +34,13 @@ class ProjectPathImpl implements Contract.ProjectPath {
     Object.freeze(this);
   }
 
-  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
   static made(raw: unknown): raw is ProjectPathImpl {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
 
   static parse(raw: unknown): Result<ProjectPath> {
-    if (ProjectPathImpl.made(raw)) return { ok: true, value: raw };
+    if (ProjectPathImpl.made(raw)) return ProjectPathImpl.parse(wireFormOf(raw));
     const path = normalised(raw);
     return path.ok ? { ok: true, value: new ProjectPathImpl(path.value) } : path;
   }
