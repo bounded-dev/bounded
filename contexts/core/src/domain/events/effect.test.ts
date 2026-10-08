@@ -59,6 +59,21 @@ describe("Effect — the seven kinds", () => {
     expect(error({ kind: "delegate", agent: "a\nb" })).toBe("An agent's name must not contain control characters");
   });
 
+  test("a delegation says on the call whether it is isolated and whether its finish goes unreported", () => {
+    expect(wireOf(Effect.parse({ kind: "delegate", agent: "reviewer", isolated: true, finishUnreported: true }))).toEqual({ ok: true, value: { kind: "delegate", agent: "reviewer", isolated: true, finishUnreported: true } });
+    const isolated = Effect.parse({ kind: "delegate", agent: "reviewer", isolated: true });
+    expect(isolated.ok && isolated.value.kind === "delegate" && isolated.value.isolated).toBe(true);
+    expect(isolated.ok && isolated.value.kind === "delegate" && isolated.value.finishUnreported).toBeUndefined();
+    for (const raw of [{ kind: "delegate", agent: "reviewer" }, { kind: "delegate", agent: "reviewer", isolated: false, finishUnreported: false }]) {
+      const parsed = Effect.parse(raw);
+      expect(parsed.ok && parsed.value.toJSON()).toEqual({ kind: "delegate", agent: "reviewer" });
+      expect(parsed.ok && Object.keys(parsed.value.toJSON())).toEqual(["kind", "agent"]);
+    }
+    expect(error({ kind: "delegate", agent: "reviewer", isolated: "yes" })).toBe("A delegate effect's isolated must be true or false");
+    expect(error({ kind: "delegate", agent: "reviewer", finishUnreported: 1 })).toBe("A delegate effect's finishUnreported must be true or false");
+    expect(error({ kind: "delegate", agent: "reviewer", background: true })).toBe("A delegate effect is { kind, agent, isolated?, finishUnreported? }");
+  });
+
   test("an invoke names a tool whose effects the host cannot describe", () => {
     expect(wireOf(Effect.parse(invoke))).toEqual({ ok: true, value: { kind: "invoke", name: "mcp__docs__search" } });
     expect(error({ kind: "invoke", name: " " })).toBe("An invoke effect must name the tool it invokes");
@@ -86,7 +101,7 @@ describe("Effect — nonsense is refused", () => {
     expect(error({ kind: "execute", command: "ls", path: "a" })).toBe("An execute effect is { kind, command, cwd? }");
     expect(error({ kind: "list", path: "a" })).toBe("A list effect is { kind, root, filter? }");
     expect(error({ kind: "fetch", url: "https://a", path: "x" })).toBe("A fetch effect is { kind, url }");
-    expect(error({ kind: "delegate" })).toBe("A delegate effect is { kind, agent }");
+    expect(error({ kind: "delegate" })).toBe("A delegate effect is { kind, agent, isolated?, finishUnreported? }");
   });
 
   test("never throws, and reads only its own fields", () => {

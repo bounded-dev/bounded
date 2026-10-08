@@ -65,6 +65,15 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
     expect(pi("subagent", { chain: [{ agent: "planner", task: "x" }] })).toEqual(use("subagent", { kind: "delegate", agent: "planner" }));
   });
 
+  test("a subagent call with async: true delegates with its finish unreported", () => {
+    expect(pi("subagent", { agent: "scout", task: "look", async: true })).toEqual(use("subagent", { kind: "delegate", agent: "scout", finishUnreported: true }));
+    expect(pi("subagent", { tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y", output: "out.md" }], async: true })).toEqual(
+      use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }, { kind: "delegate", agent: "b", finishUnreported: true }, { kind: "write", path: "out.md", change: "create" }),
+    );
+    expect(pi("subagent", { agent: "scout", task: "look", async: false })).toEqual(use("subagent", { kind: "delegate", agent: "scout" }));
+    expect(refusal(pi("subagent", { agent: "scout", task: "look", async: "x" }))).toBe("pi's subagent call has an 'async' that is not true or false");
+  });
+
   test("web_fetch fetches its url; web_search names no url, so it is invoked by name", () => {
     expect(pi("web_fetch", { url: "https://example.com/a" })).toEqual(use("web", { kind: "fetch", url: "https://example.com/a" }));
     expect(pi("web_search", { query: "bun sqlite" })).toEqual(use("web", { kind: "invoke", name: "web_search" }));

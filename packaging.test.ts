@@ -158,9 +158,9 @@ describe("bounded, the one published package", () => {
 
   test("its README says the adapter export paths are internal: they serve the hosts bounded carries, not a project's configuration", () => {
     const exports = Object.keys(manifestOf("contexts/core").exports ?? {});
-    expect(exports.filter((path) => path.includes("adapters"))).toEqual(["./adapters", "./path-gate/adapters"]);
+    expect(exports.filter((path) => path.includes("adapters"))).toEqual(["./adapters", "./path-gate/adapters", "./prereqs/adapters"]);
     const readme = readFileSync(join(CORE, "README.md"), "utf8");
-    const internal = readme.split("\n\n").find((paragraph) => paragraph.includes("`bounded/adapters`") && paragraph.includes("`bounded/path-gate/adapters`"));
+    const internal = readme.split("\n\n").find((paragraph) => paragraph.includes("`bounded/adapters`") && paragraph.includes("`bounded/path-gate/adapters`") && paragraph.includes("`bounded/prereqs/adapters`"));
     expect(internal).toBeDefined();
     expect(internal ?? "").toContain("internal");
   });

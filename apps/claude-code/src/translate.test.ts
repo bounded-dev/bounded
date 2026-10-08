@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readPayload, translate } from "./translate.ts";
+import { agentRunFinished, readPayload, translate } from "./translate.ts";
 
 const payload = (tool_name: string, tool_input: Record<string, unknown>) => ({ tool_name, tool_input, cwd: "/p" });
 const call = (tool_name: string, tool_input: Record<string, unknown>) => {
@@ -138,5 +138,34 @@ describe("readPayload: the hook's stdin, fail closed", () => {
     expect(reason(JSON.stringify({ ...good, tool_name: "" }))).toBe("The hook's input is not a PreToolUse call: an object with tool_name and tool_input");
     expect(reason(JSON.stringify({ ...good, tool_input: "x" }))).toBe("The hook's input is not a PreToolUse call: an object with tool_name and tool_input");
     expect(reason(JSON.stringify({ ...good, hook_event_name: "PostToolUse" }))).toBe("The hook is registered for PostToolUse; it answers only PreToolUse");
+  });
+});
+
+describe("translate: what an Agent call says about the run it starts", () => {
+  test("an Agent call isolated in a worktree is an isolated delegation", () => {
+    expect(call("Agent", { subagent_type: "plan-reviewer", prompt: "review", isolation: "worktree" })).toEqual({ tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer", isolated: true }] });
+    expect(call("Agent", { subagent_type: "plan-reviewer", prompt: "review" })).toEqual({ tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }] });
+    expect(refusal("Agent", { subagent_type: "plan-reviewer", prompt: "review", isolation: "container" })).toBe("Claude Code's Agent call has an isolation bounded does not translate: only 'worktree' is known");
+  });
+
+  test("an Agent call spawning a teammate is a delegation whose finish is unreported", () => {
+    expect(call("Agent", { subagent_type: "plan-reviewer", prompt: "review", name: "reviewer-1" })).toEqual({ tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer", finishUnreported: true }] });
+    expect(call("Agent", { subagent_type: "plan-reviewer", prompt: "review", name: "reviewer-1", team_name: "t" })).toEqual({ tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer", finishUnreported: true }] });
+    // With isolation it is isolated only.
+    expect(call("Agent", { subagent_type: "plan-reviewer", prompt: "review", name: "reviewer-1", isolation: "worktree" })).toEqual({ tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer", isolated: true }] });
+  });
+
+  test("only a completed status says the agent's run finished", () => {
+    // Shapes captured from Claude Code 2.1.294. A foreground run that ran to its end:
+    expect(agentRunFinished({ status: "completed", harnessNoteCount: 0, content: [{ type: "text", text: "Reviewed." }] })).toBe(true);
+    // A run stopped at its turn limit also says completed, with a harness note: not finished.
+    expect(agentRunFinished({ status: "completed", harnessNoteCount: 1, content: [{ type: "text", text: "NOTE: this agent stopped at its 1-turn limit before finishing" }] })).toBe(false);
+    // Without the count as a number, completed proves nothing.
+    expect(agentRunFinished({ status: "completed" })).toBe(false);
+    expect(agentRunFinished({ status: "completed", harnessNoteCount: "0" })).toBe(false);
+    // A background run returns at launch.
+    expect(agentRunFinished({ status: "async_launched", isAsync: true, agentId: "a" })).toBe(false);
+    expect(agentRunFinished({ status: "async_launched", agentId: "a" })).toBe(false);
+    for (const response of [{ status: "other" }, {}, null, "completed", undefined]) expect(agentRunFinished(response)).toBe(false);
   });
 });

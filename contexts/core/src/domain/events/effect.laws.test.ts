@@ -8,4 +8,5 @@ const execute = { kind: "execute", command: "make build" };
 const fetch = { kind: "fetch", url: "https://example.com/a" };
 const delegate = { kind: "delegate", agent: "explore" };
 const invoke = { kind: "invoke", name: "mcp__docs__search" };
-valueObjectLaws("Effect", Effect, [read, list, write, execute, fetch, delegate, invoke], [{ kind: "delete", path: "a" }, { ...read, path: "/etc/hosts" }, { ...write, change: "rename" }]);
+const delegateFlagged = { kind: "delegate", agent: "explore", isolated: true, finishUnreported: true };
+valueObjectLaws("Effect", Effect, [read, list, write, execute, fetch, delegate, invoke, delegateFlagged], [{ kind: "delete", path: "a" }, { ...read, path: "/etc/hosts" }, { ...write, change: "rename" }, { ...delegate, isolated: "no" }]);

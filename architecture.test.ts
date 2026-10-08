@@ -450,13 +450,14 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters", "./testing/host-installer-conformance"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters", "./prereqs", "./prereqs/adapters", "./testing/host-installer-conformance"]);
   });
 
   test("the out adapters are grouped by the port each serves: no technology folders", () => {
     const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
     expect(foldersUnder("contexts/core/src/adapters/out")).toEqual(["clock", "compose-packs-catalog", "decision-ids", "guard-log", "host-installer-source", "project-config-source", "project-guard-logs", "project-setup-files"]);
     expect(foldersUnder("contexts/core/src/packs/path-gate/adapters/out")).toEqual(["path-kinds", "shell-parser", "shell-snapshots", "watched-files"]);
+    expect(foldersUnder("contexts/core/src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records"]);
   });
 
   test("in-memory test doubles are test support beside the ports they stand in for", async () => {
@@ -465,6 +466,8 @@ describe("architecture", () => {
       "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.in-memory-path-kinds",
       "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-shell-snapshots",
       "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-watched-files",
+      "contexts/core/src/packs/prereqs/application/check-prerequisites/check-prerequisites.in-memory-file-set-fingerprints",
+      "contexts/core/src/packs/prereqs/application/check-prerequisites/check-prerequisites.in-memory-prerequisite-records",
     ];
     for (const double of doubles) {
       expect(await Bun.file(`${ROOT}/${double}.test-support.ts`).exists()).toBe(true);
@@ -481,6 +484,11 @@ describe("architecture", () => {
 
   test("the path gate is a pack shipped in the bounded package, in its own directory", () => {
     expect(byName.get("bounded")?.exports["./path-gate"]).toBe("./src/packs/path-gate/index.ts");
+  });
+
+  test("prereqs is a pack shipped in the bounded package, in its own directory", () => {
+    expect(byName.get("bounded")?.exports["./prereqs"]).toBe("./src/packs/prereqs/index.ts");
+    expect(byName.get("bounded")?.exports["./prereqs/adapters"]).toBe("./src/packs/prereqs/adapters/out/index.ts");
   });
 
   test("an app never imports an app, nor the host adapters' code bundled into bounded (bounded/hosts/*)", () => {

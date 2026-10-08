@@ -137,6 +137,35 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
     expect(await (await started(loads(noGenerated))).finished("bash", { command: "ls" })).toBeUndefined();
   });
 
+  const resultOf = async (input: unknown): Promise<ToolResult | undefined> => {
+    const results: ToolResult[] = [];
+    const fake = await started(withExtras({ afterTool: async (result) => {
+      results.push(result);
+      return { message: null };
+    } }));
+    await fake.finished("subagent", input);
+    return results[0];
+  };
+
+  test("a synchronous subagent's tool_result says each delegated run finished", async () => {
+    const result = await resultOf({ tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }] });
+    expect(wireOf(result)).toEqual({
+      kind: "tool-result",
+      role: null,
+      tool: "subagent",
+      effects: [{ kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }],
+      ok: true,
+      callId: "1",
+      delegatedAgentRuns: [{ finished: true }, { finished: true }],
+    });
+  });
+
+  test("an async subagent's tool_result says none did", async () => {
+    const result = await resultOf({ tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }], async: true });
+    expect(result?.delegatedAgentRuns).toEqual([{ finished: false }, { finished: false }]);
+    expect(result?.effects.every((effect) => effect.kind === "delegate" && effect.finishUnreported === true)).toBe(true);
+  });
+
   test("an afterTool that fails tells the agent so, never silently", async () => {
     const fake = await started(withExtras({ afterTool: async () => { throw new Error("boom"); } }));
     expect(await fake.finished("bash", { command: "ls" })).toEqual({

@@ -1,5 +1,5 @@
 // The legitimate forms of events, verdicts and guards. Compiles without errors.
-import { dispatch, type Event, type Guard, type SessionStart, type ToolUse, Verdict } from "bounded/domain";
+import { type DelegateEffectJSON, dispatch, type Event, type Guard, type SessionStart, type ToolResultJSON, type ToolUse, Verdict } from "bounded/domain";
 
 declare const toolUse: ToolUse;
 declare const start: SessionStart;
@@ -23,3 +23,6 @@ export const withContext: Guard<ToolUse, { readonly protectedPaths: readonly str
 export const contextual: Verdict = dispatch([withContext], toolUse, { protectedPaths: [".git"] });
 // A guard that needs no context sits in a list with guards that do: every guard is given it.
 export const mixed: Verdict = dispatch([noGenerated, withContext], toolUse, { protectedPaths: [".git"] });
+// A delegation says on the call whether it is isolated and whether its finish goes unreported; a result says, per delegate effect, whether its run finished.
+export const flagged: DelegateEffectJSON = { kind: "delegate", agent: "reviewer", isolated: true, finishUnreported: true };
+export const finished: ToolResultJSON = { role: null, tool: "subagent", effects: [flagged], ok: true, delegatedAgentRuns: [{ finished: true }] };
