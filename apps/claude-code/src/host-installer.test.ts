@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostInstaller } from "./host-installer.ts";
-import { hookCommand, withHooks } from "./install.ts";
+import { PROJECT_HOOK_COMMAND, withHooks } from "./install.ts";
 
 /** A project with bounded-claude-code installed under its node_modules (its main.ts present), and optionally a settings file. */
 function project(settings?: string): string {
@@ -19,20 +19,20 @@ function project(settings?: string): string {
 }
 
 const settingsOf = (root: string): unknown => JSON.parse(readFileSync(join(root, ".claude", "settings.json"), "utf8"));
-/** The command the hook runs: bun, then the project's own installed main.ts. */
-const commandFor = (root: string): string => hookCommand({ bun: "bun", main: join(root, "node_modules", "bounded-claude-code", "src", "main.ts") });
 
 describe("the Claude Code host installer", () => {
   test("names its host", () => {
     expect(hostInstaller.host).toBe("claude-code");
   });
 
-  test("in a fresh project, creates .claude/settings.json with the hooks running the project's own installed copy", async () => {
+  test("in a fresh project, creates .claude/settings.json with the hooks running the project's own installed copy through $CLAUDE_PROJECT_DIR", async () => {
     const root = project();
     expect(await hostInstaller.install(root)).toEqual({ ok: true, value: { host: "claude-code", changedPaths: [".claude/settings.json"], skippedBecause: null } });
-    const expected = withHooks({}, commandFor(root));
+    // Claude Code sets CLAUDE_PROJECT_DIR for hooks, so the settings work in every checkout of the project, wherever it is.
+    expect(PROJECT_HOOK_COMMAND).toBe('bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"');
+    const expected = withHooks({}, PROJECT_HOOK_COMMAND);
     expect(expected.ok && settingsOf(root)).toEqual(expected.ok ? expected.value.settings : null);
-    expect(JSON.stringify(settingsOf(root))).toContain(join(root, "node_modules", "bounded-claude-code", "src", "main.ts"));
+    expect(JSON.stringify(settingsOf(root))).not.toContain(root);
   });
 
   test("merges into existing settings, keeping every other setting and hook", async () => {

@@ -1,11 +1,13 @@
-// End to end: `npx bounded init` and `npx bounded update` in a fresh git
-// repository that installed the workspace's packages from packed tarballs
-// (nothing is published to npm). The update hands over to the newer CLI it
-// installs, so every later version brings its own update logic.
+// End to end, from packed tarballs (nothing is published to npm): the first
+// install runs bounded-cli through npx, before the project has any bounded
+// package; `bounded init --from` adds the packages and hands over to the
+// installed CLI. After that, `npx bounded update --from` runs the project's
+// own bin, upgrades, and hands over to the newer CLI it installs, so every
+// later version brings its own update logic.
 //
 // The npm package `bounded` is still the legacy harness (2.x, ADR 2026-014),
-// so its dependants would resolve `bounded@<version>` there: the project
-// overrides it with the local tarball. Once published, the registry serves it.
+// so npx is given the bounded tarball beside bounded-cli's, and init points
+// the project's override of `bounded` at the local tarball.
 import { describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +16,7 @@ import { join, resolve } from "node:path";
 const REPO = resolve(import.meta.dir, "../../..");
 const PACKAGES = [
   { name: "bounded", dir: "contexts/core" },
+  { name: "bounded-cli", dir: "apps/cli" },
   { name: "bounded-claude-code", dir: "apps/claude-code" },
   { name: "bounded-pi", dir: "apps/pi" },
 ] as const;
@@ -49,62 +52,61 @@ function packRelease(version: string, scratch: string, into: string): void {
 }
 
 const tarball = (dir: string, name: string, version: string): string => join(dir, `${name}-${version}.tgz`);
-
-/** Points the project's override of `bounded` at the tarball of `version` in `dir`. */
-function overrideBounded(project: string, dir: string, version: string): void {
-  const manifest = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as Record<string, unknown>;
-  manifest.overrides = { bounded: `file:${tarball(dir, "bounded", version)}` };
-  writeFileSync(join(project, "package.json"), JSON.stringify(manifest, null, 2));
-}
-
+const json = <T>(path: string): T => JSON.parse(readFileSync(path, "utf8")) as T;
+const versionOf = (project: string, name: string): string => json<{ version: string }>(join(project, "node_modules", name, "package.json")).version;
+/** npx, or bunx when npx is missing; `--no-install` runs the project's own bin, never a download. */
 const npx = (): string[] => (run(["npx", "--version"], tmpdir()).exitCode === 0 ? ["npx", "--no-install"] : ["bunx"]);
+const HOOK = '"$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"';
 
-describe("npx bounded, installed from packed tarballs", () => {
-  test("init sets a fresh repository up; update upgrades the packages, hands over to the new CLI and is idempotent", () => {
+describe("bounded-cli end to end, from packed tarballs", () => {
+  test("npx bounded-cli init --from adds the packages and sets the repository up; npx bounded update --from upgrades and hands over to the new CLI; both are idempotent", () => {
     const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cli-e2e-")));
     const first = join(scratch, "release-1");
     const second = join(scratch, "release-2");
-    const version = (JSON.parse(readFileSync(join(REPO, "contexts/core/package.json"), "utf8")) as { version: string }).version;
+    const version = json<{ version: string }>(join(REPO, "apps/cli/package.json")).version;
     packWorkspace(first);
     packRelease("99.0.0", join(scratch, "copies"), second);
 
+    // A fresh repository using bun, Claude Code (.claude/) and pi (.pi/), with no bounded package yet.
     const project = join(scratch, "project");
-    mkdirSync(join(project, ".pi"), { recursive: true });
+    mkdirSync(join(project, ".claude"), { recursive: true });
+    mkdirSync(join(project, ".pi"));
     mustRun(["git", "init", "--quiet"], project);
-    writeFileSync(join(project, "package.json"), JSON.stringify({ name: "demo", private: true }));
-    overrideBounded(project, first, version);
-    mustRun(["bun", "add", ...PACKAGES.map(({ name }) => tarball(first, name, version))], project);
-    // The project's own bin, which npx runs before any `bounded` elsewhere on PATH.
-    expect(existsSync(join(project, "node_modules", ".bin", "bounded"))).toBe(true);
+    writeFileSync(join(project, "package.json"), JSON.stringify({ name: "demo", private: true, packageManager: `bun@${Bun.version}` }));
 
-    // init
-    const init = run([...npx(), "bounded", "init"], project);
+    // The first install: bounded-cli through npx (bunx cannot be given a tarball beside another).
+    const init = run(["npx", "--yes", "-p", tarball(first, "bounded", version), "-p", tarball(first, "bounded-cli", version), "bounded", "init", "--from", first], project);
     expect(init.stderr).toBe("");
     expect(init.exitCode).toBe(0);
+    expect(init.stdout).toContain(`bounded ${version}`);
     expect(init.stdout).toMatch(/restart/i);
+    const manifest = json<{ devDependencies: Record<string, string>; overrides: Record<string, string> }>(join(project, "package.json"));
+    expect(Object.keys(manifest.devDependencies).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-cli", "bounded-pi"]);
+    expect(manifest.overrides.bounded).toBe(`file:${tarball(first, "bounded", version)}`);
+    expect(existsSync(join(project, "node_modules", ".bin", "bounded"))).toBe(true);
     const config = readFileSync(join(project, "bounded.config.ts"), "utf8");
     expect(config).toContain("export default defineConfig({ packs: [corePack] });");
     const settingsText = readFileSync(join(project, ".claude", "settings.json"), "utf8");
-    const main = join(project, "node_modules", "bounded-claude-code", "src", "main.ts");
-    expect(settingsText).toContain(main);
+    expect(settingsText).toContain(JSON.stringify(HOOK).slice(1, -1));
+    expect(settingsText).not.toContain(project);
     expect(settingsText).not.toContain(REPO);
     const settings = JSON.parse(settingsText) as { hooks: Record<string, unknown[]> };
     for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure"]) expect(settings.hooks[event]).toHaveLength(1);
     const loader = readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"), "utf8");
     expect(loader).toContain('"bounded-pi"');
 
-    // init again is refused, changing nothing
+    // init again, through the project's own bin, is refused, changing nothing
     const again = run([...npx(), "bounded", "init"], project);
     expect(again.exitCode).toBe(1);
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
 
-    // update: upgrade to the later release, then the newly installed CLI refreshes the hooks
-    overrideBounded(project, second, "99.0.0");
+    // update: the project's own bin upgrades to the later release, then the newly installed CLI refreshes the hooks
     const update = run([...npx(), "bounded", "update", "--from", second], project);
+    expect(update.stderr).toBe("");
     expect(update.exitCode).toBe(0);
     expect(update.stdout).toContain("bounded 99.0.0");
-    expect((JSON.parse(readFileSync(join(project, "node_modules", "bounded", "package.json"), "utf8")) as { version: string }).version).toBe("99.0.0");
-    expect((JSON.parse(readFileSync(join(project, "node_modules", "bounded-claude-code", "package.json"), "utf8")) as { version: string }).version).toBe("99.0.0");
+    for (const { name } of PACKAGES) expect(versionOf(project, name)).toBe("99.0.0");
+    expect(json<{ overrides: Record<string, string> }>(join(project, "package.json")).overrides.bounded).toBe(`file:${tarball(second, "bounded", "99.0.0")}`);
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsText);
     expect(readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"), "utf8")).toBe(loader);
@@ -115,30 +117,5 @@ describe("npx bounded, installed from packed tarballs", () => {
     expect(refresh.stdout).toContain("up to date");
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsText);
-  }, 180_000);
-
-  test("update --from upgrades by itself: it points the project's override of bounded at the new tarball", () => {
-    const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cli-e2e-")));
-    const first = join(scratch, "release-1");
-    const second = join(scratch, "release-2");
-    const version = (JSON.parse(readFileSync(join(REPO, "contexts/core/package.json"), "utf8")) as { version: string }).version;
-    packWorkspace(first);
-    packRelease("99.0.0", join(scratch, "copies"), second);
-    const project = join(scratch, "project");
-    mkdirSync(project, { recursive: true });
-    mustRun(["git", "init", "--quiet"], project);
-    writeFileSync(join(project, "package.json"), JSON.stringify({ name: "demo", private: true }));
-    overrideBounded(project, first, version);
-    mustRun(["bun", "add", ...PACKAGES.map(({ name }) => tarball(first, name, version))], project);
-    expect(run([...npx(), "bounded", "init"], project).exitCode).toBe(0);
-    const config = readFileSync(join(project, "bounded.config.ts"), "utf8");
-
-    const update = run([...npx(), "bounded", "update", "--from", second], project);
-    expect(update.stderr).toBe("");
-    expect(update.exitCode).toBe(0);
-    expect(update.stdout).toContain("bounded 99.0.0");
-    expect((JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { overrides: { bounded: string } }).overrides.bounded).toBe(`file:${tarball(second, "bounded", "99.0.0")}`);
-    expect((JSON.parse(readFileSync(join(project, "node_modules", "bounded", "package.json"), "utf8")) as { version: string }).version).toBe("99.0.0");
-    expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
-  }, 180_000);
+  }, 300_000);
 });

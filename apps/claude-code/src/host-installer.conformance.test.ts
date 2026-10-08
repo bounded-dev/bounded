@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostInstallerConformance, snapshotFiles } from "bounded/application/host-installer-conformance";
 import { hostInstaller } from "./host-installer.ts";
-import { HOOK_TIMEOUT_SECONDS, hookCommand } from "./install.ts";
+import { HOOK_TIMEOUT_SECONDS, hookCommand, PROJECT_HOOK_COMMAND } from "./install.ts";
 
 /** A project with bounded-claude-code installed under its node_modules. */
 function project(): string {
@@ -26,18 +26,28 @@ const wrapped = (command: string): string => `{\n${command}\n} || { echo "bounde
 const settingsOf = (root: string): { hooks: Record<string, { hooks: { command: string }[] }[]> } => JSON.parse(readFileSync(join(root, ".claude", "settings.json"), "utf8"));
 
 describe("the Claude Code host installer, in a project that moved or shares its settings", () => {
-  test("settings copied from another project end with one bounded hook per event, pointing at this project", async () => {
+  test("settings copied from another project (a teammate's checkout, or a move) already fit: one project-relative hook per event, nothing to change", async () => {
     const a = project();
     const b = project();
     await hostInstaller.install(a);
     mkdirSync(join(b, ".claude"));
     writeFileSync(join(b, ".claude", "settings.json"), readFileSync(join(a, ".claude", "settings.json")));
-    expect(await hostInstaller.install(b)).toEqual({ ok: true, value: { host: "claude-code", changedPaths: [".claude/settings.json"], skippedBecause: null } });
+    expect(await hostInstaller.install(b)).toEqual({ ok: true, value: { host: "claude-code", changedPaths: [], skippedBecause: null } });
     for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure"]) {
       const entries = settingsOf(b).hooks[event] ?? [];
       expect(entries).toHaveLength(1);
-      expect(entries[0]?.hooks[0]?.command).toBe(wrapped(hookCommand({ bun: "bun", main: mainOf(b) })));
+      expect(entries[0]?.hooks[0]?.command).toBe(wrapped(PROJECT_HOOK_COMMAND));
     }
+    expect(JSON.stringify(settingsOf(b))).not.toContain(a);
+  });
+
+  test("an older install's absolute-path hook is replaced by the project-relative one", async () => {
+    const root = project();
+    const older = { type: "command", command: wrapped(hookCommand({ bun: "bun", main: mainOf(root) })), timeout: HOOK_TIMEOUT_SECONDS };
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "", hooks: [older] }] } }));
+    expect(await hostInstaller.install(root)).toEqual({ ok: true, value: { host: "claude-code", changedPaths: [".claude/settings.json"], skippedBecause: null } });
+    expect((settingsOf(root).hooks.PreToolUse ?? []).map((entry) => entry.hooks.map((hook) => hook.command))).toEqual([[wrapped(PROJECT_HOOK_COMMAND)]]);
   });
 
   test("a stale hook from a checkout is replaced; other hooks, a role's hook and the rest of its entry stay", async () => {
@@ -49,7 +59,7 @@ describe("the Claude Code host installer, in a project that moved or shares its 
     writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "", hooks: [lint, stale] }, { matcher: "", hooks: [role] }] } }));
     await hostInstaller.install(root);
     const pre = settingsOf(root).hooks.PreToolUse ?? [];
-    expect(pre.map((entry) => entry.hooks.map((hook) => hook.command))).toEqual([["lint"], [role.command], [wrapped(hookCommand({ bun: "bun", main: mainOf(root) }))]]);
+    expect(pre.map((entry) => entry.hooks.map((hook) => hook.command))).toEqual([["lint"], [role.command], [wrapped(PROJECT_HOOK_COMMAND)]]);
   });
 
   test("settings that exist but cannot be read are refused and left alone, not replaced", async () => {

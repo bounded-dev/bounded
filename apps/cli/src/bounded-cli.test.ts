@@ -31,7 +31,7 @@ function project(files: Record<string, string> = {}): string {
   return root;
 }
 
-describe("the bounded CLI", () => {
+describe("bounded-cli: the bounded command, in its own app", () => {
   test("init in a fresh project writes the configuration, runs the host installers and says to restart the host session", async () => {
     const root = project();
     const ran = await runBoundedCli(["init"], root);

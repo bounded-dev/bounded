@@ -2812,5 +2812,203 @@
       "case": "architecture > R7: an overview binds imported names in definePack's sections, in order, typed by its contract"
     },
     "reason": "a pack is defined only in its overview file, typed by its contract: R7 checks that with the overview's other rules (ADR 2026-013, C)"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.test.ts",
+    "case": "the bounded CLI > init in a fresh project writes the configuration, runs the host installers and says to restart the host session",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.test.ts",
+      "case": "bounded-cli: the bounded command, in its own app > init in a fresh project writes the configuration, runs the host installers and says to restart the host session"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.test.ts",
+    "case": "the bounded CLI > init refuses a project that already has a configuration, changing nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.test.ts",
+      "case": "bounded-cli: the bounded command, in its own app > init refuses a project that already has a configuration, changing nothing"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.test.ts",
+    "case": "the bounded CLI > update --no-upgrade refreshes the hooks, is idempotent, and never touches the configuration",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.test.ts",
+      "case": "bounded-cli: the bounded command, in its own app > update --no-upgrade refreshes the hooks, is idempotent, and never touches the configuration"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.test.ts",
+    "case": "the bounded CLI > update refuses a project that was never initialised, saying to run bounded init",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.test.ts",
+      "case": "bounded-cli: the bounded command, in its own app > update refuses a project that was never initialised, saying to run bounded init"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.test.ts",
+    "case": "the bounded CLI > an unknown command, or none, prints the usage and exits 2",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.test.ts",
+      "case": "bounded-cli: the bounded command, in its own app > an unknown command, or none, prints the usage and exits 2"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
+    "case": "packageManagerFor: the project's package manager, from its lockfile > names the manager whose lockfile is present, npm when none is",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — packageManagerFor: the project's package manager, from its lockfile > names the manager whose lockfile is present, npm when none is"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
+    "case": "tarballFor: the packed tarball of a package in an upgrade directory > picks <name>-<version>.tgz, not another package's tarball that shares the prefix",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — tarballFor: the packed tarball of a package in an upgrade directory > picks <name>-<version>.tgz, not another package's tarball that shares the prefix"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
+    "case": "tarballFor: the packed tarball of a package in an upgrade directory > refuses a package with no tarball, or more than one, naming them",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — tarballFor: the packed tarball of a package in an upgrade directory > refuses a package with no tarball, or more than one, naming them"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
+    "case": "upgradeCommands: the package manager commands that upgrade the bounded packages > adds dependencies and devDependencies each where they were",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages > adds dependencies and devDependencies each where they were"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
+    "case": "upgradeCommands: the package manager commands that upgrade the bounded packages > runs no command for a group with no package",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages > runs no command for a group with no package"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
+    "case": "withUpgradedSpecs: the manifest bun installs the upgrade from > replaces each package's spec in its own group, keeping everything else",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — withUpgradedSpecs: the manifest bun installs the upgrade from > replaces each package's spec in its own group, keeping everything else"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded-cli — bounded update --from > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from > refuses a directory that cannot be read",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded-cli — bounded update --from > refuses a directory that cannot be read"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from > refuses when a package's tarball is missing, naming it, and changes nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded-cli — bounded update --from > refuses when a package's tarball is missing, naming it, and changes nothing"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from > refuses two tarballs of one package, naming both",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded-cli — bounded update --from > refuses two tarballs of one package, naming both"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from > when the package manager fails, package.json is restored and the message says so",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded-cli — bounded update --from > when the package manager fails, package.json is restored and the message says so"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from > refuses when the installed version is not the tarball's, restoring package.json",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded-cli — bounded update --from > refuses when the installed version is not the tarball's, restoring package.json"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+  },
+  {
+    "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded-cli — bounded update --from > when the new bounded-cli cannot be run, the upgrade stands and the message says to refresh the hooks"
+    },
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+  },
+  {
+    "file": "contexts/core/test/bounded-cli.e2e.test.ts",
+    "case": "npx bounded, installed from packed tarballs > init sets a fresh repository up; update upgrades the packages, hands over to the new CLI and is idempotent",
+    "successor": {
+      "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+      "case": "bounded-cli end to end, from packed tarballs > npx bounded-cli init --from adds the packages and sets the repository up; npx bounded update --from upgrades and hands over to the new CLI; both are idempotent"
+    },
+    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced"
+  },
+  {
+    "file": "contexts/core/test/bounded-cli.e2e.test.ts",
+    "case": "npx bounded, installed from packed tarballs > update --from upgrades by itself: it points the project's override of bounded at the new tarball",
+    "successor": {
+      "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+      "case": "bounded-cli end to end, from packed tarballs > npx bounded-cli init --from adds the packages and sets the repository up; npx bounded update --from upgrades and hands over to the new CLI; both are idempotent"
+    },
+    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced"
+  },
+  {
+    "file": "apps/claude-code/src/host-installer.test.ts",
+    "case": "the Claude Code host installer > in a fresh project, creates .claude/settings.json with the hooks running the project's own installed copy",
+    "successor": {
+      "file": "apps/claude-code/src/host-installer.test.ts",
+      "case": "the Claude Code host installer > in a fresh project, creates .claude/settings.json with the hooks running the project's own installed copy through $CLAUDE_PROJECT_DIR"
+    },
+    "reason": "the hook command is relative to $CLAUDE_PROJECT_DIR, not the project's absolute path, so committed settings work for teammates and survive a move (decided in the final review)"
+  },
+  {
+    "file": "apps/claude-code/src/host-installer.conformance.test.ts",
+    "case": "the Claude Code host installer, in a project that moved or shares its settings > settings copied from another project end with one bounded hook per event, pointing at this project",
+    "successor": {
+      "file": "apps/claude-code/src/host-installer.conformance.test.ts",
+      "case": "the Claude Code host installer, in a project that moved or shares its settings > settings copied from another project (a teammate's checkout, or a move) already fit: one project-relative hook per event, nothing to change"
+    },
+    "reason": "with a project-relative hook command, settings copied from another checkout already point at this project, so there is nothing to replace"
   }
 ]
