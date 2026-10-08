@@ -328,3 +328,38 @@ describe("the path gate — wrappers that set where or what their command runs",
     expect(shell("env -C $DIR cat .env")).toBe(Verdict.allow);
   });
 });
+
+describe("the path gate — git -C and short options with an attached value", () => {
+  const secret = rules("b", { match: "sub/secret", deny: ["read", "delete"], redirect: "Leave sub/secret alone" });
+
+  test("git -C dir runs git from dir, as cd dir && git does: its paths are judged from there", async () => {
+    const shell = await shellWith([secret, env], { ".git": "directory", sub: "directory", "sub/secret": "file", "sub/deeper": "directory" });
+    const refused = [
+      "git -C sub diff secret",
+      "git -C sub rm secret",
+      "git -C sub log -- secret",
+      "git -C sub show HEAD:./secret",
+      "git -C sub diff ../.env",
+      "git -C sub -C deeper diff ../secret",
+      "git -c core.pager=cat -C sub diff secret",
+    ];
+    for (const command of refused) expect([command, shell(command).kind]).toEqual([command, "refuse"]);
+    expect(reason(shell("git -C sub diff secret"))).toContain("this command reads 'sub/secret'");
+    expect(shell("git -C sub diff .env")).toBe(Verdict.allow);
+    expect(shell("git diff secret")).toBe(Verdict.allow);
+    expect(shell("git -C sub diff secret", "sub")).toBe(Verdict.allow);
+  });
+
+  test("git -C with a directory only the shell can resolve leaves its paths unresolved, never guessed", async () => {
+    const shell = await shellWith([secret, env], { sub: "directory" });
+    expect(shell('git -C "$X" diff .env')).toBe(Verdict.allow);
+    expect(shell("git -C $(pwd) diff .env")).toBe(Verdict.allow);
+  });
+
+  test("a short option's attached value is read as the word after it would be (grep -f.env), in a cluster too", async () => {
+    const shell = await shellWith([env]);
+    for (const command of ["grep -f.env x", "grep -rf.env x", "grep -rnf.env src", "xargs -a.env echo"]) expect([command, shell(command).kind]).toEqual([command, "refuse"]);
+    expect(reason(shell("grep -f.env x"))).toContain("this command reads '.env'");
+    expect(shell("grep -rn KEY src")).toBe(Verdict.allow);
+  });
+});

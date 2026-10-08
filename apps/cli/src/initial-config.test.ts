@@ -67,4 +67,25 @@ describe("bounded init's configuration", () => {
     expect((await judge(edit(".claude/skills/release/SKILL.md"))).kind).toBe("allow");
     expect((await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: ".claude/settings.json" }] })).kind).toBe("allow");
   });
+
+  test("also keeps agents off git's hooks (git runs them later, outside Bounded's view) and git's config (it can point core.hooksPath elsewhere), by edit and by shell, saying why", async () => {
+    expect(INITIAL_CONFIG).toContain('match: ".git/hooks/**"');
+    expect(INITIAL_CONFIG).toContain('match: ".git/config"');
+    expect(INITIAL_CONFIG).toContain("git runs these hooks later, outside Bounded's view");
+    expect(INITIAL_CONFIG).toContain("core.hooksPath");
+    const { judge, problem } = await openProject(project(), { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
+    expect(problem).toBeNull();
+    for (const path of [".git/hooks/pre-commit", ".git/config"]) {
+      for (const change of ["create", "modify", "delete"] as const) {
+        expect([path, change, (await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change }] })).kind]).toEqual([path, change, "refuse"]);
+      }
+      const command = `echo x > ${path}`;
+      const shell = await judge({ kind: "tool-use", role: null, tool: "bash", effects: [{ kind: "execute", command, cwd: null }] });
+      expect([command, shell.kind]).toEqual([command, "refuse"]);
+    }
+    expect((await judge({ kind: "tool-use", role: null, tool: "bash", effects: [{ kind: "execute", command: "echo x >> .git/hooks/post-commit", cwd: null }] })).kind).toBe("refuse");
+    // Reading them, and git's other files, is left alone.
+    expect((await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: ".git/config" }] })).kind).toBe("allow");
+    expect((await judge(edit(".git/info/exclude"))).kind).toBe("allow");
+  });
 });

@@ -102,6 +102,21 @@ describe("describeShellCommand: braces, nested shells and repository paths, as t
     expect(described("git show HEAD:.env").unresolved).toContain("HEAD:.env");
   });
 
+  test("git -C dir runs git from dir, nested -C from the one before; a dir only the shell can resolve leaves its paths unresolved", () => {
+    expect(described("git -C sub diff x", "app")).toEqual({ reads: ["app/sub/x"], lists: [], writes: [], unresolved: [] });
+    expect(described("git -C sub -C deeper diff x").reads).toEqual(["sub/deeper/x"]);
+    expect(described("git -C sub rm x").writes).toEqual([{ path: "sub/x", change: "delete" }]);
+    expect(described('git -C "$X" diff secret')).toEqual({ reads: [], lists: [], writes: [], unresolved: ['"$X"', "secret"] });
+  });
+
+  test("a short option's attached value is read for every way it could be one (-rf.env reads f.env and .env); a known option's attached value is that option's", () => {
+    expect(described("grep -f.env x").reads).toEqual([".env", "x"]);
+    expect(described("grep -rf.env x").reads).toEqual(["f.env", ".env", "x"]);
+    expect(described("xargs -a.env echo").reads).toEqual([".env"]);
+    expect(described("cp -tsub a.txt", null, { sub: "directory" }).writes).toEqual([{ path: "sub/a.txt", change: "create" }]);
+    expect(described("mv --target-directory=sub a.txt", null, { sub: "directory" }).writes).toContainEqual({ path: "sub/a.txt", change: "create" });
+  });
+
   test("ANSI-C strings with simple escapes are literal, others unresolved; $(< file) reads the file", () => {
     expect(described("cat $'a.txt' $'it\\'s.txt'").reads).toEqual(["a.txt", "it's.txt"]);
     expect(described("cat $'\\x2eenv'").unresolved).toEqual(["$'\\x2eenv'"]);
