@@ -20,8 +20,8 @@ npx bounded init
 
 This adds `bounded` as a devDependency. It writes `bounded.config.ts`,
 selecting the core and the path gate, with default rules that keep agents
-off this configuration, `.bounded/`, Claude Code's settings, pi's loader and
-Bounded's installed code. It installs the hooks of the agent hosts the
+off this configuration, `.bounded/`, Claude Code's settings, pi's loader,
+Bounded's installed code and git's hooks and config. It installs the hooks of the agent hosts the
 project uses (`.claude/`, `.pi/`, or `--host claude-code`, `--host pi`).
 Restart the host's session afterwards.
 
@@ -44,6 +44,22 @@ export default defineConfig({
 ```
 
 Run `npx bounded update` to upgrade Bounded and refresh the hooks.
+
+## What it is not
+
+Bounded discourages agents and keeps a record; it is not a security
+boundary. An agent running as your user can always get round it. For
+enforcement, pair it with your host's operating-system sandbox, such as
+Claude Code's sandbox mode. Known ways round it:
+
+- drift does not watch `node_modules` or `.git`, so what a command changes
+  there is not put back;
+- commands the path gate does not recognise as writing, such as `sed -i`,
+  `perl -i`, `node -e` and `python -c`;
+- user-level settings outside the project, such as `~/.claude/settings.json`;
+- writes delayed into the background, after the tool call is judged;
+- drift's snapshots, kept in a state directory the user (and so the agent)
+  can write.
 
 ## More
 

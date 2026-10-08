@@ -38,12 +38,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - `npx bounded init [--host <host>]...` adds `bounded` at the CLI's own
     version from the npm registry, with the project's package manager. It
     then hands over to the installed `bounded init --no-install`, which:
-    - writes `bounded.config.ts`: the core, the path gate, and five default
+    - writes `bounded.config.ts`: the core, the path gate, and seven default
       rules, since the pack ships none
       ([ADR 2026-009](adr/2026-009-path-gate-pack.md)). They protect
-      `bounded.config.*`, `.bounded/`, `.claude/settings.json`,
-      `.pi/extensions/bounded/**` and `node_modules/bounded/**` from every
-      write;
+      `bounded.config.*`, `.bounded/`, `.claude/settings*.json`,
+      `.pi/extensions/bounded/**`, `node_modules/bounded/**`,
+      `.git/hooks/**` and `.git/config` from every write;
     - runs `bounded`'s bundled installers for the hosts named or found
       (`.claude/`, `.pi/`), and any third-party package's `./host-installer`
       ([ADR 2026-015](adr/2026-015-host-installers.md)).
@@ -73,8 +73,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
     on `PATH`: it pipes Claude Code payloads through the installed hook
     command under `sh`. The path gate refuses an edit of the configuration
     (init's default rule) and of `secrets/` (a project rule), allows another
-    edit, and refuses `echo hi > secrets/x`, which shows tree-sitter loading
-    under Node.
+    edit, and refuses `echo hi > secrets/x` and
+    `echo x > .git/hooks/pre-commit`, which shows tree-sitter loading under
+    Node.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository
@@ -83,11 +84,22 @@ when written; keep it current (AGENTS.md, "Working with the user").
 
 ## 2. Known gaps and limits
 
+- **Bounded discourages agents and keeps a record; it is not a security
+  boundary.** An agent running as the same user can always get round it.
+  For enforcement, pair it with the host's operating-system sandbox, such as
+  Claude Code's sandbox mode. Known ways round it, each detailed below:
+  - drift does not watch `node_modules` or `.git`;
+  - commands not recognised as writing (`sed -i`, `perl -i`, `node -e`,
+    `python -c`);
+  - user-level settings outside the project (`~/.claude/settings.json`);
+  - writes delayed into the background, after the call is judged;
+  - drift's snapshots live in a user-writable state directory
+    (`$XDG_STATE_HOME/bounded`, else `~/.local/state/bounded`).
 - **The shell guard cannot see everything** ([ADR 2026-009](adr/2026-009-path-gate-pack.md),
   "Known gaps"; [slice 3](slice-3.md)): globs, variables and loop variables,
   `xargs` input, other-language scripts (`python -c`, `node -e`, `awk`,
-  `perl -e`), what a script file or program opens itself, attached short
-  options (`grep -f.env`) and brace expansion in a command name
+  `perl -e`), in-place edits (`sed -i`, `perl -i`), what a script file or
+  program opens itself, and brace expansion in a command name
   (`{cat,.env}`). Paths it cannot resolve are allowed. The real control is
   confining commands at the operating-system level (for example a sandbox
   profile, or the host's own Bash sandbox settings, generated from
@@ -102,12 +114,16 @@ when written; keep it current (AGENTS.md, "Working with the user").
   of the project are judged as inside it; check-then-use races; pi runs tool
   calls in parallel batches and offers no sequential mode
   ([Claude Code adapter](adapter-claude-code.md), [pi adapter](adapter-pi.md)).
-- **The guardrails are protected only by init's five default rules**, and
+- **The guardrails are protected only by init's seven default rules**, and
   only as written: the path gate ships none, so a project that removes them
   protects nothing.
   - They cover `bounded.config.*`, `.bounded/**`,
-    `.claude/settings*.json`, `.pi/extensions/bounded/**` and
-    `node_modules/bounded/**`.
+    `.claude/settings*.json`, `.pi/extensions/bounded/**`,
+    `node_modules/bounded/**`, `.git/hooks/**` and `.git/config`. Drift
+    never watches `.git`, so a git hook or config changed by a command the
+    path gate does not see (`git config core.hooksPath …`) is not put back,
+    and a worktree's or submodule's `.git` file points at hooks outside the
+    project.
   - Not covered: the modules the configuration imports
     ([configuration](configuration.md); ADR 2026-009, "the configuration's
     imports"; protecting the import closure is planned), and the user-level
