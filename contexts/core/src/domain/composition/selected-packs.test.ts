@@ -75,10 +75,10 @@ describe("SelectedPacks — the packs a configuration selects", () => {
     const extOfTwin = definePack({ id: packId("ext"), dependsOn: [twinBase] });
     const dependsOnBase = definePack({ id: packId("a"), dependsOn: [base] });
     const dependsOnTwin = definePack({ id: packId("b"), dependsOn: [twinBase] });
-    const listedAndDependedOn = { ok: false, error: TWIN("test-packs/base", "one listed", "one that 'test-packs/ext' depends on") };
+    const listedAndDependedOn = { ok: false as const, error: TWIN("test-packs/base", "one listed", "one that 'test-packs/ext' depends on") };
     expect(SelectedPacks.parse([base, extOfTwin])).toEqual(listedAndDependedOn);
     expect(SelectedPacks.parse([extOfTwin, base])).toEqual(listedAndDependedOn);
-    const bothDependedOn = { ok: false, error: TWIN("test-packs/base", "one that 'test-packs/a' depends on", "one that 'test-packs/b' depends on") };
+    const bothDependedOn = { ok: false as const, error: TWIN("test-packs/base", "one that 'test-packs/a' depends on", "one that 'test-packs/b' depends on") };
     expect(SelectedPacks.parse([dependsOnBase, dependsOnTwin])).toEqual(bothDependedOn);
     expect(SelectedPacks.parse([dependsOnTwin, dependsOnBase])).toEqual(bothDependedOn);
     expect(SelectedPacks.parse([base, twinBase])).toEqual({ ok: false, error: TWIN("test-packs/base", "one listed", "another listed") });
@@ -87,7 +87,7 @@ describe("SelectedPacks — the packs a configuration selects", () => {
   test("when several ids have two packs, the smallest id is reported", () => {
     const zed = definePack({ id: packId("zed") });
     const zedCopy = definePack({ id: packId("zed") });
-    const refusal = { ok: false, error: TWIN("test-packs/base", "one listed", "another listed") };
+    const refusal = { ok: false as const, error: TWIN("test-packs/base", "one listed", "another listed") };
     expect(SelectedPacks.parse([zed, zedCopy, base, twinBase])).toEqual(refusal);
     expect(SelectedPacks.parse([twinBase, base, zedCopy, zed])).toEqual(refusal);
   });

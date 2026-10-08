@@ -1,11 +1,11 @@
-// The configuration `bounded init` writes: live, selecting the core and the
-// path gate, with the default rules that keep agents off the project's
+// The configuration `bounded init` writes: live, selecting the path gate
+// (which brings in the core), with the default rules that keep agents off the project's
 // guardrails. The path gate ships no rules of its own (ADR 2026-009), so the
 // defaults live here, where the project can see and change them. Content is
 // the CLI's: the core's init feature writes whatever text it is given.
 
 export const INITIAL_CONFIG = `// Bounded's configuration for this project, written by \`bounded init\`.
-// It selects the core and the path gate. The seven rules below are defaults:
+// It selects the path gate, which brings in the core. The seven rules below are defaults:
 // they keep agents from changing this configuration, Bounded's own state in
 // .bounded/, the hooks that run Bounded (Claude Code's settings files, any of
 // which could turn hooks off, and pi's loader), Bounded's installed code, and
@@ -14,11 +14,11 @@ export const INITIAL_CONFIG = `// Bounded's configuration for this project, writ
 // "Installing" section shows how. ~/.claude/settings.json, outside the
 // project, is not covered. Bounded discourages agents and records what they
 // do; it is not a security boundary: pair it with your host's sandbox.
-import { contribution, corePack, defineConfig } from "bounded/domain";
+import { contribution, defineConfig } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
 export default defineConfig({
-  packs: [corePack, pathGate],
+  packs: [pathGate],
   contributes: [
     contribution(pathGate.points.protectedPaths, [
       {

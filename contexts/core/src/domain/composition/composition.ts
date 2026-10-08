@@ -7,7 +7,7 @@ import type { BasePortKey } from "../lifecycle/port-key.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { AvailablePacks, NOT_LISTS } from "./available-packs.ts";
 import type * as Contract from "./composition.contract.ts";
-import { byId, SelectedPacks } from "./selected-packs.ts";
+import { byId, firstDependent, SelectedPacks } from "./selected-packs.ts";
 
 class CompositionImpl implements Contract.Composition {
   declare readonly __brand: "Composition";
@@ -20,29 +20,21 @@ class CompositionImpl implements Contract.Composition {
     Object.freeze(this);
   }
 
-  static compose(availablePacks: readonly BasePack[], selectedPacks: readonly BasePack[]): Result<Composition> {
-    if (!Array.isArray(availablePacks) || !Array.isArray(selectedPacks)) return refuse(NOT_LISTS);
+  static compose(availablePacks: readonly BasePack[], listedPacks: readonly BasePack[]): Result<Composition> {
+    if (!Array.isArray(availablePacks) || !Array.isArray(listedPacks)) return refuse(NOT_LISTS);
     const available = AvailablePacks.parse(availablePacks);
     if (!available.ok) return available;
-    const selected = SelectedPacks.parse(selectedPacks);
+    const selected = SelectedPacks.parse(listedPacks);
     if (!selected.ok) return selected;
     // Every check runs in id order, so which refusal comes first never
-    // depends on the order packs were listed in.
+    // depends on the order packs were listed in. The selection holds the
+    // listed packs and every pack they depend on (ADR 2026-018); each must be
+    // available, matched by identity (ADR 2026-004).
     const chosen = selected.value.packs;
     const missing = chosen.find((pack) => !available.value.includes(pack));
-    if (missing !== undefined) return refuse(`Pack '${packIdText(missing.id)}' is selected but not available. Make it available, or remove it from the selection`);
+    if (missing !== undefined) return refuse(unavailable(missing, selected.value.listedPacks, chosen, available.value.packs));
     const malformed = chosen.find((pack) => pack.problem !== undefined);
     if (malformed !== undefined) return refuse(`Pack '${malformed.id.value}' is malformed: ${malformed.problem}. Fix its definition`);
-    for (const pack of chosen) {
-      for (const dependency of [...pack.dependsOn].sort(byId)) {
-        if (chosen.includes(dependency)) continue;
-        return refuse(
-          chosen.some((other) => other.id.value === packIdText(dependency.id))
-            ? `Pack '${pack.id.value}' depends on a pack with the id '${packIdText(dependency.id)}' that is not the available one (another pack with that id, or another copy of it). Make the pack it depends on available instead`
-            : `Pack '${pack.id.value}' depends on pack '${packIdText(dependency.id)}', which is not selected. Select it as well, or remove the dependency`,
-        );
-      }
-    }
 
     // Each point has a declaration of its own, so a pack's code finds its point by its declaration alone.
     const declared: BasePoint[] = [];
@@ -114,6 +106,16 @@ class CompositionImpl implements Contract.Composition {
 
 function refuse(error: string): { ok: false; error: string } {
   return { ok: false, error };
+}
+
+/** Why a selected pack that is not available is refused: it is listed, or brought in by the first selected pack (in id order) that depends on it. */
+function unavailable(missing: BasePack, listedPacks: readonly BasePack[], selectedPacks: readonly BasePack[], availablePacks: readonly BasePack[]): string {
+  const id = packIdText(missing.id);
+  const dependent = firstDependent(selectedPacks, missing);
+  if (listedPacks.includes(missing) || dependent === undefined) return `Pack '${id}' is listed but not available. Make it available, or remove it from the list`;
+  return availablePacks.some((pack) => pack.id.value === id)
+    ? `Pack '${packIdText(dependent.id)}' depends on a pack with the id '${id}' that is not the available one (another pack with that id, or another copy of it). Make the pack it depends on available instead`
+    : `Pack '${packIdText(dependent.id)}' depends on pack '${id}', which is not available. Add '${id}' to the available packs, or remove the dependency`;
 }
 
 /** Check each value with the point's own check and store what it returns; a refusal message, or undefined. */
