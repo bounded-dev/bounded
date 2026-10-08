@@ -5,13 +5,15 @@
 // the CLI's: the core's init feature writes whatever text it is given.
 
 export const INITIAL_CONFIG = `// Bounded's configuration for this project, written by \`bounded init\`.
-// It selects the core and the path gate. The five rules below are defaults:
+// It selects the core and the path gate. The seven rules below are defaults:
 // they keep agents from changing this configuration, Bounded's own state in
 // .bounded/, the hooks that run Bounded (Claude Code's settings files, any of
-// which could turn hooks off, and pi's loader) and Bounded's installed code.
+// which could turn hooks off, and pi's loader), Bounded's installed code, and
+// git's hooks and config (git runs hooks later, outside Bounded's view).
 // Change or remove them as you see fit, and add your own rules; the README's
 // "Installing" section shows how. ~/.claude/settings.json, outside the
-// project, is not covered.
+// project, is not covered. Bounded discourages agents and records what they
+// do; it is not a security boundary: pair it with your host's sandbox.
 import { contribution, corePack, defineConfig } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
@@ -48,6 +50,18 @@ export default defineConfig({
         deny: ["create", "modify", "delete"],
         why: "Bounded's own installed code",
         redirect: "Ask a person to install or upgrade Bounded (\`npx bounded update\`)",
+      },
+      {
+        match: ".git/hooks/**",
+        deny: ["create", "modify", "delete"],
+        why: "git runs these hooks later, outside Bounded's view",
+        redirect: "Ask a person to add or change git hooks; describe the check you need",
+      },
+      {
+        match: ".git/config",
+        deny: ["create", "modify", "delete"],
+        why: "git's config can point core.hooksPath at hooks of its own",
+        redirect: "Ask a person to change git's configuration; run git with \`-c name=value\` for a one-off setting",
       },
     ]),
   ],

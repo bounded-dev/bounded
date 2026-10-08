@@ -196,6 +196,8 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
       expect(reasonOf(edit(".claude/settings.json").stdout)).toContain("the rule '.claude/settings*.json' from bounded/project");
       // A local settings file could disable every hook: creating one is refused too.
       expect(reasonOf(hook("Write", { file_path: join(project, ".claude", "settings.local.json"), content: "{\"disableAllHooks\": true}" }).stdout)).toContain("the rule '.claude/settings*.json' from bounded/project");
+      // And off git's hooks, which git runs later, outside Bounded's view.
+      expect(reasonOf(hook("Bash", { command: "echo x > .git/hooks/pre-commit" }).stdout)).toContain("the rule '.git/hooks/**' from bounded/project");
       expect(reasonOf(edit("src/a.ts").stdout)).toBe("allowed");
       const shell = hook("Bash", { command: "echo hi > secrets/x" });
       expect(reasonOf(shell.stdout)).toContain("secrets/**");
