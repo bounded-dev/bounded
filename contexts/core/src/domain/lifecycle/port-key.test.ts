@@ -22,7 +22,7 @@ describe("PortKey — a slot for an adapter a pack needs", () => {
   test("parses its wire form, refusing a name that is not camelCase or an owner that is not a pack id", () => {
     const parsed = PortKey.parse("test-packs/gate#files");
     expect(parsed.ok && parsed.value.equals(ports("files"))).toBe(true);
-    const form = "A port key is '<pack id>#<name>', its name a camelCase word, such as 'bounded/path-gate#watchedFiles'";
+    const form = "A port key is '<pack id>#<name>', its name a camelCase word, such as 'acme/rules#sourceFiles'";
     for (const raw of ["test-packs/gate", "test-packs/gate#Files", "test-packs/gate#a.b", "Gate#files", "#files", 7]) expect(PortKey.parse(raw)).toEqual({ ok: false, error: form });
   });
 });

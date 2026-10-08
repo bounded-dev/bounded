@@ -52,6 +52,21 @@ describe("Composition — finding a pack's own point", () => {
     expect(composition.pointDeclaredBy(point({ description: "Words", check: word }))).toBeUndefined();
     expect(composed([owner, base], [base]).pointDeclaredBy(declared)).toBeUndefined();
   });
+
+  test("a declaration reused for a second point, in this pack or another, is refused: each point is declared once, so it is found by its declaration alone", () => {
+    const declared = point({ description: "Words", check: word });
+    const first = definePack({ id: packId("first"), points: { words: declared } });
+    const second = definePack({ id: packId("second"), points: { words: declared } });
+    expect(Composition.compose([first, second], [first, second])).toEqual({
+      ok: false,
+      error: "Pack 'test-packs/second' declares extension point 'test-packs/second.words' with the declaration of 'test-packs/first.words'. Declare each point with its own point(...)",
+    });
+    const twice = definePack({ id: packId("twice"), points: { words: declared, more: declared } });
+    expect(Composition.compose([twice], [twice])).toEqual({
+      ok: false,
+      error: "Pack 'test-packs/twice' declares extension point 'test-packs/twice.more' with the declaration of 'test-packs/twice.words'. Declare each point with its own point(...)",
+    });
+  });
 });
 
 describe("Composition — the ports its packs need", () => {
