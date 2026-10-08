@@ -6,9 +6,9 @@ import type * as Contract from "./prerequisite-start.contract.ts";
 
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
-/** The key of a requirement: an agent, ignoring case, and its patterns, in any order, each once. */
+/** The key of a requirement: an agent, by its exact name, and its patterns, in any order, each once. */
 export function requirementKeyOf(agent: AgentName, patterns: readonly string[]): string {
-  return JSON.stringify([agent.value.toLowerCase(), [...new Set(patterns)].sort()]);
+  return JSON.stringify([agent.value, [...new Set(patterns)].sort()]);
 }
 
 /** The fields a start and a record share, read from `raw` and checked, each refusal naming `what` and its field. */

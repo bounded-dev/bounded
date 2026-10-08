@@ -107,8 +107,10 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
     }
   }
   if (!effects.some((effect) => effect.kind === "delegate")) return refuse("names no agent");
-  // An asynchronous run returns at launch: pi does not report when its agents finish (ADR 2026-019).
+  // pi-subagents 0.52.1 runs in the background unless the call says async: false (asyncByDefault
+  // defaults to true, src/extension/config.ts:150-151), and pi does not report when a background
+  // run's agents finish: every delegation is finishUnreported unless it says async: false (ADR 2026-019).
   const runsAsync = own(input, "async");
   if (runsAsync !== undefined && typeof runsAsync !== "boolean") return refuse("has an 'async' that is not true or false");
-  return { ok: true, value: runsAsync === true ? effects.map((effect) => (effect.kind === "delegate" ? { ...effect, finishUnreported: true } : effect)) : effects };
+  return { ok: true, value: runsAsync === false ? effects : effects.map((effect) => (effect.kind === "delegate" ? { ...effect, finishUnreported: true } : effect)) };
 }

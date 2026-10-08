@@ -24,7 +24,7 @@ export interface PrerequisiteRecord {
   readonly unchangedSince: readonly [string, ...string[]];
   readonly fingerprint: FileSetFingerprint;
   readonly callId: CallId;
-  /** The requirement it serves: its agent (ignoring case) and its patterns (in any order, each once), as a start's. */
+  /** The requirement it serves: its agent (by its exact name) and its patterns (in any order, each once), as a start's. */
   requirementKey(): string;
   equals(other: PrerequisiteRecord): boolean;
   toJSON(): PrerequisiteRecordJSON;

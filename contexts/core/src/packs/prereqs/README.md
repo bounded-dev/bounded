@@ -30,7 +30,7 @@ export default defineConfig({
 ```
 
 - `before` is one action: `{ delegate: <agent> }` (a delegation to that
-  agent, ignoring case) or `{ write: <pattern> }` (a file tool's write to a
+  agent, by its exact name: agent names match case-sensitively) or `{ write: <pattern> }` (a file tool's write to a
   path the pattern matches).
 - `require` is a delegation to an agent that succeeded. A rule cannot
   require the action it comes before.
@@ -58,7 +58,8 @@ review of the plan meets both plan-reviewer rules above.
 - **A delegation a rule requires** has its files fingerprinted as it starts.
   It is refused when it runs isolated (on a separate copy of the files, such
   as a worktree), when the host will not report its finish (a Claude Code
-  teammate, a pi asynchronous run), or when it has no call id.
+  teammate, any pi run that does not say `async: false`), or when it has no
+  call id.
 - **After it: only a run the host says finished counts.** The run is
   recorded when the host says it finished, it succeeded, and the files'
   fingerprint is the one taken at the start. Otherwise nothing is recorded,
@@ -69,7 +70,17 @@ and a background run returns at launch: it is never seen to finish. Until
 the pack observes the finish itself, disable background subagents
 (`CLAUDE_CODE_FORK_SUBAGENT=0` or `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`)
 for a requirement to be met. A run stopped at its turn limit is not finished
-either. pi's asynchronous runs are refused.
+either.
+
+**On pi, a requirement cannot be met yet.** pi-subagents 0.52.1 runs a
+`subagent` call in the background unless it says `async: false`
+(`asyncByDefault` defaults to true, `src/extension/config.ts:150-151`), and
+even then its `forceTopLevelAsync` setting can run it in the background
+(`src/runs/background/top-level-async.ts:7-14`), and a timed-out child may
+leave `isError` unset (`src/runs/foreground/subagent-executor.ts:3544`). So
+a delegation without `async: false` is refused, and no pi result is counted
+as finished, until the pack observes pi-subagents' completion (ADR 2026-019,
+"Future work").
 
 ## What it cannot see
 
@@ -80,6 +91,9 @@ either. pi's asynchronous runs are refused.
   command writing under `src/` is not matched.
 - **Patterns that match no file:** such a requirement can never be met, and
   says so.
+- **Symbolic links:** a link the patterns match, or a linked directory they
+  could reach into, is never followed, and the rule refuses, naming the
+  link. Replace it with the files, or leave it out of the patterns.
 - **ABA:** files edited and put back between the delegation and its result
   compare equal, so the run counts.
 

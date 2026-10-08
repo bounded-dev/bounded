@@ -23,7 +23,7 @@ export interface PrerequisiteStart {
   readonly delegate: AgentName;
   readonly unchangedSince: readonly [string, ...string[]];
   readonly fingerprint: FileSetFingerprint;
-  /** The requirement it serves: its agent (ignoring case) and its patterns (in any order, each once). */
+  /** The requirement it serves: its agent (by its exact name) and its patterns (in any order, each once). */
   requirementKey(): string;
   equals(other: PrerequisiteStart): boolean;
   toJSON(): PrerequisiteStartJSON;

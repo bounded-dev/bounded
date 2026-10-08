@@ -147,8 +147,9 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
     return results[0];
   };
 
-  test("a synchronous subagent's tool_result says each delegated run finished", async () => {
-    const result = await resultOf({ tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }] });
+  test("a subagent's tool_result says no delegated run finished, even with async: false", async () => {
+    // pi-subagents 0.52.1 may still run it in the background (forceTopLevelAsync), and a timed-out child may leave isError unset.
+    const result = await resultOf({ tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }], async: false });
     expect(wireOf(result)).toEqual({
       kind: "tool-result",
       role: null,
@@ -156,8 +157,12 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
       effects: [{ kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }],
       ok: true,
       callId: "1",
-      delegatedAgentRuns: [{ finished: true }, { finished: true }],
+      delegatedAgentRuns: [{ finished: false }, { finished: false }],
     });
+    // Without async: false the call runs in the background by default, so its delegations' finishes go unreported.
+    const unsaid = await resultOf({ agent: "a", task: "x" });
+    expect(unsaid?.delegatedAgentRuns).toEqual([{ finished: false }]);
+    expect(unsaid?.effects.every((effect) => effect.kind === "delegate" && effect.finishUnreported === true)).toBe(true);
   });
 
   test("an async subagent's tool_result says none did", async () => {

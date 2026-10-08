@@ -13,7 +13,8 @@ const FILES = "A rule's unchangedSince is a non-empty list of file patterns";
 const MAX_REDIRECT = 1000;
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
 const hasControl = (text: string): boolean => [...text].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f);
-const sameAgent = (a: AgentName, b: AgentName): boolean => a.value.toLowerCase() === b.value.toLowerCase();
+/** Agent names match exactly, case-sensitively: hosts find agents by their exact names. */
+const sameAgent = (a: AgentName, b: AgentName): boolean => a.value === b.value;
 
 /** A rule's fields once checked and tidied. */
 interface Fields {

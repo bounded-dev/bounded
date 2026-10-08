@@ -93,6 +93,17 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
     expect(existsSync(join(root, ".bounded", "prereqs"))).toBe(false);
   });
 
+  test("a symbolic link among the files a rule names makes the rule refuse, naming the link", async () => {
+    const root = project(PREREQS);
+    symlinkSync("../../src/a.ts", join(root, ".agent-state", "item", "plan.md.link"));
+    mkdirSync(join(root, ".agent-state", "linked"));
+    symlinkSync("../item/plan.md", join(root, ".agent-state", "linked", "plan.md"));
+    const { judge } = await openProject(root, { ports: prereqsPortProvisions() });
+    const refused = await judge(writeSrc);
+    expect(refused.kind === "refuse" && refused.reason).toContain(".agent-state/linked/plan.md is a symbolic link");
+    expect((await judge(review("c1"))).kind).toBe("refuse");
+  });
+
   test("records are per project root", async () => {
     const [first, second] = [project(PREREQS), project(PREREQS)];
     const one = await openProject(first, { ports: prereqsPortProvisions() });

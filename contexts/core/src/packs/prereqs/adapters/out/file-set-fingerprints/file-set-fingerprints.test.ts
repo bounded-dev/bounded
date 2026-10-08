@@ -35,15 +35,22 @@ describe("FileSystemFileSetFingerprints — the project's files on disk", () => 
     expect(fingerprint).toMatchObject({ ok: true, value: { fileCount: 1 } });
   });
 
-  test("a link is fingerprinted by where it points, never followed", async () => {
-    const root = projectWith({ "outside.md": "elsewhere\n" });
-    mkdirSync(join(root, "docs"));
+  test("a link matching the patterns cannot be fingerprinted: the error names it", async () => {
+    const root = projectWith({ "outside.md": "elsewhere\n", "docs/real.md": "real\n" });
     symlinkSync("../outside.md", join(root, "docs", "linked.md"));
     const fingerprints = new FileSystemFileSetFingerprints(root);
-    const before = await fingerprints.fingerprint(["docs/**"]);
-    expect(before).toMatchObject({ ok: true, value: { fileCount: 1 } });
+    const linked = await fingerprints.fingerprint(["docs/**"]);
+    expect(linked.ok).toBe(false);
+    expect(!linked.ok && linked.error).toContain("docs/linked.md is a symbolic link");
+    // A linked directory the patterns could reach into fails the same way.
+    mkdirSync(join(root, "elsewhere"));
+    symlinkSync("../elsewhere", join(root, "docs", "more"));
+    const reached = await fingerprints.fingerprint(["docs/more/*.md"]);
+    expect(!reached.ok && reached.error).toContain("docs/more is a symbolic link");
+    // A link the patterns cannot reach changes nothing.
+    expect(await fingerprints.fingerprint(["docs/real.md"])).toMatchObject({ ok: true, value: { fileCount: 1 } });
     writeFileSync(join(root, "outside.md"), "changed\n");
-    expect(await fingerprints.fingerprint(["docs/**"])).toEqual(before);
+    expect((await fingerprints.fingerprint(["docs/**"])).ok).toBe(false);
   });
 
   test("a pattern that is not one is refused, naming it", async () => {

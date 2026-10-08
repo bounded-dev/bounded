@@ -37,13 +37,13 @@ export interface PrerequisiteRule {
   readonly require: { readonly delegate: AgentName; readonly succeeded: true };
   readonly unchangedSince: readonly [string, ...string[]];
   readonly redirect: string;
-  /** Whether the rule comes before `effect`: a delegation to its agent, or a write to a path its pattern matches, ignoring case. */
+  /** Whether the rule comes before `effect`: a delegation to its agent (the exact name, case-sensitively), or a write to a path its pattern matches (ignoring case, as the path gate). */
   comesBefore(effect: Effect): boolean;
   /** The agent whose delegation the rule requires. */
   requiredAgent(): AgentName;
-  /** Whether a delegation to `agent` is what the rule requires, ignoring case. */
+  /** Whether a delegation to `agent` is what the rule requires: the exact name, case-sensitively. */
   requiresDelegationTo(agent: AgentName): boolean;
-  /** The requirement it needs: its required agent (ignoring case) and its patterns (in any order, each once), as a record's. */
+  /** The requirement it needs: its required agent (by its exact name) and its patterns (in any order, each once), as a record's. */
   requirementKey(): string;
   /** The action it comes before, for messages: "before write '<pattern>'" or "before delegating to '<agent>'". */
   describeBefore(): string;

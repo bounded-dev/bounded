@@ -77,9 +77,10 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(error({ ...beforeSrc, require: { delegate: "", succeeded: true } })).toStartWith("A rule's require names no agent: ");
   });
 
-  test("a rule cannot require the action it comes before", () => {
+  test("a rule cannot require the action it comes before: the same agent, by its exact name", () => {
     expect(error({ ...beforeBuilder, before: { delegate: "plan-reviewer" } })).toBe("A rule cannot require the action it comes before: delegating to plan-reviewer");
-    expect(error({ ...beforeBuilder, before: { delegate: "Plan-Reviewer" } })).toBe("A rule cannot require the action it comes before: delegating to Plan-Reviewer");
+    // Agent names match exactly: Plan-Reviewer is another agent.
+    expect(error({ ...beforeBuilder, before: { delegate: "Plan-Reviewer" } })).toBe("accepted");
   });
 
   test("a rule names the files that must not change", () => {
@@ -97,9 +98,9 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(error({ ...beforeSrc, redirect: "x".repeat(1000) })).toBe("accepted");
   });
 
-  test("a rule comes before a delegation to its agent, or a write its pattern matches, ignoring case", () => {
+  test("a rule comes before a delegation to its agent by its exact name, or a write its pattern matches ignoring case", () => {
     expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "builder" }))).toBe(true);
-    expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "Builder" }))).toBe(true);
+    expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "Builder" }))).toBe(false);
     expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "builder-2" }))).toBe(false);
     expect(rule(beforeBuilder).comesBefore(effect({ kind: "write", path: "builder", change: "create" }))).toBe(false);
     expect(rule(beforeSrc).comesBefore(effect({ kind: "write", path: "src/a.ts", change: "modify" }))).toBe(true);
@@ -121,21 +122,32 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(error({ ...beforeSrc, unchangedSince: ["node_modules/x/**"] })).toContain("leads into node_modules, which is never fingerprinted");
   });
 
-  test("a rule's requirement is met by a delegation to its required agent", () => {
+  test("a rule's requirement is met by a delegation to its required agent, by its exact name", () => {
     expect(rule(beforeSrc).requiresDelegationTo(agent("plan-reviewer"))).toBe(true);
-    expect(rule(beforeSrc).requiresDelegationTo(agent("PLAN-REVIEWER"))).toBe(true);
+    expect(rule(beforeSrc).requiresDelegationTo(agent("PLAN-REVIEWER"))).toBe(false);
     expect(rule(beforeSrc).requiresDelegationTo(agent("spec-reviewer"))).toBe(false);
     expect(rule(beforeSrc).requirementKey()).toBe(rule(beforeBuilder).requirementKey());
     expect(rule(beforeSrc).requirementKey()).not.toBe(rule(beforeTests).requirementKey());
   });
 
-  test("a rule holds, is stale or is missing against records and the current fingerprint", () => {
+  test("agent names match exactly, case-sensitively, while paths still match ignoring case", () => {
+    const builder = rule(beforeBuilder);
+    for (const name of ["Builder", "BUILDER", "builder "]) expect(builder.comesBefore(effect({ kind: "delegate", agent: name }))).toBe(false);
+    expect(builder.comesBefore(effect({ kind: "delegate", agent: "builder" }))).toBe(true);
+    expect(builder.requiresDelegationTo(agent("plan-reviewer"))).toBe(true);
+    expect(builder.requiresDelegationTo(agent("Plan-reviewer"))).toBe(false);
+    expect(rule({ ...beforeBuilder, require: { delegate: "Plan-Reviewer", succeeded: true } }).requirementKey()).not.toBe(builder.requirementKey());
+    expect(rule(beforeSrc).comesBefore(effect({ kind: "write", path: "Src/A.ts", change: "modify" }))).toBe(true);
+  });
+
+  test("a rule holds, is stale or is missing against records of its exact agent and the current fingerprint", () => {
     const plan = [".agent-state/*/plan.md"];
     const now = fingerprint("a");
     expect(rule(beforeSrc).status([], now)).toBe("missing");
     expect(rule(beforeSrc).status([record("spec-reviewer", plan, "a"), record("plan-reviewer", ["other.md"], "a")], now)).toBe("missing");
     expect(rule(beforeSrc).status([record("plan-reviewer", plan, "b")], now)).toBe("stale");
-    expect(rule(beforeSrc).status([record("plan-reviewer", plan, "b"), record("Plan-Reviewer", plan, "a")], now)).toBe("holds");
+    // A record of Plan-Reviewer is another agent's: it does not count.
+    expect(rule(beforeSrc).status([record("plan-reviewer", plan, "b"), record("Plan-Reviewer", plan, "a")], now)).toBe("stale");
     // Files back as they were reviewed: an older record holds again.
     expect(rule(beforeSrc).status([record("plan-reviewer", plan, "a"), record("plan-reviewer", plan, "b")], now)).toBe("holds");
     // Patterns that match no file are never satisfied.

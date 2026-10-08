@@ -149,8 +149,18 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - Background runs never count until the finish event is built: in
     interactive Claude Code a requirement is met only with background
     subagents disabled (`CLAUDE_CODE_FORK_SUBAGENT=0` or
-    `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`); pi's asynchronous runs are
-    refused.
+    `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`).
+  - On pi no requirement can be met yet: pi-subagents 0.52.1 runs a call in
+    the background unless it says `async: false`
+    (`src/extension/config.ts:150-151`), `forceTopLevelAsync` can override
+    even that (`src/runs/background/top-level-async.ts:7-14`), and a
+    timed-out child may leave `isError` unset
+    (`src/runs/foreground/subagent-executor.ts:3544`). So a pi delegation
+    without `async: false` is refused, and no pi result is counted as
+    finished, until item 1c (`prereqs-pi-async`).
+  - A symbolic link a rule's `unchangedSince` patterns match, or a linked
+    directory they could reach into, makes the rule refuse, naming the link:
+    a link's target is never fingerprinted.
   - Records are never compacted.
   - `beforeTool` refusals are recorded with `refusedBy: null`, naming no
     pack in the guard log (the reason names it).

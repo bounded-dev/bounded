@@ -54,7 +54,7 @@ its delegate effects started.
 
 - **Before a call.** For each effect a rule comes before, in contribution
   order, the rule's files are fingerprinted and compared with the records of
-  its requirement (agent ignoring case, patterns in any order): equal to
+  its requirement (the agent by its exact name, case-sensitively, as hosts find agents; patterns in any order): equal to
   one, it holds; records only over other fingerprints, it is stale; none, it
   is missing. Files that match nothing make a requirement unsatisfiable. The
   first rule that does not hold refuses, beginning `bounded/prereqs.rules:`,
@@ -112,10 +112,23 @@ its delegate effects started.
   missing or non-numeric count, a count above 0, or any other status is not
   finished. The content text is never matched. PostToolUseFailure is never
   finished.
-- **pi:** a synchronous `subagent` call returns when its agents finish, so
-  its result marks every delegate's run finished. `async: true` sets
-  `finishUnreported` on every delegate effect of the call, and its result
-  marks none finished; an `async` that is not a boolean is refused.
+- **pi:** every delegate effect of a `subagent` call is `finishUnreported`
+  unless the call says `async: false`, and no result marks a run finished,
+  not even one with `async: false`; an `async` that is not a boolean is
+  refused. From pi-subagents 0.52.1's source: a call without `async` runs in the
+  background, since `asyncByDefault` defaults to true
+  (`src/extension/config.ts:150-151`, `return config.asyncByDefault !==
+  false;`; `src/extension/schemas.ts:318`); even `async: false` is turned
+  into a background run at the top level when the configuration sets
+  `forceTopLevelAsync` (`src/runs/background/top-level-async.ts:7-14`); and
+  a timed-out child is marked `timedOut`
+  (`src/runs/foreground/execution.ts:469`) while the executor counts a run
+  failed when `isError === true` or any child's `exitCode !== 0`
+  (`src/runs/foreground/subagent-executor.ts:3544`), so a timed-out child
+  may leave `isError` unset.
+  The call cannot say whether its agents run to their end, and the result
+  cannot say so either. **So on pi a requirement cannot be met until item
+  1c** (`prereqs-pi-async`, observing pi-subagents' completion).
 
 ### Why not refuse background runs
 
@@ -140,7 +153,7 @@ positive marker on the result counts exactly the runs seen to end.
 - **The two ports**, each with an adapter, an in-memory double and a
   conformance suite: `FileSetFingerprints` (`FileSystemFileSetFingerprints`:
   a walk of only the directories a pattern's fixed leading path can lead to,
-  never following a link, hashing each matching file's path and bytes) and
+  hashing each matching file's path and bytes) and
   `PrerequisiteRecords` (`FileSystemPrerequisiteRecords`). Hosts pass
   `[...pathGatePortProvisions(), ...prereqsPortProvisions()]`.
 - **Fingerprint time.** Fingerprinting 2,000 files takes well under pi's
@@ -160,7 +173,12 @@ pi-subagents' project agent directory), which give role identity.
   where fork mode runs every subagent in the background, a requirement can
   be met only with background subagents disabled
   (`CLAUDE_CODE_FORK_SUBAGENT=0` or `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`).
-  pi's asynchronous runs never count.
+- **On pi, no requirement can be met until item 1c:** no pi run is marked
+  finished (see "The hosts' mappings").
+- **A symbolic link the patterns match, or a linked directory they could
+  reach into, makes the fingerprint fail**, naming the link: a link's
+  target is never fingerprinted, so the rule refuses until the link is
+  replaced by files or left out of the patterns.
 - `before.write` matches file tools' writes only, not writes a shell command
   makes.
 - **ABA:** files edited and restored between the delegation and its result

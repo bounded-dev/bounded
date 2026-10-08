@@ -32,11 +32,11 @@ describe("PrerequisiteStart — a delegation's files, fingerprinted as the run s
     expect(error({ ...start, fingerprint: { sha256: "x", fileCount: 1 } })).toBe("A prerequisite start's fingerprint: A file-set fingerprint's sha256 is a SHA-256 in lowercase hex");
   });
 
-  test("the same agent and patterns, in any order, share a requirement key", () => {
+  test("the same agent, by its exact name, and patterns, in any order, share a requirement key", () => {
     const one = parsed({ ...start, unchangedSince: ["spec.md", "src/**"] });
     expect(parsed({ ...start, unchangedSince: ["src/**", "spec.md"] }).requirementKey()).toBe(one.requirementKey());
     expect(parsed({ ...start, unchangedSince: ["src/**", "spec.md", "spec.md"] }).requirementKey()).toBe(one.requirementKey());
-    expect(parsed({ ...start, delegate: "Plan-Reviewer", unchangedSince: ["spec.md", "src/**"] }).requirementKey()).toBe(one.requirementKey());
+    expect(parsed({ ...start, delegate: "Plan-Reviewer", unchangedSince: ["spec.md", "src/**"] }).requirementKey()).not.toBe(one.requirementKey());
     expect(parsed({ ...start, delegate: "spec-reviewer", unchangedSince: ["spec.md", "src/**"] }).requirementKey()).not.toBe(one.requirementKey());
     expect(parsed({ ...start, unchangedSince: ["spec.md"] }).requirementKey()).not.toBe(one.requirementKey());
   });
