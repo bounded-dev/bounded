@@ -72,7 +72,17 @@ function pattern(raw: unknown, role: "match" | "except"): Result<string> {
   return { ok: true, value: tidy };
 }
 
-function check(raw: unknown): Result<ProtectedPath> {
+/** A rule's fields once checked and tidied. */
+interface Fields {
+  readonly match: string;
+  readonly except: readonly string[];
+  readonly deny: readonly [PathAccess, ...PathAccess[]];
+  readonly redirect: string;
+  readonly why: string | undefined;
+  readonly file: boolean;
+}
+
+function check(raw: unknown): Result<Fields> {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse(FORM);
   const keys = Object.keys(raw);
   if (keys.some((key) => !KEYS.includes(key)) || !["match", "deny", "redirect"].every((key) => keys.includes(key))) return refuse(FORM);
@@ -116,9 +126,8 @@ function check(raw: unknown): Result<ProtectedPath> {
   const file = field("file");
   if (file !== undefined && typeof file !== "boolean") return refuse("A rule's file, when given, is true (its match names files, not their contents) or false");
 
-  return { ok: true, value: ProtectedPathImpl.of(match.value, except, [first, ...rest], redirect.trim(), why?.trim(), file === true) };
+  return { ok: true, value: { match: match.value, except, deny: [first, ...rest], redirect: redirect.trim(), why: why?.trim(), file: file === true } };
 }
-
 
 class ProtectedPathImpl implements Contract.ProtectedPath {
   declare readonly __brand: "ProtectedPath";
@@ -126,16 +135,18 @@ class ProtectedPathImpl implements Contract.ProtectedPath {
   declare readonly why?: string;
   declare readonly file?: true;
 
-  private constructor(
-    readonly match: string,
-    readonly except: readonly string[],
-    readonly deny: readonly [PathAccess, ...PathAccess[]],
-    readonly redirect: string,
-    why: string | undefined,
-    file: boolean,
-  ) {
-    if (why !== undefined) this.why = why;
-    if (file) this.file = true;
+  readonly match: string;
+  readonly except: readonly string[];
+  readonly deny: readonly [PathAccess, ...PathAccess[]];
+  readonly redirect: string;
+
+  private constructor(fields: Fields) {
+    this.match = fields.match;
+    this.except = Object.freeze([...fields.except]);
+    this.deny = Object.freeze([...fields.deny] as const);
+    this.redirect = fields.redirect;
+    if (fields.why !== undefined) this.why = fields.why;
+    if (fields.file) this.file = true;
     Object.freeze(this);
   }
 
@@ -144,13 +155,10 @@ class ProtectedPathImpl implements Contract.ProtectedPath {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
 
-  /** A rule from fields `check` has already read and tidied. */
-  static of(match: string, except: readonly string[], deny: readonly [PathAccess, ...PathAccess[]], redirect: string, why: string | undefined, file: boolean): ProtectedPath {
-    return new ProtectedPathImpl(match, Object.freeze([...except]), Object.freeze([...deny] as [PathAccess, ...PathAccess[]]), redirect, why, file);
-  }
-
   static parse(raw: unknown): Result<ProtectedPath> {
-    return ProtectedPathImpl.made(raw) ? { ok: true, value: raw } : check(raw);
+    if (ProtectedPathImpl.made(raw)) return { ok: true, value: raw };
+    const fields = check(raw);
+    return fields.ok ? { ok: true, value: new ProtectedPathImpl(fields.value) } : fields;
   }
 
   equals(other: ProtectedPath): boolean {
