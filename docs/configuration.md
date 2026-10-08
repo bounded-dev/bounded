@@ -19,6 +19,32 @@ export default defineConfig({
 });
 ```
 
+Most projects protect paths with the path gate rather than writing guards.
+A rule's `deny` names each kind it denies (`read`, `list`, `create`,
+`modify`, `delete`); there is no shorthand, so a rule says exactly what it
+stops:
+
+```ts
+// bounded.config.ts
+import { contribution, corePack, defineConfig } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
+
+export default defineConfig({
+  packs: [corePack, pathGate],
+  contributes: [
+    contribution(pathGate.points.protectedPaths, [
+      {
+        match: "generated/**",
+        deny: ["create", "modify", "delete"],
+        why: "generated/ is written by the generator",
+        redirect: "Change the generator's input instead",
+      },
+      { match: ".env", file: true, deny: ["read", "create", "modify", "delete"], redirect: "Ask a maintainer for the values you need" },
+    ]),
+  ],
+});
+```
+
 The project acts as one more pack, `bounded/project`, that depends on every
 selected pack. So its contributions follow the same rules as any pack's: a
 contribution to a point of a pack the project does not select does not

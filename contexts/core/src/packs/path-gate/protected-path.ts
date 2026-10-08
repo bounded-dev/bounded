@@ -5,8 +5,8 @@ import picomatch from "picomatch";
 export type PathAccess = "read" | "list" | "create" | "modify" | "delete";
 const ACCESSES: readonly PathAccess[] = ["read", "list", "create", "modify", "delete"];
 
-/** Every kind of write, for `deny: [...writes]`. A stored rule always lists its kinds explicitly. */
-export const writes = Object.freeze(["create", "modify", "delete"] as const);
+/** Every kind of write. A rule names each one it denies. */
+export const WRITES = Object.freeze(["create", "modify", "delete"] as const);
 
 /**
  * A protected-path rule: deny-only. It denies `deny` on every project path
@@ -125,12 +125,12 @@ function parse(raw: unknown): Result<ProtectedPath> {
   if (!Array.isArray(deny) || deny.length === 0) return refuse(DENY);
   const unknown = deny.find((kind) => !ACCESSES.some((access) => access === kind));
   if (unknown !== undefined) {
-    return refuse(`A rule cannot deny '${String(unknown)}': it denies read, list, create, modify or delete (spread \`writes\` for every write)`);
+    return refuse(`A rule cannot deny '${String(unknown)}': it denies read, list, create, modify or delete (list each write it denies: create, modify, delete)`);
   }
   const [first, ...rest] = ACCESSES.filter((access) => deny.includes(access));
   if (first === undefined) return refuse(DENY);
   if (deny.includes("modify") && !deny.includes("create") && !deny.includes("delete")) {
-    return refuse("A rule that denies modify must also deny create or delete: otherwise deleting and creating the file changes it (spread `writes`)");
+    return refuse("A rule that denies modify must also deny create or delete: otherwise deleting and creating the file changes it (deny create, modify and delete)");
   }
 
   const redirect = field("redirect");

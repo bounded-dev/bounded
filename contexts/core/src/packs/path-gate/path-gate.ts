@@ -4,6 +4,7 @@ import {
   corePack,
   definePack,
   type EffectGuard,
+  type ExecuteEffect,
   type ListEffect,
   packIdsFor,
   point,
@@ -14,7 +15,8 @@ import {
   type WriteEffect,
 } from "bounded/domain";
 import { contains, filterable, matches, reaches, unavoidable } from "./matching.ts";
-import { ProtectedPath, writes } from "./protected-path.ts";
+import { ProtectedPath, WRITES } from "./protected-path.ts";
+import { namedPaths } from "./shell-paths.ts";
 
 /**
  * The path gate's own rules: an agent can never edit its own guardrails.
@@ -26,13 +28,13 @@ import { ProtectedPath, writes } from "./protected-path.ts";
 const OWN_RULES: readonly ProtectedPath[] = [
   {
     match: "**/bounded.config.*",
-    deny: [...writes],
+    deny: [...WRITES],
     redirect: "Ask a person to change the project's Bounded configuration; describe the change you need",
     why: "the project's guardrails are changed by people, not by agents",
   },
   {
     match: ".bounded/**",
-    deny: [...writes],
+    deny: [...WRITES],
     redirect: "Leave .bounded/ to Bounded; ask a person if its state looks wrong",
     why: "Bounded's own state and guard log",
   },
@@ -115,6 +117,30 @@ const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) =>
     return undefined;
   });
 
+/**
+ * Best effort: a shell command whose text names a path a rule denies read
+ * for is refused (see shell-paths.ts). Globs, variables and scripts get past
+ * it; confining the command itself is the real control.
+ */
+const onExecute: EffectGuard<ExecuteEffect, Composition> = (effect, composition) => {
+  const named = namedPaths(effect.command, effect.cwd);
+  return firstDenial(composition, (rule) => {
+    if (!rule.deny.includes("read")) return undefined;
+    if (named === undefined) {
+      // A command the parser cannot read is judged by its text: refused when it mentions the rule's name.
+      const name = literalName(rule.match);
+      return name !== "" && effect.command.includes(name)
+        ? { what: `denies read, and this shell command, which cannot be parsed, mentions '${name}': shell reads of protected files are refused` }
+        : undefined;
+    }
+    const path = named.find((candidate) => matches(rule, candidate));
+    return path === undefined ? undefined : { what: `denies read, and this shell command names '${path}': shell reads of protected files are refused` };
+  });
+};
+
+/** The literal start of a pattern's last part, before any wildcard: '.env' for '**\/.env*'. */
+const literalName = (match: string): string => /^[^*?[\]{}]*/.exec(match.split("/").at(-1) ?? "")?.[0] ?? "";
+
 /** Whether a pattern's last part is a literal name, which the path gate reads as covering everything under it too (but for a file rule). */
 const endsInName = (match: string): boolean => !/[*?[\]{}]/.test(match.split("/").at(-1) ?? "");
 
@@ -128,7 +154,7 @@ const watchedFromRules: WatchedPathSource = (composition) => {
   const rules = composition.entries(pathGate.points.protectedPaths);
   if (!rules.ok) throw new Error(rules.error);
   return rules.value.flatMap(({ value: rule }): WatchedPath[] => {
-    if (!writes.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) return [];
+    if (!WRITES.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) return [];
     const watched = { except: rule.except ?? [], why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
     return endsInName(rule.match) && rule.file !== true ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
   });
@@ -137,10 +163,11 @@ const watchedFromRules: WatchedPathSource = (composition) => {
 /**
  * The path gate, `bounded/path-gate`: an ordinary pack. Packs and projects
  * contribute deny-only rules to `protectedPaths`; its guards judge reads,
- * listings and writes against them. Execute, fetch, delegate and invoke
- * effects are not judged by path here: a shell command's paths cannot be
- * read from its text, so the path gate gives what it protects from writes
- * to the core's watched paths, which undo a shell command's changes.
+ * listings and writes against them. A shell command's paths cannot really
+ * be read from its text: the path gate refuses, best effort, one that names
+ * a read-protected path, and gives what it protects from writes to the
+ * core's watched paths, which undo a shell command's changes. Fetch,
+ * delegate and invoke are not judged by path.
  */
 export const pathGate = definePack({
   id: packIdsFor("bounded")("path-gate"),
@@ -156,6 +183,7 @@ export const pathGate = definePack({
     contribution(corePack.points.readGuards, [onRead]),
     contribution(corePack.points.listGuards, [onList]),
     contribution(corePack.points.writeGuards, [onWrite]),
+    contribution(corePack.points.executeGuards, [onExecute]),
     contribution(corePack.points.watchedPaths, [watchedFromRules]),
   ],
 });

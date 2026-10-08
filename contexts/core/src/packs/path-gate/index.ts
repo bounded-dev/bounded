@@ -2,7 +2,7 @@
 // It depends only on the core's public exports; the core never imports it.
 export { pathGate } from "./path-gate.ts";
 export type { PathAccess, ProtectedPathFactory } from "./protected-path.ts";
-export { ProtectedPath, writes } from "./protected-path.ts";
+export { ProtectedPath } from "./protected-path.ts";
 
 // Everything exported here is frozen, so code loaded later cannot patch it.
 import * as exported from "./index.ts";
