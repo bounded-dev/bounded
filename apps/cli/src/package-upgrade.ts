@@ -79,6 +79,39 @@ export function installCommand(manager: PackageManager): string[] {
   return [manager, "install"];
 }
 
+const ADD_TO: Record<PackageManager, { readonly add: readonly string[]; readonly dev: string }> = {
+  bun: { add: ["bun", "add"], dev: "--dev" },
+  npm: { add: ["npm", "install"], dev: "--save-dev" },
+  pnpm: { add: ["pnpm", "add"], dev: "--save-dev" },
+  yarn: { add: ["yarn", "add"], dev: "--dev" },
+};
+
+/**
+ * The commands that upgrade `packages` to their latest version on the
+ * registry, each kept in the group that lists it: dependencies first, then
+ * devDependencies. The manager writes the new version into package.json and
+ * its lockfile itself.
+ */
+export function upgradeToLatestCommands(manager: PackageManager, packages: readonly { readonly name: string; readonly dev: boolean }[]): string[][] {
+  const { add, dev } = ADD_TO[manager];
+  const latest = (wanted: boolean) => packages.filter((item) => item.dev === wanted).map((item) => `${item.name}@latest`);
+  return [
+    ...(latest(false).length > 0 ? [[...add, ...latest(false)]] : []),
+    ...(latest(true).length > 0 ? [[...add, dev, ...latest(true)]] : []),
+  ];
+}
+
+/** Compares two versions `major.minor.patch` (a pre-release suffix is ignored): negative when `a` is older. */
+export function compareVersions(a: string, b: string): number {
+  const parts = (version: string) => version.split("-")[0]?.split(".").map((part) => Number.parseInt(part, 10) || 0) ?? [];
+  const [left, right] = [parts(a), parts(b)];
+  for (let at = 0; at < 3; at += 1) {
+    const difference = (left[at] ?? 0) - (right[at] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
 /** The lockfiles a package manager may write: restored with package.json when an install is undone. */
 export const LOCKFILE_NAMES: readonly string[] = LOCKFILES.map(([lockfile]) => lockfile);
 
