@@ -20,3 +20,6 @@ node_modules/
 /missions/
 /run-history.jsonl
 /docs/dogfood/.rendered-*
+
+# The bounded package's bundled CLI, built by its prepack (ADR 2026-016)
+dist/

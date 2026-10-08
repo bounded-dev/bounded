@@ -1,11 +1,13 @@
-// The `bounded` command (package bounded-cli): `bounded init` and `bounded
-// update`, wired to the core's file-system and node_modules adapters.
+// The `bounded` command: `bounded init` and `bounded update`, wired to the
+// core's file-system and node_modules adapters. Its source is this app,
+// apps/cli; it ships inside the `bounded` package as its bin, dist/cli.js,
+// bundled by bounded's prepack (ADR 2026-016).
 //
-// Both install packages, then hand over to the bounded-cli they just
-// installed, so the rest is always the installed version's own work:
-// - `bounded init` (run through `npx bounded-cli init` before the project has
-//   any bounded package) adds bounded, bounded-cli and the hosts' adapter
-//   packages at this CLI's own version, from the npm registry or with
+// Both install packages, then hand over to the bounded they just installed,
+// so the rest is always the installed version's own work:
+// - `bounded init` (run through `npx bounded init` before the project has
+//   any bounded package) adds bounded and the hosts' adapter packages at
+//   this CLI's own version, from the npm registry or with
 //   `--from <dir>` from local tarballs, then runs the installed
 //   `bounded init --no-install`, which sets the project up;
 // - `bounded update` upgrades them, to their latest from the registry or
@@ -50,7 +52,7 @@ export interface CommandRun {
   readonly error?: string;
 }
 
-/** Runs a command in a directory: a package manager, or the installed bounded-cli. Tests give a stub. */
+/** Runs a command in a directory: a package manager, or the installed bounded's bin. Tests give a stub. */
 export type CommandRunner = (command: readonly string[], cwd: string) => CommandRun;
 
 const spawnRunner: CommandRunner = (command, cwd) => {
@@ -60,7 +62,7 @@ const spawnRunner: CommandRunner = (command, cwd) => {
 };
 
 export const USAGE = `Usage:
-  bounded init [--host <host>]... [--from <dir>]   first install: add bounded, bounded-cli and each host's adapter package
+  bounded init [--host <host>]... [--from <dir>]   first install: add bounded and each host's adapter package
                                                    (bounded-<host>; by default the hosts whose directory exists: .claude/, .pi/)
                                                    at this CLI's version from the npm registry, or from the tarballs in <dir>,
                                                    then set bounded up
@@ -85,7 +87,7 @@ function readJson(path: string): Json {
   return parsed;
 }
 
-/** This copy of bounded-cli's version, from its own package.json. */
+/** This CLI's version: from bounded's package.json when bundled (dist/cli.js), from apps/cli's in source; they are released in lockstep. */
 function ownVersion(): string {
   const version = readJson(fileURLToPath(new URL("../package.json", import.meta.url))).version;
   return typeof version === "string" ? version : "(unknown version)";
@@ -111,7 +113,7 @@ const done = (outcome: Result<SetupReport>): CliRun => (outcome.ok ? { exitCode:
 const refused = (error: string, stdout = ""): CliRun => ({ exitCode: 1, stdout, stderr: `bounded: ${error}\n` });
 const usage = (): CliRun => ({ exitCode: 2, stdout: "", stderr: USAGE });
 
-/** The bounded packages the project depends on: bounded, bounded-cli, and every package offering a host installer. */
+/** The bounded packages the project depends on: bounded, and every package offering a host installer. */
 function boundedPackages(projectRoot: string): Result<readonly { name: string; dev: boolean }[]> {
   try {
     const manifest = readJson(join(projectRoot, "package.json"));
@@ -125,9 +127,8 @@ function boundedPackages(projectRoot: string): Result<readonly { name: string; d
       const exports = readJson(join(projectRoot, "node_modules", name, "package.json")).exports;
       return isRecord(exports) && exports["./host-installer"] !== undefined;
     };
-    const chosen = new Set(names.filter((name) => name === "bounded" || name === "bounded-cli" || offersInstaller(name)));
+    const chosen = new Set(names.filter((name) => name === "bounded" || offersInstaller(name)));
     chosen.add("bounded");
-    chosen.add("bounded-cli");
     return { ok: true, value: [...chosen].sort().map((name) => ({ name, dev: dev.has(name) })) };
   } catch (thrown) {
     return { ok: false, error: `the project's packages cannot be read: ${message(thrown)}` };
@@ -154,7 +155,7 @@ interface Installation {
 
 /**
  * Runs `installation` with the project's package manager, then the
- * installed bounded-cli with `handOverArgs`. Any failure before the
+ * installed bounded's bin with `handOverArgs`. Any failure before the
  * hand-off restores package.json and the lockfiles.
  */
 function installThenHandOver(projectRoot: string, manager: PackageManager, installation: Installation, handOverArgs: readonly string[], run: CommandRunner): CliRun {
@@ -185,19 +186,19 @@ function installThenHandOver(projectRoot: string, manager: PackageManager, insta
   }
   const installed = installation.check();
   if (!installed.ok) return restored(installed.error);
-  const log = `Upgraded ${installed.value} with ${manager}; handing over to the installed bounded-cli.\n`;
+  const log = `Upgraded ${installed.value} with ${manager}; handing over to the installed bounded.\n`;
   const retry = `bounded ${handOverArgs.join(" ")}`;
   let installedBin: string;
   try {
-    const cli = readJson(join(projectRoot, "node_modules", "bounded-cli", "package.json"));
-    const bin = typeof cli.bin === "string" ? cli.bin : isRecord(cli.bin) ? cli.bin.bounded : undefined;
+    const bounded = readJson(join(projectRoot, "node_modules", "bounded", "package.json"));
+    const bin = typeof bounded.bin === "string" ? bounded.bin : isRecord(bounded.bin) ? bounded.bin.bounded : undefined;
     if (typeof bin !== "string") throw new Error("it has no bounded bin");
-    installedBin = join(projectRoot, "node_modules", "bounded-cli", bin);
+    installedBin = join(projectRoot, "node_modules", "bounded", bin);
   } catch (thrown) {
-    return refused(`the installed bounded-cli cannot be run (${message(thrown)}), so the hooks were not set: run \`${retry}\` with it yourself`, log);
+    return refused(`the installed bounded cannot be run (${message(thrown)}), so the hooks were not set: run \`${retry}\` with it yourself`, log);
   }
   const handedOver = run([process.execPath, installedBin, ...handOverArgs], projectRoot);
-  const startError = handedOver.error === undefined ? "" : `bounded: the installed bounded-cli could not be started (${handedOver.error}): run \`${retry}\` yourself\n`;
+  const startError = handedOver.error === undefined ? "" : `bounded: the installed bounded could not be started (${handedOver.error}): run \`${retry}\` yourself\n`;
   return { exitCode: handedOver.status ?? 1, stdout: `${log}${handedOver.stdout}`, stderr: `${handedOver.stderr}${startError}` };
 }
 
@@ -256,7 +257,7 @@ async function initInstalling(projectRoot: string, from: string | undefined, nam
   if (hosts.length === 0) {
     return refused(`no agent host found in ${projectRoot} (${HOST_DIRECTORIES.map(([dir]) => `${dir}/`).join(", ")}): name the hosts you use with --host, such as --host claude-code`);
   }
-  const packages = ["bounded", "bounded-cli", ...new Set(hosts.map((host) => `bounded-${host}`))].map((name) => ({ name, dev: true }));
+  const packages = ["bounded", ...new Set(hosts.map((host) => `bounded-${host}`))].map((name) => ({ name, dev: true }));
   const manifest = readJson(manifestPath);
   const manager = packageManagerOf(readdirSync(projectRoot), manifest, process.env.npm_config_user_agent);
   let installation: Installation;
@@ -268,7 +269,7 @@ async function initInstalling(projectRoot: string, from: string | undefined, nam
     // From the registry: every package at exactly this CLI's version, so the set is one release.
     const version = ownVersion();
     const wanted = packages.map(({ name, dev }) => ({ name, dev, spec: version, version }));
-    installation = { manifest: withUpgradedSpecs(manifest, wanted), commands: [installCommand(manager)], check: exactly(projectRoot, wanted, "this bounded-cli's own") };
+    installation = { manifest: withUpgradedSpecs(manifest, wanted), commands: [installCommand(manager)], check: exactly(projectRoot, wanted, "this CLI's own") };
   }
   return installThenHandOver(projectRoot, manager, installation, ["init", "--no-install"], run);
 }

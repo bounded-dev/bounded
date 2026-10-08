@@ -45,6 +45,9 @@
     "contexts/core": {
       "name": "bounded",
       "version": "3.0.0",
+      "bin": {
+        "bounded": "dist/cli.js",
+      },
       "dependencies": {
         "@vscode/tree-sitter-wasm": "0.3.1",
         "picomatch": "4.0.7",
