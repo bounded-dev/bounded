@@ -72,8 +72,8 @@ own guards refuse what they cannot check. A host may pass its own
 `pathKinds`.
 
 The judge decides each event with the composed packs and records the decision
-in `<root>/.bounded/guard-log.jsonl` (see [the decision log](decision-log.md)).
-A host may pass its own `configSource`, `log`, `clock` or `recordWithinMs`.
+in `<root>/.bounded/guard-log.jsonl` (see [the guard log](guard-log.md)).
+A host may pass its own `configSource`, `guardLog`, `clock` or `recordWithinMs`.
 
 ## When the configuration cannot be used
 

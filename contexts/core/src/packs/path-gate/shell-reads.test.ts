@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type AnyPack, contribution, definePack, packIdsFor, Verdict } from "bounded/domain";
+import { type BasePack, contribution, definePack, packIdsFor, Verdict } from "bounded/domain";
 import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
 import { opened, type PathsForTest, ROOT } from "./shell.test-support.ts";
 
@@ -9,7 +9,7 @@ import { opened, type PathsForTest, ROOT } from "./shell.test-support.ts";
 const packId = packIdsFor("test-packs");
 
 /** A pack, test-packs/a, that contributes `given` to the path gate's point. */
-const rules = (local: "a" | "b", ...given: ProtectedPathJSON[]): AnyPack => {
+const rules = (local: "a" | "b", ...given: ProtectedPathJSON[]): BasePack => {
   const contributes = [contribution(pathGate.points.protectedPaths, given)];
   return local === "a" ? definePack({ id: packId("a"), dependsOn: [pathGate], contributes }) : definePack({ id: packId("b"), dependsOn: [pathGate], contributes });
 };
@@ -17,7 +17,7 @@ const reason = (verdict: Verdict): string => (verdict.kind === "refuse" ? verdic
 const env = rules("a", { match: ".env", deny: ["read"], redirect: "Ask a maintainer for the value", file: true });
 
 /** Decides `command` under `packs`, from `cwd`, with `paths` saying what exists. */
-async function shellWith(packs: readonly AnyPack[], paths: PathsForTest = {}) {
+async function shellWith(packs: readonly BasePack[], paths: PathsForTest = {}) {
   const decide = await opened(packs, paths);
   return (command: string, cwd: string | null = null) => decide([{ kind: "execute", command, cwd }]);
 }

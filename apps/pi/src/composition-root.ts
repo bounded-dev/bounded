@@ -7,12 +7,12 @@
 // extension's own blocks.
 import { type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
-import type { AdapterRefusal, Decide } from "./extension.ts";
+import type { AdapterRefusal, ProjectJudgeForPi } from "./extension.ts";
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** Opens the project at `root` (absolute) and decides each event with its judge, which records every decision. */
-export async function composeProject(root: string, open: typeof openProject = openProject): Promise<Decide> {
+export async function composeProject(root: string, open: typeof openProject = openProject): Promise<ProjectJudgeForPi> {
   let project: Awaited<ReturnType<typeof openProject>>;
   try {
     project = await open(root);

@@ -39,14 +39,14 @@ export interface Snapshot {
 export type RestoreFrom = { readonly from: "commit"; readonly commit: string } | { readonly from: "copy"; readonly content: string; readonly executable: boolean };
 
 /** A watched file that a shell command changed. */
-export interface Change {
+export interface FileChange {
   readonly path: string;
   readonly change: "modified" | "deleted" | "created";
 }
 
 /** What a shell command did to watched files: none, or the changes, whether they were undone, and what to tell the agent. */
 export interface DriftCheck {
-  readonly changed: readonly Change[];
+  readonly changed: readonly FileChange[];
   readonly restored: boolean;
   readonly message: string | null;
 }
@@ -60,7 +60,7 @@ export interface WatchShell {
   verify(result: ToolResult): Promise<DriftCheck>;
 }
 
-// Out ports: exactly what this feature needs (with the judge-event feature's DecisionLog, Clock and DecisionIds).
+// Out ports: exactly what this feature needs (with the judge-event feature's GuardLog, Clock and DecisionIds).
 /**
  * The project's files: hashing those the rules watch (a rule's match ignores
  * case, its except does not), what a commit holds, copies of files, and

@@ -1,14 +1,14 @@
-import type { AnyPack, Composition, PackId, Result } from "bounded/domain";
+import type { BasePack, Composition, PackId, Result } from "bounded/domain";
 
 // Wire input: what callers send.
 export interface ComposePacksInput {
-  readonly selected: readonly string[];
+  readonly selectedPackIds: readonly string[];
 }
 
 // Command: the input once validated into value objects.
 export interface ComposePacksCommand {
   readonly __brand: "ComposePacksCommand";
-  readonly selected: readonly PackId[];
+  readonly selectedPackIds: readonly PackId[];
 }
 
 export interface ComposePacksCommandFactory {
@@ -24,5 +24,5 @@ export interface ComposePacks {
 // Out port: exactly what this feature needs.
 /** The packs available to compose from. */
 export interface ComposePacksCatalog {
-  available(): Promise<readonly AnyPack[]>;
+  available(): Promise<readonly BasePack[]>;
 }

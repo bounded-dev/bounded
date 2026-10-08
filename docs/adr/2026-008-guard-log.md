@@ -1,14 +1,14 @@
-# 2026-008: Every decision is recorded, and an unrecorded decision fails closed
+# 2026-008: Every decision is recorded in the guard log, and an unrecorded decision fails closed
 
-**Status:** accepted.
+**Status:** accepted. Named the guard log by ADR 2026-013 (was: decision log).
 
 ## Decision
 
-- **An application feature.** `judging/judge-event` in the example's shape:
+- **An application feature.** `guard-log/judge-event` in the example's shape:
   `JudgeEventCommand.parse` checks the event (`Event.parse`); the
   `JudgeEvent` in port returns the verdict; `JudgeEventHandler` takes the
-  composition and two out ports, `DecisionLog` and `Clock`. It runs the pure,
-  synchronous `decideEvent`, then awaits `DecisionLog.record(decision)`.
+  composition and two out ports, `GuardLog` and `Clock`. It runs the pure,
+  synchronous `decideEvent`, then awaits `GuardLog.record(decision)`.
 - **A decision is plain data**: time (ISO 8601, UTC), event kind, role, tool,
   the effects described, and the verdict; a refusal also names the refusing
   pack and effect. `decideEvent` returns a `Judgement` (verdict and who

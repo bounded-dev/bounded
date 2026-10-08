@@ -29,40 +29,40 @@ export interface PointDeclaration<Value> {
   readonly values: readonly Contributed<Value>[];
 }
 
-/** Any declaration, its value type forgotten. */
-export interface AnyDeclaration {
+/** A point declaration with its value type forgotten: the common base shape composition works with; the precise generic types (`PointDeclaration<Value>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
+export interface BaseDeclaration {
   readonly __brand: "PointDeclaration";
 }
-export type Declarations = Readonly<Record<string, AnyDeclaration>>;
+export type Declarations = Readonly<Record<string, BaseDeclaration>>;
 type ValueOf<D> = D extends PointDeclaration<infer Value> ? Value : never;
 
-/** Any pack, its id and points forgotten: what composition takes. */
-export interface AnyPack {
+/** A pack with its id and points forgotten: the common base shape composition works with; the precise generic types (`Pack<Id, Points>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
+export interface BasePack {
   readonly __brand: "Pack";
   readonly id: PackId;
-  readonly dependsOn: readonly AnyPack[];
-  readonly points: Readonly<Record<string, AnyPoint>>;
+  readonly dependsOn: readonly BasePack[];
+  readonly points: Readonly<Record<string, BasePoint>>;
   readonly contributes: readonly Contribution<PackId>[];
 }
 
-/** Any extension point, its value type forgotten. */
-export interface AnyPoint {
+/** An extension point with its value type forgotten: the common base shape composition works with; the precise generic types (`ExtensionPoint<Value, Owner>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
+export interface BasePoint {
   readonly __brand: "ExtensionPoint";
-  readonly owner: AnyPack;
+  readonly owner: BasePack;
   /** `<pack id>.<key>`, for messages. */
   readonly id: string;
   readonly description: string;
 }
 
 /** An extension point of the pack with id `Owner`, accepting values of type `Value`. */
-export interface ExtensionPoint<Value, Owner extends PackId> extends AnyPoint {
-  readonly owner: AnyPack & { readonly id: Owner };
+export interface ExtensionPoint<Value, Owner extends PackId> extends BasePoint {
+  readonly owner: BasePack & { readonly id: Owner };
   /** Never present: makes the point invariant in its value type. */
   readonly __value?: (value: Value) => Value;
 }
 
 /** A pack, typed by its exact id and its points' declarations. */
-export interface Pack<Id extends PackId, Points extends Declarations> extends AnyPack {
+export interface Pack<Id extends PackId, Points extends Declarations> extends BasePack {
   readonly id: Id;
   readonly points: { readonly [K in keyof Points]: ExtensionPoint<ValueOf<Points[K]>, Id> };
 }
@@ -70,11 +70,11 @@ export interface Pack<Id extends PackId, Points extends Declarations> extends An
 /** Values one pack contributes to a point of the pack with id `Owner`. */
 export interface Contribution<Owner extends PackId> {
   readonly __brand: "Contribution";
-  readonly point: AnyPoint & { readonly owner: { readonly id: Owner } };
+  readonly point: BasePoint & { readonly owner: { readonly id: Owner } };
   readonly values: readonly unknown[];
 }
 
-export interface PackSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly AnyPack[]> {
+export interface PackSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[]> {
   readonly id: Id;
   readonly dependsOn?: Dependencies;
   readonly points?: Points;
@@ -87,7 +87,7 @@ type CamelCase<K> = K extends string ? (K extends "" | `${string}${"." | "-" | "
 type Repeats<List extends readonly unknown[]> = List extends readonly [infer Head, ...infer Tail] ? ([Head] extends [Tail[number]] ? true : Repeats<Tail>) : false;
 
 /** What the compiler refuses beyond plain assignability. */
-export type StrictSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly AnyPack[]> = ([ExactId<Id>] extends [true]
+export type StrictSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[]> = ([ExactId<Id>] extends [true]
   ? unknown
   : { readonly id: Refused<"give the pack an exact id from packIdsFor(...)(...)"> }) & {
   readonly points?: { readonly [K in keyof Points]: CamelCase<K> extends true ? unknown : Refused<"point keys are camelCase words, such as protectedPaths"> };
@@ -99,7 +99,7 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
  * A list of packs the compiler can see pack by pack: a tuple (else `Tuple`),
  * each pack once (else `Once`), each with an exact id.
  */
-export type PackListRules<List extends readonly AnyPack[], Tuple extends string, Once extends string, Exact extends string> = number extends List["length"]
+export type PackListRules<List extends readonly BasePack[], Tuple extends string, Once extends string, Exact extends string> = number extends List["length"]
   ? Refused<Tuple>
   : false extends { [K in keyof List]: ExactId<List[K]["id"]> }[number]
     ? { readonly [K in keyof List]: [ExactId<List[K]["id"]>] extends [true] ? unknown : Refused<Exact> }
@@ -174,7 +174,7 @@ type StructureContainsAny<T, Depth extends readonly unknown[]> = T extends Promi
 
 export interface PackFactory {
   /** Define a pack: its id, the packs it depends on, the points it declares and what it contributes. */
-  definePack<const Id extends PackId, const Points extends Declarations = Record<never, never>, const Dependencies extends readonly AnyPack[] = []>(
+  definePack<const Id extends PackId, const Points extends Declarations = Record<never, never>, const Dependencies extends readonly BasePack[] = []>(
     spec: PackSpec<Id, Points, Dependencies> & StrictSpec<Id, Points, Dependencies>,
   ): Pack<Id, Points>;
   /**

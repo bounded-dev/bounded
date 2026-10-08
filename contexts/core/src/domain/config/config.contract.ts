@@ -1,4 +1,4 @@
-import type { AnyPack, Contribution, PackListRules } from "../packs/pack.contract.ts";
+import type { BasePack, Contribution, PackListRules } from "../packs/pack.contract.ts";
 
 /**
  * A project's configuration: the packs it selects, and the project's own
@@ -7,11 +7,11 @@ import type { AnyPack, Contribution, PackListRules } from "../packs/pack.contrac
  */
 export interface Config {
   readonly __brand: "Config";
-  readonly packs: readonly AnyPack[];
-  readonly project: AnyPack;
+  readonly selectedPacks: readonly BasePack[];
+  readonly projectPack: BasePack;
 }
 
-export interface ConfigSpec<Packs extends readonly AnyPack[]> {
+export interface ConfigSpec<Packs extends readonly BasePack[]> {
   /** The selection: pack objects. `corePack` must be among them for any event to be decided. */
   readonly packs: Packs;
   /** The project's own contributions, to points of selected packs only. */
@@ -20,7 +20,7 @@ export interface ConfigSpec<Packs extends readonly AnyPack[]> {
 
 export interface ConfigFactory {
   /** `export default defineConfig({ packs: [corePack, …], contributes: [...] })` in bounded.config.ts. */
-  defineConfig<const Packs extends readonly AnyPack[]>(
+  defineConfig<const Packs extends readonly BasePack[]>(
     spec: ConfigSpec<Packs> & (Packs extends readonly [] ? unknown : { readonly packs: PackListRules<Packs, "list packs as a tuple of packs", "list each pack once", "each selected pack is a pack with an exact id"> }),
   ): Config;
 }

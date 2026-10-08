@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { ProjectDrift, ShellSnapshots, WatchedFiles } from "bounded/application";
-import { FileSystemShellSnapshots, stateDirFor } from "../drift/snapshots.ts";
-import { FileSystemWatchedFiles } from "../drift/watched-files.ts";
+import { FileSystemShellSnapshots, stateDirFor } from "./snapshots.ts";
+import { FileSystemWatchedFiles } from "./watched-files.ts";
 
 /** The user's state directory: $XDG_STATE_HOME when it is absolute, else ~/.local/state. */
 export function stateHomeFor(env: Readonly<Record<string, string | undefined>>, home: string): string {
@@ -18,7 +18,7 @@ export class FileSystemProjectDrift implements ProjectDrift {
     this.stateHome = stateHome ?? stateHomeFor(process.env, homedir());
   }
 
-  forProject(root: string): { readonly files: WatchedFiles; readonly snapshots: ShellSnapshots } {
-    return { files: new FileSystemWatchedFiles(root, join(stateDirFor(this.stateHome, root), "quarantine")), snapshots: new FileSystemShellSnapshots(root, this.stateHome) };
+  forProject(projectRoot: string): { readonly files: WatchedFiles; readonly snapshots: ShellSnapshots } {
+    return { files: new FileSystemWatchedFiles(projectRoot, join(stateDirFor(this.stateHome, projectRoot), "quarantine")), snapshots: new FileSystemShellSnapshots(projectRoot, this.stateHome) };
   }
 }

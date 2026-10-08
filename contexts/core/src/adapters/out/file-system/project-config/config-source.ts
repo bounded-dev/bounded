@@ -27,16 +27,16 @@ function described(value: unknown): string {
  * afresh. A file that resolves outside the project is refused.
  */
 export class FileSystemProjectConfigSource implements ProjectConfigSource {
-  async load(root: string): Promise<Result<Config>> {
-    const found = NAMES.filter((name) => existsSync(join(root, name)));
+  async load(projectRoot: string): Promise<Result<Config>> {
+    const found = NAMES.filter((name) => existsSync(join(projectRoot, name)));
     const [name] = found;
-    if (name === undefined) return { ok: false, error: `No configuration in ${root}: create bounded.config.ts (or bounded.config.js, bounded.config.mjs) there with ${FORM}` };
-    if (found.length > 1) return { ok: false, error: `More than one configuration in ${root} (${found.join(", ")}): keep one` };
+    if (name === undefined) return { ok: false, error: `No configuration in ${projectRoot}: create bounded.config.ts (or bounded.config.js, bounded.config.mjs) there with ${FORM}` };
+    if (found.length > 1) return { ok: false, error: `More than one configuration in ${projectRoot} (${found.join(", ")}): keep one` };
     let module: Record<string, unknown>;
     try {
-      const file = realpathSync(join(root, name));
-      const home = realpathSync(root);
-      if (!file.startsWith(home + sep)) return { ok: false, error: `${name} resolves outside ${root}: the configuration must live in the project` };
+      const file = realpathSync(join(projectRoot, name));
+      const home = realpathSync(projectRoot);
+      if (!file.startsWith(home + sep)) return { ok: false, error: `${name} resolves outside ${projectRoot}: the configuration must live in the project` };
       // A query on the path (not a file: URL) makes the runtime load the file afresh when it changed.
       module = await import(`${file}?v=${statSync(file).mtimeMs}`);
     } catch (thrown) {

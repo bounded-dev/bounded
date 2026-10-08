@@ -1,5 +1,5 @@
-export { SystemClock } from "./judging/clock.ts";
-export { RandomDecisionIds } from "./judging/ids.ts";
+export { SystemClock } from "./guard-log/clock.ts";
+export { RandomDecisionIds } from "./guard-log/ids.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

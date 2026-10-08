@@ -1,7 +1,7 @@
 import { type Composition, Decision, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedChange, type WatchedPath, watchedPathsOf } from "bounded/domain";
-import type { Clock, DecisionIds, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
-import { nextDecisionId } from "../../judging/judge-event/judge-event.handler.ts";
-import type { Change, DriftCheck, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell } from "./watch-shell.contract.ts";
+import type { Clock, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+import { nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
+import type { FileChange, DriftCheck, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell } from "./watch-shell.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
 const UNREADABLE_REDIRECT = "Fix what stops protected files from being read; until then shell commands are refused";
@@ -22,7 +22,7 @@ function text(thrown: unknown): string {
 /** A watched rule and the pack that contributed it. */
 interface Rule {
   readonly rule: WatchedPath;
-  readonly from: PackId;
+  readonly fromPackId: PackId;
 }
 
 const runsShell = (call: ToolUse | ToolResult): boolean => call.effects.some((effect) => effect.kind === "execute");
@@ -63,7 +63,7 @@ export class WatchShellHandler implements WatchShell {
     private readonly composition: Composition,
     private readonly files: WatchedFiles,
     private readonly snapshots: ShellSnapshots,
-    private readonly log: DecisionLog,
+    private readonly log: GuardLog,
     private readonly clock: Clock,
     options: { readonly ids?: DecisionIds; readonly limits?: { readonly perFile: number; readonly total: number } } = {},
   ) {
@@ -269,7 +269,7 @@ export class WatchShellHandler implements WatchShell {
    */
   private async unverified(result: ToolResult, rules: readonly Rule[], why: string, altered: boolean): Promise<DriftCheck> {
     const head = await this.files.head();
-    let changed: Change[] = [];
+    let changed: FileChange[] = [];
     let first = rules[0];
     let found: string;
     if (!head.ok || head.value === null) found = `Protected files could not be compared with a commit: ${head.ok ? "the project has no commit" : head.error}.`;
@@ -294,7 +294,7 @@ export class WatchShellHandler implements WatchShell {
     const effect = result.effects.find((e): e is ExecuteEffect => e.kind === "execute") ?? null;
     const verdict = Verdict.refuse(message, rule?.rule.redirect ?? CHECK_REDIRECT);
     try {
-      const judgement = { verdict, refusedBy: rule === undefined ? null : { pack: rule.from, effect } };
+      const judgement = { verdict, refusedBy: rule === undefined ? null : { packId: rule.fromPackId, effect } };
       await this.log.record(Decision.of(nextDecisionId(this.ids), this.clock.now(), result, judgement, note));
     } catch {
       // The message already says what happened; a log that cannot record it changes nothing more.
@@ -312,8 +312,8 @@ function restoreFrom(before: Snapshot, path: string): RestoreFrom | undefined {
 }
 
 /** The watched files that differ between two hashings, sorted by path. */
-function changes(before: WatchedHashes, after: WatchedHashes): Change[] {
-  const out: Change[] = [];
+function changes(before: WatchedHashes, after: WatchedHashes): FileChange[] {
+  const out: FileChange[] = [];
   for (const [path, file] of Object.entries(before)) {
     const now = after[path];
     if (now === undefined) out.push({ path, change: "deleted" });
@@ -324,28 +324,28 @@ function changes(before: WatchedHashes, after: WatchedHashes): Change[] {
 }
 
 /** What each kind of change is, in a watched path's terms. */
-const KIND: Readonly<Record<Change["change"], WatchedChange>> = { created: "create", modified: "modify", deleted: "delete" };
+const KIND: Readonly<Record<FileChange["change"], WatchedChange>> = { created: "create", modified: "modify", deleted: "delete" };
 
 /** The rules watching a changed file that forbid its change, in order: any one forbidding it is enough. */
-function forbiddingRules(change: Change, before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): number[] {
+function forbiddingRules(change: FileChange, before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): number[] {
   const file = before[change.path] ?? after[change.path];
   const watching = file === undefined ? [] : (file.rules ?? [file.rule]);
   return watching.filter((index) => rules[index]?.rule.changes.includes(KIND[change.change]) === true);
 }
 
 /** The changes some path watching each file forbids; any other change is the command's to make. */
-function forbidden(changed: readonly Change[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): Change[] {
+function forbidden(changed: readonly FileChange[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): FileChange[] {
   return changed.filter((change) => forbiddingRules(change, before, after, rules).length > 0);
 }
 
 /** The rule a change is reported under: the first that forbids it, else the first that watches the file. */
-function ruleOf(change: Change, before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): number {
+function ruleOf(change: FileChange, before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): number {
   return forbiddingRules(change, before, after, rules)[0] ?? (before[change.path] ?? after[change.path])?.rule ?? 0;
 }
 
 /** For each rule, in rule order: "<its files and what they became> — protected because <why>. <what to do instead>." */
-function describe(changed: readonly Change[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): string {
-  const groups = new Map<number, Change[]>();
+function describe(changed: readonly FileChange[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): string {
+  const groups = new Map<number, FileChange[]>();
   for (const change of changed) {
     const index = ruleOf(change, before, after, rules);
     groups.set(index, [...(groups.get(index) ?? []), change]);

@@ -1,7 +1,7 @@
 import { type Composition, Decision, DecisionId, decideEvent, Event, type Judgement, Verdict } from "bounded/domain";
-import type { AdapterRefusalInput, Clock, DecisionIds, DecisionLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
+import type { AdapterRefusalInput, Clock, DecisionIds, GuardLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
 
-const UNRECORDED_REDIRECT = "Make the decision log writable; until decisions can be recorded, every action is refused";
+const UNRECORDED_REDIRECT = "Make the guard log writable; until decisions can be recorded, every action is refused";
 const LATE_NOTE = "not recorded in time; enforced: refuse";
 
 function text(thrown: unknown): string {
@@ -48,7 +48,7 @@ export class JudgeEventHandler implements JudgeEvent {
    */
   constructor(
     composition: Composition | null,
-    private readonly log: DecisionLog,
+    private readonly log: GuardLog,
     private readonly clock: Clock,
     options: {
       readonly recordWithinMs?: number;
@@ -116,7 +116,7 @@ export class JudgeEventHandler implements JudgeEvent {
       const verdict = Verdict.refuse(String(given.reason ?? ""), String(given.redirect ?? ""));
       const role = typeof given.role === "string" ? given.role : null;
       return await this.settle({ verdict, refusedBy: null }, () =>
-        Decision.adapter(nextDecisionId(this.ids), this.now(), { role, tool: String(given.tool ?? "unknown"), input: given.input, verdict }),
+        Decision.adapter(nextDecisionId(this.ids), this.now(), { role, hostToolName: String(given.hostToolName ?? "unknown"), input: given.input, verdict }),
       );
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");

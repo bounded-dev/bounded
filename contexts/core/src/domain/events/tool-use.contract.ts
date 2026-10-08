@@ -15,7 +15,7 @@ export interface ToolUse {
   readonly kind: "tool-use";
   /** The acting role, or null when no role is active. */
   readonly role: Role | null;
-  readonly tool: ToolKind;
+  readonly toolKind: ToolKind;
   readonly effects: readonly [Effect, ...Effect[]];
   /** The host's id for this call, when it gives one: a tool result names the same id. */
   readonly callId?: CallId;

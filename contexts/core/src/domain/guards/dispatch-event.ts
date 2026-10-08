@@ -15,12 +15,12 @@ const CORE = corePack.id.value;
 const { points } = corePack;
 
 /** The guards contributed to `point`, labelled by the pack each came from. */
-function labelled<V>(entries: Result<readonly { readonly from: PackId; readonly value: V }[]>, about: string): Result<LabelledGuard[]> {
+function labelled<V>(entries: Result<readonly { readonly fromPackId: PackId; readonly value: V }[]>, about: string): Result<LabelledGuard[]> {
   if (!entries.ok) return entries;
   const suffix = about === "" ? "" : ` ${about}`;
   return {
     ok: true,
-    value: entries.value.map(({ from, value }) => ({ guard: value, label: `A guard from ${from.value}${about === "" ? "" : ` for ${about}`}`, refusedBy: `${from.value} refused${suffix}`, from })),
+    value: entries.value.map(({ fromPackId, value }) => ({ guard: value, label: `A guard from ${fromPackId.value}${about === "" ? "" : ` for ${about}`}`, refusedBy: `${fromPackId.value} refused${suffix}`, from: fromPackId })),
   };
 }
 
@@ -54,8 +54,8 @@ const plain = (verdict: Verdict): Judgement => ({ verdict, refusedBy: null });
 /** A judgement from the first refusal of some guards, attributing it to its pack and effect. */
 function judged(refusal: ReturnType<typeof firstRefusal>, effect: Effect | null): Judgement | undefined {
   if (refusal === undefined) return undefined;
-  const pack = refusal.by?.from;
-  return { verdict: refusal.verdict, refusedBy: pack === undefined ? null : { pack, effect } };
+  const packId = refusal.by?.from;
+  return { verdict: refusal.verdict, refusedBy: packId === undefined ? null : { packId, effect } };
 }
 
 /**

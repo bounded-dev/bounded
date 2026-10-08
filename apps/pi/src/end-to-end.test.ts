@@ -1,6 +1,6 @@
 // bounded-pi with the real core: a temporary project with its own
 // bounded.config.ts, driven through a fake pi, judged by openProject and
-// recorded in the project's decision log.
+// recorded in the project's guard log.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

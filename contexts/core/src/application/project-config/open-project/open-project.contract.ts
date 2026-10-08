@@ -1,17 +1,17 @@
 import type { Config, PathKind, ProjectPath, Result, Verdict } from "bounded/domain";
 import type { DriftCheck, ShellSnapshots, WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
-import type { AdapterRefusalInput, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
+import type { AdapterRefusalInput, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
 // Wire input: what a host's composition root sends.
 export interface OpenProjectInput {
-  readonly root: string;
+  readonly projectRoot: string;
 }
 
 // Command: the input once checked.
 export interface OpenProjectCommand {
   readonly __brand: "OpenProjectCommand";
   /** The project's root directory, an absolute path. */
-  readonly root: string;
+  readonly projectRoot: string;
 }
 
 export interface OpenProjectCommandFactory {
@@ -48,7 +48,7 @@ export interface OpenProject {
  * @implementedBy file-system
  */
 export interface ProjectConfigSource {
-  load(root: string): Promise<Result<Config>>;
+  load(projectRoot: string): Promise<Result<Config>>;
 }
 
 /**
@@ -56,15 +56,15 @@ export interface ProjectConfigSource {
  * @implementedBy file-system
  */
 export interface ProjectDrift {
-  forProject(root: string): { readonly files: WatchedFiles; readonly snapshots: ShellSnapshots };
+  forProject(projectRoot: string): { readonly files: WatchedFiles; readonly snapshots: ShellSnapshots };
 }
 
 /**
- * Each project's decision log.
+ * Each project's guard log.
  * @implementedBy file-system
  */
-export interface ProjectDecisionLogs {
-  forProject(root: string): DecisionLog;
+export interface ProjectGuardLogs {
+  forProject(projectRoot: string): GuardLog;
 }
 
 /**
@@ -73,5 +73,5 @@ export interface ProjectDecisionLogs {
  * @implementedBy file-system
  */
 export interface ProjectPathKinds {
-  forProject(root: string): (path: ProjectPath) => PathKind | undefined;
+  forProject(projectRoot: string): (path: ProjectPath) => PathKind | undefined;
 }

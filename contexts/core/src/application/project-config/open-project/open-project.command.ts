@@ -6,12 +6,12 @@ const ABSOLUTE = /^(\/|[A-Za-z]:[\\/])/;
 
 class OpenProjectCommandImpl implements Contract.OpenProjectCommand {
   declare readonly __brand: "OpenProjectCommand";
-  private constructor(readonly root: string) {}
+  private constructor(readonly projectRoot: string) {}
 
   static parse(raw: unknown): Result<OpenProjectCommand> {
-    const root = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "root") ? (raw as { root: unknown }).root : undefined;
-    if (typeof root !== "string" || !ABSOLUTE.test(root)) return { ok: false, error: INVALID };
-    return { ok: true, value: new OpenProjectCommandImpl(root) };
+    const projectRoot = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "projectRoot") ? (raw as { projectRoot: unknown }).projectRoot : undefined;
+    if (typeof projectRoot !== "string" || !ABSOLUTE.test(projectRoot)) return { ok: false, error: INVALID };
+    return { ok: true, value: new OpenProjectCommandImpl(projectRoot) };
   }
 }
 

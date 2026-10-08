@@ -1,10 +1,10 @@
-import type { AnyPack, ExtensionPoint } from "../packs/pack.contract.ts";
+import type { BasePack, ExtensionPoint } from "../packs/pack.contract.ts";
 import type { PackId } from "../packs/pack-id.contract.ts";
 import type { Result } from "../shared/result.ts";
 
 /** A value stored on a point, and the pack it came from. */
 export interface Entry<Value> {
-  readonly from: PackId;
+  readonly fromPackId: PackId;
   readonly value: Value;
 }
 
@@ -16,7 +16,7 @@ export interface Composition {
    * id order, each after its dependencies (also visited in id order). The
    * order depends only on ids and edges, never on listing order.
    */
-  readonly packs: readonly AnyPack[];
+  readonly packs: readonly BasePack[];
   /**
    * Every value stored on `point`, typed, in pack order: the owner's own
    * values first, then each contribution's, as the point's check returned
@@ -33,5 +33,5 @@ export interface CompositionFactory {
    * or refuse with a message naming the pack, the extension point and the
    * fix. Never throws, whatever it is given.
    */
-  compose(available: readonly AnyPack[], selected: readonly AnyPack[]): Result<Composition>;
+  compose(availablePacks: readonly BasePack[], selectedPacks: readonly BasePack[]): Result<Composition>;
 }

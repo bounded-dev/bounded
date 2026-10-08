@@ -1,9 +1,9 @@
 import { type Composition, composeConfig, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
 import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
-import type { AdapterRefusalInput, Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
-import { JudgeEventHandler } from "../../judging/judge-event/judge-event.handler.ts";
-import type { OpenProject, OpenProjectCommand, ProjectConfigSource, ProjectDecisionLogs, ProjectDrift, ProjectJudge, ProjectPathKinds } from "./open-project.contract.ts";
+import type { AdapterRefusalInput, Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+import { JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
+import type { OpenProject, OpenProjectCommand, ProjectConfigSource, ProjectGuardLogs, ProjectDrift, ProjectJudge, ProjectPathKinds } from "./open-project.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
 
@@ -31,17 +31,17 @@ function within(work: Promise<void>, ms: number): Promise<void> {
 
 export class OpenProjectHandler implements OpenProject {
   constructor(
-    private readonly configs: ProjectConfigSource,
-    private readonly logs: ProjectDecisionLogs,
+    private readonly configSource: ProjectConfigSource,
+    private readonly guardLogs: ProjectGuardLogs,
     private readonly clock: Clock,
     private readonly options: { readonly recordWithinMs?: number; readonly drift?: ProjectDrift; readonly pathKinds?: ProjectPathKinds; readonly prepareWithinMs?: number } = {},
   ) {}
 
   /** Never rejects: whatever goes wrong, the judge refuses every event (and records it, when the log can be opened). */
   async execute(command: OpenProjectCommand): Promise<ProjectJudge> {
-    let log: DecisionLog | undefined;
+    let log: GuardLog | undefined;
     try {
-      const root = command.root;
+      const root = command.projectRoot;
       log = this.logFor(root);
       const composition = await this.compose(root);
       if (!composition.ok) return this.refusing(log, composition.error);
@@ -78,7 +78,7 @@ export class OpenProjectHandler implements OpenProject {
   }
 
   /** A judge that refuses every event with `problem`, recording it if it can. */
-  private refusing(log: DecisionLog | undefined, problem: string): ProjectJudge {
+  private refusing(log: GuardLog | undefined, problem: string): ProjectJudge {
     const refusal = Verdict.refuse(`This project's configuration cannot be used: ${problem}`, FIX);
     try {
       if (log !== undefined) return this.judge(new JudgeEventHandler(null, log, this.clock, { refuseEverything: refusal }), problem);
@@ -97,7 +97,7 @@ export class OpenProjectHandler implements OpenProject {
   private async compose(root: string): Promise<Result<Composition>> {
     let loaded: unknown;
     try {
-      loaded = await this.configs.load(root);
+      loaded = await this.configSource.load(root);
     } catch (thrown) {
       return { ok: false, error: `the configuration source failed: ${text(thrown)}` };
     }
@@ -109,9 +109,9 @@ export class OpenProjectHandler implements OpenProject {
   }
 
   /** The project's log; one that cannot be opened refuses every record, so nothing is allowed unrecorded. */
-  private logFor(root: string): DecisionLog {
+  private logFor(root: string): GuardLog {
     try {
-      return this.logs.forProject(root);
+      return this.guardLogs.forProject(root);
     } catch (thrown) {
       const why = text(thrown);
       return {

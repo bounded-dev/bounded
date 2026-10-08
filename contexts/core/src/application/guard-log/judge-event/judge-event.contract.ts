@@ -21,7 +21,7 @@ export interface JudgeEvent {
 
 /** A refusal the host adapter made itself: the host's tool name, its input, the role, and the reason and redirect. */
 export interface AdapterRefusalInput {
-  readonly tool: string;
+  readonly hostToolName: string;
   readonly reason: string;
   readonly redirect: string;
   readonly role?: string | null;
@@ -34,7 +34,7 @@ export interface AdapterRefusalInput {
  * today and a remote service later.
  * @implementedBy in-memory file-system
  */
-export interface DecisionLog {
+export interface GuardLog {
   record(decision: Decision): Promise<void>;
 }
 

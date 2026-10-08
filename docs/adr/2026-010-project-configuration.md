@@ -19,16 +19,17 @@
   one, a throw while loading, a default export `defineConfig` did not make.
   Only an out adapter may import code chosen at run time; the architecture
   test enforces it.
-- **Opening a project** is an application feature, `projects/open-project`:
+- **Opening a project** is an application feature, `project-config/open-project`:
   load, compose, and return a `ProjectJudge` over the judge-event feature.
   When the configuration cannot be used (cannot be loaded, or its packs
   cannot be composed), the judge refuses every event with the reason and
   records each refusal, so a broken configuration can never fail open.
   `ProjectJudge.judge` takes the event's wire form; an unreadable event is
   refused and recorded as `"invalid"`.
-- **`openProject(root, options?)`** in the core's pack layer
+- **`openProject(projectRoot, options?)`** in the core's composition root
+  (`src/composition-root/`)
   (`bounded/open-project`) is the composition root host adapters call. It
-  wires the defaults: the file-system configuration source, a decision log
+  wires the defaults: the file-system configuration source, a guard log
   at `<root>/.bounded/guard-log.jsonl`, the system clock.
 
 - **Packs prepare when a project opens.** The core pack declares
@@ -61,7 +62,7 @@
 
 ## Deviations from the example
 
-- The open-project feature reuses the judge-event feature's `DecisionLog` and
+- The open-project feature reuses the judge-event feature's `GuardLog` and
   `Clock` ports rather than declaring identical copies: it composes that
   feature, and the ports must stay the same.
 - The application handler constructs another feature's handler: opening a

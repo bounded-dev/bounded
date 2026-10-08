@@ -80,13 +80,13 @@ src/
     index.ts              the application barrel
   adapters/in/<tech>/     driving adapters: depend on in ports, never handlers
   adapters/out/<tech>/    driven adapters: implement out ports; each runs its port's conformance suite
-  pack/                   the context's composition root: openProject, which host adapters call (ADR 2026-010)
+  composition-root/       the context's composition root: openProject, which host adapters call (ADR 2026-010)
   packs/<name>/           a pack shipped in the context's package, such as path-gate/ (ADR 2026-009)
 ```
 
 Rules, enforced by `architecture.test.ts` unless stated:
 
-- **Dependencies point inwards:** domain <- application <- adapters <- pack;
+- **Dependencies point inwards:** domain <- application <- adapters <- composition-root;
   a shipped pack (`packs/<name>/`) depends on the domain only.
   Adapters never import other adapters' technologies.
 - **Domain and application do no I/O** and import no library but zod.
@@ -116,7 +116,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   `src/packs/<name>/` imports only the package's `domain` export path, its
   own directory and libraries the package declares, and does no I/O; nothing
   outside that directory imports it but tests under the composition root
-  (`src/pack/`), so the core never depends on a pack.
+  (`src/composition-root/`), so the core never depends on a pack.
 - **Pack ids root at their own package**: every `packIdsFor(...)` call in a
   workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are

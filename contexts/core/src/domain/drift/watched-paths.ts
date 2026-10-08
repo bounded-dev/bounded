@@ -9,7 +9,7 @@ import { WatchedPath } from "./watched-path.ts";
 /** A watched path, and the pack that contributed it. */
 export interface Watched {
   readonly rule: WatchedPathType;
-  readonly from: PackId;
+  readonly fromPackId: PackId;
 }
 
 /**
@@ -24,22 +24,22 @@ export function watchedPathsOf(composition: Composition): Result<readonly Watche
   const entries = composition.entries(corePack.points.watchedPaths);
   if (!entries.ok) return entries;
   const out: Watched[] = [];
-  for (const { from, value } of entries.value) {
+  for (const { fromPackId, value } of entries.value) {
     if (typeof value !== "function") {
-      out.push({ rule: value, from });
+      out.push({ rule: value, fromPackId });
       continue;
     }
     let given: unknown;
     try {
       given = value(composition);
     } catch (thrown) {
-      return { ok: false, error: `the watched paths from ${from.value} cannot be read: ${show(thrown)}` };
+      return { ok: false, error: `the watched paths from ${fromPackId.value} cannot be read: ${show(thrown)}` };
     }
-    if (!Array.isArray(given)) return { ok: false, error: `the watched paths from ${from.value} cannot be read: its source gave something that is not a list` };
+    if (!Array.isArray(given)) return { ok: false, error: `the watched paths from ${fromPackId.value} cannot be read: its source gave something that is not a list` };
     for (const raw of given) {
       const rule = WatchedPath.parse(raw);
-      if (!rule.ok) return { ok: false, error: `the watched paths from ${from.value} cannot be read: ${rule.error}` };
-      out.push({ rule: rule.value, from });
+      if (!rule.ok) return { ok: false, error: `the watched paths from ${fromPackId.value} cannot be read: ${rule.error}` };
+      out.push({ rule: rule.value, fromPackId });
     }
   }
   return { ok: true, value: Object.freeze(out) };

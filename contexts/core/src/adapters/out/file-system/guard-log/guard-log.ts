@@ -1,6 +1,6 @@
 import { appendFile, chmod, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { DecisionLog } from "bounded/application";
+import type { GuardLog } from "bounded/application";
 import type { Decision } from "bounded/domain";
 
 /**
@@ -8,7 +8,7 @@ import type { Decision } from "bounded/domain";
  * the folders on the way. The composition root chooses the file, such as
  * `<project>/.bounded/guard-log.jsonl`. A failed write rejects.
  */
-export class FileSystemDecisionLog implements DecisionLog {
+export class FileSystemGuardLog implements GuardLog {
   constructor(private readonly file: string) {}
 
   async record(decision: Decision): Promise<void> {

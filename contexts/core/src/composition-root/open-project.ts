@@ -1,17 +1,17 @@
-import { type DecisionLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectDrift, type ProjectJudge, type ProjectPathKinds } from "bounded/application";
+import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectDrift, type ProjectJudge, type ProjectPathKinds } from "bounded/application";
 import type { Clock } from "bounded/application";
-import { FileSystemProjectConfigSource, FileSystemProjectDecisionLogs, FileSystemProjectDrift, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
+import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs, FileSystemProjectDrift, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
 import { SystemClock } from "bounded/adapters/system";
 import { Verdict } from "bounded/domain";
 
 /** What a host may replace; everything else has a default. */
 export interface OpenProjectOptions {
   readonly configSource?: ProjectConfigSource;
-  /** The project's decision log; by default `<root>/.bounded/guard-log.jsonl`. */
-  readonly log?: DecisionLog;
+  /** The project's guard log; by default `<root>/.bounded/guard-log.jsonl`. */
+  readonly guardLog?: GuardLog;
   readonly clock?: Clock;
   readonly recordWithinMs?: number;
-  /** Where watched files are hashed and restored, and snapshots kept; by default the project's disk and `.bounded/snapshots/`. */
+  /** Where watched files are hashed and restored, and snapshots kept; by default the project's disk, with snapshots in `$XDG_STATE_HOME/bounded/<sha256 of the root>/`. */
   readonly drift?: ProjectDrift;
   /** What is at a project path, for the packs that prepare when the project opens; by default the project's disk. */
   readonly pathKinds?: ProjectPathKinds;
@@ -25,13 +25,13 @@ export interface OpenProjectOptions {
  * bounded.config.ts and records it; if the configuration cannot be used, or
  * the root is not absolute, it refuses every event.
  */
-export async function openProject(root: string, options: OpenProjectOptions = {}): Promise<ProjectJudge> {
+export async function openProject(projectRoot: string, options: OpenProjectOptions = {}): Promise<ProjectJudge> {
   try {
-    const command = OpenProjectCommand.parse({ root });
+    const command = OpenProjectCommand.parse({ projectRoot });
     if (!command.ok) return refusingAll(`This project cannot be opened: ${command.error}`, "Pass the project's absolute root directory to openProject", command.error);
-    const { log } = options;
-    const logs = log === undefined ? new FileSystemProjectDecisionLogs() : { forProject: () => log };
-    const handler = new OpenProjectHandler(options.configSource ?? new FileSystemProjectConfigSource(), logs, options.clock ?? new SystemClock(), {
+    const { guardLog } = options;
+    const guardLogs = guardLog === undefined ? new FileSystemProjectGuardLogs() : { forProject: () => guardLog };
+    const handler = new OpenProjectHandler(options.configSource ?? new FileSystemProjectConfigSource(), guardLogs, options.clock ?? new SystemClock(), {
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
       drift: options.drift ?? new FileSystemProjectDrift(),
       pathKinds: options.pathKinds ?? new FileSystemProjectPathKinds(),

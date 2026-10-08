@@ -12,7 +12,7 @@ written as object literals (its wire form).
   an ordinary pack: it depends on `corePack` and uses only `bounded/domain`,
   its own files and the libraries the package declares (picomatch). Nothing
   outside its directory imports it except tests under the context's
-  composition root (`src/pack/`), so the core never depends on it.
+  composition root (`src/composition-root/`), so the core never depends on it.
   `architecture.test.ts` enforces this for every directory under `src/packs/`
   (the "shipped pack" rule; `packs/` holds shipped packs, `pack/` is the
   composition root), and takes an export path's layer from the file it

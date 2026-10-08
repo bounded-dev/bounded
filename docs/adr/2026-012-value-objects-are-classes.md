@@ -25,7 +25,7 @@ objects with type-only brands; Role and ProjectPath as branded strings) and
   entity) and the path gate's `ProtectedPath`.
 - **Equal by value, serialised as before.** `equals` compares values (a
   composite compares its wire forms); `toJSON` gives the primitive, or the
-  plain object the value was before this decision, so decision logs,
+  plain object the value was before this decision, so guard logs,
   snapshots and anything crossing an adapter are byte-for-byte unchanged.
 - **Made, frozen, checked again.** Each instance freezes itself. A private
   constructor is TypeScript's only, and can be called at run time, so `parse`

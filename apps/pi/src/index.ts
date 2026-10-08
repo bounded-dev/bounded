@@ -3,7 +3,7 @@ import { composeProject } from "./composition-root.ts";
 import { type ExtensionOptions, type Pi, piExtension } from "./extension.ts";
 
 export type { Effect, EffectJSON, ToolUse } from "./event.ts";
-export type { AdapterRefusal, Decide, ExtensionOptions, Load, Pi, PiBlock, PiHandler, PiResultPatch } from "./extension.ts";
+export type { AdapterRefusal, ProjectJudgeForPi, ExtensionOptions, LoadJudge, Pi, PiBlock, PiHandler, PiResultPatch } from "./extension.ts";
 export { piExtension } from "./extension.ts";
 export { type ProjectFile, piLoader } from "./install.ts";
 export { type Locate, type Located, locator, piRewrite } from "./pi-path.ts";
@@ -14,5 +14,5 @@ export type BoundedOptions = Pick<ExtensionOptions, "deadlineMs" | "composeDeadl
 
 /** The extension for the project at `root`, composed from its configuration. What the generated loader hands the project to. */
 export function bounded(root: string, options: BoundedOptions = {}): (pi: Pi) => void {
-  return piExtension({ ...options, root, load: () => composeProject(root) });
+  return piExtension({ ...options, projectRoot: root, load: () => composeProject(root) });
 }

@@ -1,9 +1,9 @@
-# The decision log
+# The guard log
 
 Every event a host asks about is judged and recorded. The judge-event feature
-(`contexts/core/src/application/judging/judge-event/`) decides the event with
+(`contexts/core/src/application/guard-log/judge-event/`) decides the event with
 the composed guards (`decideEvent`), then records one **decision** through the
-`DecisionLog` out port, and returns the verdict the host enforces.
+`GuardLog` out port, and returns the verdict the host enforces.
 
 ## A decision
 
@@ -97,21 +97,21 @@ planned, not built.
 
 | Adapter | Package export | Keeps decisions |
 | --- | --- | --- |
-| `InMemoryDecisionLog` | `bounded/adapters/in-memory` | in memory, for tests and short-lived hosts |
-| `FileSystemDecisionLog` | `bounded/adapters/file-system` | appended to a JSON-lines file, creating its folders |
+| `InMemoryGuardLog` | `bounded/adapters/in-memory` | in memory, for tests and short-lived hosts |
+| `FileSystemGuardLog` | `bounded/adapters/file-system` | appended to a JSON-lines file, creating its folders |
 | `SystemClock` | `bounded/adapters/system` | (the time of each decision) |
 
 The composition root chooses the file, such as
 `<project>/.bounded/guard-log.jsonl`. The port is asynchronous so a later
 adapter can send decisions to a service. Every log runs the conformance suite
-in `judge-event.decision-log.test-support.ts`.
+in `judge-event.guard-log.test-support.ts`.
 
 ```ts
-import { FileSystemDecisionLog } from "bounded/adapters/file-system";
+import { FileSystemGuardLog } from "bounded/adapters/file-system";
 import { SystemClock } from "bounded/adapters/system";
 import { JudgeEventCommand, JudgeEventHandler } from "bounded/application";
 
-const judge = new JudgeEventHandler(composition, new FileSystemDecisionLog(`${project}/.bounded/guard-log.jsonl`), new SystemClock());
+const judge = new JudgeEventHandler(composition, new FileSystemGuardLog(`${project}/.bounded/guard-log.jsonl`), new SystemClock());
 const command = JudgeEventCommand.parse(hookEvent);
 const verdict = command.ok ? await judge.execute(command.value) : { kind: "refuse", reason: command.error, redirect: "Report this to the host adapter's maintainers" };
 ```

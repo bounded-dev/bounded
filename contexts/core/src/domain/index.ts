@@ -3,8 +3,8 @@ export type { Result } from "./shared/result.ts";
 export type { CompositionFactory, Entry } from "./composition/composition.contract.ts";
 export { Composition } from "./composition/composition.ts";
 export type {
-  AnyPack,
-  AnyPoint,
+  BasePack,
+  BasePoint,
   Contributed,
   Contribution,
   Declarations,

@@ -51,8 +51,8 @@ function entryExists(path: string): boolean {
   }
 }
 
-/** The resolver for one project: `projectDir` is Claude Code's CLAUDE_PROJECT_DIR. */
-export function projectPaths(projectDir: string): PathResolver {
+/** The resolver for one project: `projectRoot` is Claude Code's CLAUDE_PROJECT_DIR. */
+export function projectPaths(projectRoot: string): PathResolver {
   return {
     resolve(given, cwd) {
       // Claude Code trims a path (String.prototype.trim) before it uses it: judge what it uses.
@@ -63,9 +63,9 @@ export function projectPaths(projectDir: string): PathResolver {
       if (form !== undefined) return refuse(`Path '${raw}' starts with '${form}'. Give the path itself: absolute under the project, or relative to it`);
       let realRoot: string;
       try {
-        realRoot = realpathSync.native(projectDir);
+        realRoot = realpathSync.native(projectRoot);
       } catch (thrown) {
-        return refuse(`The project directory '${projectDir}' cannot be read: ${message(thrown)}`);
+        return refuse(`The project directory '${projectRoot}' cannot be read: ${message(thrown)}`);
       }
       const target = resolve(cwd, raw);
       const location = realLocation(target);
@@ -73,8 +73,8 @@ export function projectPaths(projectDir: string): PathResolver {
       // Where the path really lands is what is judged; how it is written only chooses the message.
       const path = inside(location.value.real, realRoot);
       if (path !== null) return { ok: true, value: { path, exists: location.value.exists } };
-      const written = inside(target, projectDir) ?? inside(target, realRoot);
-      if (written === null) return refuse(`Path '${raw}' is outside the project at '${projectDir}'`);
+      const written = inside(target, projectRoot) ?? inside(target, realRoot);
+      if (written === null) return refuse(`Path '${raw}' is outside the project at '${projectRoot}'`);
       return refuse(`Path '${raw}' is a link that lands outside the project, at '${location.value.real}'`);
     },
   };

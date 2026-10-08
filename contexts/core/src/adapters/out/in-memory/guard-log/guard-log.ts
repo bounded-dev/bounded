@@ -1,8 +1,8 @@
-import type { DecisionLog } from "bounded/application";
+import type { GuardLog } from "bounded/application";
 import type { Decision } from "bounded/domain";
 
 /** Decisions kept in memory, in the order recorded: for tests and short-lived hosts. */
-export class InMemoryDecisionLog implements DecisionLog {
+export class InMemoryGuardLog implements GuardLog {
   private readonly kept: Decision[] = [];
 
   async record(decision: Decision): Promise<void> {
