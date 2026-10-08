@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectPath } from "bounded/domain";
@@ -27,5 +27,17 @@ describe("FileSystemProjectPathKinds: what is at a project path", () => {
 
   test("cannot tell when the disk cannot say, such as a path through a file", () => {
     expect(kindOf("src/a.ts/inner")).toBeUndefined();
+    expect(kindOf("src/a.ts/inner/deeper")).toBeUndefined();
+    const sealed = mkdtempSync(join(tmpdir(), "path-kinds-sealed-"));
+    mkdirSync(join(sealed, "locked"));
+    writeFileSync(join(sealed, "locked", "a.ts"), "a");
+    chmodSync(join(sealed, "locked"), 0o000);
+    try {
+      const path = ProjectPath.parse("locked/a.ts");
+      if (!path.ok) throw new Error(path.error);
+      expect(new FileSystemProjectPathKinds().forProject(sealed)(path.value)).toBeUndefined();
+    } finally {
+      chmodSync(join(sealed, "locked"), 0o700);
+    }
   });
 });
