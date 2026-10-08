@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ProtectedPath, writes } from "bounded/path-gate";
+import { ProtectedPath } from "bounded/path-gate";
 
 const rule = { match: "packages/db/**", deny: ["modify", "delete"], redirect: "Change the schema instead" };
 const refused = (raw: unknown): string => {
@@ -22,11 +22,6 @@ describe("ProtectedPath — a deny-only rule", () => {
     const plain = ProtectedPath.parse({ ...rule, file: false });
     expect(plain.ok && Object.hasOwn(plain.value, "file")).toBe(false);
     expect(refused({ ...rule, file: "yes" })).toBe("A rule's file, when given, is true (its match names files, not their contents) or false");
-  });
-
-  test("`writes` is the convenience for every write: create, modify and delete", () => {
-    expect(writes).toEqual(["create", "modify", "delete"]);
-    expect(ProtectedPath.parse({ ...rule, deny: [...writes] })).toMatchObject({ ok: true, value: { deny: ["create", "modify", "delete"] } });
   });
 
   test("except holds patterns of the same rule, checked and tidied like match", () => {
@@ -67,7 +62,7 @@ describe("ProtectedPath — a deny-only rule", () => {
   test("deny is a non-empty list of read, list, create, modify and delete", () => {
     expect(refused({ ...rule, deny: [] })).toBe("A rule's deny must name at least one of read, list, create, modify, delete");
     expect(refused({ ...rule, deny: "read" })).toBe("A rule's deny must name at least one of read, list, create, modify, delete");
-    expect(refused({ ...rule, deny: ["write"] })).toBe("A rule cannot deny 'write': it denies read, list, create, modify or delete (spread `writes` for every write)");
+    expect(refused({ ...rule, deny: ["write"] })).toBe("A rule cannot deny 'write': it denies read, list, create, modify or delete (list each write it denies: create, modify, delete)");
   });
 
   test("redirect is non-empty text; why, when given, too", () => {
@@ -101,7 +96,7 @@ describe("ProtectedPath — a deny-only rule", () => {
 
   test("a rule that denies modify also denies create or delete, or a delete and create would change the file", () => {
     expect(refused({ ...rule, deny: ["modify"] })).toBe(
-      "A rule that denies modify must also deny create or delete: otherwise deleting and creating the file changes it (spread `writes`)",
+      "A rule that denies modify must also deny create or delete: otherwise deleting and creating the file changes it (deny create, modify and delete)",
     );
     expect(ProtectedPath.parse({ ...rule, deny: ["modify", "create"] }).ok).toBe(true);
   });
