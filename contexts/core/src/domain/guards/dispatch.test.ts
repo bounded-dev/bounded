@@ -6,7 +6,7 @@ import { SessionStart as SessionStartFactory } from "../events/session-start.ts"
 import { ToolUse } from "../events/tool-use.ts";
 import type { ToolUse as ToolUseType } from "../events/tool-use.contract.ts";
 import { Verdict } from "../verdicts/verdict.ts";
-import type { Guard } from "./guard.contract.ts";
+import type { Guard } from "./dispatch.contract.ts";
 import { dispatch } from "./dispatch.ts";
 
 const parsed = ToolUse.parse({ role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] });

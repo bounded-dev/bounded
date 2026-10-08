@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { SessionStart } from "./session-start.ts";
 
-valueObjectLaws("SessionStart", SessionStart, [{ role: "planner" }, { role: null }], [{}, { role: "" }, { role: 1 }, { kind: "tool-use", role: null }]);
 
 describe("SessionStart — boundaries", () => {
   test("a session start names the role it starts, or null", () => {

@@ -14,8 +14,9 @@ pack's guard points and dispatch over a composition. All code is in
 2. `events/effect.ts` and `events/tool-use.ts` — every refusal a host adapter
    can meet, in order.
 3. `verdicts/verdict.contract.ts` — allow, or refuse with a reason and a redirect.
-4. `guards/guard.contract.ts`, then `guards/dispatch.ts` — the guard type,
-   the context placeholder, and how dispatch fails closed without throwing.
+4. `guards/dispatch.contract.ts`, then `guards/dispatch.ts` — the guard type,
+   the context placeholder, and how dispatch fails closed without throwing;
+   `guards/core-pack.contract.ts`, every point of the core pack.
 5. `guards/dispatch.test.ts` — the behaviour; `test/fixtures/compile-time/events-rejected.ts`
    — what does not compile, with reasons (`events-accepted.ts` shows the
    legitimate forms).

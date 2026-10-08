@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
 import { WatchedPath } from "./watched-path.ts";
 
 const rule = { match: "generated/**", why: "generated/ is written by the generator", redirect: "Change the generator's input instead" };
 
-valueObjectLaws("WatchedPath", WatchedPath, [rule, { ...rule, match: "build/**", except: ["build/keep.txt"] }], [{ ...rule, match: "/etc/**" }, { ...rule, why: " " }, { ...rule, except: "x" }]);
 
 describe("WatchedPath", () => {
   test("a watched path names files a shell command must not change, why, and what to do instead", () => {

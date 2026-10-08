@@ -17,6 +17,21 @@ export interface JudgeEventCommandFactory {
 /** Decide an event with the composed guards and record the decision; the verdict is what the host enforces. */
 export interface JudgeEvent {
   execute(command: JudgeEventCommand): Promise<Verdict>;
+  /** Judges an event in its wire form: one that cannot be read is refused and recorded as invalid. Never rejects. */
+  judge(raw: unknown): Promise<Verdict>;
+  /** Records a refusal the host adapter made itself, before an event existed, and returns it. Never rejects. */
+  refuse(refusal: AdapterRefusalInput): Promise<Verdict>;
+}
+
+/** How a judge-event handler is set up, beyond its composition and out ports. */
+export interface JudgeEventOptions {
+  /** How long recording a decision may take before the event is refused. */
+  readonly recordWithinMs?: number;
+  /** When set, every event is refused with this verdict (a project whose configuration cannot be used). */
+  readonly refuseEverything?: Verdict;
+  readonly ids?: DecisionIds;
+  /** Run when the guards allow an event, before it is recorded; a refusal replaces the allow. */
+  readonly beforeAllow?: (event: Event) => Promise<Verdict>;
 }
 
 /** A refusal the host adapter made itself: the host's tool name, its input, the role, and the reason and redirect. */

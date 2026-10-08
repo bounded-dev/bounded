@@ -1,9 +1,7 @@
 import { Composition } from "../composition/composition.ts";
-import type { Composition as CompositionType } from "../composition/composition.contract.ts";
 import { definePack } from "../packs/pack.ts";
 import type { BasePack } from "../packs/pack.contract.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
-import type { Result } from "../shared/result.ts";
 import type * as Contract from "./config.contract.ts";
 
 const PROJECT = packIdsFor("bounded")("project");
@@ -31,11 +29,11 @@ export function isConfig(x: unknown): x is Contract.Config {
 }
 
 /** The composition of a configuration: its packs and its project pack, all selected. */
-export function composeConfig(config: Contract.Config): Result<CompositionType> {
+export const composeConfig: Contract.ComposeConfig = (config) => {
   if (!isConfig(config)) return { ok: false, error: "This is not a configuration made by defineConfig: export default defineConfig({ packs: [...] })" };
   if (!Array.isArray(config.selectedPacks)) return { ok: false, error: "A configuration's packs must be a list of packs made with definePack" };
   const all = [...config.selectedPacks, config.projectPack];
   return Composition.compose(all, all);
-}
+};
 
 export type Config = Contract.Config;

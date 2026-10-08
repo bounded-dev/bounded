@@ -3,7 +3,7 @@ import type { Event } from "../events/event.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { ToolKind } from "../events/tool-use.contract.ts";
 import { TOOL_KINDS } from "../events/tool-use.ts";
-import type { Judgement } from "../guards/guard.contract.ts";
+import type { Judgement } from "../guards/dispatch-event.contract.ts";
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";

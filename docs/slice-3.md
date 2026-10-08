@@ -7,10 +7,11 @@ imported from `bounded/path-gate`. Role path rules come later. All code is in
 
 ## Reading order (about 10 minutes)
 
-1. `protected-path.ts` — a rule and the point's check: every
-   refusal a rule can meet.
-2. `matching.ts` — how a rule meets a path: exact matching, and the
-   conservative reach of a listing (the reasoning is in its comments).
+1. `protected-path.contract.ts`, then `protected-path.ts` — a rule, the
+   point's check (every refusal a rule can meet) and how a rule meets a path:
+   exact matching, and the conservative reach of a listing (the reasoning is
+   in its comments).
+2. `path-gate.contract.ts` — the pack's points, which `pathGate` is typed by.
 3. `path-gate.ts` — the pack: its own rules for `**/bounded.config.*` and
    `.bounded/**`, and the read, list, write and shell guards;
    `shell-command.ts`, the translation of a parsed command into the paths it

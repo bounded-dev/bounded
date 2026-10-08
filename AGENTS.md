@@ -112,6 +112,18 @@ Rules, enforced by `architecture.test.ts` unless stated:
   valid value objects.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a
   test beside every adapter that implements it.
+- **Contracts everywhere (ADR 2026-013).** R1: every out adapter is a class
+  implementing a port an application contract declares, in a file that
+  exports nothing else. R2: every port tagged `@implementedBy` has an
+  adapter per technology named and a conformance suite each runs. R3: every
+  domain concept (in `domain/`, and a pack's `domain/` and `pack/`) is
+  `<name>.contract.ts`, `<name>.ts` and `<name>.test.ts`, plus
+  `<name>.laws.test.ts` for a value object. R3b: every pack a package ships
+  is typed by the contract beside it. R4: every feature has
+  `<feature>.contract.ts`, naming every port it uses, and its handler
+  implements the in port from it. Exempt, each named in the test with its
+  reason: barrels, the shared kernel (`domain/shared/{result,read,text,wire}.ts`)
+  and, until step C, `ProjectDrift` and `domain/drift/watched-paths.ts`.
 - **A shipped pack is an ordinary pack** (ADR 2026-009): its code under
   `src/packs/<name>/` imports only the package's `domain` export path, its
   own directory and libraries the package declares, and does no I/O; nothing

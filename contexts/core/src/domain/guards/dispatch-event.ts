@@ -7,9 +7,11 @@ import { Event as EventFactory } from "../events/event.ts";
 import type { PackId } from "../packs/pack-id.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { Verdict } from "../verdicts/verdict.ts";
-import type { Judgement } from "./guard.contract.ts";
+import type * as Contract from "./dispatch-event.contract.ts";
+import type { Judgement } from "./dispatch-event.contract.ts";
+import type { LabelledGuard } from "./dispatch.contract.ts";
 import { corePack } from "./core-pack.ts";
-import { firstRefusal, invalidEvent, type LabelledGuard, outermost, unfinished } from "./dispatch.ts";
+import { firstRefusal, invalidEvent, outermost, unfinished } from "./dispatch.ts";
 
 const CORE = corePack.id.value;
 const { points } = corePack;
@@ -68,9 +70,7 @@ function judged(refusal: ReturnType<typeof firstRefusal>, effect: Effect | null)
  * effect refused. Every failure refuses, including a composition without the
  * core pack. Never throws.
  */
-export function decideEvent(composition: Composition | null, event: Event): Judgement {
-  return outermost(() => decide(composition, event), (verdict) => plain(verdict));
-}
+export const decideEvent: Contract.DecideEvent = (composition, event) => outermost(() => decide(composition, event), (verdict) => plain(verdict));
 
 function decide(composition: Composition | null, event: Event): Judgement {
   try {
@@ -110,6 +110,4 @@ function decide(composition: Composition | null, event: Event): Judgement {
 }
 
 /** The verdict of `decideEvent`: what a host adapter needs. Never throws. */
-export function dispatchEvent(composition: Composition, event: Event): Verdict {
-  return decideEvent(composition, event).verdict;
-}
+export const dispatchEvent: Contract.DispatchEvent = (composition, event) => decideEvent(composition, event).verdict;

@@ -2,9 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ShellSnapshots, Snapshot } from "bounded/application";
-
-/** Where bounded keeps a project's state for this user: `<stateHome>/bounded/<sha256 of the root>`. */
-export const stateDirFor = (stateHome: string, root: string): string => join(stateHome, "bounded", createHash("sha256").update(root).digest("hex"));
+import { stateDirFor } from "./state-home.ts";
 
 /** How long a snapshot is kept: a command whose result never came (the host denied it after bounded allowed it) leaves one behind. */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;

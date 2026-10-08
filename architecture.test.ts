@@ -4,6 +4,15 @@
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import * as ts from "typescript";
+import {
+  adapterContractViolations,
+  barrelContracts,
+  conceptTripletViolations,
+  featureContractViolations,
+  implementedByViolations,
+  packContractViolations,
+  type SourceFile,
+} from "./architecture.rules.test-support.ts";
 
 const ROOT = import.meta.dir;
 const LAYERS = ["domain", "application", "adapters", "packs", "composition-root"] as const;
@@ -329,6 +338,32 @@ for (const path of appFiles) {
   }
 }
 
+// The contract rules R1–R4 (architecture.rules.test-support.ts): every file of every context, tests included.
+const contextSources: SourceFile[] = await Promise.all(files.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));
+const barrels = new Map<string, ReadonlyMap<string, string>>();
+for (const context of contexts) {
+  const barrel = contextSources.find(({ path }) => path === `${context.dir}/src/application/index.ts`);
+  if (barrel !== undefined) barrels.set(`${context.name}/application`, barrelContracts(barrel));
+}
+/** Ports excused from R2, each with its reason. */
+const UNTESTED_PORTS = new Map([["ProjectDrift", "removed by step C of the restructure: the path gate's own WatchedFiles and ShellSnapshots ports replace it, and both have conformance suites"]]);
+/** Files excused from R3, each with its reason. */
+const NOT_CONCEPTS = new Map([
+  ["contexts/core/src/domain/shared/result.ts", "the shared kernel: Result, no concept"],
+  ["contexts/core/src/domain/shared/read.ts", "the shared kernel: reading untyped input safely"],
+  ["contexts/core/src/domain/shared/text.ts", "the shared kernel: text helpers"],
+  ["contexts/core/src/domain/shared/wire.ts", "the shared kernel: wire forms of value objects"],
+  ["contexts/core/src/domain/drift/watched-paths.ts", "removed by step C of the restructure: the path gate's watched-rules concept replaces it"],
+]);
+const texts = new Map(contextSources.map(({ path, text }) => [path, text]));
+violations.push(
+  ...adapterContractViolations(contextSources, barrels),
+  ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS),
+  ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
+  ...packContractViolations(contextSources),
+  ...featureContractViolations(files, texts),
+);
+
 describe("architecture", () => {
   test("the Claude Code adapter is an app depending on the core", () => {
     const app = apps.find((a) => a.name === "bounded-claude-code");
@@ -426,6 +461,64 @@ describe("architecture", () => {
 
   test("no runtime code in a context uses Bun's API: pi runs the core under node", () => {
     expect(violations.filter((violation) => violation.includes("uses no Bun API"))).toEqual([]);
+  });
+
+  test("R1: an out adapter implements a port an application contract declares, and its file exports nothing else", () => {
+    const barrel = { path: "contexts/x/src/application/index.ts", text: 'export type { Clock } from "./guard-log/judge/judge.contract.ts";\n' };
+    const barrels = new Map([["x/application", barrelContracts(barrel)]]);
+    const good = { path: "contexts/x/src/adapters/out/system/clock.ts", text: 'import type { Clock } from "x/application";\nexport class SystemClock implements Clock { now() { return ""; } }\n' };
+    const bare = { path: "contexts/x/src/adapters/out/system/other.ts", text: "export class Other { now() { return \"\"; } }\n" };
+    const mixed = { path: "contexts/x/src/adapters/out/system/mixed.ts", text: 'import type { Clock } from "x/application";\nexport class Mixed implements Clock {}\nexport const helper = 1;\n' };
+    expect(adapterContractViolations([good], barrels)).toEqual([]);
+    expect(adapterContractViolations([bare], barrels)).toEqual(["contexts/x/src/adapters/out/system/other.ts — Other implements no port of an application contract: an out adapter implements a port its feature's contract declares"]);
+    expect(adapterContractViolations([mixed], barrels)).toEqual(["contexts/x/src/adapters/out/system/mixed.ts — a file with an adapter class exports nothing else: move its helpers to a file of their own"]);
+  });
+
+  test("R2: a port tagged @implementedBy has that adapter, a conformance suite, and a test running it beside the adapter", () => {
+    const contract = { path: "contexts/x/src/application/a/f/f.contract.ts", text: "/**\n * Time.\n * @implementedBy system\n */\nexport interface Clock { now(): string }\n" };
+    const suite = { path: "contexts/x/src/application/a/f/f.clock.test-support.ts", text: 'import type { Clock } from "./f.contract.ts";\nexport function clockConformance() {}\n' };
+    const adapter = { path: "contexts/x/src/adapters/out/system/clock.ts", text: 'import type { Clock } from "../../../application/a/f/f.contract.ts";\nexport class SystemClock implements Clock {}\n' };
+    const runner = { path: "contexts/x/src/adapters/out/system/clock.test.ts", text: 'import { clockConformance } from "../../../application/a/f/f.clock.test-support.ts";\nclockConformance();\n' };
+    expect(implementedByViolations([contract, suite, adapter, runner], new Map())).toEqual([]);
+    expect(implementedByViolations([contract, suite, adapter], new Map())).toEqual(["contexts/x/src/adapters/out/system/clock.ts — SystemClock implements Clock; a test beside it runs the port's conformance suite"]);
+    expect(implementedByViolations([contract, adapter, runner], new Map())).toEqual(["contexts/x/src/application/a/f/f.contract.ts — Clock has no conformance suite: add a *.test-support.ts beside the contract that every adapter of it runs"]);
+    expect(implementedByViolations([contract, suite], new Map())).toEqual(["contexts/x/src/application/a/f/f.contract.ts — Clock says it is implemented by system, but no class under adapters/out/system/ implements it"]);
+    expect(implementedByViolations([contract], new Map(), new Map([["Clock", "a reason"]]))).toEqual([]);
+  });
+
+  test("R3: a domain concept is a contract, an implementation and a test, and a value object has a laws test", () => {
+    const vo = "export interface Role { readonly __brand: \"Role\"; equals(other: Role): boolean }\nexport interface RoleFactory { parse(raw: unknown): Result<Role> }\n";
+    const at = (name: string) => `contexts/x/src/domain/events/${name}`;
+    const all = [at("role.ts"), at("role.contract.ts"), at("role.test.ts"), at("role.laws.test.ts")];
+    expect(conceptTripletViolations(all, new Map([[at("role.contract.ts"), vo]]))).toEqual([]);
+    expect(conceptTripletViolations(all.slice(0, 3), new Map([[at("role.contract.ts"), vo]]))).toEqual([`${at("role.contract.ts")} — a value object's laws run in role.laws.test.ts`]);
+    expect(conceptTripletViolations([at("loose.ts")], new Map())).toEqual([
+      `${at("loose.ts")} — a domain concept is a contract, an implementation and a test: add loose.contract.ts`,
+      `${at("loose.ts")} — a domain concept is a contract, an implementation and a test: add loose.test.ts`,
+    ]);
+    expect(conceptTripletViolations([at("types.contract.ts")], new Map())).toEqual([`${at("types.contract.ts")} — a contract with no implementation: add types.ts, or fold its types into the contract they belong to`]);
+    expect(conceptTripletViolations([at("loose.ts")], new Map(), new Map([[at("loose.ts"), "a reason"]]))).toEqual([]);
+    expect(conceptTripletViolations(["contexts/x/src/packs/gate/matching.ts"], new Map())).toEqual([]);
+  });
+
+  test("R3b: a pack a package ships is typed by its contract", () => {
+    const typed = { path: "contexts/x/src/domain/guards/core-pack.ts", text: 'import type { CorePack } from "./core-pack.contract.ts";\nexport const corePack: CorePack = definePack({});\n' };
+    const untyped = { path: "contexts/x/src/domain/guards/core-pack.ts", text: "export const corePack = definePack({});\n" };
+    const elsewhere = { path: "contexts/x/src/domain/guards/core-pack.ts", text: 'import type { CorePack } from "./other.contract.ts";\nexport const corePack: CorePack = definePack({});\n' };
+    const test = { path: "contexts/x/src/domain/guards/core-pack.test.ts", text: "export const pack = definePack({});\n" };
+    expect(packContractViolations([typed, test])).toEqual([]);
+    const message = "contexts/x/src/domain/guards/core-pack.ts — corePack is a pack this package ships: type it with the pack type its contract declares (./core-pack.contract.ts)";
+    expect(packContractViolations([untyped])).toEqual([message]);
+    expect(packContractViolations([elsewhere])).toEqual([message]);
+  });
+
+  test("R4: a feature has a contract, and its handler implements the in port from it", () => {
+    const dir = "contexts/x/src/application/area/feature";
+    const handler = 'import type { Feature } from "./feature.contract.ts";\nexport class FeatureHandler implements Feature {}\n';
+    const paths = [`${dir}/feature.contract.ts`, `${dir}/feature.handler.ts`];
+    expect(featureContractViolations(paths, new Map([[`${dir}/feature.handler.ts`, handler]]))).toEqual([]);
+    expect(featureContractViolations([`${dir}/feature.handler.ts`], new Map([[`${dir}/feature.handler.ts`, handler]]))).toEqual([`${dir} — a feature declares its ports in feature.contract.ts`]);
+    expect(featureContractViolations(paths, new Map([[`${dir}/feature.handler.ts`, "export class FeatureHandler {}\n"]]))).toEqual([`${dir}/feature.handler.ts — the handler implements its feature's in port from feature.contract.ts`]);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {

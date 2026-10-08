@@ -7,8 +7,8 @@ import { WatchedPath } from "../drift/watched-path.ts";
 import { definePack, point } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
-import type { EffectGuard, Guard } from "./guard.contract.ts";
-import type { ProjectOpenHandler } from "./project-opening.contract.ts";
+import type { CorePack, ProjectOpenHandler } from "./core-pack.contract.ts";
+import type { EffectGuard, Guard } from "./dispatch.contract.ts";
 
 /**
  * A check for guards: a contributed value must be a function. Its signature
@@ -36,7 +36,7 @@ const forEffect = <F extends Effect>() => guardOf<EffectGuard<F, Composition>>;
  * composition, so it can read other packs' points. A pack that contributes
  * guards depends on this pack.
  */
-export const corePack = definePack({
+export const corePack: CorePack = definePack({
   id: packIdsFor("bounded")("core"),
   points: {
     toolUseGuards: point({ description: "Guards for whole tool calls, such as allowlists of tools", check: forCall }),

@@ -22,5 +22,5 @@ export const literalRule: ProtectedPath = { match: "a/**", except: [], deny: ["r
 // A rule contributed as a literal is checked as one.
 export const badLiteral = definePack({ id: packId("bad-literal"), dependsOn: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["write"], redirect }])] }); // rejected: Type '"write"' is not assignable to type 'PathAccess'
 // Contributing rules needs pathGate in dependsOn; depending on the core pack is not enough.
-export const coreOnly = definePack({ id: packId("core-only"), dependsOn: [corePack], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<NoInfer<PackId<"bounded/core">>>'
+export const coreOnly = definePack({ id: packId("core-only"), dependsOn: [corePack], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<NoInfer<CoreId>>'
 export const noDependency = definePack({ id: packId("no-dependency"), contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<never>'

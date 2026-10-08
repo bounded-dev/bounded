@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { describeEffect, Effect } from "./effect.ts";
 
 const read = { kind: "read", path: "src/a.ts" };
@@ -10,7 +10,6 @@ const fetch = { kind: "fetch", url: "https://example.com/a" };
 const delegate = { kind: "delegate", agent: "explore" };
 const invoke = { kind: "invoke", name: "mcp__docs__search" };
 
-valueObjectLaws("Effect", Effect, [read, list, write, execute, fetch, delegate, invoke], [{ kind: "delete", path: "a" }, { ...read, path: "/etc/hosts" }, { ...write, change: "rename" }]);
 
 const error = (raw: unknown): string | undefined => {
   const result = Effect.parse(raw);

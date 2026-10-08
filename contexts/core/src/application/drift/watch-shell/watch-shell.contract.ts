@@ -1,5 +1,9 @@
 import type { Result, ToolResult, ToolUse, Verdict, WatchedPath } from "bounded/domain";
 
+// Out ports this feature shares with judge-event: declared there, listed here so this contract names every port the feature needs.
+import type { DecisionIds } from "../../guard-log/judge-event/judge-event.contract.ts";
+export type { Clock, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+
 /**
  * A watched file: the SHA-256 of its bytes (hex), its size in bytes, and the
  * index of the first rule that watches it. A link is never followed: `link`
@@ -95,4 +99,11 @@ export interface ShellSnapshots {
   save(callId: string, snapshot: Snapshot): Promise<void>;
   /** The snapshot for a call as stored, removed as it is given; undefined when there is none (or it expired). Rejects when it cannot be read. */
   take(callId: string): Promise<unknown>;
+}
+
+/** How a watch-shell handler is set up, beyond its composition and out ports. */
+export interface WatchShellOptions {
+  readonly ids?: DecisionIds;
+  /** How much a snapshot copies of files version control does not hold. */
+  readonly limits?: { readonly perFile: number; readonly total: number };
 }

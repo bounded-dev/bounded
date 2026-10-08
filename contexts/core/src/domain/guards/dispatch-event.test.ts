@@ -13,7 +13,7 @@ import type { Result } from "../shared/result.ts";
 import { Verdict } from "../verdicts/verdict.ts";
 import { corePack } from "./core-pack.ts";
 import { decideEvent, dispatchEvent } from "./dispatch-event.ts";
-import type { EffectGuard, Guard } from "./guard.contract.ts";
+import type { EffectGuard, Guard } from "./dispatch.contract.ts";
 
 const packId = packIdsFor("test-packs");
 const guards = corePack.points;

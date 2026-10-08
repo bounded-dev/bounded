@@ -664,5 +664,1895 @@
       "case": "FileSystemProjectGuardLogs conforms to ProjectGuardLogs > a project's log records its decisions"
     },
     "reason": "renamed: guard log, ADR 2026-013"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/verdicts/verdict.test.ts",
+    "case": "Verdict — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/verdicts/verdict.laws.test.ts",
+      "case": "Verdict — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision.test.ts",
+    "case": "Decision — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision.laws.test.ts",
+      "case": "Decision — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/decisions/decision-id.test.ts",
+    "case": "DecisionId — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/decisions/decision-id.laws.test.ts",
+      "case": "DecisionId — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/packs/pack-id.test.ts",
+    "case": "PackId — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/packs/pack-id.laws.test.ts",
+      "case": "PackId — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-path.test.ts",
+    "case": "WatchedPath — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "case": "WatchedPath — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-use.test.ts",
+    "case": "ToolUse — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.laws.test.ts",
+      "case": "ToolUse — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/role.test.ts",
+    "case": "Role — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/role.laws.test.ts",
+      "case": "Role — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/command.test.ts",
+    "case": "Command — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/command.laws.test.ts",
+      "case": "Command — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/agent-name.test.ts",
+    "case": "AgentName — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/agent-name.laws.test.ts",
+      "case": "AgentName — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/call-id.test.ts",
+    "case": "CallId — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/call-id.laws.test.ts",
+      "case": "CallId — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/effect.test.ts",
+    "case": "Effect — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/effect.laws.test.ts",
+      "case": "Effect — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-result.test.ts",
+    "case": "ToolResult — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-result.laws.test.ts",
+      "case": "ToolResult — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/event.test.ts",
+    "case": "Event — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.laws.test.ts",
+      "case": "Event — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/name-pattern.test.ts",
+    "case": "NamePattern — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/name-pattern.laws.test.ts",
+      "case": "NamePattern — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/url.test.ts",
+    "case": "Url — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/url.laws.test.ts",
+      "case": "Url — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/project-path.test.ts",
+    "case": "ProjectPath — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/project-path.laws.test.ts",
+      "case": "ProjectPath — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/session-start.test.ts",
+    "case": "SessionStart — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/session-start.laws.test.ts",
+      "case": "SessionStart — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — a text value > value is what was parsed",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — a text value > value is what was parsed"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/events/tool-name.test.ts",
+    "case": "ToolName — a text value > its wire form is its text",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-name.laws.test.ts",
+      "case": "ToolName — a text value > its wire form is its text"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > accepts every sample",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > accepts every sample"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > its wire form parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > its wire form parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > parsing a parsed value gives it back unchanged",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > parsing a parsed value gives it back unchanged"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > different samples give different values",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > different samples give different values"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > each value is an instance of its class, not a plain object, and frozen",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > each value is an instance of its class, not a plain object, and frozen"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > toJSON is its wire form: plain data that parses back to an equal value",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > toJSON is its wire form: plain data that parses back to an equal value"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > an object that merely inherits from a value is never taken for it",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > an object that merely inherits from a value is never taken for it"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > a value forged with its class's own constructor is checked again, never trusted",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > a value forged with its class's own constructor is checked again, never trusted"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — laws > refuses what it does not accept, with a reason",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "case": "ProtectedPath — laws > refuses what it does not accept, with a reason"
+    },
+    "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
   }
 ]

@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { textValueLaws, valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
 import { AgentName } from "./agent-name.ts";
 
-valueObjectLaws("AgentName", AgentName, ["explore", "Plan reviewer"], ["", " ", "a\nb"]);
-textValueLaws("AgentName", AgentName, [["explore", "explore"], ["Plan reviewer", "Plan reviewer"]]);
 
 describe("AgentName — boundaries", () => {
   test("refuses a blank name and control characters, each with its reason", () => {

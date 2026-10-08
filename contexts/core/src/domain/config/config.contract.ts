@@ -1,4 +1,6 @@
+import type { Composition } from "../composition/composition.contract.ts";
 import type { BasePack, Contribution, PackListRules } from "../packs/pack.contract.ts";
+import type { Result } from "../shared/result.ts";
 
 /**
  * A project's configuration: the packs it selects, and the project's own
@@ -24,3 +26,6 @@ export interface ConfigFactory {
     spec: ConfigSpec<Packs> & (Packs extends readonly [] ? unknown : { readonly packs: PackListRules<Packs, "list packs as a tuple of packs", "list each pack once", "each selected pack is a pack with an exact id"> }),
   ): Config;
 }
+
+/** A configuration's packs composed: the selected packs and the project's own pack, or why they cannot be. */
+export type ComposeConfig = (config: Config) => Result<Composition>;

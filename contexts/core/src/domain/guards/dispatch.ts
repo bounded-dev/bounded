@@ -1,22 +1,12 @@
 import { Event } from "../events/event.ts";
 import { show } from "../shared/read.ts";
 import { Verdict } from "../verdicts/verdict.ts";
-import type { PackId } from "../packs/pack-id.contract.ts";
-import type * as Contract from "./guard.contract.ts";
+import type * as Contract from "./dispatch.contract.ts";
+import type { LabelledGuard } from "./dispatch.contract.ts";
 
 const FIX = "Fix the guard so it returns Verdict.allow or Verdict.refuse(reason, redirect), or remove it. Until then the action is refused";
 const UNFINISHED = "Report this to the maintainers of bounded; the action is refused meanwhile";
 
-/**
- * A guard to run: the label its failures are named by, and, when it came
- * from a pack, the words its refusals start with ("bounded/x refused read a.ts").
- */
-export interface LabelledGuard {
-  readonly guard: unknown;
-  readonly label: string;
-  readonly refusedBy?: string;
-  readonly from?: PackId;
-}
 
 function decide({ guard, label, refusedBy }: LabelledGuard, args: readonly unknown[]): Verdict | undefined {
   if (typeof guard !== "function") return Verdict.refuse(`${label} is not a function`, FIX);
