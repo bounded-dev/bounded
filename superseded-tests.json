@@ -3922,24 +3922,6 @@
   },
   {
     "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
-    "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule cannot require the action it comes before",
-    "successor": {
-      "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
-      "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule cannot require the action it comes before: the same agent, by its exact name"
-    },
-    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
-  },
-  {
-    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
-    "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule comes before a delegation to its agent, or a write its pattern matches, ignoring case",
-    "successor": {
-      "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
-      "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule comes before a delegation to its agent by its exact name, or a write its pattern matches ignoring case"
-    },
-    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
-  },
-  {
-    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
     "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule's requirement is met by a delegation to its required agent",
     "successor": {
       "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
@@ -3964,5 +3946,14 @@
       "case": "PrerequisiteStart — a delegation's files, fingerprinted as the run starts > the same agent, by its exact name, and patterns, in any order, share a requirement key"
     },
     "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
+  },
+  {
+    "file": "apps/pi/src/extension.test.ts",
+    "case": "piExtension — after a tool ran, and refusals the adapter makes > an async subagent's tool_result says none did",
+    "successor": {
+      "file": "apps/pi/src/extension.test.ts",
+      "case": "piExtension — after a tool ran, and refusals the adapter makes > an async subagent's tool_result says none did, as this host never reports their finish"
+    },
+    "reason": "pi's result entries also say finishNeverReported, so the agent is told the host cannot meet a requirement yet rather than to re-run (final review of prereqs, ADR 2026-019)"
   }
 ]
