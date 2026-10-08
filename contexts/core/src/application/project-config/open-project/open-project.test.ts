@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, portKeysFor, Ports, ProjectPath, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
-import type { WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
 import type { ProjectConfigSource, ProjectGuardLogs, ProjectPathKinds } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
-const sha256 = (content: string): string => createHash("sha256").update(content).digest("hex");
 /** A project path, as the core makes them. */
 const pathOf = (raw: string): ProjectPath => {
   const path = ProjectPath.parse(raw);
@@ -78,39 +75,10 @@ describe("OpenProjectHandler", () => {
     expect(verdict.kind === "refuse" && verdict.reason.startsWith("This project's configuration cannot be used: its packs cannot be composed")).toBe(true);
   });
 
-  test("with drift watching, a shell command's changes to watched files are put back after it runs", async () => {
-    const working = new Map([["generated/a.ts", "a"]]);
-    const watched = (entries: Iterable<[string, string]>) => ({ ok: true as const, value: Object.fromEntries([...entries].map(([path, content]) => [path, { hash: sha256(content), size: content.length, rule: 0 }])) });
-    const files: WatchedFiles = {
-      hash: async () => watched(working),
-      head: async () => ({ ok: true, value: "c0" }),
-      committed: async () => watched([["generated/a.ts", "a"]]),
-      copy: async (path) => ({ ok: true, value: { hash: sha256(working.get(path) ?? ""), size: (working.get(path) ?? "").length, content: btoa(working.get(path) ?? ""), executable: false } }),
-      restore: async (path) => {
-        working.set(path, "a");
-        return { ok: true, value: undefined };
-      },
-      quarantine: async () => ({ ok: true, value: "/state/quarantine" }),
-      rulesWatching: () => [0],
-    };
-    const kept = new Map<string, unknown>();
-    const snapshots = { save: async (id: string, hashes: unknown) => void kept.set(id, hashes), take: async (id: string) => kept.get(id) as never };
-    const watching = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/**", why: "generated", redirect: "Change the input" }])] });
-    const logs = new Logs();
-    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: watching })), logs, clock, { drift: { forProject: () => ({ files, snapshots }) } }).execute(command);
-    const shell = { kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "make" }], callId: "c1" };
-    expect((await project.judge(shell)).kind).toBe("allow");
-    working.set("generated/a.ts", "tampered");
-    const check = await project.afterTool({ ...shell, kind: "tool-result", ok: true });
-    expect(check.restored).toBe(true);
-    expect(check.message?.startsWith("This command changed protected files, and they were restored: generated/a.ts was modified — protected because")).toBe(true);
-    expect(working.get("generated/a.ts")).toBe("a");
-  });
-
   test("a tool result that cannot be read is reported, and changes nothing", async () => {
     const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: config })), new Logs(), clock).execute(command);
     const check = await project.afterTool({ kind: "tool-result" });
-    expect(check.changed).toEqual([]);
+    expect(check).toEqual({ message: check.message ?? "" });
     expect(check.message?.startsWith("The host sent a tool result that cannot be read: ")).toBe(true);
   });
 

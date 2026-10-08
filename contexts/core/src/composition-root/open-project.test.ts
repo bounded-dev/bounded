@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlink
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Composition, Verdict } from "bounded/domain";
+import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
 import { openProject } from "./open-project.ts";
 
 const CORE = resolve(import.meta.dir, "../..");
@@ -94,9 +95,10 @@ export default defineConfig({
 
   test("a shell command that changes a watched file is undone after it runs, reported and recorded", async () => {
     const watching = `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
 export default defineConfig({
-  packs: [corePack],
-  contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/**", why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
+  packs: [corePack, pathGate],
+  contributes: [contribution(pathGate.points.protectedPaths, [{ match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
 });
 `;
     const root = project({ "bounded.config.ts": watching });
@@ -107,7 +109,7 @@ export default defineConfig({
     git("init", "--quiet");
     git("add", "-A");
     git("commit", "--quiet", "-m", "base");
-    const { judge, afterTool } = await openProject(root);
+    const { judge, afterTool } = await openProject(root, { ports: pathGateFileSystem() });
     const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_1" };
     expect((await judge(shell)).kind).toBe("allow");
     writeFileSync(join(root, "generated", "a.ts"), "tampered\n");
@@ -130,9 +132,10 @@ export default defineConfig({
     const WEIRD = "we\nird.ts";
     async function watched(files: Record<string, string>) {
       const config = `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
 export default defineConfig({
-  packs: [corePack],
-  contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/*.ts", why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
+  packs: [corePack, pathGate],
+  contributes: [contribution(pathGate.points.protectedPaths, [{ match: "generated/*.ts", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
 });
 `;
       const root = project({ "bounded.config.ts": config });
@@ -143,7 +146,7 @@ export default defineConfig({
       git("init", "--quiet");
       git("add", "-A");
       git("commit", "--quiet", "-m", "base");
-      const opened = await openProject(root);
+      const opened = await openProject(root, { ports: pathGateFileSystem() });
       const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_weird" };
       expect((await opened.judge(shell)).kind).toBe("allow");
       return { root, after: () => opened.afterTool({ ...shell, kind: "tool-result", ok: true }) };
@@ -153,7 +156,7 @@ export default defineConfig({
       const { root, after } = await watched({ "a.ts": "a" });
       writeFileSync(join(root, "generated", WEIRD), "created\n");
       const check = await after();
-      expect(check.changed).toEqual([{ path: `generated/${WEIRD}`, change: "created" }]);
+      expect(check.message).toContain("This command changed protected files, and they were restored");
       expect(check.message).toContain("generated/we\\nird.ts was created");
       expect(check.message).not.toContain("\n");
       expect(existsSync(join(root, "generated", WEIRD))).toBe(false);
@@ -165,7 +168,7 @@ export default defineConfig({
       const { root, after } = await watched({ [WEIRD]: "original\n" });
       writeFileSync(join(root, "generated", WEIRD), "tampered\n");
       const check = await after();
-      expect(check.restored).toBe(true);
+      expect(check.message).toContain("This command changed protected files, and they were restored");
       expect(check.message).toContain("generated/we\\nird.ts was modified");
       expect(readFileSync(join(root, "generated", WEIRD), "utf8")).toBe("original\n");
     });
@@ -188,7 +191,7 @@ export default defineConfig({
     mkdirSync(join(root, "migrations"));
     writeFileSync(join(root, "migrations", "0001_init.sql"), "create table a;");
     writeFileSync(join(root, ".env"), "KEY=1");
-    const { judge, problem } = await openProject(root);
+    const { judge, problem } = await openProject(root, { ports: pathGateFileSystem() });
     expect(problem).toBeNull();
     let calls = 0;
     const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: `call-${++calls}` });

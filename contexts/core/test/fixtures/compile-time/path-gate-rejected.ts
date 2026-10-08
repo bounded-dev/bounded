@@ -2,6 +2,7 @@
 // an error whose message contains <reason>, and no other line may fail.
 import { contribution, corePack, definePack } from "bounded/domain";
 import { pathGate, type ProtectedPath, type ProtectedPathJSON } from "bounded/path-gate";
+import type { WatchedPath } from "bounded/path-gate";
 // There is no shorthand for every write: deny lists name each kind.
 import { writes } from "bounded/path-gate"; // rejected: has no exported member 'writes'
 export const spread = writes;
@@ -24,3 +25,4 @@ export const badLiteral = definePack({ id: packId("bad-literal"), dependsOn: [pa
 // Contributing rules needs pathGate in dependsOn; depending on the core pack is not enough.
 export const coreOnly = definePack({ id: packId("core-only"), dependsOn: [corePack], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<NoInfer<CoreId>>'
 export const noDependency = definePack({ id: packId("no-dependency"), contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<never>'
+export const watched: WatchedPath = { match: "a/**", except: [], why: "w", redirect: "r" }; // rejected: is missing the following properties from type 'WatchedPath': __brand

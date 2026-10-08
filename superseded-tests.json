@@ -354,7 +354,7 @@
     "file": "contexts/core/src/application/drift/watch-shell/watch-shell.test.ts",
     "case": "WatchShellHandler — after a shell command > a restore that leaves a file different from before the command is a failed restore",
     "successor": {
-      "file": "contexts/core/src/application/drift/watch-shell/watch-shell.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.test.ts",
       "case": "WatchShellHandler — after a shell command > uncommitted work in a watched file is put back from the snapshot's copy, not from the commit"
     },
     "reason": "the snapshot now keeps a copy of work git does not hold, so restoring puts that work back instead of failing (review M1)"
@@ -372,7 +372,7 @@
     "file": "contexts/core/src/adapters/out/file-system/drift/watched-files.test.ts",
     "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/drift/watched-files.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/watched-files.test.ts",
       "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
     },
     "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
@@ -381,7 +381,7 @@
     "file": "contexts/core/src/adapters/out/in-memory/drift/watched-files.test.ts",
     "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
     "successor": {
-      "file": "contexts/core/src/adapters/out/in-memory/drift/watched-files.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/in-memory/watched-files.test.ts",
       "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
     },
     "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
@@ -1065,7 +1065,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > accepts every sample",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > accepts every sample"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1074,7 +1074,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > its wire form parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > its wire form parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1083,7 +1083,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > parsing a parsed value gives it back unchanged",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > parsing a parsed value gives it back unchanged"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1092,7 +1092,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > different samples give different values",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > different samples give different values"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1101,7 +1101,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > each value is an instance of its class, not a plain object, and frozen",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > each value is an instance of its class, not a plain object, and frozen"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1110,7 +1110,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1119,7 +1119,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > toJSON is its wire form: plain data that parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > toJSON is its wire form: plain data that parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1128,7 +1128,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > an object that merely inherits from a value is never taken for it",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > an object that merely inherits from a value is never taken for it"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1137,7 +1137,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > a value forged with its class's own constructor is checked again, never trusted",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > a value forged with its class's own constructor is checked again, never trusted"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1146,7 +1146,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > refuses what it does not accept, with a reason",
     "successor": {
-      "file": "contexts/core/src/domain/drift/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > refuses what it does not accept, with a reason"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2469,7 +2469,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > accepts every sample",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > accepts every sample"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2478,7 +2478,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > its wire form parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > its wire form parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2487,7 +2487,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > parsing a parsed value gives it back unchanged",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > parsing a parsed value gives it back unchanged"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2496,7 +2496,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > different samples give different values",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > different samples give different values"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2505,7 +2505,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > each value is an instance of its class, not a plain object, and frozen",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > each value is an instance of its class, not a plain object, and frozen"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2514,7 +2514,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2523,7 +2523,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > toJSON is its wire form: plain data that parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > toJSON is its wire form: plain data that parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2532,7 +2532,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > an object that merely inherits from a value is never taken for it",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > an object that merely inherits from a value is never taken for it"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2541,7 +2541,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > a value forged with its class's own constructor is checked again, never trusted",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > a value forged with its class's own constructor is checked again, never trusted"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2550,7 +2550,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > refuses what it does not accept, with a reason",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > refuses what it does not accept, with a reason"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2668,5 +2668,56 @@
     "case": "JudgeEventHandler > something that is not a command is refused, never thrown, and nothing is recorded",
     "successor": null,
     "reason": "execute takes a JudgeEventCommand made by its parse, and the judge parses a raw event with it before execute; shape checks live in the class that owns the shape (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-paths.test.ts",
+    "case": "watchedPathsOf > gives every watched path with the pack that contributed it, calling sources with the composition",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
+      "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path; read-only rules and .bounded/ do not"
+    },
+    "reason": "watched paths are the path gate's own, worked out from its protected paths, so the core's watchedPaths point and its watchedPathsOf are gone (ADR 2026-013, C)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-paths.test.ts",
+    "case": "watchedPathsOf > a source that throws, or gives something that is not a watched path, cannot be read",
+    "successor": null,
+    "reason": "watched paths now come only from the path gate's own protected paths, each already parsed by its point's check: there is no source to throw or to give something else (ADR 2026-013, C)"
+  },
+  {
+    "file": "contexts/core/src/domain/drift/watched-paths.test.ts",
+    "case": "watchedPathsOf > without the core pack, nothing is watched",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
+      "case": "the path gate watches what it protects from writes > without the path gate selected, it watches nothing"
+    },
+    "reason": "watched paths are the path gate's own, worked out from its protected paths, so the core's watchedPaths point and its watchedPathsOf are gone (ADR 2026-013, C)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch-event.test.ts",
+    "case": "corePack — watched paths > a watched path that is not one is refused when the packs are composed",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/domain/watched-path.test.ts",
+      "case": "WatchedPath > patterns are project-relative globs"
+    },
+    "reason": "the core has no watchedPaths point; a watched path is the path gate's, refused by WatchedPath.parse (ADR 2026-013, C)"
+  },
+  {
+    "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > with drift watching, a shell command's changes to watched files are put back after it runs",
+    "successor": {
+      "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+      "case": "OpenProjectHandler > before- and after-tool checks run with the ports the host provides: a refusal before replaces the allow, a message after reaches the host"
+    },
+    "reason": "the core no longer watches files itself: drift is the path gate's, run through the core's beforeTool and afterTool points with the ports the host provides (ADR 2026-013, C)"
+  },
+  {
+    "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > with drift watching, a shell command's changes to watched files are put back after it runs",
+    "successor": {
+      "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+      "case": "OpenProjectHandler > before- and after-tool checks run with the ports the host provides: a refusal before replaces the allow, a message after reaches the host"
+    },
+    "reason": "the core no longer watches files itself: drift is the path gate's, run through the core's beforeTool and afterTool points with the ports the host provides (ADR 2026-013, C)"
   }
 ]

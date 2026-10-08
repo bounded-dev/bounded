@@ -149,7 +149,7 @@ tool lifecycle, recorded below when it lands).
 - **R6**: in domain and application code a shape check (`Array.isArray`,
   `typeof … === "object"`, `instanceof` of anything but `Error`) appears
   only where a shape is owned, or in a file named in the test with its
-  reason (dispatch's promise check; `watched-paths.ts` until step C).
+  reason (dispatch's promise check).
 
 ### C. The core keeps the mechanism; packs bring lifecycle checks and ports
 
@@ -178,6 +178,22 @@ tool lifecycle, recorded below when it lands).
   its own ports, checked at compile time and when the pack is made.
 - A third-party pack with ports works only on hosts whose composition root
   provides them; the refusal names exactly what to provide.
+- **Drift is the path gate's.** The core's `watchedPaths` point, its
+  `drift/watch-shell` feature, its drift adapters and `ProjectDrift` are
+  gone; `ProjectJudge.afterTool` gives `{ message }`. The path gate is a
+  small hexagon: `domain/` (its rules, watched paths, watching, snapshots),
+  `application/watch-shell/` (the feature, now returning what to record
+  instead of writing the guard log, and its two lifecycle checks), and
+  `adapters/out/{file-system,in-memory}/` with their own export paths
+  (`bounded/path-gate/adapters/file-system`, `…/in-memory`). It watches
+  every `protectedPaths` rule that denies a write, as before; it declares the
+  ports `watchedFiles` and `shellSnapshots`, which both hosts provide with
+  `pathGateFileSystem()`. State paths are unchanged. A configuration that
+  contributed to `watchedPaths` directly no longer compiles: protect the
+  files with a `protectedPaths` rule that denies writes.
+- Inside a shipped pack (architecture test): `domain/` imports only itself,
+  `application/` its domain and application, the root files their domain,
+  application and root, and only `adapters/out/<tech>/` may do I/O.
 
 ### The rules, in `architecture.test.ts` (each tested on small fixtures)
 
@@ -207,9 +223,7 @@ tool lifecycle, recorded below when it lands).
   or function the check sits in. The compiler, the brands and review cover
   the rest.
 - **Exemptions, each named in the test with its reason:** the shared kernel
-  (`domain/shared/{result,read,text,wire}.ts`) and barrels; `ProjectDrift`'s
-  missing conformance suite and `domain/drift/watched-paths.ts`, both
-  removed by step C.
+  (`domain/shared/{result,read,text,wire}.ts`) and barrels.
 
 ## Consequences
 

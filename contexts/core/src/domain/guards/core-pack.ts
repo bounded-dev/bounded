@@ -2,8 +2,6 @@ import type { Composition } from "../composition/composition.contract.ts";
 import type { EffectByKind, EffectKind } from "../events/effect.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
-import type { WatchedPath as WatchedPathType, WatchedPathSource } from "../drift/watched-path.contract.ts";
-import { WatchedPath } from "../drift/watched-path.ts";
 import { definePack, point, pointGroup } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
@@ -22,10 +20,6 @@ function functionOf<G>(raw: unknown): Result<G> {
 }
 const forCall = functionOf<Guard<ToolUse, Composition>>;
 
-/** A watched path, checked; or a source of them, which can only be checked when it is called. */
-function watchedOf(raw: unknown): Result<WatchedPathType | WatchedPathSource> {
-  return typeof raw === "function" ? functionOf<WatchedPathSource>(raw) : WatchedPath.parse(raw);
-}
 const forStart = functionOf<Guard<SessionStart, Composition>>;
 const forOpening = functionOf<ProjectOpenHandler>;
 const forBefore = functionOf<BeforeTool>;
@@ -58,6 +52,5 @@ export const corePack: CorePack = definePack({
     beforeTool: point({ description: "Asynchronous checks run after the guards allow a tool call, before it runs; a refusal replaces the allow", check: forBefore }),
     afterTool: point({ description: "Asynchronous checks run after a tool call ran; what they report is recorded and told to the agent", check: forAfter }),
     onProjectOpen: point({ description: "What a pack does once when a project opens, before any event is judged, such as loading what its guards need", check: forOpening }),
-    watchedPaths: point({ description: "Files a shell command must not change, or sources that work them out: a command's changes to them are undone", check: watchedOf }),
   },
 });

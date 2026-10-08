@@ -1,5 +1,5 @@
 import type { Config, PathKind, PortProvision, ProjectPath, Result, Verdict } from "bounded/domain";
-import type { DriftCheck, ShellSnapshots, WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
+import type { AfterToolOutcome } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import type { AdapterRefusalInput, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
 /** The brand only OpenProjectCommand itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
@@ -33,11 +33,11 @@ export interface OpenProjectCommandFactory {
 export interface ProjectJudge {
   judge(event: unknown): Promise<Verdict>;
   /**
-   * After a tool ran (its result in wire form): undo what a shell command
-   * changed in watched files and say what happened; `message` is null when
-   * nothing changed. Never throws.
+   * After a tool ran (its result in wire form): run the packs' after-tool
+   * checks and say what they found; `message` is null when there is nothing
+   * to tell the agent. Never throws.
    */
-  afterTool(result: unknown): Promise<DriftCheck>;
+  afterTool(result: unknown): Promise<AfterToolOutcome>;
   /** Record a refusal the host adapter made itself, before an event existed, and return it. Never throws. */
   refuse(refusal: AdapterRefusalInput): Promise<Verdict>;
   readonly problem: string | null;
@@ -56,14 +56,6 @@ export interface OpenProject {
  */
 export interface ProjectConfigSource {
   load(projectRoot: string): Promise<Result<Config>>;
-}
-
-/**
- * Each project's watched files and shell snapshots, for undoing what shell commands change.
- * @implementedBy file-system
- */
-export interface ProjectDrift {
-  forProject(projectRoot: string): { readonly files: WatchedFiles; readonly snapshots: ShellSnapshots };
 }
 
 /**
@@ -87,7 +79,6 @@ export interface ProjectPathKinds {
 export interface OpenProjectOptions {
   /** How long recording a decision may take before the event is refused. */
   readonly recordWithinMs?: number;
-  readonly drift?: ProjectDrift;
   readonly pathKinds?: ProjectPathKinds;
   /** How long each pack's work on opening may take before the project opens without it. */
   readonly prepareWithinMs?: number;

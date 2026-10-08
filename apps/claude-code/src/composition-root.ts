@@ -6,8 +6,12 @@
 // bounded.config.ts and ask the core's judge; tests inject their own.
 import { Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
+import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
 import { type AfterTool, type Decide, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
+
+/** Opens a project with the adapters this host provides: the path gate's, on disk. */
+const open = (projectRoot: string) => openProject(projectRoot, { ports: pathGateFileSystem() });
 
 /**
  * How long bounded may take to decide, then how long work still pending after
@@ -37,18 +41,18 @@ export interface Wiring {
  * throws or rejects with reaches the hook, which denies.
  */
 export const decideFromConfig: Decide = async (event, { projectRoot }) => {
-  const project = await openProject(projectRoot);
+  const project = await open(projectRoot);
   return project.judge(event);
 };
 
 /** After a call ran: the project's judge undoes what a shell command changed in watched files, and says so. */
 export const afterToolFromConfig: AfterTool = async (result, { projectRoot }) => {
-  const { message } = await (await openProject(projectRoot)).afterTool(result);
+  const { message } = await (await open(projectRoot)).afterTool(result);
   return { message };
 };
 
 /** Records a refusal the hook made itself in the project's guard log. */
-export const recordFromConfig: RecordRefusal = async (refusal, { projectRoot }) => (await openProject(projectRoot)).refuse(refusal);
+export const recordFromConfig: RecordRefusal = async (refusal, { projectRoot }) => (await open(projectRoot)).refuse(refusal);
 
 /** The hook for one process: stdin text in, stdout text out. */
 export function composeHook({ env, argv, decide, afterTool, record, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {

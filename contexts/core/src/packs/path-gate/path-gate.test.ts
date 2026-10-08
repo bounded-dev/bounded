@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { type BasePack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict, watchedPathsOf } from "bounded/domain";
+import { type BasePack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
+import { watchedRulesOf } from "./domain/watched-rules.ts";
 import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
 import { opened } from "./shell.test-support.ts";
 
@@ -280,7 +281,7 @@ describe("the path gate — rules that name files only", () => {
     const all = [corePack, pathGate, rules("a", { match: ".env", deny: ["create", "modify", "delete"], redirect: "Ask", file: true })];
     const composed = Composition.compose(all, all);
     if (!composed.ok) throw new Error(composed.error);
-    const watched = watchedPathsOf(composed.value);
+    const watched = watchedRulesOf(composed.value, pathGate.points.protectedPaths);
     expect(watched.ok && watched.value.map(({ rule }) => rule.match).filter((match) => match.includes(".env"))).toEqual([".env"]);
   });
 });

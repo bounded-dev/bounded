@@ -133,8 +133,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   shape (a class with a static `parse` or a private constructor, a `parse`
   function, a command), or is named in the test with its reason.
   Exempt, each named in the test with its
-  reason: barrels, the shared kernel (`domain/shared/{result,read,text,wire}.ts`)
-  and, until step C, `ProjectDrift` and `domain/drift/watched-paths.ts`.
+  reason: barrels and the shared kernel (`domain/shared/{result,read,text,wire}.ts`).
 - **Shape checks live in the class that owns the shape (ADR 2026-013).**
   Every check of the form "is this really an X, with the right fields" is in
   the `parse` (or factory) of the class that owns X, the only way to get an
@@ -194,9 +193,11 @@ Rules, enforced by `architecture.test.ts` unless stated:
   project's contributions into the pack `bounded/project`, which depends on
   every selected pack; a project never contributes to an unselected pack's
   point. A configuration that cannot be used makes every event refused.
-- **Shell commands cannot change watched files (ADR 2026-011).** Hosts call
-  `judge` before a tool call and `afterTool` after it, passing the call id;
-  changes to watched files are undone and reported.
+- **The core runs packs' asynchronous lifecycle checks around tool calls;
+  packs get adapters through ports the host provides (ADR 2026-013).** Hosts
+  call `judge` before a tool call and `afterTool` after it, passing the call
+  id, and pass the shipped packs' ports to `openProject` (the path gate's
+  undo what shell commands change in the files it protects, ADR 2026-011).
 - If a change needs the core to learn a technology's name or an opinion, it is
   in the wrong place: put it in a pack and give the core a mechanism.
 

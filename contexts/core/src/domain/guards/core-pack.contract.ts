@@ -1,5 +1,4 @@
 import type { Composition } from "../composition/composition.contract.ts";
-import type { WatchedPath, WatchedPathSource } from "../drift/watched-path.contract.ts";
 import type { EffectByKind, EffectKind } from "../events/effect.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { AfterToolReport } from "../lifecycle/after-tool-report.contract.ts";
@@ -73,8 +72,6 @@ export type CorePackPoints = {
   readonly afterTool: ExtensionPoint<AfterTool, CoreId>;
   /** Once, when a project opens: prepare what guards need. */
   readonly onProjectOpen: ExtensionPoint<ProjectOpenHandler, CoreId>;
-  /** Around each shell command: files it must not change, or sources that work them out; a change is undone. */
-  readonly watchedPaths: ExtensionPoint<WatchedPath | WatchedPathSource, CoreId>;
 };
 
 /** The core pack: its id and its points. */
