@@ -3,6 +3,9 @@ import { ToolUse, Verdict } from "bounded/domain";
 import { type PathResolver, toToolUse } from "./event.ts";
 import type { HostCall } from "./translate.ts";
 
+/** A value's wire form: its JSON, parsed. */
+const wireOf = (value: unknown): unknown => JSON.parse(JSON.stringify(value) ?? "null");
+
 // A stand-in for the file system: '/p' is the project; a raw path containing
 // 'old' exists; one starting 'bad' is refused.
 const paths: PathResolver = {
@@ -21,38 +24,38 @@ const event = (call: HostCall, context: Parameters<typeof toToolUse>[1] = at) =>
 
 describe("toToolUse: a translated call, its paths resolved, as a host-neutral event", () => {
   test("paths become project-relative, resolved against the session's directory", () => {
-    expect(event({ tool: "read", effects: [{ kind: "read", path: "/p/src/a.ts" }] })).toEqual({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "src/a.ts" }] } as never);
-    expect(event({ tool: "read", effects: [{ kind: "read", path: "a.ts" }] }, { ...at, cwd: "/p/src" }).effects).toEqual([{ kind: "read", path: "src/a.ts" }] as never);
+    expect(wireOf(event({ tool: "read", effects: [{ kind: "read", path: "/p/src/a.ts" }] }))).toEqual({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "src/a.ts" }] });
+    expect(wireOf(event({ tool: "read", effects: [{ kind: "read", path: "a.ts" }] }, { ...at, cwd: "/p/src" }).effects)).toEqual([{ kind: "read", path: "src/a.ts" }]);
   });
 
   test("a write that may create is a create when the file does not exist, a modify when it does", () => {
-    expect(event({ tool: "write", effects: [{ kind: "write", path: "/p/new.ts", change: "create-or-modify" }] }).effects).toEqual([{ kind: "write", path: "new.ts", change: "create" }] as never);
-    expect(event({ tool: "write", effects: [{ kind: "write", path: "/p/old.ts", change: "create-or-modify" }] }).effects).toEqual([{ kind: "write", path: "old.ts", change: "modify" }] as never);
-    expect(event({ tool: "edit", effects: [{ kind: "write", path: "/p/new.ts", change: "modify" }] }).effects).toEqual([{ kind: "write", path: "new.ts", change: "modify" }] as never);
+    expect(wireOf(event({ tool: "write", effects: [{ kind: "write", path: "/p/new.ts", change: "create-or-modify" }] }).effects)).toEqual([{ kind: "write", path: "new.ts", change: "create" }]);
+    expect(wireOf(event({ tool: "write", effects: [{ kind: "write", path: "/p/old.ts", change: "create-or-modify" }] }).effects)).toEqual([{ kind: "write", path: "old.ts", change: "modify" }]);
+    expect(wireOf(event({ tool: "edit", effects: [{ kind: "write", path: "/p/new.ts", change: "modify" }] }).effects)).toEqual([{ kind: "write", path: "new.ts", change: "modify" }]);
   });
 
   test("a list's root is resolved; its filter is kept, and left out when the host gave none", () => {
     const search = event({ tool: "search", effects: [{ kind: "list", root: ".", filter: "*.md" }, { kind: "list", root: "/p/docs" }] });
     // The core's list effect always has a filter: null when the host gave none.
-    expect(search.effects).toEqual([{ kind: "list", root: ".", filter: "*.md" }, { kind: "list", root: "docs", filter: null }] as never);
+    expect(wireOf(search.effects)).toEqual([{ kind: "list", root: ".", filter: "*.md" }, { kind: "list", root: "docs", filter: null }]);
     expect(search.effects[1]?.kind === "list" && search.effects[1].filter).toBeNull();
   });
 
   test("effects without paths pass as they are", () => {
     const effects = [{ kind: "execute", command: "ls" }, { kind: "fetch", url: "https://example.com" }, { kind: "delegate", agent: "Explore" }, { kind: "invoke", name: "Skill" }] as const;
     // The core's execute effect always has a cwd: null when the host gave none.
-    expect(event({ tool: "other", effects: [...effects] }).effects).toEqual([{ ...effects[0], cwd: null }, ...effects.slice(1)] as never);
+    expect(wireOf(event({ tool: "other", effects: [...effects] }).effects)).toEqual([{ ...effects[0], cwd: null }, ...effects.slice(1)]);
   });
 
   test("an execute's cwd is resolved to a project-relative directory; one the resolver refuses refuses the call", () => {
-    expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }, { ...at, cwd: "/p/src" }).effects).toEqual([{ kind: "execute", command: "ls", cwd: "src" }] as never);
-    expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }).effects).toEqual([{ kind: "execute", command: "ls", cwd: "." }] as never);
+    expect(wireOf(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }, { ...at, cwd: "/p/src" }).effects)).toEqual([{ kind: "execute", command: "ls", cwd: "src" }]);
+    expect(wireOf(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }).effects)).toEqual([{ kind: "execute", command: "ls", cwd: "." }]);
     const outside = toToolUse({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "bad-dir" }] }, at);
     expect(outside).toEqual({ ok: false, error: Verdict.refuse("Path 'bad-dir' is bad", "Use a good one") });
   });
 
   test("the role is a checked role label, or null", () => {
-    expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls" }] }, { ...at, role: "builder" }).role).toBe("builder" as never);
+    expect(event({ tool: "shell", effects: [{ kind: "execute", command: "ls" }] }, { ...at, role: "builder" }).role?.value).toBe("builder");
     const bad = toToolUse({ tool: "shell", effects: [{ kind: "execute", command: "ls" }] }, { ...at, role: "Not A Role" });
     expect(bad).toEqual({ ok: false, error: Verdict.refuse("Role 'Not A Role' must be lowercase words joined by single hyphens, such as 'builder'", "Start the hook with --role naming a role label") });
   });

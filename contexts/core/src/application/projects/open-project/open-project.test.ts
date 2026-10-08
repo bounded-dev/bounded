@@ -26,7 +26,7 @@ if (!root.ok) throw new Error(root.error);
 const command = root.value;
 const write = (path: string) => ({ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
 
-const noGenerated = (effect: WriteEffect) => (effect.path.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow);
+const noGenerated = (effect: WriteEffect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow);
 const config = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.writeGuards, [noGenerated])] });
 
 describe("OpenProjectHandler", () => {

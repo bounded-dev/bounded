@@ -3,6 +3,9 @@ import { type ToolResult, Verdict } from "bounded/domain";
 import type { PathResolver, ToolUse } from "./event.ts";
 import { type AdapterRefusal, type AfterTool, type Decide, respond, runHook } from "./hook.ts";
 
+/** A value's wire form: its JSON, parsed. */
+const wireOf = (value: unknown): unknown => JSON.parse(JSON.stringify(value) ?? "null");
+
 const deny = (reason: string, redirect: string): string =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `${reason}\n${redirect}` } });
 
@@ -24,7 +27,7 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
   test("a PreToolUse call carries Claude Code's tool_use_id to the core as the call id", async () => {
     const seen: ToolUse[] = [];
     await runHook(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "make" }, tool_use_id: "toolu_1", cwd: "/p" }), hook(recording(seen)));
-    expect(seen[0]?.callId).toBe("toolu_1");
+    expect(seen[0]?.callId?.value).toBe("toolu_1");
   });
 
   test("a refusal the adapter makes itself is recorded, and the answer is still that refusal", async () => {
@@ -49,7 +52,7 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
     };
     const out = await runHook(after("Bash", { command: "./regenerate.sh" }), { ...hook(recording([])), afterTool });
     expect(JSON.parse(out)).toEqual({ decision: "block", reason: "This command changed protected files, and they were restored: generated/a.ts was modified." });
-    expect<unknown>(results[0]).toEqual({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "toolu_1" });
+    expect(wireOf(results[0])).toEqual({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "toolu_1" });
   });
 
   test("a PostToolUse with nothing undone, or no afterTool, answers nothing", async () => {
@@ -69,7 +72,7 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
       hookSpecificOutput: { hookEventName: "PostToolUseFailure", additionalContext: "This command changed protected files, and they were restored: generated/a.ts was modified." },
     });
     expect(results[0]?.ok).toBe(false);
-    expect(results[0]?.callId).toBe("toolu_1");
+    expect(results[0]?.callId?.value).toBe("toolu_1");
     expect(await runHook(failed, { ...hook(recording([])), afterTool: async () => ({ message: null }) })).toBe("");
   });
 
@@ -104,7 +107,7 @@ describe("runHook: stdin to stdout, fail closed", () => {
     const seen: ToolUse[] = [];
     const out = await runHook(stdin("Edit", { file_path: "/p/src/a.ts" }), hook(recording(seen), "builder"));
     expect(out).toBe("");
-    expect(seen).toEqual([{ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] }] as never);
+    expect(wireOf(seen)).toEqual([{ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] }]);
   });
 
   test("decide's refusal is a deny", async () => {
@@ -129,7 +132,7 @@ describe("runHook: stdin to stdout, fail closed", () => {
     const relative: PathResolver = { resolve: (raw, cwd) => ({ ok: true, value: { path: `${cwd}|${raw}`.replace(/^\/p\|/, ""), exists: true } }) };
     const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "a.ts" } });
     await runHook(payload, { ...hook(recording(seen)), paths: relative });
-    expect(seen[0]?.effects).toEqual([{ kind: "read", path: "a.ts" }] as never);
+    expect(wireOf(seen[0]?.effects)).toEqual([{ kind: "read", path: "a.ts" }]);
   });
 
   test("a decide that throws, or returns no verdict, is a deny, never an allow", async () => {

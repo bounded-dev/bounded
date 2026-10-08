@@ -21,7 +21,7 @@ class FakeLog implements DecisionLog {
 const gate = definePack({
   id: packIdsFor("test-packs")("gate"),
   dependsOn: [corePack],
-  contributes: [contribution(corePack.points.writeGuards, [(effect) => (effect.path.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow)])],
+  contributes: [contribution(corePack.points.writeGuards, [(effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow)])],
 });
 const composed = Composition.compose([gate, corePack], [gate, corePack]);
 if (!composed.ok) throw new Error(composed.error);
@@ -97,7 +97,7 @@ describe("JudgeEventHandler", () => {
     const log = new FakeLog();
     let n = 0;
     await new JudgeEventHandler(composition, log, clock, { ids: { next: () => `id-${++n}` } }).execute(command("src/a.ts"));
-    expect(log.decisions[0]?.id).toBe("id-1");
+    expect(log.decisions[0]?.id.value).toBe("id-1");
   });
 
   test("every decision has its own id", async () => {
@@ -106,8 +106,8 @@ describe("JudgeEventHandler", () => {
     await handler.execute(command("src/a.ts"));
     await handler.execute(command("src/a.ts"));
     const [first, second] = log.decisions;
-    expect((first?.id ?? "").length).toBeGreaterThan(0);
-    expect(first?.id).not.toBe(second?.id);
+    expect((first?.id.value ?? "").length).toBeGreaterThan(0);
+    expect(first?.id.value).not.toBe(second?.id.value);
   });
 
   test("a record that lands after the bound is followed by a line with the same id saying what was enforced", async () => {
@@ -118,7 +118,7 @@ describe("JudgeEventHandler", () => {
     const [original, followUp] = log.decisions;
     expect(log.decisions.length).toBe(2);
     expect(original?.verdict.kind).toBe("allow");
-    expect(followUp?.id).toBe(original?.id ?? "missing");
+    expect(followUp?.id.value).toBe(original?.id.value ?? "missing");
     expect(followUp?.note).toBe("not recorded in time; enforced: refuse");
     expect<unknown>(followUp?.verdict).toEqual({
       kind: "refuse",

@@ -21,7 +21,7 @@ describe("the path gate watches what it protects from writes", () => {
     if (!composed.ok) throw new Error(composed.error);
     const watched = watchedPathsOf(composed.value);
     if (!watched.ok) throw new Error(watched.error);
-    expect(watched.value.map(({ rule, from }) => [rule.match, rule.except ?? [], from])).toEqual([
+    expect(watched.value.map(({ rule, from }) => [rule.match, rule.except, from.value])).toEqual([
       ["**/bounded.config.*", [], "bounded/path-gate"],
       ["packages/db/**", ["packages/db/src/schema/**"], "bounded/path-gate"],
       ["vendor", [], "bounded/path-gate"],

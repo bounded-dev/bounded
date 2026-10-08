@@ -49,7 +49,9 @@ export const capital = definePack({ id: packId("capital"), points: { Words: poin
 export const unchecked = point({ description: "No check" }); // rejected: Property 'check' is missing
 // 5. Ids: exact, branded, from one factory per npm package.
 export const widenedId = definePack({ id: anyId }); // rejected: give the pack an exact id from packIdsFor
-export const plainId = definePack({ id: "test-packs/plain" }); // rejected: Type 'string' is not assignable to type '{ readonly __packId: string; }'
+export const plainId = definePack({ id: "test-packs/plain" }); // rejected: Type 'string' is not assignable to type 'PackId<string>'
+export const plainIdValue: PackId<"test-packs/plain"> = "test-packs/plain"; // rejected: is not assignable to type 'PackId<"test-packs/plain">'
+export const otherIdValue: PackId<"test-packs/base"> = packId("tags"); // rejected: Type '"test-packs/tags"' is not assignable to type '"test-packs/base"'
 export const widenedPackage = packIdsFor(anyText); // rejected: write the npm package name as a string literal
 export const upperPackage = packIdsFor("Acme"); // rejected: npm package names are lowercase
 export const deepPackage = packIdsFor("acme/rules"); // rejected: an npm package name is name or @scope/name

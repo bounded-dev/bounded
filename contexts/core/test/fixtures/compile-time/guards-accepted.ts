@@ -9,9 +9,9 @@ const noEditTools: Guard<ToolUse> = (use) => (use.tool === "edit" ? Verdict.refu
 const needsRole: Guard<Event> = (event) => (event.role === null ? Verdict.refuse("No role", "Start as a role") : Verdict.allow);
 const onStart: Guard<SessionStart> = () => Verdict.allow;
 // Effect guards: one effect of their kind, the composition, and the whole call.
-const noGenerated = (effect: WriteEffect) => (effect.path.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow);
+const noGenerated = (effect: WriteEffect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow);
 const anyEffect = (effect: Effect) => (effect.kind === "fetch" ? Verdict.refuse("Offline", "Work offline") : Verdict.allow);
-const noForce = (effect: ExecuteEffect) => (effect.command.includes("--force") ? Verdict.refuse("Forced", "Run it without --force") : Verdict.allow);
+const noForce = (effect: ExecuteEffect) => (effect.command.value.includes("--force") ? Verdict.refuse("Forced", "Run it without --force") : Verdict.allow);
 
 export const gate = definePack({
   id: packId("gate"),
@@ -24,7 +24,7 @@ export const gate = definePack({
     contribution(guards.readGuards, [
       (effect: ReadEffect, composition, call) => {
         const words = composition.read(base.points.words);
-        return call.role !== null && words.ok && words.value.includes(effect.path) ? Verdict.refuse("A word", "Read another file") : Verdict.allow;
+        return call.role !== null && words.ok && words.value.includes(effect.path.value) ? Verdict.refuse("A word", "Read another file") : Verdict.allow;
       },
     ]),
   ],

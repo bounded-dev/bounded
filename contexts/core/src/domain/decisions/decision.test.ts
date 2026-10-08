@@ -4,17 +4,41 @@ import { ToolResult } from "../events/tool-result.ts";
 import { ToolUse } from "../events/tool-use.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import { Verdict } from "../verdicts/verdict.ts";
+import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
 import { Decision } from "./decision.ts";
+import { DecisionId } from "./decision-id.ts";
 
 const TIME = "2026-10-07T12:00:00.000Z";
 const use = ToolUse.parse({ role: "builder", tool: "edit", effects: [{ kind: "read", path: "a.ts" }, { kind: "write", path: "generated/x.ts", change: "modify" }] });
 const start = SessionStart.parse({ role: null });
 if (!use.ok || !start.ok) throw new Error("expected events");
 const gate = packIdsFor("test-packs")("gate");
+const id = (text: string): DecisionId => {
+  const parsed = DecisionId.parse(text);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+};
+
+const line = { id: "d-0", time: TIME, event: "tool-use", role: "builder", tool: "edit", effects: ["read a.ts"], verdict: { kind: "allow" }, note: null };
+const adapterLine = { ...line, id: "d-00", event: "adapter", role: null, tool: null, effects: [], verdict: { kind: "refuse", reason: "r", redirect: "d", pack: null, effect: null }, host: { tool: "Bash", input: "{}" } };
+valueObjectLaws("Decision", Decision, [line, adapterLine], [{ ...line, id: "" }, { ...line, event: "other" }, { ...line, effects: "read a.ts" }, { ...line, verdict: { kind: "maybe" } }, { ...line, tool: "bash" }]);
+
+describe("Decision — a recorded line read back", () => {
+  test("parse gives back exactly the line that was written", () => {
+    const decision = Decision.of(id("d-16"), TIME, use.value, { verdict: Verdict.refuse("No", "Ask"), refusedBy: { pack: gate, effect: null } });
+    const read = Decision.parse(JSON.parse(JSON.stringify(decision)));
+    expect(read.ok && JSON.stringify(read.value)).toBe(JSON.stringify(decision));
+  });
+
+  test("refuses a line that is not a decision, saying what one is", () => {
+    expect(Decision.parse({ ...line, note: 3 })).toEqual({ ok: false, error: "A decision is a recorded line: { id, time, event, role, tool, effects, verdict, note, host? }" });
+    expect(Decision.parse({ ...line, id: "" })).toEqual({ ok: false, error: "A decision id is non-empty text without control characters, at most 256 characters" });
+  });
+});
 
 describe("Decision", () => {
   test("records an allowed tool use: when, who, which tool and every effect, described", () => {
-    expect<unknown>(Decision.of("d-1", TIME, use.value, { verdict: Verdict.allow, refusedBy: null })).toEqual({
+    expect(wireOf(Decision.of(id("d-1"), TIME, use.value, { verdict: Verdict.allow, refusedBy: null }))).toEqual({
       id: "d-1",
       time: TIME,
       event: "tool-use",
@@ -30,7 +54,7 @@ describe("Decision", () => {
     const [, write] = use.value.effects;
     if (write === undefined) throw new Error("expected a write");
     const refusal = Verdict.refuse("test-packs/gate refused write (modify) generated/x.ts: generated", "Change the generator's input");
-    expect<unknown>(Decision.of("d-2", TIME, use.value, { verdict: refusal, refusedBy: { pack: gate, effect: write } }).verdict).toEqual({
+    expect<unknown>(Decision.of(id("d-2"), TIME, use.value, { verdict: refusal, refusedBy: { pack: gate, effect: write } }).verdict).toEqual({
       kind: "refuse",
       reason: "test-packs/gate refused write (modify) generated/x.ts: generated",
       redirect: "Change the generator's input",
@@ -41,33 +65,33 @@ describe("Decision", () => {
 
   test("a refusal no pack made, or a whole-call refusal, records what it knows", () => {
     const refusal = Verdict.refuse("No guards can be found", "Select the core");
-    expect<unknown>(Decision.of("d-3", TIME, use.value, { verdict: refusal, refusedBy: null }).verdict).toEqual({ kind: "refuse", reason: "No guards can be found", redirect: "Select the core", pack: null, effect: null });
-    expect<unknown>(Decision.of("d-4", TIME, use.value, { verdict: refusal, refusedBy: { pack: gate, effect: null } }).verdict).toEqual({ kind: "refuse", reason: "No guards can be found", redirect: "Select the core", pack: "test-packs/gate", effect: null });
+    expect<unknown>(Decision.of(id("d-3"), TIME, use.value, { verdict: refusal, refusedBy: null }).verdict).toEqual({ kind: "refuse", reason: "No guards can be found", redirect: "Select the core", pack: null, effect: null });
+    expect<unknown>(Decision.of(id("d-4"), TIME, use.value, { verdict: refusal, refusedBy: { pack: gate, effect: null } }).verdict).toEqual({ kind: "refuse", reason: "No guards can be found", redirect: "Select the core", pack: "test-packs/gate", effect: null });
   });
 
   test("records a session start with no tool and no effects", () => {
-    expect<unknown>(Decision.of("d-5", TIME, start.value, { verdict: Verdict.allow, refusedBy: null })).toEqual({ id: "d-5", time: TIME, event: "session-start", role: null, tool: null, effects: [], verdict: { kind: "allow" }, note: null });
+    expect(wireOf(Decision.of(id("d-5"), TIME, start.value, { verdict: Verdict.allow, refusedBy: null }))).toEqual({ id: "d-5", time: TIME, event: "session-start", role: null, tool: null, effects: [], verdict: { kind: "allow" }, note: null });
   });
 
   test("text past 4,096 characters is shortened, saying so, so a log line stays bounded", () => {
     const long = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "x".repeat(10_000) }] });
     if (!long.ok) throw new Error(long.error);
-    const [effect] = Decision.of("d-7", TIME, long.value, { verdict: Verdict.allow, refusedBy: null }).effects;
+    const [effect] = Decision.of(id("d-7"), TIME, long.value, { verdict: Verdict.allow, refusedBy: null }).effects;
     expect(effect).toBe(`execute \`${"x".repeat(4096 - "execute `".length)}… (shortened from ${10_000 + "execute ``".length} characters)`);
   });
 
   test("shortening a field never splits a character made of two code units", () => {
     const emoji = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "😀".repeat(5000) }] });
     if (!emoji.ok) throw new Error(emoji.error);
-    const [effect] = Decision.of("d-11", TIME, emoji.value, { verdict: Verdict.allow, refusedBy: null }).effects;
+    const [effect] = Decision.of(id("d-11"), TIME, emoji.value, { verdict: Verdict.allow, refusedBy: null }).effects;
     expect(effect?.includes("\ud83d…")).toBe(false);
     expect(effect?.endsWith("… (shortened from 5010 characters)")).toBe(true);
   });
 
   test("a follow-up keeps the decision's id and says what was enforced instead", () => {
-    const decision = Decision.of("d-8", TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
+    const decision = Decision.of(id("d-8"), TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
     const late = Decision.enforced(decision, "2026-10-07T12:00:05.000Z", Verdict.refuse("Not recorded in time", "Fix the log"), "not recorded in time; enforced: refuse");
-    expect<unknown>(late).toEqual({
+    expect(wireOf(late)).toEqual({
       ...JSON.parse(JSON.stringify(decision)),
       time: "2026-10-07T12:00:05.000Z",
       verdict: { kind: "refuse", reason: "Not recorded in time", redirect: "Fix the log", pack: null, effect: null },
@@ -78,11 +102,11 @@ describe("Decision", () => {
   test("records the directory a command runs in", () => {
     const inApp = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "make", cwd: "apps/web" }] });
     if (!inApp.ok) throw new Error(inApp.error);
-    expect(Decision.of("d-9", TIME, inApp.value, { verdict: Verdict.allow, refusedBy: null }).effects).toEqual(["execute `make` in apps/web"]);
+    expect(Decision.of(id("d-9"), TIME, inApp.value, { verdict: Verdict.allow, refusedBy: null }).effects).toEqual(["execute `make` in apps/web"]);
   });
 
   test("records an event that could not be read, with the refusal it got", () => {
-    expect<unknown>(Decision.invalid("d-10", TIME, Verdict.refuse("The event cannot be read", "Fix the adapter"))).toEqual({
+    expect(wireOf(Decision.invalid(id("d-10"), TIME, Verdict.refuse("The event cannot be read", "Fix the adapter")))).toEqual({
       id: "d-10",
       time: TIME,
       event: "invalid",
@@ -97,8 +121,8 @@ describe("Decision", () => {
   test("records a finished tool call, with a note", () => {
     const result = ToolResult.parse({ kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make" }], ok: true, callId: "c1" });
     if (!result.ok) throw new Error(result.error);
-    const decision = Decision.of("d-12", TIME, result.value, { verdict: Verdict.refuse("changed", "restore"), refusedBy: null }, "changed by a shell command; restored");
-    expect<unknown>(decision).toEqual({
+    const decision = Decision.of(id("d-12"), TIME, result.value, { verdict: Verdict.refuse("changed", "restore"), refusedBy: null }, "changed by a shell command; restored");
+    expect(wireOf(decision)).toEqual({
       id: "d-12",
       time: TIME,
       event: "tool-result",
@@ -111,7 +135,7 @@ describe("Decision", () => {
   });
 
   test("records a call the host adapter refused before the core saw an event: the host's tool and a bounded summary of its input", () => {
-    expect<unknown>(Decision.adapter("d-13", TIME, { role: "builder", tool: "Bash", input: { command: "ls" }, verdict: Verdict.refuse("outside the project", "Stay inside") })).toEqual({
+    expect(wireOf(Decision.adapter(id("d-13"), TIME, { role: "builder", tool: "Bash", input: { command: "ls" }, verdict: Verdict.refuse("outside the project", "Stay inside") }))).toEqual({
       id: "d-13",
       time: TIME,
       event: "adapter",
@@ -122,16 +146,16 @@ describe("Decision", () => {
       note: null,
       host: { tool: "Bash", input: '{"command":"ls"}' },
     });
-    const huge = Decision.adapter("d-14", TIME, { role: null, tool: "Write", input: { content: "x".repeat(10_000) }, verdict: Verdict.refuse("r", "d") });
+    const huge = Decision.adapter(id("d-14"), TIME, { role: null, tool: "Write", input: { content: "x".repeat(10_000) }, verdict: Verdict.refuse("r", "d") });
     expect(huge.host?.input.endsWith("characters)")).toBe(true);
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
-    expect(Decision.adapter("d-15", TIME, { role: null, tool: "X", input: cyclic, verdict: Verdict.refuse("r", "d") }).host?.input).toBe("an input that cannot be shown");
+    expect(Decision.adapter(id("d-15"), TIME, { role: null, tool: "X", input: cyclic, verdict: Verdict.refuse("r", "d") }).host?.input).toBe("an input that cannot be shown");
   });
 
   test("is plain, frozen, serialisable data", () => {
-    const decision = Decision.of("d-6", TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
-    expect(JSON.parse(JSON.stringify(decision))).toEqual(decision);
+    const decision = Decision.of(id("d-6"), TIME, use.value, { verdict: Verdict.allow, refusedBy: null });
+    expect(JSON.parse(JSON.stringify(decision))).toEqual(decision.toJSON());
     expect(Object.isFrozen(decision) && Object.isFrozen(decision.effects) && Object.isFrozen(decision.verdict)).toBe(true);
   });
 });

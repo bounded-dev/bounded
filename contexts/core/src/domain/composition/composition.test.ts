@@ -40,7 +40,7 @@ function wordsPack(local: string, more: readonly AnyPack[], values: string[]): A
   return untypedPack({ id: `test-packs/${local}`, dependsOn: [base, ...more], contributes: [contribution(words, values)] });
 }
 
-const ids = (packs: readonly AnyPack[]): string[] => packs.map((pack) => pack.id);
+const ids = (packs: readonly AnyPack[]): string[] => packs.map((pack) => pack.id.value);
 
 describe("Composition — reading an extension point", () => {
   test("returns every value, typed and as its check stored it, dependencies' before dependents'", () => {

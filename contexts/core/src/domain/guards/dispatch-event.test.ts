@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { Composition } from "../composition/composition.ts";
 import type { Composition as CompositionType } from "../composition/composition.contract.ts";
 import type { Effect, ReadEffect, WriteEffect } from "../events/effect.contract.ts";
@@ -115,8 +116,8 @@ describe("dispatchEvent — whole calls, then each effect", () => {
       contributes: [
         contribution(guards.writeGuards, [
           (effect: WriteEffect) => {
-            calls.push(effect.path);
-            return effect.path.startsWith("generated/") ? Verdict.refuse("generated/ belongs to the generator", "Change the generator's input instead") : Verdict.allow;
+            calls.push(effect.path.value);
+            return effect.path.value.startsWith("generated/") ? Verdict.refuse("generated/ belongs to the generator", "Change the generator's input instead") : Verdict.allow;
           },
         ]),
       ],
@@ -146,7 +147,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
           (effect: ReadEffect, composition, whole) => {
             const prefixes = composition.read(rules.points.protectedPaths);
             if (!prefixes.ok) return Verdict.refuse(prefixes.error, "Select the rules pack");
-            return whole.role !== "reviewer" && prefixes.value.some((prefix) => effect.path.startsWith(prefix)) ? Verdict.refuse("Protected", "Ask a reviewer") : Verdict.allow;
+            return whole.role?.value !== "reviewer" && prefixes.value.some((prefix) => effect.path.value.startsWith(prefix)) ? Verdict.refuse("Protected", "Ask a reviewer") : Verdict.allow;
           },
         ]),
       ],
@@ -290,10 +291,10 @@ describe("decideEvent — the verdict and who refused", () => {
     const composition = composed([gate, corePack]);
     const refused = decideEvent(composition, call([{ kind: "read", path: "a.ts" }, { kind: "write", path: "b.ts", change: "create" }]));
     expect(refused.verdict.kind).toBe("refuse");
-    expect<unknown>(refused.refusedBy).toEqual({ pack: "test-packs/gate", effect: { kind: "write", path: "b.ts", change: "create" } });
+    expect(wireOf(refused.refusedBy)).toEqual({ pack: "test-packs/gate", effect: { kind: "write", path: "b.ts", change: "create" } });
     const shell = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }] });
     if (!shell.ok) throw new Error(shell.error);
-    expect<unknown>(decideEvent(composition, shell.value).refusedBy).toEqual({ pack: "test-packs/gate", effect: null });
+    expect(wireOf(decideEvent(composition, shell.value).refusedBy)).toEqual({ pack: "test-packs/gate", effect: null });
     expect(decideEvent(composition, call([{ kind: "read", path: "a.ts" }]))).toEqual({ verdict: Verdict.allow, refusedBy: null });
     expect(decideEvent(composed([gate, corePack], [corePack]), write).refusedBy).toBeNull();
     expect(decideEvent(composed([definePack({ id: packId("other") })]), write).refusedBy).toBeNull();
@@ -302,7 +303,7 @@ describe("decideEvent — the verdict and who refused", () => {
   test("a failing guard is attributed to its pack", () => {
     const broken = definePack({ id: packId("broken"), dependsOn: [corePack], contributes: [contribution(guards.readGuards, [() => { throw new Error("x"); }])] });
     const judged = decideEvent(composed([broken, corePack]), call([{ kind: "read", path: "a.ts" }]));
-    expect<unknown>(judged.refusedBy).toEqual({ pack: "test-packs/broken", effect: { kind: "read", path: "a.ts" } });
+    expect(wireOf(judged.refusedBy)).toEqual({ pack: "test-packs/broken", effect: { kind: "read", path: "a.ts" } });
   });
 });
 
@@ -318,7 +319,7 @@ describe("corePack — watched paths", () => {
 
 describe("corePack", () => {
   test("is the pack bounded/core, declaring a guards point per event kind and per effect kind", () => {
-    expect<string>(corePack.id).toBe("bounded/core");
+    expect(corePack.id.value).toBe("bounded/core");
     expect(Object.keys(corePack.points).sort()).toEqual([
       "delegateGuards",
       "executeGuards",
