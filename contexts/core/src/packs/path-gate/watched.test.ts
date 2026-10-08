@@ -33,6 +33,20 @@ describe("the path gate watches what it protects from writes", () => {
     expect(watched.value.find(({ rule }) => rule.match === "vendor")?.rule.why).toBe("the path gate protects 'vendor'");
   });
 
+  test("a watched path forbids only the changes its rule denies", () => {
+    const all = [corePack, pathGate, project];
+    const composed = Composition.compose(all, all);
+    if (!composed.ok) throw new Error(composed.error);
+    const watched = watchedPathsOf(composed.value);
+    if (!watched.ok) throw new Error(watched.error);
+    expect(watched.value.map(({ rule }) => [rule.match, rule.changes])).toEqual([
+      ["**/bounded.config.*", ["create", "modify", "delete"]],
+      ["packages/db/**", ["create", "modify", "delete"]],
+      ["vendor", ["delete"]],
+      ["vendor/**", ["delete"]],
+    ]);
+  });
+
   test("without the path gate selected, it watches nothing", () => {
     const composed = Composition.compose([corePack, pathGate], [corePack]);
     if (!composed.ok) throw new Error(composed.error);

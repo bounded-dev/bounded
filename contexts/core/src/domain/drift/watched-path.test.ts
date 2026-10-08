@@ -8,8 +8,9 @@ valueObjectLaws("WatchedPath", WatchedPath, [rule, { ...rule, match: "build/**",
 
 describe("WatchedPath", () => {
   test("a watched path names files a shell command must not change, why, and what to do instead", () => {
-    expect<unknown>(WatchedPath.parse(rule)).toEqual({ ok: true, value: { ...rule, except: [] } });
-    expect<unknown>(WatchedPath.parse({ ...rule, except: ["generated/README.md"] })).toEqual({ ok: true, value: { ...rule, except: ["generated/README.md"] } });
+    const every = ["create", "modify", "delete"];
+    expect<unknown>(WatchedPath.parse(rule)).toEqual({ ok: true, value: { ...rule, except: [], changes: every } });
+    expect<unknown>(WatchedPath.parse({ ...rule, except: ["generated/README.md"] })).toEqual({ ok: true, value: { ...rule, except: ["generated/README.md"], changes: every } });
   });
 
   test("patterns are project-relative globs", () => {
@@ -18,6 +19,13 @@ describe("WatchedPath", () => {
     }
     expect(WatchedPath.parse({ ...rule, except: ["../x"] }).ok).toBe(false);
     expect(WatchedPath.parse({ ...rule, except: "generated/a" })).toEqual({ ok: false, error: "A watched path's except is a list of project-relative globs" });
+  });
+
+  test("names the changes a command must not make to its files: every one unless said, in a fixed order, at least one", () => {
+    expect(WatchedPath.parse({ ...rule, changes: ["delete", "modify", "delete"] })).toMatchObject({ ok: true, value: { changes: ["modify", "delete"] } });
+    for (const changes of [[], ["write"], "modify"]) {
+      expect(WatchedPath.parse({ ...rule, changes })).toEqual({ ok: false, error: "A watched path's changes name at least one of create, modify and delete" });
+    }
   });
 
   test("says why, and what to do instead", () => {
