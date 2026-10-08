@@ -1,26 +1,37 @@
 // Bash's brace expansion of literal text, done statically: comma lists
 // ({a,b}) and simple ranges ({1..3}, {a..e}), nested, left to right. Text
-// keeps its backslash escapes, which make a character literal. More than
-// MAX_WORDS words is more than this will spell out.
+// keeps its backslash escapes, which make a character literal (quoted text
+// arrives escaped, so it never expands). More than MAX_WORDS words is more
+// than this will spell out. Each pass over a text is linear in its length,
+// and every pass is charged to `charge`: when it refuses, the expansion
+// stops, too costly to finish.
 
 const MAX_WORDS = 256;
 
-/** The top-level parts of the brace group opening at `start`, and where it closes; undefined when it does not close. */
-function group(text: string, start: number): { readonly end: number; readonly parts: string[] } | undefined {
-  let depth = 0;
-  let from = start + 1;
-  const parts: string[] = [];
-  for (let index = start; index < text.length; index++) {
+/** What brace expansion gives when it costs more than it was allowed. */
+export const TOO_COSTLY = "too-costly" as const;
+
+/** A brace group in a text: where it closes, and where its top-level commas are. */
+interface Group {
+  readonly end: number;
+  readonly commas: readonly number[];
+}
+
+/** Every brace group in `text` that closes, by where it opens: one pass with a stack, escapes skipped. */
+function groupsOf(text: string): Map<number, Group> {
+  const groups = new Map<number, Group>();
+  const open: { readonly start: number; readonly commas: number[] }[] = [];
+  for (let index = 0; index < text.length; index++) {
     const char = text[index];
     if (char === "\\") index++;
-    else if (char === "{") depth++;
-    else if (char === "}" && --depth === 0) return { end: index, parts: [...parts, text.slice(from, index)] };
-    else if (char === "," && depth === 1) {
-      parts.push(text.slice(from, index));
-      from = index + 1;
+    else if (char === "{") open.push({ start: index, commas: [] });
+    else if (char === "," && open.length > 0) open.at(-1)?.commas.push(index);
+    else if (char === "}") {
+      const closed = open.pop();
+      if (closed !== undefined) groups.set(closed.start, { end: index, commas: closed.commas });
     }
   }
-  return undefined;
+  return groups;
 }
 
 /** The words of a range ({1..3}, {a..e}), or undefined when it is not one, or too long. */
@@ -35,24 +46,30 @@ function range(inside: string): string[] | undefined {
   return out;
 }
 
-/** `text` brace-expanded; undefined when it would give more than MAX_WORDS words. */
-export function expandBraces(text: string): string[] | undefined {
+/**
+ * `text` brace-expanded; undefined when it would give more than MAX_WORDS
+ * words; TOO_COSTLY when `charge`, given each pass's length, refuses.
+ */
+export function expandBraces(text: string, charge: (steps: number) => boolean): string[] | undefined | typeof TOO_COSTLY {
+  if (!charge(text.length + 1)) return TOO_COSTLY;
+  if (!text.includes("{")) return [text];
+  const groups = groupsOf(text);
   for (let index = 0; index < text.length; index++) {
     if (text[index] === "\\") {
       index++;
       continue;
     }
-    if (text[index] !== "{") continue;
-    const found = group(text, index);
+    const found = text[index] === "{" ? groups.get(index) : undefined;
     if (found === undefined) continue;
     const inside = text.slice(index + 1, found.end);
-    const alternatives = found.parts.length > 1 ? found.parts : /^[^\\]*\.\.[^\\]*$/.test(inside) ? range(inside) : [];
+    const parts = found.commas.length === 0 ? [inside] : [...found.commas, found.end].map((comma, at, all) => text.slice(at === 0 ? index + 1 : (all[at - 1] ?? 0) + 1, comma));
+    const alternatives = parts.length > 1 ? parts : /^[^\\]*\.\.[^\\]*$/.test(inside) ? range(inside) : [];
     if (alternatives === undefined) return /^(-?\d+\.\.-?\d+|[a-zA-Z]\.\.[a-zA-Z])$/.test(inside) ? undefined : [text];
     if (alternatives.length === 0) continue;
     const out: string[] = [];
     for (const alternative of alternatives) {
-      const expanded = expandBraces(text.slice(0, index) + alternative + text.slice(found.end + 1));
-      if (expanded === undefined) return undefined;
+      const expanded = expandBraces(text.slice(0, index) + alternative + text.slice(found.end + 1), charge);
+      if (expanded === undefined || expanded === TOO_COSTLY) return expanded;
       out.push(...expanded);
       if (out.length > MAX_WORDS) return undefined;
     }

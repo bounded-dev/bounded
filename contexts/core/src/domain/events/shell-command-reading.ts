@@ -20,7 +20,7 @@ const FILE_EFFECT = "A shell command reading's file effect is { effect, existenc
 const EXISTENCE = "A shell command reading's file effect's existenceUnknown must be true or false";
 const PART = "An unresolved part is { text, role }";
 const ROLES: readonly Contract.UnresolvedShellRole[] = ["read", "list", "write", "directory", "code"];
-const CAUSES: readonly Contract.UnreadShellCommandCause[] = ["too-complex", "unparsable"];
+const CAUSES: readonly Contract.UnreadShellCommandCause[] = ["too-complex"];
 /** Each outcome's fields: a field not listed does not belong, and none may be missing. */
 const FIELDS = { read: ["programs", "fileEffects", "unresolved"], unread: ["why"] } as const;
 
@@ -161,7 +161,7 @@ class UnreadShellCommandReadingImpl implements Contract.UnreadShellCommandReadin
     if (typeof why !== "string" || why.trim() === "") return refuse("An unread reading says why it could not be read");
     const rawCause = own(raw, "cause");
     const cause = CAUSES.find((known) => known === rawCause);
-    if (rawCause !== undefined && cause === undefined) return refuse(`An unread reading's cause is too-complex or unparsable, not '${show(rawCause)}'`);
+    if (rawCause !== undefined && cause === undefined) return refuse(`An unread reading's cause is too-complex, not '${show(rawCause)}'`);
     return { ok: true, value: new UnreadShellCommandReadingImpl(why, cause) };
   }
 

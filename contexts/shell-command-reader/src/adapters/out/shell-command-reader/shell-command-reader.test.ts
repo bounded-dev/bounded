@@ -182,30 +182,65 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     }
   }, 30_000);
 
-  test("a command past the length limits is unread before it is parsed, saying which limit, as too complex", async () => {
-    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
-    const cases: readonly (readonly [string, string])[] = [
-      [`echo ${"a".repeat(65_536)}`, "the command is too long to read: 65541 characters, past bounded's limit of 65536"],
-      [`echo ${"a ".repeat(10_000)}`, "the command is too long to read: 10001 words, past bounded's limit of 10000"],
-    ];
-    for (const [command, why] of cases) {
-      const started = performance.now();
-      const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
-      expect(performance.now() - started).toBeLessThan(2000);
-      expect(reading.toJSON()).toEqual({ outcome: "unread", why, cause: "too-complex" });
-    }
+  /** What the reader makes of `command`, how long it took, and the reading parsed. */
+  async function timed(command: string, reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" })) {
+    const started = performance.now();
+    const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
+    return { elapsed: performance.now() - started, reading };
+  }
+
+  test("a command past the length limit is unread before it is parsed, saying so, as too complex", async () => {
+    const { elapsed, reading } = await timed(`echo ${"a".repeat(65_536)}`);
+    expect(elapsed).toBeLessThan(2000);
+    expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too long to read: 65541 characters, past bounded's limit of 65536", cause: "too-complex" });
   });
 
-  test("a word too long to brace-expand makes the command unread as too complex, quickly: brace expansion is bounded", async () => {
-    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
-    const started = performance.now();
-    const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(`cat ${"{a,b}".repeat(10_000)}`)), null)));
-    expect(performance.now() - started).toBeLessThan(2000);
-    expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read: a word with a brace in it is longer than 4096 characters, past what bounded will brace-expand", cause: "too-complex" });
+  test("a long heredoc is read: its body is text, whatever its words", async () => {
+    const command = `cat > notes.txt <<'EOF'\n${"a line of the heredoc body\n".repeat(2300)}EOF`;
+    expect(command.length).toBeGreaterThan(60_000);
+    const { elapsed, reading } = await timed(command);
+    expect(elapsed).toBeLessThan(2000);
+    expect(reading.outcome === "read" && reading.toJSON().fileEffects).toEqual([{ effect: { kind: "write", path: "notes.txt", change: "create" } }]);
+  });
+
+  test("brace expansion is bounded: what costs too much is unread as too complex, quickly; quoted and escaped braces never count", async () => {
+    const costly = await timed(`cat ${"{a,b}".repeat(10_000)}`);
+    expect(costly.elapsed).toBeLessThan(2000);
+    expect(costly.reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read: expanding its braces would take more work than bounded allows", cause: "too-complex" });
+    const json = JSON.stringify(Object.fromEntries(Array.from({ length: 120 }, (_, index) => [`key${index}`, { name: `value ${index}`, tags: ["a", "b"] }])));
+    expect(json.length).toBeGreaterThan(4000);
+    for (const command of [`echo '{${"a".repeat(4100)}'`, `curl -X POST -d '${json}' https://example.com/api`, `echo \\{${"a".repeat(4100)}`]) {
+      const { elapsed, reading } = await timed(command);
+      expect({ command: command.slice(0, 30), fast: elapsed < 2000, outcome: reading.outcome }).toEqual({ command: command.slice(0, 30), fast: true, outcome: "read" });
+    }
     // Below the bound, braces still expand.
     expect((await read(`cat ${"{a,b}".repeat(8)}`)).fileEffects).toHaveLength(256);
     expect((await read(`cat ${"{a,b}".repeat(9)}`)).unresolved).toEqual([{ text: "{a,b}".repeat(9), role: "read" }]);
     expect((await read("cat {a,b}.txt")).fileEffects).toEqual([{ effect: { kind: "read", path: "a.txt" } }, { effect: { kind: "read", path: "b.txt" } }]);
+  });
+
+  test("the reviewer's pathological commands each finish in under 2 s, read or unread", async () => {
+    for (const command of [
+      `${"xargs --b ".repeat(14)}sh -c '${"cat a.txt; ".repeat(370)}'`,
+      `echo ${"{".repeat(4096)}${"}".repeat(4096)}`,
+      `echo ${`${"{".repeat(4096)} `.repeat(15)}`,
+      `echo ${"{".repeat(60_000)}`,
+    ]) {
+      const { elapsed } = await timed(command);
+      expect({ command: command.slice(0, 30), fast: elapsed < 2000 }).toEqual({ command: command.slice(0, 30), fast: true });
+    }
+  }, 30_000);
+
+  test("a syntax tree nested past the walk's depth is unread as too complex, never a stack overflow", async () => {
+    const { elapsed, reading } = await timed(`${"(".repeat(30_000)}${")".repeat(30_000)}`);
+    expect(elapsed).toBeLessThan(2000);
+    expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read: it nests more than 1000 levels deep", cause: "too-complex" });
+    expect((await read(`${"( ".repeat(500)}rm x${" )".repeat(500)}`)).fileEffects).toEqual([{ effect: { kind: "write", path: "x", change: "delete" } }]);
+  });
+
+  test("the backstop: past its deadline on the clock, a command is unread as too complex, however its work is counted", async () => {
+    const { reading } = await timed("cat a.txt", new TreeSitterShellCommandReader({ pathKindOf: () => "absent", readDeadlineMs: -1 }));
+    expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read within the time bounded allows for one command", cause: "too-complex" });
   });
 
   test("a realistic install script of about 500 lines is read, programs and all, well within the budget", async () => {

@@ -103,7 +103,6 @@ const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project
 /** The redirect for each cause a reader gives: what would let the command be read. */
 const UNREAD_REDIRECTS: Readonly<Record<UnreadShellCommandCause, string>> = Object.freeze({
   "too-complex": "Split the command into simpler commands, or simplify it (fewer nested commands, no words only the shell can resolve where a program's options are), and run each on its own; this one is refused as it is",
-  unparsable: "Check the command's quoting and syntax, or split it into simpler commands; this one is refused as it is",
 });
 
 /**

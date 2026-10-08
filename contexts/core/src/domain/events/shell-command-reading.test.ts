@@ -74,15 +74,13 @@ describe("ShellCommandReading — what bounded made of a shell command", () => {
     expect(error({ ...EMPTY_READ, programs: "cat" })).toBe("A shell command reading's programs, fileEffects and unresolved are lists");
   });
 
-  test("an unread reading may say what made it unreadable: too complex or unparsable; without a cause its wire form has none", () => {
-    for (const cause of ["too-complex", "unparsable"] as const) {
-      const parsed = ShellCommandReading.parse({ outcome: "unread", why: "x", cause });
-      expect(parsed.ok && parsed.value.outcome === "unread" && parsed.value.cause).toBe(cause);
-      expect(wireOf(parsed)).toEqual({ ok: true, value: { outcome: "unread", why: "x", cause } });
-    }
+  test("an unread reading may say the command itself is to blame: too complex; without a cause its wire form has none", () => {
+    const parsed = ShellCommandReading.parse({ outcome: "unread", why: "x", cause: "too-complex" });
+    expect(parsed.ok && parsed.value.outcome === "unread" && parsed.value.cause).toBe("too-complex");
+    expect(wireOf(parsed)).toEqual({ ok: true, value: { outcome: "unread", why: "x", cause: "too-complex" } });
     const plain = ShellCommandReading.parse({ outcome: "unread", why: "x" });
     expect(plain.ok && Object.keys(plain.value.toJSON())).toEqual(["outcome", "why"]);
-    expect(error({ outcome: "unread", why: "x", cause: "slow" })).toBe("An unread reading's cause is too-complex or unparsable, not 'slow'");
+    expect(error({ outcome: "unread", why: "x", cause: "unparsable" })).toBe("An unread reading's cause is too-complex, not 'unparsable'");
   });
 
   test("is frozen, its lists and entries too", () => {

@@ -498,13 +498,20 @@ export const WORK_BUDGET_STEPS = 200_000;
 export const MAX_NESTING = 64;
 
 /** A fresh budget for reading one command. */
-export const newWorkBudget = (): WorkBudget => ({ left: WORK_BUDGET_STEPS, exhausted: false });
+export const newWorkBudget = (outOfTime: () => boolean = () => false): WorkBudget => ({ left: WORK_BUDGET_STEPS, exhausted: false, timedOut: false, charges: 0, outOfTime });
 
-/** Spends `steps`; false once the budget is spent, which marks it exhausted for good. */
+/** How many charges pass between two looks at the time. */
+const CHARGES_PER_TIME_CHECK = 64;
+
+/** Spends `steps`; false once the budget or the time is spent, which marks it exhausted for good. */
 export function spend(budget: WorkBudget, steps = 1): boolean {
   if (budget.exhausted) return false;
   budget.left -= steps;
   if (budget.left < 0) budget.exhausted = true;
+  else if (++budget.charges % CHARGES_PER_TIME_CHECK === 0 && budget.outOfTime()) {
+    budget.exhausted = true;
+    budget.timedOut = true;
+  }
   return !budget.exhausted;
 }
 

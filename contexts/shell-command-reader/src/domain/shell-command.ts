@@ -20,6 +20,8 @@ interface Scope {
 
 /** Why a command that outgrew its work budget is unread. */
 const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
+/** Why a command whose reading ran out of time is unread. */
+const OUT_OF_TIME = "the command is too complex to read within the time bounded allows for one command";
 
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
@@ -78,7 +80,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   const unresolved: UnresolvedWord[] = [];
   const programs: ShellProgram[] = [];
   // One budget for the whole command: every command, xargs reading and report of xargs's input spends from it, and nesting is bounded.
-  const budget = newWorkBudget();
+  const budget = newWorkBudget(place.outOfTime);
   let nesting = 0;
   /** `work`, one level deeper; past MAX_NESTING the budget is spent, so the command is unread. */
   const nested = (work: () => void): void => {
@@ -213,6 +215,8 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       else reads.push(path);
     }
     for (const word of meaning.scripts) {
+      // Parsing a nested shell's code costs in proportion to its length, each time it is parsed.
+      if (!spend(budget, 1 + (word.text.length >> 4))) break;
       // Code a nested shell runs: parsed and walked in a shell of its own, so its cd does not leak.
       const script = word.kind === "literal" ? place.parseScript(word.text) : undefined;
       if (script === undefined || !script.ok) unresolved.push({ text: word.text, role: "code" });
@@ -303,7 +307,12 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };
   for (const node of script) walk(node, start);
+  // A last look at the time: a reading finished past it is not trusted either.
+  if (!budget.exhausted && budget.outOfTime()) {
+    budget.exhausted = true;
+    budget.timedOut = true;
+  }
   const workSpent = WORK_BUDGET_STEPS - Math.max(budget.left, 0);
-  if (budget.exhausted) return { programs: [], reads: [], lists: [], writes: [], unresolved: [], unreadWhy: TOO_COMPLEX, workSpent };
+  if (budget.exhausted) return { programs: [], reads: [], lists: [], writes: [], unresolved: [], unreadWhy: budget.timedOut ? OUT_OF_TIME : TOO_COMPLEX, workSpent };
   return { programs, reads, lists, writes, unresolved, workSpent };
 }

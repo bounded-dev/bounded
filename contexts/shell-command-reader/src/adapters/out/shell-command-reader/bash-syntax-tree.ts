@@ -2,7 +2,7 @@ import * as treeSitterModule from "@vscode/tree-sitter-wasm";
 import type { Node } from "@vscode/tree-sitter-wasm";
 import type { Command, UnreadShellCommandCause } from "bounded/domain";
 import type { ShellNode, ShellRedirect, ShellWord } from "../../../domain/shell-command.contract.ts";
-import { expandBraces } from "./brace-expansion.ts";
+import { expandBraces, TOO_COSTLY } from "./brace-expansion.ts";
 
 // The shell parser behind bounded's shell command reader: tree-sitter's bash
 // grammar, as WebAssembly (@vscode/tree-sitter-wasm, pinned; ADR 2026-009),
@@ -16,23 +16,52 @@ let bash: Promise<treeSitterModule.Language> | undefined;
 /** A loaded grammar, as tree-sitter gives it. */
 export type BashGrammar = treeSitterModule.Language;
 
-/** A command line parsed: its syntax tree, or why it cannot be read, with the cause the reader gives. */
-export type ParsedCommand = { readonly ok: true; readonly value: readonly ShellNode[] } | { readonly ok: false; readonly error: string; readonly cause: UnreadShellCommandCause };
+/**
+ * A command line parsed: its syntax tree, or why it cannot be read, with a
+ * cause when the command itself is to blame (too complex: brace expansion
+ * that costs too much, a tree too deep, the time spent).
+ */
+export type ParsedCommand = { readonly ok: true; readonly value: readonly ShellNode[] } | { readonly ok: false; readonly error: string; readonly cause?: UnreadShellCommandCause };
 
-/** A command line as the shell would run it, synchronously; fails when the parser cannot parse it, or a word is too long to brace-expand. */
+/** A command line as the shell would run it, synchronously, within `outOfTime` (true once the time for reading it has run out). */
 export interface BashSyntaxTree {
-  parse(command: Command): ParsedCommand;
+  parse(command: Command, outOfTime?: () => boolean): ParsedCommand;
 }
 
-/**
- * The longest word brace expansion is tried on, in characters. Past it, a
- * word holding a brace is too complex to read: expanding `{a,b}` × 10,000
- * would cost more than any command is worth, and only the shell could say
- * what it gives.
- */
-const MAX_BRACE_WORD = 4096;
-/** Whether the command being parsed holds a word past MAX_BRACE_WORD with a brace in it: set by `words`, read by `parse`. */
-let braceWordTooLong = false;
+/** The work brace expansion may do for one command, in characters passed over: far past any command written by hand. */
+const BRACE_WORK_STEPS = 1_000_000;
+/** How deep the syntax tree is walked: past it the command is too complex, never a stack overflow. */
+const MAX_TREE_DEPTH = 1000;
+
+/** The command being parsed: what its walk may still spend, and why it became too complex, if it did. Parsing is synchronous, so one at a time. */
+let walking: { braceWorkLeft: number; depth: number; calls: number; outOfTime: () => boolean; tooComplex: string | undefined } = { braceWorkLeft: 0, depth: 0, calls: 0, outOfTime: () => false, tooComplex: undefined };
+
+/** Charges brace expansion `steps`; false, marking the command too complex, once its work or the time is spent. */
+function chargeBraces(steps: number): boolean {
+  walking.braceWorkLeft -= steps;
+  if (walking.braceWorkLeft >= 0 && !walking.outOfTime()) return true;
+  walking.tooComplex ??= "the command is too complex to read: expanding its braces would take more work than bounded allows";
+  return false;
+}
+
+/** `work` one level deeper in the tree; past MAX_TREE_DEPTH, or once the time is spent, the command is too complex and `fallback` is given. */
+function deeper<T>(work: () => T, fallback: T): T {
+  if (walking.tooComplex !== undefined) return fallback;
+  if (walking.depth >= MAX_TREE_DEPTH) {
+    walking.tooComplex = `the command is too complex to read: it nests more than ${MAX_TREE_DEPTH} levels deep`;
+    return fallback;
+  }
+  if (++walking.calls % 64 === 0 && walking.outOfTime()) {
+    walking.tooComplex = "the command is too complex to read within the time bounded allows for one command";
+    return fallback;
+  }
+  walking.depth++;
+  try {
+    return work();
+  } finally {
+    walking.depth--;
+  }
+}
 
 /** The bash grammar, loaded once for the whole program; a load that fails is tried again next time. */
 export function loadBashGrammar(): Promise<BashGrammar> {
@@ -52,8 +81,7 @@ const GLOB = /(^|[^\\])[*?[]/;
 
 /** The commands substituted anywhere inside `node`, each run in a subshell of its own. */
 function substituted(node: Node): ShellNode[] {
-  if (SUBSTITUTIONS.has(node.type)) return [{ kind: "subshell", body: statements(node) }];
-  return named(node).flatMap(substituted);
+  return deeper(() => (SUBSTITUTIONS.has(node.type) ? [{ kind: "subshell" as const, body: statements(node) }] : named(node).flatMap(substituted)), []);
 }
 
 const unresolved = (node: Node): ShellWord => ({ kind: "unresolved", text: node.text, commands: substituted(node) });
@@ -110,12 +138,9 @@ function template(node: Node): string | undefined {
 /** The words a word becomes: its brace expansion, each literal; one unresolved word when the shell alone can say. */
 function words(node: Node): ShellWord[] {
   const text = template(node);
-  if (text !== undefined && text.length > MAX_BRACE_WORD && text.includes("{")) {
-    braceWordTooLong = true;
-    return [unresolved(node)];
-  }
-  const expanded = text === undefined ? undefined : expandBraces(text);
-  if (expanded === undefined) return [unresolved(node)];
+  // Quoted and escaped braces arrive escaped in the template, so only text that can expand costs expansion work.
+  const expanded = text === undefined ? undefined : expandBraces(text, chargeBraces);
+  if (expanded === undefined || expanded === TOO_COSTLY) return [unresolved(node)];
   return expanded.map((each) => ({ kind: "literal", text: withoutEscapes(each) }));
 }
 
@@ -186,7 +211,12 @@ const CONTROL = new Set(["if_statement", "while_statement", "for_statement", "c_
 /** The parts of those constructs that hold statements. */
 const CLAUSES = new Set(["elif_clause", "else_clause", "case_item", "do_group"]);
 
+/** A statement, one level deeper in the tree (bounded: see `deeper`). */
 function statement(node: Node): ShellNode | undefined {
+  return deeper(() => statementAt(node), { kind: "unparsed", text: "" });
+}
+
+function statementAt(node: Node): ShellNode | undefined {
   switch (node.type) {
     case "command":
       return command(node);
@@ -239,7 +269,7 @@ function statement(node: Node): ShellNode | undefined {
 function control(node: Node): ShellNode[] {
   return named(node).flatMap((child): ShellNode[] => {
     if (child.type === "comment") return [];
-    if (CLAUSES.has(child.type)) return control(child);
+    if (CLAUSES.has(child.type)) return deeper(() => control(child), []);
     const mapped = statement(child);
     if (mapped === undefined) return [];
     return mapped.kind === "unparsed" && child.type !== "ERROR" ? [standIn(child)] : [mapped];
@@ -252,15 +282,19 @@ export async function bashSyntaxTree(loadGrammar: () => Promise<BashGrammar> = l
   const parser = new TreeSitter.Parser();
   parser.setLanguage(grammar);
   return Object.freeze({
-    parse(command: Command): ParsedCommand {
+    parse(command: Command, outOfTime: () => boolean = () => false): ParsedCommand {
+      if (outOfTime()) return { ok: false, error: "the command is too complex to read within the time bounded allows for one command", cause: "too-complex" };
       const tree = parser.parse(command.value);
-      if (tree === null) return { ok: false, error: "the shell parser could not parse this command", cause: "unparsable" };
-      braceWordTooLong = false;
+      // Null only when the parser itself fails: nothing about the command to fix, so no cause.
+      if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
+      const outer = walking;
+      walking = { braceWorkLeft: BRACE_WORK_STEPS, depth: 0, calls: 0, outOfTime, tooComplex: undefined };
       try {
         const value = statements(tree.rootNode);
-        if (braceWordTooLong) return { ok: false, error: `the command is too complex to read: a word with a brace in it is longer than ${MAX_BRACE_WORD} characters, past what bounded will brace-expand`, cause: "too-complex" };
+        if (walking.tooComplex !== undefined) return { ok: false, error: walking.tooComplex, cause: "too-complex" };
         return { ok: true, value };
       } finally {
+        walking = outer;
         tree.delete();
       }
     },

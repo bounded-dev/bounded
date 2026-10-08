@@ -51,6 +51,12 @@ export interface ShellPlace {
   readonly root: string;
   kindOfPath(path: ProjectPath): PathKind | undefined;
   parseScript(script: string): Result<readonly ShellNode[]>;
+  /**
+   * Whether the time for reading this command has run out: given by the
+   * reader from its clock (the domain only asks), checked as the budget is
+   * spent; once true, the command is unread. Never, when not given.
+   */
+  readonly outOfTime?: () => boolean;
 }
 
 /** A write a command makes; `undetermined` when whether the file exists could not be told, so it is judged as both a create and a modify. */
@@ -69,6 +75,11 @@ export interface ShellWrite {
 export interface WorkBudget {
   left: number;
   exhausted: boolean;
+  /** Whether it ran out because the time did, not the steps. */
+  timedOut: boolean;
+  /** Charges so far: the time is asked every few charges, not at each. */
+  charges: number;
+  readonly outOfTime: () => boolean;
 }
 
 /** A program a command runs: its name and arguments as words, and the project directory it runs in, null when that cannot be known. */

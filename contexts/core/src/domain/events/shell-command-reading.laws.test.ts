@@ -17,7 +17,7 @@ const EMPTY_READ = { outcome: "read", programs: [], fileEffects: [], unresolved:
 valueObjectLaws(
   "ShellCommandReading",
   ShellCommandReading,
-  [READ_SAMPLE, UNREAD_SAMPLE, EMPTY_READ],
+  [READ_SAMPLE, UNREAD_SAMPLE, EMPTY_READ, { outcome: "unread", why: "the command is too complex to read", cause: "too-complex" }],
   [
     { outcome: "maybe" },
     { outcome: "unread", why: " " },
@@ -26,5 +26,6 @@ valueObjectLaws(
     { ...EMPTY_READ, unresolved: [{ text: "$X", role: "run" }] },
     { ...EMPTY_READ, programs: [{ name: { kind: "literal", text: "cat" }, arguments: [], workingDirectory: "../x" }] },
     { ...EMPTY_READ, extra: true },
+    { outcome: "unread", why: "x", cause: "slow" },
   ],
 );

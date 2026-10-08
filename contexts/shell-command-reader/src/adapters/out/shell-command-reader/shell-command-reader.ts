@@ -5,16 +5,18 @@ import { describeShellCommand } from "../../../domain/shell-command.ts";
 import { type BashGrammar, type BashSyntaxTree, bashSyntaxTree, loadBashGrammar } from "./bash-syntax-tree.ts";
 import { fileSystemPathKind } from "./path-kinds.ts";
 
-/** What a TreeSitterShellCommandReader may be given instead of its defaults: what is at a project's paths (the disk), and how the grammar loads (bash's, once per process). */
+/** What a TreeSitterShellCommandReader may be given instead of its defaults: what is at a project's paths (the disk), how the grammar loads (bash's, once per process), and how long reading one command may take. */
 export interface TreeSitterShellCommandReaderOptions {
   readonly pathKindOf?: (projectRoot: string, path: ProjectPath) => PathKind | undefined;
   readonly loadGrammar?: () => Promise<BashGrammar>;
+  /** How long reading one command may take, in milliseconds; READ_DEADLINE_MS by default. */
+  readonly readDeadlineMs?: number;
 }
 
 /** The longest command read, in characters: far past any typed or generated for one tool call; past it, the command is unread. */
 const MAX_COMMAND_CHARACTERS = 65_536;
-/** The most words (runs of non-blank characters) a command read may have; past it, the command is unread. */
-const MAX_COMMAND_WORDS = 10_000;
+/** How long reading one command may take, on a monotonic clock, nested shells' code included; past it, the command is unread as too complex. */
+const READ_DEADLINE_MS = 1000;
 
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const wordOf = ({ kind, text }: ShellWord): ShellCommandWordJSON => ({ kind, text });
@@ -32,10 +34,12 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
   private syntaxTree: Promise<BashSyntaxTree> | undefined;
   private readonly pathKindOf: (projectRoot: string, path: ProjectPath) => PathKind | undefined;
   private readonly loadGrammar: () => Promise<BashGrammar>;
+  private readonly readDeadlineMs: number;
 
   constructor(options: TreeSitterShellCommandReaderOptions = {}) {
     this.pathKindOf = options.pathKindOf ?? fileSystemPathKind;
     this.loadGrammar = options.loadGrammar ?? loadBashGrammar;
+    this.readDeadlineMs = options.readDeadlineMs ?? READ_DEADLINE_MS;
   }
 
   /** Loads the grammar; preparing twice is harmless, and reading does not need it first. */
@@ -45,18 +49,19 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
 
   async read(projectRoot: string, command: Command, cwd: ProjectPath | null): Promise<ShellCommandReadingJSON> {
     const tree = await this.parser();
-    // Bounded before parsing: a command past either limit is unread, too complex, whatever it says.
+    // Bounded before parsing: a command past the length limit is unread, too complex, whatever it says.
     const characters = command.value.length;
     if (characters > MAX_COMMAND_CHARACTERS) return { outcome: "unread", why: `the command is too long to read: ${characters} characters, past bounded's limit of ${MAX_COMMAND_CHARACTERS}`, cause: "too-complex" };
-    const words = command.value.split(/\s+/).filter((word) => word !== "").length;
-    if (words > MAX_COMMAND_WORDS) return { outcome: "unread", why: `the command is too long to read: ${words} words, past bounded's limit of ${MAX_COMMAND_WORDS}`, cause: "too-complex" };
-    const parsed = tree.parse(command);
-    if (!parsed.ok) return { outcome: "unread", why: parsed.error, cause: parsed.cause };
+    // The backstop: reading one command, nested shells' code included, stops at a deadline on a monotonic clock, however its work is counted.
+    const deadline = performance.now() + this.readDeadlineMs;
+    const outOfTime = (): boolean => performance.now() > deadline;
+    const parsed = tree.parse(command, outOfTime);
+    if (!parsed.ok) return { outcome: "unread", why: parsed.error, ...(parsed.cause === undefined ? {} : { cause: parsed.cause }) };
     const parseScript = (script: string) => {
       const nested = Command.parse(script);
-      return nested.ok ? tree.parse(nested.value) : nested;
+      return nested.ok ? tree.parse(nested.value, outOfTime) : nested;
     };
-    const described = describeShellCommand(parsed.value, { cwd, root: projectRoot, kindOfPath: (path) => this.pathKindOf(projectRoot, path), parseScript });
+    const described = describeShellCommand(parsed.value, { cwd, root: projectRoot, kindOfPath: (path) => this.pathKindOf(projectRoot, path), parseScript, outOfTime });
     // A command that outgrew the work budget is unread, never a reduced reading: a pack that needs the reading refuses it.
     if (described.unreadWhy !== undefined) return { outcome: "unread", why: described.unreadWhy, cause: "too-complex" };
     return {

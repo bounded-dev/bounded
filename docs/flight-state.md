@@ -151,8 +151,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   write into its destination directory (`xargs cp -t dir` without a replace
   string, `cp $X dir/`), so
   nothing there is judged (ADR 2026-020, "Limits"). A command past the
-  reader's bounds (65,536 characters, 10,000 words, a brace word past 4,096
-  characters, 200,000 steps of work, nesting past 64) is unread as too
+  reader's bounds (1,000 ms per read on the clock, 65,536 characters,
+  brace expansion past 1,000,000 characters of work, a syntax tree past
+  1,000 levels, 200,000 steps of work, nesting past 64) is unread as too
   complex and refused, told to split or simplify it. The real control is
   confining commands at the operating-system level (for example a sandbox
   profile, or the host's own Bash sandbox settings, generated from

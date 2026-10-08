@@ -351,14 +351,13 @@ describe("the path gate — shell commands, judged from bounded's reading", () =
     });
   });
 
-  test("an unread command's redirect follows its cause: split or simplify one too complex, check one unparsable, else open the project with a reader", () => {
+  test("an unread command's redirect follows its cause: split or simplify one too complex, else open the project with a reader", () => {
     const unread = (cause?: string) => decide([env], [execute("ls", { outcome: "unread", why: "the reader says so", ...(cause === undefined ? {} : { cause }) })], "shell");
     expect(unread("too-complex")).toMatchObject({
       kind: "refuse",
       reason: "bounded/path-gate refused execute `ls`: the path gate cannot check shell commands: the reader says so",
       redirect: "Split the command into simpler commands, or simplify it (fewer nested commands, no words only the shell can resolve where a program's options are), and run each on its own; this one is refused as it is",
     });
-    expect(unread("unparsable")).toMatchObject({ kind: "refuse", redirect: "Check the command's quoting and syntax, or split it into simpler commands; this one is refused as it is" });
     expect(unread()).toMatchObject({ kind: "refuse", redirect: UNREAD_REDIRECT });
   });
 

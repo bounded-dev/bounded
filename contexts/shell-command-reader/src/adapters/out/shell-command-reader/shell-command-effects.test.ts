@@ -201,6 +201,13 @@ describe("the work budget: what reading a command costs", () => {
     expect(spent.workSpent).toBeLessThan(WORK_BUDGET_STEPS / 10);
   });
 
+  test("the domain asks the time it is given, and once it has run out the command is unread", () => {
+    const script = made(parser.parse(commandOf("cat a.txt; rm b.txt")));
+    const place = { cwd: null, root: ROOT, kindOfPath: kindOf({}), parseScript: () => ({ ok: false as const, error: "no nested shell" }) };
+    expect(describeShellCommand(script, { ...place, outOfTime: () => true }).unreadWhy).toBe("the command is too complex to read within the time bounded allows for one command");
+    expect(describeShellCommand(script, { ...place, outOfTime: () => false }).unreadWhy).toBeUndefined();
+  });
+
   test("the budget counts work, not calls: a word costs a step each time it is handled", () => {
     const few = cost(`cat ${"a ".repeat(10)}`).workSpent;
     const many = cost(`cat ${"a ".repeat(1000)}`).workSpent;
