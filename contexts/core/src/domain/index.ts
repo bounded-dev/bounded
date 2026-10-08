@@ -67,7 +67,7 @@ export { describeEffect, Effect } from "./events/effect.ts";
 export { ToolUse } from "./events/tool-use.ts";
 export type { ToolResultFactory, ToolResultJSON } from "./events/tool-result.contract.ts";
 export { ToolResult } from "./events/tool-result.ts";
-export type { WatchedPathFactory, WatchedPathJSON, WatchedPathSource } from "./drift/watched-path.contract.ts";
+export type { WatchedChange, WatchedPathFactory, WatchedPathJSON, WatchedPathSource } from "./drift/watched-path.contract.ts";
 export type { Watched } from "./drift/watched-paths.ts";
 export { watchedPathsOf } from "./drift/watched-paths.ts";
 export { WatchedPath } from "./drift/watched-path.ts";

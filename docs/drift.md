@@ -8,16 +8,24 @@ command and undoes any change.
 ## Watched paths
 
 Packs and projects contribute to the core pack's `watchedPaths` point: files
-a shell command must not change.
+a shell command must not change, and which changes it must not make to them
+(`create`, `modify`, `delete`; every one when `changes` is left out).
 
 ```ts
 contribution(corePack.points.watchedPaths, [
   { match: "generated/**", except: ["generated/README.md"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" },
+  { match: "migrations/**", changes: ["modify", "delete"], why: "applied migrations are history", redirect: "Add a new migration instead" },
 ]);
 ```
 
+The path gate contributes each rule that denies a write, with the writes it
+denies. Only those changes are undone: under the `migrations/**` path above a
+command may add `migrations/0002_add.sql` (it is left in place, with nothing
+reported), but a change to or deletion of an existing migration is put back.
+
 `match` and `except` are project-relative globs; a file is watched by the
-first rule that matches it and does not except it. `match` ignores case, as
+first rule that matches it and does not except it, with that rule's
+`changes`. `match` ignores case, as
 the path gate's does, so a file cannot be dodged by its case on a
 case-insensitive file system; `except` is exact.
 

@@ -1,4 +1,4 @@
-import { type Composition, Decision, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedPath, watchedPathsOf } from "bounded/domain";
+import { type Composition, Decision, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedChange, type WatchedPath, watchedPathsOf } from "bounded/domain";
 import type { Clock, DecisionIds, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 import { nextDecisionId } from "../../judging/judge-event/judge-event.handler.ts";
 import type { Change, DriftCheck, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell } from "./watch-shell.contract.ts";
@@ -199,7 +199,7 @@ export class WatchShellHandler implements WatchShell {
       await this.record(result, message, rules[0], "could not be checked after a shell command");
       return { changed: [], restored: false, message };
     }
-    const changed = changes(before.files, after.value);
+    const changed = forbidden(changes(before.files, after.value), before.files, after.value, rules);
     if (changed.length === 0) return NOTHING;
     const failures = new Set<string>();
     const restored: string[] = [];
@@ -278,7 +278,7 @@ export class WatchShellHandler implements WatchShell {
       if (!committed.ok) found = `Protected files could not be compared with the last commit: ${committed.error}.`;
       else if (!now.ok) found = `Protected files could not be read: ${now.error}.`;
       else {
-        changed = changes(committed.value, now.value);
+        changed = forbidden(changes(committed.value, now.value), committed.value, now.value, rules);
         if (changed.length === 0 && !altered) return NOTHING;
         if (changed.length > 0) first = rules[Math.min(...changed.map((change) => ruleOf(change, committed.value, now.value)))];
         found = changed.length === 0 ? "Protected files match the last commit." : `Protected files that differ from the last commit: ${describe(changed, committed.value, now.value, rules)}`;
@@ -320,6 +320,14 @@ function changes(before: WatchedHashes, after: WatchedHashes): Change[] {
   }
   for (const path of Object.keys(after)) if (before[path] === undefined) out.push({ path, change: "created" });
   return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/** What each kind of change is, in a watched path's terms. */
+const KIND: Readonly<Record<Change["change"], WatchedChange>> = { created: "create", modified: "modify", deleted: "delete" };
+
+/** The changes the path watching each file forbids; any other change is the command's to make. */
+function forbidden(changed: readonly Change[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): Change[] {
+  return changed.filter((change) => rules[ruleOf(change, before, after)]?.rule.changes.includes(KIND[change.change]) !== false);
 }
 
 function ruleOf(change: Change, before: WatchedHashes, after: WatchedHashes): number {

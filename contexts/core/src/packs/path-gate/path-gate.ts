@@ -190,7 +190,8 @@ const watchedFromRules: WatchedPathSource = (composition) => {
   if (!rules.ok) throw new Error(rules.error);
   return rules.value.flatMap(({ value: rule }): WatchedPathJSON[] => {
     if (!WRITES.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) return [];
-    const watched = { except: rule.except, why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
+    const changes = WRITES.filter((change) => rule.deny.includes(change));
+    const watched = { except: rule.except, changes, why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
     return endsInName(rule.match) && rule.file !== true ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
   });
 };
