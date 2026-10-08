@@ -49,20 +49,30 @@ names no tool or language (AGENTS.md). It can own the shape.
     to find its command and to find a replace string: in a cluster a
     value-taking letter (`I J L n P d E s a R S`) ends it and takes the rest
     of the word, or the next word when it ends the word; `-e`, `-l` and `-i`
-    take only an attached value; long options with a value (`--max-args`,
-    `--max-procs`, `--delimiter`, `--arg-file`, `--max-chars`,
-    `--process-slot-var`) take `=value` or the next word, and those whose
-    value is optional (`--replace`, `--eof`, `--max-lines`) only `=value`,
-    as getopt_long gives it. A replace string is given by `-I X`, `-J X`
-    (BSD), `-iX`, `--replace=X`, or a bare `-i` or `--replace` (`{}`). With
-    one, the input stands where the string is written: that word has no
-    effect of its own, the input is an unresolved part with the role the
-    command gives it (`xargs -I % rm %`: `(input)`, `write`), and the literal
-    words around it are judged as written. Without one, the command gets one
-    more argument, `(input)`, reported as an unresolved part with each role
-    it could have, never an operand, so the command's literal words (a `cp`
-    destination) are judged as written. The input reaches a command a
-    wrapper under xargs runs (`xargs sudo rm`, `xargs env -C d cp a`).
+    take only an attached value; long options match exactly or by a unique
+    prefix, as getopt_long matches them (`--max-a` is `--max-args`), those
+    with a value (`--max-args`, `--max-procs`, `--delimiter`, `--arg-file`,
+    `--max-chars`, `--process-slot-var`) taking `=value` or the next word,
+    and those whose value is optional (`--replace`, `--eof`, `--max-lines`)
+    only `=value`. A replace string is given by `-I X`, `-J X` (BSD), `-iX`,
+    `--replace=X`, or a bare `-i` or `--replace` (`{}`).
+  - **A substitution adds a report, never replaces the check.** Every word
+    of xargs's command is judged exactly as written, with or without a
+    replace string; a nested shell's code is parsed and walked as written.
+    The input is reported as an unresolved part, `(input)`, with each role
+    the command gives it: where the replace string stands (`xargs -I % rm %`:
+    `write`), or, without one, as one more argument after the written words,
+    also shown as the program's last argument but never an operand, so a
+    literal `cp` destination is judged as written. The input reaches a
+    command a wrapper under xargs runs (`xargs sudo rm`, `xargs env -C d cp a`).
+  - **When the reader cannot tell which word is xargs's command, it judges
+    every plausible reading, and the strictest verdict wins.** An unknown or
+    ambiguous long option, or a word only the shell can resolve among
+    xargs's options (`xargs "$OPTS" rm …`, `xargs -d"$D" rm …`), is read
+    every way it could be: as a flag, as an option taking the next word,
+    and, for a resolvable word, as the command; the words after it are also
+    read as operands. Nothing is ever dropped from judgement because it
+    became unresolved.
   - Nothing is guessed (AGENTS.md).
 - **Why a field, not more effects of the tool use.** ADR 2026-006's effects
   are what the call does, as the host describes it; a command's files are
@@ -214,10 +224,14 @@ every moved or replaced case is recorded in `superseded-tests.json`.
 - Inline-code scanning does not stop at a script operand: in
   `python3 script.py -c x`, the script's own `-c x` is also reported as
   unresolved code. It errs towards more unresolved parts, never fewer.
-- A transfer whose sources are unknown records no write: `xargs cp -t dir`
-  (the sources come from the input) and `cp $X dir/` (an unresolved source
-  into a directory) name no file in `dir`, so nothing there is judged. This
-  gap is the transfer reading's, older than this ADR, and not fixed here.
+- A transfer whose sources are not written at all, or only the shell can
+  resolve, records no write: `xargs cp -t dir` without a replace string
+  (every source comes from the input, after the written words) and
+  `cp $X dir/` (an unresolved source into a directory) name no file in
+  `dir`, so nothing there is judged. This gap is the transfer reading's,
+  older than this ADR, and not fixed here. The replace-string forms are not
+  in it: `xargs -I{} cp {} .git/hooks/`, its `mv` and `cp -t .git/hooks {}`
+  are judged as written, a write of `.git/hooks/{}`.
 - A pack judging writes must look in readings as well as write effects.
 - `bounded/prereqs` does not use readings yet (item (ii)).
 

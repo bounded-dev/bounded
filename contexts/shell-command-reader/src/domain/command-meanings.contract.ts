@@ -30,7 +30,7 @@ export interface CommandMeaning {
      * unresolved part.
      */
     readonly input?: true;
-    /** xargs's replace string (-I, -i, --replace, BSD -J): each literal word that is it, or holds it, is the input substituted in place. */
+    /** xargs's replace string (-I, -i, --replace, BSD -J): the input stands where it is written, which is reported; every word is still judged as written. */
     readonly replace?: ShellWord;
     /** The run's words are the last of the command's (a wrapper's, builtin's or git -C's), so words appended to the command, such as xargs's input, are appended to it. */
     readonly trailing?: true;

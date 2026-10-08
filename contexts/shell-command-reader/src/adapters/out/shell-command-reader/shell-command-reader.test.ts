@@ -83,10 +83,10 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect((await read("perl -Mfeature=say data.csv")).unresolved).toEqual([]);
   });
 
-  test("xargs's input is never an operand: with a replace string it is substituted in place, else it is an unresolved part with its role", async () => {
-    const replaced = await read("ls | xargs -I % cp % out/a.txt");
-    expect(replaced.programs.at(-1)?.arguments).toEqual([{ kind: "unresolved", text: "(input)" }, { kind: "literal", text: "out/a.txt" }]);
-    expect(replaced.fileEffects).toContainEqual({ effect: { kind: "write", path: "out/a.txt", change: "create" } });
+  test("xargs's literal words are judged as written; its input is only reported, never an operand", async () => {
+    const replaced = await read("echo a | xargs -I % cp % out/a.txt");
+    expect(replaced.programs.at(-1)?.arguments).toEqual([{ kind: "literal", text: "%" }, { kind: "literal", text: "out/a.txt" }]);
+    expect(replaced.fileEffects).toEqual([{ effect: { kind: "read", path: "%" } }, { effect: { kind: "write", path: "out/a.txt", change: "create" } }]);
     expect(replaced.unresolved).toEqual([{ text: "(input)", role: "read" }]);
     const appended = await read("ls | xargs cp a.txt out/a.txt");
     expect(appended.fileEffects).toContainEqual({ effect: { kind: "write", path: "out/a.txt", change: "create" } });
@@ -95,29 +95,62 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect((await read("ls | xargs grep -i x")).programs.at(-1)?.arguments.at(-1)).toEqual({ kind: "unresolved", text: "(input)" });
   });
 
-  test("with a replace string, the string's word has no effect of its own: the input stands there, with the role the command gives it", async () => {
+  test("with a replace string, every word is still judged as written, and the input is reported where the string stands, with the role the command gives it", async () => {
     const removed = await read("echo a | xargs -I % rm %");
-    expect(removed.fileEffects).toEqual([]);
+    expect(removed.fileEffects).toEqual([{ effect: { kind: "write", path: "%", change: "delete" } }]);
     expect(removed.unresolved).toEqual([{ text: "(input)", role: "write" }]);
-    expect((await read("echo a | xargs -I % mv % %.bak")).unresolved).toEqual([
-      { text: "%.bak", role: "write" },
+    const moved = await read("echo a | xargs -I % mv % %.bak");
+    expect(moved.fileEffects).toContainEqual({ effect: { kind: "write", path: "%.bak", change: "create" } });
+    expect(moved.unresolved).toEqual([
       { text: "(input)", role: "read" },
+      { text: "(input)", role: "write" },
     ]);
+    // A replace string only the shell can resolve stands nowhere known: the input is reported as code, and the words judged as written.
+    expect((await read("echo a | xargs -I $R rm old.txt")).unresolved).toEqual([{ text: "(input)", role: "code" }]);
   });
 
   test("every way to give xargs a replace string is one: -I, --replace=X, a bare --replace or -i ({}), -iX and BSD -J", async () => {
-    for (const command of ["xargs -I % rm %", "xargs --replace=% rm %", "xargs -i rm {}", "xargs --replace rm {}", "xargs -i% rm %", "xargs -J % rm %", "xargs -0I % rm %", "xargs -rI % rm %"]) {
+    for (const [command, replaced] of [
+      ["xargs -I % rm %", "%"],
+      ["xargs --replace=% rm %", "%"],
+      ["xargs --repl=% rm %", "%"],
+      ["xargs -i rm {}", "{}"],
+      ["xargs --replace rm {}", "{}"],
+      ["xargs -i% rm %", "%"],
+      ["xargs -J % rm %", "%"],
+      ["xargs -0I % rm %", "%"],
+      ["xargs -rI % rm %", "%"],
+    ] as const) {
       const reading = await read(command);
-      expect({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({ command, fileEffects: [], unresolved: [{ text: "(input)", role: "write" }] });
+      // With one, no input is appended: the command's words are only those written.
+      expect({ command, arguments: reading.programs.at(-1)?.arguments, unresolved: reading.unresolved }).toEqual({ command, arguments: [{ kind: "literal", text: replaced }], unresolved: [{ text: "(input)", role: "write" }] });
     }
     // Without one, the literal words are judged as written, and the input comes after them.
     for (const command of ["xargs -l rm old.txt", "xargs --max-args 1 rm old.txt", "xargs -n1 rm old.txt", "xargs -L 1 -P 2 rm old.txt", "xargs -R 1 -S 255 rm old.txt", "xargs --max-lines rm old.txt"]) {
       const reading = await read(command);
-      expect({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({
+      expect({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved, last: reading.programs.at(-1)?.arguments.at(-1) }).toEqual({
         command,
         fileEffects: [{ effect: { kind: "write", path: "old.txt", change: "delete" } }],
         unresolved: [{ text: "(input)", role: "write" }],
+        last: { kind: "unresolved", text: "(input)" },
       });
+    }
+  });
+
+  test("xargs's long options match by unique prefix, as getopt_long matches them", async () => {
+    for (const command of ["xargs --arg in.txt rm old.txt", "xargs --del , rm old.txt", "xargs --max-p 2 rm old.txt", "xargs --proc SLOT rm old.txt", "xargs --max-a 1 rm old.txt"]) {
+      const reading = await read(command);
+      expect({ command, programs: reading.programs.map((program) => program.name.text) }).toEqual({ command, programs: ["xargs", "rm"] });
+      expect({ command, deletes: reading.fileEffects.filter(({ effect }) => effect.kind === "write") }).toEqual({ command, deletes: [{ effect: { kind: "write", path: "old.txt", change: "delete" } }] });
+    }
+    expect((await read("xargs --arg in.txt rm old.txt")).fileEffects).toContainEqual({ effect: { kind: "read", path: "in.txt" } });
+  });
+
+  test("where xargs's command cannot be told, every plausible reading is judged and the words are also operands: nothing leaves judgement", async () => {
+    for (const command of ["xargs --max 1 rm old.txt", "xargs --bogus rm old.txt", 'xargs "$OPTS" rm old.txt', 'xargs -d"$D" rm old.txt', "xargs $OPTS 1 rm old.txt"]) {
+      const reading = await read(command);
+      expect({ command, deletes: reading.fileEffects.filter(({ effect }) => effect.kind === "write") }).toEqual({ command, deletes: [{ effect: { kind: "write", path: "old.txt", change: "delete" } }] });
+      expect({ command, reads: reading.fileEffects.some(({ effect }) => effect.kind === "read" && effect.path.endsWith("old.txt")) }).toEqual({ command, reads: true });
     }
   });
 

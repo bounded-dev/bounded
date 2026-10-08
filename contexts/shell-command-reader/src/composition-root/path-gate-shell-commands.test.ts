@@ -207,6 +207,18 @@ describe("read by bounded's shell command reader — the path gate — what each
       "ls | xargs -rI % cp % .git/hooks/pre-commit",
       "echo x | xargs --max-args 1 cp src/a.ts .git/hooks/pre-commit",
       "xargs -l rm .git/hooks/pre-commit",
+      // With a replace string every word is still judged as written; the substitution only adds a report.
+      "echo k | xargs -I k cp src/a.ts .git/hooks/pre-commit",
+      "ls | xargs -I{} sh -c 'cp {} .git/hooks/pre-commit'",
+      "ls | xargs -I{} rm .git/hooks/{}",
+      "ls | xargs -I{} cp {} .git/hooks/",
+      "ls | xargs -I{} mv {} .git/hooks/",
+      "ls | xargs -I{} cp -t .git/hooks {}",
+      // Long options by unique prefix; where the command cannot be told, every plausible reading is judged.
+      "echo x | xargs --max-a 1 rm .git/hooks/pre-commit",
+      "echo x | xargs --max 1 rm .git/hooks/pre-commit",
+      'xargs "$OPTS" rm .git/hooks/pre-commit',
+      'xargs -d"$D" rm .git/hooks/pre-commit',
     ]) {
       expect([command, (await shell(command)).kind]).toEqual([command, "refuse"]);
     }

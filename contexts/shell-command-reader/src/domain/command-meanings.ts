@@ -241,42 +241,116 @@ function curl(args: readonly ShellWord[]): CommandMeaning {
   return meaning({ reads, writes });
 }
 
-/** xargs: the command it runs, with the arguments given to it literally (the rest come from its input). */
+/**
+ * xargs: the command it runs, with the arguments given to it literally, each
+ * judged as written. Without a replace string more arguments come after them
+ * from its input; with one (-I, -i, --replace, BSD -J) the input is
+ * substituted in place, which is reported, never judged in the words' stead.
+ * When which word is its command cannot be told (an unknown or ambiguous
+ * long option, a word only the shell can resolve among its options), every
+ * plausible reading runs, and the words that follow are also read as
+ * operands: the strictest verdict wins, and nothing leaves judgement.
+ */
 function xargs(args: readonly ShellWord[]): CommandMeaning {
-  const { command, replace, argFiles } = xargsOptions(args);
-  const [name, ...rest] = command;
-  if (name === undefined) return meaning({ reads: argFiles });
-  // With a replace string (-I, -i, --replace, BSD -J) the input is substituted in place, among the literal words; without one, more
-  // arguments come after them from its input, which only the run can tell. Either way the literal words are judged as written.
-  return meaning({ runs: [{ name, args: rest, ...(replace === undefined ? { input: true as const } : { replace }) }], reads: argFiles });
+  const ran: { name: ShellWord; args: ShellWord[]; input?: true; replace?: ShellWord }[] = [];
+  const reads: ShellWord[] = [];
+  const seen = new Set<string>();
+  for (const reading of xargsReadings(args, 0, { replace: undefined, argFiles: [] }, { left: XARGS_MAX_READINGS })) {
+    reads.push(...reading.argFiles, ...reading.operands);
+    const [name, ...rest] = reading.command;
+    if (name === undefined) continue;
+    const key = JSON.stringify([name.text, rest.map((word) => word.text), reading.replace?.text ?? null]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ran.push({ name, args: rest, ...(reading.replace === undefined ? { input: true as const } : { replace: reading.replace }) });
+  }
+  return meaning({ runs: ran, reads: [...new Set(reads)] });
 }
+
+/** The arguments xargs reads from its input, as one word only the run can resolve. */
+export const XARGS_INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(input)", commands: Object.freeze([]) });
 
 /** xargs's short options that take a value: the rest of their word, or the next word when they end it (GNU and BSD). */
 const XARGS_VALUE_LETTERS = "IJLnPdEsaRS";
 /** xargs's short options whose value, if any, is only the rest of their word: -e[eof], -l[lines], -i[replace]. */
 const XARGS_ATTACHED_LETTERS = "eli";
-/** xargs's long options that take a value: after `=`, or the next word. */
-const XARGS_VALUE_OPTIONS = ["--max-args", "--max-procs", "--delimiter", "--arg-file", "--max-chars", "--process-slot-var"];
+/** GNU xargs's long options, each with how it takes a value: always (`=value` or the next word), optionally (only `=value`), or never. */
+const XARGS_LONG_OPTIONS: Readonly<Record<string, "value" | "optional" | "none">> = Object.freeze({
+  "--null": "none",
+  "--arg-file": "value",
+  "--delimiter": "value",
+  "--eof": "optional",
+  "--replace": "optional",
+  "--max-lines": "optional",
+  "--max-args": "value",
+  "--max-chars": "value",
+  "--interactive": "none",
+  "--max-procs": "value",
+  "--no-run-if-empty": "none",
+  "--exit": "none",
+  "--open-tty": "none",
+  "--process-slot-var": "value",
+  "--show-limits": "none",
+  "--verbose": "none",
+  "--version": "none",
+  "--help": "none",
+});
+/** How many readings of one xargs command are judged at most; past that, the rest of the words are one command and operands. */
+const XARGS_MAX_READINGS = 16;
+
+/** A long option as getopt_long matches it: exactly, else by a prefix of exactly one option; undefined when unknown or ambiguous. */
+function xargsLongOption(name: string): string | undefined {
+  if (Object.hasOwn(XARGS_LONG_OPTIONS, name)) return name;
+  const matches = Object.keys(XARGS_LONG_OPTIONS).filter((option) => option.startsWith(name));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+interface XargsReading {
+  readonly command: readonly ShellWord[];
+  readonly replace: ShellWord | undefined;
+  readonly argFiles: readonly ShellWord[];
+  /** Words also read as operands, where its command starts could not be told. */
+  readonly operands: readonly ShellWord[];
+}
 
 /**
- * xargs's own options, walked as getopt walks them, in one pass: where its
+ * xargs's own options, walked from `start` as getopt walks them: where its
  * command starts, its replace string (undefined when it has none; -i and a
  * bare --replace mean `{}`), and the files it reads its input from (-a).
- * Long options with an optional value (--replace, --eof, --max-lines) take
- * it only after `=`, as getopt_long gives it.
+ * Where the walk cannot tell (an unknown or ambiguous long option, or a word
+ * only the shell can resolve), it goes on every plausible way: that the
+ * word, or the word and the next, were options, and, for a resolvable word,
+ * that the command starts there. Every reading is returned.
  */
-function xargsOptions(args: readonly ShellWord[]): { readonly command: readonly ShellWord[]; readonly replace: ShellWord | undefined; readonly argFiles: readonly ShellWord[] } {
-  let replace: ShellWord | undefined;
-  const argFiles: ShellWord[] = [];
-  for (let index = 0; index < args.length; index++) {
-    const text = literal(args[index]);
-    if (text === "--") return { command: args.slice(index + 1), replace, argFiles };
-    if (text === undefined || !text.startsWith("-") || text === "-") return { command: args.slice(index), replace, argFiles };
+function xargsReadings(args: readonly ShellWord[], start: number, given: { readonly replace: ShellWord | undefined; readonly argFiles: readonly ShellWord[] }, budget: { left: number }): XargsReading[] {
+  let replace = given.replace;
+  const argFiles = [...given.argFiles];
+  const reading = (command: readonly ShellWord[], operands: readonly ShellWord[] = []): XargsReading => ({ command, replace, argFiles, operands });
+  /** Every way on after an option at `index` the walk cannot read: it took no value, or the next word, and the words after are also operands. */
+  const uncertain = (index: number, commandHere: boolean, takesNoNextWord = false): XargsReading[] => {
+    const rest = args.slice(index);
+    budget.left -= 1;
+    if (budget.left <= 0) return [reading(rest, rest)];
+    const state = { replace, argFiles };
+    return [
+      ...(commandHere ? [reading(rest, rest)] : [reading([], rest)]),
+      ...xargsReadings(args, index + 1, state, budget),
+      ...(takesNoNextWord ? [] : xargsReadings(args, index + 2, state, budget)),
+    ];
+  };
+  for (let index = start; index < args.length; index++) {
+    const word = args[index] as ShellWord;
+    const text = literal(word);
+    if (text === undefined) return uncertain(index, true);
+    if (text === "--") return [reading(args.slice(index + 1))];
+    if (!text.startsWith("-") || text === "-") return [reading(args.slice(index))];
     if (text.startsWith("--")) {
       const equals = text.indexOf("=");
-      const option = equals === -1 ? text : text.slice(0, equals);
+      const option = xargsLongOption(equals === -1 ? text : text.slice(0, equals));
       const given = equals === -1 ? undefined : literalWord(text.slice(equals + 1));
-      if (XARGS_VALUE_OPTIONS.includes(option)) {
+      if (option === undefined) return uncertain(index, false, equals !== -1);
+      const takes = XARGS_LONG_OPTIONS[option];
+      if (takes === "value") {
         const value = given ?? args[++index];
         if (option === "--arg-file" && value !== undefined) argFiles.push(value);
       } else if (option === "--replace") replace = given ?? literalWord("{}");
@@ -297,11 +371,8 @@ function xargsOptions(args: readonly ShellWord[]): { readonly command: readonly 
       }
     }
   }
-  return { command: [], replace, argFiles };
+  return [reading([])];
 }
-
-/** The arguments xargs reads from its input, as one word only the run can resolve. */
-export const XARGS_INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(input)", commands: Object.freeze([]) });
 
 /**
  * A program given code inline (python -c, node -e, perl -ne): what it reads

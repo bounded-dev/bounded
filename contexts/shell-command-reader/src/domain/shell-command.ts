@@ -23,13 +23,16 @@ const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boole
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
 
 /**
- * The roles xargs's input would have for the command `name` run with `args`
- * and then the input: where the table puts the input word, followed into a
- * command the command runs. Only a report: the input is never judged.
+ * The roles xargs's input would have for the command `name` run with
+ * `words`, among which the input stands as XARGS_INPUT (after them, or where
+ * the replace string is): where the table puts the input word, followed into
+ * a command the command runs. Only a report: the words are judged as
+ * written, never these.
  */
-function inputRoles(name: ShellWord, args: readonly ShellWord[], depth = 0): UnresolvedWord["role"][] {
+function inputRoles(name: ShellWord, words: readonly ShellWord[], depth = 0): UnresolvedWord["role"][] {
+  if (name === XARGS_INPUT) return ["code"];
   if (name.kind !== "literal" || depth > 8) return ["code"];
-  const meaning = commandMeaning(name.text, [...args, XARGS_INPUT]);
+  const meaning = commandMeaning(name.text, words);
   const has = (words: readonly ShellWord[]): boolean => words.includes(XARGS_INPUT);
   const roles: UnresolvedWord["role"][] = [];
   if (has(meaning.reads) || has(meaning.repositoryReads) || meaning.transfers.some((transfer) => has(transfer.sources))) roles.push("read");
@@ -40,23 +43,20 @@ function inputRoles(name: ShellWord, args: readonly ShellWord[], depth = 0): Unr
   for (const ran of meaning.runs) {
     // A command the input would name is code; a trailing run (a wrapper's command) is given the input itself, and reports it there.
     if (ran.name === XARGS_INPUT) roles.push("code");
-    else if (ran.trailing !== true && has(ran.args)) roles.push(...inputRoles(ran.name, ran.args.filter((word) => word !== XARGS_INPUT), depth + 1));
+    else if (ran.trailing !== true && has(ran.args)) roles.push(...inputRoles(ran.name, ran.args, depth + 1));
   }
   return [...new Set(roles)];
 }
 
 /**
- * `words` with xargs's replace string `replace` substituted: a literal word
- * that is it becomes the input, one that holds it a word only the run can
- * resolve. A replace string only the shell can resolve substitutes nothing:
- * the words are judged as written.
+ * Where xargs's input stands with replace string `replace`: each literal word
+ * that is it or holds it, as XARGS_INPUT; for reporting the input's roles
+ * only, never for judging. A replace string only the shell can resolve
+ * stands nowhere known: the input is reported as code.
  */
-function substituted(words: readonly ShellWord[], replace: ShellWord): ShellWord[] {
-  if (replace.kind !== "literal" || replace.text === "") return [...words];
-  return words.map((word) => {
-    if (word.kind !== "literal" || !word.text.includes(replace.text)) return word;
-    return word.text === replace.text ? XARGS_INPUT : { kind: "unresolved" as const, text: word.text, commands: [] };
-  });
+function withInputReplaced(words: readonly ShellWord[], replace: ShellWord): ShellWord[] | undefined {
+  if (replace.kind !== "literal" || replace.text === "") return undefined;
+  return words.map((word) => (word.kind === "literal" && word.text.includes(replace.text) ? XARGS_INPUT : word));
 }
 
 /** Where a scope runs, as a project path ("." for the root), or null when it cannot be known. */
@@ -136,15 +136,21 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * does with its literal words. With `input` (xargs without a replace
    * string), more arguments come from its input: they are the program's
    * last argument and an unresolved part with each role they could have,
-   * never an operand, so the literal words are judged as written.
+   * never an operand, so the literal words are judged as written. With
+   * `replace` (xargs's replace string), the input stands where the string is
+   * written: that is reported as an unresolved part with each role the
+   * command gives it, and every word is still judged as written (a
+   * substitution adds a report, never replaces the check).
    */
-  const command = (givenName: ShellWord | null, givenArgs: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
-    if (givenName === null) return;
-    // With xargs's replace string, the input stands where the string is written: it is resolved there (never judged), and the literal words around it as written.
-    const [name = givenName, ...args] = how.replace === undefined ? [givenName, ...givenArgs] : substituted([givenName, ...givenArgs], how.replace);
+  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
+    if (name === null) return;
     if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
-    if (how.input === true) for (const role of inputRoles(name, args)) unresolved.push({ text: XARGS_INPUT.text, role });
-    if (name === XARGS_INPUT) unresolved.push({ text: XARGS_INPUT.text, role: "code" });
+    if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT])) unresolved.push({ text: XARGS_INPUT.text, role });
+    if (how.replace !== undefined) {
+      const [inputName = name, ...inputArgs] = withInputReplaced([name, ...args], how.replace) ?? [XARGS_INPUT];
+      const roles = inputName === name && !inputArgs.includes(XARGS_INPUT) ? [] : inputRoles(inputName, inputArgs);
+      for (const role of roles) unresolved.push({ text: XARGS_INPUT.text, role });
+    }
     const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args);
     for (const word of meaning.reads) {
       const path = resolve(word, scope, "read");
@@ -192,7 +198,8 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
     for (const ran of meaning.runs) {
       // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
-      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(ran.replace === undefined ? {} : { replace: ran.replace }) };
+      const replace = ran.replace ?? (ran.trailing === true ? how.replace : undefined);
+      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(replace === undefined ? {} : { replace }) };
       if (ran.directory === undefined) command(ran.name, ran.args, scope, passed);
       else {
         // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.
