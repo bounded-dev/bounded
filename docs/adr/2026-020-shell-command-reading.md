@@ -81,22 +81,38 @@ names no tool or language (AGENTS.md). It can own the shape.
     with cause `too-complex` (never a reduced reading), which the path gate
     refuses, telling the agent to split or simplify the command:
     - **The backstop, a deadline of 1,000 ms per read on a monotonic clock**
-      (`performance.now()`), whatever the steps count. The adapter builds a
-      host-neutral "has the time run out" function and hands it to parsing
-      (checked every 64 tree nodes, and at every brace-expansion pass), to
-      each nested shell's parse, and to the domain through `ShellPlace`; the
-      domain does no I/O, it only calls the function, every 64 charges of its
-      budget and once at the end. Why: "the command is too complex to read
-      within the time bounded allows for one command".
+      (`performance.now()` by default; a reader may be given another clock,
+      and `readDeadlineMs` must be a finite number above zero, else a
+      RangeError), whatever the steps count. The adapter builds a
+      host-neutral "has the time run out" function and asks it at four
+      kinds of site, each named in the why ("the command is too complex to
+      read within the time bounded allows for one command (…)"):
+      tree-sitter's own parse, through its progress callback, which cancels
+      the parse (the shared parser is then reset) — "(parsing it)"; the
+      walk of the syntax tree, at its first node and every 64th — "(walking
+      its syntax tree)"; brace expansion, at every pass and every 4,096
+      characters within one — "(expanding its braces)"; and the domain,
+      through `ShellPlace`, every 64 charges of its budget and once at the
+      end — "(reading what it does)". The domain does no I/O: it only calls
+      the function. Tests use a clock that runs out after a counted number
+      of questions, so removing any one site fails a test.
     - **Input size, checked before parsing:** at most 65,536 characters ("the
       command is too long to read: N characters, past bounded's limit of
       65536"). There is no word limit: a long heredoc is read.
-    - **Brace expansion is linear per pass and charged:** one pass with a
-      stack finds every group, each pass is charged its length, and a command
-      may spend 1,000,000 characters of passes ("expanding its braces would
-      take more work than bounded allows"). Quoted and escaped braces arrive
-      escaped and never expand, so they cost nothing more. Expansion still
-      stops at 256 words, past which the word is unresolved, as before.
+    - **Brace expansion: each pass is linear, and passes are charged.** A
+      pass finds every group with one stack scan, then looks at each group in
+      constant time: a comma list (which ends the pass) is sliced, and a
+      group is sliced and tested as a range only when it is at most 48
+      characters long (a range is short), with anchored patterns that cannot
+      backtrack; a longer group of digits and dots (a range too long to spell
+      out) is found by a scan that stops at the first other character, so
+      nested groups cost constant time each. Each pass is charged its length,
+      and a command may spend 1,000,000 characters of passes ("expanding its
+      braces would take more work than bounded allows"); text with no brace
+      is not charged. The number of passes is bounded by that charge, not by
+      the text: expansion is linear per pass, not overall. Quoted and escaped
+      braces arrive escaped and never expand. Expansion still stops at 256
+      words, past which the word is unresolved, as before.
     - **The tree is walked at most 1,000 levels deep** ("it nests more than
       1000 levels deep"), so very deep nesting is unread, never a stack
       overflow.
@@ -106,18 +122,28 @@ names no tool or language (AGENTS.md). It can own the shape.
       a reading of xargs's options slices, one for each word resolved (and
       one more per 64 of its characters), one for each look at what is at a
       path, and, for a nested shell's code, one per 16 characters each time
-      it is parsed; readings, nested runs and the reports of xargs's input
+      it is parsed; a short option cluster, read for every value it could
+      carry, costs its suffixes' total length (a step per 64 characters,
+      counted without integer overflow), and carrying where a deep `cd` took
+      later commands costs a step per 8 of its directories wherever it is
+      copied or compared; a cost that is not a count of steps spends the
+      whole budget. Readings, nested runs and the reports of xargs's input
       all share it, and nothing is kept past it. Why: "the command is too
       complex to read within bounded's work budget (200000 steps): its words
       could be read too many ways, or it nests too deep".
     - Measured (one run each): a realistic 488-line install script
       (`test/fixtures/install.sh`) reads in 8 ms and 3,897 steps, 2% of the
       budget; a 60 KB heredoc reads in 2 ms; a 5,000-word `cat` in 10 ms; a
-      50,000-character command in 11 ms; a 4 KB single-quoted JSON body in
-      under 1 ms. Unread: `"xargs $A " × 24` with 5,000 words in 9 ms,
-      `"xargs --b " × 14` over a 4 KB `sh -c` script in 28 ms, `{a,b}` ×
-      10,000 in 46 ms, `"(" × 30,000 + ")" × 30,000` in 16 ms. Read:
-      `"{" × 4,096 + "}" × 4,096` in 36 ms, 15 words of 4,096 `{` in 93 ms.
+      50,000-character command in 12 ms; a 4 KB single-quoted JSON body in
+      under 1 ms. Read: `echo` with `"{" × 32,765 + "}" × 32,765` in 122 ms,
+      `{` + 65,000 dots + `\x}` in 3 ms, 2,000 groups nested around 60,000
+      dots in 7 ms, one word of 60,000 `{` in 77 ms. Unread: `"xargs $A " ×
+      24` with 5,000 words in 9 ms, `"xargs --b " × 14` over a 4 KB `sh -c`
+      script in 8 ms, `{a,b}` × 10,000 in 45 ms, `"(" × 30,000 + ")" ×
+      30,000` in 15 ms, `grep -` + 65,000 letters in 2 ms, a 16,000-level
+      `cd` before 1,400 `if`s in 39 ms. A fuzz test of 300 random strings of
+      shell metacharacters and words, up to 65,536 characters, reads each in
+      at most 47 ms, never throwing.
   - **The cause.** An unread reading carries `cause: "too-complex"` only
     when the command itself is to blame. The parser returning no tree is a
     failure of the parser, not of the command, so it carries no cause, as

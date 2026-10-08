@@ -34,6 +34,24 @@ function operands(args: readonly ShellWord[]): ShellWord[] {
  * its letters takes one: the rest of the word after each leading letter, as
  * getopt reads a cluster (-rf.env is -r -f .env, or -r with f.env): f.env, .env.
  */
+/** What handling `words`' text costs beyond a step each: a step per 64 characters. */
+export const textCost = (words: readonly ShellWord[]): number => words.reduce((steps, word) => steps + (word.text.length >> 6), 0);
+
+/**
+ * What reading a short option cluster for every value it could carry costs
+ * (attachedValues gives a suffix per leading letter or digit): the
+ * suffixes' total length, a step per 64 characters, so a cluster thousands
+ * of letters long spends the budget instead of the time.
+ */
+function clusterCost(word: ShellWord): number {
+  const text = literal(word);
+  if (text === undefined || !text.startsWith("-") || text.startsWith("--")) return 0;
+  let run = 1;
+  while (run + 1 < text.length && /[A-Za-z0-9]/.test(text.charAt(run))) run++;
+  // Division, not a shift: the product passes 2^31 for a long cluster, and a shift would wrap it negative.
+  return Math.floor(((run - 1) * text.length) / 64);
+}
+
 function attachedValues(text: string): ShellWord[] {
   const out: ShellWord[] = [];
   for (let index = 2; index < text.length && /[A-Za-z0-9]/.test(text.charAt(index - 1)); index++) out.push(literalWord(text.slice(index)));
@@ -259,7 +277,7 @@ function xargs(args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
     reads.push(...reading.argFiles, ...reading.operands);
     const [name, ...rest] = reading.command;
     if (name === undefined) continue;
-    if (!spend(budget, 1 + rest.length)) break;
+    if (!spend(budget, 1 + rest.length + textCost(rest))) break;
     const key = JSON.stringify([name.text, rest.map((word) => word.text), reading.replace?.text ?? null]);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -506,7 +524,8 @@ const CHARGES_PER_TIME_CHECK = 64;
 /** Spends `steps`; false once the budget or the time is spent, which marks it exhausted for good. */
 export function spend(budget: WorkBudget, steps = 1): boolean {
   if (budget.exhausted) return false;
-  budget.left -= steps;
+  // A cost that is not a count of steps (negative, not finite) spends the whole budget: it can never give steps back.
+  budget.left -= Number.isFinite(steps) && steps >= 0 ? steps : budget.left + 1;
   if (budget.left < 0) budget.exhausted = true;
   else if (++budget.charges % CHARGES_PER_TIME_CHECK === 0 && budget.outOfTime()) {
     budget.exhausted = true;
@@ -517,7 +536,8 @@ export function spend(budget: WorkBudget, steps = 1): boolean {
 
 /** What the command `name` does with `args`, spending from `budget`, the whole command's: a step for the command and one per word. */
 export function commandMeaning(name: string, args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
-  if (!spend(budget, 1 + args.length)) return NONE;
+  // Each word costs a step and one per 64 characters; a short option cluster, read for every value it could carry, costs its suffixes' length.
+  if (!spend(budget, 1 + args.length + textCost(args) + args.reduce((steps, word) => steps + clusterCost(word), 0))) return NONE;
   const known = Object.hasOwn(TABLE, name) ? TABLE[name] : undefined;
   return known === undefined ? meaning({ reads: readsOf(args) }) : known(args, budget);
 }

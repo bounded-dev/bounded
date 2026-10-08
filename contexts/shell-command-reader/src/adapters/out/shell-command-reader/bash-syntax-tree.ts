@@ -36,11 +36,18 @@ const MAX_TREE_DEPTH = 1000;
 /** The command being parsed: what its walk may still spend, and why it became too complex, if it did. Parsing is synchronous, so one at a time. */
 let walking: { braceWorkLeft: number; depth: number; calls: number; outOfTime: () => boolean; tooComplex: string | undefined } = { braceWorkLeft: 0, depth: 0, calls: 0, outOfTime: () => false, tooComplex: undefined };
 
+/** Why a command is unread when the time for reading it ran out; each place that looks at the time says where it was. */
+const OUT_OF_TIME = "the command is too complex to read within the time bounded allows for one command";
+
 /** Charges brace expansion `steps`; false, marking the command too complex, once its work or the time is spent. */
 function chargeBraces(steps: number): boolean {
   walking.braceWorkLeft -= steps;
-  if (walking.braceWorkLeft >= 0 && !walking.outOfTime()) return true;
-  walking.tooComplex ??= "the command is too complex to read: expanding its braces would take more work than bounded allows";
+  if (walking.braceWorkLeft < 0) {
+    walking.tooComplex ??= "the command is too complex to read: expanding its braces would take more work than bounded allows";
+    return false;
+  }
+  if (!walking.outOfTime()) return true;
+  walking.tooComplex ??= `${OUT_OF_TIME} (expanding its braces)`;
   return false;
 }
 
@@ -51,8 +58,8 @@ function deeper<T>(work: () => T, fallback: T): T {
     walking.tooComplex = `the command is too complex to read: it nests more than ${MAX_TREE_DEPTH} levels deep`;
     return fallback;
   }
-  if (++walking.calls % 64 === 0 && walking.outOfTime()) {
-    walking.tooComplex = "the command is too complex to read within the time bounded allows for one command";
+  if (++walking.calls % 64 === 1 && walking.outOfTime()) {
+    walking.tooComplex = `${OUT_OF_TIME} (walking its syntax tree)`;
     return fallback;
   }
   walking.depth++;
@@ -283,10 +290,17 @@ export async function bashSyntaxTree(loadGrammar: () => Promise<BashGrammar> = l
   parser.setLanguage(grammar);
   return Object.freeze({
     parse(command: Command, outOfTime: () => boolean = () => false): ParsedCommand {
-      if (outOfTime()) return { ok: false, error: "the command is too complex to read within the time bounded allows for one command", cause: "too-complex" };
-      const tree = parser.parse(command.value);
-      // Null only when the parser itself fails: nothing about the command to fix, so no cause.
-      if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
+      const parsingTooLong = { ok: false as const, error: `${OUT_OF_TIME} (parsing it)`, cause: "too-complex" as const };
+      if (outOfTime()) return parsingTooLong;
+      // Tree-sitter asks, as it goes, whether to stop: once the time has run out, it stops and gives no tree.
+      const tree = parser.parse(command.value, null, { progressCallback: () => outOfTime() });
+      if (tree === null) {
+        // The parser is shared across reads: a cancelled parse must not leave it resuming this one.
+        parser.reset();
+        if (outOfTime()) return parsingTooLong;
+        // Otherwise the parser itself failed: nothing about the command to fix, so no cause.
+        return { ok: false, error: "the shell parser could not parse this command" };
+      }
       const outer = walking;
       walking = { braceWorkLeft: BRACE_WORK_STEPS, depth: 0, calls: 0, outOfTime, tooComplex: undefined };
       try {

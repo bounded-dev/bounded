@@ -11,12 +11,16 @@ export interface TreeSitterShellCommandReaderOptions {
   readonly loadGrammar?: () => Promise<BashGrammar>;
   /** How long reading one command may take, in milliseconds; READ_DEADLINE_MS by default. */
   readonly readDeadlineMs?: number;
+  /** A monotonic clock in milliseconds; `performance.now` by default. */
+  readonly clock?: () => number;
 }
 
 /** The longest command read, in characters: far past any typed or generated for one tool call; past it, the command is unread. */
 const MAX_COMMAND_CHARACTERS = 65_536;
 /** How long reading one command may take, on a monotonic clock, nested shells' code included; past it, the command is unread as too complex. */
 const READ_DEADLINE_MS = 1000;
+/** How an unresolved part with no text (a token the parser inserted to recover from an error) is named: a reading names every part. */
+const EMPTY_PART = "(nothing the parser could read)";
 
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const wordOf = ({ kind, text }: ShellWord): ShellCommandWordJSON => ({ kind, text });
@@ -35,11 +39,15 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
   private readonly pathKindOf: (projectRoot: string, path: ProjectPath) => PathKind | undefined;
   private readonly loadGrammar: () => Promise<BashGrammar>;
   private readonly readDeadlineMs: number;
+  private readonly clock: () => number;
 
   constructor(options: TreeSitterShellCommandReaderOptions = {}) {
     this.pathKindOf = options.pathKindOf ?? fileSystemPathKind;
     this.loadGrammar = options.loadGrammar ?? loadBashGrammar;
-    this.readDeadlineMs = options.readDeadlineMs ?? READ_DEADLINE_MS;
+    const deadlineMs = options.readDeadlineMs ?? READ_DEADLINE_MS;
+    if (!Number.isFinite(deadlineMs) || deadlineMs <= 0) throw new RangeError("readDeadlineMs must be a finite number of milliseconds above zero");
+    this.readDeadlineMs = deadlineMs;
+    this.clock = options.clock ?? (() => performance.now());
   }
 
   /** Loads the grammar; preparing twice is harmless, and reading does not need it first. */
@@ -53,8 +61,8 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
     const characters = command.value.length;
     if (characters > MAX_COMMAND_CHARACTERS) return { outcome: "unread", why: `the command is too long to read: ${characters} characters, past bounded's limit of ${MAX_COMMAND_CHARACTERS}`, cause: "too-complex" };
     // The backstop: reading one command, nested shells' code included, stops at a deadline on a monotonic clock, however its work is counted.
-    const deadline = performance.now() + this.readDeadlineMs;
-    const outOfTime = (): boolean => performance.now() > deadline;
+    const deadline = this.clock() + this.readDeadlineMs;
+    const outOfTime = (): boolean => this.clock() > deadline;
     const parsed = tree.parse(command, outOfTime);
     if (!parsed.ok) return { outcome: "unread", why: parsed.error, ...(parsed.cause === undefined ? {} : { cause: parsed.cause }) };
     const parseScript = (script: string) => {
@@ -73,7 +81,8 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
         // Whether a written file exists could not be told: it is given as both a create and a modify, each marked.
         ...described.writes.map(({ path, change, undetermined }) => ({ effect: { kind: "write" as const, path: path.value, change }, ...(undetermined === true ? { existenceUnknown: true } : {}) })),
       ],
-      unresolved: described.unresolved.map(({ text, role }) => ({ text, role })),
+      // A part the parser found nothing in (a token it inserted to recover, of no text) is still reported, by a name, never dropped.
+      unresolved: described.unresolved.map(({ text, role }) => ({ text: text === "" ? EMPTY_PART : text, role })),
     };
   }
 

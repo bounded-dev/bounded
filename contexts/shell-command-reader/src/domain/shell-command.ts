@@ -1,5 +1,5 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning, MAX_NESTING, newWorkBudget, spend, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
+import { commandMeaning, MAX_NESTING, newWorkBudget, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
 import type { MeaningChange } from "./command-meanings.contract.ts";
 import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
 
@@ -21,11 +21,13 @@ interface Scope {
 /** Why a command that outgrew its work budget is unread. */
 const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
 /** Why a command whose reading ran out of time is unread. */
-const OUT_OF_TIME = "the command is too complex to read within the time bounded allows for one command";
+const OUT_OF_TIME = "the command is too complex to read within the time bounded allows for one command (reading what it does)";
 
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
+/** What carrying where a scope runs costs (it is copied, joined and compared): a step per 8 of its directories. */
+const depthCost = (scope: Scope): number => (scope.at === null ? 0 : scope.at.length >> 3);
 
 /**
  * The roles xargs's input would have for the command `name` run with
@@ -118,7 +120,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   /** A word as a project path; recorded as unresolved, with the role it would have had, when it cannot be one. */
   const resolve = (word: ShellWord, scope: Scope, role: UnresolvedWord["role"]): ProjectPath | undefined => {
     // Resolving costs a step and one more per 64 characters; once the budget is spent nothing more is kept.
-    if (!spend(budget, 1 + (word.text.length >> 6))) return undefined;
+    if (!spend(budget, 1 + (word.text.length >> 6) + depthCost(scope))) return undefined;
     const path = word.kind === "literal" ? pathOf(word.text, scope) : undefined;
     if (path === undefined) unresolved.push({ text: word.text, role });
     return path;
@@ -170,10 +172,10 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * substitution adds a report, never replaces the check).
    */
   const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
-    if (name === null || !spend(budget, 1 + args.length)) return;
+    if (name === null || !spend(budget, 1 + args.length + depthCost(scope))) return;
     if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
     if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT], budget)) unresolved.push({ text: XARGS_INPUT.text, role });
-    if (how.replace !== undefined && spend(budget, 1 + args.length)) {
+    if (how.replace !== undefined && spend(budget, 1 + args.length + textCost(args))) {
       const [inputName = name, ...inputArgs] = withInputReplaced([name, ...args], how.replace) ?? [XARGS_INPUT];
       const roles = inputName === name && !inputArgs.includes(XARGS_INPUT) ? [] : inputRoles(inputName, inputArgs, budget);
       for (const role of roles) unresolved.push({ text: XARGS_INPUT.text, role });
@@ -246,7 +248,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   };
 
   const walk = (node: ShellNode, scope: Scope): void => {
-    if (!spend(budget)) return;
+    if (!spend(budget, 1 + depthCost(scope))) return;
     switch (node.kind) {
       case "command": {
         for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, scope);

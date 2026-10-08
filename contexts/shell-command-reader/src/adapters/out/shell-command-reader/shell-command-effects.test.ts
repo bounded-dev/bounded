@@ -185,6 +185,42 @@ describe("the bash syntax tree: a redirection after a list or a pipeline is its 
   });
 });
 
+describe("the bash syntax tree asks the time at each of its check sites, and stops there", () => {
+  const OUT_OF_TIME = "the command is too complex to read within the time bounded allows for one command";
+  /** How many times parsing `command` asks the time, when it never runs out. */
+  const asks = (command: string): number => {
+    let calls = 0;
+    parser.parse(commandOf(command), () => {
+      calls++;
+      return false;
+    });
+    return calls;
+  };
+  /** Parses `command` with a clock that runs out at its `outFrom`th question. */
+  const outFrom = (command: string, from: number) => {
+    let calls = 0;
+    return parser.parse(commandOf(command), () => ++calls >= from);
+  };
+
+  test("tree-sitter's progress callback: the parse stops, and the shared parser is reset for the next read", () => {
+    const command = "cat a.txt; ".repeat(500);
+    expect(asks(command)).toBeGreaterThan(10);
+    expect(outFrom(command, 2)).toEqual({ ok: false, error: `${OUT_OF_TIME} (parsing it)`, cause: "too-complex" });
+    const next = parser.parse(commandOf("rm b.txt"), () => false);
+    expect(next.ok && next.value).toEqual([{ kind: "command", name: { kind: "literal", text: "rm" }, args: [{ kind: "literal", text: "b.txt" }], redirects: [], assignments: [] }]);
+  });
+
+  test("the walk's check, every 64 nodes from the first", () => {
+    const command = "cat a.txt";
+    expect(outFrom(command, asks(command))).toEqual({ ok: false, error: `${OUT_OF_TIME} (walking its syntax tree)`, cause: "too-complex" });
+  });
+
+  test("brace expansion's check, at each pass", () => {
+    const command = "echo {a,b}";
+    expect(outFrom(command, asks(command))).toEqual({ ok: false, error: `${OUT_OF_TIME} (expanding its braces)`, cause: "too-complex" });
+  });
+});
+
 describe("the work budget: what reading a command costs", () => {
   /** The steps reading `command` takes, and whether it ran out. */
   const cost = (command: string) => {
@@ -201,11 +237,19 @@ describe("the work budget: what reading a command costs", () => {
     expect(spent.workSpent).toBeLessThan(WORK_BUDGET_STEPS / 10);
   });
 
-  test("the domain asks the time it is given, and once it has run out the command is unread", () => {
-    const script = made(parser.parse(commandOf("cat a.txt; rm b.txt")));
+  test("the domain asks the time it is given, every 64 charges and at the end, and once it has run out the command is unread", () => {
     const place = { cwd: null, root: ROOT, kindOfPath: kindOf({}), parseScript: () => ({ ok: false as const, error: "no nested shell" }) };
-    expect(describeShellCommand(script, { ...place, outOfTime: () => true }).unreadWhy).toBe("the command is too complex to read within the time bounded allows for one command");
-    expect(describeShellCommand(script, { ...place, outOfTime: () => false }).unreadWhy).toBeUndefined();
+    const OUT_OF_TIME = "the command is too complex to read within the time bounded allows for one command (reading what it does)";
+    const short = made(parser.parse(commandOf("cat a.txt; rm b.txt")));
+    expect(describeShellCommand(short, { ...place, outOfTime: () => true }).unreadWhy).toBe(OUT_OF_TIME);
+    expect(describeShellCommand(short, { ...place, outOfTime: () => false }).unreadWhy).toBeUndefined();
+    // A long script stops at the first check, after 64 charges, not at the end: the check inside the budget is what bounds the time.
+    const long = made(parser.parse(commandOf("cat a.txt; ".repeat(2000))));
+    const full = describeShellCommand(long, { ...place, outOfTime: () => false }).workSpent;
+    const stopped = describeShellCommand(long, { ...place, outOfTime: () => true });
+    expect(stopped.unreadWhy).toBe(OUT_OF_TIME);
+    expect(full).toBeGreaterThan(5000);
+    expect(stopped.workSpent).toBeLessThan(200);
   });
 
   test("the budget counts work, not calls: a word costs a step each time it is handled", () => {

@@ -238,10 +238,70 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect((await read(`${"( ".repeat(500)}rm x${" )".repeat(500)}`)).fileEffects).toEqual([{ effect: { kind: "write", path: "x", change: "delete" } }]);
   });
 
-  test("the backstop: past its deadline on the clock, a command is unread as too complex, however its work is counted", async () => {
-    const { reading } = await timed("cat a.txt", new TreeSitterShellCommandReader({ pathKindOf: () => "absent", readDeadlineMs: -1 }));
-    expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read within the time bounded allows for one command", cause: "too-complex" });
+  test("the backstop: past its deadline on the reader's clock, a command is unread as too complex, however its work is counted", async () => {
+    // A clock that runs out after the deadline is set: every later look finds the time spent.
+    let ticks = 0;
+    const clock = () => (ticks++ === 0 ? 0 : 1001);
+    const { reading } = await timed("cat a.txt", new TreeSitterShellCommandReader({ pathKindOf: () => "absent", clock }));
+    expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read within the time bounded allows for one command (parsing it)", cause: "too-complex" });
+    // A clock that never moves never runs out.
+    expect((await timed("cat a.txt", new TreeSitterShellCommandReader({ pathKindOf: () => "absent", clock: () => 0 }))).reading.outcome).toBe("read");
+    // The domain's own check: a clock that runs out only once the parse is done stops the reading of what the command does.
+    const quiet = new TreeSitterShellCommandReader({ pathKindOf: () => "absent", clock: () => 0, readDeadlineMs: 1 });
+    expect((await timed("cat a.txt", quiet)).reading.outcome).toBe("read");
   });
+
+  test("readDeadlineMs is a finite number of milliseconds above zero", () => {
+    for (const readDeadlineMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new TreeSitterShellCommandReader({ readDeadlineMs })).toThrow(new RangeError("readDeadlineMs must be a finite number of milliseconds above zero"));
+    }
+  });
+
+  test("brace passes are linear and the deadline reaches inside them: the reviewer's cases each finish in under 1.5 s", async () => {
+    for (const command of [
+      `echo ${"{".repeat(32_765)}${"}".repeat(32_765)}`,
+      `echo {${".".repeat(65_000)}\\x}`,
+      `echo ${"{".repeat(2000)}${".".repeat(60_000)}\\x${"}".repeat(2000)}`,
+      // A short option cluster read for every value it could carry costs its suffixes, counted without overflow.
+      `grep -${"a".repeat(65_000)}`,
+      // Where a deep cd took later commands: carrying it costs in proportion to its depth.
+      `cd ${"a/".repeat(16_000)} && ${"if a; then cat b; fi; ".repeat(1400)}`,
+      `cd ${"a/".repeat(16_000)} && cat ${"b ".repeat(3000)}`,
+    ]) {
+      const { elapsed } = await timed(command);
+      expect({ command: command.slice(0, 30), fast: elapsed < 1500 }).toEqual({ command: command.slice(0, 30), fast: true });
+    }
+  }, 30_000);
+
+  test("fuzz: a few hundred random commands of shell metacharacters and words, up to 65,536 characters, each read in under 1.5 s, never throwing", async () => {
+    // mulberry32, a fixed seed: the same strings every run.
+    let seed = 0x2026_0020;
+    const random = (): number => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const pieces = ["{", "}", "(", ")", "$", "`", "'", '"', "\\", ".", ",", ";", "&", "|", "<", ">", "*", "?", "[", "]", " ", "\n", "xargs", "sh -c", "cat", "rm", "cd", "-", "--b", "..", "a", "1", "{a,b}", "$(", "<<EOF\n", "EOF\n"];
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    let worst = 0;
+    for (let case_ = 0; case_ < 300; case_++) {
+      // Most short, some long, a few at the limit.
+      const length = case_ % 10 === 0 ? 65_536 : case_ % 3 === 0 ? Math.floor(random() * 20_000) : Math.floor(random() * 400) + 1;
+      let text = "";
+      while (text.length < length) text += pieces[Math.floor(random() * pieces.length)];
+      text = text.slice(0, length).replace(/\0/g, "");
+      const command = Command.parse(text.trim() === "" ? "x" : text);
+      if (!command.ok) continue;
+      const started = performance.now();
+      const answer = await reader.read(ROOT, command.value, null);
+      const elapsed = performance.now() - started;
+      worst = Math.max(worst, elapsed);
+      const parsed = ShellCommandReading.parse(answer);
+      expect({ case_, fast: elapsed < 1500, parses: parsed.ok ? "ok" : `${parsed.error} in ${JSON.stringify(text.slice(0, 200))}` }).toEqual({ case_, fast: true, parses: "ok" });
+    }
+    expect(worst).toBeLessThan(1500);
+  }, 600_000);
 
   test("a realistic install script of about 500 lines is read, programs and all, well within the budget", async () => {
     const script = await Bun.file(INSTALL_SCRIPT).text();
