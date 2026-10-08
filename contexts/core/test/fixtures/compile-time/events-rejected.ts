@@ -18,7 +18,6 @@ import {
   type ToolUse,
   type Url,
   Verdict,
-  type WatchedPath,
   type WriteEffect,
 } from "bounded/domain";
 
@@ -49,7 +48,6 @@ export const tool: ToolName = "web_search"; // rejected: is not assignable to ty
 export const filter: NamePattern = "*.ts"; // rejected: is not assignable to type 'NamePattern'
 export const callId: CallId = "toolu_1"; // rejected: is not assignable to type 'CallId'
 export const decisionId: DecisionId = "d-1"; // rejected: is not assignable to type 'DecisionId'
-export const watched: WatchedPath = { match: "a/**", except: [], why: "w", redirect: "r" }; // rejected: is missing the following properties from type 'WatchedPath': __brand
 export const pathText: string = readEffect.path; // rejected: Type 'ProjectPath' is not assignable to type 'string'
 export const product: ToolKind = "bash"; // rejected: Type '"bash"' is not assignable to type 'ToolKind'
 // 3. A guard reads only what its event has: a session start has no effects, and each effect only its own fields.

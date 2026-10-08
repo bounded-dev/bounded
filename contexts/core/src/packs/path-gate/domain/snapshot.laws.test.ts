@@ -1,4 +1,4 @@
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
+import { valueObjectLaws } from "../../../domain/shared/value-object.laws.test-support.ts";
 import { Snapshot } from "./snapshot.ts";
 
 const A = "a".repeat(64);

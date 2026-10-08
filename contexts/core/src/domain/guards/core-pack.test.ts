@@ -11,7 +11,7 @@ describe("corePack — the core's own pack", () => {
   test("is bounded/core, depends on nothing, and declares exactly its contract's points", () => {
     expect(corePack.id.value).toBe("bounded/core");
     expect(corePack.dependsOn).toEqual([]);
-    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards", "watchedPaths"]);
+    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards"]);
   });
 
   test("effectGuards has one point per effect kind Effect.parse accepts", () => {
@@ -34,7 +34,7 @@ describe("corePack — the core's own pack", () => {
   });
 
   test("every function point's check refuses a value that is not a function, naming the pack and the point", () => {
-    const { effectGuards, watchedPaths: _, ...rest } = corePack.points;
+    const { effectGuards, ...rest } = corePack.points;
     const targets = [...Object.entries(rest), ...Object.entries(effectGuards).map(([kind, point]) => [`effectGuards.${kind}`, point] as const)];
     for (const [key, target] of targets) {
       const bad = untypedPack({ id: "test-packs/bad", dependsOn: [corePack], contributes: [contribution(target as never, ["not a function" as never])] });

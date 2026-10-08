@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Composition, contribution, corePack, definePack, packIdsFor, watchedPathsOf } from "bounded/domain";
+import { Composition, contribution, corePack, definePack, packIdsFor } from "bounded/domain";
+import { watchedRulesOf } from "./watched-rules.ts";
 import { pathGate } from "bounded/path-gate";
 
 const project = definePack({
@@ -19,7 +20,7 @@ describe("the path gate watches what it protects from writes", () => {
     const all = [corePack, pathGate, project];
     const composed = Composition.compose(all, all);
     if (!composed.ok) throw new Error(composed.error);
-    const watched = watchedPathsOf(composed.value);
+    const watched = watchedRulesOf(composed.value, pathGate.points.protectedPaths);
     if (!watched.ok) throw new Error(watched.error);
     expect(watched.value.map(({ rule, fromPackId }) => [rule.match, rule.except, fromPackId.value])).toEqual([
       ["**/bounded.config.*", [], "bounded/path-gate"],
@@ -37,7 +38,7 @@ describe("the path gate watches what it protects from writes", () => {
     const all = [corePack, pathGate, project];
     const composed = Composition.compose(all, all);
     if (!composed.ok) throw new Error(composed.error);
-    const watched = watchedPathsOf(composed.value);
+    const watched = watchedRulesOf(composed.value, pathGate.points.protectedPaths);
     if (!watched.ok) throw new Error(watched.error);
     expect(watched.value.map(({ rule }) => [rule.match, rule.changes])).toEqual([
       ["**/bounded.config.*", ["create", "modify", "delete"]],
@@ -50,6 +51,6 @@ describe("the path gate watches what it protects from writes", () => {
   test("without the path gate selected, it watches nothing", () => {
     const composed = Composition.compose([corePack, pathGate], [corePack]);
     if (!composed.ok) throw new Error(composed.error);
-    expect(watchedPathsOf(composed.value)).toEqual({ ok: true, value: [] });
+    expect(watchedRulesOf(composed.value, pathGate.points.protectedPaths)).toEqual({ ok: true, value: [] });
   });
 });

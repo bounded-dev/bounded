@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { Composition, contribution, corePack, type Decision, definePack, packIdsFor, type Result, ToolResult, ToolUse, type WatchedPath } from "bounded/domain";
-import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
-import type { RestoreFrom, ShellSnapshots, Snapshot, WatchedFile, WatchedFiles, WatchedHashes } from "./watch-shell.contract.ts";
+import { Composition, contribution, corePack, Decision, DecisionId, definePack, point, type Result, ToolResult, ToolUse } from "bounded/domain";
+import { pathGateId } from "../../domain/path-gate-id.ts";
+import type { ProtectedPathJSON } from "../../domain/protected-path.contract.ts";
+import { ProtectedPath } from "../../domain/protected-path.ts";
+import type { WatchedChange, WatchedPath } from "../../domain/watched-path.contract.ts";
+import type { RestoreFrom, ShellSnapshots, Snapshot, WatchedFile, WatchedFiles, WatchedHashes, WatchShell } from "./watch-shell.contract.ts";
 import { WatchShellHandler } from "./watch-shell.handler.ts";
 
-const clock: Clock = { now: () => "2026-10-08T12:00:00.000Z" };
+const clock = { now: () => "2026-10-08T12:00:00.000Z" };
 const RULES_REDIRECT = "Change the generator's input instead";
 
 const sha = (content: string): string => new Bun.CryptoHasher("sha256").update(content).digest("hex");
@@ -106,26 +109,60 @@ class FakeSnapshots implements ShellSnapshots {
   }
 }
 
-class FakeLog implements GuardLog {
+/** What the core records of each report the handler returns, as the guard log would hold it. */
+class FakeLog {
   readonly decisions: Decision[] = [];
-  async record(decision: Decision): Promise<void> {
-    this.decisions.push(decision);
-  }
 }
 
-const rules = definePack({
-  id: packIdsFor("test-packs")("rules"),
-  dependsOn: [corePack],
-  contributes: [
-    contribution(corePack.points.watchedPaths, [
+/**
+ * A stand-in for the path gate: a pack with its id whose protected paths are
+ * only what a test contributes (none of the path gate's own rules), so each
+ * test watches exactly the paths it names.
+ */
+const gate = definePack({ id: pathGateId, points: { protectedPaths: point({ description: "Protected paths", check: ProtectedPath.parse }) } });
+const protectedPaths = gate.points.protectedPaths;
+
+/** A watched path as a test names it: what it matches, the changes it forbids (every one unless said), why, and what to do instead. */
+interface Watching {
+  readonly match: string;
+  readonly except?: readonly string[];
+  readonly changes?: readonly WatchedChange[];
+  readonly why: string;
+  readonly redirect: string;
+}
+/** The protected path that watches exactly that: a literal name is a file rule, so it is watched alone. */
+const ruleFor = ({ changes, ...watched }: Watching): ProtectedPathJSON => ({ ...watched, deny: changes === undefined || changes.length === 0 ? ["create", "modify", "delete"] : [changes[0] as WatchedChange, ...changes.slice(1)], ...(/[*?[\]{}]/.test(watched.match.split("/").at(-1) ?? "") ? {} : { file: true }) });
+
+/** A composition whose protected paths are exactly `watched`, in order. */
+function watching(local: string, watched: readonly Watching[]): Composition {
+  const rules = (definePack as unknown as (spec: object) => typeof gate)({ id: `test-packs/${local}`, dependsOn: [gate], contributes: [contribution(protectedPaths, watched.map(ruleFor))] });
+  const composed = Composition.compose([gate, rules, corePack], [gate, rules, corePack]);
+  if (!composed.ok) throw new Error(composed.error);
+  return composed.value;
+}
+
+/** The handler, recording each report's record as the core would, naming the path gate. */
+function recorded(handler: WatchShellHandler, log: FakeLog): WatchShell {
+  return {
+    snapshot: (call) => handler.snapshot(call),
+    verify: async (given) => {
+      const report = await handler.verify(given);
+      if (report.record !== null) {
+        const { verdict, refusedBy, note } = report.record;
+        const id = DecisionId.parse(`d-${log.decisions.length + 1}`);
+        if (!id.ok) throw new Error(id.error);
+        log.decisions.push(Decision.of(id.value, clock.now(), given, { verdict, refusedBy: refusedBy === null ? null : { packId: pathGateId, effect: refusedBy.effect } }, note));
+      }
+      return report;
+    },
+  };
+}
+
+const rules = watching("rules", [
       { match: "generated/**", except: ["generated/README.md"], why: "generated/ is written by the generator", redirect: RULES_REDIRECT },
       { match: "bounded.config.ts", why: "the configuration decides what agents may do", redirect: "Ask the project's owner" },
-    ]),
-  ],
-});
-const composed = Composition.compose([rules, corePack], [rules, corePack]);
-if (!composed.ok) throw new Error(composed.error);
-const composition = composed.value;
+]);
+const composition = rules;
 
 const shell = { role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make" }], callId: "c1" };
 function use(raw: object): ToolUse {
@@ -143,7 +180,7 @@ function setup(limits?: { perFile: number; total: number }) {
   const files = new FakeFiles({ "generated/a.ts": "a", "generated/README.md": "r", "bounded.config.ts": "c", "src/b.ts": "b" });
   const snapshots = new FakeSnapshots();
   const log = new FakeLog();
-  return { files, snapshots, log, watch: new WatchShellHandler(composition, files, snapshots, log, clock, limits === undefined ? {} : { limits }) };
+  return { files, snapshots, log, watch: recorded(new WatchShellHandler(composition, protectedPaths, files, snapshots, limits === undefined ? {} : { limits }), log) };
 }
 
 describe("WatchShellHandler — before a shell command", () => {
@@ -218,7 +255,7 @@ describe("WatchShellHandler — after a shell command", () => {
   test("nothing changed: nothing to say, nothing recorded", async () => {
     const { watch, log } = setup();
     await watch.snapshot(use(shell));
-    expect(await watch.verify(result())).toEqual({ changed: [], restored: true, message: null });
+    expect(await watch.verify(result())).toEqual({ changed: [], restored: true, message: null, record: null });
     expect(log.decisions).toEqual([]);
   });
 
@@ -247,7 +284,7 @@ describe("WatchShellHandler — after a shell command", () => {
     expect(log.decisions.length).toBe(1);
     expect(log.decisions[0]?.event).toBe("tool-result");
     expect(log.decisions[0]?.note).toBe("changed by a shell command; restored");
-    expect<unknown>(log.decisions[0]?.verdict).toEqual({ kind: "refuse", reason: check.message, redirect: RULES_REDIRECT, pack: "test-packs/rules", effect: "execute `make`" });
+    expect<unknown>(log.decisions[0]?.verdict).toEqual({ kind: "refuse", reason: check.message, redirect: RULES_REDIRECT, pack: "bounded/path-gate", effect: "execute `make`" });
   });
 
   test("a restore that fails is reported loudly and recorded", async () => {
@@ -319,7 +356,7 @@ describe("WatchShellHandler — after a shell command", () => {
     const { watch, files, log } = setup();
     await watch.snapshot(use(shell));
     files.hashFailure = "disk gone";
-    expect(await watch.verify(result())).toEqual({
+    expect(await watch.verify(result())).toMatchObject({
       changed: [],
       restored: false,
       message: "Protected files could not be checked after this command: disk gone. Check them by hand against version control.",
@@ -329,11 +366,11 @@ describe("WatchShellHandler — after a shell command", () => {
 
   test("a result with no snapshot (no shell command, or no call id) has nothing to check", async () => {
     const { watch } = setup();
-    expect(await watch.verify(result({ callId: "never-seen" }))).toEqual({ changed: [], restored: true, message: null });
+    expect(await watch.verify(result({ callId: "never-seen" }))).toEqual({ changed: [], restored: true, message: null, record: null });
     const { callId: _id, ...anonymous } = { ...shell, kind: "tool-result", ok: true };
     const parsed = ToolResult.parse(anonymous);
     if (!parsed.ok) throw new Error(parsed.error);
-    expect(await watch.verify(parsed.value)).toEqual({ changed: [], restored: true, message: null });
+    expect(await watch.verify(parsed.value)).toEqual({ changed: [], restored: true, message: null, record: null });
   });
 });
 
@@ -412,36 +449,28 @@ describe("WatchShellHandler — a snapshot that is missing or altered", () => {
     files.working.set("generated/a.ts", "tampered");
     const edit = ToolResult.parse({ kind: "tool-result", role: null, tool: "edit", effects: [{ kind: "write", path: "src/b.ts", change: "modify" }], ok: true, callId: "e1" });
     if (!edit.ok) throw new Error(edit.error);
-    expect(await watch.verify(edit.value)).toEqual({ changed: [], restored: true, message: null });
+    expect(await watch.verify(edit.value)).toEqual({ changed: [], restored: true, message: null, record: null });
     expect(log.decisions).toEqual([]);
   });
 });
 
 describe("WatchShellHandler — only the changes a watched path forbids are undone", () => {
-  const migrations = definePack({
-    id: packIdsFor("test-packs")("migrations"),
-    dependsOn: [corePack],
-    contributes: [
-      contribution(corePack.points.watchedPaths, [
+  const migrations = watching("migrations", [
         { match: "migrations/**", changes: ["modify", "delete"], why: "applied migrations are history", redirect: "Add a new migration instead" },
         { match: "generated/**", why: "generated/ is written by the generator", redirect: RULES_REDIRECT },
-      ]),
-    ],
-  });
+  ]);
   function migrationsSetup() {
-    const all = [migrations, corePack];
-    const composed = Composition.compose(all, all);
-    if (!composed.ok) throw new Error(composed.error);
+    const composed = { value: migrations };
     const files = new FakeFiles({ "migrations/0001_init.sql": "create table a;", "generated/a.ts": "a" });
     const log = new FakeLog();
-    return { files, log, watch: new WatchShellHandler(composed.value, files, new FakeSnapshots(), log, clock) };
+    return { files, log, watch: recorded(new WatchShellHandler(composed.value, protectedPaths, files, new FakeSnapshots()), log) };
   }
 
   test("a file created where only modify and delete are forbidden is left in place, with nothing to say and nothing recorded", async () => {
     const { watch, files, log } = migrationsSetup();
     await watch.snapshot(use(shell));
     files.working.set("migrations/0002_add.sql", "create table b;");
-    expect(await watch.verify(result())).toEqual({ changed: [], restored: true, message: null });
+    expect(await watch.verify(result())).toEqual({ changed: [], restored: true, message: null, record: null });
     expect(files.working.get("migrations/0002_add.sql")).toBe("create table b;");
     expect(files.quarantined.size).toBe(0);
     expect(log.decisions).toEqual([]);
@@ -477,7 +506,7 @@ describe("WatchShellHandler — only the changes a watched path forbids are undo
   test("with no snapshot to trust, only forbidden changes are reported against the commit", async () => {
     const { watch, files } = migrationsSetup();
     files.working.set("migrations/0002_add.sql", "create table b;");
-    expect(await watch.verify(result({ callId: "never-seen" }))).toEqual({ changed: [], restored: true, message: null });
+    expect(await watch.verify(result({ callId: "never-seen" }))).toEqual({ changed: [], restored: true, message: null, record: null });
     files.working.set("migrations/0001_init.sql", "drop table a;");
     const check = await watch.verify(result({ callId: "never-seen" }));
     expect(check.changed).toEqual([{ path: "migrations/0001_init.sql", change: "modified" }]);
@@ -486,23 +515,15 @@ describe("WatchShellHandler — only the changes a watched path forbids are undo
 
 describe("WatchShellHandler — every watched path that matches a file counts", () => {
   test("a looser path never shadows a stricter one: a change any of them forbids is undone, reported by the first that forbids it", async () => {
-    const layered = definePack({
-      id: packIdsFor("test-packs")("layered"),
-      dependsOn: [corePack],
-      contributes: [
-        contribution(corePack.points.watchedPaths, [
+    const layered = watching("layered", [
           { match: "generated/**", changes: ["create"], why: "nothing new goes into generated/", redirect: "Change the generator's input" },
-          { match: "generated/a.ts", changes: ["modify"], why: "a.ts is pinned", redirect: "Ask the owner of a.ts" },
-        ]),
-      ],
-    });
-    const all = [layered, corePack];
-    const composed = Composition.compose(all, all);
-    if (!composed.ok) throw new Error(composed.error);
+          { match: "generated/a.ts", changes: ["modify", "delete"], why: "a.ts is pinned", redirect: "Ask the owner of a.ts" },
+    ]);
+    const composed = { value: layered };
     const files = new FakeFiles({ "generated/a.ts": "a", "generated/b.ts": "b" });
     files.allRules = true;
     const log = new FakeLog();
-    const watch = new WatchShellHandler(composed.value, files, new FakeSnapshots(), log, clock);
+    const watch = recorded(new WatchShellHandler(composed.value, protectedPaths, files, new FakeSnapshots()), log);
     await watch.snapshot(use(shell));
     files.working.set("generated/a.ts", "tampered");
     files.working.set("generated/b.ts", "changed, which is allowed");
@@ -517,23 +538,15 @@ describe("WatchShellHandler — every watched path that matches a file counts", 
 
 describe("WatchShellHandler — which paths watch a file is worked out again after the command", () => {
   test("a snapshot whose stored rules were loosened still has every forbidden change undone", async () => {
-    const layered = definePack({
-      id: packIdsFor("test-packs")("layered"),
-      dependsOn: [corePack],
-      contributes: [
-        contribution(corePack.points.watchedPaths, [
+    const layered = watching("layered", [
           { match: "generated/**", changes: ["create"], why: "nothing new goes into generated/", redirect: "Change the generator's input" },
-          { match: "generated/a.ts", changes: ["modify"], why: "a.ts is pinned", redirect: "Ask the owner of a.ts" },
-        ]),
-      ],
-    });
-    const all = [layered, corePack];
-    const composed = Composition.compose(all, all);
-    if (!composed.ok) throw new Error(composed.error);
+          { match: "generated/a.ts", changes: ["modify", "delete"], why: "a.ts is pinned", redirect: "Ask the owner of a.ts" },
+    ]);
+    const composed = { value: layered };
     const files = new FakeFiles({ "generated/a.ts": "a" });
     files.allRules = true;
     const snapshots = new FakeSnapshots();
-    const watch = new WatchShellHandler(composed.value, files, snapshots, new FakeLog(), clock);
+    const watch = recorded(new WatchShellHandler(composed.value, protectedPaths, files, snapshots), new FakeLog());
     await watch.snapshot(use(shell));
     const saved = snapshots.kept.get("c1") as { files: Record<string, { rule: number; rules?: number[] }> };
     const entry = saved.files["generated/a.ts"] as { rule: number; rules?: number[] };

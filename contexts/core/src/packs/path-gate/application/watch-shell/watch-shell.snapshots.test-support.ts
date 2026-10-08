@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Snapshot } from "bounded/domain";
+import { Snapshot } from "../../domain/snapshot.ts";
 import type { ShellSnapshots, SnapshotJSON } from "./watch-shell.contract.ts";
 
 /** A snapshot from its wire form, watched by two rules. */

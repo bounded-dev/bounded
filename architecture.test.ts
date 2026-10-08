@@ -71,10 +71,23 @@ function exportLayerOf(context: Context, exportPath: string): Layer | undefined 
  * A pack shipped in a context's package lives in its own directory,
  * src/packs/<name>/, and is an ordinary pack: its code depends only on the
  * package's public `domain` export path, its own directory and the libraries
- * the package declares, and does no I/O. Nothing outside that directory
- * imports it, except tests under the composition root (src/composition-root/), so the
- * core never depends on a pack (ADR 2026-009).
+ * the package declares. Nothing outside that directory imports it, except
+ * tests under the composition root (src/composition-root/), so the core
+ * never depends on a pack (ADR 2026-009). Inside, it is a small hexagon
+ * (ADR 2026-013): `domain/` imports only itself; `application/` its own
+ * domain and application; the files at its root its domain, application and
+ * root, never its adapters; `adapters/out/<tech>/` its domain, application
+ * and own technology, and alone may do I/O (`node:*`, never Bun).
  */
+const packLayerOf = (file: string): string | undefined => {
+  const rest = /^contexts\/[^/]+\/src\/packs\/[^/]+\/(.*)$/.exec(file)?.[1];
+  if (rest === undefined) return undefined;
+  const [first = "", second, third] = rest.split("/");
+  if (first === "adapters" && second === "out" && third !== undefined) return `adapters/out/${third}`;
+  return ["domain", "application"].includes(first) && rest.includes("/") ? first : "root";
+};
+/** What each layer of a shipped pack may import of its own pack. */
+const PACK_LAYERS: Readonly<Record<string, readonly string[]>> = { domain: ["domain"], application: ["domain", "application"], root: ["domain", "application", "root"] };
 function shippedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
   const packDir = (file: string | undefined) => (file === undefined ? undefined : /^contexts\/[^/]+\/src\/packs\/[^/]+\//.exec(file)?.[0]);
   const own = packDir(path);
@@ -90,12 +103,19 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     const into = packDir(file);
     if (into !== undefined && into !== own && !rootTest) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
     if (own === undefined || isTest) continue;
+    const from = packLayerOf(path) ?? "root";
+    const adapter = from.startsWith("adapters/");
     if (relative) {
       if (into !== own) out.push(`${at} — a shipped pack reaches the core through \`${context.name}/domain\` only`);
+      else {
+        const to = packLayerOf(file ?? "") ?? "root";
+        const allowed = adapter ? ["domain", "application", from] : (PACK_LAYERS[from] ?? []);
+        if (!allowed.includes(to)) out.push(`${at} — a pack's ${from} may not import its ${to}`);
+      }
     } else if (exported !== undefined) {
       if (spec !== `${context.name}/domain`) out.push(`${at} — a shipped pack depends only on \`${context.name}/domain\`, the core's public exports`);
-    } else if (IO_MODULES.test(spec) || !context.dependencies.includes(spec)) {
-      out.push(`${at} — a shipped pack uses only libraries its package declares, and does no I/O`);
+    } else if (adapter ? !spec.startsWith("node:") && !context.dependencies.includes(spec) : IO_MODULES.test(spec) || !context.dependencies.includes(spec)) {
+      out.push(`${at} — ${adapter ? "a pack's adapter uses only node:* and libraries its package declares" : "a shipped pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do"}`);
     }
   }
   return out;
@@ -257,7 +277,7 @@ for (const path of files) {
   const text = await Bun.file(`${ROOT}/${path}`).text();
   const shippedPack = layer === "packs";
   if (shippedPack && rest.length < 3) violations.push(`${path} — a shipped pack lives in its own directory, src/packs/<name>/`);
-  const pure = (layer === "domain" || layer === "application" || shippedPack) && !isTest;
+  const pure = (layer === "domain" || layer === "application" || (shippedPack && !(packLayerOf(path) ?? "").startsWith("adapters/"))) && !isTest;
   if (!isTest) violations.push(...packIdViolations(path, text, context.name));
   if (!isTest) violations.push(...brandedPrimitiveViolations(path, text));
   violations.push(...shippedPackViolations(path, importsOf(path, text), context));
@@ -349,14 +369,13 @@ for (const context of contexts) {
   if (barrel !== undefined) barrels.set(`${context.name}/application`, barrelContracts(barrel));
 }
 /** Ports excused from R2, each with its reason. */
-const UNTESTED_PORTS = new Map([["ProjectDrift", "removed by step C of the restructure: the path gate's own WatchedFiles and ShellSnapshots ports replace it, and both have conformance suites"]]);
+const UNTESTED_PORTS = new Map<string, string>();
 /** Files excused from R3, each with its reason. */
 const NOT_CONCEPTS = new Map([
   ["contexts/core/src/domain/shared/result.ts", "the shared kernel: Result, no concept"],
   ["contexts/core/src/domain/shared/read.ts", "the shared kernel: reading untyped input safely"],
   ["contexts/core/src/domain/shared/text.ts", "the shared kernel: text helpers"],
   ["contexts/core/src/domain/shared/wire.ts", "the shared kernel: wire forms of value objects"],
-  ["contexts/core/src/domain/drift/watched-paths.ts", "removed by step C of the restructure: the path gate's watched-rules concept replaces it"],
 ]);
 /** R5: the files that route events, each with the type assertions it may have. */
 const ASSERTIONS = new Map([
@@ -369,7 +388,6 @@ const ASSERTIONS = new Map([
 /** R6: files with a shape check that owns no shape, each with its reason. */
 const SHAPE_CHECKS = new Map([
   ["contexts/core/src/domain/guards/dispatch.ts", "a guard's return value is contributed code's output, a boundary: the promise check stays beside Verdict.parse because its message names the guard"],
-  ["contexts/core/src/domain/drift/watched-paths.ts", "removed by step C of the restructure: the path gate's watched-rules concept replaces it"],
 ]);
 const texts = new Map(contextSources.map(({ path, text }) => [path, text]));
 violations.push(
@@ -396,7 +414,7 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./open-project", "./path-gate"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory"]);
   });
 
   test("the pi host adapter is an app depending on the core", () => {
@@ -418,7 +436,7 @@ describe("architecture", () => {
     expect(shippedPackViolations(gate, imports("bounded/application", "../../domain/index.ts", "node:fs"), core)).toEqual([
       `${gate}:1 imports "bounded/application" — a shipped pack depends only on \`bounded/domain\`, the core's public exports`,
       `${gate}:1 imports "../../domain/index.ts" — a shipped pack reaches the core through \`bounded/domain\` only`,
-      `${gate}:1 imports "node:fs" — a shipped pack uses only libraries its package declares, and does no I/O`,
+      `${gate}:1 imports "node:fs" — a shipped pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do`,
     ]);
     expect(shippedPackViolations("contexts/core/src/domain/guards/x.ts", imports("bounded/path-gate", "../../packs/path-gate/index.ts"), core)).toEqual([
       'contexts/core/src/domain/guards/x.ts:1 imports "bounded/path-gate" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
@@ -427,6 +445,14 @@ describe("architecture", () => {
     expect(shippedPackViolations("contexts/core/src/composition-root/end-to-end.test.ts", imports("bounded/path-gate"), core)).toEqual([]);
     expect(shippedPackViolations("contexts/core/src/composition-root/root.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
     expect(shippedPackViolations("contexts/core/src/packs/other/x.test.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
+    // Inside a pack: a small hexagon.
+    const at = (file: string) => `contexts/core/src/packs/path-gate/${file}`;
+    expect(shippedPackViolations(at("adapters/out/file-system/files.ts"), imports("node:fs", "../../../domain/rule.ts", "../../../application/feature/feature.contract.ts", "./other.ts"), core)).toEqual([]);
+    expect(shippedPackViolations(at("domain/rule.ts"), imports("node:fs"), core)).toEqual([`${at("domain/rule.ts")}:1 imports "node:fs" — a shipped pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do`]);
+    expect(shippedPackViolations(at("application/feature/feature.ts"), imports("../../adapters/out/file-system/files.ts"), core)).toEqual([`${at("application/feature/feature.ts")}:1 imports "../../adapters/out/file-system/files.ts" — a pack's application may not import its adapters/out/file-system`]);
+    expect(shippedPackViolations(at("index.ts"), imports("./adapters/out/file-system/index.ts"), core)).toEqual([`${at("index.ts")}:1 imports "./adapters/out/file-system/index.ts" — a pack's root may not import its adapters/out/file-system`]);
+    expect(shippedPackViolations(at("domain/rule.ts"), imports("../application/feature/feature.ts"), core)).toHaveLength(1);
+    expect(shippedPackViolations(at("adapters/out/in-memory/files.ts"), imports("../file-system/files.ts"), core)).toHaveLength(1);
   });
 
   test("every export path points at a file that exists", async () => {

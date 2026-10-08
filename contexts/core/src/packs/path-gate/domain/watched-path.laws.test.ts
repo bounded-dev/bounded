@@ -1,4 +1,4 @@
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
+import { valueObjectLaws } from "../../../domain/shared/value-object.laws.test-support.ts";
 import { WatchedPath } from "./watched-path.ts";
 
 const rule = { match: "generated/**", why: "generated/ is written by the generator", redirect: "Change the generator's input instead" };

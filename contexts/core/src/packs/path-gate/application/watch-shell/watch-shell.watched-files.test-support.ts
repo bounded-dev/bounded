@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { WatchedPath } from "bounded/domain";
+import { WatchedPath } from "../../domain/watched-path.ts";
 import type { WatchedFiles } from "./watch-shell.contract.ts";
 
 /** A project whose version control holds `committed`; the files port over it, and the means to change its working files. */

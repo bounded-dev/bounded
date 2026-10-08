@@ -1,4 +1,4 @@
-import { watchedFilesConformance } from "../../../../application/drift/watch-shell/watch-shell.watched-files.test-support.ts";
+import { watchedFilesConformance } from "../../../application/watch-shell/watch-shell.watched-files.test-support.ts";
 import { InMemoryWatchedFiles } from "./watched-files.ts";
 
 watchedFilesConformance("InMemoryWatchedFiles", async (committed) => {

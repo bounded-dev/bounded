@@ -326,20 +326,10 @@ describe("decideEvent — the verdict and who refused", () => {
   });
 });
 
-describe("corePack — watched paths", () => {
-  test("a watched path that is not one is refused when the packs are composed", () => {
-    const bad = (definePack as unknown as (spec: object) => BasePack)({ id: "test-packs/bad", dependsOn: [corePack], contributes: [contribution(guards.watchedPaths, [{ match: "/etc/**", why: "x", redirect: "y" }])] });
-    expect(Composition.compose([bad, corePack], [bad, corePack])).toEqual({
-      ok: false,
-      error: "Pack 'test-packs/bad' contributes an invalid value to extension point 'bounded/core.watchedPaths': Watched path pattern '/etc/**' must be a project-relative glob: not empty, no leading '/', no '..', no '\\'. Fix the value, or remove the contribution",
-    });
-  });
-});
-
 describe("corePack", () => {
   test("is the pack bounded/core, declaring a guards point per event kind and per effect kind", () => {
     expect(corePack.id.value).toBe("bounded/core");
-    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards", "watchedPaths"]);
+    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards"]);
     expect(Object.keys(corePack.points.effectGuards).sort()).toEqual(["delegate", "execute", "fetch", "invoke", "list", "read", "write"]);
     expect(corePack.dependsOn).toEqual([]);
   });

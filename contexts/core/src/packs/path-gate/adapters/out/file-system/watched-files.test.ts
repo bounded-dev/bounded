@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { WatchedPath } from "bounded/domain";
-import { watchedFilesConformance } from "../../../../application/drift/watch-shell/watch-shell.watched-files.test-support.ts";
+import { WatchedPath } from "../../../domain/watched-path.ts";
+import { watchedFilesConformance } from "../../../application/watch-shell/watch-shell.watched-files.test-support.ts";
 import { FileSystemWatchedFiles } from "./watched-files.ts";
 
 /** A git repository holding `committed` in its HEAD. */
