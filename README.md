@@ -113,10 +113,11 @@ npx -p /tmp/bounded/bounded-<version>.tgz -p /tmp/bounded/bounded-cli-<version>.
 adapter package as devDependencies, installed from the tarballs in `<dir>`.
 The hosts are the ones whose directory the project has (`.claude/` for
 `bounded-claude-code`, `.pi/` for `bounded-pi`), or the ones named with
-`--host claude-code` or `--host pi`. It also overrides `bounded` with the
-local tarball in `package.json`. It uses the project's package manager: its
-lockfile's, else `package.json`'s `packageManager`, else the one running
-npx. It then hands over to the installed `bounded init`. That writes
+`--host claude-code` or `--host pi`. It uses the project's package manager:
+its lockfile's, else `package.json`'s `packageManager`, else the one running
+npx. It also overrides `bounded` in `package.json` the way that manager takes
+overrides: `$bounded` for npm and pnpm, the local tarball for bun and yarn.
+bun and npm are tested end to end; pnpm and yarn are not yet. It then hands over to the installed `bounded init`. That writes
 `bounded.config.ts`, selecting only the core pack (which guards nothing by
 itself; add packs there, see [configuration](docs/configuration.md)), and
 installs every host's hooks. Claude Code's go into `.claude/settings.json`,
@@ -128,9 +129,10 @@ alone. Once published, `npx bounded-cli init` will be the first step.
 
 To upgrade, pack the new release into an empty directory and run
 `npx bounded update --from <dir>`. It installs the tarballs in `<dir>` and
-points the `bounded` override at the new tarball itself. It checks the
+keeps the `bounded` override pointing at the new one. It checks the
 installed versions, then hands over to the newly installed version, which
-refreshes the hooks. If the upgrade fails, `package.json` is restored.
+refreshes the hooks. If the upgrade fails, `package.json` and the lockfile
+are restored.
 `npx bounded update --no-upgrade` refreshes the hooks from the installed
 version only. Neither touches `bounded.config.ts`.
 

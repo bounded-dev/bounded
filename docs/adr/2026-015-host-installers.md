@@ -21,9 +21,16 @@
   that export path. The core names no host, and adding a host needs no
   change to the core.
 - **Every installer runs the same conformance suite**,
-  `bounded/application/host-installer-conformance`: it checks the host name,
+  `bounded/testing/host-installer-conformance`: it checks the host name,
   project-relative paths, idempotence, and refusal (changing nothing) when
-  what it must read cannot be read.
+  what it must read cannot be read. The suite is a `bun:test` test-support
+  module and does file I/O (its `snapshotFiles` reads the project). Its
+  file sits beside the contract in `src/application/` (as every port's
+  conformance suite does), which the layer rules allow for test files. Its
+  export path is under `testing/`, not `application/`, so no one mistakes it
+  for runtime code. It ships in the `bounded` tarball with the rest of
+  `src/`, so the host adapter packages can run it. Importing it outside a
+  bun test fails, since it imports `bun:test`.
 
 ## Why this does not break "one plug-in mechanism"
 

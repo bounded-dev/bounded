@@ -34,7 +34,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - `bounded init --from <dir> [--host <host>]...` is the first install,
     run through npx. It adds `bounded`, `bounded-cli` and `bounded-<host>`
     as devDependencies, for each host found (`.claude/`, `.pi/`) or named.
-    It overrides `bounded` with the local tarball, checks the installed
+    It overrides `bounded` (each package manager in its own way), checks the installed
     versions, and hands over to the installed `bounded init`.
   - `bounded init` writes a `bounded.config.ts` selecting only the core pack
     (refusing if any `bounded.config.*` exists) and runs every host
@@ -48,7 +48,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - Host installers are found at run time: each dependency whose
     package.json exports `./host-installer` takes part
     ([ADR 2026-015](adr/2026-015-host-installers.md); every installer runs
-    `bounded/application/host-installer-conformance`).
+    `bounded/testing/host-installer-conformance`).
     `bounded-claude-code` merges hooks running
     `bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"`
     into `.claude/settings.json`. The file can be committed and works in
@@ -114,16 +114,20 @@ when written; keep it current (AGENTS.md, "Working with the user").
     latest release from the registry and hand over as `--from` does.
   - The packages are versioned `0.1.0`; publishing them as a new major above
     the legacy 2.x is still to decide. Until then a project installing from
-    tarballs must override `bounded` with the local tarball (`overrides`),
-    or its package manager resolves `bounded@0.1.0` on npm and fails.
-    `init --from` adds that override; `update --from` points it at each new
-    tarball, checks every installed version against its tarball's, and
-    restores `package.json` on any failure. npx must likewise be given
-    bounded's tarball beside bounded-cli's.
-  - npm's `overrides` may refuse an override that differs from a direct
-    dependency's spec (EOVERRIDE). The tarball install path is exercised
-    end to end with bun only; npm, pnpm and yarn are unit-tested at the
-    command level.
+    tarballs must override `bounded`, or its package manager resolves
+    `bounded@0.1.0` on npm and fails. `init --from` and `update --from`
+    write each manager's own override: `$bounded` for npm (`overrides`) and
+    pnpm (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
+    (`resolutions`). They check every installed version against its
+    tarball's, and on any failure restore `package.json` and the lockfiles.
+    npx must likewise be given bounded's tarball beside bounded-cli's.
+  - bun and npm are exercised end to end. pnpm and yarn are not installed
+    where this was built: their override fields and install command are
+    unit-tested only.
+  - Without a lockfile or a `packageManager` field, the package manager is
+    the one in `npm_config_user_agent`. npx sets it from a shell, but keeps
+    one it inherits: run from another manager's script (`bun run …`), the
+    first install uses that manager.
   - `NodeModulesHostInstallerSource` refuses when a declared dependency is
     missing from `<root>/node_modules`: a devDependency left out
     (`--production`), or a workspace that hoists packages to a parent
@@ -141,11 +145,16 @@ when written; keep it current (AGENTS.md, "Working with the user").
     not a feature with ports.
   - `init --from` maps a host to its package by the convention
     `bounded-<host>`, and finds hosts only by `.claude/` and `.pi/`.
-  - With bun, the upgrade rewrites the bounded packages' specs in
-    package.json and runs `bun install`: `bun add` cannot replace one
-    tarball dependency with another (bun 1.3.14 reports a dependency loop).
-    npm, pnpm and yarn use their `add`/`install`; only bun is exercised end
-    to end.
+  - Every manager installs from the rewritten package.json with its plain
+    `install`: `bun add` cannot replace one tarball dependency with another
+    (bun 1.3.14 reports a dependency loop), and npm's add checks the
+    `$bounded` override before the dependency exists (EOVERRIDE).
+  - `isBoundedHook` recognises bounded's Claude Code hook by its path and
+    skips any hook with `--role`. So a stale `--role` hook at a dead absolute
+    path (from an older install, before a move) is kept, and blocks every
+    call until it is removed by hand. And a deliberate role-less bounded
+    hook with a narrower matcher (say, only `Bash`) is removed by
+    `bounded update`, which installs the one for every tool.
   - A project's root is the directory the command runs in; it is not
     searched for upwards.
 - **A pack id naming its own npm package is checked only by an architecture
