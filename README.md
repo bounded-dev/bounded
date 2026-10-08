@@ -14,7 +14,9 @@ in [legacy/](legacy/README.md): not built or tested, there for its decisions
 
 ## Status
 
-Built and running on two real hosts:
+What is missing or known to be weak is in
+[docs/flight-state.md](docs/flight-state.md). Built and running on two real
+hosts:
 
 - **Slices 1 to 3.** Packs, typed extension points, contributions and
   composition ([docs/slice-1.md](docs/slice-1.md)); host-neutral events made

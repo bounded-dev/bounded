@@ -229,3 +229,19 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - Durable guidance lives in this file, the README or an ADR, not in any
   agent's private memory.
 - Never push, publish or open pull requests unless a maintainer asks.
+
+## Working with the user
+
+- **Subagents do the work.** The main session coordinates: it plans,
+  delegates each stage to a subagent and reports; it does not write the
+  code itself.
+- **Prefer a well-maintained library** to a hand-rolled parser or matcher
+  (tree-sitter-bash for shell commands, picomatch for globs), within the
+  layout's rules on where libraries may be used.
+- **No hacks, no guessing.** What cannot be determined is reported as
+  unresolved and handled as such (a guard refuses or says it cannot see),
+  never filled in with a plausible guess.
+- **One plug-in mechanism.** Everything extends through packs and extension
+  points; no special-case sections, flags or hard-coded exceptions beside it.
+- [docs/flight-state.md](docs/flight-state.md) records what exists, what is
+  missing and what is known to be weak; keep it current when that changes.
