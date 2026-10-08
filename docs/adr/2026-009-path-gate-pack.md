@@ -80,7 +80,14 @@ written as object literals (its wire form).
     project, or a cd that may or may not have run (inside an if or a loop, on
     the left of `||`), where later commands run is unknown and their
     relative paths are unresolved. `builtin`, `command`, `exec`, `xargs`
-    (its literal arguments) and `find -exec` are looked past.
+    (its literal arguments) and `find -exec` are looked past. A shell given
+    code with `-c` (`sh`, `bash`, `zsh`, `dash`, `ksh`) has that code parsed
+    and walked as a nested command line, in a shell of its own.
+  - Words: brace expansion of literals (`{a,b}`, `{1..3}`, `{a..e}`,
+    nested, at most 256 words) gives each word, as the shell would; braces
+    inside quotes are text. `$'…'` strings with simple escapes (`\n`, `\t`,
+    `\'` …) are literal; with `\x`, `\u`, octal or `\c` they are
+    unresolved. `$(< file)` reads the file.
   - Redirections: `<` reads; `>`, `>>`, `>|`, `&>`, `&>>` and `>&` to a file
     write; `<>` both; `>&1`-style duplications, heredoc bodies and
     here-strings are text, though commands substituted in them still run.
@@ -93,11 +100,18 @@ written as object literals (its wire form).
     `echo`, `printf`, `test`/`[`/`[[`, `true`, `false` and the shell's
     declaration and job builtins name nothing; `touch` creates a missing file
     (an existing one's content is not changed); `mkdir` creates; `rm`,
-    `rmdir`, `unlink` delete; `cp` reads its sources and `mv` deletes them,
-    both writing the destination (inside it by name when it is a directory);
-    `git add` stages (nothing), `git rm` deletes (but `--cached`), `git mv`
-    moves, other git subcommands read their operands, and paths given with
-    `git -C` are unresolved; `eval`'s code is unresolved. **Any other
+    `rmdir`, `unlink` delete; `cp` and `mv` read their sources (content
+    moves to a new name) and `mv` deletes them, both writing the destination
+    (inside it by name when it is a directory); `tee` writes its operands;
+    `dd` reads `if=` and writes `of=`; `curl` reads the files its data and
+    form options name with `@` (or `<`), and `-T`, writes `-o`, and its URLs
+    name no project file; `git add` stages (nothing), `git rm` deletes (but
+    `--cached`), `git mv` moves, other git subcommands read their operands,
+    a `<rev>:<path>` operand (`git show HEAD:.env`, `git show :.env`) reads
+    the path from the repository root (when the project root holds `.git`;
+    unresolved otherwise) or from where it runs when written `./` or `../`,
+    and paths given with `git -C` are unresolved; `eval`'s code is
+    unresolved. **Any other
     command reads every operand and every `--option=value`'s value** (the
     conservative default). Short options with an attached value (`grep
     -f.env`) are a known gap.
@@ -111,12 +125,22 @@ written as object literals (its wire form).
   is anything a program or script opens by itself; confining commands at the
   operating-system level is the real control (planned), and the drift check
   (ADR 2026-011) still undoes writes to watched files afterwards.
+  **Known gaps**, all out of reach of a static check: what `xargs` reads
+  from its input; loop variables (`for f in .env; do cat $f; done`);
+  environment variables and other expansions that hold paths; globs;
+  scripts in other languages (`python -c`, `node -e`, `awk`, `perl -e`) and
+  the files any program or script opens by itself; short options with an
+  attached value (`grep -f.env`); a brace expansion in a command's name
+  (`{cat,.env}`), which the grammar does not parse as a command.
   **Preparation:** guards are synchronous, but loading a parser is not. So
   the core gives packs a point, `onProjectOpen` (ADR 2026-010), run once by
   `openProject` before any event is judged, given the project's root and a
   way to ask what is at a path. The path gate loads its parser there (once
   per program) and keeps, per composition, the root and the existence port
-  for its check. A command that cannot be checked at all, because the
+  for its check. Each such preparation is bounded (5 seconds by default,
+  `prepareWithinMs`): one that has not finished counts as failed, the
+  project opens, and the path gate refuses shell commands while its parser
+  is still loading ("the shell parser could not load (… timed out)"). A command that cannot be checked at all, because the
   project was not opened with `openProject` or the parser could not load, is
   refused with what to do (fail closed).
   The ports speak the core's value objects (ADR 2026-012): the parser takes

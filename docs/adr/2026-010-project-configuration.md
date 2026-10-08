@@ -36,7 +36,8 @@
   the project (its root, and `kindOfPath` asking what is at a project path,
   through an application port with a file-system adapter) and its
   composition. `OpenProjectHandler` runs every contribution and waits for
-  all of them; one that fails does not stop the project opening, since the
+  each, but for at most `prepareWithinMs` (5 seconds by default); one that
+  fails or runs out of time does not stop the project opening, since the
   pack's own guards refuse what they cannot check. The path gate loads its
   shell parser this way (ADR 2026-009).
 - **Opening never rejects.** `openProject` and `OpenProjectHandler.execute`
