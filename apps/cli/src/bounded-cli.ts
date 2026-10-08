@@ -168,6 +168,16 @@ class SelectedHostInstallerSource implements HostInstallerSource {
         if (this.selection.hosts.has(installer.host)) kept.push(installer);
       } else if (installer.isInstalled === undefined ? this.selection.found.has(installer.host) : await installer.isInstalled(projectRoot)) kept.push(installer);
     }
+    if (kept.length === 0 && loaded.value.length > 0) {
+      const hosts = this.selection.kind === "hosts" ? [...this.selection.hosts].join(", ") : "";
+      return {
+        ok: false,
+        error:
+          this.selection.kind === "hosts"
+            ? `bounded carries no installer for ${hosts || "the hosts named"}: name a host it carries (${[...this.bundled].join(", ")})`
+            : `bounded is installed for no host in ${projectRoot}: run \`bounded init --no-install --host <host>\` (${[...this.bundled].join(", ")}) to add one`,
+      };
+    }
     return { ok: true, value: kept };
   }
 }

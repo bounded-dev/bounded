@@ -7,9 +7,11 @@
 export const INITIAL_CONFIG = `// Bounded's configuration for this project, written by \`bounded init\`.
 // It selects the core and the path gate. The five rules below are defaults:
 // they keep agents from changing this configuration, Bounded's own state in
-// .bounded/, the hooks that run Bounded (Claude Code's settings and pi's
-// loader) and Bounded's installed code. Change or remove them as you see fit,
-// and add your own rules; the README's "Installing" section shows how.
+// .bounded/, the hooks that run Bounded (Claude Code's settings files, any of
+// which could turn hooks off, and pi's loader) and Bounded's installed code.
+// Change or remove them as you see fit, and add your own rules; the README's
+// "Installing" section shows how. ~/.claude/settings.json, outside the
+// project, is not covered.
 import { contribution, corePack, defineConfig } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
@@ -30,7 +32,7 @@ export default defineConfig({
         redirect: "Leave .bounded/ to Bounded; ask a person if its state looks wrong",
       },
       {
-        match: ".claude/settings.json",
+        match: ".claude/settings*.json",
         deny: ["create", "modify", "delete"],
         why: "Claude Code's settings hold Bounded's hook",
         redirect: "Ask a person to change Claude Code's settings",

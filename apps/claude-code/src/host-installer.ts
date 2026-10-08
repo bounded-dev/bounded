@@ -47,10 +47,15 @@ export const hostInstaller: HostInstaller = {
     await writeFile(path, `${JSON.stringify(merged.value.settings, null, 2)}\n`);
     return { ok: true, value: { host: "claude-code", changedPaths: [SETTINGS], skippedBecause: null } };
   },
-  /** Whether .claude/settings.json holds a bounded hook, in any form an install wrote; settings that are absent or cannot be read hold none. */
+  /**
+   * Whether .claude/settings.json holds a bounded hook, in any form an install wrote. Settings that exist
+   * but cannot be read or parsed count as installed, so a refresh runs install, which refuses and says why,
+   * rather than skipping Claude Code in silence.
+   */
   async isInstalled(projectRoot) {
     const settings = await readSettings(join(projectRoot, SETTINGS));
-    if (!settings.ok || !isRecord(settings.value) || !isRecord(settings.value.hooks)) return false;
+    if (!settings.ok) return true;
+    if (!isRecord(settings.value) || !isRecord(settings.value.hooks)) return false;
     return Object.values(settings.value.hooks).some((entries) => Array.isArray(entries) && entries.some((entry) => isRecord(entry) && Array.isArray(entry.hooks) && entry.hooks.some(isBoundedHook)));
   },
 };

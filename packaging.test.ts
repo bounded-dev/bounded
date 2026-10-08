@@ -137,9 +137,11 @@ describe("bounded, the one published package", () => {
     const hook = readFileSync(join(CORE, "dist/hosts/claude-code/hook.js"), "utf8");
     const beforeTry = hook.slice(0, hook.search(/^try \{/m));
     expect(hook.search(/^try \{/m)).toBeGreaterThan(0);
-    // Before the try, only the bundler's own helper chunks, relative, which import nothing but node's built-ins: no package that could be missing.
+    // Every top-level static import, before the try or after it, is the bundler's own helper chunk, relative, importing nothing but node's built-ins:
+    // no package that could be missing is loaded outside the try.
     const specsOf = (text: string): string[] => [...text.matchAll(/^(?:import|export)\b[^";]*?\bfrom\s*"([^"]+)"/gm), ...text.matchAll(/^import\s*"([^"]+)"/gm)].map(([, spec = ""]) => spec);
-    const early = specsOf(beforeTry);
+    expect(specsOf(beforeTry)).toEqual(specsOf(hook));
+    const early = specsOf(hook);
     expect(early.filter((spec) => !spec.startsWith("./"))).toEqual([]);
     for (const chunk of early) expect(specsOf(readFileSync(join(CORE, "dist/hosts/claude-code", chunk), "utf8")).filter((spec) => !spec.startsWith("node:"))).toEqual([]);
     expect(hook).toMatch(/await import\(|import\("/);
@@ -166,13 +168,17 @@ describe("bounded, the one published package", () => {
     const rule = '[{ match: "secrets/**", deny: ["read"], redirect: "Ask" }]';
     writeFileSync(join(consumer, "accepted.ts"), `${imports}export default defineConfig({ packs: [corePack, pathGate], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\n`);
     writeFileSync(join(consumer, "rejected.ts"), `${imports}export default defineConfig({ packs: [corePack], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\n`);
+    // Other compile-time rules survive too: a rule value of the wrong type (no deny) is refused.
+    writeFileSync(join(consumer, "wrong-value.ts"), `${imports}export default defineConfig({ packs: [corePack, pathGate], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "secrets/**", redirect: "Ask" }])] });\n`);
     writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "consumer", type: "module" }));
     /** The consumer's tsc over `files`, with a typical strict tsconfig and `options`. */
     const tsc = (files: string[], options: Record<string, unknown>) => {
       writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, skipLibCheck: true, noEmit: true, target: "es2022", ...options }, files }));
       return Bun.spawnSync([join(ROOT, "node_modules", ".bin", "tsc"), "-p", "."], { cwd: consumer, stdout: "pipe", stderr: "pipe" });
     };
-    for (const resolution of [{ module: "preserve", moduleResolution: "bundler" }, { module: "nodenext", moduleResolution: "nodenext" }]) {
+    const resolutions = [{ module: "preserve", moduleResolution: "bundler" }, { module: "nodenext", moduleResolution: "nodenext" }];
+    // With skipLibCheck off too: the declarations themselves check cleanly.
+    for (const resolution of [...resolutions, ...resolutions.map((options) => ({ ...options, skipLibCheck: false }))]) {
       const accepted = tsc(["accepted.ts"], resolution);
       expect(accepted.stdout.toString()).toBe("");
       expect(accepted.exitCode).toBe(0);
@@ -182,8 +188,14 @@ describe("bounded, the one published package", () => {
       expect(errors.length).toBeGreaterThan(0);
       expect(errors.every((line) => line.startsWith("rejected.ts("))).toBe(true);
       expect(rejected.stdout.toString()).toContain("is not assignable to type");
+      const wrongValue = tsc(["wrong-value.ts"], resolution);
+      expect(wrongValue.exitCode).not.toBe(0);
+      const wrongErrors = wrongValue.stdout.toString().split("\n").filter((line) => /error TS/.test(line));
+      expect(wrongErrors.length).toBeGreaterThan(0);
+      expect(wrongErrors.every((line) => line.startsWith("wrong-value.ts("))).toBe(true);
+      expect(wrongValue.stdout.toString()).toContain("deny");
     }
-  });
+  }, 120_000);
 
   test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {
     const into = mkdtempSync(join(tmpdir(), "bounded-packaging-"));
