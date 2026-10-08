@@ -4,9 +4,9 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "noEmit": false,
-    "rootDir": "src",
-    "outDir": "dist/types"
+    "rootDir": "..",
+    "outDir": "dist/types-emitted"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "../shell-command-reader/src/adapters/out/index.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test-support.ts", "src/**/fixtures/**"]
 }

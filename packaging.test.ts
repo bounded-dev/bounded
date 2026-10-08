@@ -200,6 +200,11 @@ describe("bounded, the one published package", () => {
     // A configuration that lists only the path gate, which brings in the core; the project still contributes only to points of packs it lists.
     writeFileSync(join(consumer, "brought-in-accepted.ts"), `${imports}const config = defineConfig({ packs: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\nexport const listed = config.listedPacks;\nexport default config;\n`);
     writeFileSync(join(consumer, "brought-in-rejected.ts"), `${imports}export default defineConfig({ packs: [pathGate], contributes: [contribution(corePack.points.effectGuards.write, [])] });\n`);
+    // A third-party host opening a project with the reader bounded publishes, its declarations reaching the core's port.
+    writeFileSync(
+      join(consumer, "host-accepted.ts"),
+      'import { openProject } from "bounded/open-project";\nimport { pathGatePortProvisions } from "bounded/path-gate/adapters";\nimport { TreeSitterShellCommandReader } from "bounded/shell-command-reader";\nexport const judge = openProject("/p", { ports: pathGatePortProvisions(), shellCommandReader: new TreeSitterShellCommandReader() });\n',
+    );
     writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "consumer", type: "module" }));
     /** The consumer's tsc over `files`, with a typical strict tsconfig and `options`. */
     const tsc = (files: string[], options: Record<string, unknown>) => {
@@ -224,6 +229,9 @@ describe("bounded, the one published package", () => {
       expect(wrongErrors.length).toBeGreaterThan(0);
       expect(wrongErrors.every((line) => line.startsWith("wrong-value.ts("))).toBe(true);
       expect(wrongValue.stdout.toString()).toContain("deny");
+      const hostAccepted = tsc(["host-accepted.ts"], resolution);
+      expect(hostAccepted.stdout.toString()).toBe("");
+      expect(hostAccepted.exitCode).toBe(0);
       const broughtInAccepted = tsc(["brought-in-accepted.ts"], resolution);
       expect(broughtInAccepted.stdout.toString()).toBe("");
       expect(broughtInAccepted.exitCode).toBe(0);

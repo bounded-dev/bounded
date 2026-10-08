@@ -1,9 +1,9 @@
 import { AdapterRefusal, type Composition, Ports, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
-import { JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
+import { attempt, JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
-import type { Clock, DecisionIds, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge } from "./open-project.contract.ts";
+import type { Clock, DecisionIds, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge, ShellCommandReader } from "./open-project.contract.ts";
 
 const NOTHING: AfterToolOutcome = Object.freeze({ message: null });
 
@@ -41,15 +41,36 @@ export class OpenProjectHandler implements OpenProject {
         ...(this.options.prepareWithinMs === undefined ? {} : { prepareWithinMs: this.options.prepareWithinMs }),
         ...this.idsOption(),
       });
+      // The reader prepares alongside the packs' work; one that fails or runs out of time is let go: reading works unprepared, or says why it cannot.
+      const { shellCommandReader } = this.options;
+      const preparing = shellCommandReader === undefined ? Promise.resolve() : this.prepare(shellCommandReader);
       await lifecycle.open({ root });
+      await preparing;
       const handler = new JudgeEventHandler(composition.value, log, this.clock, {
         ...(this.options.recordWithinMs === undefined ? {} : { recordWithinMs: this.options.recordWithinMs }),
         ...this.idsOption(),
+        ...(shellCommandReader === undefined ? {} : { shellCommandReader, projectRoot: root }),
         beforeAllow: async (event) => (event.kind === "tool-use" ? lifecycle.before(event) : Verdict.allow),
       });
       return this.judge(handler, null, lifecycle);
     } catch (thrown) {
       return this.refusing(log, text(thrown));
+    }
+  }
+
+  /** The reader's preparation, within the packs' bound; resolves whatever it does, a synchronous throw included. */
+  private async prepare(reader: ShellCommandReader): Promise<void> {
+    const bound = this.options.prepareWithinMs ?? ProjectLifecycleHandler.DEFAULT_PREPARE_WITHIN_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, bound);
+    });
+    try {
+      await Promise.race([attempt(() => reader.prepare()), late]);
+    } catch {
+      // let go: the judge says why each command cannot be read
+    } finally {
+      clearTimeout(timer);
     }
   }
 

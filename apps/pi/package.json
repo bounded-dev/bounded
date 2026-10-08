@@ -9,6 +9,7 @@
     "./host-installer": "./src/host-installer.ts"
   },
   "dependencies": {
-    "bounded": "workspace:*"
+    "bounded": "workspace:*",
+    "bounded-shell-command-reader": "workspace:*"
   }
 }

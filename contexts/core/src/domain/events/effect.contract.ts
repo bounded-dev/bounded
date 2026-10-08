@@ -3,6 +3,7 @@ import type { AgentName } from "./agent-name.contract.ts";
 import type { Command } from "./command.contract.ts";
 import type { NamePattern } from "./name-pattern.contract.ts";
 import type { ProjectPath } from "./project-path.contract.ts";
+import type { ShellCommandReading, ShellCommandReadingJSON } from "./shell-command-reading.contract.ts";
 import type { ToolName } from "./tool-name.contract.ts";
 import type { Url } from "./url.contract.ts";
 
@@ -42,6 +43,13 @@ export interface ExecuteEffect extends EffectOf<"execute", ExecuteEffectJSON> {
   readonly command: Command;
   /** The project directory the command runs in, when the host says; adapters refuse a directory outside the project. */
   readonly cwd: ProjectPath | null;
+  /**
+   * What bounded made of the command (ADR 2026-020): the programs it runs,
+   * the files it reads, lists and writes, and what could not be resolved.
+   * The judge reads every command before guards run, replacing any reading
+   * the host sent; null when the effect was not built by the judge.
+   */
+  readonly reading: ShellCommandReading | null;
 }
 
 /** Reaches the network. */
@@ -105,6 +113,8 @@ export interface ExecuteEffectJSON {
   readonly kind: "execute";
   readonly command: string;
   readonly cwd?: string | null;
+  /** Written by toJSON only when the effect has a reading. */
+  readonly reading?: ShellCommandReadingJSON;
 }
 export interface FetchEffectJSON {
   readonly kind: "fetch";

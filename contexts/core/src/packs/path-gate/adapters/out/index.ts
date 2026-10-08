@@ -1,7 +1,5 @@
 // bounded/path-gate/adapters: the path gate's out adapters, one folder per port (ADR 2026-017), for hosts' composition roots.
-export { FileSystemPathKinds } from "./path-kinds/path-kinds.ts";
 export { pathGatePortProvisions } from "./port-provisions.ts";
-export { TreeSitterShellParser } from "./shell-parser/shell-parser.ts";
 export { FileSystemShellSnapshots } from "./shell-snapshots/shell-snapshots.ts";
 export { stateDirFor, stateHomeFor } from "./state-directory.ts";
 export { FileSystemWatchedFiles } from "./watched-files/watched-files.ts";

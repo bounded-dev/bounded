@@ -251,7 +251,51 @@ function xargs(args: readonly ShellWord[]): CommandMeaning {
     else if (value !== undefined) fromFile.push(literalWord(value));
   }
   const ran = runs(args, ["-I", "-L", "-l", "-n", "-P", "-d", "-E", "-e", "-s", "-a"]);
-  return meaning({ ...ran, reads: fromFile });
+  // The rest of its command's arguments come from its input, which only the run can tell.
+  return meaning({ ...ran, runs: ran.runs.map((run) => ({ ...run, args: [...run.args, INPUT] })), reads: fromFile });
+}
+
+/** The arguments xargs reads from its input, as one word only the run can resolve. */
+const INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(input)", commands: Object.freeze([]) });
+
+/**
+ * A program given code inline with one of `options` (python -c, node -e):
+ * what it reads is taken as an unknown command's is, and the code, another
+ * language's, is unresolved: only the program can say what it does.
+ */
+function inlineCode(options: readonly string[]) {
+  return (args: readonly ShellWord[]): CommandMeaning => {
+    const code: ShellWord[] = [];
+    for (let index = 0; index < args.length; index++) {
+      const text = literal(args[index]);
+      if (text === "--") break;
+      if (text === undefined || !text.startsWith("-")) continue;
+      const option = options.find((each) => text === each || attached(text, each) !== undefined);
+      if (option === undefined) continue;
+      const value = attached(text, option);
+      const word = value === undefined ? args[++index] : literalWord(value);
+      if (word !== undefined) code.push(word);
+    }
+    return meaning({ reads: readsOf(args), unresolved: code });
+  };
+}
+
+/** awk and its kin: without -f, the first operand is its program, unresolved; the rest as an unknown command's. */
+function awk(args: readonly ShellWord[]): CommandMeaning {
+  let program: ShellWord | undefined;
+  for (let index = 0; index < args.length; index++) {
+    const text = literal(args[index]);
+    if (text === "-f" || text === "--file" || text?.startsWith("--file=") === true || (text?.startsWith("-f") === true && !text.startsWith("--"))) return meaning({ reads: readsOf(args) });
+    if (text === "-F" || text === "-v" || text === "--field-separator" || text === "--assign") index++;
+    else if (text === "--") {
+      program = args[index + 1];
+      break;
+    } else if (!isOption(args[index] as ShellWord)) {
+      program = args[index];
+      break;
+    }
+  }
+  return meaning({ reads: readsOf(args), unresolved: program === undefined ? [] : [program] });
 }
 
 const TEXT = [
@@ -297,6 +341,14 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   command: (args) => (args.some((word) => ["-v", "-V"].includes(literal(word) ?? "")) ? NONE : runs(args)),
   xargs,
   eval: (args) => meaning({ unresolved: args }),
+  python: inlineCode(["-c"]),
+  python3: inlineCode(["-c"]),
+  node: inlineCode(["-e", "--eval", "-p", "--print"]),
+  perl: inlineCode(["-e", "-E"]),
+  ruby: inlineCode(["-e"]),
+  awk,
+  gawk: awk,
+  mawk: awk,
 });
 
 /** What the command `name` does with `args`. */

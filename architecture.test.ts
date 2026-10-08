@@ -43,6 +43,8 @@ interface Context {
   /** Each export path's every target, every condition's: all must exist. */
   readonly exportTargets: Record<string, readonly string[]>;
   readonly dependencies: readonly string[];
+  /** What only its tests may import (an app's devDependencies). */
+  readonly devDependencies: readonly string[];
 }
 
 /**
@@ -54,7 +56,7 @@ type ExportTarget = string | Record<string, string>;
 const sourceOf = (target: ExportTarget): string => (typeof target === "string" ? target : (target.bun ?? target.types ?? target.default ?? ""));
 const targetsOf = (target: ExportTarget): string[] => (typeof target === "string" ? [target] : Object.values(target));
 
-function contextOf(manifest: string, pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string> }): Context {
+function contextOf(manifest: string, pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }): Context {
   const entries = Object.entries(pkg.exports ?? {});
   return {
     dir: manifest.replace("/package.json", ""),
@@ -62,6 +64,7 @@ function contextOf(manifest: string, pkg: { name: string; exports?: Record<strin
     exports: Object.fromEntries(entries.map(([path, target]) => [path, sourceOf(target)])),
     exportTargets: Object.fromEntries(entries.map(([path, target]) => [path, targetsOf(target)])),
     dependencies: Object.keys(pkg.dependencies ?? {}),
+    devDependencies: Object.keys(pkg.devDependencies ?? {}),
   };
 }
 
@@ -289,6 +292,58 @@ function brandedContracts(path: string, text: string): string[] {
   return interfaces.filter((node) => exported(node) && branded.has(node.name.text)).map((node) => node.name.text);
 }
 
+/** Whether a context's package has an export path into `layer`. */
+const exportsLayer = (context: Context, layer: Layer): boolean => Object.values(context.exports).some((target) => layerOf(target.replace(/^\.\/src\//, "")) === layer);
+
+/**
+ * The import rules for one file of a context: its own layers inwards only,
+ * through the package's export path for the layer when it has one, else by
+ * relative path; another context only through its export paths, when
+ * declared as a dependency, and only into a layer this file's layer may
+ * depend on (a domain reaches another context's domain export path only);
+ * no library but zod in domain and application code; a computed specifier
+ * only in an out adapter.
+ */
+function contextImportViolations(path: string, text: string): string[] {
+  const [, contextName = "", , ...rest] = path.split("/");
+  const context = contexts.find((c) => c.dir === `contexts/${contextName}`);
+  const layer = layerOf(rest.join("/"));
+  if (context === undefined || layer === undefined) return [];
+  const isTest = /\.test(-support)?\.ts$/.test(path);
+  const shippedPack = layer === "packs";
+  const pure = (layer === "domain" || layer === "application" || (shippedPack && packLayerOf(path) !== "adapters")) && !isTest;
+  const out: string[] = [];
+  for (const { spec, line, typeOnly } of importsOf(path, text)) {
+    const at = `${path}:${line} imports "${spec}"`;
+    if (spec.startsWith(".")) {
+      const target = new URL(spec, `file:///${path}`).pathname.slice(1);
+      const [, targetContext = "", , ...targetRest] = target.split("/");
+      const targetLayer = layerOf(targetRest.join("/"));
+      if (targetContext !== contextName) out.push(`${at} — reach another context through its package, never a relative path`);
+      else if (targetLayer === undefined || !ALLOWED[layer].includes(targetLayer)) out.push(`${at} — ${layer} may not depend on ${targetLayer ?? "files outside the layers"}`);
+      // Through the package's export path for that layer; a private context that exports none for it (bounded-shell-command-reader's domain, ADR 2026-020) has only the relative path.
+      else if (layer !== "domain" && targetLayer !== layer && !isTest && exportsLayer(context, targetLayer)) out.push(`${at} — import another layer through the package's export path`);
+      continue;
+    }
+    const target = contexts.find((c) => spec === c.name || spec.startsWith(`${c.name}/`));
+    if (target !== undefined) {
+      const exportPath = spec.slice(target.name.length + 1);
+      const targetLayer = exportLayerOf(target, exportPath);
+      if (!(`./${exportPath}` in target.exports) || targetLayer === undefined) out.push(`${at} — import a context only through its export paths`);
+      else if (target !== context && !context.dependencies.includes(target.name)) out.push(`${at} — ${context.name} does not declare ${target.name} as a dependency`);
+      else if (!ALLOWED[layer].includes(targetLayer)) out.push(`${at} — ${layer} may not depend on ${targetLayer}`);
+      else if (target === context && layer === "domain") out.push(`${at} — domain files import each other by relative path`);
+      continue;
+    }
+    // Only an out adapter may load code chosen at run time (a project's
+    // configuration file, ADR 2026-010); anywhere else it cannot be checked.
+    if (spec === "<computed>") {
+      if (!rest.join("/").startsWith("adapters/out/")) out.push(`${at} — an import with a computed specifier cannot be checked; only an out adapter may load code at run time`);
+    } else if (pure && !shippedPack && !typeOnly && spec !== "zod") out.push(`${at} — ${layer} code uses no library but zod${IO_MODULES.test(spec) ? " and does no I/O" : ""}`);
+  }
+  return out;
+}
+
 const violations: string[] = [];
 const files = [...new Glob("contexts/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
 for (const path of files) {
@@ -309,34 +364,7 @@ for (const path of files) {
   violations.push(...shippedPackViolations(path, importsOf(path, text), context));
   if (pure && /\b(Bun|process|fetch|require)\s*[.(]/.test(text)) violations.push(`${path} — ${layer} code does no I/O`);
   if (!isTest && /\bBun\s*\./.test(text)) violations.push(`${path} — runtime code uses no Bun API: hosts such as pi run the core under node`);
-  for (const { spec, line, typeOnly } of importsOf(path, text)) {
-    const at = `${path}:${line} imports "${spec}"`;
-    if (spec.startsWith(".")) {
-      const target = new URL(spec, `file:///${path}`).pathname.slice(1);
-      const [, targetContext = "", , ...targetRest] = target.split("/");
-      const targetLayer = layerOf(targetRest.join("/"));
-      if (targetContext !== contextName) violations.push(`${at} — reach another context through its package, never a relative path`);
-      else if (targetLayer === undefined || !ALLOWED[layer].includes(targetLayer)) violations.push(`${at} — ${layer} may not depend on ${targetLayer ?? "files outside the layers"}`);
-      else if (layer !== "domain" && targetLayer !== layer && !isTest) violations.push(`${at} — import another layer through the package's export path`);
-      continue;
-    }
-    const target = contexts.find((c) => spec === c.name || spec.startsWith(`${c.name}/`));
-    if (target !== undefined) {
-      const exportPath = spec.slice(target.name.length + 1);
-      const targetLayer = exportLayerOf(target, exportPath);
-      if (!(`./${exportPath}` in target.exports) || targetLayer === undefined) violations.push(`${at} — import a context only through its export paths`);
-      else if (target !== context && !context.dependencies.includes(target.name)) violations.push(`${at} — ${context.name} does not declare ${target.name} as a dependency`);
-      else if (target === context && !ALLOWED[layer].includes(targetLayer)) violations.push(`${at} — ${layer} may not depend on ${targetLayer}`);
-      else if (target === context && layer === "domain") violations.push(`${at} — domain files import each other by relative path`);
-      continue;
-    }
-    // Only an out adapter may load code chosen at run time (a project's
-    // configuration file, ADR 2026-010); anywhere else it cannot be checked.
-    if (spec === "<computed>") {
-      if (!rest.join("/").startsWith("adapters/out/")) violations.push(`${at} — an import with a computed specifier cannot be checked; only an out adapter may load code at run time`);
-    }
-    else if (pure && !shippedPack && !typeOnly && spec !== "zod") violations.push(`${at} — ${layer} code uses no library but zod${IO_MODULES.test(spec) ? " and does no I/O" : ""}`);
-  }
+  violations.push(...contextImportViolations(path, text));
 }
 
 // Every branded contract but an identity object is implemented by a class in its context.
@@ -359,12 +387,14 @@ for (const context of contexts) {
  * The app rules for one app file: its own src by relative path, a context only
  * through its export paths and declared dependencies, and never another app,
  * nor the host adapters' code a context carries at `bounded/hosts/*` (built
- * from the apps into bounded at pack time, ADR 2026-016).
+ * from the apps into bounded at pack time, ADR 2026-016). An app's tests may
+ * import its devDependencies too; its other files may not.
  */
 function appImportViolations(path: string, text: string): string[] {
   const [, appName = ""] = path.split("/");
   const app = apps.find((a) => a.dir === `apps/${appName}`);
   if (app === undefined) return [`${path} — every app file sits in src/ of an app with a package.json`];
+  const isTest = /\.test(-support)?\.ts$/.test(path);
   const out: string[] = [];
   for (const { spec, line } of importsOf(path, text)) {
     const at = `${path}:${line} imports "${spec}"`;
@@ -383,7 +413,9 @@ function appImportViolations(path: string, text: string): string[] {
     if (target !== undefined) {
       if (spec.startsWith(`${target.name}/hosts/`)) out.push(`${at} — an app never imports an app: ${target.name}/hosts/* is the host adapters' code, bundled into ${target.name}`);
       else if (!(`./${spec.slice(target.name.length + 1)}` in target.exports)) out.push(`${at} — import a context only through its export paths`);
-      else if (!app.dependencies.includes(target.name)) out.push(`${at} — ${app.name} does not declare ${target.name} as a dependency`);
+      else if (!app.dependencies.includes(target.name) && !(isTest && app.devDependencies.includes(target.name))) {
+        out.push(`${at} — ${app.name} does not declare ${target.name} as a dependency${app.devDependencies.includes(target.name) ? " (devDependencies serve its tests only)" : ""}`);
+      }
       continue;
     }
     if (spec === "<computed>") out.push(`${at} — an import with a computed specifier cannot be checked`);
@@ -426,7 +458,7 @@ const texts = new Map(contextSources.map(({ path, text }) => [path, text]));
 violations.push(
   ...adapterContractViolations(contextSources, barrels),
   ...adapterPlacementViolations(contextSources, barrels),
-  ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS),
+  ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS, contexts),
   ...testDoubleViolations([...contextSources, ...(await Promise.all(appFiles.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() }))))], contexts),
   ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
   ...packLayoutViolations(files),
@@ -548,6 +580,15 @@ describe("architecture", () => {
     expect(contextImportViolations(domainFile, 'import { ProjectPath } from "bounded/domain";\n')).toEqual([]);
     expect(contextImportViolations(domainFile, 'import { JudgeEventHandler } from "bounded/application";\n')).toEqual([`${domainFile}:1 imports "bounded/application" — domain may not depend on application`]);
     expect(contextImportViolations("contexts/shell-command-reader/src/adapters/out/x/x.ts", 'import type { ShellCommandReader } from "bounded/application";\n')).toEqual([]);
+  });
+
+  test("a context's layers import each other through its export path for the layer, or by relative path when its package exports none for it", () => {
+    const reader = "contexts/shell-command-reader/src/adapters/out/shell-command-reader/x.ts";
+    expect(byName.get("bounded-shell-command-reader")?.exports).toEqual({ "./adapters": "./src/adapters/out/index.ts" });
+    expect(contextImportViolations(reader, 'import { describeShellCommand } from "../../../domain/shell-command.ts";\n')).toEqual([]);
+    const core = "contexts/core/src/adapters/out/x/x.ts";
+    expect(contextImportViolations(core, 'import { Verdict } from "../../../domain/index.ts";\n')).toEqual([`${core}:1 imports "../../../domain/index.ts" — import another layer through the package's export path`]);
+    expect(contextImportViolations(reader, 'import { thing } from "../../../composition-root/x.ts";\n')).toEqual([`${reader}:1 imports "../../../composition-root/x.ts" — adapters may not depend on composition-root`]);
   });
 
   test("an app never imports an app, nor the host adapters' code bundled into bounded (bounded/hosts/*)", () => {

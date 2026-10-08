@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "bounded": "workspace:*",
+    "bounded-shell-command-reader": "workspace:*",
     "picomatch": "4.0.7"
   },
   "devDependencies": {

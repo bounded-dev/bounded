@@ -9,18 +9,24 @@ import { type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
 import { pathGatePortProvisions } from "bounded/path-gate/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
+import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
 import type { AdapterRefusal, ProjectJudgeForPi } from "./extension.ts";
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** Opens the project at `root` (absolute) and decides each event with its judge, which records every decision. */
-/** Opens a project with the adapters this host provides: the path gate's, on disk, and its shell parser, and the prerequisites pack's. */
-const openWithPorts: typeof openProject = (root) => openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()] });
+/** The shell command reader every project this process opens reads its commands with: its grammar loads once. */
+const shellCommandReader = new TreeSitterShellCommandReader();
 
-export async function composeProject(root: string, open: typeof openProject = openWithPorts): Promise<ProjectJudgeForPi> {
+/**
+ * Opens the project at `root` (absolute) with the adapters this host
+ * provides (the path gate's and the prerequisites pack's, on disk, and
+ * bounded's shell command reader) and decides each event with its judge,
+ * which records every decision.
+ */
+export async function composeProject(root: string, open: typeof openProject = openProject): Promise<ProjectJudgeForPi> {
   let project: Awaited<ReturnType<typeof openProject>>;
   try {
-    project = await open(root);
+    project = await open(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
   } catch (error) {
     const refusal = Verdict.refuse(`bounded could not open the project: ${message(error)}`, "Fix the project's bounded setup, then start a new pi session");
     return async () => refusal;

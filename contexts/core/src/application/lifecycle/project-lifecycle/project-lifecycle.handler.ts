@@ -23,6 +23,8 @@ function within(work: Promise<void>, ms: number): Promise<void> {
 }
 
 export class ProjectLifecycleHandler implements ProjectLifecycle {
+  /** How long one pack's work on opening may take, when the host does not say, before the project opens without it. */
+  static readonly DEFAULT_PREPARE_WITHIN_MS = PREPARE_WITHIN_MS;
   private readonly context: LifecycleContext;
   private readonly ids: DecisionIds;
   private readonly prepareWithinMs: number;
@@ -36,7 +38,7 @@ export class ProjectLifecycleHandler implements ProjectLifecycle {
   ) {
     this.context = Object.freeze({ composition, ports });
     this.ids = options.ids ?? defaultDecisionIds;
-    this.prepareWithinMs = options.prepareWithinMs ?? PREPARE_WITHIN_MS;
+    this.prepareWithinMs = options.prepareWithinMs ?? ProjectLifecycleHandler.DEFAULT_PREPARE_WITHIN_MS;
   }
 
   async open(project: OpenedProject): Promise<void> {

@@ -170,3 +170,15 @@ describe("read by bounded's shell command reader — treeSitterShellParser: the 
     expect(inner?.kind === "unresolved" && inner.commands.length).toBe(1);
   });
 });
+
+describe("the bash syntax tree: a redirection after a list or a pipeline is its last command's", () => {
+  test("the grammar hangs it on the whole list; the shell gives it to the last command, which runs where the list took it", () => {
+    expect(described("cd sub && echo x > out.txt", null, { sub: "directory" }).writes).toEqual([{ path: "sub/out.txt", change: "create" }]);
+    expect(described("cd sub || echo x > out.txt", null, { sub: "directory" }).writes).toEqual([{ path: "out.txt", change: "create" }]);
+    expect(described("echo x | tee a.txt > b.txt").writes).toEqual([
+      { path: "a.txt", change: "create" },
+      { path: "b.txt", change: "create" },
+    ]);
+    expect(described("{ cd sub; echo x; } > out.txt", null, { sub: "directory" }).writes).toEqual([{ path: "out.txt", change: "create" }]);
+  });
+});

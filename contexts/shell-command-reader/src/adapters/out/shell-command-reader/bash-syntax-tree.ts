@@ -1,21 +1,28 @@
 import * as treeSitterModule from "@vscode/tree-sitter-wasm";
 import type { Node } from "@vscode/tree-sitter-wasm";
 import type { Command, Result } from "bounded/domain";
-import { expandBraces } from "./brace-expansion.ts";
-import type { ShellParser } from "../../../application/judge-calls/judge-calls.contract.ts";
 import type { ShellNode, ShellRedirect, ShellWord } from "../../../domain/shell-command.contract.ts";
+import { expandBraces } from "./brace-expansion.ts";
 
-// The shell parser behind the path gate's port: tree-sitter's bash grammar,
-// as WebAssembly (@vscode/tree-sitter-wasm, pinned; ADR 2026-009), loaded once
-// per process when a project opens, then parsing synchronously. Its syntax
-// tree is mapped onto the port's own, so nothing past this file knows it.
+// The shell parser behind bounded's shell command reader: tree-sitter's bash
+// grammar, as WebAssembly (@vscode/tree-sitter-wasm, pinned; ADR 2026-009),
+// loaded once per process, then parsing synchronously. Its syntax tree is
+// mapped onto the reader's domain's own, so nothing past this file knows it.
 
 // The package is CommonJS: its exports arrive as the default export under node's ESM loader.
 const TreeSitter = (("default" in treeSitterModule ? treeSitterModule.default : treeSitterModule) as typeof treeSitterModule);
 let bash: Promise<treeSitterModule.Language> | undefined;
 
-/** The bash grammar, loaded once for the whole program. */
-function loadBash(): Promise<treeSitterModule.Language> {
+/** A loaded grammar, as tree-sitter gives it. */
+export type BashGrammar = treeSitterModule.Language;
+
+/** A command line as the shell would run it, synchronously; fails when the parser cannot parse it. */
+export interface BashSyntaxTree {
+  parse(command: Command): Result<readonly ShellNode[]>;
+}
+
+/** The bash grammar, loaded once for the whole program; a load that fails is tried again next time. */
+export function loadBashGrammar(): Promise<BashGrammar> {
   bash ??= TreeSitter.Parser.init().then(() =>
     // A file URL: the package has no exports map, so its grammar file resolves directly.
     TreeSitter.Language.load(new URL(import.meta.resolve("@vscode/tree-sitter-wasm/wasm/tree-sitter-bash.wasm")) as unknown as string),
@@ -130,8 +137,10 @@ function command(node: Node, redirects: readonly ShellRedirect[] = []): ShellNod
   };
 }
 
-/** Text the shell does not run as a command (a test, a declaration, a loop's values): only the commands substituted in it run. */
+/** A builtin whose words are text, not paths (a test, a declaration): the program runs, and only the commands substituted in it run besides. */
 const textOnly = (node: Node, name: string): ShellNode => ({ kind: "command", name: { kind: "literal", text: name }, args: [], redirects: [], assignments: [unresolved(node)] });
+/** Text the shell does not run as a command (a loop's values, an assignment): a stand-in, no program; only the commands substituted in it run. */
+const standIn =(node: Node): ShellNode => ({ kind: "command", name: { kind: "literal", text: "true" }, args: [], redirects: [], assignments: [unresolved(node)], standIn: true });
 
 /** The statements inside `node`, in order; a statement followed by '&' runs in the background, in a subshell. */
 function statements(node: Node): ShellNode[] {
@@ -144,6 +153,15 @@ function statements(node: Node): ShellNode[] {
     out.push(children[index + 1]?.type === "&" ? { kind: "subshell", body: [mapped] } : mapped);
   }
   return out;
+}
+
+/** `node` with `redirects` given to its last command, as the shell gives a list's or a pipeline's trailing redirections; around it as a group when its last part is no simple command. */
+function lastRedirected(node: ShellNode, redirects: readonly ShellRedirect[]): ShellNode {
+  if (node.kind === "command") return { ...node, redirects: [...node.redirects, ...redirects] };
+  if (node.kind === "list") return { ...node, right: lastRedirected(node.right, redirects) };
+  const last = node.kind === "pipeline" ? node.stages.at(-1) : undefined;
+  if (node.kind === "pipeline" && last !== undefined) return { ...node, stages: [...node.stages.slice(0, -1), lastRedirected(last, redirects)] };
+  return { kind: "group", body: [node], redirects };
 }
 
 /** Constructs whose insides may or may not run. */
@@ -161,7 +179,9 @@ function statement(node: Node): ShellNode | undefined {
       if (body === null) return { kind: "command", name: null, args: [], redirects, assignments: [] };
       if (body.type === "command") return command(body, redirects);
       const inner = statement(body);
-      return { kind: "group", body: inner === undefined ? [] : [inner], redirects };
+      if (inner === undefined) return { kind: "group", body: [], redirects };
+      // The grammar hangs a redirection after `a && b` (or `a | b`) on the whole list; the shell gives it to the last command, which runs where the list has taken it.
+      return body.type === "list" || body.type === "pipeline" ? lastRedirected(inner, redirects) : { kind: "group", body: [inner], redirects };
     }
     case "list": {
       const [left, right] = named(node).map(statement);
@@ -191,7 +211,7 @@ function statement(node: Node): ShellNode | undefined {
       return textOnly(node, node.children[0]?.text ?? "declare");
     case "variable_assignment":
     case "variable_assignments":
-      return textOnly(node, "true");
+      return standIn(node);
     default:
       if (CONTROL.has(node.type)) return { kind: "conditional", body: control(node) };
       return { kind: "unparsed", text: node.text };
@@ -205,30 +225,24 @@ function control(node: Node): ShellNode[] {
     if (CLAUSES.has(child.type)) return control(child);
     const mapped = statement(child);
     if (mapped === undefined) return [];
-    return mapped.kind === "unparsed" && child.type !== "ERROR" ? [textOnly(child, "true")] : [mapped];
+    return mapped.kind === "unparsed" && child.type !== "ERROR" ? [standIn(child)] : [mapped];
   });
 }
 
-/** A shell parser for one project: prepare it once (it loads the grammar, once per process), then parse synchronously. */
-export class TreeSitterShellParser implements ShellParser {
-  private parser: treeSitterModule.Parser | undefined;
-
-  async prepare(): Promise<void> {
-    if (this.parser !== undefined) return;
-    const language = await loadBash();
-    const ready = new TreeSitter.Parser();
-    ready.setLanguage(language);
-    this.parser = ready;
-  }
-
-  parse(command: Command): Result<readonly ShellNode[]> {
-    if (this.parser === undefined) return { ok: false, error: "the shell parser is not prepared: a project opened with openProject prepares it" };
-    const tree = this.parser.parse(command.value);
-    if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
-    try {
-      return { ok: true, value: statements(tree.rootNode) };
-    } finally {
-      tree.delete();
-    }
-  }
+/** A parser over the grammar `loadGrammar` gives (by default bash's, loaded once per process), ready to parse synchronously. Rejects when the grammar cannot load. */
+export async function bashSyntaxTree(loadGrammar: () => Promise<BashGrammar> = loadBashGrammar): Promise<BashSyntaxTree> {
+  const grammar = await loadGrammar();
+  const parser = new TreeSitter.Parser();
+  parser.setLanguage(grammar);
+  return Object.freeze({
+    parse(command: Command): Result<readonly ShellNode[]> {
+      const tree = parser.parse(command.value);
+      if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
+      try {
+        return { ok: true, value: statements(tree.rootNode) };
+      } finally {
+        tree.delete();
+      }
+    },
+  });
 }

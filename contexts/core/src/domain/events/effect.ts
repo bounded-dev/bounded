@@ -7,6 +7,7 @@ import { Command } from "./command.ts";
 import type * as Contract from "./effect.contract.ts";
 import { NamePattern } from "./name-pattern.ts";
 import { ProjectPath } from "./project-path.ts";
+import { ShellCommandReading } from "./shell-command-reading.ts";
 import { ToolName } from "./tool-name.ts";
 import { Url } from "./url.ts";
 
@@ -18,7 +19,7 @@ const SHAPES = {
   read: { fields: ["path"], optional: [], form: "A read effect is { kind, path }" },
   list: { fields: ["root"], optional: ["filter"], form: "A list effect is { kind, root, filter? }" },
   write: { fields: ["path", "change"], optional: [], form: "A write effect is { kind, path, change }" },
-  execute: { fields: ["command"], optional: ["cwd"], form: "An execute effect is { kind, command, cwd? }" },
+  execute: { fields: ["command"], optional: ["cwd", "reading"], form: "An execute effect is { kind, command, cwd?, reading? }" },
   fetch: { fields: ["url"], optional: [], form: "A fetch effect is { kind, url }" },
   delegate: { fields: ["agent"], optional: ["isolated", "finishUnreported"], form: "A delegate effect is { kind, agent, isolated?, finishUnreported? }" },
   invoke: { fields: ["name"], optional: [], form: "An invoke effect is { kind, name }" },
@@ -138,6 +139,7 @@ class ExecuteEffectImpl implements Contract.ExecuteEffect {
   private constructor(
     readonly command: Command,
     readonly cwd: ProjectPath | null,
+    readonly reading: ShellCommandReading | null,
   ) {
     Object.freeze(this);
   }
@@ -151,17 +153,21 @@ class ExecuteEffectImpl implements Contract.ExecuteEffect {
     const command = Command.parse(own(raw, "command"));
     if (!command.ok) return command;
     const rawCwd = own(raw, "cwd") ?? null;
-    if (rawCwd === null) return { ok: true, value: new ExecuteEffectImpl(command.value, null) };
-    const cwd = ProjectPath.parse(rawCwd);
-    return cwd.ok ? { ok: true, value: new ExecuteEffectImpl(command.value, cwd.value) } : cwd;
+    const cwd = rawCwd === null ? { ok: true as const, value: null } : ProjectPath.parse(rawCwd);
+    if (!cwd.ok) return cwd;
+    // Absent is no reading: executes stored or sent before readings existed keep their shape.
+    const rawReading = own(raw, "reading");
+    const reading = rawReading === undefined ? { ok: true as const, value: null } : ShellCommandReading.parse(rawReading);
+    return reading.ok ? { ok: true, value: new ExecuteEffectImpl(command.value, cwd.value, reading.value) } : reading;
   }
 
   equals(other: Contract.Effect): boolean {
     return sameWire(this, other);
   }
 
+  /** The command, its directory and, only when it has one, its reading. */
   toJSON(): Contract.ExecuteEffectJSON {
-    return { kind: this.kind, command: this.command.value, cwd: this.cwd === null ? null : this.cwd.value };
+    return { kind: this.kind, command: this.command.value, cwd: this.cwd === null ? null : this.cwd.value, ...(this.reading === null ? {} : { reading: this.reading.toJSON() }) };
   }
 }
 

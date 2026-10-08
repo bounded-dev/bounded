@@ -1,10 +1,12 @@
 import { ProjectPath } from "bounded/domain";
 import { commandMeaning } from "./command-meanings.ts";
 import type { MeaningChange } from "./command-meanings.contract.ts";
-import type { ShellCommandEffects, ShellNode, ShellPlace, ShellRedirect, ShellWord, ShellWrite } from "./shell-command.contract.ts";
+import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord } from "./shell-command.contract.ts";
 
-// A parsed command line as the project paths it reads, lists and writes: a
-// translation that decides nothing. Where each command runs is followed as
+// A parsed command line as the programs it runs and the project paths it
+// reads, lists and writes: a translation that decides nothing. Programs are
+// every one the command runs, nested and wrapped ones included, in the order
+// met; the parser's stand-ins are none. Where each command runs is followed as
 // the shell would: a cd carries on to later commands in the same shell, never
 // out of a subshell, a substitution or a pipeline stage, and leaves where
 // later commands run unknown when it may or may not have happened, or when
@@ -20,12 +22,20 @@ const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
 
-/** What `script`, run at `place`, reads, lists and writes. */
+/** Where a scope runs, as a project path ("." for the root), or null when it cannot be known. */
+function directoryOf(scope: Scope): ProjectPath | null {
+  if (scope.at === null) return null;
+  const path = ProjectPath.parse(scope.at.length === 0 ? "." : scope.at.join("/"));
+  return path.ok ? path.value : null;
+}
+
+/** What `script`, run at `place`, runs, reads, lists and writes. */
 export function describeShellCommand(script: readonly ShellNode[], place: ShellPlace): ShellCommandEffects {
   const reads: ProjectPath[] = [];
   const lists: ProjectPath[] = [];
   const writes: ShellWrite[] = [];
-  const unresolved: string[] = [];
+  const unresolved: UnresolvedWord[] = [];
+  const programs: ShellProgram[] = [];
 
   /** `text` as a project path from `scope`, or undefined when only the shell could resolve it. */
   const pathOf = (text: string, scope: Scope): ProjectPath | undefined => {
@@ -46,10 +56,10 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     return path.ok ? path.value : undefined;
   };
 
-  /** A word as a project path; recorded as unresolved when it cannot be one. */
-  const resolve = (word: ShellWord, scope: Scope): ProjectPath | undefined => {
+  /** A word as a project path; recorded as unresolved, with the role it would have had, when it cannot be one. */
+  const resolve = (word: ShellWord, scope: Scope, role: UnresolvedWord["role"]): ProjectPath | undefined => {
     const path = word.kind === "literal" ? pathOf(word.text, scope) : undefined;
-    if (path === undefined) unresolved.push(word.text);
+    if (path === undefined) unresolved.push({ text: word.text, role });
     return path;
   };
 
@@ -74,35 +84,36 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   const redirect = ({ operator, target }: ShellRedirect, scope: Scope): void => {
     if (operator === "<" || operator === "<>") {
-      const path = resolve(target, scope);
+      const path = resolve(target, scope, "read");
       if (path !== undefined) reads.push(path);
     }
     const duplicates = (operator === ">&" || operator === "<&") && /^(\d+|-)$/.test(target.kind === "literal" ? target.text : "");
     if (WRITE_REDIRECTS.has(operator) || operator === "<>" || (operator === ">&" && !duplicates)) {
-      const path = resolve(target, scope);
+      const path = resolve(target, scope, "write");
       if (path !== undefined) write(path, "write");
     }
   };
 
-  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope): void => {
+  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, standIn = false): void => {
     if (name === null) return;
+    if (!standIn) programs.push({ name, arguments: args, workingDirectory: directoryOf(scope) });
     const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args);
     for (const word of meaning.reads) {
-      const path = resolve(word, scope);
+      const path = resolve(word, scope, "read");
       if (path !== undefined) reads.push(path);
     }
     for (const word of meaning.lists) {
-      const path = resolve(word, scope);
+      const path = resolve(word, scope, "list");
       if (path !== undefined) lists.push(path);
     }
     for (const { word, change } of meaning.writes) {
-      const path = resolve(word, scope);
+      const path = resolve(word, scope, "write");
       if (path !== undefined) write(path, change);
     }
     for (const { sources, destination, moves } of meaning.transfers) {
-      const to = resolve(destination, scope);
+      const to = resolve(destination, scope, "write");
       for (const source of sources) {
-        const from = resolve(source, scope);
+        const from = resolve(source, scope, "read");
         if (from !== undefined) reads.push(from);
         if (from !== undefined && moves) writes.push({ path: from, change: "delete" });
         if (to === undefined) continue;
@@ -118,29 +129,29 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       const text = operand.text.slice(operand.text.indexOf(":") + 1);
       const fromHere = text.startsWith("./") || text.startsWith("../");
       const path = operand.kind === "literal" && (fromHere || repositoryAtRoot()) ? pathOf(text === "" ? "." : text, fromHere ? scope : { at: [] }) : undefined;
-      if (path === undefined) unresolved.push(operand.text);
+      if (path === undefined) unresolved.push({ text: operand.text, role: "read" });
       else reads.push(path);
     }
     for (const word of meaning.scripts) {
       // Code a nested shell runs: parsed and walked in a shell of its own, so its cd does not leak.
       const script = word.kind === "literal" ? place.parseScript(word.text) : undefined;
-      if (script === undefined || !script.ok) unresolved.push(word.text);
+      if (script === undefined || !script.ok) unresolved.push({ text: word.text, role: "code" });
       else {
         const inside: Scope = { at: scope.at };
         for (const node of script.value) walk(node, inside);
       }
     }
-    for (const word of meaning.unresolved) unresolved.push(word.text);
+    for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
     for (const ran of meaning.runs) {
       if (ran.directory === undefined) command(ran.name, ran.args, scope);
       else {
         // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.
-        const from = ran.directory === null ? undefined : resolve(ran.directory, scope);
+        const from = ran.directory === null ? undefined : resolve(ran.directory, scope, "directory");
         command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) });
       }
     }
     if (meaning.location !== undefined) {
-      const to = meaning.location.to === null ? undefined : resolve(meaning.location.to, scope);
+      const to = meaning.location.to === null ? undefined : resolve(meaning.location.to, scope, "directory");
       scope.at = to === undefined ? null : partsOf(to);
     }
   };
@@ -149,7 +160,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     switch (node.kind) {
       case "command": {
         for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, scope);
-        command(node.name, node.args, scope);
+        command(node.name, node.args, scope, node.standIn === true);
         for (const each of node.redirects) redirect(each, scope);
         return;
       }
@@ -192,7 +203,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
         return;
       }
       case "unparsed":
-        unresolved.push(node.text);
+        unresolved.push({ text: node.text, role: "code" });
         return;
     }
   };
@@ -206,5 +217,5 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };
   for (const node of script) walk(node, start);
-  return { reads, lists, writes, unresolved };
+  return { programs, reads, lists, writes, unresolved };
 }

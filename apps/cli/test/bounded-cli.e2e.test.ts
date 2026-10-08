@@ -10,7 +10,7 @@
 // Claude Code runs it, judges calls with the path gate.
 // The registry path is unit-tested with a stub runner (bounded-cli.registry.test.ts).
 import { describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -58,10 +58,17 @@ function packRelease(version: string, scratch: string, into: string): void {
   const copy = join(scratch, "contexts/core");
   cpSync(join(CORE, "src"), join(copy, "src"), { recursive: true });
   cpSync(join(CORE, "build-dist.ts"), join(copy, "build-dist.ts"));
+  // The private shell command reader the build carries into dist (ADR 2026-020).
+  const reader = join(scratch, "contexts/shell-command-reader");
+  cpSync(join(REPO, "contexts/shell-command-reader/src"), join(reader, "src"), { recursive: true });
+  cpSync(join(REPO, "contexts/shell-command-reader/package.json"), join(reader, "package.json"));
   // The build emits declarations with tsc, against the base tsconfig and the workspace's libraries, as in the checkout.
   cpSync(join(CORE, "tsconfig.types.json"), join(copy, "tsconfig.types.json"));
   cpSync(join(REPO, "tsconfig.base.json"), join(scratch, "tsconfig.base.json"));
-  symlinkSync(join(REPO, "node_modules"), join(scratch, "node_modules"), "dir");
+  // The workspace's libraries, with its own packages resolving to the copies, as the checkout's resolve to themselves.
+  mkdirSync(join(scratch, "node_modules"));
+  const copies: Record<string, string> = { bounded: copy, "bounded-shell-command-reader": reader };
+  for (const entry of readdirSync(join(REPO, "node_modules"))) symlinkSync(copies[entry] ?? join(REPO, "node_modules", entry), join(scratch, "node_modules", entry), "dir");
   const manifest = JSON.parse(readFileSync(join(CORE, "package.json"), "utf8")) as { version: string };
   manifest.version = version;
   writeFileSync(join(copy, "package.json"), JSON.stringify(manifest, null, 2));
@@ -130,6 +137,14 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     expect(settingsText).not.toContain(REPO);
     const loader = readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"), "utf8");
     expect(loader).toContain('"bounded/hosts/pi"');
+    // The installed hook reads a Bash command with the reader bounded ships (bounded/shell-command-reader): a shell write to git's hooks is refused by init's rule.
+    const hookCommand = settingsOf(project).hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "";
+    const bash = run(["sh", "-c", hookCommand], project, {
+      env: { CLAUDE_PROJECT_DIR: project },
+      stdin: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "echo x > .git/hooks/pre-commit" }, cwd: project, session_id: "s", tool_use_id: "toolu_bash" }),
+    });
+    expect(bash.exitCode).toBe(0);
+    expect((JSON.parse(bash.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason).toContain("the rule '.git/hooks/**' from bounded/project");
 
     const again = run(["npx", "--no-install", "bounded", "init"], project);
     expect(again.exitCode).toBe(1);

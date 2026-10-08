@@ -29,7 +29,7 @@ async function readingOf(reader: ShellCommandReader, projectRoot: string, comman
   return reading.toJSON();
 }
 
-const literal = (text: string) => ({ kind: "literal", text });
+const literal = (text: string) => ({ kind: "literal" as const, text });
 
 /** The behaviour every ShellCommandReader must have. */
 export function shellCommandReaderConformance(name: string, fixture: ShellCommandReaderFixture): void {
