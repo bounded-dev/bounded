@@ -78,7 +78,7 @@ describe("bounded, the one published package", () => {
     expect(manifest.scripts?.prepack).toBe("bun build-dist.ts");
   });
 
-  test("every library export runs from dist/ under node, with its TypeScript source for types and for bun", () => {
+  test("every library export runs from dist/ under node, with declarations for types and its TypeScript source for bun, bun first", () => {
     const exports = manifestOf("contexts/core").exports ?? {};
     for (const [path, target] of Object.entries(exports)) {
       if (path === "./testing/host-installer-conformance") {
@@ -92,8 +92,10 @@ describe("bounded, the one published package", () => {
         continue;
       }
       expect(typeof target === "object" && target.default).toStartWith("./dist/");
-      expect(typeof target === "object" && target.types).toStartWith("./src/");
-      expect(typeof target === "object" && target.bun).toBe(typeof target === "object" ? target.types : "");
+      // The workspace's tsc and bun resolve "bun" (tsconfig customConditions), a consumer's tsc "types": bun comes first.
+      expect(typeof target === "object" && Object.keys(target)).toEqual(["bun", "types", "default"]);
+      expect(typeof target === "object" && target.bun).toStartWith("./src/");
+      expect(typeof target === "object" && target.types).toBe(typeof target === "object" ? (target.bun ?? "").replace(/^\.\/src\//, "./dist/types/").replace(/\.ts$/, ".d.ts") : "");
     }
     expect(Object.keys(exports).filter((path) => path.startsWith("./hosts/"))).toEqual(["./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer"]);
   });
@@ -152,25 +154,34 @@ describe("bounded, the one published package", () => {
     expect(readme).toContain("https://github.com/bounded-dev/the-bounded-harness");
   });
 
-  test("a consumer's tsc reads the shipped TypeScript sources with allowImportingTsExtensions, under bundler and nodenext resolution; without it they do not compile (no .d.ts yet)", () => {
+  test("a consumer's tsc (strict, skipLibCheck, bundler and nodenext, no allowImportingTsExtensions) compiles a configuration against the packed tarball's declarations, and still rejects a contribution to an unselected pack's point", () => {
     const consumer = mkdtempSync(join(tmpdir(), "bounded-consumer-"));
     const into = join(consumer, "release");
     expect(Bun.spawnSync(["bun", "pm", "pack", "--destination", into, "--quiet"], { cwd: CORE }).exitCode).toBe(0);
     mkdirSync(join(consumer, "node_modules", "bounded"), { recursive: true });
     expect(Bun.spawnSync(["tar", "-xzf", join(into, `bounded-${VERSION}.tgz`), "-C", join(consumer, "node_modules", "bounded"), "--strip-components=1"]).exitCode).toBe(0);
     for (const dependency of ["zod", "picomatch", "@vscode"]) symlinkSync(join(ROOT, "node_modules", dependency), join(consumer, "node_modules", dependency));
-    writeFileSync(join(consumer, "a.ts"), 'import { corePack, defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [corePack] });\n');
+    // A configuration as a project writes it, and the strict-typing rule (AGENTS.md): a contribution to a point of a pack the project does not select must not compile.
+    const imports = 'import { contribution, corePack, defineConfig } from "bounded/domain";\nimport { pathGate } from "bounded/path-gate";\n';
+    const rule = '[{ match: "secrets/**", deny: ["read"], redirect: "Ask" }]';
+    writeFileSync(join(consumer, "accepted.ts"), `${imports}export default defineConfig({ packs: [corePack, pathGate], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\n`);
+    writeFileSync(join(consumer, "rejected.ts"), `${imports}export default defineConfig({ packs: [corePack], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\n`);
     writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "consumer", type: "module" }));
-    /** The consumer's tsc, with a typical strict tsconfig and `options`. */
-    const tsc = (options: Record<string, unknown>) => {
-      writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, skipLibCheck: true, noEmit: true, target: "es2022", ...options }, files: ["a.ts"] }));
+    /** The consumer's tsc over `files`, with a typical strict tsconfig and `options`. */
+    const tsc = (files: string[], options: Record<string, unknown>) => {
+      writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, skipLibCheck: true, noEmit: true, target: "es2022", ...options }, files }));
       return Bun.spawnSync([join(ROOT, "node_modules", ".bin", "tsc"), "-p", "."], { cwd: consumer, stdout: "pipe", stderr: "pipe" });
     };
     for (const resolution of [{ module: "preserve", moduleResolution: "bundler" }, { module: "nodenext", moduleResolution: "nodenext" }]) {
-      expect(tsc({ ...resolution, allowImportingTsExtensions: true }).exitCode).toBe(0);
-      const without = tsc(resolution);
-      expect(without.exitCode).not.toBe(0);
-      expect(without.stdout.toString()).toContain("TS5097");
+      const accepted = tsc(["accepted.ts"], resolution);
+      expect(accepted.stdout.toString()).toBe("");
+      expect(accepted.exitCode).toBe(0);
+      const rejected = tsc(["rejected.ts"], resolution);
+      expect(rejected.exitCode).not.toBe(0);
+      const errors = rejected.stdout.toString().split("\n").filter((line) => /error TS/.test(line));
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.every((line) => line.startsWith("rejected.ts("))).toBe(true);
+      expect(rejected.stdout.toString()).toContain("is not assignable to type");
     }
   });
 

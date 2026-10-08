@@ -3757,5 +3757,23 @@
       "case": "loadFailure: why a project's configuration file could not be loaded > a TypeScript configuration a Node without type stripping cannot load is refused, saying to upgrade Node or write it as bounded.config.mjs, a module in any project"
     },
     "reason": "the advice names bounded.config.mjs only: a .js configuration fails in a CommonJS project (npm init -y writes \"type\": \"commonjs\"), so advising it would mislead (final review)"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "bounded, the one published package > a consumer's tsc reads the shipped TypeScript sources with allowImportingTsExtensions, under bundler and nodenext resolution; without it they do not compile (no .d.ts yet)",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > a consumer's tsc (strict, skipLibCheck, bundler and nodenext, no allowImportingTsExtensions) compiles a configuration against the packed tarball's declarations, and still rejects a contribution to an unselected pack's point"
+    },
+    "reason": "TS5097 is a release blocker (most projects typecheck bounded.config.ts): bounded now ships declarations, generated at prepack, so a consumer needs no allowImportingTsExtensions, and the strict-typing rejection holds through them"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "bounded, the one published package > every library export runs from dist/ under node, with its TypeScript source for types and for bun",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > every library export runs from dist/ under node, with declarations for types and its TypeScript source for bun, bun first"
+    },
+    "reason": "the types condition names the generated declarations (dist/types), not the sources; bun comes first, so the workspace tsc (customConditions: bun) and bun read the sources"
   }
 ]
