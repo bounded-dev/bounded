@@ -52,8 +52,9 @@ hosts:
 - A pack may contribute only to the points of packs it lists directly in
   `dependsOn`. Anything else does not compile, and is refused at composition
   if it is built from untyped data (ADRs 2026-003 and 2026-004).
-- **Composition** takes the available packs and the selected packs (both as
-  pack objects), and
+- **Composition** takes the available packs and the listed packs (both as
+  pack objects), selects the listed packs and every pack they depend on,
+  transitively (ADR 2026-018), and
   either refuses with a message naming the pack, the extension point and the
   fix, or returns a result from which each extension point is read, typed,
   dependencies' contributions first, independent of listing order.
@@ -113,7 +114,8 @@ manager. That is the lockfile's, else `package.json`'s `packageManager`, else
 the one running npx. It then hands over to the `bounded` it installed, which
 does two things.
 
-- **It writes `bounded.config.ts`**, selecting the core and the path gate.
+- **It writes `bounded.config.ts`**, selecting the path gate (which brings
+  in the core).
   The path gate ships no rules of its own
   ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)). The configuration
   `init` writes contributes seven default rules. Agents may not change:
@@ -165,11 +167,11 @@ defaults, in the `contribution(pathGate.points.protectedPaths, [...])` that
 
 ```ts
 // bounded.config.ts, as init wrote it, with one rule added
-import { contribution, corePack, defineConfig } from "bounded/domain";
+import { contribution, defineConfig } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
 export default defineConfig({
-  packs: [corePack, pathGate],
+  packs: [pathGate],
   contributes: [
     contribution(pathGate.points.protectedPaths, [
       // ...init's seven default rules...

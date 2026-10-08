@@ -25,15 +25,17 @@ about any application and names no programming language, framework or tool.
   it lists as a dependency. A contribution across an undeclared dependency must
   be impossible to write (rejected before anything runs) and also refused if it
   reaches composition anyway.
-- **Composition** takes the available packs and a project's selected pack
-  names and produces the composed result. A pack that is not selected leaves no
-  trace: its extension points do not exist and its contributions are not
+- **Composition** takes the available packs and the packs a project lists
+  and produces the composed result. The listed packs and every pack they
+  depend on, transitively, are selected; a pack neither listed nor needed by
+  a selected pack leaves no trace: its extension points do not exist and its contributions are not
   placed. Reading an extension point returns every contributed value, typed,
   dependencies' contributions before dependents'. The result never depends on
   the order packs were listed in.
 - Composition refuses, with a message naming the pack, the extension point and
-  the fix: a selected pack that is not available; a selected pack whose
-  dependency is not selected; two packs with the same name; an extension point
+  the fix: a listed pack that is not available; a pack the selection needs
+  that is not available; two different packs with one id in the selection;
+  two packs with the same name; an extension point
   declared twice; a pack declaring a point another pack owns; a contribution to
   a point its owner does not declare; an invalid contributed value; and a
   dependency cycle (the message shows the cycle).
@@ -42,8 +44,8 @@ about any application and names no programming language, framework or tool.
   packs returns each pack's value in selection order; a pack without the field
   contributes nothing. A string-list field can be merged across packs into one
   sorted list without duplicates. Reading fails closed: a selected pack whose
-  manifest is missing, unreadable or malformed, or that depends on an
-  unselected pack, refuses the read with an actionable message. It is never
+  manifest is missing, unreadable or malformed, or that depends on a pack
+  that is not available, refuses the read with an actionable message. It is never
   treated as contributing nothing.
 - Pack names are lowercase words joined by hyphens; anything else (including
   anything that could reach outside the packs' folder) is refused.

@@ -19,6 +19,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `bounded/core` declares the guard points and the lifecycle points
   `onProjectOpen`, `beforeTool` and `afterTool`; packs get adapters through
   ports the host provides ([ADR 2026-013](adr/2026-013-restructure.md)).
+  A selection brings in every pack its listed packs depend on, transitively
+  ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)); the
+  project still contributes only to points of packs it lists.
 - **Out adapters grouped by the port they serve**
   ([ADR 2026-017](adr/2026-017-adapters-by-port.md)): one folder per port
   under `adapters/out/`, in the core and the path gate, behind two internal
@@ -50,8 +53,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - `npx bounded init [--host <host>]...` adds `bounded` at the CLI's own
     version from the npm registry, with the project's package manager. It
     then hands over to the installed `bounded init --no-install`, which:
-    - writes `bounded.config.ts`: the core, the path gate, and seven default
-      rules, since the pack ships none
+    - writes `bounded.config.ts`: the path gate (which brings in the core),
+      and seven default rules, since the pack ships none
       ([ADR 2026-009](adr/2026-009-path-gate-pack.md)). They protect
       `bounded.config.*`, `.bounded/`, `.claude/settings*.json`,
       `.pi/extensions/bounded/**`, `node_modules/bounded/**`,
@@ -191,8 +194,14 @@ when written; keep it current (AGENTS.md, "Working with the user").
     the adapters grouped by port
     ([ADR 2026-017](adr/2026-017-adapters-by-port.md)):
     `npx bounded init` in a fresh project installs it from the registry,
-    with no `--from`. Not on npm yet: 3.1.1's per-host restart notice.
-    `--from <dir>` stays only for installing a
+    with no `--from`. Not on npm yet: 3.2.0, a minor release carrying a
+    selection that brings in its packs' dependencies
+    ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)) and
+    3.1.1's per-host restart notice, never published on its own. ADR
+    2026-018 breaks the types 3.0.0 and 3.1.0 published
+    (`Config.selectedPacks`, compose-packs' `selectedPackIds`, the meaning
+    of `SelectedPacks.packs`); the maintainer chose to ship that break in a
+    minor. `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn

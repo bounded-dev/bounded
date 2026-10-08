@@ -4,7 +4,10 @@
 the feature lives in `application/project-config`, and `openProject`'s
 `ports` option (adapters for the selected packs' ports) replaces its
 `drift` and `pathKinds` options; a selected pack's port not provided refuses
-every event.
+every event. Amended by
+[ADR 2026-018](2026-018-selection-brings-in-dependencies.md): the project
+depends on the listed packs, and the selection brings in every pack they
+depend on.
 
 ## Decision
 

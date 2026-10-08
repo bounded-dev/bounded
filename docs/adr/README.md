@@ -23,3 +23,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-015](2026-015-host-installers.md) | Host installers are found by package export, outside pack composition: installing is distribution |
 | [2026-016](2026-016-cli-app.md) | One package, `bounded`, carrying the CLI and the host adapters (separate apps in source), compiled for Node; installs and upgrades hand over to the installed version |
 | [2026-017](2026-017-adapters-by-port.md) | Out adapters are grouped by the port they serve (`adapters/out/<port>/`), in-memory doubles are test support, and `Clock` and `DecisionIds` give value objects; two internal adapter export paths |
+| [2026-018](2026-018-selection-brings-in-dependencies.md) | A selection brings in every pack its packs depend on, transitively; the project still contributes only to the packs it lists |

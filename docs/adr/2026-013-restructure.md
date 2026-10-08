@@ -2,7 +2,11 @@
 
 **Status:** accepted. Built in steps: A (renames), B (contracts and their
 rules), B2 (effect guards), B3 (shape validation, in two parts), C (the
-tool lifecycle, recorded below when it lands).
+tool lifecycle, recorded below when it lands). Amended by
+[ADR 2026-018](2026-018-selection-brings-in-dependencies.md):
+`Config.selectedPacks` is `Config.listedPacks` and compose-packs'
+`selectedPackIds` is `listedPackIds`; among composition's combination rules,
+every selected pack (listed or brought in) is available and has no problem.
 
 ## Decision
 

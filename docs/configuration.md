@@ -8,9 +8,9 @@ A project chooses its packs in `bounded.config.ts` at its root (`.js` and
 import { contribution, corePack, defineConfig, Verdict, type WriteEffect } from "bounded/domain";
 
 export default defineConfig({
-  // The selection: pack objects. corePack must be among them, or every event is refused.
+  // The listed packs. Every pack they depend on is selected with them; corePack must be selected, listed or brought in, or every event is refused.
   packs: [corePack],
-  // The project's own contributions, to points of the packs it selects.
+  // The project's own contributions, to points of the packs it lists.
   contributes: [
     contribution(corePack.points.effectGuards.write, [
       (effect: WriteEffect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow),
@@ -26,11 +26,11 @@ stops:
 
 ```ts
 // bounded.config.ts
-import { contribution, corePack, defineConfig } from "bounded/domain";
+import { contribution, defineConfig } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
 export default defineConfig({
-  packs: [corePack, pathGate],
+  packs: [pathGate],
   contributes: [
     contribution(pathGate.points.protectedPaths, [
       {
@@ -45,11 +45,19 @@ export default defineConfig({
 });
 ```
 
+The selection is the listed packs and every pack they depend on,
+transitively ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)):
+the path gate depends on the core, so listing `pathGate` brings `corePack`
+in. List a dependency only to contribute to its points.
+
 The project acts as one more pack, `bounded/project`, that depends on every
-selected pack. So its contributions follow the same rules as any pack's: a
-contribution to a point of a pack the project does not select does not
-compile, and is refused when the packs are composed. The selection must be a
-tuple of distinct packs (`[corePack, pathGate]`), not a widened list.
+listed pack. So its contributions follow the same rules as any pack's: a
+contribution to a point of a pack the project does not list does not
+compile, and is refused when the configuration is used, even when the pack
+is brought in by another: list it (`[corePack, pathGate]` to contribute
+guards to the core's points). The list must be a tuple of distinct packs,
+not a widened list. Two different copies of one pack in the selection (two
+copies of a package, say) are refused, naming where each comes from.
 
 ## Opening a project
 
@@ -82,8 +90,8 @@ A host may pass its own `configSource`, `guardLog`, `clock` or `recordWithinMs`.
 
 The judge never fails open. If there is no configuration, more than one, one
 that throws while loading, one whose default export `defineConfig` did not
-make, or one whose packs cannot be composed (for example, a pack whose
-dependency is not selected), `problem` says what is wrong and the judge
+make, or one whose packs cannot be composed (for example, two different
+copies of one pack), `problem` says what is wrong and the judge
 refuses every event with "This project's configuration cannot be used: …",
 recording each refusal. An event the host sends that cannot be read is
 refused and recorded with `"event": "invalid"`.

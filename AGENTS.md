@@ -212,9 +212,10 @@ Rules, enforced by `architecture.test.ts` unless stated:
   in `dependsOn` (pack objects, so imports are the dependency graph).
   Contributing across an undeclared dependency does not compile and is
   refused at composition if it is built from untyped data.
-- **Composition is per project.** Only selected packs take part; a pack that
-  is not selected leaves no trace. Every refusal names the pack, the extension
-  point and the fix.
+- **Composition is per project.** Only selected packs take part: those the
+  project lists and every pack they depend on, transitively (ADR 2026-018);
+  a pack that is neither leaves no trace. Every refusal names the pack, the
+  extension point and the fix.
 - **Fail closed.** A missing, unreadable or malformed input is a refusal with
   an actionable message, never "contributes nothing".
 - **Strict typing (ADRs 2026-003, 2026-004).** Anything not explicitly wired
@@ -232,8 +233,8 @@ Rules, enforced by `architecture.test.ts` unless stated:
   cannot be recorded within the bound is refused, never allowed.
 - **The project is a pack too (ADR 2026-010).** `defineConfig` turns a
   project's contributions into the pack `bounded/project`, which depends on
-  every selected pack; a project never contributes to an unselected pack's
-  point. A configuration that cannot be used makes every event refused.
+  every listed pack; a project contributes only to points of packs it lists
+  (ADR 2026-018). A configuration that cannot be used makes every event refused.
 - **The core runs packs' asynchronous lifecycle checks around tool calls;
   packs get adapters through ports the host provides (ADR 2026-013).** Hosts
   call `judge` before a tool call and `afterTool` after it, passing the call
@@ -247,7 +248,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **Names are extremely explicit and aligned exactly with what they
   represent.** (Binding, in the maintainer's words.) A variable, field,
   parameter, file, folder or feature is named for exactly what it holds or
-  does: `selectedPackIds`, not `selected`, for a list of pack ids;
+  does: `listedPackIds`, not `listed`, for a list of pack ids;
   `project-config`, not `projects`, for loading `bounded.config.ts`. A
   rename that makes a name more exact is always welcome.
 
