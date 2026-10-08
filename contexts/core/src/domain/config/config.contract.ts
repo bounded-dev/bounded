@@ -11,6 +11,8 @@ export interface Config {
   readonly __brand: "Config";
   readonly selectedPacks: readonly BasePack[];
   readonly projectPack: BasePack;
+  /** Its packs composed: the selected packs and the project's own pack, all selected; or why they cannot be. Never throws. */
+  compose(): Result<Composition>;
 }
 
 export interface ConfigSpec<Packs extends readonly BasePack[]> {
@@ -25,7 +27,6 @@ export interface ConfigFactory {
   defineConfig<const Packs extends readonly BasePack[]>(
     spec: ConfigSpec<Packs> & (Packs extends readonly [] ? unknown : { readonly packs: PackListRules<Packs, "list packs as a tuple of packs", "list each pack once", "each selected pack is a pack with an exact id"> }),
   ): Config;
+  /** The configuration itself when `raw` was made by defineConfig in this copy of bounded, or why not. */
+  parse(raw: unknown): Result<Config>;
 }
-
-/** A configuration's packs composed: the selected packs and the project's own pack, or why they cannot be. */
-export type ComposeConfig = (config: Config) => Result<Composition>;

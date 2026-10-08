@@ -47,8 +47,9 @@ one group, `effectGuards`).
   "… refused" line, and text past 2,000 characters is shortened, saying so.
 - **Every failure refuses.** As in ADR 2026-005, per guard call: a guard
   that is not a function, throws, returns a promise or anything but a
-  verdict; plus an invalid event, something that is not a composition, and
-  guard points that cannot be read. `dispatchEvent` never throws.
+  verdict; plus guard points that cannot be read. `dispatchEvent` never
+  throws. It takes a `Composition` and an `Event` as their classes made
+  them: untyped input is parsed before it (ADR 2026-013).
 
 ## Consequences
 

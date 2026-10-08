@@ -1,8 +1,8 @@
 # 2026-013: The restructure: names that say what they hold, contracts everywhere, and rules that keep them
 
 **Status:** accepted. Built in steps: A (renames), B (contracts and their
-rules), B2 (effect guards), B3 (shape validation, recorded below when it
-lands), C (the tool lifecycle, recorded below when it lands).
+rules), B2 (effect guards), B3 (shape validation, in two parts), C (the
+tool lifecycle, recorded below when it lands).
 
 ## Decision
 
@@ -92,6 +92,40 @@ lands), C (the tool lifecycle, recorded below when it lands).
   checked at run time (dispatch re-checks every verdict, ADR 2026-007).
   `define` in `pack.ts` keeps its documented `as never`: it builds the mapped
   pack type from run-time keys.
+
+### B3. Shape checks live in the class that owns the shape
+
+- **The binding rule** (AGENTS.md): every "is this really an X" check is in
+  the `parse` or factory of the class that owns X; functions and handlers
+  take instances and apply only business and combination rules; untyped
+  input is parsed once, at a boundary. Moved checks keep their messages.
+- **Packs, points, declarations, contributions and configurations are
+  classes** with private constructors, frozen when made; `definePack`,
+  `point`, `pointGroup`, `contribution` and `defineConfig` are their
+  factories, and stay total, so a JavaScript configuration still reaches
+  composition and gets today's message. Genuineness is `instanceof` in the
+  owning class: the module WeakSet, `isGenuine`, `isComposition`,
+  `isConfig` and `composeConfig` are gone (`Config.parse(raw)`,
+  `config.compose()`, `parsePack(raw)` replace them).
+- **A pack names its own problem**: what composition used to check about a
+  pack's shape (dependencies, point keys, points made by `point`, a check,
+  own values a list, contributions made by `contribution`, groups one level
+  deep) is the pack's `problem`, worked out when it is made; composition
+  refuses a selected pack that has one, with the same message. A point
+  parses a value with its own check (`point.parseValue`).
+- **`AvailablePacks` and `SelectedPacks`** parse the two lists composition
+  is given (a list; each pack made by `definePack`; valid, distinct ids; a
+  pack selected once). They hold pack objects, which have no wire form, so
+  they are parsed collections, not value objects with laws.
+  `Composition.compose` parses both, then applies only the combination
+  rules: a selected pack is available, has no problem, and its dependencies
+  are selected; contributions go only to dependencies' points.
+- **Dispatch takes instances**: `decideEvent(composition, event)` and
+  `dispatch(guards, event)` no longer re-parse the event or ask whether the
+  composition is genuine; hosts parse a raw event once, in the judge. A
+  guard that is not a function still refuses by name; a guard's return value
+  is still parsed by `Verdict.parse`, and the promise check stays beside it
+  in dispatch, since its message names the guard.
 
 ### The rules, in `architecture.test.ts` (each tested on small fixtures)
 

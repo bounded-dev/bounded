@@ -1,7 +1,7 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import type { ProjectConfigSource } from "bounded/application";
-import { type Config, isConfig, type Result } from "bounded/domain";
+import { Config, type Result } from "bounded/domain";
 
 const NAMES = ["bounded.config.ts", "bounded.config.js", "bounded.config.mjs"];
 const FORM = "export default defineConfig({ packs: [...] })";
@@ -43,8 +43,7 @@ export class FileSystemProjectConfigSource implements ProjectConfigSource {
       return { ok: false, error: `${name} could not be loaded: ${text(thrown)}` };
     }
     if (!Object.hasOwn(module, "default")) return { ok: false, error: `${name} must ${FORM}; it has no default export` };
-    const config = module.default;
-    if (!isConfig(config)) return { ok: false, error: `${name} must ${FORM}; its default export is ${described(config)}` };
-    return { ok: true, value: config };
+    const config = Config.parse(module.default);
+    return config.ok ? config : { ok: false, error: `${name} must ${FORM}; its default export is ${described(module.default)}` };
   }
 }

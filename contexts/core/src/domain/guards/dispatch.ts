@@ -1,4 +1,4 @@
-import { Event } from "../events/event.ts";
+import type { Event } from "../events/event.contract.ts";
 import { show } from "../shared/read.ts";
 import { Verdict } from "../verdicts/verdict.ts";
 import type * as Contract from "./dispatch.contract.ts";
@@ -65,24 +65,17 @@ export function unfinished(thrown: unknown): Verdict {
   return Verdict.refuse(`Dispatch could not finish: ${show(thrown)}`, UNFINISHED);
 }
 
-/** The refusal for an event that does not parse. */
-export function invalidEvent(error: string): Verdict {
-  return Verdict.refuse(`Dispatch was given an invalid event: ${error}`, "Build the event with Event.parse, ToolUse.parse or SessionStart.parse");
-}
-
 export const dispatch: Contract.Dispatch = (guards, event, ...context) => outermost(() => run(guards, event, context[0]), (verdict) => verdict);
 
-function run(guards: unknown, event: unknown, context: unknown): Verdict {
-  // Guards here come from a caller, unchecked: one that is not a function refuses when its turn comes.
+// The event is an Event, made by its class: frozen, normalised, vocabulary
+// fields only. A guard is called whatever its value type, so one that is
+// not a function refuses when its turn comes.
+function run(guards: readonly unknown[], event: Event, context: unknown): Verdict {
   try {
-    if (!Array.isArray(guards)) return Verdict.refuse("Dispatch was given guards that are not a list", "Pass the guards for this event as a list; with no guards, pass []");
-    const checked = Event.parse(event);
-    if (!checked.ok) return invalidEvent(checked.error);
-    // Named by position: function names do not survive every bundler. Every
-    // guard gets the checked event: frozen, normalised, vocabulary fields only.
-    const labelled = guards.map((guard: unknown, i): LabelledGuard => {
+    // Named by position: function names do not survive every bundler.
+    const labelled = guards.map((guard, i): LabelledGuard => {
       const label = `Guard ${i + 1} of ${guards.length}`;
-      return { run: () => (typeof guard === "function" ? guard(checked.value, context) : Verdict.refuse(`${label} is not a function`, FIX)), label };
+      return { run: () => (typeof guard === "function" ? guard(event, context) : Verdict.refuse(`${label} is not a function`, FIX)), label };
     });
     return firstRefusal(labelled)?.verdict ?? Verdict.allow;
   } catch (thrown) {

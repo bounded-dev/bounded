@@ -20,6 +20,9 @@ function isIso(time: unknown): time is string {
   }
 }
 
+/** Without a composition, and no refusal given for that, every event is refused. */
+const NO_COMPOSITION = Verdict.refuse("Dispatch was given something that is not a composition", "Compose the selected packs with Composition.compose and dispatch over the result");
+
 /** The next decision id; an id that is not one throws, so the decision is not recorded and fails closed. */
 export function nextDecisionId(ids: DecisionIds): DecisionId {
   const id = DecisionId.parse(ids.next());
@@ -57,8 +60,9 @@ export class JudgeEventHandler implements JudgeEvent {
     this.recordWithinMs = bound;
     this.ids = options.ids ?? { next: () => crypto.randomUUID() };
     this.beforeAllow = options.beforeAllow;
-    const refusal = options.refuseEverything;
-    this.decide = refusal === undefined ? (event) => decideEvent(composition, event) : () => ({ verdict: refusal, refusedBy: null });
+    const refusal = options.refuseEverything ?? (composition === null ? NO_COMPOSITION : undefined);
+    if (refusal !== undefined || composition === null) this.decide = () => ({ verdict: refusal ?? NO_COMPOSITION, refusedBy: null });
+    else this.decide = (event) => decideEvent(composition, event);
   }
 
   async execute(command: JudgeEventCommand): Promise<Verdict> {

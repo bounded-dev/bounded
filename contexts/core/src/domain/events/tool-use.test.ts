@@ -58,6 +58,26 @@ describe("ToolUse — boundaries", () => {
     expect(error({ ...edit, kind: "session-start" })).toBe("A tool use has kind 'tool-use', not 'session-start'");
   });
 
+  test("extra fields are dropped, and missing optional ones become null", () => {
+    const result = ToolUse.parse({ role: null, tool: "search", effects: [{ kind: "list", root: "src" }], content: "secret" });
+    expect(result.ok && Object.hasOwn(result.value, "content")).toBe(false);
+    expect(wireOf(result.ok && result.value.effects)).toEqual([{ kind: "list", root: "src", filter: null }]);
+  });
+
+  test("a getter on the input is read once; the tool use keeps the value it gave", () => {
+    let reads = 0;
+    const result = ToolUse.parse({
+      role: null,
+      tool: "edit",
+      get effects() {
+        reads += 1;
+        return [{ kind: "write", path: reads === 1 ? "generated/a.ts" : "safe.ts", change: "modify" }];
+      },
+    });
+    expect(reads).toBe(1);
+    expect(wireOf(result.ok && result.value.effects)).toEqual([{ kind: "write", path: "generated/a.ts", change: "modify" }]);
+  });
+
   test("is frozen, its effects too", () => {
     const result = ToolUse.parse(grep);
     expect(result.ok && Object.isFrozen(result.value) && Object.isFrozen(result.value.effects) && result.value.effects.every((e) => Object.isFrozen(e))).toBe(true);
