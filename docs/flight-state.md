@@ -27,6 +27,23 @@ when written; keep it current (AGENTS.md, "Working with the user").
   command changed in protected files.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
+- **The install command** (issue #65, first slice): the `bounded` package's
+  bin, `contexts/core/src/composition-root/bounded-cli-main.ts`.
+  `bounded init` writes a `bounded.config.ts` selecting only the core pack
+  (refusing if any `bounded.config.*` exists) and runs every host installer.
+  `bounded update --from <dir>` upgrades the bounded packages from packed
+  tarballs, then hands over to the newly installed CLI, which runs
+  `bounded update --no-upgrade` (refresh the hooks only; idempotent; never
+  writes the configuration). That hand-off is the contract between
+  versions: every version must keep accepting `bounded update --no-upgrade`.
+  Host installers are found at run time: each dependency whose package.json
+  exports `./host-installer` (a `hostInstaller` implementing the core's
+  `HostInstaller` contract) takes part; `bounded-claude-code` merges its
+  hooks into `.claude/settings.json`, pointing at the project's own
+  `node_modules/bounded-claude-code/src/main.ts`, and `bounded-pi` writes
+  its loader when `.pi/` exists. The end-to-end test
+  (`contexts/core/test/bounded-cli.e2e.test.ts`) packs the workspace with
+  `bun pm pack` and runs `npx bounded` against the tarballs.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository
@@ -77,6 +94,30 @@ when written; keep it current (AGENTS.md, "Working with the user").
   genuine instance (`{ ...pack }`) is the one way past the compiler; the
   run-time parse refuses the copy
   ([ADR 2026-012](adr/2026-012-value-objects-are-classes.md)).
+- **The install command's shortcuts** (issue #65, first slice):
+  - `bounded update` with no `--from` refuses: nothing is published, and the
+    npm package `bounded` is still the legacy harness (2.x, ADR 2026-014).
+    Once this code is published, plain `bounded update` should install the
+    latest release from the registry and hand over as `--from` does.
+  - The packages are versioned `0.1.0`; publishing them as a new major above
+    the legacy 2.x is still to decide. Until then a project installing from
+    tarballs must override `bounded` with the local tarball (`overrides`),
+    or its package manager resolves `bounded@0.1.0` on npm and fails.
+  - Hooks run TypeScript under bun (`bun …/src/main.ts`); the packages ship
+    their `.ts` sources. Compiled JavaScript for node is not built.
+  - The CLI and its upgrade step live in the composition root
+    (`bounded-cli.ts`, `package-upgrade.ts`), not a driving adapter under
+    `src/adapters/in/cli/`: that would need a new export path, and the
+    core's export paths are pinned by `architecture.test.ts`. The upgrade
+    (package manager detection, running it, the hand-off) has no port of its
+    own yet.
+  - With bun, the upgrade rewrites the bounded packages' specs in
+    package.json and runs `bun install`: `bun add` cannot replace one
+    tarball dependency with another (bun 1.3.14 reports a dependency loop).
+    npm, pnpm and yarn use their `add`/`install`; only bun is exercised end
+    to end.
+  - A project's root is the directory the command runs in; it is not
+    searched for upwards.
 - **A pack id naming its own npm package is checked only by an architecture
   test** (`architecture.test.ts`). The load-time check belongs to a
   file-backed pack catalog, which does not exist yet
@@ -89,9 +130,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - A tool allowlist pack: shaping the tools offered at session start, with a
   `toolUseGuards` backstop (the point exists; no pack contributes).
 - Skills, role briefs and instruction projections written at install.
-- A command-line tool, including `bounded init` writing `bounded.config.ts`.
-  There is no install command: the adapters export install helpers only
-  (`withHooks`/`hookCommand` for Claude Code, `piLoader` for pi).
+- Beyond `bounded init` and `bounded update` (see "The install command"
+  below), no other command-line tool exists.
 - A file-backed pack catalog (only the in-memory catalog exists).
 - A workflow or phase state pack.
 - Per-pack typed configuration, static (data) contribution lists, point

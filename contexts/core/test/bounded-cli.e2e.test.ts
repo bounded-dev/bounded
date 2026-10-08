@@ -3,8 +3,9 @@
 // (nothing is published to npm). The update hands over to the newer CLI it
 // installs, so every later version brings its own update logic.
 //
-// The npm name `bounded` belongs to an unrelated package, so the project
-// overrides it with the local tarball; a registry would do this in real use.
+// The npm package `bounded` is still the legacy harness (2.x, ADR 2026-014),
+// so its dependants would resolve `bounded@<version>` there: the project
+// overrides it with the local tarball. Once published, the registry serves it.
 import { describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

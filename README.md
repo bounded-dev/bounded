@@ -92,6 +92,35 @@ hosts:
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
 
+## Installing
+
+Nothing is published to npm yet, so install from packed tarballs. The hooks
+run under [bun](https://bun.sh), which must be on `PATH`.
+
+```sh
+# in a checkout of this repository: one tarball per package
+(cd contexts/core && bun pm pack --destination /tmp/bounded)
+(cd apps/claude-code && bun pm pack --destination /tmp/bounded)
+(cd apps/pi && bun pm pack --destination /tmp/bounded)
+
+# in your project; the override stops `bounded` resolving to the legacy 2.x on npm
+#   package.json: "overrides": { "bounded": "file:/tmp/bounded/bounded-<version>.tgz" }
+bun add /tmp/bounded/bounded-<version>.tgz /tmp/bounded/bounded-claude-code-<version>.tgz
+npx bounded init
+```
+
+`bounded init` writes `bounded.config.ts`, selecting only the core pack (which
+guards nothing by itself; add packs there, see
+[configuration](docs/configuration.md)), and installs the hooks of every host
+adapter package the project depends on: Claude Code's into
+`.claude/settings.json`, and pi's loader when the project has `.pi/`. Restart
+the host's session afterwards.
+
+To upgrade, pack the new release and run `npx bounded update --from <dir>`:
+it installs the tarballs in `<dir>`, then the newly installed version
+refreshes the hooks itself. `npx bounded update --no-upgrade` refreshes the
+hooks from the installed version only. Neither touches `bounded.config.ts`.
+
 ## Develop
 
 ```sh

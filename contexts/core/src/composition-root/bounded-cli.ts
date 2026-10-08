@@ -142,7 +142,7 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
     if (refreshOnly) return done(await new UpdateProjectHandler(files, installers).execute(projectRoot));
     if (fromDir === undefined) {
       return refused(
-        "the bounded packages are not published to the npm registry yet (the name `bounded` there belongs to another package), so update cannot fetch a newer version by itself. Pass --from <directory> holding the packed tarballs, or run `bounded update --no-upgrade` to refresh the hooks from the installed version",
+        "the bounded packages are not published to the npm registry yet (`bounded` there is still the legacy harness, 2.x; ADR 2026-014), so update cannot fetch a newer version by itself. Pass --from <directory> holding the packed tarballs, or run `bounded update --no-upgrade` to refresh the hooks from the installed version",
       );
     }
     return upgradeThenHandOver(projectRoot, resolve(projectRoot, fromDir));
