@@ -1,12 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ToolResult, ToolUse, Verdict } from "bounded/domain";
 import type { openProject } from "bounded/open-project";
 import { composeProject } from "./composition-root.ts";
 import { type Pi, type PiHandler, piExtension } from "./extension.ts";
 
+// A project resolves `bounded` as an installed project would: from its node_modules.
+const CORE = resolve(import.meta.dir, "../../../contexts/core");
+/** A project selecting bounded/prereqs: a write under src/ needs plan-reviewer to have succeeded over the current plan. */
+const PREREQS_CONFIG = `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { prereqs } from "bounded/prereqs";
+export default defineConfig({
+  packs: [corePack, prereqs],
+  contributes: [contribution(prereqs.points.rules, [{ before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: ["plans/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" }])],
+});
+`;
 const root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-root-")));
 const parsed = ToolUse.parse({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "a.ts" }] });
 if (!parsed.ok) throw new Error(parsed.error);
@@ -46,6 +56,22 @@ describe("composeProject — never fails open, whatever openProject or its judge
     const failed = await composeProject(root, rejecting);
     expect(failed.afterTool).toBeUndefined();
     expect(failed.refuse).toBeUndefined();
+  });
+
+  test("the default open provides bounded/prereqs's ports", async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-prereqs-")));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(CORE, join(project, "node_modules", "bounded"), "dir");
+    mkdirSync(join(project, "plans"));
+    writeFileSync(join(project, "plans", "plan.md"), "the plan\n");
+    writeFileSync(join(project, "bounded.config.ts"), PREREQS_CONFIG);
+    const write = ToolUse.parse({ kind: "tool-use", role: null, tool: "write", effects: [{ kind: "write", path: "src/a.ts", change: "create" }], callId: "1" });
+    if (!write.ok) throw new Error(write.error);
+    const verdict = await (await composeProject(project))(write.value);
+    // Opened with its ports: the rule itself refuses, not a missing port.
+    expect(verdict.kind === "refuse" && verdict.reason).toStartWith("bounded/prereqs.rules:");
+    expect(verdict.kind === "refuse" && verdict.reason).toContain("has not succeeded");
+    expect(verdict.kind === "refuse" && verdict.redirect).toBe("Have plan-reviewer review the current plan before editing src/");
   });
 
   test("the refusal reaches pi as a block with a reason and a redirect", async () => {

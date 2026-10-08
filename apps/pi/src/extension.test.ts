@@ -137,6 +137,40 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
     expect(await (await started(loads(noGenerated))).finished("bash", { command: "ls" })).toBeUndefined();
   });
 
+  const resultOf = async (input: unknown): Promise<ToolResult | undefined> => {
+    const results: ToolResult[] = [];
+    const fake = await started(withExtras({ afterTool: async (result) => {
+      results.push(result);
+      return { message: null };
+    } }));
+    await fake.finished("subagent", input);
+    return results[0];
+  };
+
+  test("a subagent's tool_result says no delegated run finished, even with async: false", async () => {
+    // pi-subagents 0.52.1 may still run it in the background (forceTopLevelAsync), and a timed-out child may leave isError unset.
+    const result = await resultOf({ tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }], async: false });
+    expect(wireOf(result)).toEqual({
+      kind: "tool-result",
+      role: null,
+      tool: "subagent",
+      effects: [{ kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }],
+      ok: true,
+      callId: "1",
+      delegatedAgentRuns: [{ finished: false, finishNeverReported: true }, { finished: false, finishNeverReported: true }],
+    });
+    // Without async: false the call runs in the background by default, so its delegations' finishes go unreported.
+    const unsaid = await resultOf({ agent: "a", task: "x" });
+    expect(unsaid?.delegatedAgentRuns).toEqual([{ finished: false, finishNeverReported: true }]);
+    expect(unsaid?.effects.every((effect) => effect.kind === "delegate" && effect.finishUnreported === true)).toBe(true);
+  });
+
+  test("an async subagent's tool_result says none did, as this host never reports their finish", async () => {
+    const result = await resultOf({ tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }], async: true });
+    expect(result?.delegatedAgentRuns).toEqual([{ finished: false, finishNeverReported: true }, { finished: false, finishNeverReported: true }]);
+    expect(result?.effects.every((effect) => effect.kind === "delegate" && effect.finishUnreported === true)).toBe(true);
+  });
+
   test("an afterTool that fails tells the agent so, never silently", async () => {
     const fake = await started(withExtras({ afterTool: async () => { throw new Error("boom"); } }));
     expect(await fake.finished("bash", { command: "ls" })).toEqual({

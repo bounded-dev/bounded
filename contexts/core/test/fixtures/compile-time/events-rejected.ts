@@ -3,6 +3,7 @@
 import {
   type AgentName,
   type CallId,
+  type DelegateEffectJSON,
   type Command,
   type DecisionId,
   dispatch,
@@ -15,6 +16,7 @@ import {
   type SessionStart,
   type ToolKind,
   type ToolName,
+  type ToolResultJSON,
   type ToolUse,
   type Url,
   Verdict,
@@ -66,3 +68,6 @@ export const clashing = dispatch([pathsGuard, countGuard], toolUse, { paths: [] 
 // A value object is made by its parse: even a complete look-alike lacks the brand only its class carries.
 export const completePath: ProjectPath = { __brand: "ProjectPath", value: "a.ts", equals: () => true, toJSON: () => "a.ts" }; // rejected: Property '[projectPathBrand]' is missing
 export const completeAllow: Verdict = { __brand: "Verdict", kind: "allow", equals: () => true, toJSON: () => ({ kind: "allow" }) }; // rejected: Property '[verdictBrand]' is missing
+// 6. A delegation's flags and a run's finish are true or false, never text.
+export const isolatedText: DelegateEffectJSON = { kind: "delegate", agent: "reviewer", isolated: "no" }; // rejected: Type 'string' is not assignable to type 'boolean'
+export const finishedText: ToolResultJSON = { role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "a" }], ok: true, delegatedAgentRuns: [{ finished: "yes" }] }; // rejected: Type 'string' is not assignable to type 'boolean'

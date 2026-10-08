@@ -49,9 +49,18 @@ export interface FetchEffect extends EffectOf<"fetch", FetchEffectJSON> {
   readonly url: Url;
 }
 
-/** Hands work to another agent. */
+/**
+ * Hands work to another agent. What the call says about the run it starts
+ * travels with it (ADR 2026-019): whether the agent works on a separate copy
+ * of the project's files, and whether the host will not report when the run
+ * finishes. Each is present only when true.
+ */
 export interface DelegateEffect extends EffectOf<"delegate", DelegateEffectJSON> {
   readonly agent: AgentName;
+  /** The agent works on a separate copy of the project's files (a worktree), not the project's own. */
+  readonly isolated?: true;
+  /** The host will not report when this agent's run finishes (a teammate, an asynchronous run). */
+  readonly finishUnreported?: true;
 }
 
 /** Calls a tool whose effects the host cannot describe: an unknown tool, a tool from another server, a skill. */
@@ -104,6 +113,10 @@ export interface FetchEffectJSON {
 export interface DelegateEffectJSON {
   readonly kind: "delegate";
   readonly agent: string;
+  /** Written by toJSON only when true. */
+  readonly isolated?: boolean;
+  /** Written by toJSON only when true. */
+  readonly finishUnreported?: boolean;
 }
 export interface InvokeEffectJSON {
   readonly kind: "invoke";

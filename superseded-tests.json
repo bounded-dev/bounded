@@ -3901,5 +3901,59 @@
       "case": "bounded init's configuration > selects the path gate, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed"
     },
     "reason": "init's configuration lists only the path gate, which brings in the core (ADR 2026-018)"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/adapters/out/file-set-fingerprints/file-set-fingerprints.test.ts",
+    "case": "FileSystemFileSetFingerprints — the project's files on disk > a link is fingerprinted by where it points, never followed",
+    "successor": {
+      "file": "contexts/core/src/packs/prereqs/adapters/out/file-set-fingerprints/file-set-fingerprints.test.ts",
+      "case": "FileSystemFileSetFingerprints — the project's files on disk > a link matching the patterns cannot be fingerprinted: the error names it"
+    },
+    "reason": "a link's target is never fingerprinted, so a set holding one cannot be checked and the rule refuses, naming the link (final review of prereqs, ADR 2026-019)"
+  },
+  {
+    "file": "apps/pi/src/extension.test.ts",
+    "case": "piExtension — after a tool ran, and refusals the adapter makes > a synchronous subagent's tool_result says each delegated run finished",
+    "successor": {
+      "file": "apps/pi/src/extension.test.ts",
+      "case": "piExtension — after a tool ran, and refusals the adapter makes > a subagent's tool_result says no delegated run finished, even with async: false"
+    },
+    "reason": "pi-subagents 0.52.1 runs in the background by default, forceTopLevelAsync can override async: false, and a timed-out child may leave isError unset, so no pi run is marked finished (final review of prereqs, ADR 2026-019)"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+    "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule's requirement is met by a delegation to its required agent",
+    "successor": {
+      "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+      "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule's requirement is met by a delegation to its required agent, by its exact name"
+    },
+    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+    "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule holds, is stale or is missing against records and the current fingerprint",
+    "successor": {
+      "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+      "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule holds, is stale or is missing against records of its exact agent and the current fingerprint"
+    },
+    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-start.test.ts",
+    "case": "PrerequisiteStart — a delegation's files, fingerprinted as the run starts > the same agent and patterns, in any order, share a requirement key",
+    "successor": {
+      "file": "contexts/core/src/packs/prereqs/domain/prerequisite-start.test.ts",
+      "case": "PrerequisiteStart — a delegation's files, fingerprinted as the run starts > the same agent, by its exact name, and patterns, in any order, share a requirement key"
+    },
+    "reason": "agent names match exactly, case-sensitively, as hosts find agents (final review of prereqs, ADR 2026-019)"
+  },
+  {
+    "file": "apps/pi/src/extension.test.ts",
+    "case": "piExtension — after a tool ran, and refusals the adapter makes > an async subagent's tool_result says none did",
+    "successor": {
+      "file": "apps/pi/src/extension.test.ts",
+      "case": "piExtension — after a tool ran, and refusals the adapter makes > an async subagent's tool_result says none did, as this host never reports their finish"
+    },
+    "reason": "pi's result entries also say finishNeverReported, so the agent is told the host cannot meet a requirement yet rather than to re-run (final review of prereqs, ADR 2026-019)"
   }
 ]

@@ -47,6 +47,14 @@ describe("toToolUse: a translated call, its paths resolved, as a host-neutral ev
     expect(wireOf(event({ tool: "other", effects: [...effects] }).effects)).toEqual([{ ...effects[0], cwd: null }, ...effects.slice(1)]);
   });
 
+  test("an isolated delegation, or one whose finish is unreported, reaches the core as one", () => {
+    const made = event({ tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer", isolated: true }, { kind: "delegate", agent: "builder", finishUnreported: true }] });
+    expect(wireOf(made.effects)).toEqual([{ kind: "delegate", agent: "plan-reviewer", isolated: true }, { kind: "delegate", agent: "builder", finishUnreported: true }]);
+    const [first, second] = made.effects;
+    expect(first?.kind === "delegate" && first.isolated).toBe(true);
+    expect(second?.kind === "delegate" && second.finishUnreported).toBe(true);
+  });
+
   test("an execute's cwd is resolved to a project-relative directory; one the resolver refuses refuses the call", () => {
     expect(wireOf(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }, { ...at, cwd: "/p/src" }).effects)).toEqual([{ kind: "execute", command: "ls", cwd: "src" }]);
     expect(wireOf(event({ tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "." }] }).effects)).toEqual([{ kind: "execute", command: "ls", cwd: "." }]);

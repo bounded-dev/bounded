@@ -50,6 +50,35 @@ transitively ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)):
 the path gate depends on the core, so listing `pathGate` brings `corePack`
 in. List a dependency only to contribute to its points.
 
+A project can also require that an action waits for a review: the
+prerequisites pack, `bounded/prereqs`, refuses an action until a delegation
+to a named agent has succeeded over files that have not changed since
+([its README](../contexts/core/src/packs/prereqs/README.md), ADR 2026-019).
+It relies on the path gate keeping agents off its records and the agents'
+definitions, so list both (each brings in the core), and keep these rules: `bounded init`'s
+`.bounded/**`, and the project's agent definitions (`.claude/agents/**` for
+Claude Code; pi-subagents' project agent directory for pi):
+
+```ts
+// bounded.config.ts
+import { contribution, defineConfig } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
+import { prereqs } from "bounded/prereqs";
+
+export default defineConfig({
+  packs: [pathGate, prereqs],
+  contributes: [
+    contribution(pathGate.points.protectedPaths, [
+      // ...init's default rules, .bounded/** among them...
+      { match: ".claude/agents", deny: ["create", "modify", "delete"], why: "agent definitions say who each agent is", redirect: "Ask a maintainer to change an agent's definition" },
+    ]),
+    contribution(prereqs.points.rules, [
+      { before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" },
+    ]),
+  ],
+});
+```
+
 The project acts as one more pack, `bounded/project`, that depends on every
 listed pack. So its contributions follow the same rules as any pack's: a
 contribution to a point of a pack the project does not list does not
@@ -67,9 +96,11 @@ about every event:
 ```ts
 import { openProject } from "bounded/open-project";
 import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 
-// The ports the selected packs declare: here every port of the path gate, its files and snapshots on disk and its shell parser.
-const project = await openProject("/absolute/path/to/project", { ports: pathGatePortProvisions() });
+// The ports the selected packs declare: here every port of the path gate (its files and snapshots on disk, its shell parser)
+// and of the prerequisites pack (its fingerprints of the project's files, its records).
+const project = await openProject("/absolute/path/to/project", { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()] });
 if (project.problem !== null) console.error(project.problem);
 const verdict = await project.judge(eventFromTheHost);
 ```

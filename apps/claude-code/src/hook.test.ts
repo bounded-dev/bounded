@@ -76,6 +76,37 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
     expect(await runHook(failed, { ...hook(recording([])), afterTool: async () => ({ message: null }) })).toBe("");
   });
 
+  // Hand-written from the documented fields and the captured shapes (Claude Code 2.1.294); 1b replaces them with captured fixtures.
+  const agentAfter = async (stdinText: string): Promise<ToolResult | undefined> => {
+    const results: ToolResult[] = [];
+    await runHook(stdinText, { ...hook(recording([])), afterTool: async (result) => {
+      results.push(result);
+      return { message: null };
+    } });
+    return results[0];
+  };
+
+  test("a completed Agent response reaches afterTool with its run finished", async () => {
+    const result = await agentAfter(after("Agent", { subagent_type: "plan-reviewer", prompt: "review" }, { tool_response: { status: "completed", harnessNoteCount: 0, content: [{ type: "text", text: "Reviewed." }] } }));
+    expect(wireOf(result)).toEqual({ kind: "tool-result", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }], ok: true, callId: "toolu_1", delegatedAgentRuns: [{ finished: true }] });
+  });
+
+  test("a launched Agent response reaches afterTool with its run not finished", async () => {
+    const result = await agentAfter(after("Agent", { subagent_type: "plan-reviewer", prompt: "review" }, { tool_response: { status: "async_launched", isAsync: true, agentId: "a1" } }));
+    expect(result?.ok).toBe(true);
+    expect(result?.delegatedAgentRuns).toEqual([{ finished: false }]);
+    // A run stopped at its turn limit says completed, with a harness note: not finished either.
+    const limited = await agentAfter(after("Agent", { subagent_type: "plan-reviewer", prompt: "review" }, { tool_response: { status: "completed", harnessNoteCount: 1, content: [] } }));
+    expect(limited?.delegatedAgentRuns).toEqual([{ finished: false }]);
+  });
+
+  test("a PostToolUseFailure for Agent reaches afterTool with its run not finished", async () => {
+    const failed = JSON.stringify({ hook_event_name: "PostToolUseFailure", tool_name: "Agent", tool_input: { subagent_type: "plan-reviewer", prompt: "review" }, tool_use_id: "toolu_1", error: "interrupted", cwd: "/p" });
+    const result = await agentAfter(failed);
+    expect(result?.ok).toBe(false);
+    expect(result?.delegatedAgentRuns).toEqual([{ finished: false }]);
+  });
+
   test("a check after the call that fails is recorded as well as told", async () => {
     const recorded: AdapterRefusal[] = [];
     const out = await runHook(after("Bash", { command: "ls" }), { ...hook(recording([]), "builder"), afterTool: async () => { throw new Error("boom"); }, record: async (refusal) => void recorded.push(refusal) });

@@ -78,6 +78,12 @@ Read strictly, so nothing it does goes undescribed:
   (`subagent.status`, `subagent.resume`) with no delegate, so a guard allows
   or refuses them by name. A run directory (`dir`) they name must be inside
   the project. Every other action refuses.
+- Every delegate effect is `finishUnreported` unless the call says
+  `async: false` (ADR 2026-019): pi-subagents 0.52.1 runs a call without
+  `async` in the background (`asyncByDefault` defaults to true,
+  `src/extension/config.ts:150-151`), and pi does not report when a
+  background run's agents finish. An `async` that is not true or false
+  refuses the call.
 - An `agentScope` other than `"project"` refuses: agents found outside the
   project are not the project's to vouch for. Deferred: when `agentScope` is
   absent, pi-subagents searches user and project agents (`"both"`); the call
@@ -113,7 +119,7 @@ session. pi gets `undefined` to run the call, or
 deep-frozen before it is translated, so nothing can change what is judged:
 a later handler or tool that tries throws, and pi blocks the call.
 
-`composeProject` opens the project with the core's `openProject(root, { ports: pathGatePortProvisions() })` (every port of the path gate, from `bounded/path-gate/adapters`);
+`composeProject` opens the project with the core's `openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()] })` (every port of the path gate, from `bounded/path-gate/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`);
 `decide` is its judge, which decides each tool use with the composed packs
 and records the decision in `<root>/.bounded/guard-log.jsonl`. A
 configuration that cannot be used gives a judge that refuses every event, so
@@ -132,7 +138,15 @@ The decide also carries the project's `afterTool` and `refuse`:
 - On `tool_result` the finished call becomes the core's `ToolResult`
   (translated as for `tool_call`; one that cannot be translated is an
   `invoke` of its tool name; `ok` is `!isError`) and `afterTool` undoes what a
-  shell command changed in watched files (see [drift.md](drift.md)). What it
+  shell command changed in watched files (see [drift.md](drift.md)). A
+  subagent call's result says, per delegate effect, that its run is not
+  known to have finished (`delegatedAgentRuns`, every entry `finished:
+  false, finishNeverReported: true`; ADR 2026-019), even with `async: false`: pi-subagents'
+  `forceTopLevelAsync` can still run it in the background
+  (`src/runs/background/top-level-async.ts:7-14`), and a timed-out child may
+  leave `isError` unset (`src/runs/foreground/subagent-executor.ts:3544`).
+  So on pi a `bounded/prereqs` requirement cannot be met until the adapter
+  observes pi-subagents' completion. What it
   undid is appended to the result's content as text and the result is marked
   as an error, so the agent sees it; nothing undone leaves the result alone.
   A check that fails or runs past the deadline is appended the same way, and

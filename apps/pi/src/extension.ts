@@ -185,11 +185,16 @@ export function piExtension({ projectRoot, load, home, deadlineMs = 3000, compos
         const [toolName, cwd] = [field(event, "toolName"), field(context, "cwd")];
         if (typeof toolName !== "string" || toolName === "") throw new Error("pi's tool result names no tool");
         const use = typeof cwd === "string" && isAbsolute(cwd) ? translate({ toolName, input: field(event, "input") }, cwd, locate) : undefined;
+        // No subagent result says its agents' runs finished (ADR 2026-019): even with async: false,
+        // pi-subagents' forceTopLevelAsync can run them in the background, and a timed-out child may
+        // leave isError unset. Until pi's completion is observed, no run is marked finished.
+        const delegations = use?.ok ? use.value.effects.filter((effect) => effect.kind === "delegate") : [];
         const result = ToolResult.parse({
           ...(use?.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
           kind: "tool-result",
           ok: field(event, "isError") !== true,
           ...callIdOf(event),
+          ...(delegations.length === 0 ? {} : { delegatedAgentRuns: delegations.map(() => ({ finished: false, finishNeverReported: true })) }),
         });
         if (!result.ok) throw new Error(result.error);
         told = (await within(() => afterTool(result.value), deadlineMs, `no answer within ${deadlineMs} ms`)).message;

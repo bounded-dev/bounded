@@ -27,6 +27,11 @@ hosts:
 - **The path gate** (`bounded/path-gate`): deny-only rules on reads,
   listings and writes, file rules, honest redirects, and protection of the
   project's own configuration ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)).
+- **The prerequisites pack** (`bounded/prereqs`, in 3.2.0): an
+  action waits until a delegation to a named agent has succeeded over files
+  unchanged since; only a run the host says finished counts
+  ([ADR 2026-019](docs/adr/2026-019-prereqs-pack.md),
+  [its README](contexts/core/src/packs/prereqs/README.md)).
 - **The guard log**: every decision, and every refusal a host adapter
   makes itself, recorded in `.bounded/guard-log.jsonl`
   ([docs/guard-log.md](docs/guard-log.md)).

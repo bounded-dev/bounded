@@ -58,6 +58,7 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 contexts/
   core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
     src/packs/path-gate/              the path gate (slice 3): a pack shipped in bounded, exported as bounded/path-gate
+    src/packs/prereqs/                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
 apps/
   claude-code/   bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
   pi/            bounded-pi          the pi host adapter (docs/adapter-pi.md)

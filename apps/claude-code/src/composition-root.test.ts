@@ -1,12 +1,22 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ToolResult, Verdict } from "bounded/domain";
 import { afterToolFromConfig, composeHook, DEADLINE_MS, DRAIN_MS, decideFromConfig, recordFromConfig } from "./composition-root.ts";
 import type { ToolUse } from "./event.ts";
 import type { Decide } from "./hook.ts";
 import { HOOK_TIMEOUT_SECONDS } from "./install.ts";
+
+const CORE = resolve(import.meta.dir, "../../../contexts/core");
+/** A project selecting bounded/prereqs: a write under src/ needs plan-reviewer to have succeeded over the current plan. */
+const PREREQS_CONFIG = `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { prereqs } from "bounded/prereqs";
+export default defineConfig({
+  packs: [corePack, prereqs],
+  contributes: [contribution(prereqs.points.rules, [{ before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: ["plans/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" }])],
+});
+`;
 
 /** A value's wire form: its JSON, parsed. */
 const wireOf = (value: unknown): unknown => JSON.parse(JSON.stringify(value) ?? "null");
@@ -73,6 +83,21 @@ describe("composeHook: the hook wired to the file system, the environment and ar
     const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], ok: true, callId: "toolu_x" });
     if (!result.ok) throw new Error(result.error);
     expect(await afterToolFromConfig(result.value, { projectRoot: root })).toEqual({ message: null });
+  });
+
+  test("opens a project that selects bounded/prereqs with its ports", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bounded-cc-prereqs-"));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(CORE, join(project, "node_modules", "bounded"), "dir");
+    mkdirSync(join(project, "plans"));
+    writeFileSync(join(project, "plans", "plan.md"), "the plan\n");
+    writeFileSync(join(project, "bounded.config.ts"), PREREQS_CONFIG);
+    const event = { kind: "tool-use", role: null, tool: "write", effects: [{ kind: "write", path: "src/a.ts", change: "create" }] } as unknown as ToolUse;
+    const verdict = await decideFromConfig(event, { projectRoot: project });
+    // Opened with its ports: the rule itself refuses, not a missing port.
+    expect(verdict.kind === "refuse" && verdict.reason).toStartWith("bounded/prereqs.rules:");
+    expect(verdict.kind === "refuse" && verdict.reason).toContain("has not succeeded");
+    expect(verdict.kind === "refuse" && verdict.redirect).toBe("Have plan-reviewer review the current plan before editing src/");
   });
 
   test("bounded answers before Claude Code's timeout for the installed hook", () => {

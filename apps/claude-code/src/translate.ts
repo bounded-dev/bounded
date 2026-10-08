@@ -25,7 +25,7 @@ export type HostEffect =
   | { readonly kind: "write"; readonly path: string; readonly change: Change | "create-or-modify" }
   | { readonly kind: "execute"; readonly command: string; readonly cwd?: string }
   | { readonly kind: "fetch"; readonly url: string }
-  | { readonly kind: "delegate"; readonly agent: string }
+  | { readonly kind: "delegate"; readonly agent: string; readonly isolated?: true; readonly finishUnreported?: true }
   | { readonly kind: "invoke"; readonly name: string };
 
 export interface HostCall {
@@ -109,10 +109,19 @@ export function translate({ tool_name: name, tool_input: input }: Payload): Resu
     case "Monitor":
       return one("shell", "command", (command) => ({ kind: "execute", command, cwd: "." }));
     // Task is the Agent tool's earlier name; Claude Code's default agent is general-purpose.
+    // What the call says about the run it starts (ADR 2026-019): isolation in a worktree makes it
+    // isolated; a teammate spawn (a name, without isolation) is a run whose finish is not reported.
+    // run_in_background is not read: in fork mode it does not say what happens.
     case "Agent":
     case "Task": {
       const agent = optional("subagent_type");
-      return agent.ok ? ok({ tool: "subagent", effects: [{ kind: "delegate", agent: agent.value ?? "general-purpose" }] }) : agent;
+      if (!agent.ok) return agent;
+      const isolation = input.isolation;
+      if (isolation !== undefined && isolation !== "worktree") {
+        return { ok: false, error: Verdict.refuse(`Claude Code's ${name} call has an isolation bounded does not translate: only 'worktree' is known`, "Retry the call with isolation 'worktree', or without isolation") };
+      }
+      const flags = isolation === "worktree" ? { isolated: true as const } : input.name !== undefined ? { finishUnreported: true as const } : {};
+      return ok({ tool: "subagent", effects: [{ kind: "delegate", agent: agent.value ?? "general-purpose", ...flags }] });
     }
     case "WebFetch":
       return one("web", "url", (url) => ({ kind: "fetch", url }));
@@ -124,6 +133,17 @@ export function translate({ tool_name: name, tool_input: input }: Payload): Resu
     default:
       return ok({ tool: "other", effects: [{ kind: "invoke", name }] });
   }
+}
+
+/**
+ * Whether an Agent (or Task) call's tool_response says the agent's run
+ * finished: only `status: "completed"` with `harnessNoteCount` a number equal
+ * to 0. A run stopped at its turn limit also says completed, with a harness
+ * note; a background run returns at launch (`async_launched`). Anything else,
+ * known or not, is not finished: only a run seen to end counts.
+ */
+export function agentRunFinished(response: unknown): boolean {
+  return isRecord(response) && response.status === "completed" && typeof response.harnessNoteCount === "number" && response.harnessNoteCount === 0;
 }
 
 /**

@@ -70,8 +70,9 @@ Claude Code's sandbox mode. Known ways round it:
 ## Export paths
 
 A configuration imports `bounded/domain` and the packs it selects, such as
-`bounded/path-gate`. The adapter export paths, `bounded/adapters` and
-`bounded/path-gate/adapters`, are internal: they serve the hooks for Claude
+`bounded/path-gate` and `bounded/prereqs`. The adapter export paths,
+`bounded/adapters`, `bounded/path-gate/adapters` and
+`bounded/prereqs/adapters`, are internal: they serve the hooks for Claude
 Code and pi that this package carries and its `bounded` command, and may
 change in any release. 3.1.0 deliberately breaks what 3.0.0 published, in a
 minor release because 3.0.0 was about an hour old with no users: it replaced
