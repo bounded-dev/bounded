@@ -98,6 +98,8 @@ export interface BasePoint {
   parseValue(raw: unknown): Result<unknown>;
   /** Whether this point was made from `declaration` (by definePack, from the pack's points section). */
   declaredBy(declaration: BaseDeclaration): boolean;
+  /** Whether `other` was made from the same declaration: a declaration serves one point only. */
+  sharesDeclarationWith(other: BasePoint): boolean;
 }
 
 /** An extension point of the pack with id `Owner`, accepting values of type `Value`. */
@@ -156,7 +158,7 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
       ? [Ports[K]["owner"]] extends [Id]
         ? unknown
         : Refused<"a pack declares only its own ports">
-      : Refused<"port keys are camelCase words, such as watchedFiles">;
+      : Refused<"port keys are camelCase words, such as sourceFiles">;
   };
 } & (Dependencies extends readonly []
     ? unknown

@@ -5,7 +5,7 @@ import { wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./port-key.contract.ts";
 import type { portKeyBrand } from "./port-key.contract.ts";
 
-const FORM = "A port key is '<pack id>#<name>', its name a camelCase word, such as 'bounded/path-gate#watchedFiles'";
+const FORM = "A port key is '<pack id>#<name>', its name a camelCase word, such as 'acme/rules#sourceFiles'";
 /** A port's name: a camelCase word, as point keys. */
 export const PORT_NAME = /^[a-z][a-zA-Z0-9]*$/;
 

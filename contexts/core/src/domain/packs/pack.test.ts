@@ -132,6 +132,6 @@ describe("Pack — the ports it needs a host to provide", () => {
   test("names its problem: a port that is not a port key, one another pack owns, or a key that is not camelCase", () => {
     expect(untypedPack({ id: "test-packs/gate", ports: { files: { owner: gateId, name: "files" } } }).problem).toBe("its port 'files' must be declared with portKeysFor(...) by this copy of bounded");
     expect(untypedPack({ id: "test-packs/other", ports: { files } }).problem).toBe("its port 'files' belongs to test-packs/gate: a pack declares only its own ports");
-    expect(untypedPack({ id: "test-packs/gate", ports: { "a.b": files } }).problem).toBe("its port key 'a.b' must be a camelCase word, such as 'watchedFiles'");
+    expect(untypedPack({ id: "test-packs/gate", ports: { "a.b": files } }).problem).toBe("its port key 'a.b' must be a camelCase word, such as 'sourceFiles'");
   });
 });

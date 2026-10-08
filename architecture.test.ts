@@ -463,6 +463,17 @@ describe("architecture", () => {
     }
   });
 
+  test("every export path resolves through its package name and loads", async () => {
+    for (const context of [...contexts, ...apps]) {
+      for (const exportPath of Object.keys(context.exports)) {
+        const spec = exportPath === "." ? context.name : `${context.name}/${exportPath.slice(2)}`;
+        // Resolved as a package resolves its own name (exports self-reference), from its directory.
+        const loaded: unknown = await import(Bun.resolveSync(spec, `${ROOT}/${context.dir}`));
+        expect(typeof loaded).toBe("object");
+      }
+    }
+  });
+
   test("the scan reads source files", () => {
     expect(files.length).toBeGreaterThan(0);
     expect(appFiles.length).toBeGreaterThan(0);
