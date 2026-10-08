@@ -3,6 +3,7 @@ import { pointsOf } from "../packs/pack.ts";
 import type { BasePack, BasePoint, ExtensionPoint } from "../packs/pack.contract.ts";
 import type { PackId as PackIdType } from "../packs/pack-id.contract.ts";
 import { packIdText } from "../packs/pack-id.ts";
+import type { BasePortKey } from "../lifecycle/port-key.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { AvailablePacks, NOT_LISTS } from "./available-packs.ts";
 import type * as Contract from "./composition.contract.ts";
@@ -67,6 +68,10 @@ class CompositionImpl implements Contract.Composition {
 
   static parse(raw: unknown): Result<Composition> {
     return raw instanceof CompositionImpl ? { ok: true, value: raw } : refuse("Dispatch was given something that is not a composition");
+  }
+
+  requiredPorts(): readonly BasePortKey[] {
+    return Object.freeze(this.packs.flatMap((pack) => Object.values(pack.ports)));
   }
 
   read<Value>(point: ExtensionPoint<Value, PackIdType>): Result<readonly Value[]> {

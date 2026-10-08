@@ -1,4 +1,4 @@
-import type { Config, PathKind, ProjectPath, Result, Verdict } from "bounded/domain";
+import type { Config, PathKind, PortProvision, ProjectPath, Result, Verdict } from "bounded/domain";
 import type { DriftCheck, ShellSnapshots, WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { AdapterRefusalInput, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
@@ -91,4 +91,6 @@ export interface OpenProjectOptions {
   readonly pathKinds?: ProjectPathKinds;
   /** How long each pack's work on opening may take before the project opens without it. */
   readonly prepareWithinMs?: number;
+  /** Adapters for the ports the selected packs declare, from the host's composition root. */
+  readonly ports?: readonly PortProvision[];
 }

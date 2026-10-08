@@ -151,6 +151,34 @@ tool lifecycle, recorded below when it lands).
   only where a shape is owned, or in a file named in the test with its
   reason (dispatch's promise check; `watched-paths.ts` until step C).
 
+### C. The core keeps the mechanism; packs bring lifecycle checks and ports
+
+- **Lifecycle points.** The core pack gains `beforeTool` (asynchronous
+  checks after the guards allow a tool call, before it runs; a refusal
+  replaces the allow) and `afterTool` (asynchronous checks after it ran;
+  every one runs, each reports an `AfterToolReport`: a message for the
+  agent and a record the core writes to the guard log, naming the
+  contributing pack). Their value types, `BeforeTool`, `AfterTool` and
+  `LifecycleContext` (the composition and the project's ports), are in the
+  core pack's contract. Function-valued contributions may be asynchronous
+  here: the deviation ADR 2026-002/003 allow for function values, extended
+  to promises. The application feature `lifecycle/project-lifecycle` runs
+  them; a check that throws or answers out of form fails closed, named by
+  its pack. The core records after-tool reports, so a pack never touches the
+  guard log.
+- **Ports.** A pack declares the adapters it needs in its `ports` section
+  (`portKeysFor(packId)<Adapter>("name")`), the last section of
+  `definePack` after `id`, `dependsOn`, `points` and `contributes`. A host's
+  composition root supplies them with `openProject(root, { ports: [Ports.provide(key, root => adapter)] })`:
+  `provide` ties the adapter to the key's type, keys meet by
+  `<owner>#<name>`, and an adapter opens lazily, at most once per project.
+  When a project opens, every port the selected packs need
+  (`composition.requiredPorts()`) must be provided, or the judge refuses
+  every event naming the pack, the port and the fix. A pack declares only
+  its own ports, checked at compile time and when the pack is made.
+- A third-party pack with ports works only on hosts whose composition root
+  provides them; the refusal names exactly what to provide.
+
 ### The rules, in `architecture.test.ts` (each tested on small fixtures)
 
 - **R1** an out adapter implements a port an application contract declares,

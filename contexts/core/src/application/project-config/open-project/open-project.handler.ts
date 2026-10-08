@@ -1,8 +1,10 @@
-import { AdapterRefusal, type Composition, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
+import { AdapterRefusal, type Composition, corePack, Ports, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
 import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
 import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
+import type { ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
+import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 import type { Clock, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge } from "./open-project.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
@@ -45,14 +47,23 @@ export class OpenProjectHandler implements OpenProject {
       log = this.logFor(root);
       const composition = await this.compose(root);
       if (!composition.ok) return this.refusing(log, composition.error);
+      const ports = Ports.forProject(root, this.options.ports ?? []);
+      if (!ports.ok) return this.refusing(log, ports.error);
+      const missing = composition.value.requiredPorts().find((key) => !ports.value.provides(key));
+      if (missing !== undefined) return this.refusing(log, `${missing.owner.value} needs the port '${missing.name}', which this host does not provide: pass it to openProject({ ports })`);
       await this.prepare(root, composition.value);
+      const lifecycle = new ProjectLifecycleHandler(composition.value, ports.value, log, this.clock);
       const drift = this.options.drift?.forProject(root);
       const watch = drift === undefined ? undefined : new WatchShellHandler(composition.value, drift.files, drift.snapshots, log, this.clock);
       const handler = new JudgeEventHandler(composition.value, log, this.clock, {
         ...(this.options.recordWithinMs === undefined ? {} : { recordWithinMs: this.options.recordWithinMs }),
-        ...(watch === undefined ? {} : { beforeAllow: async (event) => (event.kind === "tool-use" ? watch.snapshot(event) : Verdict.allow) }),
+        beforeAllow: async (event) => {
+          if (event.kind !== "tool-use") return Verdict.allow;
+          const watched = watch === undefined ? Verdict.allow : await watch.snapshot(event);
+          return watched.kind === "refuse" ? watched : lifecycle.before(event);
+        },
       });
-      return this.judge(handler, null, watch);
+      return this.judge(handler, null, watch, lifecycle);
     } catch (thrown) {
       return this.refusing(log, text(thrown));
     }
@@ -68,10 +79,10 @@ export class OpenProjectHandler implements OpenProject {
     await Promise.allSettled(openings.value.map((open) => within(Promise.resolve().then(() => open(project, composition)), withinMs)));
   }
 
-  private judge(handler: JudgeEvent, problem: string | null, watch?: WatchShell): ProjectJudge {
+  private judge(handler: JudgeEvent, problem: string | null, watch?: WatchShell, lifecycle?: ProjectLifecycle): ProjectJudge {
     return Object.freeze({
       judge: (event: unknown) => handler.judge(event),
-      afterTool: (result: unknown) => afterTool(watch, result),
+      afterTool: (result: unknown) => afterTool(watch, lifecycle, result),
       refuse: (refusal: AdapterRefusalInput) => handler.refuse(refusal),
       problem,
     });
@@ -119,12 +130,15 @@ export class OpenProjectHandler implements OpenProject {
   }
 }
 
-/** Check a tool result for drift; with no watching, or a result that cannot be read, nothing is undone. Never throws. */
-async function afterTool(watch: WatchShell | undefined, raw: unknown): Promise<DriftCheck> {
+/** Check a tool result for drift, then run the packs' after-tool checks; with a result that cannot be read, nothing is undone. Never throws. */
+async function afterTool(watch: WatchShell | undefined, lifecycle: ProjectLifecycle | undefined, raw: unknown): Promise<DriftCheck> {
   try {
     const result = ToolResult.parse(raw);
     if (!result.ok) return { ...NOTHING, message: `The host sent a tool result that cannot be read: ${result.error}` };
-    return watch === undefined ? NOTHING : await watch.verify(result.value);
+    const drift = watch === undefined ? NOTHING : await watch.verify(result.value);
+    const after = lifecycle === undefined ? { message: null } : await lifecycle.after(result.value);
+    const messages = [drift.message, after.message].filter((message) => message !== null);
+    return messages.length === 0 ? drift : { ...drift, message: messages.join("\n\n") };
   } catch (thrown) {
     return { changed: [], restored: false, message: `Protected files could not be checked after this command: ${text(thrown)}` };
   }

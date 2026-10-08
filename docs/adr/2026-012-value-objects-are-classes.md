@@ -32,7 +32,9 @@ objects with type-only brands; Role and ProjectPath as branded strings) and
   an object literal: even a complete look-alike, every field and method
   filled in, does not type-check without a cast. The same holds for the
   entities (`Composition`, packs, points, contributions, `Config`) and the
-  application's commands.
+  application's commands. Spreading a genuine instance (`{ ...pack }`)
+  is the one remaining way past the compiler, since the spread copies the
+  brand's type; the class's run-time `parse` (`instanceof`) refuses the copy.
 - **Equal by value, serialised as before.** `equals` compares values (a
   composite compares its wire forms); `toJSON` gives the primitive, or the
   plain object the value was before this decision, so guard logs,

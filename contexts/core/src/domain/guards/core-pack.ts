@@ -7,7 +7,7 @@ import { WatchedPath } from "../drift/watched-path.ts";
 import { definePack, point, pointGroup } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
-import type { CorePack, ProjectOpenHandler } from "./core-pack.contract.ts";
+import type { AfterTool, BeforeTool, CorePack, ProjectOpenHandler } from "./core-pack.contract.ts";
 import type { EffectGuard, Guard } from "./dispatch.contract.ts";
 
 /**
@@ -28,6 +28,8 @@ function watchedOf(raw: unknown): Result<WatchedPathType | WatchedPathSource> {
 }
 const forStart = functionOf<Guard<SessionStart, Composition>>;
 const forOpening = functionOf<ProjectOpenHandler>;
+const forBefore = functionOf<BeforeTool>;
+const forAfter = functionOf<AfterTool>;
 /** The check for one effect kind's guards. */
 const forEffect = <K extends EffectKind>(_kind: K) => functionOf<EffectGuard<EffectByKind[K], Composition>>;
 
@@ -53,6 +55,8 @@ export const corePack: CorePack = definePack({
       delegate: point({ description: "Guards for handing work to another agent", check: forEffect("delegate") }),
       invoke: point({ description: "Guards for tools whose effects the host cannot describe", check: forEffect("invoke") }),
     }),
+    beforeTool: point({ description: "Asynchronous checks run after the guards allow a tool call, before it runs; a refusal replaces the allow", check: forBefore }),
+    afterTool: point({ description: "Asynchronous checks run after a tool call ran; what they report is recorded and told to the agent", check: forAfter }),
     onProjectOpen: point({ description: "What a pack does once when a project opens, before any event is judged, such as loading what its guards need", check: forOpening }),
     watchedPaths: point({ description: "Files a shell command must not change, or sources that work them out: a command's changes to them are undone", check: watchedOf }),
   },

@@ -2,7 +2,7 @@ import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConf
 import type { Clock } from "bounded/application";
 import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs, FileSystemProjectDrift, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
 import { CheckedProjectConfigSource, SystemClock } from "bounded/adapters/system";
-import { AdapterRefusal, Verdict } from "bounded/domain";
+import { AdapterRefusal, type PortProvision, Verdict } from "bounded/domain";
 
 /** What a host may replace; everything else has a default. */
 export interface OpenProjectOptions {
@@ -17,6 +17,8 @@ export interface OpenProjectOptions {
   readonly pathKinds?: ProjectPathKinds;
   /** How long each pack's work on opening may take before the project opens without it; 5 seconds by default. */
   readonly prepareWithinMs?: number;
+  /** Adapters for the ports the selected packs declare (a pack's adapter package makes them); none by default: the core cannot import a pack. */
+  readonly ports?: readonly PortProvision[];
 }
 
 /**
@@ -36,6 +38,7 @@ export async function openProject(projectRoot: string, options: OpenProjectOptio
       drift: options.drift ?? new FileSystemProjectDrift(),
       pathKinds: options.pathKinds ?? new FileSystemProjectPathKinds(),
       ...(options.prepareWithinMs === undefined ? {} : { prepareWithinMs: options.prepareWithinMs }),
+      ...(options.ports === undefined ? {} : { ports: options.ports }),
     });
     return await handler.execute(command.value);
   } catch (thrown) {
