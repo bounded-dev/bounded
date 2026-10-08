@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { packageManagerFor, tarballFor, upgradeCommands } from "./package-upgrade.ts";
+import { packageManagerFor, tarballFor, upgradeCommands, withUpgradedSpecs } from "./package-upgrade.ts";
 
 describe("packageManagerFor: the project's package manager, from its lockfile", () => {
   test("names the manager whose lockfile is present, npm when none is", () => {
@@ -47,5 +47,18 @@ describe("upgradeCommands: the package manager commands that upgrade the bounded
 
   test("runs no command for a group with no package", () => {
     expect(upgradeCommands("bun", [packages[0] ?? { name: "", dev: false, spec: "" }])).toEqual([["bun", "add", "bounded@latest"]]);
+  });
+});
+
+describe("withUpgradedSpecs: the manifest bun installs the upgrade from", () => {
+  test("replaces each package's spec in its own group, keeping everything else", () => {
+    const manifest = { name: "demo", dependencies: { bounded: "/old/bounded-0.1.0.tgz", zod: "4" }, devDependencies: { "bounded-claude-code": "/old/c.tgz" }, overrides: { x: "1" } };
+    expect(
+      withUpgradedSpecs(manifest, [
+        { name: "bounded", dev: false, spec: "/new/bounded-0.2.0.tgz" },
+        { name: "bounded-claude-code", dev: true, spec: "/new/c.tgz" },
+      ]),
+    ).toEqual({ name: "demo", dependencies: { bounded: "/new/bounded-0.2.0.tgz", zod: "4" }, devDependencies: { "bounded-claude-code": "/new/c.tgz" }, overrides: { x: "1" } });
+    expect(manifest.dependencies.bounded).toBe("/old/bounded-0.1.0.tgz");
   });
 });

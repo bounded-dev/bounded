@@ -1,7 +1,11 @@
 {
   "name": "bounded-claude-code",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./host-installer": "./src/host-installer.ts"
+  },
   "bin": {
     "bounded-claude-code": "./src/main.ts"
   },

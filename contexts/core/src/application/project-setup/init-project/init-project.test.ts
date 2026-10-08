@@ -21,7 +21,14 @@ function memoryFiles(present: readonly string[] = []): ProjectSetupFiles & { wri
 
 function installer(host: string, answer: Result<HostInstallReport> = { ok: true, value: { host, changedPaths: [`${host}.json`], skippedBecause: null } }): HostInstaller & { runs: string[] } {
   const runs: string[] = [];
-  return { host, runs, install: async (root) => (runs.push(root), answer) };
+  return {
+    host,
+    runs,
+    install: async (root) => {
+      runs.push(root);
+      return answer;
+    },
+  };
 }
 
 const source = (...installers: HostInstaller[]): HostInstallerSource => ({ load: async () => ({ ok: true, value: installers }) });

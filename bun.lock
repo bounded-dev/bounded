@@ -13,6 +13,7 @@
     },
     "apps/claude-code": {
       "name": "bounded-claude-code",
+      "version": "0.1.0",
       "bin": {
         "bounded-claude-code": "./src/main.ts",
       },
@@ -26,12 +27,14 @@
     },
     "apps/pi": {
       "name": "bounded-pi",
+      "version": "0.1.0",
       "dependencies": {
         "bounded": "workspace:*",
       },
     },
     "contexts/core": {
       "name": "bounded",
+      "version": "0.1.0",
       "dependencies": {
         "@vscode/tree-sitter-wasm": "0.3.1",
         "picomatch": "4.0.7",

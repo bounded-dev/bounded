@@ -1,9 +1,11 @@
 {
   "name": "bounded-pi",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./host-installer": "./src/host-installer.ts"
   },
   "dependencies": {
     "bounded": "workspace:*"
