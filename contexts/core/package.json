@@ -1,6 +1,6 @@
 {
   "name": "bounded",
-  "version": "3.1.1",
+  "version": "3.2.0",
   "description": "Bounded: guardrails for AI coding agents. Typed packs and extension points, the path gate, and hooks for Claude Code and pi, with the bounded command to set a project up",
   "license": "MIT",
   "repository": {

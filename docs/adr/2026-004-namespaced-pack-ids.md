@@ -2,7 +2,10 @@
 
 **Status:** accepted. Supersedes the id and selection parts of ADR 2026-003.
 The id is a class, not a branded string, since
-[ADR 2026-012](2026-012-value-objects-are-classes.md).
+[ADR 2026-012](2026-012-value-objects-are-classes.md). Amended by
+[ADR 2026-018](2026-018-selection-brings-in-dependencies.md): the selection
+is the listed packs and every pack they depend on, transitively, each
+matched by identity.
 
 ## Decision
 

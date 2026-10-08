@@ -6,28 +6,34 @@ import type { Result } from "../shared/result.ts";
 export declare const configBrand: unique symbol;
 
 /**
- * A project's configuration: the packs it selects, and the project's own
- * pack, `bounded/project`, which depends on every selected pack and carries
- * the project's contributions. Made only by `defineConfig`.
+ * A project's configuration: the packs it lists, and the project's own pack,
+ * `bounded/project`, which depends on every listed pack and carries the
+ * project's contributions. The selection is the listed packs and every pack
+ * they depend on, transitively (ADR 2026-018). Made only by `defineConfig`.
  */
 export interface Config {
   readonly __brand: "Config";
   readonly [configBrand]: true;
-  readonly selectedPacks: readonly BasePack[];
+  /** The packs the configuration lists, as given. */
+  readonly listedPacks: readonly BasePack[];
   readonly projectPack: BasePack;
-  /** Its packs composed: the selected packs and the project's own pack, all selected; or why they cannot be. Never throws. */
+  /** Its packs composed: the listed packs, every pack they depend on and the project's own pack; or why they cannot be. Never throws. */
   compose(): Result<Composition>;
 }
 
 export interface ConfigSpec<Packs extends readonly BasePack[]> {
-  /** The selection: pack objects. `corePack` must be among them for any event to be decided. */
+  /** The listed packs: pack objects. Every pack they depend on is selected with them. `corePack` must be selected, listed or brought in, for any event to be decided. */
   readonly packs: Packs;
-  /** The project's own contributions, to points of selected packs only. */
+  /** The project's own contributions, to points of listed packs only. */
   readonly contributes?: readonly Contribution<NoInfer<Packs[number]["id"]>>[];
 }
 
 export interface ConfigFactory {
-  /** `export default defineConfig({ packs: [corePack, …], contributes: [...] })` in bounded.config.ts. */
+  /**
+   * `export default defineConfig({ packs: [pathGate], contributes: [...] })`
+   * in bounded.config.ts: the path gate brings in `corePack`, which is listed
+   * only to contribute to its points.
+   */
   defineConfig<const Packs extends readonly BasePack[]>(
     spec: ConfigSpec<Packs> & (Packs extends readonly [] ? unknown : { readonly packs: PackListRules<Packs, "list packs as a tuple of packs", "list each pack once", "each selected pack is a pack with an exact id"> }),
   ): Config;

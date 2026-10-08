@@ -201,6 +201,27 @@ export default defineConfig({
     expect(await shell("echo 'drop table a;' >> migrations/0001_init.sql")).toMatchObject({ kind: "refuse", redirect: "Add a new migration instead" });
   });
 
+  test("a configuration that lists only the path gate brings in the core: its rules are enforced", async () => {
+    const config = `import { contribution, defineConfig } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
+export default defineConfig({
+  packs: [pathGate],
+  contributes: [
+    contribution(pathGate.points.protectedPaths, [
+      { match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" },
+    ]),
+  ],
+});
+`;
+    const root = realpathSync(project({ "bounded.config.ts": config }));
+    const { judge, problem } = await openProject(root, { ports: pathGatePortProvisions() });
+    expect(problem).toBeNull();
+    const edit = (path: string) => judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
+    const refused = await edit("generated/a.ts");
+    expect(refused.kind === "refuse" && refused.reason).toContain("the rule 'generated/**' from bounded/project");
+    expect((await edit("src/a.ts")).kind).toBe("allow");
+  });
+
   test("a root that is not an absolute path gives a judge that refuses everything", async () => {
     const { judge, problem } = await openProject("relative/root");
     expect(problem).toBe("A project root is an absolute directory path, such as /home/me/project");

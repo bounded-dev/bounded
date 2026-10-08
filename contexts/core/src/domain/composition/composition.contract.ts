@@ -17,7 +17,8 @@ export interface Composition {
   readonly __brand: "Composition";
   readonly [compositionBrand]: true;
   /**
-   * The selected packs in composition order: depth-first over the packs in
+   * Every selected pack, listed or brought in by a dependency (ADR 2026-018),
+   * in composition order: depth-first over the packs in
    * id order, each after its dependencies (also visited in id order). The
    * order depends only on ids and edges, never on listing order.
    */
@@ -43,11 +44,12 @@ export interface Composition {
 
 export interface CompositionFactory {
   /**
-   * Compose the selected packs from the available ones (both pack objects),
-   * or refuse with a message naming the pack, the extension point and the
-   * fix. Never throws, whatever it is given.
+   * Compose the listed packs and every pack they depend on, transitively,
+   * from the available ones (all pack objects; each selected pack must be
+   * available), or refuse with a message naming the pack, the extension
+   * point and the fix. Never throws, whatever it is given.
    */
-  compose(availablePacks: readonly BasePack[], selectedPacks: readonly BasePack[]): Result<Composition>;
+  compose(availablePacks: readonly BasePack[], listedPacks: readonly BasePack[]): Result<Composition>;
   /** The composition itself when `raw` was made by compose in this copy of bounded, or why not: a look-alike is refused. Never throws. */
   parse(raw: unknown): Result<Composition>;
 }

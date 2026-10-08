@@ -69,9 +69,12 @@ describe("OpenProjectHandler", () => {
 
   test("a configuration whose packs cannot be composed gives a judge that refuses every event", async () => {
     const words = definePack({ id: packIdsFor("test-packs")("words") });
-    const needs = definePack({ id: packIdsFor("test-packs")("needs"), dependsOn: [words] });
-    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: defineConfig({ packs: [corePack, needs] }) })), new Logs(), clock).execute(command);
-    expect(project.problem).toBe("its packs cannot be composed: Pack 'test-packs/needs' depends on pack 'test-packs/words', which is not selected. Select it as well, or remove the dependency");
+    const wordsCopy = definePack({ id: packIdsFor("test-packs")("words") });
+    const needsCopy = definePack({ id: packIdsFor("test-packs")("needs-copy"), dependsOn: [wordsCopy] });
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: defineConfig({ packs: [corePack, words, needsCopy] }) })), new Logs(), clock).execute(command);
+    expect(project.problem).toBe(
+      "its packs cannot be composed: Two different packs have the id 'test-packs/words': one listed, and one that 'test-packs/needs-copy' depends on. They are two copies of one package, or two packs given one id; make every pack use the same one",
+    );
     const verdict = await project.judge(write("src/a.ts"));
     expect(verdict.kind === "refuse" && verdict.reason.startsWith("This project's configuration cannot be used: its packs cannot be composed")).toBe(true);
   });

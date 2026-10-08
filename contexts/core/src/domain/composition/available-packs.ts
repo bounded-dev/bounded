@@ -5,7 +5,7 @@ import { PackId, packIdText } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./available-packs.contract.ts";
 
-export const NOT_LISTS = "Compose takes a list of available packs and a list of selected packs";
+export const NOT_LISTS = "Compose takes a list of available packs and a list of listed packs";
 
 class AvailablePacksImpl implements Contract.AvailablePacks {
   declare readonly __brand: "AvailablePacks";

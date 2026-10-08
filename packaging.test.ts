@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 const ROOT = import.meta.dir;
 const CORE = join(ROOT, "contexts/core");
-const VERSION = "3.1.1";
+const VERSION = "3.2.0";
 const CONFORMANCE = "src/application/project-setup/init-project/init-project.host-installer.test-support.ts";
 /** What the hooks and the pi loader run, beside every export target: the Claude Code hook is run by path, not imported. */
 const RUN_BY_PATH = ["dist/cli.js", "dist/hosts/claude-code/hook.js"];
@@ -179,6 +179,9 @@ describe("bounded, the one published package", () => {
     writeFileSync(join(consumer, "rejected.ts"), `${imports}export default defineConfig({ packs: [corePack], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\n`);
     // Other compile-time rules survive too: a rule value of the wrong type (no deny) is refused.
     writeFileSync(join(consumer, "wrong-value.ts"), `${imports}export default defineConfig({ packs: [corePack, pathGate], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "secrets/**", redirect: "Ask" }])] });\n`);
+    // A configuration that lists only the path gate, which brings in the core; the project still contributes only to points of packs it lists.
+    writeFileSync(join(consumer, "brought-in-accepted.ts"), `${imports}const config = defineConfig({ packs: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\nexport const listed = config.listedPacks;\nexport default config;\n`);
+    writeFileSync(join(consumer, "brought-in-rejected.ts"), `${imports}export default defineConfig({ packs: [pathGate], contributes: [contribution(corePack.points.effectGuards.write, [])] });\n`);
     writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "consumer", type: "module" }));
     /** The consumer's tsc over `files`, with a typical strict tsconfig and `options`. */
     const tsc = (files: string[], options: Record<string, unknown>) => {
@@ -203,6 +206,15 @@ describe("bounded, the one published package", () => {
       expect(wrongErrors.length).toBeGreaterThan(0);
       expect(wrongErrors.every((line) => line.startsWith("wrong-value.ts("))).toBe(true);
       expect(wrongValue.stdout.toString()).toContain("deny");
+      const broughtInAccepted = tsc(["brought-in-accepted.ts"], resolution);
+      expect(broughtInAccepted.stdout.toString()).toBe("");
+      expect(broughtInAccepted.exitCode).toBe(0);
+      const broughtInRejected = tsc(["brought-in-rejected.ts"], resolution);
+      expect(broughtInRejected.exitCode).not.toBe(0);
+      const broughtInErrors = broughtInRejected.stdout.toString().split("\n").filter((line) => /error TS/.test(line));
+      expect(broughtInErrors.length).toBeGreaterThan(0);
+      expect(broughtInErrors.every((line) => line.startsWith("brought-in-rejected.ts("))).toBe(true);
+      expect(broughtInRejected.stdout.toString()).toContain("is not assignable to type");
     }
   }, 120_000);
 

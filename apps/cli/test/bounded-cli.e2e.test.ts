@@ -121,7 +121,7 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     expect(init.stdout).toContain("claude-code: updated .claude/settings.json");
     expect(init.stdout).toContain("pi: updated .pi/extensions/bounded/index.ts");
     const config = readFileSync(join(project, "bounded.config.ts"), "utf8");
-    expect(config).toContain("packs: [corePack, pathGate],");
+    expect(config).toContain("packs: [pathGate],");
     expect(config).toContain('match: "**/bounded.config.*"');
     expect(config).toContain('match: ".bounded/**"');
     const settingsText = readFileSync(join(project, ".claude", "settings.json"), "utf8");

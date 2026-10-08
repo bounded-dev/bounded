@@ -19,7 +19,7 @@ npx bounded init
 ```
 
 This adds `bounded` as a devDependency. It writes `bounded.config.ts`,
-selecting the core and the path gate, with default rules that keep agents
+selecting the path gate, which brings in the core, with default rules that keep agents
 off this configuration, `.bounded/`, Claude Code's settings, pi's loader,
 Bounded's installed code and git's hooks and config. It installs the hooks of the agent hosts the
 project uses (`.claude/`, `.pi/`, or `--host claude-code`, `--host pi`).
@@ -32,11 +32,11 @@ Then add your own rules beside the defaults:
 
 ```ts
 // bounded.config.ts
-import { contribution, corePack, defineConfig } from "bounded/domain";
+import { contribution, defineConfig } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
 export default defineConfig({
-  packs: [corePack, pathGate],
+  packs: [pathGate],
   contributes: [
     contribution(pathGate.points.protectedPaths, [
       // ...init's default rules...
@@ -79,7 +79,13 @@ minor release because 3.0.0 was about an hour old with no users: it replaced
 `bounded/path-gate/adapters/{file-system,in-memory,tree-sitter}`, removed
 their in-memory doubles and `pathGateInMemory`, and made the clock and
 decision-id ports give `DecisionTime` and `DecisionId` (the repository's
-ADR 2026-017).
+ADR 2026-017). 3.2.0, also a minor release by the maintainer's choice,
+deliberately breaks the types 3.0.0 and 3.1.0 published: a selection now
+brings in every pack its listed packs depend on, so `Config.selectedPacks`
+is `Config.listedPacks`, compose-packs' input field `selectedPackIds` is
+`listedPackIds`, and `SelectedPacks.packs` holds every selected pack, listed
+or brought in, beside the new `listedPacks` (the repository's ADR
+2026-018).
 
 ## More
 

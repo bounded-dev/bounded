@@ -1,5 +1,5 @@
 // The legitimate forms of path rules. Compiles without errors.
-import { contribution, definePack } from "bounded/domain";
+import { contribution, defineConfig, definePack } from "bounded/domain";
 import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
 import { packId } from "./packs.ts";
 
@@ -17,3 +17,6 @@ export const project = definePack({
     ]),
   ],
 });
+
+// A configuration that lists only the path gate: the path gate brings in the core.
+export const pathGateOnly = defineConfig({ packs: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, [generated])] });
