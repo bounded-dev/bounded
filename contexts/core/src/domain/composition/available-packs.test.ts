@@ -25,7 +25,7 @@ describe("AvailablePacks — the packs a selection may choose from", () => {
   });
 
   const refusals: [string, unknown, string][] = [
-    ["something that is not a list", "a", "Compose takes a list of available packs and a list of selected packs"],
+    ["something that is not a list", "a", "Compose takes a list of available packs and a list of listed packs"],
     ["a pack not built with definePack", [a, { __brand: "Pack", id: "test-packs/plain" }], notBuilt("test-packs/plain")],
     ["a copy of a pack", [{ ...a }], notBuilt("test-packs/a")],
     ["something that is not a pack at all", [null], notBuilt("null")],

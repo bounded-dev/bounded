@@ -62,6 +62,14 @@ describe("defineConfig", () => {
     });
   });
 
+  test("a project contribution to the point of another copy of a brought-in, unlisted pack is refused, naming the selected copy and what brings it in", () => {
+    const wordsCopy = definePack({ id: packId("words"), points: { list: point({ description: "Copy", check: text }) } });
+    expect(loose({ packs: [corePack, needsWords], contributes: [contribution(wordsCopy.points.list, ["x"])] }).compose()).toEqual({
+      ok: false,
+      error: "The project contributes to extension point 'test-packs/words.list', owned by pack 'test-packs/words', which bounded.config.ts does not list in packs (the selected 'test-packs/words' is another copy, brought in by 'test-packs/needs-words'). Add 'test-packs/words' to packs, or remove the contribution",
+    });
+  });
+
   test("the core pack need not be listed when a listed pack depends on it", () => {
     const guarding = definePack({ id: packId("guarding"), dependsOn: [corePack] });
     const composed = defineConfig({ packs: [guarding] }).compose();

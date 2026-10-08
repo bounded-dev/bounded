@@ -154,7 +154,7 @@ describe("Composition — every refusal names the pack, the extension point and 
       "Pack 'test-packs/other' is listed but not available. Make it available, or remove it from the list"],
     ["a pack selected twice", [base], [base, base],
       "Pack 'test-packs/base' is listed twice. List each pack once"],
-    ["a selected pack not built with definePack", [base], [plain], notBuilt("Selected", "test-packs/plain")],
+    ["a selected pack not built with definePack", [base], [plain], notBuilt("Listed", "test-packs/plain")],
     ["a dependency that is not available", [ext], [ext],
       "Pack 'test-packs/ext' depends on pack 'test-packs/base', which is not available. Add 'test-packs/base' to the available packs, or remove the dependency"],
     ["a dependency that is another pack with the selected one's id", [twinBase, ext], [twinBase, ext],
@@ -227,11 +227,11 @@ describe("Composition — every refusal names the pack, the extension point and 
   });
 
   test("garbage instead of lists is refused, never thrown", () => {
-    const refusal = { ok: false as const, error: "Compose takes a list of available packs and a list of selected packs" };
+    const refusal = { ok: false as const, error: "Compose takes a list of available packs and a list of listed packs" };
     expect(Composition.compose(null as unknown as BasePack[], [])).toEqual(refusal);
     expect(Composition.compose([], "base" as unknown as BasePack[])).toEqual(refusal);
     expect(Composition.compose([null as unknown as BasePack], [])).toEqual({ ok: false, error: notBuilt("Available", "null") });
-    expect(Composition.compose([base], [7 as unknown as BasePack])).toEqual({ ok: false, error: notBuilt("Selected", "7") });
+    expect(Composition.compose([base], [7 as unknown as BasePack])).toEqual({ ok: false, error: notBuilt("Listed", "7") });
   });
 
   test("the same faults give the same refusal whatever the listing order", () => {

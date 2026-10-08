@@ -28,7 +28,7 @@ function expectSamePacks(actual: readonly BasePack[] | false | undefined, expect
 const TWIN = (id: string, first: string, second: string) =>
   `Two different packs have the id '${id}': ${first}, and ${second}. They are two copies of one package, or two packs given one id; make every pack use the same one`;
 
-const notBuilt = (id: string) => `Selected pack '${id}' was not built with definePack(...), or was built by a different copy of bounded. Build every pack with definePack from one copy`;
+const notBuilt = (id: string) => `Listed pack '${id}' was not built with definePack(...), or was built by a different copy of bounded. Build every pack with definePack from one copy`;
 
 describe("SelectedPacks — the packs a configuration selects", () => {
   test("a list of packs definePack made, each once, kept in id order whatever the listing order", () => {
@@ -43,7 +43,7 @@ describe("SelectedPacks — the packs a configuration selects", () => {
   });
 
   const refusals: [string, unknown, string][] = [
-    ["something that is not a list", "a", "Compose takes a list of available packs and a list of selected packs"],
+    ["something that is not a list", "a", "Compose takes a list of available packs and a list of listed packs"],
     ["a pack not built with definePack", [{ __brand: "Pack", id: "test-packs/plain" }], notBuilt("test-packs/plain")],
     ["something that is not a pack at all", [7], notBuilt("7")],
     ["a pack selected twice", [b, a, b], "Pack 'test-packs/b' is listed twice. List each pack once"],
@@ -90,6 +90,30 @@ describe("SelectedPacks — the packs a configuration selects", () => {
     const refusal = { ok: false as const, error: TWIN("test-packs/base", "one listed", "another listed") };
     expect(SelectedPacks.parse([zed, zedCopy, base, twinBase])).toEqual(refusal);
     expect(SelectedPacks.parse([twinBase, base, zedCopy, zed])).toEqual(refusal);
+  });
+
+  test("three or more packs with one id are all named, listed first, then by the pack that depends on each", () => {
+    const thirdBase = definePack({ id: packId("base") });
+    const dependsOnTwin = definePack({ id: packId("a"), dependsOn: [twinBase] });
+    const dependsOnThird = definePack({ id: packId("b"), dependsOn: [thirdBase] });
+    const refusal = {
+      ok: false as const,
+      error: "Two different packs have the id 'test-packs/base': one listed, one that 'test-packs/a' depends on, and one that 'test-packs/b' depends on. They are two copies of one package, or two packs given one id; make every pack use the same one",
+    };
+    expect(SelectedPacks.parse([base, dependsOnTwin, dependsOnThird])).toEqual(refusal);
+    expect(SelectedPacks.parse([dependsOnThird, dependsOnTwin, base])).toEqual(refusal);
+    expect(SelectedPacks.parse([base, twinBase, thirdBase])).toEqual({
+      ok: false,
+      error: "Two different packs have the id 'test-packs/base': one listed, another listed, and another listed. They are two copies of one package, or two packs given one id; make every pack use the same one",
+    });
+  });
+
+  test("two packs with one id that one pack depends on are named as one and another", () => {
+    const dependsOnBoth = untypedPack({ id: "test-packs/both", dependsOn: [base, twinBase] });
+    expect(SelectedPacks.parse([dependsOnBoth])).toEqual({
+      ok: false,
+      error: "Two different packs have the id 'test-packs/base': one that 'test-packs/both' depends on, and another that 'test-packs/both' depends on. They are two copies of one package, or two packs given one id; make every pack use the same one",
+    });
   });
 
   test("a malformed pack's dependencies are not followed, and a malformed dependency is still selected, for composition to refuse", () => {

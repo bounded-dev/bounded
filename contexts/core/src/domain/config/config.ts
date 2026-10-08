@@ -66,12 +66,24 @@ class ConfigImpl implements Contract.Config {
       if (this.listedPacks.some((pack) => packIdText(pack.id) === ownerId)) {
         return `${prefix} a pack with the id '${ownerId}' that is not the one bounded.config.ts lists in packs (another pack with that id, or another copy of it). Contribute to the point of the listed pack, or remove the contribution`;
       }
-      const dependent = selectedPacks.includes(owner) ? firstDependent(selectedPacks, owner) : undefined;
-      const broughtIn = dependent === undefined ? "" : ` (it is selected only because '${packIdText(dependent.id)}' depends on it)`;
-      return `${prefix} pack '${ownerId}', which bounded.config.ts does not list in packs${broughtIn}. Add '${ownerId}' to packs, or remove the contribution`;
+      return `${prefix} pack '${ownerId}', which bounded.config.ts does not list in packs${broughtInNote(owner, ownerId, selectedPacks)}. Add '${ownerId}' to packs, or remove the contribution`;
     }
     return undefined;
   }
+}
+
+/**
+ * What brings an unlisted owner, or another copy of it, into the selection,
+ * for a refusal: the owner itself, brought in by a dependent; a selected pack
+ * with its id that is another copy; or nothing when neither is selected.
+ */
+function broughtInNote(owner: BasePack, ownerId: string, selectedPacks: readonly BasePack[]): string {
+  const selectedWithId = selectedPacks.find((pack) => packIdText(pack.id) === ownerId);
+  const dependent = selectedWithId === undefined ? undefined : firstDependent(selectedPacks, selectedWithId);
+  if (selectedWithId === undefined || dependent === undefined) return "";
+  return selectedWithId === owner
+    ? ` (it is selected only because '${packIdText(dependent.id)}' depends on it)`
+    : ` (the selected '${ownerId}' is another copy, brought in by '${packIdText(dependent.id)}')`;
 }
 
 export type Config = Contract.Config;

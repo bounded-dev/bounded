@@ -44,11 +44,16 @@ without any lookup.
 - **Two different pack objects with one id in the selection are refused**,
   naming where each comes from ("Two different packs have the id 'X': one
   listed, and one that 'D' depends on. They are two copies of one package,
-  or two packs given one id; make every pack use the same one"). Ids name
+  or two packs given one id; make every pack use the same one"). Every copy
+  is named when three or more share an id, and a second copy from the same
+  origin is "another" ("one that 'D' depends on, and another that 'D'
+  depends on"). Ids name
   one pack in messages and logs, and picking one copy would be a guess.
 - **Messages about what the caller wrote say "listed"**: "Pack 'X' is listed
   but not available. Make it available, or remove it from the list", "Pack
-  'X' is listed twice. List each pack once". "Selected" now includes
+  'X' is listed twice. List each pack once", "Listed pack 'X' was not built
+  with definePack(...)…", "Compose takes a list of available packs and a
+  list of listed packs". "Selected" now includes
   brought-in packs, so the old words would be wrong. They are entry-neutral
   because they also serve the catalog path, which has no `packs`.
 - **`bounded/project` depends on the listed packs only, and a project
