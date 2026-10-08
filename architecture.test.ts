@@ -36,14 +36,36 @@ const IO_MODULES = /^(bun|bun:.*|node:.*|fs|path|child_process|net|os)$/;
 interface Context {
   readonly dir: string;
   readonly name: string;
+  /** Each export path's source: the file the rules read (a conditional export's `bun` or `types` target, the TypeScript source). */
   readonly exports: Record<string, string>;
+  /** Each export path's every target, every condition's: all must exist. */
+  readonly exportTargets: Record<string, readonly string[]>;
   readonly dependencies: readonly string[];
+}
+
+/**
+ * An export target as package.json gives it: a path, or conditions
+ * (`types` and `bun` name the TypeScript source, `default` its build for
+ * node, ADR 2026-016). The rules read the source.
+ */
+type ExportTarget = string | Record<string, string>;
+const sourceOf = (target: ExportTarget): string => (typeof target === "string" ? target : (target.bun ?? target.types ?? target.default ?? ""));
+const targetsOf = (target: ExportTarget): string[] => (typeof target === "string" ? [target] : Object.values(target));
+
+function contextOf(manifest: string, pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string> }): Context {
+  const entries = Object.entries(pkg.exports ?? {});
+  return {
+    dir: manifest.replace("/package.json", ""),
+    name: pkg.name,
+    exports: Object.fromEntries(entries.map(([path, target]) => [path, sourceOf(target)])),
+    exportTargets: Object.fromEntries(entries.map(([path, target]) => [path, targetsOf(target)])),
+    dependencies: Object.keys(pkg.dependencies ?? {}),
+  };
 }
 
 const contexts: Context[] = [];
 for (const manifest of new Glob("contexts/*/package.json").scanSync({ cwd: ROOT })) {
-  const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name: string; exports?: Record<string, string>; dependencies?: Record<string, string> };
-  contexts.push({ dir: manifest.replace("/package.json", ""), name: pkg.name, exports: pkg.exports ?? {}, dependencies: Object.keys(pkg.dependencies ?? {}) });
+  contexts.push(contextOf(manifest, await Bun.file(`${ROOT}/${manifest}`).json()));
 }
 const byName = new Map(contexts.map((c) => [c.name, c]));
 
@@ -52,8 +74,7 @@ const byName = new Map(contexts.map((c) => [c.name, c]));
 // through its export paths and declared dependencies, and never another app.
 const apps: Context[] = [];
 for (const manifest of new Glob("apps/*/package.json").scanSync({ cwd: ROOT })) {
-  const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name: string; exports?: Record<string, string>; dependencies?: Record<string, string> };
-  apps.push({ dir: manifest.replace("/package.json", ""), name: pkg.name, exports: pkg.exports ?? {}, dependencies: Object.keys(pkg.dependencies ?? {}) });
+  apps.push(contextOf(manifest, await Bun.file(`${ROOT}/${manifest}`).json()));
 }
 
 /** The layer a source path (relative to src/) belongs to. */
@@ -330,37 +351,44 @@ for (const context of contexts) {
   for (const { path, text } of texts) violations.push(...valueObjectClassViolations(path, text, (contract) => valueObjects.has(contract)));
 }
 
-const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
-for (const path of appFiles) {
+/**
+ * The app rules for one app file: its own src by relative path, a context only
+ * through its export paths and declared dependencies, and never another app,
+ * nor the host adapters' code a context carries at `bounded/hosts/*` (built
+ * from the apps into bounded at pack time, ADR 2026-016).
+ */
+function appImportViolations(path: string, text: string): string[] {
   const [, appName = ""] = path.split("/");
   const app = apps.find((a) => a.dir === `apps/${appName}`);
-  if (app === undefined) {
-    violations.push(`${path} — every app file sits in src/ of an app with a package.json`);
-    continue;
-  }
-  const text = await Bun.file(`${ROOT}/${path}`).text();
+  if (app === undefined) return [`${path} — every app file sits in src/ of an app with a package.json`];
+  const out: string[] = [];
   for (const { spec, line } of importsOf(path, text)) {
     const at = `${path}:${line} imports "${spec}"`;
     if (spec.startsWith(".")) {
       const target = new URL(spec, `file:///${path}`).pathname.slice(1);
-      if (!target.startsWith(`${app.dir}/src/`)) violations.push(`${at} — an app reaches outside its own src only through packages`);
+      if (!target.startsWith(`${app.dir}/src/`)) out.push(`${at} — an app reaches outside its own src only through packages`);
       continue;
     }
     const isPackage = (name: string): boolean => spec === name || spec.startsWith(`${name}/`);
     const otherApp = apps.find((a) => isPackage(a.name));
     if (otherApp !== undefined) {
-      violations.push(`${at} — an app never imports an app`);
+      out.push(`${at} — an app never imports an app`);
       continue;
     }
     const target = contexts.find((c) => isPackage(c.name));
     if (target !== undefined) {
-      if (!(`./${spec.slice(target.name.length + 1)}` in target.exports)) violations.push(`${at} — import a context only through its export paths`);
-      else if (!app.dependencies.includes(target.name)) violations.push(`${at} — ${app.name} does not declare ${target.name} as a dependency`);
+      if (spec.startsWith(`${target.name}/hosts/`)) out.push(`${at} — an app never imports an app: ${target.name}/hosts/* is the host adapters' code, bundled into ${target.name}`);
+      else if (!(`./${spec.slice(target.name.length + 1)}` in target.exports)) out.push(`${at} — import a context only through its export paths`);
+      else if (!app.dependencies.includes(target.name)) out.push(`${at} — ${app.name} does not declare ${target.name} as a dependency`);
       continue;
     }
-    if (spec === "<computed>") violations.push(`${at} — an import with a computed specifier cannot be checked`);
+    if (spec === "<computed>") out.push(`${at} — an import with a computed specifier cannot be checked`);
   }
+  return out;
 }
+
+const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
+for (const path of appFiles) violations.push(...appImportViolations(path, await Bun.file(`${ROOT}/${path}`).text()));
 
 // The contract rules R1–R6 (architecture.rules.test-support.ts): every file of every context, tests included.
 const contextSources: SourceFile[] = await Promise.all(files.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));
@@ -416,7 +444,7 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory", "./path-gate/adapters/tree-sitter"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory", "./path-gate/adapters/tree-sitter", "./testing/host-installer-conformance"]);
   });
 
   test("the pi host adapter is an app depending on the core", () => {
@@ -427,6 +455,15 @@ describe("architecture", () => {
 
   test("the path gate is a pack shipped in the bounded package, in its own directory", () => {
     expect(byName.get("bounded")?.exports["./path-gate"]).toBe("./src/packs/path-gate/index.ts");
+  });
+
+  test("an app never imports an app, nor the host adapters' code bundled into bounded (bounded/hosts/*)", () => {
+    expect(appImportViolations("apps/cli/src/x.ts", 'import "bounded/hosts/pi";\n')).toEqual([
+      'apps/cli/src/x.ts:1 imports "bounded/hosts/pi" — an app never imports an app: bounded/hosts/* is the host adapters\' code, bundled into bounded',
+    ]);
+    expect(appImportViolations("apps/cli/src/x.ts", 'import { hostInstaller } from "bounded/hosts/claude-code/host-installer";\n')).toHaveLength(1);
+    expect(appImportViolations("apps/cli/src/x.ts", 'import { corePack } from "bounded/domain";\n')).toEqual([]);
+    expect(appImportViolations("apps/cli/src/x.ts", 'import { piLoader } from "bounded-pi";\n')).toEqual(['apps/cli/src/x.ts:1 imports "bounded-pi" — an app never imports an app']);
   });
 
   test("the shipped-pack rule: only a pack's own directory imports it, and it depends only on the core's public exports", () => {
@@ -459,7 +496,7 @@ describe("architecture", () => {
 
   test("every export path points at a file that exists", async () => {
     for (const context of [...contexts, ...apps]) {
-      for (const target of Object.values(context.exports)) expect(await Bun.file(`${ROOT}/${context.dir}/${target}`).exists()).toBe(true);
+      for (const target of Object.values(context.exportTargets).flat()) expect(await Bun.file(`${ROOT}/${context.dir}/${target}`).exists()).toBe(true);
     }
   });
 

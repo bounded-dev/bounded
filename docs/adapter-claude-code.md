@@ -1,6 +1,6 @@
 # The Claude Code adapter
 
-`apps/claude-code` (package `bounded-claude-code`) is the host adapter for
+`apps/claude-code` (a private workspace app, shipped in `bounded` as its `dist/hosts/claude-code/`; ADR 2026-016) is the host adapter for
 Claude Code. Claude Code runs it before every tool call as a `PreToolUse`
 hook; it turns the call into a host-neutral tool-use event, asks bounded for
 a verdict and answers in Claude Code's words. It is an app: it holds no rules
@@ -157,7 +157,24 @@ the `...FromConfig` ones, which open the project the same way):
   interruption reaches Claude in the tool result. Such a call goes unchecked
   and its snapshot expires (see [drift.md](drift.md)).
 
-To install, read `.claude/settings.json` (or `{}`), pass it to
+`bounded init` and `bounded update` install the hook for you (README,
+"Installing"). They run the installer bounded carries for Claude Code
+(`bounded/hosts/claude-code/host-installer`, from `src/host-installer.ts`;
+[ADR 2026-015](adr/2026-015-host-installers.md)). It installs
+`PROJECT_HOOK_COMMAND`,
+`node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"`:
+the hook `src/main.ts`, compiled for Node at pack time, so no bun is needed,
+through `withProjectHooks`. Claude Code sets `CLAUDE_PROJECT_DIR` to the
+project's root for every hook, so a committed `.claude/settings.json` works
+in every checkout, wherever it is. `withProjectHooks` first removes every
+other bounded hook without a role. `isBoundedHook` recognises any command
+running bounded's bundled hook, or, from earlier installs, the
+bounded-claude-code package's or a checkout's `apps/claude-code/src/main.ts`,
+under node or bun, at any path, so an older install's hook is replaced, not
+duplicated. Settings that exist but cannot be read, or are not JSON, are
+refused and left alone.
+
+To install by hand, read `.claude/settings.json` (or `{}`), pass it to
 `withHooks(settings, command)` with the command that runs `src/main.ts`, and
 write the result back when `changed`. `hookCommand({ bun, main, role })`
 builds that command with every path shell-quoted, such as

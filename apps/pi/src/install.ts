@@ -11,8 +11,9 @@ const PATH = ".pi/extensions/bounded/index.ts";
 
 /**
  * The loader: it finds the project root from its own location, so the file
- * is the same in every checkout, and hands it to bounded-pi, which the
- * project installs as a dependency. If bounded-pi cannot be loaded or its
+ * is the same in every checkout, and hands it to the pi extension bounded
+ * carries (bounded/hosts/pi, bundled at pack time; ADR 2026-016), which the
+ * project installs as a dependency. If it cannot be loaded or the
  * extension throws, pi would run the session unguarded, so the loader then
  * blocks every tool call instead. Pure: the caller writes the file.
  */
@@ -26,12 +27,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), ${JSON.stringify(c
 
 export default async function (pi: { on(event: string, handler: (...args: unknown[]) => unknown): unknown }): Promise<void> {
   try {
-    const { bounded } = await import("bounded-pi");
+    const { bounded } = await import("bounded/hosts/pi");
     await bounded(root)(pi);
   } catch (error) {
     const cause = (error instanceof Error ? error.message : String(error)).split("\\n")[0];
     const reason = \`bounded could not load, so every tool call is blocked: \${cause}\`;
-    pi.on("tool_call", () => ({ block: true, reason: \`\${reason}\\nInstall bounded-pi in this project (\${root}), then start a new pi session\` }));
+    pi.on("tool_call", () => ({ block: true, reason: \`\${reason}\\nInstall bounded in this project (\${root}) with npx bounded init, then start a new pi session\` }));
   }
 }
 `;

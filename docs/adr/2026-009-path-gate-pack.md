@@ -183,11 +183,24 @@ watches what it protects through the core's `beforeTool`/`afterTool`.
   '<match>' — …". Where a filter can help (the rule's last part names the
   files: a one-part glob or a file rule's name) it adds ", or give a filter
   that cannot match '<match>'". When several rules deny, the first in pack order is named.
-- **Its own guardrails.** The path gate gives its own point two rules:
+- ~~**Its own guardrails.** The path gate gives its own point two rules:
   every write to `**/bounded.config.*` (any depth, any extension a loader
-  might pick up) and to `.bounded/**` is refused. They are ordinary rules,
-  listed with the rest and named in refusals. Adapters write the guard log
-  in `.bounded/` directly, not through guards.
+  might pick up) and to `.bounded/**` is refused.~~ Amended by the
+  maintainer's decision in issue #65's first slice: **the pack ships no
+  rules of its own.** Its `protectedPaths` point declares no values, so
+  selecting the path gate protects nothing until the project contributes
+  rules. The two former rules, with the same match, deny, redirect and why, are among the defaults that live
+  in the configuration `bounded init` writes
+  ([ADR 2026-016](2026-016-cli-app.md)). There the project sees them,
+  changes them, or removes them: they protect `**/bounded.config.*` (any
+  depth, any extension a loader might pick up) and `.bounded/**` from every
+  write. The defaults also protect `.claude/settings.json` (it holds the Claude Code hook),
+  `.pi/extensions/bounded/**` (pi's loader) and `node_modules/bounded/**` (Bounded's
+  installed code) from every write. A refusal names them as the project's rules (`bounded/project`).
+  Drift puts back what a shell command changed in the first four, but never
+  watches `node_modules` (see drift.md), so `node_modules/bounded/**` refuses
+  only writes the path gate can see: an edit, or a command naming the path.
+  Adapters write the guard log in `.bounded/` directly, not through guards.
 
 ## Why
 

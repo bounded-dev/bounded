@@ -238,7 +238,13 @@ const factory: Contract.PackFactory = {
   contribution: ContributionImpl.contribute,
   parsePack: PackImpl.parse,
 };
-export const { definePack, point, pointGroup, contribution, parsePack } = factory;
+// Each typed exactly as the contract declares it, so declaration emit names the
+// contract's types rather than serialising their expansion (TS7056).
+export const definePack: Contract.PackFactory["definePack"] = factory.definePack;
+export const point: Contract.PackFactory["point"] = factory.point;
+export const pointGroup: Contract.PackFactory["pointGroup"] = factory.pointGroup;
+export const contribution: Contract.PackFactory["contribution"] = factory.contribution;
+export const parsePack: Contract.PackFactory["parsePack"] = factory.parsePack;
 
 /** A pack's points, each group's members in its place. */
 export function pointsOf(pack: Contract.BasePack): Contract.BasePoint[] {

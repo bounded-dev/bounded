@@ -19,6 +19,8 @@ const rocketflare = definePack({
       },
       { match: "**/.env*", deny: ["read", "create", "modify", "delete"], redirect: "Ask a maintainer for the value; use .env.example for names" },
       { match: "infra/**", deny: ["delete"], redirect: "Open a change for the platform team" },
+      // The default rule `bounded init` writes: the path gate ships none of its own.
+      { match: "**/bounded.config.*", deny: ["create", "modify", "delete"], redirect: "Ask a person to change the project's Bounded configuration; describe the change you need", why: "the project's guardrails are changed by people, not by agents" },
     ]),
   ],
 });
@@ -69,8 +71,8 @@ describe("a Rocketflare-like project: core, path gate and the project's rules", 
     expect(judge("edit", [{ kind: "write", path: "infra/main.tf", change: "delete" }])).toMatchObject({ kind: "refuse", redirect: "Open a change for the platform team" });
   });
 
-  test("the project's guardrails are protected by the path gate itself", () => {
-    expect(judge("edit", [{ kind: "write", path: "bounded.config.ts", change: "modify" }])).toMatchObject({ kind: "refuse", reason: expect.stringContaining("from bounded/path-gate") });
+  test("the project's guardrails are protected by the default rule in its own configuration", () => {
+    expect(judge("edit", [{ kind: "write", path: "bounded.config.ts", change: "modify" }])).toMatchObject({ kind: "refuse", reason: expect.stringContaining("from rocketflare/rules") });
   });
 
   test("ordinary work goes through", () => {

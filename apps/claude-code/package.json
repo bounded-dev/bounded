@@ -1,7 +1,12 @@
 {
   "name": "bounded-claude-code",
+  "version": "3.0.0",
+  "description": "Bounded's Claude Code host adapter, in source. Not published: bounded's prepack bundles it into bounded (ADR 2026-016)",
   "private": true,
   "type": "module",
+  "exports": {
+    "./host-installer": "./src/host-installer.ts"
+  },
   "bin": {
     "bounded-claude-code": "./src/main.ts"
   },

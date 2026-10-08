@@ -25,9 +25,10 @@ Bun is the runtime, package manager and test runner.
 | `bun run check` | The whole check: `typecheck`, `lint`, `test` |
 | `bun run typecheck` | `tsc` over every workspace, strict |
 | `bun run lint` | Biome's linter |
-| `bun run test` | `bun test`: unit, law, conformance, architecture and compile-time tests |
+| `bun run test` | `bun test`: unit, law, conformance, architecture, compile-time, packaging and end-to-end tests. A preload (`test-preload.ts`) first builds `bounded`'s `dist/` (`contexts/core/build-dist.ts`), the JavaScript for Node its export paths and bin point at. The end-to-end test (`apps/cli/test/bounded-cli.e2e.test.ts`) packs `bounded`, runs `npx` on the tarball and installs it with bun and with npm, one run with no bun on `PATH` (fetching libraries unless npm's and bun's caches have them, so it may need the network); expect `bun run check` to take up to about 3 minutes |
 
 `bun run check` must be green before any commit that is not a red commit.
+The workspace uses bun's hoisted linker (`bunfig.toml`, ADR 2026-016).
 
 ## The development lifecycle
 
@@ -60,6 +61,9 @@ contexts/
 apps/
   claude-code/   bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
   pi/            bounded-pi          the pi host adapter (docs/adapter-pi.md)
+  cli/           bounded-cli         the `bounded` command: init and update
+                                     (all three private: bounded's prepack bundles them into bounded's dist/; ADR 2026-016)
+contexts/core/build-dist.ts          bounded's build for Node: the library, the CLI and the host adapters (ADR 2026-016)
 architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below

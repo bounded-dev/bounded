@@ -18,6 +18,11 @@ export { OpenProjectHandler } from "./project-config/open-project/open-project.h
 export type { AfterToolOutcome, ProjectLifecycle, ProjectLifecycleOptions } from "./lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 export { ProjectLifecycleHandler } from "./lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 
+export type { HostInstaller, HostInstallerSource, HostInstallReport, InitProject, ProjectSetupFiles, SetupReport } from "./project-setup/init-project/init-project.contract.ts";
+export { InitProjectHandler } from "./project-setup/init-project/init-project.handler.ts";
+export type { UpdateProject } from "./project-setup/update-project/update-project.contract.ts";
+export { requireInitialised, UpdateProjectHandler } from "./project-setup/update-project/update-project.handler.ts";
+
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.
 import * as exported from "./index.ts";

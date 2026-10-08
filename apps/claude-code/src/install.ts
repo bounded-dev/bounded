@@ -24,6 +24,19 @@ export function hookCommand({ bun, main, role }: { bun: string; main: string; ro
   return [quote(bun), quote(main), ...(role === undefined ? [] : ["--role", quote(role)])].join(" ");
 }
 
+/** Where bounded carries this adapter's hook, bundled for node at pack time (ADR 2026-016), from the project's root. */
+export const BUNDLED_HOOK = "node_modules/bounded/dist/hosts/claude-code/hook.js";
+
+/**
+ * The command a project's hook runs: node on the hook bounded carries, in
+ * the project's own installed copy, found through CLAUDE_PROJECT_DIR, which
+ * Claude Code sets for every hook to the project's root. The variable sits
+ * inside double quotes, so the shell expands it and a root with spaces stays
+ * one word; the rest is fixed text. The same settings therefore work in every
+ * checkout, wherever it is, and need no bun.
+ */
+export const PROJECT_HOOK_COMMAND = `node "$CLAUDE_PROJECT_DIR/${BUNDLED_HOOK}"`;
+
 /** The hook events bounded is installed for: before every call to judge it, after it to undo what it changed. */
 type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
 
@@ -57,6 +70,46 @@ export function withHooks(settings: unknown, command: string): Result<{ settings
     out = { settings: next.value.settings, changed: out.changed || next.value.changed };
   }
   return { ok: true, value: out };
+}
+
+/**
+ * Whether a settings hook is bounded's own Claude Code hook without a role,
+ * wherever it pointed and whatever ran it: a command hook running bounded's
+ * bundled hook (dist/hosts/claude-code/hook.js), or, from earlier installs,
+ * the bounded-claude-code package's main.ts or a checkout's
+ * apps/claude-code/src/main.ts, under node or bun. Its path does not count, so
+ * a moved or re-cloned project's stale entry is recognised.
+ */
+export function isBoundedHook(hook: unknown): boolean {
+  if (!isRecord(hook) || hook.type !== "command" || typeof hook.command !== "string") return false;
+  return /((bounded-claude-code|apps\/claude-code)\/src\/main\.ts|bounded\/dist\/hosts\/claude-code\/hook\.js)\b/.test(hook.command) && !/\s--role\s/.test(hook.command);
+}
+
+/**
+ * The settings with bounded's hooks running `command` before every tool call,
+ * after it and after its failure, and every other bounded hook without a
+ * role (one pointing at another path, as after the project moved) removed.
+ * Idempotent; everything else is kept.
+ */
+export function withProjectHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
+  if (!isRecord(settings) || !isRecord(settings.hooks)) return withHooks(settings, command);
+  const installed = failClosed(command);
+  const isStale = (hook: unknown): boolean => isBoundedHook(hook) && isRecord(hook) && hook.command !== installed;
+  let stripped = false;
+  const hooks: Record<string, unknown> = { ...settings.hooks };
+  for (const event of EVENTS) {
+    const entries = hooks[event];
+    if (!Array.isArray(entries)) continue;
+    hooks[event] = entries.flatMap((entry) => {
+      if (!isRecord(entry) || !Array.isArray(entry.hooks) || !entry.hooks.some(isStale)) return [entry];
+      stripped = true;
+      const kept = entry.hooks.filter((hook) => !isStale(hook));
+      return kept.length === 0 ? [] : [{ ...entry, hooks: kept }];
+    });
+  }
+  const merged = withHooks(stripped ? { ...settings, hooks } : settings, command);
+  if (!merged.ok) return merged;
+  return { ok: true, value: { settings: merged.value.settings, changed: stripped || merged.value.changed } };
 }
 
 /** The settings with bounded's hook running `command` on every tool call's `event`, PreToolUse by default. Idempotent; everything else is kept. */

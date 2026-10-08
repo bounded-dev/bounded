@@ -27,6 +27,54 @@ when written; keep it current (AGENTS.md, "Working with the user").
   command changed in protected files.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
+- **One package, `bounded` 3.0.0, ready to publish** (issue #65, first slice;
+  [ADR 2026-016](adr/2026-016-cli-app.md)). It carries the library, the path
+  gate, the `bounded` command (source `apps/cli`) and the Claude Code and pi
+  adapters (sources `apps/claude-code`, `apps/pi`). The three apps are
+  private, and `bounded`'s prepack (`contexts/core/build-dist.ts`) compiles
+  them with the library to JavaScript for Node in `dist/`. Nothing needs bun
+  at run time (Node 22.18 or later). The publish itself waits for review:
+  [releasing](releasing.md).
+  - `npx bounded init [--host <host>]...` adds `bounded` at the CLI's own
+    version from the npm registry, with the project's package manager. It
+    then hands over to the installed `bounded init --no-install`, which:
+    - writes `bounded.config.ts`: the core, the path gate, and five default
+      rules, since the pack ships none
+      ([ADR 2026-009](adr/2026-009-path-gate-pack.md)). They protect
+      `bounded.config.*`, `.bounded/`, `.claude/settings.json`,
+      `.pi/extensions/bounded/**` and `node_modules/bounded/**` from every
+      write;
+    - runs `bounded`'s bundled installers for the hosts named or found
+      (`.claude/`, `.pi/`), and any third-party package's `./host-installer`
+      ([ADR 2026-015](adr/2026-015-host-installers.md)).
+  - `npx bounded update` drops any `--from` override of `bounded`, upgrades
+    it to its latest, and checks it is at least the version the package
+    manager resolved (so a pin is refused) and not older than before. It
+    then hands over to the installed `bounded update --no-upgrade`. That
+    refreshes the hooks of the bundled hosts bounded is already installed
+    for (never adding one), and any third-party installer. It is
+    idempotent and never writes the configuration. Any failed install
+    restores `package.json` and the lockfiles.
+  - The hand-offs are the contract between versions: every version must
+    keep accepting `bounded init --no-install [--host <host>]...` and
+    `bounded update --no-upgrade`.
+  - `--from <dir>` installs or upgrades from `bounded`'s packed tarball, for
+    local development (README, "From a checkout").
+  - The Claude Code hook runs
+    `node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"`,
+    so `.claude/settings.json` can be committed. Earlier forms (bun, the
+    `bounded-claude-code` package, absolute paths) are replaced. pi's
+    loader imports `bounded/hosts/pi`.
+  - `bounded.config.ts` loads under Node whatever the project's `"type"`
+    (a load hook), and a Node that cannot strip types fails closed with
+    what to do.
+  - The end-to-end test (`apps/cli/test/bounded-cli.e2e.test.ts`) packs
+    `bounded` and installs it with bun and with npm. The npm run has no bun
+    on `PATH`: it pipes Claude Code payloads through the installed hook
+    command under `sh`. The path gate refuses an edit of the configuration
+    (init's default rule) and of `secrets/` (a project rule), allows another
+    edit, and refuses `echo hi > secrets/x`, which shows tree-sitter loading
+    under Node.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository
@@ -54,9 +102,22 @@ when written; keep it current (AGENTS.md, "Working with the user").
   of the project are judged as inside it; check-then-use races; pi runs tool
   calls in parallel batches and offers no sequential mode
   ([Claude Code adapter](adapter-claude-code.md), [pi adapter](adapter-pi.md)).
-- **Only `bounded.config.*` is protected**, not the modules it imports
-  ([configuration](configuration.md); ADR 2026-009, "the configuration's
-  imports"). Protecting the import closure is planned.
+- **The guardrails are protected only by init's five default rules**, and
+  only as written: the path gate ships none, so a project that removes them
+  protects nothing.
+  - They cover `bounded.config.*`, `.bounded/**`,
+    `.claude/settings*.json`, `.pi/extensions/bounded/**` and
+    `node_modules/bounded/**`.
+  - Not covered: the modules the configuration imports
+    ([configuration](configuration.md); ADR 2026-009, "the configuration's
+    imports"; protecting the import closure is planned), and the user-level
+    `~/.claude/settings.json`, outside the project.
+- **The Claude Code hook command must stay identical across versions.**
+  Drift does not watch `node_modules`, so after an upgrade only the command
+  in `.claude/settings.json`, which drift does watch, names the hook. A
+  release that changed the command would leave a settings file that
+  `bounded update` must rewrite, and an agent-run update
+  would have that rewrite put back.
 - **`invoke` effects pass** (MCP tools, skills, any tool the host cannot
   describe) unless a selected pack guards `invoke`; no shipped pack does
   ([ADR 2026-007](adr/2026-007-guards-over-a-composition.md)).
@@ -77,6 +138,59 @@ when written; keep it current (AGENTS.md, "Working with the user").
   genuine instance (`{ ...pack }`) is the one way past the compiler; the
   run-time parse refuses the copy
   ([ADR 2026-012](adr/2026-012-value-objects-are-classes.md)).
+- **The install command's limits** (issue #65, first slice):
+  - The default rule for `node_modules/bounded/**` refuses only writes the
+    path gate sees: an edit, or a shell command naming the path. Drift never
+    watches `node_modules` (see [drift](drift.md)), so an agent's
+    `npm install` changing Bounded's installed code is not put back. Drift
+    does put back what a shell command changed in `.claude/settings.json`
+    and `.pi/extensions/bounded/**` (the npm end-to-end case shows it for
+    the settings). An agent's `bounded update` therefore has its settings
+    change undone while package.json, the lockfile and node_modules keep the
+    new version. Measured: the rule adds no time to a Bash Pre and Post
+    round through the bundled hook (median 318 ms with and without; mostly
+    two Node starts).
+  - Not yet published. npm's `bounded` is the legacy 2.x until 3.0.0 is
+    published ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)).
+    Until then, installs need `--from` and npx needs the tarball. A
+    `--from` install overrides `bounded` in `package.json`, each package
+    manager in its own field: `$bounded` for npm (`overrides`) and pnpm
+    (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
+    (`resolutions`).
+  - bun and npm are exercised end to end. pnpm and yarn are not installed
+    where this was built: their commands and override fields are
+    unit-tested only.
+  - Without a lockfile or a `packageManager` field, the package manager is
+    the one in `npm_config_user_agent`. npx sets it from a shell, but keeps
+    one it inherits: run from another manager's script (`bun run …`), the
+    first install uses that manager.
+  - `NodeModulesHostInstallerSource` refuses when a declared dependency is
+    missing from `<root>/node_modules`, such as a devDependency left out
+    (`--production`) or a workspace that hoists packages to a parent
+    directory. It reads only `<root>/node_modules`.
+  - **An agent running `bounded update` can swap out the hook's own code**:
+    it installs whatever version (or, with `--from`, tarball) it is given,
+    and the new version's CLI and hooks run from then on. Nothing guards
+    that command yet. A project must guard it until a shipped pack does,
+    for example by protecting `package.json`, `node_modules/` and the
+    lockfile, or by refusing the command, in its rules.
+  - The pack-time build mirrors `src/` in `dist/` (for example
+    `dist/packs/path-gate/index.js`). The workspace uses bun's hoisted
+    linker: bun mis-resolved the conditionally exported package through
+    several workspace symlinks.
+  - In `apps/cli`, installing (package manager detection, running it, the
+    hand-off) is plain code in `bounded-cli.ts` and `package-upgrade.ts`,
+    not a feature with ports. Hosts are found only by `.claude/` and `.pi/`.
+  - `isBoundedHook` recognises bounded's Claude Code hook by its path, and
+    skips any hook with `--role`. That has two effects:
+    - A stale `--role` hook at a dead absolute path (from an older install,
+      before a move) is kept, and blocks every call until it is removed by
+      hand.
+    - A deliberate role-less bounded hook with a narrower matcher (say, only
+      `Bash`) is removed by `bounded update`, which installs the one for
+      every tool.
+  - A project's root is the directory the command runs in; it is not
+    searched for upwards.
 - **A pack id naming its own npm package is checked only by an architecture
   test** (`architecture.test.ts`). The load-time check belongs to a
   file-backed pack catalog, which does not exist yet
@@ -89,17 +203,19 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - A tool allowlist pack: shaping the tools offered at session start, with a
   `toolUseGuards` backstop (the point exists; no pack contributes).
 - Skills, role briefs and instruction projections written at install.
-- A command-line tool, including `bounded init` writing `bounded.config.ts`.
-  There is no install command: the adapters export install helpers only
-  (`withHooks`/`hookCommand` for Claude Code, `piLoader` for pi).
+- Beyond `bounded init` and `bounded update` (see "The install command"
+  below), no other command-line tool exists.
 - A file-backed pack catalog (only the in-memory catalog exists).
 - A workflow or phase state pack.
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the guard log ([guard log](guard-log.md),
   [ADR 2026-008](adr/2026-008-guard-log.md)).
-- Publishing `bounded` to npm as a new major version
-  ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)).
+- Publishing `bounded` 3.0.0 to npm, the new major above the legacy 2.x
+  ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
+  package is ready ([releasing](releasing.md)); the publish waits for review.
+- Loading `bounded.config.ts` on Nodes older than 22.18: they are refused,
+  told to upgrade or to write `bounded.config.mjs`.
 - Archiving the private repository this code was first built in, now that
   it lives here.
 - Triage of this repository's open issues, written against the legacy

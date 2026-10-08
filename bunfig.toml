@@ -1,3 +1,12 @@
 # The legacy harness under legacy/ is read-only reference: never tested here.
 [test]
 pathIgnorePatterns = ["legacy/**"]
+
+# bounded's dist/ (JavaScript for node, ADR 2026-016) is built before the tests: its export paths and the
+# packaging tests point at it.
+preload = ["./test-preload.ts"]
+
+[install]
+# One copy of each workspace package at the root (node_modules/bounded), as npm lays a project out: bun resolves a package
+# with conditional exports reliably only through one path.
+linker = "hoisted"

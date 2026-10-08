@@ -1,22 +1,95 @@
 {
   "name": "bounded",
+  "version": "3.0.0",
+  "description": "Bounded: guardrails for AI coding agents. Typed packs and extension points, the path gate, and hooks for Claude Code and pi, with the bounded command to set a project up",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bounded-dev/the-bounded-harness.git",
+    "directory": "contexts/core"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "bounded": "dist/cli.js"
+  },
+  "scripts": {
+    "prepack": "bun build-dist.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/{adapters,composition-root,domain,packs}/**/*.test-support.ts",
+    "!src/application/{composition,guard-log,lifecycle,project-config}/**/*.test-support.ts",
+    "!src/application/project-setup/**/*{-source,-files}.test-support.ts",
+    "!src/**/fixtures/**"
+  ],
   "dependencies": {
     "@vscode/tree-sitter-wasm": "0.3.1",
     "picomatch": "4.0.7",
     "zod": "4.6.4"
   },
   "exports": {
-    "./domain": "./src/domain/index.ts",
-    "./application": "./src/application/index.ts",
-    "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts",
-    "./adapters/file-system": "./src/adapters/out/file-system/index.ts",
-    "./adapters/system": "./src/adapters/out/system/index.ts",
-    "./open-project": "./src/composition-root/open-project.ts",
-    "./path-gate": "./src/packs/path-gate/index.ts",
-    "./path-gate/adapters/file-system": "./src/packs/path-gate/adapters/out/file-system/index.ts",
-    "./path-gate/adapters/in-memory": "./src/packs/path-gate/adapters/out/in-memory/index.ts",
-    "./path-gate/adapters/tree-sitter": "./src/packs/path-gate/adapters/out/tree-sitter/index.ts"
+    "./domain": {
+      "bun": "./src/domain/index.ts",
+      "types": "./dist/types/domain/index.d.ts",
+      "default": "./dist/domain/index.js"
+    },
+    "./application": {
+      "bun": "./src/application/index.ts",
+      "types": "./dist/types/application/index.d.ts",
+      "default": "./dist/application/index.js"
+    },
+    "./testing/host-installer-conformance": {
+      "bun": "./src/application/project-setup/init-project/init-project.host-installer.test-support.ts",
+      "types": "./src/application/project-setup/init-project/init-project.host-installer.test-support.ts"
+    },
+    "./adapters/in-memory": {
+      "bun": "./src/adapters/out/in-memory/index.ts",
+      "types": "./dist/types/adapters/out/in-memory/index.d.ts",
+      "default": "./dist/adapters/out/in-memory/index.js"
+    },
+    "./adapters/file-system": {
+      "bun": "./src/adapters/out/file-system/index.ts",
+      "types": "./dist/types/adapters/out/file-system/index.d.ts",
+      "default": "./dist/adapters/out/file-system/index.js"
+    },
+    "./adapters/system": {
+      "bun": "./src/adapters/out/system/index.ts",
+      "types": "./dist/types/adapters/out/system/index.d.ts",
+      "default": "./dist/adapters/out/system/index.js"
+    },
+    "./open-project": {
+      "bun": "./src/composition-root/open-project.ts",
+      "types": "./dist/types/composition-root/open-project.d.ts",
+      "default": "./dist/composition-root/open-project.js"
+    },
+    "./path-gate": {
+      "bun": "./src/packs/path-gate/index.ts",
+      "types": "./dist/types/packs/path-gate/index.d.ts",
+      "default": "./dist/packs/path-gate/index.js"
+    },
+    "./path-gate/adapters/file-system": {
+      "bun": "./src/packs/path-gate/adapters/out/file-system/index.ts",
+      "types": "./dist/types/packs/path-gate/adapters/out/file-system/index.d.ts",
+      "default": "./dist/packs/path-gate/adapters/out/file-system/index.js"
+    },
+    "./path-gate/adapters/in-memory": {
+      "bun": "./src/packs/path-gate/adapters/out/in-memory/index.ts",
+      "types": "./dist/types/packs/path-gate/adapters/out/in-memory/index.d.ts",
+      "default": "./dist/packs/path-gate/adapters/out/in-memory/index.js"
+    },
+    "./path-gate/adapters/tree-sitter": {
+      "bun": "./src/packs/path-gate/adapters/out/tree-sitter/index.ts",
+      "types": "./dist/types/packs/path-gate/adapters/out/tree-sitter/index.d.ts",
+      "default": "./dist/packs/path-gate/adapters/out/tree-sitter/index.js"
+    },
+    "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",
+    "./hosts/pi": "./dist/hosts/pi/index.js",
+    "./hosts/pi/host-installer": "./dist/hosts/pi/host-installer.js"
   },
-  "private": true,
   "type": "module"
 }
