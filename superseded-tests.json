@@ -2616,18 +2616,6 @@
     "reason": "dispatch takes its guards as a typed list; shape checks live in the classes that own the shapes, not in functions (ADR 2026-013, B3)"
   },
   {
-    "file": "contexts/core/src/domain/guards/dispatch-event.test.ts",
-    "case": "dispatchEvent — fails closed > something that is not a composition is refused, never thrown",
-    "successor": null,
-    "reason": "decideEvent takes a Composition as Composition.compose made it; a look-alike does not type-check (compile-time fixture guards-rejected.ts), and no boundary hands dispatch an untyped composition (ADR 2026-013, B3)"
-  },
-  {
-    "file": "contexts/core/src/domain/guards/dispatch-event.test.ts",
-    "case": "dispatchEvent — refuses what it cannot trust > a look-alike composition, however well it imitates one, is refused",
-    "successor": null,
-    "reason": "decideEvent takes a Composition as Composition.compose made it; a look-alike does not type-check (compile-time fixture guards-rejected.ts), and no boundary hands dispatch an untyped composition (ADR 2026-013, B3)"
-  },
-  {
     "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
     "case": "OpenProjectHandler > a configuration source that throws is a configuration that cannot be loaded",
     "successor": {
