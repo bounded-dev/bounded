@@ -3,8 +3,8 @@ import type { ShellWord } from "./shell-command.contract.ts";
 
 // What a command does with its arguments: a small table, kept explicit. A
 // command not in it reads every operand and every long option's value (the
-// conservative default). Short options with an attached value (grep -f.env)
-// are not read: a known gap.
+// conservative default), and every value a short option could have attached
+// (grep -f.env reads .env).
 
 const NONE: CommandMeaning = Object.freeze({ reads: [], lists: [], writes: [], transfers: [], runs: [], scripts: [], repositoryReads: [], unresolved: [] });
 const literalWord = (text: string): ShellWord => ({ kind: "literal", text });
@@ -29,7 +29,18 @@ function operands(args: readonly ShellWord[]): ShellWord[] {
   return out;
 }
 
-/** The default: every operand, and the value of every `--option=value`, in order. */
+/**
+ * The values a short option word could carry attached, not knowing which of
+ * its letters takes one: the rest of the word after each leading letter, as
+ * getopt reads a cluster (-rf.env is -r -f .env, or -r with f.env): f.env, .env.
+ */
+function attachedValues(text: string): ShellWord[] {
+  const out: ShellWord[] = [];
+  for (let index = 2; index < text.length && /[A-Za-z0-9]/.test(text.charAt(index - 1)); index++) out.push(literalWord(text.slice(index)));
+  return out;
+}
+
+/** The default: every operand, the value of every `--option=value`, and every value a short option could have attached, in order. */
 function readsOf(args: readonly ShellWord[]): ShellWord[] {
   const out: ShellWord[] = [];
   let options = true;
@@ -37,19 +48,27 @@ function readsOf(args: readonly ShellWord[]): ShellWord[] {
     const text = literal(word);
     if (options && text === "--") options = false;
     else if (options && text?.startsWith("--") && text.includes("=")) out.push({ kind: "literal", text: text.slice(text.indexOf("=") + 1) });
+    else if (options && text !== undefined && isOption(word) && !text.startsWith("--")) out.push(...attachedValues(text));
     else if (!options || !isOption(word)) out.push(word);
   }
   return out;
 }
 
-/** cp and mv: sources and a destination, from `-t dir` or the last operand. */
+/** An option's value given in the same word: `--name=value`, or `-Xvalue` for a short one; undefined when it is not `option`'s. */
+function attached(text: string, option: string): string | undefined {
+  if (option.startsWith("--")) return text.startsWith(`${option}=`) ? text.slice(option.length + 1) : undefined;
+  return text.startsWith(option) && text.length > option.length ? text.slice(option.length) : undefined;
+}
+
+/** cp and mv: sources and a destination, from `-t dir` (`-tdir`, `--target-directory=dir`) or the last operand. */
 function transfer(args: readonly ShellWord[], moves: boolean): CommandMeaning {
   let target: ShellWord | undefined;
   const rest: ShellWord[] = [];
   for (let index = 0; index < args.length; index++) {
     const text = literal(args[index]);
+    const value = text === undefined ? undefined : (attached(text, "-t") ?? attached(text, "--target-directory"));
     if (text === "-t" || text === "--target-directory") target = args[++index];
-    else if (text?.startsWith("--target-directory=")) target = { kind: "literal", text: text.slice(text.indexOf("=") + 1) };
+    else if (value !== undefined) target = literalWord(value);
     else rest.push(args[index] as ShellWord);
   }
   const named = operands(rest);
@@ -88,12 +107,6 @@ interface WrapperOptions {
   readonly directory?: readonly string[];
   /** Options whose value is a command line of its own (env -S). */
   readonly script?: readonly string[];
-}
-
-/** An option's value given in the same word: `--name=value`, or `-Xvalue` for a short one; undefined when it is not `option`'s. */
-function attached(text: string, option: string): string | undefined {
-  if (option.startsWith("--")) return text.startsWith(`${option}=`) ? text.slice(option.length + 1) : undefined;
-  return text.startsWith(option) && text.length > option.length ? text.slice(option.length) : undefined;
 }
 
 function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
@@ -158,21 +171,24 @@ function find(args: readonly ShellWord[]): CommandMeaning {
   return meaning({ lists: roots.length === 0 ? [here] : roots, runs: ran });
 }
 
-/** git: what its subcommand does with its operands; paths given relative to `-C dir` are unresolved. */
+/**
+ * git: what its subcommand does with its operands. `-C dir` runs the rest
+ * from dir, as `cd dir && git …` does (a later -C from the one before), the
+ * way env -C runs its command: from nowhere known when dir cannot be resolved.
+ */
 function git(args: readonly ShellWord[]): CommandMeaning {
   let index = 0;
-  let elsewhere = false;
   for (; index < args.length; index++) {
     const text = literal(args[index]);
     if (text === "-C") {
-      elsewhere = true;
-      index++;
-    } else if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace") index++;
+      const directory = args[index + 1];
+      return directory === undefined ? NONE : meaning({ runs: [{ name: literalWord("git"), args: args.slice(index + 2), directory }] });
+    }
+    if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace") index++;
     else if (text === undefined || !text.startsWith("-")) break;
   }
   const subcommand = literal(args[index]);
   const rest = args.slice(index + 1);
-  if (elsewhere) return meaning({ unresolved: operands(rest) });
   // <rev>:<path> names a path in the repository (git show HEAD:.env, git cat-file -p :.env).
   const repositoryReads = operands(rest).filter((operand) => {
     const text = literal(operand);
@@ -229,7 +245,9 @@ function xargs(args: readonly ShellWord[]): CommandMeaning {
   const fromFile: ShellWord[] = [];
   for (let index = 0; index < args.length; index++) {
     const text = literal(args[index]);
+    const value = text === undefined ? undefined : attached(text, "-a");
     if (text === "-a" && args[index + 1] !== undefined) fromFile.push(args[index + 1] as ShellWord);
+    else if (value !== undefined) fromFile.push(literalWord(value));
   }
   const ran = runs(args, ["-I", "-L", "-l", "-n", "-P", "-d", "-E", "-e", "-s", "-a"]);
   return meaning({ ...ran, reads: fromFile });

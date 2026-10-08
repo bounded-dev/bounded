@@ -17,14 +17,14 @@ export interface CommandMeaning {
   /**
    * Commands it runs with arguments given literally (builtin, command, exec,
    * xargs, find -exec, sudo, env …), from `directory` when it sets one
-   * (env -C, sudo -D): null when that directory cannot be known.
+   * (env -C, sudo -D, git -C): null when that directory cannot be known.
    */
   readonly runs: readonly { readonly name: ShellWord; readonly args: readonly ShellWord[]; readonly directory?: ShellWord | null }[];
   /** Code a nested shell runs (sh -c '…'), parsed and walked in a shell of its own. */
   readonly scripts: readonly ShellWord[];
   /** Operands naming a path in the repository as <rev>:<path>: the path is read, relative to the repository's root, or to where the command runs when it starts with ./ or ../. */
   readonly repositoryReads: readonly ShellWord[];
-  /** Words only the shell, or the command at run time, can make sense of (eval's code, paths relative to git -C). */
+  /** Words only the shell, or the command at run time, can make sense of (eval's code, env -S's trailing words). */
   readonly unresolved: readonly ShellWord[];
   /** Where later commands run: a directory, or null when it cannot be known (cd -, cd alone, popd). */
   readonly location?: { readonly to: ShellWord | null };
