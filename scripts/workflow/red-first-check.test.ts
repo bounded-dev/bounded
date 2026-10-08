@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareCases, extractTestCases, fixtureRunners, isRunnableTestPath, isTestPath, main, parseJunit, parseSupersessions, redCases } from "./red-first-check.ts";
@@ -157,6 +157,22 @@ describe("red-first-check end to end", () => {
     const lines: string[] = [];
     expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(1);
     expect(lines.some((l) => l.startsWith("FAIL red: ok.test.ts: every test passes at the red commit"))).toBe(true);
+  }, 30_000);
+
+  test("a test file moved, then rewritten beyond git's rename detection, is still followed rename by rename", () => {
+    const repo = repository();
+    mkdirSync(join(repo.dir, "a"));
+    mkdirSync(join(repo.dir, "b"));
+    const moved = RED_TEST.replace('"./sum.ts"', '"../sum.ts"');
+    const red = repo.commit({ "a/sum.test.ts": moved }, "red");
+    repo.commit({ "sum.ts": "export const sum = (a: number, b: number): number => a + b;\n" }, "green");
+    repo.git("mv", "a/sum.test.ts", "b/sum.test.ts");
+    repo.git("commit", "--quiet", "-m", "move");
+    const others = Array.from({ length: 12 }, (_, i) => `test("adds ${i} and ${i}", () => { expect(sum(${i}, ${i})).toBe(${2 * i}); });`).join("\n");
+    repo.commit({ "b/sum.test.ts": `${moved}${others}\n` }, "grow");
+    const lines: string[] = [];
+    expect(main([red, "HEAD", "--repo", repo.dir], (l) => lines.push(l))).toBe(0);
+    expect(lines.at(-1)).toBe("PASS red-first check");
   }, 30_000);
 
   test("a red case superseded by a recorded successor passes; the successor must exist, run and pass", () => {
