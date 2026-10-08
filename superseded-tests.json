@@ -400,5 +400,92 @@
       "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
     },
     "reason": "the path gate now refuses, best effort, a shell command that names a path a rule denies read for"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone"
+    },
+    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+  },
+  {
+    "file": "contexts/core/src/pack/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — a deny-only rule > `writes` is the convenience for every write: create, modify and delete",
+    "successor": null,
+    "reason": "the `writes` export is removed (user decision): deny lists name each kind explicitly; this is the case under the path the path gate's first red commit gave it, before the pack moved to src/packs/"
+  },
+  {
+    "file": "contexts/core/src/pack/path-gate/path-gate.test.ts",
+    "case": "the path gate — what it does not judge in this slice > execute, fetch, delegate and invoke are not judged by path",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+      "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
+    },
+    "reason": "the path gate now refuses, best effort, a shell command that names a read-protected path; this is the case under the path the path gate's first red commit gave it, before the pack moved to src/packs/"
   }
 ]
