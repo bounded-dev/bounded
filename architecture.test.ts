@@ -668,6 +668,17 @@ describe("architecture", () => {
     expect(testDoubleViolations([contract, suite, double, runner, root("contexts/x/src/composition-root/root.ts", "x/testing/host-installer-conformance")], [x])).toHaveLength(1);
   });
 
+  test("the test-support import ban sees an import without its extension, with .js, and a dynamic import of a plain template", () => {
+    const at = "contexts/x/src/composition-root/root.ts";
+    const importing = (text: string) => testDoubleViolations([{ path: at, text }], []);
+    expect(importing('import { thing } from "../application/a/f/f.in-memory-clock.test-support";\nthing();\n')).toHaveLength(1);
+    expect(importing('import { thing } from "../application/a/f/f.in-memory-clock.test-support.js";\nthing();\n')).toHaveLength(1);
+    expect(importing("const loaded = await import(`../application/a/f/f.in-memory-clock.test-support.ts`);\n")).toHaveLength(1);
+    expect(importing('export { thing } from "../application/a/f/f.in-memory-clock.test-support.ts";\n')).toHaveLength(1);
+    // A name that only starts like test support is not test support.
+    expect(importing('import { thing } from "../application/a/f/f.test-supported.ts";\nthing();\n')).toEqual([]);
+  });
+
   test("R3: a domain concept is a contract, an implementation and a test, and a value object has a laws test", () => {
     const vo = "export interface Role { readonly __brand: \"Role\"; equals(other: Role): boolean }\nexport interface RoleFactory { parse(raw: unknown): Result<Role> }\n";
     const at = (name: string) => `contexts/x/src/domain/events/${name}`;

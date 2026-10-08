@@ -192,7 +192,7 @@ function importSpecs(file: SourceFile): string[] {
   const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)) specs.push(node.moduleSpecifier.text);
     const argument = ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword ? node.arguments[0] : undefined;
-    if (argument !== undefined && ts.isStringLiteral(argument)) specs.push(argument.text);
+    if (argument !== undefined && (ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument))) specs.push(argument.text);
     ts.forEachChild(node, visit);
   };
   visit(parse(file));
@@ -281,7 +281,8 @@ export function testDoubleViolations(files: readonly SourceFile[], packages: rea
     for (const spec of new Set(importSpecs(file))) {
       const exported = packages.find((pkg) => spec.startsWith(`${pkg.name}/`));
       const target = spec.startsWith(".") ? resolve(file.path, spec) : exported === undefined ? undefined : `${exported.dir}/${(exported.exports[`./${spec.slice(exported.name.length + 1)}`] ?? "").replace(/^\.\//, "")}`;
-      if (target?.endsWith(".test-support.ts")) out.push(`${file.path} imports "${spec}" — production code never imports test support`);
+      // Without an extension, or with .js, a specifier still resolves to the .test-support.ts file (moduleResolution bundler).
+      if (target !== undefined && /\.test-support(\.[jt]s)?$/.test(target)) out.push(`${file.path} imports "${spec}" — production code never imports test support`);
     }
   }
   return out;
