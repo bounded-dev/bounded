@@ -1,6 +1,6 @@
-import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectDrift, type ProjectJudge, type ProjectPathKinds } from "bounded/application";
+import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge, type ProjectPathKinds } from "bounded/application";
 import type { Clock } from "bounded/application";
-import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs, FileSystemProjectDrift, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
+import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
 import { CheckedProjectConfigSource, SystemClock } from "bounded/adapters/system";
 import { AdapterRefusal, type PortProvision, Verdict } from "bounded/domain";
 
@@ -11,8 +11,6 @@ export interface OpenProjectOptions {
   readonly guardLog?: GuardLog;
   readonly clock?: Clock;
   readonly recordWithinMs?: number;
-  /** Where watched files are hashed and restored, and snapshots kept; by default the project's disk, with snapshots in `$XDG_STATE_HOME/bounded/<sha256 of the root>/`. */
-  readonly drift?: ProjectDrift;
   /** What is at a project path, for the packs that prepare when the project opens; by default the project's disk. */
   readonly pathKinds?: ProjectPathKinds;
   /** How long each pack's work on opening may take before the project opens without it; 5 seconds by default. */
@@ -35,7 +33,6 @@ export async function openProject(projectRoot: string, options: OpenProjectOptio
     const guardLogs = guardLog === undefined ? new FileSystemProjectGuardLogs() : { forProject: () => guardLog };
     const handler = new OpenProjectHandler(new CheckedProjectConfigSource(options.configSource ?? new FileSystemProjectConfigSource()), guardLogs, options.clock ?? new SystemClock(), {
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
-      drift: options.drift ?? new FileSystemProjectDrift(),
       pathKinds: options.pathKinds ?? new FileSystemProjectPathKinds(),
       ...(options.prepareWithinMs === undefined ? {} : { prepareWithinMs: options.prepareWithinMs }),
       ...(options.ports === undefined ? {} : { ports: options.ports }),
@@ -52,7 +49,7 @@ function refusingAll(reason: string, redirect: string, problem: string): Project
   const refusal = Verdict.refuse(reason, redirect);
   return Object.freeze({
     judge: async () => refusal,
-    afterTool: async () => ({ changed: [], restored: true, message: null }),
+    afterTool: async () => ({ message: null }),
     refuse: async (given: unknown) => {
       const parsed = AdapterRefusal.parse(given);
       return parsed.ok ? parsed.value.verdict : refusal;

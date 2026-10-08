@@ -2,9 +2,10 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { RestoreFrom, WatchedFiles, WatchedHashes } from "bounded/application";
-import type { Result, WatchedPath } from "bounded/domain";
-import { isInside, isOwnState, mayHold, ruleFields, watcher } from "../../shared/watching.ts";
+import type { Result } from "bounded/domain";
+import type { RestoreFrom, WatchedFiles, WatchedHashes } from "../../../application/watch-shell/watch-shell.contract.ts";
+import type { WatchedPath } from "../../../domain/watched-path.contract.ts";
+import { isInside, isOwnState, mayHold, ruleFields, watcher } from "../../../domain/watching.ts";
 
 const text = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");

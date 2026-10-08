@@ -1,9 +1,14 @@
-import { type Composition, Decision, Snapshot, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedChange, type WatchedPath, watchedPathsOf } from "bounded/domain";
+import type { Composition, ExecuteEffect, ExtensionPoint, Result, ToolResult, ToolUse } from "bounded/domain";
+import { Verdict } from "bounded/domain";
+import type { PathGateId } from "../../domain/path-gate-id.contract.ts";
+import type { ProtectedPath } from "../../domain/protected-path.contract.ts";
+import { Snapshot } from "../../domain/snapshot.ts";
+import type { WatchedChange } from "../../domain/watched-path.contract.ts";
+import type { Watched } from "../../domain/watched-rules.contract.ts";
+import { watchedRulesOf } from "../../domain/watched-rules.ts";
+import type { DriftReport, FileChange, RestoreFrom, ShellSnapshots, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell, WatchShellOptions } from "./watch-shell.contract.ts";
 
-import { nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
-import type { Clock, DecisionIds, DriftCheck, FileChange, GuardLog, RestoreFrom, ShellSnapshots, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell, WatchShellOptions } from "./watch-shell.contract.ts";
-
-const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
+const NOTHING: DriftReport = Object.freeze({ changed: Object.freeze([]), restored: true, message: null, record: null });
 const UNREADABLE_REDIRECT = "Fix what stops protected files from being read; until then shell commands are refused";
 const CHECK_REDIRECT = "Check the protected files by hand against version control";
 
@@ -18,11 +23,8 @@ function text(thrown: unknown): string {
   }
 }
 
-/** A watched rule and the pack that contributed it. */
-interface Rule {
-  readonly rule: WatchedPath;
-  readonly fromPackId: PackId;
-}
+/** A watched rule and the pack it is watched for. */
+type Rule = Watched;
 
 const runsShell = (call: ToolUse | ToolResult): boolean => call.effects.some((effect) => effect.kind === "execute");
 /** A text as it can be shown on one line: control characters (a newline in a file's name) escaped, as in JSON. */
@@ -53,18 +55,15 @@ async function digest(content: string): Promise<{ hash: string; size: number } |
  * not be told apart from the command's.
  */
 export class WatchShellHandler implements WatchShell {
-  private readonly ids: DecisionIds;
   private readonly limits: { readonly perFile: number; readonly total: number };
 
   constructor(
     private readonly composition: Composition,
+    private readonly protectedPaths: ExtensionPoint<ProtectedPath, PathGateId>,
     private readonly files: WatchedFiles,
     private readonly snapshots: ShellSnapshots,
-    private readonly log: GuardLog,
-    private readonly clock: Clock,
     options: WatchShellOptions = {},
   ) {
-    this.ids = options.ids ?? { next: () => crypto.randomUUID() };
     this.limits = options.limits ?? COPY_LIMITS;
   }
 
@@ -88,7 +87,7 @@ export class WatchShellHandler implements WatchShell {
     }
   }
 
-  async verify(result: ToolResult): Promise<DriftCheck> {
+  async verify(result: ToolResult): Promise<DriftReport> {
     let rules: readonly Rule[] = [];
     try {
       if (!runsShell(result)) return NOTHING;
@@ -107,8 +106,7 @@ export class WatchShellHandler implements WatchShell {
       return await this.undo(result, before.value, rules);
     } catch (thrown) {
       const message = `Protected files could not be checked after this command: ${text(thrown)}. Check them by hand against version control.`;
-      await this.record(result, message, rules[0], "could not be checked after a shell command");
-      return { changed: [], restored: false, message };
+      return { changed: [], restored: false, message, record: record(result, message, rules[0], "could not be checked after a shell command") };
     }
   }
 
@@ -118,9 +116,9 @@ export class WatchShellHandler implements WatchShell {
     return (path) => this.files.rulesWatching(paths, path);
   }
 
-  /** The composed watched paths, with the pack each came from. */
+  /** The watched paths from the composed protected paths, each watched for the path gate. */
   private rules(): readonly Rule[] {
-    const watched = watchedPathsOf(this.composition);
+    const watched = watchedRulesOf(this.composition, this.protectedPaths);
     if (!watched.ok) throw new Error(watched.error);
     return watched.value;
   }
@@ -184,12 +182,11 @@ export class WatchShellHandler implements WatchShell {
   }
 
   /** Puts back what the command changed, from the snapshot, records it and says what happened. */
-  private async undo(result: ToolResult, before: Snapshot, rules: readonly Rule[]): Promise<DriftCheck> {
+  private async undo(result: ToolResult, before: Snapshot, rules: readonly Rule[]): Promise<DriftReport> {
     const after = await this.hash(rules);
     if (!after.ok) {
       const message = `Protected files could not be checked after this command: ${after.error}. Check them by hand against version control.`;
-      await this.record(result, message, rules[0], "could not be checked after a shell command");
-      return { changed: [], restored: false, message };
+      return { changed: [], restored: false, message, record: record(result, message, rules[0], "could not be checked after a shell command") };
     }
     const changed = forbidden(changes(before.files, after.value), this.watching(rules), rules);
     if (changed.length === 0) return NOTHING;
@@ -230,8 +227,7 @@ export class WatchShellHandler implements WatchShell {
         ? `This command changed protected files, and they were restored: ${groups}`
         : `This command changed protected files, and restoring them FAILED (${shown([...failures].join("; "))}); restore them by hand: ${groups}`;
     const first = rules[Math.min(...changed.map((change) => ruleOf(change, this.watching(rules), rules)))];
-    await this.record(result, message, first, failures.size === 0 ? "changed by a shell command; restored" : "changed by a shell command; restore failed");
-    return { changed, restored: failures.size === 0, message };
+    return { changed, restored: failures.size === 0, message, record: record(result, message, first, failures.size === 0 ? "changed by a shell command; restored" : "changed by a shell command; restore failed") };
   }
 
   /** Where the created files went, or why they could not be moved. */
@@ -258,7 +254,7 @@ export class WatchShellHandler implements WatchShell {
    * say so loudly and record it, restoring nothing. A snapshot simply not
    * found, with nothing different from the commit, says nothing.
    */
-  private async unverified(result: ToolResult, rules: readonly Rule[], why: string, altered: boolean): Promise<DriftCheck> {
+  private async unverified(result: ToolResult, rules: readonly Rule[], why: string, altered: boolean): Promise<DriftReport> {
     const head = await this.files.head();
     let changed: FileChange[] = [];
     let first = rules[0];
@@ -277,20 +273,14 @@ export class WatchShellHandler implements WatchShell {
       }
     }
     const message = `The snapshot for this command was missing or altered (${why}), so its changes cannot be told from earlier work and nothing was restored. ${found} Check them against version control.`;
-    await this.record(result, message, first, "snapshot missing or altered");
-    return { changed, restored: false, message };
+    return { changed, restored: false, message, record: record(result, message, first, "snapshot missing or altered") };
   }
+}
 
-  private async record(result: ToolResult, message: string, rule: Rule | undefined, note: string): Promise<void> {
-    const effect = result.effects.find((e): e is ExecuteEffect => e.kind === "execute") ?? null;
-    const verdict = Verdict.refuse(message, rule?.rule.redirect ?? CHECK_REDIRECT);
-    try {
-      const judgement = { verdict, refusedBy: rule === undefined ? null : { packId: rule.fromPackId, effect } };
-      await this.log.record(Decision.of(nextDecisionId(this.ids), this.clock.now(), result, judgement, note));
-    } catch {
-      // The message already says what happened; a log that cannot record it changes nothing more.
-    }
-  }
+/** What to record of a check after a shell command: a refusal naming the path gate and the command when a rule is known. */
+function record(result: ToolResult, message: string, rule: Rule | undefined, note: string): DriftReport["record"] {
+  const effect = result.effects.find((e): e is ExecuteEffect => e.kind === "execute") ?? null;
+  return { verdict: Verdict.refuse(message, rule?.rule.redirect ?? CHECK_REDIRECT), refusedBy: rule === undefined ? null : { effect }, note };
 }
 
 /** Where a changed file that existed before comes back from: its copy or the snapshot's commit; undefined when it cannot. */

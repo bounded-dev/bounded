@@ -1,13 +1,11 @@
 import { AdapterRefusal, type Composition, corePack, Ports, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
-import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
-import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
 import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
-import type { ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
+import type { AfterToolOutcome, ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 import type { Clock, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge } from "./open-project.contract.ts";
 
-const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
+const NOTHING: AfterToolOutcome = Object.freeze({ message: null });
 
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
@@ -53,17 +51,11 @@ export class OpenProjectHandler implements OpenProject {
       if (missing !== undefined) return this.refusing(log, `${missing.owner.value} needs the port '${missing.name}', which this host does not provide: pass it to openProject({ ports })`);
       await this.prepare(root, composition.value);
       const lifecycle = new ProjectLifecycleHandler(composition.value, ports.value, log, this.clock);
-      const drift = this.options.drift?.forProject(root);
-      const watch = drift === undefined ? undefined : new WatchShellHandler(composition.value, drift.files, drift.snapshots, log, this.clock);
       const handler = new JudgeEventHandler(composition.value, log, this.clock, {
         ...(this.options.recordWithinMs === undefined ? {} : { recordWithinMs: this.options.recordWithinMs }),
-        beforeAllow: async (event) => {
-          if (event.kind !== "tool-use") return Verdict.allow;
-          const watched = watch === undefined ? Verdict.allow : await watch.snapshot(event);
-          return watched.kind === "refuse" ? watched : lifecycle.before(event);
-        },
+        beforeAllow: async (event) => (event.kind === "tool-use" ? lifecycle.before(event) : Verdict.allow),
       });
-      return this.judge(handler, null, watch, lifecycle);
+      return this.judge(handler, null, lifecycle);
     } catch (thrown) {
       return this.refusing(log, text(thrown));
     }
@@ -79,10 +71,10 @@ export class OpenProjectHandler implements OpenProject {
     await Promise.allSettled(openings.value.map((open) => within(Promise.resolve().then(() => open(project, composition)), withinMs)));
   }
 
-  private judge(handler: JudgeEvent, problem: string | null, watch?: WatchShell, lifecycle?: ProjectLifecycle): ProjectJudge {
+  private judge(handler: JudgeEvent, problem: string | null, lifecycle?: ProjectLifecycle): ProjectJudge {
     return Object.freeze({
       judge: (event: unknown) => handler.judge(event),
-      afterTool: (result: unknown) => afterTool(watch, lifecycle, result),
+      afterTool: (result: unknown) => afterTool(lifecycle, result),
       refuse: (refusal: AdapterRefusalInput) => handler.refuse(refusal),
       problem,
     });
@@ -130,16 +122,13 @@ export class OpenProjectHandler implements OpenProject {
   }
 }
 
-/** Check a tool result for drift, then run the packs' after-tool checks; with a result that cannot be read, nothing is undone. Never throws. */
-async function afterTool(watch: WatchShell | undefined, lifecycle: ProjectLifecycle | undefined, raw: unknown): Promise<DriftCheck> {
+/** Run the packs' after-tool checks on a tool result; one that cannot be read is reported, and nothing is checked. Never throws. */
+async function afterTool(lifecycle: ProjectLifecycle | undefined, raw: unknown): Promise<AfterToolOutcome> {
   try {
     const result = ToolResult.parse(raw);
-    if (!result.ok) return { ...NOTHING, message: `The host sent a tool result that cannot be read: ${result.error}` };
-    const drift = watch === undefined ? NOTHING : await watch.verify(result.value);
-    const after = lifecycle === undefined ? { message: null } : await lifecycle.after(result.value);
-    const messages = [drift.message, after.message].filter((message) => message !== null);
-    return messages.length === 0 ? drift : { ...drift, message: messages.join("\n\n") };
+    if (!result.ok) return { message: `The host sent a tool result that cannot be read: ${result.error}` };
+    return lifecycle === undefined ? NOTHING : await lifecycle.after(result.value);
   } catch (thrown) {
-    return { changed: [], restored: false, message: `Protected files could not be checked after this command: ${text(thrown)}` };
+    return { message: `The checks after this tool call could not run: ${text(thrown)}` };
   }
 }

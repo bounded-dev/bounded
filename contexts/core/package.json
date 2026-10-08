@@ -12,7 +12,9 @@
     "./adapters/file-system": "./src/adapters/out/file-system/index.ts",
     "./adapters/system": "./src/adapters/out/system/index.ts",
     "./open-project": "./src/composition-root/open-project.ts",
-    "./path-gate": "./src/packs/path-gate/index.ts"
+    "./path-gate": "./src/packs/path-gate/index.ts",
+    "./path-gate/adapters/file-system": "./src/packs/path-gate/adapters/out/file-system/index.ts",
+    "./path-gate/adapters/in-memory": "./src/packs/path-gate/adapters/out/in-memory/index.ts"
   },
   "private": true,
   "type": "module"

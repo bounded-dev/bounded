@@ -1,4 +1,4 @@
-import type { Result } from "../shared/result.ts";
+import type { Result } from "bounded/domain";
 
 /** The brand only Snapshot itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const snapshotBrand: unique symbol;

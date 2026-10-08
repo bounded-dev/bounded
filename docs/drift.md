@@ -2,24 +2,25 @@
 
 A guard judges a tool call from its effects, but a shell command's effects
 cannot be read from its text: `./regenerate.sh` may rewrite files the path
-gate protects. So the core checks protected files around every allowed shell
-command and undoes any change.
+gate protects. So the path gate checks the files it protects from writes
+around every allowed shell command and undoes any change (ADR 2026-013: the
+path gate's own `watch-shell` feature, run by the core's `beforeTool` and
+`afterTool` lifecycle points).
 
 ## Watched paths
 
-Packs and projects contribute to the core pack's `watchedPaths` point: files
-a shell command must not change, and which changes it must not make to them
-(`create`, `modify`, `delete`; every one when `changes` is left out).
+Every `protectedPaths` rule that denies a write is watched, for the writes it
+denies (`create`, `modify`, `delete`); a rule whose pattern ends in a literal
+name (and is not a `file` rule) also watches what is under it.
 
 ```ts
-contribution(corePack.points.watchedPaths, [
-  { match: "generated/**", except: ["generated/README.md"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" },
-  { match: "migrations/**", changes: ["modify", "delete"], why: "applied migrations are history", redirect: "Add a new migration instead" },
+contribution(pathGate.points.protectedPaths, [
+  { match: "generated/**", except: ["generated/README.md"], deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" },
+  { match: "migrations/**", deny: ["modify", "delete"], why: "applied migrations are history", redirect: "Add a new migration instead" },
 ]);
 ```
 
-The path gate contributes each rule that denies a write, with the writes it
-denies. Only those changes are undone: under the `migrations/**` path above a
+Only the denied changes are undone: under the `migrations/**` path above a
 command may add `migrations/0002_add.sql` (it is left in place, with nothing
 reported), but a change to or deletion of an existing migration is put back.
 
@@ -146,3 +147,14 @@ look created, so it is moved aside: reported, never lost. Claude Code
 fires no hook when a user interrupts a running call (the interruption reaches
 Claude in the tool result instead), so such a call is not checked; its
 snapshot expires.
+
+## Ports
+
+The path gate reads the project's files and keeps snapshots through two
+ports, `watchedFiles` and `shellSnapshots`, which a host supplies when it
+opens a project: `openProject(root, { ports: pathGateFileSystem() })`
+(`bounded/path-gate/adapters/file-system`; `pathGateInMemory(files,
+snapshots)` from `bounded/path-gate/adapters/in-memory` for tests). A host
+that selects the path gate without them refuses every event, saying what to
+pass. Snapshots and quarantined files stay where they were:
+`$XDG_STATE_HOME/bounded/<sha256 of the root>/`.

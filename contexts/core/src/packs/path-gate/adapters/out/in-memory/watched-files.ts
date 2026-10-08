@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import type { RestoreFrom, WatchedFiles, WatchedHashes } from "bounded/application";
-import type { Result, WatchedPath } from "bounded/domain";
-import { isInside, ruleFields, watcher } from "../../shared/watching.ts";
+import type { Result } from "bounded/domain";
+import type { RestoreFrom, WatchedFiles, WatchedHashes } from "../../../application/watch-shell/watch-shell.contract.ts";
+import type { WatchedPath } from "../../../domain/watched-path.contract.ts";
+import { isInside, ruleFields, watcher } from "../../../domain/watching.ts";
 
 /** The commit an in-memory project is checked out from. */
 const COMMIT = "memory";

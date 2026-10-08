@@ -1,7 +1,5 @@
 import type { snapshotBrand } from "./snapshot.contract.ts";
-import { readSafely } from "../shared/read.ts";
-import type { Result } from "../shared/result.ts";
-import { sameWire, wireFormOf } from "../shared/wire.ts";
+import { type Result, readSafely, sameWire, wireFormOf } from "bounded/domain";
 import type * as Contract from "./snapshot.contract.ts";
 
 const SHA256 = /^[0-9a-f]{64}$/;

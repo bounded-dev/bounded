@@ -121,9 +121,10 @@ export default defineConfig({ packs: [corePack, noGenerated] });
       writeFileSync(
         join(project, "bounded.config.ts"),
         `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
 export default defineConfig({
-  packs: [corePack],
-  contributes: [contribution(corePack.points.watchedPaths, [{ match: "generated/**", why: "generated/ is written by the generator", redirect: "Change the generator's input" }])],
+  packs: [corePack, pathGate],
+  contributes: [contribution(pathGate.points.protectedPaths, [{ match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input" }])],
 });
 `,
       );
@@ -135,7 +136,7 @@ export default defineConfig({
       git("add", "-A");
       git("commit", "--quiet", "-m", "base");
 
-      const call = { tool_name: "Bash", tool_input: { command: "echo x > generated/a.ts; exit 1" }, tool_use_id: "toolu_e2e", cwd: project };
+      const call = { tool_name: "Bash", tool_input: { command: "./regenerate.sh; exit 1" }, tool_use_id: "toolu_e2e", cwd: project };
       const before = await run("src/main.ts", JSON.stringify({ hook_event_name: "PreToolUse", ...call }), APP, 10_000, project);
       expect(before.stdout).toBe("");
       writeFileSync(join(project, "generated", "a.ts"), "x\n");

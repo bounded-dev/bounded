@@ -1,4 +1,4 @@
-import type { ShellSnapshots, Snapshot } from "bounded/application";
+import type { ShellSnapshots, Snapshot } from "../../../application/watch-shell/watch-shell.contract.ts";
 
 /** Snapshots in memory: for tests, and hosts whose hooks share one process. */
 export class InMemoryShellSnapshots implements ShellSnapshots {

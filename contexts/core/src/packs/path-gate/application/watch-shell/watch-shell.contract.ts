@@ -1,11 +1,10 @@
-import type { Result, Snapshot, ToolResult, ToolUse, Verdict, WatchedFile, WatchedPath } from "bounded/domain";
+import { type AfterToolReport, portKeysFor, type Result, type ToolResult, type ToolUse, type Verdict } from "bounded/domain";
+import { pathGateId } from "../../domain/path-gate-id.ts";
+import type { Snapshot, WatchedFile } from "../../domain/snapshot.contract.ts";
+import type { WatchedPath } from "../../domain/watched-path.contract.ts";
 
 // Domain types this feature's ports carry, listed here so this contract names them.
-export type { Kept, Snapshot, SnapshotFile, SnapshotJSON, WatchedFile } from "bounded/domain";
-
-// Out ports this feature shares with judge-event: declared there, listed here so this contract names every port the feature needs.
-import type { DecisionIds } from "../../guard-log/judge-event/judge-event.contract.ts";
-export type { Clock, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+export type { Kept, Snapshot, SnapshotFile, SnapshotJSON, WatchedFile } from "../../domain/snapshot.contract.ts";
 
 /** Every watched file by project-relative path. */
 export type WatchedHashes = Readonly<Record<string, WatchedFile>>;
@@ -19,11 +18,16 @@ export interface FileChange {
   readonly change: "modified" | "deleted" | "created";
 }
 
-/** What a shell command did to watched files: none, or the changes, whether they were undone, and what to tell the agent. */
-export interface DriftCheck {
+/**
+ * What a shell command did to watched files: none, or the changes, whether
+ * they were undone, what to tell the agent, and what to record in the guard
+ * log (the core records it, naming the path gate).
+ */
+export interface DriftReport {
   readonly changed: readonly FileChange[];
   readonly restored: boolean;
   readonly message: string | null;
+  readonly record: AfterToolReport["record"];
 }
 
 // In port: what this feature offers.
@@ -32,7 +36,7 @@ export interface WatchShell {
   /** Before an allowed tool call with a shell command: hash the watched files under the call's id. A refusal if that cannot be done. */
   snapshot(call: ToolUse): Promise<Verdict>;
   /** After the call ran: undo any change to watched files, record it, and say what happened. */
-  verify(result: ToolResult): Promise<DriftCheck>;
+  verify(result: ToolResult): Promise<DriftReport>;
 }
 
 // Out ports: exactly what this feature needs (with the judge-event feature's GuardLog, Clock and DecisionIds).
@@ -72,9 +76,14 @@ export interface ShellSnapshots {
   take(callId: string): Promise<unknown>;
 }
 
-/** How a watch-shell handler is set up, beyond its composition and out ports. */
+/** How a watch-shell handler is set up, beyond its rules and out ports. */
 export interface WatchShellOptions {
-  readonly ids?: DecisionIds;
   /** How much a snapshot copies of files version control does not hold. */
   readonly limits?: { readonly perFile: number; readonly total: number };
 }
+
+// The path gate's ports for this feature: a host provides them through openProject({ ports }).
+/** The project's watched files. */
+export const watchedFilesPort = portKeysFor(pathGateId)<WatchedFiles>("watchedFiles");
+/** Where shell snapshots are kept between a call and its result. */
+export const shellSnapshotsPort = portKeysFor(pathGateId)<ShellSnapshots>("shellSnapshots");

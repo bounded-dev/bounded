@@ -77,12 +77,6 @@ export { describeEffect, Effect } from "./events/effect.ts";
 export { ToolUse } from "./events/tool-use.ts";
 export type { ToolResultFactory, ToolResultJSON } from "./events/tool-result.contract.ts";
 export { ToolResult } from "./events/tool-result.ts";
-export type { WatchedChange, WatchedPathFactory, WatchedPathJSON, WatchedPathSource } from "./drift/watched-path.contract.ts";
-export type { Watched } from "./drift/watched-paths.ts";
-export { watchedPathsOf } from "./drift/watched-paths.ts";
-export { WatchedPath } from "./drift/watched-path.ts";
-export type { Kept, SnapshotFactory, SnapshotFile, SnapshotJSON, WatchedFile } from "./drift/snapshot.contract.ts";
-export { Snapshot } from "./drift/snapshot.ts";
 export type { Dispatch, EffectGuard, Guard } from "./guards/dispatch.contract.ts";
 export type { DecideEvent, DispatchEvent, Judgement } from "./guards/dispatch-event.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
@@ -109,6 +103,7 @@ export type { Allow, AllowJSON, Refuse, RefuseJSON, VerdictFactory, VerdictJSON 
 export { Verdict } from "./verdicts/verdict.ts";
 
 export { sameWire, wireFormOf } from "./shared/wire.ts";
+export { own, readSafely, show } from "./shared/read.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

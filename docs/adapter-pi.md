@@ -93,7 +93,7 @@ such calls are refused.
   -> import("bounded-pi")            fails closed: if this or the extension throws, every tool call is blocked
   -> bounded(root)                   src/index.ts
      -> piExtension({ projectRoot, load })  src/extension.ts; load is the composition root's seam
-        -> composeProject(root)      src/composition-root.ts: openProject(root) from bounded/open-project
+        -> composeProject(root)      src/composition-root.ts: openProject(root, { ports }) from bounded/open-project
 ```
 
 `load: () => Promise<decide>` starts at each `session_start`, without
@@ -111,7 +111,7 @@ session. pi gets `undefined` to run the call, or
 deep-frozen before it is translated, so nothing can change what is judged:
 a later handler or tool that tries throws, and pi blocks the call.
 
-`composeProject` opens the project with the core's `openProject(root)`;
+`composeProject` opens the project with the core's `openProject(root, { ports: pathGateFileSystem() })` (the path gate's file-system ports);
 `decide` is its judge, which decides each tool use with the composed packs
 and records the decision in `<root>/.bounded/guard-log.jsonl`. A
 configuration that cannot be used gives a judge that refuses every event, so

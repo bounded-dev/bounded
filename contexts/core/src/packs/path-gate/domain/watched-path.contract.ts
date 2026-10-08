@@ -1,5 +1,4 @@
-import type { Composition } from "../composition/composition.contract.ts";
-import type { Result } from "../shared/result.ts";
+import type { Result } from "bounded/domain";
 
 /** The brand only WatchedPath itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const watchedPathBrand: unique symbol;
@@ -26,7 +25,7 @@ export interface WatchedPath {
   toJSON(): WatchedPathJSON;
 }
 
-/** A watched path's wire form: what its toJSON gives, and what WatchedPath.parse and the watchedPaths point take. */
+/** A watched path's wire form: what its toJSON gives, and what WatchedPath.parse takes. */
 export interface WatchedPathJSON {
   readonly match: string;
   readonly except?: readonly string[];
@@ -35,13 +34,6 @@ export interface WatchedPathJSON {
   readonly why: string;
   readonly redirect: string;
 }
-
-/**
- * Watched paths worked out from the composition, such as from another
- * point's rules: called each time the watched files are hashed. Each is
- * checked with WatchedPath.parse.
- */
-export type WatchedPathSource = (composition: Composition) => readonly (WatchedPath | WatchedPathJSON)[];
 
 export interface WatchedPathFactory {
   /** A frozen watched path, `except` always a list, or why the value is not one. */

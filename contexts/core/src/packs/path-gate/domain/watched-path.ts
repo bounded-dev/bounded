@@ -1,7 +1,5 @@
 import type { watchedPathBrand } from "./watched-path.contract.ts";
-import { own, readSafely } from "../shared/read.ts";
-import type { Result } from "../shared/result.ts";
-import { sameWire, wireFormOf } from "../shared/wire.ts";
+import { own, type Result, readSafely, sameWire, wireFormOf } from "bounded/domain";
 import type * as Contract from "./watched-path.contract.ts";
 
 const SAYS = "A watched path says why its files are watched and what to do instead: why and redirect are non-empty text";

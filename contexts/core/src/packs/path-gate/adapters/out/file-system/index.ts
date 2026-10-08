@@ -1,7 +1,8 @@
-export { FileSystemGuardLog } from "./guard-log/guard-log.ts";
-export { FileSystemProjectConfigSource } from "./project-config/config-source.ts";
-export { FileSystemProjectGuardLogs } from "./guard-log/project-guard-logs.ts";
-export { FileSystemProjectPathKinds } from "./path-kinds/path-kinds.ts";
+// bounded/path-gate/adapters/file-system: the path gate's adapters on disk, for hosts' composition roots.
+export { pathGateFileSystem } from "./provisions.ts";
+export { FileSystemShellSnapshots } from "./snapshots.ts";
+export { stateDirFor, stateHomeFor } from "./state-home.ts";
+export { FileSystemWatchedFiles } from "./watched-files.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ShellSnapshots, Snapshot } from "bounded/application";
+import type { ShellSnapshots, Snapshot } from "../../../application/watch-shell/watch-shell.contract.ts";
 import { stateDirFor } from "./state-home.ts";
 
 /** How long a snapshot is kept: a command whose result never came (the host denied it after bounded allowed it) leaves one behind. */

@@ -7,17 +7,20 @@ import {
   type ExecuteEffect,
   type ListEffect,
   type ProjectOpenHandler,
-  packIdsFor,
   point,
   type ReadEffect,
   Verdict,
-  type WatchedPathJSON,
-  type WatchedPathSource,
+  type LifecycleContext,
+  type ToolResult,
+  type ToolUse,
   type WriteEffect,
 } from "bounded/domain";
 import type { PathGate } from "./path-gate.contract.ts";
-import type { ProtectedPathJSON } from "./protected-path.contract.ts";
-import { ProtectedPath, WRITES } from "./protected-path.ts";
+import { restoreWatched, snapshotBeforeShell } from "./application/watch-shell/watch-shell.lifecycle.ts";
+import { shellSnapshotsPort, watchedFilesPort } from "./application/watch-shell/watch-shell.contract.ts";
+import { pathGateId } from "./domain/path-gate-id.ts";
+import type { ProtectedPathJSON } from "./domain/protected-path.contract.ts";
+import { ProtectedPath, WRITES } from "./domain/protected-path.ts";
 import { type ShellCheck, startShellCheck } from "./shell-check.ts";
 import { treeSitterShellParser } from "./shell-parser.tree-sitter.ts";
 
@@ -178,37 +181,27 @@ const onExecute: EffectGuard<ExecuteEffect, Composition> = (effect, composition)
   return Verdict.allow;
 };
 
-/** Whether a pattern's last part is a literal name, which the path gate reads as covering everything under it too (but for a file rule). */
-const endsInName = (match: string): boolean => !/[*?[\]{}]/.test(match.split("/").at(-1) ?? "");
-
-/**
- * What the path gate protects from writes, as watched paths for the core's
- * check around shell commands: every rule that denies a create, modify or
- * delete, with its own exceptions (a literal name also covers what is under
- * it). Never `.bounded/`: bounded writes its own state there while judging.
- */
-const watchedFromRules: WatchedPathSource = (composition) => {
-  const rules = composition.entries(pathGate.points.protectedPaths);
-  if (!rules.ok) throw new Error(rules.error);
-  return rules.value.flatMap(({ value: rule }): WatchedPathJSON[] => {
-    if (!WRITES.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) return [];
-    const changes = WRITES.filter((change) => rule.deny.includes(change));
-    const watched = { except: rule.except, changes, why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
-    return endsInName(rule.match) && rule.file !== true ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
-  });
-};
+// The watch-shell feature's lifecycle checks, given the path gate's own
+// protected paths when they run (function declarations, read only then).
+function beforeShell(call: ToolUse, context: LifecycleContext) {
+  return snapshotBeforeShell(pathGate.points.protectedPaths, call, context);
+}
+function afterShell(result: ToolResult, context: LifecycleContext) {
+  return restoreWatched(pathGate.points.protectedPaths, result, context);
+}
 
 /**
  * The path gate, `bounded/path-gate`: an ordinary pack. Packs and projects
  * contribute deny-only rules to `protectedPaths`; its guards judge reads,
  * listings and writes against them. A shell command's paths cannot really
  * be read from its text: the path gate refuses, best effort, one that names
- * a read-protected path, and gives what it protects from writes to the
- * core's watched paths, which undo a shell command's changes. Fetch,
+ * a read-protected path, and watches what it protects from writes around
+ * every shell command, undoing its changes (the watch-shell feature, with
+ * the watched files and snapshots a host provides as ports). Fetch,
  * delegate and invoke are not judged by path.
  */
 export const pathGate: PathGate = definePack({
-  id: packIdsFor("bounded")("path-gate"),
+  id: pathGateId,
   dependsOn: [corePack],
   points: {
     protectedPaths: point({
@@ -223,6 +216,8 @@ export const pathGate: PathGate = definePack({
     contribution(corePack.points.effectGuards.write, [onWrite]),
     contribution(corePack.points.effectGuards.execute, [onExecute]),
     contribution(corePack.points.onProjectOpen, [prepareShell]),
-    contribution(corePack.points.watchedPaths, [watchedFromRules]),
+    contribution(corePack.points.beforeTool, [beforeShell]),
+    contribution(corePack.points.afterTool, [afterShell]),
   ],
+  ports: { watchedFiles: watchedFilesPort, shellSnapshots: shellSnapshotsPort },
 });

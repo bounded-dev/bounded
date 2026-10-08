@@ -64,11 +64,13 @@ Built and running on two real hosts:
   about every event. A broken configuration refuses everything
   ([docs/configuration.md](docs/configuration.md), ADR 2026-010).
 
-- **Drift.** Files contributed to `watchedPaths` (the path gate contributes
-  what it protects from writes) are snapshotted before every allowed shell
-  command and put back after it if it changed them, with a message for the
-  agent and a record; what a command created is moved aside, never deleted
-  ([docs/drift.md](docs/drift.md), ADR 2026-011).
+- **Drift.** What the path gate protects from writes is snapshotted before
+  every allowed shell command and put back after it if it changed them, with
+  a message for the agent and a record; what a command created is moved
+  aside, never deleted. The core runs it through its `beforeTool` and
+  `afterTool` lifecycle points; the host supplies the path gate's file-system
+  ports to `openProject` ([docs/drift.md](docs/drift.md), ADR 2026-011,
+  ADR 2026-013).
 
 - **The path gate** (`bounded/path-gate`) is an ordinary pack. Packs and
   projects contribute deny-only rules to its `protectedPaths` point (a
