@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 const ROOT = import.meta.dir;
 const CORE = join(ROOT, "contexts/core");
-const VERSION = "3.1.1";
+const VERSION = "3.2.0";
 const CONFORMANCE = "src/application/project-setup/init-project/init-project.host-installer.test-support.ts";
 /** What the hooks and the pi loader run, beside every export target: the Claude Code hook is run by path, not imported. */
 const RUN_BY_PATH = ["dist/cli.js", "dist/hosts/claude-code/hook.js"];

@@ -41,7 +41,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   command changed in protected files.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
-- **One package, `bounded` 3.1.1, ready to publish; 3.1.0 is published**
+- **One package, `bounded` 3.2.0, ready to publish; 3.1.0 is published**
   (issue #65, first slice;
   [ADR 2026-016](adr/2026-016-cli-app.md)). It carries the library, the path
   gate, the `bounded` command (source `apps/cli`) and the Claude Code and pi
@@ -260,7 +260,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the guard log ([guard log](guard-log.md),
   [ADR 2026-008](adr/2026-008-guard-log.md)).
-- Publishing `bounded` 3.1.1 to npm (3.1.0, above the legacy
+- Publishing `bounded` 3.2.0 to npm (3.1.0, above the legacy
   2.x, is published,
   [ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
   package is ready ([releasing](releasing.md)); the publish waits for review.

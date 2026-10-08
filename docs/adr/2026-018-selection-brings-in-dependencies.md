@@ -1,9 +1,8 @@
 # 2026-018: A selection brings in every pack its packs depend on
 
 **Status:** accepted (the maintainer's decision, and the answers in the
-review of the selected-pack-dependencies plan), shipped in the unreleased
-`bounded` 3.1.0 as a second deliberate breaking change in a minor release
-(see "Release"). Amends ADR 2026-004 (the selection includes dependencies),
+review of the selected-pack-dependencies plan), to ship in `bounded` 3.2.0,
+a minor release that deliberately breaks published types (see "Release"). Amends ADR 2026-004 (the selection includes dependencies),
 ADR 2026-010 (the project depends on the listed packs) and ADR 2026-013
 (`Config.listedPacks`, `listedPackIds`, composition's combination rules).
 
@@ -101,12 +100,14 @@ without any lookup.
 
 ## Release
 
-The maintainer chose to ship this in the pending, unpublished 3.1.0 as a
-second deliberate break in a minor release, with no version bump. Against
-the published 3.0.0 it breaks three things: `Config.selectedPacks` (now
-`listedPacks`); compose-packs' wire field `selectedPackIds` (now
-`listedPackIds`); and the meaning of the exported `SelectedPacks.packs`
-(now every selected pack, listed and brought in; `listedPacks` is added).
+This change breaks the types that the published 3.0.0 and 3.1.0 export,
+in three places: `Config.selectedPacks` (now `listedPacks`); compose-packs'
+wire field `selectedPackIds` (now `listedPackIds`); and the meaning of the
+exported `SelectedPacks.packs` (now every selected pack, listed and brought
+in; `listedPacks` is added). A type break never ships in a patch, so it
+lands in 3.2.0, a minor release: the maintainer chose to ship this break in
+a minor rather than a major, as with 3.1.0 (ADR 2026-017). 3.2.0 also
+carries 3.1.1's restart notice, which was never published on its own.
 
 ## Consequences
 

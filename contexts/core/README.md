@@ -79,7 +79,8 @@ minor release because 3.0.0 was about an hour old with no users: it replaced
 `bounded/path-gate/adapters/{file-system,in-memory,tree-sitter}`, removed
 their in-memory doubles and `pathGateInMemory`, and made the clock and
 decision-id ports give `DecisionTime` and `DecisionId` (the repository's
-ADR 2026-017). It breaks 3.0.0 a second time, deliberately: a selection now
+ADR 2026-017). 3.2.0, also a minor release by the maintainer's choice,
+deliberately breaks the types 3.0.0 and 3.1.0 published: a selection now
 brings in every pack its listed packs depend on, so `Config.selectedPacks`
 is `Config.listedPacks`, compose-packs' input field `selectedPackIds` is
 `listedPackIds`, and `SelectedPacks.packs` holds every selected pack, listed
