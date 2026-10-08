@@ -1,5 +1,6 @@
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./pack.contract.ts";
+import { PackId, packIdText } from "./pack-id.ts";
 
 // Packs, points, declarations and contributions are frozen plain objects.
 // Only the ones made here are genuine: composition accepts no others, so a
@@ -21,7 +22,7 @@ function list<T>(value: readonly T[] | undefined): readonly T[] {
 function declarePoint<Value>(spec: {
   readonly description: string;
   readonly check: (raw: unknown) => Result<Value>;
-  readonly values?: readonly Value[];
+  readonly values?: readonly Contract.Contributed<Value>[];
 }): Contract.PointDeclaration<Value> {
   const declaration = made({ __brand: "PointDeclaration" as const, description: spec.description, check: spec.check, values: list(spec.values) });
   declarations.set(declaration, declaration);
@@ -30,13 +31,13 @@ function declarePoint<Value>(spec: {
 
 function contribute<Value, Owner extends Contract.AnyPack["id"]>(
   point: Contract.ExtensionPoint<Value, Owner>,
-  values: readonly NoInfer<Value>[],
+  values: readonly NoInfer<Contract.Contributed<Value>>[],
 ): Contract.Contribution<Owner> {
   return made({ __brand: "Contribution" as const, point, values: list(values) });
 }
 
 interface UntypedSpec {
-  readonly id: string;
+  readonly id: unknown;
   readonly dependsOn?: readonly Contract.AnyPack[];
   readonly points?: Readonly<Record<string, unknown>>;
   readonly contributes?: readonly Contract.Contribution<Contract.AnyPack["id"]>[];
@@ -45,7 +46,11 @@ interface UntypedSpec {
 function define(spec: UntypedSpec): never {
   // No prototype, so a key such as "__proto__" is an ordinary key.
   const points: Record<string, unknown> = Object.create(null);
-  const pack = { __brand: "Pack" as const, id: spec.id, dependsOn: list(spec.dependsOn), points, contributes: list(spec.contributes) };
+  // An id given as text (untyped data) becomes a PackId when it is one; any
+  // other is kept as given, and composition refuses it.
+  const parsed = PackId.parse(spec.id);
+  const id = parsed.ok ? parsed.value : spec.id;
+  const pack = { __brand: "Pack" as const, id, dependsOn: list(spec.dependsOn), points, contributes: list(spec.contributes) };
   const given = spec.points ?? {};
   for (const [key, raw] of typeof given === "object" && given !== null ? Object.entries(given) : []) {
     // A point is made from a genuine declaration only; anything else is kept
@@ -55,7 +60,7 @@ function define(spec: UntypedSpec): never {
       points[key] = raw;
       continue;
     }
-    const point = made({ __brand: "ExtensionPoint" as const, owner: pack, id: `${spec.id}.${key}`, description: String(declaration.description) });
+    const point = made({ __brand: "ExtensionPoint" as const, owner: pack, id: `${packIdText(id)}.${key}`, description: String(declaration.description) });
     declarations.set(point, declaration);
     points[key] = point;
   }
@@ -92,4 +97,4 @@ export function checkValue(point: Contract.AnyPoint, raw: unknown): Result<unkno
   }
 }
 
-export type { AnyPack, AnyPoint, Contribution, ExtensionPoint, Pack, PointDeclaration } from "./pack.contract.ts";
+export type { AnyPack, AnyPoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, WireOf } from "./pack.contract.ts";

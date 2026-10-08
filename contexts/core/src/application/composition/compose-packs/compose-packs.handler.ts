@@ -19,9 +19,10 @@ export class ComposePacksHandler implements ComposePacks {
     // are resolved in id order, so the first refusal never depends on the
     // order they were given in.
     const selected: AnyPack[] = [];
-    for (const id of [...command.selected].sort()) {
-      const pack = available.find((candidate) => candidate.id === id);
-      if (pack === undefined) return { ok: false, error: `Pack '${id}' is selected but not available. Make it available, or remove it from the selection` };
+    const ids = [...command.selected].sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+    for (const id of ids) {
+      const pack = available.find((candidate) => id.equals(candidate.id));
+      if (pack === undefined) return { ok: false, error: `Pack '${id.value}' is selected but not available. Make it available, or remove it from the selection` };
       selected.push(pack);
     }
     return Composition.compose(available, selected);

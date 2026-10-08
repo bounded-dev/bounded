@@ -3,10 +3,17 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { locator, piRewrite } from "./pi-path.ts";
+import type { Result } from "bounded/domain";
+import { type Locate, locator, piRewrite } from "./pi-path.ts";
 import { piRuntimeAvailable, reportPiRuntime, underPi } from "./pi-runtime.test-support.ts";
 
 const HOME = "/home/agent";
+
+/** A locator whose results are in their wire form, so they compare with plain objects. */
+const inWireForm =
+  (locate: Locate) =>
+  (...args: Parameters<Locate>): Result<{ readonly path: string; readonly absolute: string; readonly exists: boolean }> =>
+    JSON.parse(JSON.stringify(locate(...args)));
 
 describe("piRewrite — the rewrite pi applies before it uses a path", () => {
   test("turns unicode spaces into plain spaces", () => {
@@ -51,7 +58,7 @@ symlinkSync(outside, join(root, "escape"));
 symlinkSync(join(outside, "secret.txt"), join(root, "secret-link.txt"));
 symlinkSync(join(outside, "not-yet.txt"), join(root, "dangling.txt"));
 
-const locate = locator(root, HOME);
+const locate = inWireForm(locator(root, HOME));
 const at = (raw: string, base = root) => locate(raw, base);
 
 describe("locator — where a pi path argument really acts, relative to the project", () => {
@@ -139,7 +146,7 @@ writeFileSync(join(reads, "outside", "secret.txt"), "");
 writeFileSync(join(readRoot, "shots", "Shot 10.00.00\u202FPM.png"), "");
 writeFileSync(join(readRoot, "shots", "Capture d\u2019e\u0301cran.png"), "");
 symlinkSync(join(reads, "outside"), join(readRoot, "docs\u2019"));
-const read = locator(readRoot, HOME);
+const read = inWireForm(locator(readRoot, HOME));
 
 describe("locator — a read is judged as the file pi's read will open", () => {
   test("judges the AM/PM, NFD and curly-apostrophe spellings pi falls back to", () => {

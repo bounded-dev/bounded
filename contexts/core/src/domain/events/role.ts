@@ -2,22 +2,43 @@ import { own } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./role.contract.ts";
 
-// A branded string, as PackId: a role stays readable text in messages.
 const LABEL = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
-function parse(raw: unknown): Result<Role> {
-  if (typeof raw !== "string") return { ok: false, error: "A role must be a string" };
-  if (!LABEL.test(raw)) return { ok: false, error: `Role '${raw}' must be lowercase words joined by single hyphens, such as 'builder'` };
-  // The brand exists only in types; the checked text is the role.
-  return { ok: true, value: raw as Role };
+class RoleImpl implements Contract.Role {
+  declare readonly __brand: "Role";
+  readonly #made = true;
+
+  private constructor(readonly value: string) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  static made(raw: unknown): raw is RoleImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: unknown): Result<Role> {
+    if (RoleImpl.made(raw)) return { ok: true, value: raw };
+    if (typeof raw !== "string") return { ok: false, error: "A role must be a string" };
+    if (!LABEL.test(raw)) return { ok: false, error: `Role '${raw}' must be lowercase words joined by single hyphens, such as 'builder'` };
+    return { ok: true, value: new RoleImpl(raw) };
+  }
+
+  equals(other: Role): boolean {
+    return this.value === other.value;
+  }
+
+  toJSON(): string {
+    return this.value;
+  }
 }
+
+export type Role = Contract.Role;
+export const Role: Contract.RoleFactory = RoleImpl;
 
 /** An event's role: a role label, or null when none is active. A missing role is refused, never read as none. */
 export function roleOf(event: object, name: string): Result<Role | null> {
   const role = own(event, "role");
   if (role === undefined) return { ok: false, error: `${name} must name its role: a role label, or null when no role is active` };
-  return role === null ? { ok: true, value: null } : parse(role);
+  return role === null ? { ok: true, value: null } : Role.parse(role);
 }
-
-export type Role = Contract.Role;
-export const Role: Contract.RoleFactory = Object.freeze({ parse });

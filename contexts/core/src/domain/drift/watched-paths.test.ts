@@ -3,11 +3,12 @@ import { Composition } from "../composition/composition.ts";
 import { corePack } from "../guards/core-pack.ts";
 import { contribution, definePack } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
-import type { WatchedPath } from "./watched-path.contract.ts";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
+import type { WatchedPathJSON } from "./watched-path.contract.ts";
 import { watchedPathsOf } from "./watched-paths.ts";
 
 const packId = packIdsFor("test-packs");
-const rule: WatchedPath = { match: "generated/**", why: "generated", redirect: "Change the input" };
+const rule: WatchedPathJSON = { match: "generated/**", why: "generated", redirect: "Change the input" };
 
 describe("watchedPathsOf", () => {
   test("gives every watched path with the pack that contributed it, calling sources with the composition", () => {
@@ -21,7 +22,7 @@ describe("watchedPathsOf", () => {
     const composed = Composition.compose(all, all);
     if (!composed.ok) throw new Error(composed.error);
     const watched = watchedPathsOf(composed.value);
-    expect<unknown>(watched).toEqual({
+    expect(wireOf(watched)).toEqual({
       ok: true,
       value: [
         { rule: { match: "build/**", except: [], why: "built", redirect: "Rebuild" }, from: "test-packs/derived" },

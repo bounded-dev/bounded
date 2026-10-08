@@ -5,7 +5,7 @@ const URL_FORM = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
 const ABSOLUTE = /^([/~]|[A-Za-z]:(\/|$))/;
 const isControl = (char: string): boolean => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f;
 
-function parse(raw: unknown): Result<ProjectPath> {
+function normalised(raw: unknown): Result<string> {
   if (typeof raw !== "string") return { ok: false, error: "A path must be a string" };
   const path = raw.normalize("NFC");
   if (path === "") return { ok: false, error: "A path must not be empty. Use '.' for the project root" };
@@ -22,9 +22,36 @@ function parse(raw: unknown): Result<ProjectPath> {
       return { ok: false, error: `Path '${raw}' climbs out of the project with '..'. Only paths inside the project can be checked` };
     }
   }
-  // The brand exists only in types; the normalised text is the path.
-  return { ok: true, value: (segments.join("/") || ".") as ProjectPath };
+  return { ok: true, value: segments.join("/") || "." };
+}
+
+class ProjectPathImpl implements Contract.ProjectPath {
+  declare readonly __brand: "ProjectPath";
+  readonly #made = true;
+
+  private constructor(readonly value: string) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  static made(raw: unknown): raw is ProjectPathImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: unknown): Result<ProjectPath> {
+    if (ProjectPathImpl.made(raw)) return { ok: true, value: raw };
+    const path = normalised(raw);
+    return path.ok ? { ok: true, value: new ProjectPathImpl(path.value) } : path;
+  }
+
+  equals(other: ProjectPath): boolean {
+    return this.value === other.value;
+  }
+
+  toJSON(): string {
+    return this.value;
+  }
 }
 
 export type ProjectPath = Contract.ProjectPath;
-export const ProjectPath: Contract.ProjectPathFactory = Object.freeze({ parse });
+export const ProjectPath: Contract.ProjectPathFactory = ProjectPathImpl;

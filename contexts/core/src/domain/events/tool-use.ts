@@ -1,33 +1,34 @@
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
-import type { Effect as EffectType } from "./effect.contract.ts";
+import { sameWire } from "../shared/wire.ts";
+import { CallId } from "./call-id.ts";
 import { Effect } from "./effect.ts";
+import type { Role } from "./role.contract.ts";
 import { roleOf } from "./role.ts";
 import type * as Contract from "./tool-use.contract.ts";
 
-const TOOLS: readonly Contract.ToolKind[] = ["read", "search", "edit", "write", "shell", "web", "subagent", "other"];
+export const TOOL_KINDS: readonly Contract.ToolKind[] = ["read", "search", "edit", "write", "shell", "web", "subagent", "other"];
 const EFFECTS = "A tool use's effects must be a non-empty list of what the call reads, lists, writes, executes, fetches, delegates or invokes";
 
-/** A host's id for a tool call: non-empty text without control characters, at most 256 characters. */
-function isCallId(raw: unknown): raw is string {
-  return typeof raw === "string" && raw.trim() !== "" && raw.length <= 256 && ![...raw].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f);
-}
-
-const one = <T extends string>(list: readonly T[], raw: unknown): raw is T => list.some((item) => item === raw);
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
-// Each field is read once, own fields only; the result is a new frozen
-// object holding nothing but the vocabulary's fields.
-function check(raw: unknown): Result<ToolUse> {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse("A tool use is an object: { role, tool, effects }");
-  const kind = own(raw, "kind");
-  if (kind !== undefined && kind !== "tool-use") return refuse(`A tool use has kind 'tool-use', not '${show(kind)}'`);
-  const role = roleOf(raw, "A tool use");
+/** What a tool use and a tool result share: who acts, the tool kind, its effects and call id, read and checked. */
+export interface Call {
+  readonly role: Role | null;
+  readonly tool: Contract.ToolKind;
+  readonly effects: readonly [Effect, ...Effect[]];
+  readonly callId: CallId | undefined;
+}
+
+/** Reads a call's own fields, each once: role, tool, effects and the optional call id. */
+export function callOf(raw: object, name: string): Result<Call> {
+  const role = roleOf(raw, name);
   if (!role.ok) return role;
   const [tool, rawEffects] = [own(raw, "tool"), own(raw, "effects")];
-  if (!one(TOOLS, tool)) return refuse(`Tool kind '${show(tool)}' is not one of: ${TOOLS.join(", ")}`);
+  const known = TOOL_KINDS.find((kind) => kind === tool);
+  if (known === undefined) return refuse(`Tool kind '${show(tool)}' is not one of: ${TOOL_KINDS.join(", ")}`);
   if (!Array.isArray(rawEffects) || rawEffects.length === 0) return refuse(EFFECTS);
-  const effects: EffectType[] = [];
+  const effects: Effect[] = [];
   for (const [i, rawEffect] of rawEffects.entries()) {
     const effect = Effect.parse(rawEffect);
     if (!effect.ok) return refuse(`Effect ${i + 1} of ${rawEffects.length}: ${effect.error}`);
@@ -35,14 +36,54 @@ function check(raw: unknown): Result<ToolUse> {
   }
   const [first, ...rest] = effects;
   if (first === undefined) return refuse(EFFECTS);
-  const callId = own(raw, "callId");
-  if (callId !== undefined && !isCallId(callId)) return refuse("A tool call id is non-empty text without control characters, at most 256 characters");
-  const fields = { kind: "tool-use", role: role.value, tool, effects: Object.freeze([first, ...rest] as const) };
-  // The brand exists only in types: every tool use is made here, checked and frozen.
-  return { ok: true, value: Object.freeze(callId === undefined ? fields : { ...fields, callId }) as ToolUse };
+  const rawCallId = own(raw, "callId");
+  const callId = rawCallId === undefined ? undefined : CallId.parse(rawCallId);
+  if (callId !== undefined && !callId.ok) return callId;
+  return { ok: true, value: { role: role.value, tool: known, effects: Object.freeze([first, ...rest] as const), callId: callId?.value } };
 }
 
-const parse = (raw: unknown): Result<ToolUse> => readSafely("A tool use", () => check(raw));
+class ToolUseImpl implements Contract.ToolUse {
+  declare readonly __brand: "ToolUse";
+  readonly #made = true;
+  readonly kind = "tool-use" as const;
+  readonly role: Role | null;
+  readonly tool: Contract.ToolKind;
+  readonly effects: readonly [Effect, ...Effect[]];
+  declare readonly callId?: CallId;
+
+  private constructor(call: Call) {
+    this.role = call.role;
+    this.tool = call.tool;
+    this.effects = call.effects;
+    if (call.callId !== undefined) this.callId = call.callId;
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  static made(raw: unknown): raw is ToolUseImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: unknown): Result<ToolUse> {
+    return readSafely("A tool use", () => {
+      if (ToolUseImpl.made(raw)) return { ok: true, value: raw };
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse("A tool use is an object: { role, tool, effects }");
+      const kind = own(raw, "kind");
+      if (kind !== undefined && kind !== "tool-use") return refuse(`A tool use has kind 'tool-use', not '${show(kind)}'`);
+      const call = callOf(raw, "A tool use");
+      return call.ok ? { ok: true, value: new ToolUseImpl(call.value) } : call;
+    });
+  }
+
+  equals(other: ToolUse): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.ToolUseJSON {
+    const json = { kind: this.kind, role: this.role === null ? null : this.role.value, tool: this.tool, effects: this.effects.map((effect) => effect.toJSON()) };
+    return this.callId === undefined ? json : { ...json, callId: this.callId.value };
+  }
+}
 
 export type ToolUse = Contract.ToolUse;
-export const ToolUse: Contract.ToolUseFactory = Object.freeze({ parse });
+export const ToolUse: Contract.ToolUseFactory = ToolUseImpl;

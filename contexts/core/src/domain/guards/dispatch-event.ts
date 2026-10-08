@@ -11,7 +11,7 @@ import type { Judgement } from "./guard.contract.ts";
 import { corePack } from "./core-pack.ts";
 import { firstRefusal, invalidEvent, type LabelledGuard, outermost, unfinished } from "./dispatch.ts";
 
-const CORE = corePack.id;
+const CORE = corePack.id.value;
 const { points } = corePack;
 
 /** The guards contributed to `point`, labelled by the pack each came from. */
@@ -20,7 +20,7 @@ function labelled<V>(entries: Result<readonly { readonly from: PackId; readonly 
   const suffix = about === "" ? "" : ` ${about}`;
   return {
     ok: true,
-    value: entries.value.map(({ from, value }) => ({ guard: value, label: `A guard from ${from}${about === "" ? "" : ` for ${about}`}`, refusedBy: `${from} refused${suffix}`, from })),
+    value: entries.value.map(({ from, value }) => ({ guard: value, label: `A guard from ${from.value}${about === "" ? "" : ` for ${about}`}`, refusedBy: `${from.value} refused${suffix}`, from })),
   };
 }
 

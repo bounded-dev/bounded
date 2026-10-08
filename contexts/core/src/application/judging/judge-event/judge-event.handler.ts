@@ -1,4 +1,4 @@
-import { type Composition, Decision, decideEvent, Event, type Judgement, Verdict } from "bounded/domain";
+import { type Composition, Decision, DecisionId, decideEvent, Event, type Judgement, Verdict } from "bounded/domain";
 import type { AdapterRefusalInput, Clock, DecisionIds, DecisionLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
 
 const UNRECORDED_REDIRECT = "Make the decision log writable; until decisions can be recorded, every action is refused";
@@ -18,6 +18,13 @@ function isIso(time: unknown): time is string {
   } catch {
     return false;
   }
+}
+
+/** The next decision id; an id that is not one throws, so the decision is not recorded and fails closed. */
+export function nextDecisionId(ids: DecisionIds): DecisionId {
+  const id = DecisionId.parse(ids.next());
+  if (!id.ok) throw new Error(`the decision ids gave an invalid id: ${id.error}`);
+  return id.value;
 }
 
 /** Why recording failed; when it timed out, the record that may still land. */
@@ -65,7 +72,7 @@ export class JudgeEventHandler implements JudgeEvent {
       const event = Event.parse(typeof command === "object" && command !== null ? command.event : undefined);
       if (!event.ok) return Verdict.refuse(`The handler was given something that is not a judge-event command: ${event.error}`, "Build the command with JudgeEventCommand.parse");
       const judgement = await this.judged(event.value);
-      return await this.settle(judgement, () => Decision.of(this.ids.next(), this.now(), event.value, judgement));
+      return await this.settle(judgement, () => Decision.of(nextDecisionId(this.ids), this.now(), event.value, judgement));
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
     }
@@ -89,10 +96,10 @@ export class JudgeEventHandler implements JudgeEvent {
       const event = Event.parse(raw);
       if (event.ok) {
         const judgement = await this.judged(event.value);
-        return await this.settle(judgement, () => Decision.of(this.ids.next(), this.now(), event.value, judgement));
+        return await this.settle(judgement, () => Decision.of(nextDecisionId(this.ids), this.now(), event.value, judgement));
       }
       const refusal = Verdict.refuse(`The host sent an event that cannot be read: ${event.error}`, "Report this to the maintainers of the host adapter; the action is refused meanwhile");
-      return await this.settle({ verdict: refusal, refusedBy: null }, () => Decision.invalid(this.ids.next(), this.now(), refusal));
+      return await this.settle({ verdict: refusal, refusedBy: null }, () => Decision.invalid(nextDecisionId(this.ids), this.now(), refusal));
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
     }
@@ -109,7 +116,7 @@ export class JudgeEventHandler implements JudgeEvent {
       const verdict = Verdict.refuse(String(given.reason ?? ""), String(given.redirect ?? ""));
       const role = typeof given.role === "string" ? given.role : null;
       return await this.settle({ verdict, refusedBy: null }, () =>
-        Decision.adapter(this.ids.next(), this.now(), { role, tool: String(given.tool ?? "unknown"), input: given.input, verdict }),
+        Decision.adapter(nextDecisionId(this.ids), this.now(), { role, tool: String(given.tool ?? "unknown"), input: given.input, verdict }),
       );
     } catch (thrown) {
       return Verdict.refuse(`Judging could not finish: ${text(thrown)}`, "Report this to the maintainers of bounded; the action is refused meanwhile");

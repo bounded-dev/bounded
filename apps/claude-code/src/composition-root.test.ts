@@ -8,6 +8,9 @@ import type { ToolUse } from "./event.ts";
 import type { Decide } from "./hook.ts";
 import { HOOK_TIMEOUT_SECONDS } from "./install.ts";
 
+/** A value's wire form: its JSON, parsed. */
+const wireOf = (value: unknown): unknown => JSON.parse(JSON.stringify(value) ?? "null");
+
 let root = "";
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "bounded-cc-root-"));
@@ -31,7 +34,7 @@ describe("composeHook: the hook wired to the file system, the environment and ar
       const seen: ToolUse[] = [];
       const hook = composeHook({ env: { CLAUDE_PROJECT_DIR: root }, argv, decide: recording(seen) });
       expect(await hook(write(join(root, "src")))).toBe("");
-      expect(seen).toEqual([{ kind: "tool-use", role: "builder", tool: "write", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] }] as never);
+      expect(wireOf(seen)).toEqual([{ kind: "tool-use", role: "builder", tool: "write", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] }]);
     }
   });
 

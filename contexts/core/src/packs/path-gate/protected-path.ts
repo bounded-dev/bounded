@@ -1,41 +1,12 @@
 import type { Result } from "bounded/domain";
 import picomatch from "picomatch";
+import type * as Contract from "./protected-path.contract.ts";
+import type { PathAccess } from "./protected-path.contract.ts";
 
-/** What a rule can deny on a path: reading it, listing it, or one kind of write. */
-export type PathAccess = "read" | "list" | "create" | "modify" | "delete";
 const ACCESSES: readonly PathAccess[] = ["read", "list", "create", "modify", "delete"];
 
 /** Every kind of write, for `deny: [...writes]`. A stored rule always lists its kinds explicitly. */
 export const writes = Object.freeze(["create", "modify", "delete"] as const);
-
-/**
- * A protected-path rule: deny-only. It denies `deny` on every project path
- * its `match` glob matches, except the paths its own `except` globs match.
- * A match ending in a literal name also covers everything under that name,
- * unless `file` is true: then it names files only, and covers exactly them.
- * An exception never reaches another rule, and there are no allow rules, so
- * a denial from any rule wins. `redirect` is the permitted next step.
- */
-export interface ProtectedPath {
-  readonly match: string;
-  readonly except?: readonly string[];
-  readonly deny: readonly [PathAccess, ...PathAccess[]];
-  readonly redirect: string;
-  readonly why?: string;
-  /** True when the match names files only, not what is under them; absent otherwise. */
-  readonly file?: true;
-}
-
-export interface ProtectedPathFactory {
-  /**
-   * A frozen rule, stored explicitly: patterns tidied (NFC, no './', no empty
-   * parts), deny in a fixed order without repeats, except always present. Or
-   * why the value is not a rule. Patterns are project-relative globs that
-   * picomatch compiles: never absolute, with '..', negated, parenthesised or
-   * a trailing '/', and at most 512 characters.
-   */
-  parse(raw: unknown): Result<ProtectedPath>;
-}
 
 const FORM = "A protected-path rule is { match, except?, deny, redirect, why?, file? }";
 const KEYS = ["match", "except", "deny", "redirect", "why", "file"];
@@ -101,7 +72,7 @@ function pattern(raw: unknown, role: "match" | "except"): Result<string> {
   return { ok: true, value: tidy };
 }
 
-function parse(raw: unknown): Result<ProtectedPath> {
+function check(raw: unknown): Result<ProtectedPath> {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse(FORM);
   const keys = Object.keys(raw);
   if (keys.some((key) => !KEYS.includes(key)) || !["match", "deny", "redirect"].every((key) => keys.includes(key))) return refuse(FORM);
@@ -145,15 +116,55 @@ function parse(raw: unknown): Result<ProtectedPath> {
   const file = field("file");
   if (file !== undefined && typeof file !== "boolean") return refuse("A rule's file, when given, is true (its match names files, not their contents) or false");
 
-  const rule: ProtectedPath = {
-    match: match.value,
-    except: Object.freeze(except),
-    deny: Object.freeze([first, ...rest] as const),
-    redirect: redirect.trim(),
-    ...(why === undefined ? {} : { why: why.trim() }),
-    ...(file === true ? { file: true as const } : {}),
-  };
-  return { ok: true, value: Object.freeze(rule) };
+  return { ok: true, value: ProtectedPathImpl.of(match.value, except, [first, ...rest], redirect.trim(), why?.trim(), file === true) };
 }
 
-export const ProtectedPath: ProtectedPathFactory = { parse };
+
+class ProtectedPathImpl implements Contract.ProtectedPath {
+  declare readonly __brand: "ProtectedPath";
+  readonly #made = true;
+  declare readonly why?: string;
+  declare readonly file?: true;
+
+  private constructor(
+    readonly match: string,
+    readonly except: readonly string[],
+    readonly deny: readonly [PathAccess, ...PathAccess[]],
+    readonly redirect: string,
+    why: string | undefined,
+    file: boolean,
+  ) {
+    if (why !== undefined) this.why = why;
+    if (file) this.file = true;
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse trusts it as it is. */
+  static made(raw: unknown): raw is ProtectedPathImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  /** A rule from fields `check` has already read and tidied. */
+  static of(match: string, except: readonly string[], deny: readonly [PathAccess, ...PathAccess[]], redirect: string, why: string | undefined, file: boolean): ProtectedPath {
+    return new ProtectedPathImpl(match, Object.freeze([...except]), Object.freeze([...deny] as [PathAccess, ...PathAccess[]]), redirect, why, file);
+  }
+
+  static parse(raw: unknown): Result<ProtectedPath> {
+    return ProtectedPathImpl.made(raw) ? { ok: true, value: raw } : check(raw);
+  }
+
+  equals(other: ProtectedPath): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.ProtectedPathJSON {
+    const json = { match: this.match, except: this.except, deny: this.deny, redirect: this.redirect };
+    return { ...json, ...(this.why === undefined ? {} : { why: this.why }), ...(this.file === true ? { file: true } : {}) };
+  }
+}
+
+/** Whether two rules have the same wire form. */
+const sameWire = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+export type ProtectedPath = Contract.ProtectedPath;
+export const ProtectedPath: Contract.ProtectedPathFactory = ProtectedPathImpl;
