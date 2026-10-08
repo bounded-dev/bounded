@@ -71,6 +71,8 @@ describe("Effect — the seven kinds", () => {
     }
     expect(error({ kind: "delegate", agent: "reviewer", isolated: "yes" })).toBe("A delegate effect's isolated must be true or false");
     expect(error({ kind: "delegate", agent: "reviewer", finishUnreported: 1 })).toBe("A delegate effect's finishUnreported must be true or false");
+    expect(error({ kind: "delegate", agent: "reviewer", isolated: null })).toBe("A delegate effect's isolated must be true or false");
+    expect(error({ kind: "delegate", agent: "reviewer", finishUnreported: null })).toBe("A delegate effect's finishUnreported must be true or false");
     expect(error({ kind: "delegate", agent: "reviewer", background: true })).toBe("A delegate effect is { kind, agent, isolated?, finishUnreported? }");
   });
 

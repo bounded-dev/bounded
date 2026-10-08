@@ -32,12 +32,19 @@ its delegate effects started.
   compile time and by parse (not matched yet); `redirect`, not `fix`, as in
   every Bounded refusal. A rule requiring the action it comes before is
   refused; cycles across rules are not detected.
-- **Patterns are checked and matched as the path gate's** (repeated in the
-  pack's `domain/file-set.ts`, since a shipped pack never imports another):
-  ignoring case, seeing dotfiles, a glob-free pattern covering everything
-  under it, and a pattern inside `.bounded` refused. A file set never
-  includes `.bounded`, `node_modules` or `.git`, at any depth; it includes
-  gitignored files.
+- **Patterns are checked as the path gate checks its patterns** (repeated in
+  the pack's `domain/file-set.ts`, since a shipped pack never imports
+  another), and a pattern inside `.bounded` is refused.
+- **`before.write` matches a write exactly as the path gate's `match`
+  does:** ignoring case, seeing dotfiles, a glob-free pattern covering
+  everything under it, and nothing excluded, so a rule over
+  `node_modules/**` or `.git/**` comes before writes there.
+- **`unchangedSince` is fingerprinted with the same matching, but the
+  fingerprint never reads `.bounded`, `node_modules` or `.git`, at any
+  depth** (it does read gitignored files). So an `unchangedSince` pattern
+  leading into `node_modules` or `.git` (`.git/config`, `node_modules/x/**`)
+  is refused at parse, naming the field and why, as one inside `.bounded`
+  is.
 - **Checks run around the tool call, not as effect guards.** Guards are
   synchronous and cannot await a port (ADR 2026-013); the pack's work needs
   its two ports. Its `beforeTool` refusals are recorded with

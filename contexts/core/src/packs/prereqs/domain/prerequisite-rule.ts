@@ -1,6 +1,6 @@
 import type { prerequisiteRuleBrand } from "./prerequisite-rule.contract.ts";
 import { AgentName, type Effect, own, point, type Result, readSafely, sameWire, wireFormOf } from "bounded/domain";
-import { checkFilePattern, fileSetOf } from "./file-set.ts";
+import { checkFilePattern, pathMatcherOf } from "./file-set.ts";
 import type { FileSetFingerprint } from "./file-set-fingerprint.contract.ts";
 import type { PrerequisiteRecord } from "./prerequisite-record.contract.ts";
 import type * as Contract from "./prerequisite-rule.contract.ts";
@@ -108,7 +108,7 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
 
   comesBefore(effect: Effect): boolean {
     if (this.before.delegate !== undefined) return effect.kind === "delegate" && sameAgent(effect.agent, this.before.delegate);
-    return effect.kind === "write" && fileSetOf([this.before.write]).matches(effect.path.value);
+    return effect.kind === "write" && pathMatcherOf(this.before.write)(effect.path.value);
   }
 
   requiredAgent(): AgentName {

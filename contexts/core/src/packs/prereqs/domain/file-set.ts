@@ -13,6 +13,8 @@ const ABSOLUTE = /^([/~]|[A-Za-z]:(\/|$))/;
 const CLIMBS = /(^|[/{,(|])\.\.($|[/},)|])/;
 /** Directories whose files are never in a set, at any depth: Bounded's state, dependencies and version control. */
 const NEVER = new Set([".bounded", "node_modules", ".git"]);
+/** The directories never fingerprinted that an unchangedSince pattern could otherwise name (.bounded is refused for every field). */
+const UNREAD = new Set(["node_modules", ".git"]);
 const MATCHING = { dot: true, nocase: true, noextglob: true } as const;
 
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
@@ -53,6 +55,9 @@ export const checkFilePattern: Contract.CheckFilePattern = (raw, field) => {
     .join("/");
   if (tidy === "") return refuse(`A rule's ${field} pattern must not be empty`);
   if (tidy.split("/")[0]?.toLowerCase() === ".bounded") return refuse(`${named} is inside .bounded, Bounded's own state, which records prerequisites: name the project's own files`);
+  // A fingerprint never reads node_modules or .git, so files there can never be named as unchanged.
+  const unread = field === "unchangedSince" ? tidy.split("/").find((part) => UNREAD.has(part.toLowerCase())) : undefined;
+  if (unread !== undefined) return refuse(`${named} leads into ${unread}, which is never fingerprinted: name files outside node_modules and .git`);
   try {
     picomatch.makeRe(tidy, { strictBrackets: true, ...MATCHING });
   } catch (error) {
@@ -96,3 +101,5 @@ class FileSetImpl implements Contract.FileSet {
 }
 
 export const fileSetOf: Contract.FileSetOf = (patterns) => new FileSetImpl(Object.freeze([...patterns]));
+
+export const pathMatcherOf: Contract.PathMatcherOf = (pattern) => picomatch(isGlob(pattern) ? [pattern] : [pattern, `${pattern}/**`], MATCHING);

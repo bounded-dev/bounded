@@ -111,6 +111,16 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(rule(beforeBuilder).describeBefore()).toBe("before delegating to 'builder'");
   });
 
+  test("a before.write rule over node_modules or .git comes before a write there, as the path gate matches", () => {
+    // The final review's repro: such a rule parsed but never fired.
+    const overDependencies = rule({ ...beforeSrc, before: { write: "node_modules/**" } });
+    expect(overDependencies.comesBefore(effect({ kind: "write", path: "node_modules/left-pad/index.js", change: "modify" }))).toBe(true);
+    const overGit = rule({ ...beforeSrc, before: { write: ".git/**" } });
+    expect(overGit.comesBefore(effect({ kind: "write", path: ".git/hooks/pre-commit", change: "create" }))).toBe(true);
+    expect(error({ ...beforeSrc, unchangedSince: [".git/config"] })).toContain("leads into .git, which is never fingerprinted");
+    expect(error({ ...beforeSrc, unchangedSince: ["node_modules/x/**"] })).toContain("leads into node_modules, which is never fingerprinted");
+  });
+
   test("a rule's requirement is met by a delegation to its required agent", () => {
     expect(rule(beforeSrc).requiresDelegationTo(agent("plan-reviewer"))).toBe(true);
     expect(rule(beforeSrc).requiresDelegationTo(agent("PLAN-REVIEWER"))).toBe(true);

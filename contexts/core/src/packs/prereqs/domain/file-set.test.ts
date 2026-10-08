@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkFilePattern, fileSetOf } from "./file-set.ts";
+import { checkFilePattern, fileSetOf, pathMatcherOf } from "./file-set.ts";
 
 const refused = (raw: unknown): string => {
   const checked = checkFilePattern(raw, "unchangedSince");
@@ -59,5 +59,20 @@ describe("FileSet — which project files a rule's patterns name", () => {
     expect(checkFilePattern(" src//**/*.ts ", "before.write")).toEqual({ ok: true, value: "src/**/*.ts" });
     const write = checkFilePattern("/abs", "before.write");
     expect(!write.ok && write.error).toStartWith("A rule's before.write pattern '/abs'");
+  });
+
+  test("an unchangedSince pattern leading into node_modules or .git is refused: they are never fingerprinted; a before.write pattern may name them", () => {
+    expect(refused(".git/config")).toBe("A rule's unchangedSince pattern '.git/config' leads into .git, which is never fingerprinted: name files outside node_modules and .git");
+    expect(refused("node_modules/x/**")).toBe("A rule's unchangedSince pattern 'node_modules/x/**' leads into node_modules, which is never fingerprinted: name files outside node_modules and .git");
+    expect(refused("packages/a/Node_Modules/b.js")).toContain("leads into Node_Modules, which is never fingerprinted");
+    expect(checkFilePattern("node_modules/**", "before.write")).toEqual({ ok: true, value: "node_modules/**" });
+    expect(checkFilePattern(".git/**", "before.write")).toEqual({ ok: true, value: ".git/**" });
+  });
+
+  test("a path matcher matches as the path gate does, excluding nothing", () => {
+    expect(pathMatcherOf("node_modules/**")("node_modules/x/index.js")).toBe(true);
+    expect(pathMatcherOf(".git")(".git/hooks/pre-commit")).toBe(true);
+    expect(pathMatcherOf("SRC/**")("src/a.ts")).toBe(true);
+    expect(pathMatcherOf("infra")("infrastructure/a")).toBe(false);
   });
 });

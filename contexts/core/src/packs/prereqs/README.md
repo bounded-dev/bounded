@@ -35,10 +35,14 @@ export default defineConfig({
 - `require` is a delegation to an agent that succeeded. A rule cannot
   require the action it comes before.
 - `unchangedSince` names the files the run must have seen as they are now.
-  Patterns are matched as the path gate's: ignoring case, seeing dotfiles; a
-  pattern without a glob covers everything under it. `.bounded`,
-  `node_modules` and `.git` never count; gitignored files do. A pattern
-  inside `.bounded` is refused.
+  Patterns are checked as the path gate's, and matched as its `match`:
+  ignoring case, seeing dotfiles; a pattern without a glob covers everything
+  under it. Gitignored files count, but `.bounded`, `node_modules` and
+  `.git` are never fingerprinted, so a pattern leading into any of them is
+  refused.
+- A `before.write` pattern matches a write exactly as the path gate's
+  `match` does, with nothing excluded: a rule over `node_modules/**` or
+  `.git/**` comes before writes there. One inside `.bounded` is refused.
 - `redirect` is what the agent is told to do instead.
 
 Rules with the same requirement (agent and patterns) share records: one

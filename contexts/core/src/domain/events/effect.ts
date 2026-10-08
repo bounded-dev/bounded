@@ -222,7 +222,9 @@ class DelegateEffectImpl implements Contract.DelegateEffect {
     if (!agent.ok) return agent;
     const flags = { isolated: false, finishUnreported: false };
     for (const field of ["isolated", "finishUnreported"] as const) {
-      const given = own(raw, field) ?? false;
+      // Absent is false; anything else, null included, must be a boolean.
+      const read = own(raw, field);
+      const given = read === undefined ? false : read;
       if (typeof given !== "boolean") return refuse(`A delegate effect's ${field} must be true or false`);
       flags[field] = given;
     }

@@ -161,6 +161,27 @@ describe("CheckPrerequisites — an action needs a delegation to have succeeded 
     expect(reasonOf(verdict)).toContain("call id");
   });
 
+  test("a result for an isolated delegation, or one whose finish is unreported, records nothing even when the host says it finished", async () => {
+    for (const flags of [{ isolated: true as const }, { finishUnreported: true as const }]) {
+      const { handler, records } = setup();
+      // A start kept as for an ordinary delegation, as if before() had been bypassed.
+      expect((await handler.before(delegation("plan-reviewer"))).kind).toBe("allow");
+      const report = await handler.after(resultOf(delegation("plan-reviewer", "c1", flags), true, [true]));
+      expect(report.message).toContain("plan-reviewer's run was not seen to finish");
+      expect(records.records).toEqual([]);
+      expect((await handler.before(writeTo("src/a.ts"))).kind).toBe("refuse");
+    }
+  });
+
+  test("a delegation result without a call id records nothing, says so and is recorded as a refusal", async () => {
+    const { handler, records } = setup();
+    const report = await handler.after(resultOf(delegation("plan-reviewer", null), true, [true]));
+    expect(report.message).toContain("has no call id");
+    expect(report.record?.verdict.kind).toBe("refuse");
+    expect(records.records).toEqual([]);
+    expect(records.calls).toBe(0);
+  });
+
   test("a result whose start is missing records nothing, and says so", async () => {
     const { handler, records } = setup();
     const report = await handler.after(resultOf(delegation("plan-reviewer"), true, [true]));

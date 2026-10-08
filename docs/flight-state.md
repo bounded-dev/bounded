@@ -225,7 +225,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
     `npx bounded init` in a fresh project installs it from the registry,
     with no `--from`. Not on npm yet: 3.2.0, a minor release carrying a
     selection that brings in its packs' dependencies
-    ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)) and
+    ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)), the
+    prerequisites pack, `bounded/prereqs`
+    ([ADR 2026-019](adr/2026-019-prereqs-pack.md)), and
     3.1.1's per-host restart notice, never published on its own. ADR
     2026-018 breaks the types 3.0.0 and 3.1.0 published
     (`Config.selectedPacks`, compose-packs' `selectedPackIds`, the meaning

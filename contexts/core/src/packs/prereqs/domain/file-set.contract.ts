@@ -23,9 +23,19 @@ export interface FileSet {
  * not text, empty, absolute, climbing with '..', negated, with parentheses, a
  * '/' or '**' inside a group, more than three wildcards in one part, not a
  * glob picomatch compiles, longer than 512 characters, or inside `.bounded`,
- * Bounded's own state, which no rule may name.
+ * Bounded's own state, which no rule may name. An `unchangedSince` pattern
+ * leading into `node_modules` or `.git` is refused too: they are never
+ * fingerprinted. A `before.write` pattern may name them.
  */
 export type CheckFilePattern = (raw: unknown, field: FilePatternField) => Result<string>;
 
 /** The file set named by patterns already checked by checkFilePattern. */
 export type FileSetOf = (patterns: readonly string[]) => FileSet;
+
+/**
+ * Whether a project-relative path matches a checked pattern exactly as the
+ * path gate matches a rule's `match`: ignoring case, seeing dotfiles, a
+ * glob-free pattern covering everything under it. Nothing is excluded: this
+ * is how a rule's `before.write` meets a write, wherever it is.
+ */
+export type PathMatcherOf = (pattern: string) => (path: string) => boolean;
