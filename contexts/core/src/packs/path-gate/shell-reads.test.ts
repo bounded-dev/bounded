@@ -1,41 +1,44 @@
 import { describe, expect, test } from "bun:test";
-import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
+import { type AnyPack, contribution, definePack, packIdsFor, Verdict } from "bounded/domain";
 import { pathGate, type ProtectedPath } from "bounded/path-gate";
+import { opened, type PathsForTest, ROOT } from "./shell.test-support.ts";
 
-// The path gate's best-effort guard on shell commands that name read-protected paths.
+// The path gate's guard on shell commands: a command is parsed into a syntax
+// tree, translated into what it reads, lists and writes, and each is judged
+// exactly as a file tool's would be.
 const packId = packIdsFor("test-packs");
 
 /** A pack, test-packs/a, that contributes `given` to the path gate's point. */
-const rules = (_local: "a", ...given: ProtectedPath[]): AnyPack => definePack({ id: packId("a"), dependsOn: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, given)] });
-
-/** Dispatch one tool call, its effects in wire form, over the core, the path gate and `packs`. */
-function decide(packs: readonly AnyPack[], effects: object[], tool = "shell"): Verdict {
-  const all = [corePack, pathGate, ...packs];
-  const composed = Composition.compose(all, all);
-  if (!composed.ok) throw new Error(composed.error);
-  const call = ToolUse.parse({ role: null, tool, effects });
-  if (!call.ok) throw new Error(call.error);
-  return dispatchEvent(composed.value, call.value);
-}
+const rules = (local: "a" | "b", ...given: ProtectedPath[]): AnyPack => {
+  const contributes = [contribution(pathGate.points.protectedPaths, given)];
+  return local === "a" ? definePack({ id: packId("a"), dependsOn: [pathGate], contributes }) : definePack({ id: packId("b"), dependsOn: [pathGate], contributes });
+};
 const reason = (verdict: Verdict): string => (verdict.kind === "refuse" ? verdict.reason : "allowed");
+const env = rules("a", { match: ".env", deny: ["read"], redirect: "Ask a maintainer for the value", file: true });
+
+/** Decides `command` under `packs`, from `cwd`, with `paths` saying what exists. */
+async function shellWith(packs: readonly AnyPack[], paths: PathsForTest = {}) {
+  const decide = await opened(packs, paths);
+  return (command: string, cwd: string | null = null) => decide([{ kind: "execute", command, cwd }]);
+}
 
 describe("the path gate — shell commands that name read-protected paths (best effort)", () => {
-  const env = rules("a", { match: ".env", deny: ["read"], redirect: "Ask a maintainer for the value", file: true });
-  const shell = (command: string, cwd: string | null = null) => decide([env], [{ kind: "execute", command, cwd }], "shell");
-
-  test("a command naming the protected file is refused, however it spells the path", () => {
+  test("a command naming the protected file is refused, however it spells the path", async () => {
+    const shell = await shellWith([env]);
     for (const command of ["cat ./.env", "cat .env", 'less "./.env"', "less './.env'", "grep KEY .env", "source .env && run", "cp .env /tmp/x", "env $(cat .env | xargs) node app.js", "node --env-file=.env app.js"]) {
       expect(shell(command)).toMatchObject({ kind: "refuse", redirect: "Ask a maintainer for the value" });
     }
   });
 
-  test("relative paths are resolved from the command's directory, and from a cd inside it", () => {
+  test("relative paths are resolved from the command's directory, and from a cd inside it", async () => {
+    const shell = await shellWith([env], { sub: "directory" });
     expect(shell("cat ../.env", "sub").kind).toBe("refuse");
     expect(shell("cd sub && cat ../.env").kind).toBe("refuse");
     expect(shell("cat .env", "sub")).toBe(Verdict.allow);
   });
 
-  test("the refusal says what the command reads, then gives the rule's own refusal and redirect", () => {
+  test("the refusal says what the command reads, then gives the rule's own refusal and redirect", async () => {
+    const shell = await shellWith([env]);
     expect(shell("cat ./.env")).toMatchObject({
       kind: "refuse",
       reason: "bounded/path-gate refused execute `cat ./.env`: this command reads '.env' — the rule '.env' from test-packs/a denies read of '.env'",
@@ -43,7 +46,7 @@ describe("the path gate — shell commands that name read-protected paths (best 
     });
   });
 
-  test("a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case", () => {
+  test("a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case", async () => {
     const fixtures = [
       rules("a", { match: "secrets/**", except: ["secrets/README.md"], deny: ["read"], redirect: "Ask the owner", why: "credentials" }),
       rules("a", { match: "**/.env", deny: ["read"], redirect: "Ask a maintainer" }),
@@ -52,9 +55,10 @@ describe("the path gate — shell commands that name read-protected paths (best 
     ];
     const paths = ["secrets/key.pem", "secrets/README.md", "SECRETS/key.pem", "api/.env", ".env", ".ENV", "config/app.json", "configs/app.json", ".envrc"];
     for (const pack of fixtures) {
+      const decide = await opened([pack]);
       for (const path of paths) {
-        const asFile = decide([pack], [{ kind: "read", path }], "read");
-        const asShell = decide([pack], [{ kind: "execute", command: `cat ${path}`, cwd: null }], "shell");
+        const asFile = decide([{ kind: "read", path }], "read");
+        const asShell = decide([{ kind: "execute", command: `cat ${path}`, cwd: null }]);
         expect(asShell.kind).toBe(asFile.kind);
         if (asFile.kind === "refuse" && asShell.kind === "refuse") {
           expect(asShell.redirect).toBe(asFile.redirect);
@@ -64,43 +68,176 @@ describe("the path gate — shell commands that name read-protected paths (best 
     }
   });
 
-  test("a redirect target is a write, judged as a file write; a redirect source is a read", () => {
+  test("a redirect target is a write, judged as a file write; a redirect source is a read", async () => {
     const generated = rules("a", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
-    const run = (command: string) => decide([generated], [{ kind: "execute", command, cwd: null }], "shell");
+    const run = await shellWith([generated], { "generated/a.ts": "file" });
     expect(run("echo x > generated/a.ts")).toMatchObject({ kind: "refuse", redirect: "Change the generator's input" });
     expect(reason(run("echo x >> generated/a.ts"))).toStartWith("bounded/path-gate refused execute `echo x >> generated/a.ts`: this command writes 'generated/a.ts' — the rule 'generated/**' from test-packs/a denies ");
     expect(run("cat generated/a.ts > out.txt")).toBe(Verdict.allow);
+    const shell = await shellWith([env]);
     expect(shell("sort < .env").kind).toBe("refuse");
     expect(shell("echo x 2>&1")).toBe(Verdict.allow);
   });
 
-  test("what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed", () => {
+  test("what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed", async () => {
+    const shell = await shellWith([env]);
     for (const command of ["cat *.env", "cat $ENV_FILE", "cat $" + "{DIR}/.env", "cat ~/.env", "cat /etc/.env", "cat `echo .env`"]) expect(shell(command)).toBe(Verdict.allow);
   });
 
-  test("a name that only resembles the protected one is not refused", () => {
+  test("a name that only resembles the protected one is not refused", async () => {
+    const shell = await shellWith([env]);
     expect(shell("cat .envrc")).toBe(Verdict.allow);
     expect(shell("cat .env.example")).toBe(Verdict.allow);
   });
 
-  test("a '**'-led rule ending in a name refuses the name anywhere", () => {
-    const anywhere = rules("a", { match: "**/.env", deny: ["read"], redirect: "Ask" });
-    expect(decide([anywhere], [{ kind: "execute", command: "cat services/api/.env", cwd: null }], "shell").kind).toBe("refuse");
-    expect(decide([anywhere], [{ kind: "execute", command: "cat .env", cwd: "services/api" }], "shell").kind).toBe("refuse");
+  test("a '**'-led rule ending in a name refuses the name anywhere", async () => {
+    const shell = await shellWith([rules("a", { match: "**/.env", deny: ["read"], redirect: "Ask" })]);
+    expect(shell("cat services/api/.env").kind).toBe("refuse");
+    expect(shell("cat .env", "services/api").kind).toBe("refuse");
   });
 
-  test("redirections, command substitution and option values are read as the shell parses them", () => {
+  test("redirections, command substitution and option values are read as the shell parses them", async () => {
+    const shell = await shellWith([env]);
     for (const command of ["cat < .env", "sort .env > out.txt", "echo $(cat .env)", "node --env-file=.env app.js"]) expect(shell(command).kind).toBe("refuse");
     expect(shell("echo done # not cat .env")).toBe(Verdict.allow);
   });
 
-  test("a command the parser cannot read is left unresolved, and allowed", () => {
-    expect(shell("cat .env ${")).toBe(Verdict.allow);
-    expect(shell("ls ${")).toBe(Verdict.allow);
+  test("what the parser could not read is unresolved; what it did read is still judged", async () => {
+    const shell = await shellWith([env]);
+    expect(shell("cat .env $" + "{").kind).toBe("refuse");
+    expect(shell("ls $" + "{")).toBe(Verdict.allow);
   });
 
-  test("a rule that does not deny read leaves shell commands alone", () => {
-    const writeOnly = rules("a", { match: ".env", deny: ["create", "modify", "delete"], redirect: "Ask" });
-    expect(decide([writeOnly], [{ kind: "execute", command: "cat .env", cwd: null }], "shell")).toBe(Verdict.allow);
+  test("a rule that does not deny read leaves shell commands alone", async () => {
+    const shell = await shellWith([rules("a", { match: ".env", deny: ["create", "modify", "delete"], redirect: "Ask" })]);
+    expect(shell("cat .env")).toBe(Verdict.allow);
+  });
+});
+
+describe("the path gate — where a shell command runs from: cd, pushd and their scope", () => {
+  test("a cd takes later commands with it; one that cannot be known leaves later relative paths unresolved", async () => {
+    const shell = await shellWith([env], { sub: "directory" });
+    const refused = ["cd sub && cat ../.env", "cd sub; cat ../.env", "pushd sub && cat ../.env", "builtin cd sub && cat ../.env", "command cd sub && cat ../.env", "cd sub && cd .. && cat .env"];
+    for (const command of refused) expect([command, shell(command).kind]).toEqual([command, "refuse"]);
+    const unknown = ["cd - && cat .env", "cd && cat .env", "pushd sub && popd && cat .env", "cd $DIR && cat .env", "cd ../.. && cat .env", "cd /tmp && cat .env"];
+    for (const command of unknown) expect([command, shell(command).kind]).toEqual([command, "allow"]);
+    expect(shell("cd sub; cat .env")).toBe(Verdict.allow);
+  });
+
+  test("a cd in a subshell, a substitution or a pipeline stage does not leak", async () => {
+    const shell = await shellWith([env], { config: "directory", sub: "directory" });
+    expect(shell("(cd config); cat .env").kind).toBe("refuse");
+    expect(shell("echo $(cd sub); cat .env").kind).toBe("refuse");
+    expect(shell("cd sub | true; cat .env").kind).toBe("refuse");
+    expect(shell("(cd sub; cat ../.env)").kind).toBe("refuse");
+    expect(shell("{ cd sub; }; cat ../.env").kind).toBe("refuse");
+  });
+
+  test("after a cd that may or may not have run, where later commands run is unknown", async () => {
+    const shell = await shellWith([env], { sub: "directory" });
+    expect(shell("if true; then cd sub; fi; cat ../.env")).toBe(Verdict.allow);
+    expect(shell("cd sub || cat .env").kind).toBe("refuse");
+  });
+});
+
+describe("the path gate — what each command does with its arguments", () => {
+  test("echo, printf, test and [ take text, not paths; listing commands list; git add stages", async () => {
+    const shell = await shellWith([env]);
+    for (const command of ["echo .env", "printf '%s' .env", "test -f .env", "[ -f .env ]", "[[ -f .env ]]", "true .env", "ls .env", "find . -name .env", "tree .", "git add .env"]) {
+      expect([command, shell(command).kind]).toEqual([command, "allow"]);
+    }
+  });
+
+  test("ls, find and tree are judged as listings, by the list guard", async () => {
+    const shell = await shellWith([rules("a", { match: "secrets/**", deny: ["list"], redirect: "Do not look there" })]);
+    expect(reason(shell("ls secrets"))).toStartWith("bounded/path-gate refused execute `ls secrets`: this command lists 'secrets' — the rule 'secrets/**' from test-packs/a denies list");
+    expect(shell("find secrets -type f").kind).toBe("refuse");
+    expect(shell("ls").kind).toBe("refuse");
+    expect(shell("tree docs")).toBe(Verdict.allow);
+  });
+
+  test("rm deletes, touch creates a missing file, mkdir creates, each judged as a file write", async () => {
+    const generated = rules("a", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
+    const shell = await shellWith([generated], { generated: "directory", "generated/a.ts": "file" });
+    expect(reason(shell("rm generated/a.ts"))).toContain("this command deletes 'generated/a.ts' — the rule 'generated/**' from test-packs/a denies delete of 'generated/a.ts'");
+    expect(shell("rm -rf generated").kind).toBe("refuse");
+    expect(shell("touch generated/b.ts").kind).toBe("refuse");
+    expect(shell("touch generated/a.ts")).toBe(Verdict.allow);
+    expect(shell("mkdir generated/x").kind).toBe("refuse");
+    expect(shell("rm notes.txt")).toBe(Verdict.allow);
+  });
+
+  test("cp reads its sources and writes its destination, into a directory by name; mv deletes its sources", async () => {
+    const generated = rules("b", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
+    const shell = await shellWith([generated, env], { generated: "directory", "generated/a.ts": "file", docs: "directory" });
+    expect(shell("cp .env backup").kind).toBe("refuse");
+    expect(reason(shell("cp a.ts generated/"))).toContain("this command writes 'generated/a.ts'");
+    expect(shell("mv generated/a.ts old.ts").kind).toBe("refuse");
+    expect(shell("cp README.md docs/")).toBe(Verdict.allow);
+  });
+
+  test("git rm deletes and git mv moves; other git commands read what they name", async () => {
+    const generated = rules("b", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
+    const shell = await shellWith([generated, env], { "generated/a.ts": "file" });
+    expect(shell("git rm generated/a.ts").kind).toBe("refuse");
+    expect(shell("git rm --cached generated/a.ts")).toBe(Verdict.allow);
+    expect(shell("git mv generated/a.ts x.ts").kind).toBe("refuse");
+    expect(shell("git diff .env").kind).toBe("refuse");
+  });
+
+  test("xargs and find -exec run their command with the literal arguments they are given", async () => {
+    const shell = await shellWith([env]);
+    expect(shell("xargs cat .env").kind).toBe("refuse");
+    expect(shell("xargs -n 1 cat .env").kind).toBe("refuse");
+    expect(shell("find . -name x | xargs cat")).toBe(Verdict.allow);
+    expect(shell("find . -name x -exec cat .env {} \\;").kind).toBe("refuse");
+  });
+
+  test("builtin, command and exec are looked past; an unknown command's arguments are reads", async () => {
+    const shell = await shellWith([env]);
+    expect(shell("exec cat .env").kind).toBe("refuse");
+    expect(shell("command cat .env").kind).toBe("refuse");
+    expect(shell("command -v cat")).toBe(Verdict.allow);
+    expect(shell("mytool .env").kind).toBe("refuse");
+  });
+});
+
+describe("the path gate — redirections", () => {
+  const migrations = rules("a", { match: "migrations/**", deny: ["modify", "delete"], redirect: "Add a new migration instead" });
+  const generated = rules("a", { match: "src/generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
+
+  test("a redirect to a missing file is a create, and to an existing one a modify, as for the Write tool", async () => {
+    const shell = await shellWith([migrations], { migrations: "directory", "migrations/0001_init.sql": "file" });
+    expect(shell("echo x > migrations/0002_add.sql")).toBe(Verdict.allow);
+    for (const command of ["echo x > migrations/0001_init.sql", "echo x >> migrations/0001_init.sql", "echo x &> migrations/0001_init.sql", "echo x &>> migrations/0001_init.sql", "echo x >| migrations/0001_init.sql"]) {
+      expect([command, shell(command).kind]).toEqual([command, "refuse"]);
+    }
+    const strict = await shellWith([generated], { "src/generated/api.ts": "file" });
+    expect(reason(strict("echo x >> src/generated/api.ts"))).toContain("denies modify of 'src/generated/api.ts'");
+    expect(reason(strict("echo x > src/generated/new.ts"))).toContain("denies create of 'src/generated/new.ts'");
+  });
+
+  test("when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so", async () => {
+    const shell = await shellWith([migrations], { "migrations/0003.sql": "unknown" });
+    expect(reason(shell("echo x > migrations/0003.sql"))).toContain(
+      "this command writes 'migrations/0003.sql' (whether it exists could not be determined, so it is judged as both a create and a modify) — the rule 'migrations/**' from test-packs/a denies modify",
+    );
+  });
+
+  test("&> writes; heredoc bodies and here-strings are text, not paths; backquotes run like $()", async () => {
+    const shell = await shellWith([rules("a", { match: ".env", deny: ["read", "create", "modify", "delete"], redirect: "Ask", file: true })]);
+    expect(reason(shell("cat &> .env"))).toContain("this command writes '.env'");
+    expect(shell("cat <<EOF\n.env\nEOF")).toBe(Verdict.allow);
+    expect(shell("cat <<< .env")).toBe(Verdict.allow);
+    expect(shell("echo `cat .env`").kind).toBe("refuse");
+  });
+});
+
+describe("the path gate — absolute paths", () => {
+  test("an absolute path inside the project is judged as the project path; outside, it is unresolved", async () => {
+    const shell = await shellWith([env]);
+    expect(shell(`cat ${ROOT}/.env`).kind).toBe("refuse");
+    expect(shell(`cat ${ROOT}x/.env`)).toBe(Verdict.allow);
+    expect(shell(`cat ${ROOT}`)).toBe(Verdict.allow);
   });
 });

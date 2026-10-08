@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict, watchedPathsOf } from "bounded/domain";
 import { pathGate, type ProtectedPath } from "bounded/path-gate";
+import { opened } from "./shell.test-support.ts";
 
 const packId = packIdsFor("test-packs");
 const { protectedPaths } = pathGate.points;
@@ -307,11 +308,11 @@ describe("the path gate — limits and honest redirects", () => {
 });
 
 describe("the path gate — what it does not judge in this slice", () => {
-  test("fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path", () => {
+  test("fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path", async () => {
     const everything = rules("a", { match: "packages/**", deny: ["read", "list", "create", "modify", "delete"], redirect: "Nothing" });
+    const decideOpened = await opened([everything]);
     expect(
-      decide(
-        [everything],
+      decideOpened(
         [
           { kind: "execute", command: "rm -rf docs/old" },
           { kind: "fetch", url: "https://example.com" },

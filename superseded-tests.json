@@ -460,7 +460,7 @@
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
     "successor": {
       "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is left unresolved, and allowed"
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "moved into shell-reads.test.ts, then superseded there: a shell command is translated into the reads and writes it names, each judged by the file tools' own code, and what the parser cannot read is unresolved, not matched by text"
   },
@@ -502,8 +502,41 @@
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
     "successor": {
       "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is left unresolved, and allowed"
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "no separate textual matching (maintainer direction): what the parser cannot read is unresolved, not guessed at; OS confinement is the real control"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is left unresolved, and allowed",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
+    },
+    "reason": "the shell guard now parses a full syntax tree (review: a tokeniser made the translation guess): what the parser could not read is unresolved, and what it did read, such as `cat .env` before a stray `${`, is still judged"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
+    "case": "shellQuoteParser: the shell parser behind the port > gives words without quotes, operators, and globs as unresolved; drops comments",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
+      "case": "treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them"
+    },
+    "reason": "shell-quote, a tokeniser, is replaced by a full shell parser behind the same port (review: no guessing); its words are checked by the new parser's case"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
+    "case": "shellQuoteParser: the shell parser behind the port > keeps variables as written, so they stay unresolved",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
+      "case": "treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them"
+    },
+    "reason": "shell-quote is replaced by a full shell parser; variables are unresolved words of its syntax tree"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
+    "case": "shellQuoteParser: the shell parser behind the port > a command it cannot read is an error, not a guess",
+    "successor": null,
+    "reason": "shell-quote is replaced by a full shell parser, which reads every command into a tree and marks what it cannot read; a parser that is not loaded is the error case now, covered by 'the shell check: the parser, loaded once when the project opens'"
   }
 ]
