@@ -2,11 +2,14 @@
 // an error whose message contains <reason>, and no other line may fail.
 import { contribution, corePack, definePack } from "bounded/domain";
 import { pathGate, type ProtectedPath, type ProtectedPathJSON } from "bounded/path-gate";
+// There is no shorthand for every write: deny lists name each kind.
+import { writes } from "bounded/path-gate"; // rejected: has no exported member 'writes'
+export const spread = writes;
 import { packId } from "./packs.ts";
 
 const redirect = "Do something else";
 
-// A rule denies read, list, create, modify or delete: "write" is spelled out (spread `writes`).
+// A rule denies read, list, create, modify or delete: each write is named.
 export const unknownKind: ProtectedPathJSON = { match: "a/**", deny: ["write"], redirect }; // rejected: Type '"write"' is not assignable to type 'PathAccess'
 // A rule denies at least one thing.
 export const denyNothing: ProtectedPathJSON = { match: "a/**", deny: [], redirect }; // rejected: Source has 0 element(s) but target requires 1

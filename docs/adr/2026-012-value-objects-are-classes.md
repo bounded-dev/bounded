@@ -47,7 +47,9 @@ objects with type-only brands; Role and ProjectPath as branded strings) and
   `EffectKind`, `PathAccess`) are enumerations; packs, points, declarations
   and contributions are identity objects (ADR 2026-003) and a configuration
   is made by `defineConfig` (ADR 2026-010); point keys are property names;
-  `Judgement`, `Entry` and the drift feature's port data are plain records.
+  `Judgement`, `Entry`, the drift feature's port data and the path gate's
+  shell translation (`ShellToken`, `ShellWrite`, `ShellCommandEffects`) are
+  plain records.
   Text inside a value object (a verdict's reason, a rule's globs) is part of
   it, normalised by its class.
 - **Ports keep text where it is the store's key.** `DecisionIds.next()`

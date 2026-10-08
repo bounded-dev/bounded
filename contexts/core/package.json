@@ -13,6 +13,10 @@
   },
   "dependencies": {
     "picomatch": "4.0.7",
+    "shell-quote": "1.12.0",
     "zod": "4.6.4"
+  },
+  "devDependencies": {
+    "@types/shell-quote": "1.7.5"
   }
 }

@@ -168,6 +168,13 @@ Rules, enforced by `architecture.test.ts` unless stated:
 
 ## Working rules
 
+- **Names are extremely explicit and aligned exactly with what they
+  represent.** (Binding, in the maintainer's words.) A variable, field,
+  parameter, file, folder or feature is named for exactly what it holds or
+  does: `selectedPackIds`, not `selected`, for a list of pack ids;
+  `project-config`, not `projects`, for loading `bounded.config.ts`. A
+  rename that makes a name more exact is always welcome.
+
 - Durable guidance lives in this file, the README or an ADR, not in any
   agent's private memory.
 - Never push, publish or open pull requests unless a maintainer asks.
