@@ -61,7 +61,7 @@ export default defineConfig({
         match: ".git/config",
         deny: ["create", "modify", "delete"],
         why: "git's config can point core.hooksPath at hooks of its own",
-        redirect: "Ask a person to change git's configuration; run git with \`-c name=value\` for a one-off setting",
+        redirect: "Ask a person to change git's configuration; describe the setting you need",
       },
     ]),
   ],

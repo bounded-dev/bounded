@@ -56,6 +56,9 @@ Claude Code's sandbox mode. Known ways round it:
   there is not put back;
 - commands the path gate does not recognise as writing, such as `sed -i`,
   `perl -i`, `node -e` and `python -c`;
+- `git config …` and `git -c core.hooksPath=…`, which the path gate sees as
+  reads, so they get past the rules on git's hooks and config;
+- paths the path gate cannot resolve (variables, globs), which it allows;
 - user-level settings outside the project, such as `~/.claude/settings.json`;
 - writes delayed into the background, after the tool call is judged;
 - drift's snapshots, kept in a state directory the user (and so the agent)

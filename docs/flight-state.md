@@ -90,7 +90,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   Claude Code's sandbox mode. Known ways round it, each detailed below:
   - drift does not watch `node_modules` or `.git`;
   - commands not recognised as writing (`sed -i`, `perl -i`, `node -e`,
-    `python -c`);
+    `python -c`), and `git config …` or `git -c core.hooksPath=…`, seen as
+    reads;
+  - paths the shell guard cannot resolve (variables, globs), which it allows;
   - user-level settings outside the project (`~/.claude/settings.json`);
   - writes delayed into the background, after the call is judged;
   - drift's snapshots live in a user-writable state directory

@@ -184,7 +184,8 @@ function git(args: readonly ShellWord[]): CommandMeaning {
       const directory = args[index + 1];
       return directory === undefined ? NONE : meaning({ runs: [{ name: literalWord("git"), args: args.slice(index + 2), directory }] });
     }
-    if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace") index++;
+    // Global options git accepts with their value as the next word (checked against git 2.54).
+    if (text === "-c" || text === "--git-dir" || text === "--work-tree" || text === "--namespace" || text === "--config-env" || text === "--attr-source") index++;
     else if (text === undefined || !text.startsWith("-")) break;
   }
   const subcommand = literal(args[index]);

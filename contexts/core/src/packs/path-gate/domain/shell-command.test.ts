@@ -109,6 +109,11 @@ describe("describeShellCommand: braces, nested shells and repository paths, as t
     expect(described('git -C "$X" diff secret')).toEqual({ reads: [], lists: [], writes: [], unresolved: ['"$X"', "secret"] });
   });
 
+  test("git's global options that take a separate value word (--config-env, --attr-source) skip it, so a later -C is still found", () => {
+    expect(described("git --config-env a=B -C sub rm x").writes).toEqual([{ path: "sub/x", change: "delete" }]);
+    expect(described("git --attr-source HEAD -C sub rm x").writes).toEqual([{ path: "sub/x", change: "delete" }]);
+  });
+
   test("a short option's attached value is read for every way it could be one (-rf.env reads f.env and .env); a known option's attached value is that option's", () => {
     expect(described("grep -f.env x").reads).toEqual([".env", "x"]);
     expect(described("grep -rf.env x").reads).toEqual(["f.env", ".env", "x"]);
