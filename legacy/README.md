@@ -1,3 +1,25 @@
+# Legacy: the original Bounded harness
+
+> **Read-only reference.** This directory holds the original Bounded harness
+> (the `agent/` package published as `bounded`, its packs, skills, tooling and
+> records). It is superseded by the code at the repository root, which grew
+> out of the separate `bounded-core` repository and was merged in with both
+> histories kept. Nothing here is built, tested or released any more; do not
+> edit it. Change the new harness at the root instead.
+>
+> - **ADRs:** [`ADRs/`](ADRs/README.md). They carry the `LEG-` prefix
+>   (`LEG-2026-NNN`), so a search for `2026-NNN` finds only the new series in
+>   `docs/adr/` at the root.
+> - **Technical notes:** [`docs/tn/`](docs/tn/README.md).
+> - **Dogfood runs:** [`docs/dogfood/`](docs/dogfood/README.md) (prompts and
+>   records) and [`docs/dogfooding.md`](docs/dogfooding.md).
+> - **Where it stood:** [`docs/where-we-are.md`](docs/where-we-are.md) and
+>   [`docs/HANDOVER.md`](docs/HANDOVER.md).
+>
+> The original README follows unchanged.
+
+---
+
 # The Bounded Harness
 
 Bounded is a harness for coding agents. It gives an agent a structured way to
