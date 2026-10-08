@@ -119,6 +119,10 @@ written as object literals (its wire form).
   for its check. A command that cannot be checked at all, because the
   project was not opened with `openProject` or the parser could not load, is
   refused with what to do (fail closed).
+  The ports speak the core's value objects (ADR 2026-012): the parser takes
+  a `Command`; where a command runs, the paths it reads, lists and writes and
+  the paths the existence port is asked about are `ProjectPath`s; the syntax
+  tree and the table's records are plain data.
   **Placement:** the syntax tree, the translation and the table are pure,
   inside the path gate pack, with the parser behind its port (the core names
   no parser); the planned restructure can give the path gate its own hexagon
