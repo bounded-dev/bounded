@@ -1,9 +1,13 @@
 import type { BasePack } from "../packs/pack.contract.ts";
 import type { Result } from "../shared/result.ts";
 
+/** The brand only SelectedPacks itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const selectedPacksBrand: unique symbol;
+
 /** The packs a configuration selects: each made by definePack in this copy of bounded, each once. */
 export interface SelectedPacks {
   readonly __brand: "SelectedPacks";
+  readonly [selectedPacksBrand]: true;
   /** The packs in id order, so every check over them runs in an order the listing never changes. */
   readonly packs: readonly BasePack[];
 }

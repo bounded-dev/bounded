@@ -1,3 +1,4 @@
+import type { verdictBrand } from "./verdict.contract.ts";
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -35,6 +36,7 @@ const filled = (value: unknown): value is string => typeof value === "string" &&
 
 class AllowImpl implements Contract.Allow {
   declare readonly __brand: "Verdict";
+  declare readonly [verdictBrand]: true;
   readonly #made = true;
   readonly kind = "allow" as const;
   /** The one allow. */
@@ -60,6 +62,7 @@ class AllowImpl implements Contract.Allow {
 
 class RefuseImpl implements Contract.Refuse {
   declare readonly __brand: "Verdict";
+  declare readonly [verdictBrand]: true;
   readonly #made = true;
   readonly kind = "refuse" as const;
 

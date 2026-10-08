@@ -109,7 +109,11 @@ Rules, enforced by `architecture.test.ts` unless stated:
   wire form, so serialised data never changes shape. Never a branded
   primitive (`string & { … }`) nor a plain object with a type-only brand:
   the architecture test refuses both. Entities are built with `new` from
-  valid value objects.
+  valid value objects. Every branded interface, entities and commands included, also
+  carries a module-private brand (`export declare const <name>Brand: unique
+  symbol` in its contract, `readonly [<name>Brand]: true` on the interface
+  and `declare readonly [<name>Brand]: true` on the class), never exported
+  from a barrel, so even a complete look-alike does not type-check.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a
   test beside every adapter that implements it.
 - **Contracts everywhere (ADR 2026-013).** R1: every out adapter is a class

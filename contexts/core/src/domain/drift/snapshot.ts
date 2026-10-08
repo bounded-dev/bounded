@@ -1,3 +1,4 @@
+import type { snapshotBrand } from "./snapshot.contract.ts";
 import { readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -33,6 +34,7 @@ function fileOf(file: unknown, path: string, ruleCount: number): Result<Contract
 
 class SnapshotImpl implements Contract.Snapshot {
   declare readonly __brand: "Snapshot";
+  declare readonly [snapshotBrand]: true;
   readonly #made = true;
 
   private constructor(

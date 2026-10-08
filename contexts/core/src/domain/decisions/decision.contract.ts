@@ -7,6 +7,9 @@ import type { Result } from "../shared/result.ts";
 import type { Verdict } from "../verdicts/verdict.contract.ts";
 import type { DecisionId } from "./decision-id.contract.ts";
 
+/** The brand only Decision itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const decisionBrand: unique symbol;
+
 /** A decision's verdict as recorded: a refusal names the pack and effect that refused, when a pack did. */
 export type RecordedVerdict =
   | { readonly kind: "allow" }
@@ -23,6 +26,7 @@ export type DecisionEvent = Event["kind"] | ToolResult["kind"] | "invalid" | "ad
  */
 export interface Decision {
   readonly __brand: "Decision";
+  readonly [decisionBrand]: true;
   readonly id: DecisionId;
   /** When it was decided (or, for a follow-up, noted), ISO 8601 in UTC. */
   readonly time: string;

@@ -245,6 +245,14 @@ describe("dispatchEvent — fails closed", () => {
     });
   });
 
+  test("something that is not a composition is refused, never thrown", () => {
+    expect<unknown>(dispatchEvent(null as unknown as CompositionType, write)).toEqual({
+      kind: "refuse",
+      reason: "Dispatch was given something that is not a composition",
+      redirect: "Compose the selected packs with Composition.compose and dispatch over the result",
+    });
+  });
+
   test("a guard point value that is not a function is refused when the packs are composed", () => {
     const bad = (definePack as unknown as (spec: object) => BasePack)({
       id: "test-packs/bad",
@@ -259,6 +267,15 @@ describe("dispatchEvent — fails closed", () => {
 });
 
 describe("dispatchEvent — refuses what it cannot trust", () => {
+  test("a look-alike composition, however well it imitates one, is refused", () => {
+    const forged = { __brand: "Composition", packs: [corePack], entries: () => ({ ok: true, value: [] }), read: () => ({ ok: true, value: [] }) } as unknown as CompositionType;
+    expect<unknown>(dispatchEvent(forged, write)).toEqual({
+      kind: "refuse",
+      reason: "Dispatch was given something that is not a composition",
+      redirect: "Compose the selected packs with Composition.compose and dispatch over the result",
+    });
+  });
+
   test("a guard that dispatches again is refused briefly, not with a stack overflow", () => {
     let composition: CompositionType | undefined;
     const looping = definePack({

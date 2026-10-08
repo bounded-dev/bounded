@@ -1,3 +1,4 @@
+import type { selectedPacksBrand } from "./selected-packs.contract.ts";
 import type { BasePack } from "../packs/pack.contract.ts";
 import { parsePack } from "../packs/pack.ts";
 import { packIdText } from "../packs/pack-id.ts";
@@ -13,6 +14,7 @@ export const byId = (a: BasePack, b: BasePack): number => {
 
 class SelectedPacksImpl implements Contract.SelectedPacks {
   declare readonly __brand: "SelectedPacks";
+  declare readonly [selectedPacksBrand]: true;
 
   private constructor(readonly packs: readonly BasePack[]) {
     Object.freeze(this);

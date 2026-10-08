@@ -1,3 +1,4 @@
+import type { toolResultBrand } from "./tool-result.contract.ts";
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -10,6 +11,7 @@ import { type Call, callOf } from "./tool-use.ts";
 
 class ToolResultImpl implements Contract.ToolResult {
   declare readonly __brand: "ToolResult";
+  declare readonly [toolResultBrand]: true;
   readonly #made = true;
   readonly kind = "tool-result" as const;
   readonly role: Role | null;

@@ -1,11 +1,15 @@
 import type { AdapterRefusalJSON, Decision, Event, Result, Verdict } from "bounded/domain";
 
+/** The brand only JudgeEventCommand itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const judgeEventCommandBrand: unique symbol;
+
 // Wire input: the event's own wire form, checked by Event.parse.
 export type JudgeEventInput = unknown;
 
 // Command: the input once checked into an event.
 export interface JudgeEventCommand {
   readonly __brand: "JudgeEventCommand";
+  readonly [judgeEventCommandBrand]: true;
   readonly event: Event;
 }
 

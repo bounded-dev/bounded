@@ -1,3 +1,4 @@
+import type { projectPathBrand } from "./project-path.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./project-path.contract.ts";
@@ -28,6 +29,7 @@ function normalised(raw: unknown): Result<string> {
 
 class ProjectPathImpl implements Contract.ProjectPath {
   declare readonly __brand: "ProjectPath";
+  declare readonly [projectPathBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

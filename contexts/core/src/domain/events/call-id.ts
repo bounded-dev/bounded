@@ -1,3 +1,4 @@
+import type { callIdBrand } from "./call-id.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import { hasControl } from "../shared/text.ts";
@@ -5,6 +6,7 @@ import type * as Contract from "./call-id.contract.ts";
 
 class CallIdImpl implements Contract.CallId {
   declare readonly __brand: "CallId";
+  declare readonly [callIdBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

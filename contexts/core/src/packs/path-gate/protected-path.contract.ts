@@ -1,5 +1,8 @@
 import type { Result } from "bounded/domain";
 
+/** The brand only ProtectedPath itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const protectedPathBrand: unique symbol;
+
 /** What a rule can deny on a path: reading it, listing it, or one kind of write. */
 export type PathAccess = "read" | "list" | "create" | "modify" | "delete";
 
@@ -13,6 +16,7 @@ export type PathAccess = "read" | "list" | "create" | "modify" | "delete";
  */
 export interface ProtectedPath {
   readonly __brand: "ProtectedPath";
+  readonly [protectedPathBrand]: true;
   readonly match: string;
   readonly except: readonly string[];
   readonly deny: readonly [PathAccess, ...PathAccess[]];

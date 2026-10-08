@@ -1,3 +1,4 @@
+import type { availablePacksBrand } from "./available-packs.contract.ts";
 import type { BasePack } from "../packs/pack.contract.ts";
 import { parsePack } from "../packs/pack.ts";
 import { PackId, packIdText } from "../packs/pack-id.ts";
@@ -8,6 +9,7 @@ export const NOT_LISTS = "Compose takes a list of available packs and a list of 
 
 class AvailablePacksImpl implements Contract.AvailablePacks {
   declare readonly __brand: "AvailablePacks";
+  declare readonly [availablePacksBrand]: true;
 
   private constructor(readonly packs: readonly BasePack[]) {
     Object.freeze(this);

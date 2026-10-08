@@ -30,3 +30,4 @@ export type Mislabelled = KindsMatch<{ read: WriteEffect }>; // rejected: does n
 // Dispatch takes a composition Composition.compose made, never a look-alike.
 declare const someCall: ToolUse;
 export const forged = decideEvent({ __brand: "Composition", packs: [corePack] }, someCall); // rejected: is missing the following properties from type 'Composition': read, entries
+export const complete = decideEvent({ __brand: "Composition", packs: [corePack], read: () => ({ ok: true, value: [] }), entries: () => ({ ok: true, value: [] }) }, someCall); // rejected: Property '[compositionBrand]' is missing

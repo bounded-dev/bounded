@@ -1,3 +1,4 @@
+import type { decisionBrand } from "./decision.contract.ts";
 import type { AdapterRefusal } from "./adapter-refusal.contract.ts";
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
@@ -47,6 +48,7 @@ type Fields = Omit<Contract.DecisionJSON, "id"> & { readonly id: DecisionIdType 
 
 class DecisionImpl implements Contract.Decision {
   declare readonly __brand: "Decision";
+  declare readonly [decisionBrand]: true;
   readonly #made = true;
   readonly id: DecisionIdType;
   readonly time: string;

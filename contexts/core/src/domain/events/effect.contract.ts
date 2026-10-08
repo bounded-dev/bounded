@@ -6,11 +6,15 @@ import type { ProjectPath } from "./project-path.contract.ts";
 import type { ToolName } from "./tool-name.contract.ts";
 import type { Url } from "./url.contract.ts";
 
+/** The brand only Effect itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const effectBrand: unique symbol;
+
 export type Change = "create" | "modify" | "delete";
 
 /** What every effect is: a value object of one kind, equal by value, whose wire form is a plain object. */
 interface EffectOf<Kind extends string, Wire> {
   readonly __brand: "Effect";
+  readonly [effectBrand]: true;
   readonly kind: Kind;
   equals(other: Effect): boolean;
   toJSON(): Wire;

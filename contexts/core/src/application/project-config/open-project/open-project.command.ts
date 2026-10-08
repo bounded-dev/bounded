@@ -1,3 +1,4 @@
+import type { openProjectCommandBrand } from "./open-project.contract.ts";
 import type { Result } from "bounded/domain";
 import type * as Contract from "./open-project.contract.ts";
 
@@ -6,6 +7,7 @@ const ABSOLUTE = /^(\/|[A-Za-z]:[\\/])/;
 
 class OpenProjectCommandImpl implements Contract.OpenProjectCommand {
   declare readonly __brand: "OpenProjectCommand";
+  declare readonly [openProjectCommandBrand]: true;
   private constructor(readonly projectRoot: string) {}
 
   static parse(raw: unknown): Result<OpenProjectCommand> {

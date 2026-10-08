@@ -1,3 +1,4 @@
+import type { watchedPathBrand } from "./watched-path.contract.ts";
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -23,6 +24,7 @@ function changesOf(raw: unknown): readonly Contract.WatchedChange[] | undefined 
 
 class WatchedPathImpl implements Contract.WatchedPath {
   declare readonly __brand: "WatchedPath";
+  declare readonly [watchedPathBrand]: true;
   readonly #made = true;
 
   private constructor(

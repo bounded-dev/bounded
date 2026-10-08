@@ -1,3 +1,4 @@
+import type { urlBrand } from "./url.contract.ts";
 import { show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
@@ -6,6 +7,7 @@ import type * as Contract from "./url.contract.ts";
 
 class UrlImpl implements Contract.Url {
   declare readonly __brand: "Url";
+  declare readonly [urlBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

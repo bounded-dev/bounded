@@ -2,6 +2,9 @@ import type { Config, PathKind, ProjectPath, Result, Verdict } from "bounded/dom
 import type { DriftCheck, ShellSnapshots, WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { AdapterRefusalInput, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
+/** The brand only OpenProjectCommand itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const openProjectCommandBrand: unique symbol;
+
 // Out ports this feature shares with judge-event: declared there, listed here so this contract names every port the feature needs.
 export type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
@@ -13,6 +16,7 @@ export interface OpenProjectInput {
 // Command: the input once checked.
 export interface OpenProjectCommand {
   readonly __brand: "OpenProjectCommand";
+  readonly [openProjectCommandBrand]: true;
   /** The project's root directory, an absolute path. */
   readonly projectRoot: string;
 }

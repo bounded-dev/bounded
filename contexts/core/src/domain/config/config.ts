@@ -1,3 +1,4 @@
+import type { configBrand } from "./config.contract.ts";
 import type { Composition } from "../composition/composition.contract.ts";
 import { Composition as CompositionFactory } from "../composition/composition.ts";
 import type { BasePack } from "../packs/pack.contract.ts";
@@ -14,6 +15,7 @@ const projectPack = definePack as unknown as (spec: object) => BasePack;
 
 class ConfigImpl implements Contract.Config {
   declare readonly __brand: "Config";
+  declare readonly [configBrand]: true;
 
   private constructor(
     readonly selectedPacks: readonly BasePack[],

@@ -1,3 +1,4 @@
+import type { commandBrand } from "./command.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import { hasControl } from "../shared/text.ts";
@@ -5,6 +6,7 @@ import type * as Contract from "./command.contract.ts";
 
 class CommandImpl implements Contract.Command {
   declare readonly __brand: "Command";
+  declare readonly [commandBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

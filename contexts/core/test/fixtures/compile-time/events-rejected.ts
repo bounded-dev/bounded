@@ -65,3 +65,6 @@ export const noContext = dispatch(contextGuards, toolUse); // rejected: Expected
 export const tooNarrow: Guard<Event>[] = [toolUseGuard]; // rejected: Type 'Guard<ToolUse>' is not assignable to type 'Guard<Event>'
 export const widenedEvent = dispatch([toolUseGuard], toolUse as Event); // rejected: Argument of type 'Event' is not assignable to parameter of type 'ToolUse'
 export const clashing = dispatch([pathsGuard, countGuard], toolUse, { paths: [] }); // rejected: is not assignable to type 'Guard<ToolUse
+// A value object is made by its parse: even a complete look-alike lacks the brand only its class carries.
+export const completePath: ProjectPath = { __brand: "ProjectPath", value: "a.ts", equals: () => true, toJSON: () => "a.ts" }; // rejected: Property '[projectPathBrand]' is missing
+export const completeAllow: Verdict = { __brand: "Verdict", kind: "allow", equals: () => true, toJSON: () => ({ kind: "allow" }) }; // rejected: Property '[verdictBrand]' is missing

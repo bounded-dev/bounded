@@ -121,8 +121,13 @@ tool lifecycle, recorded below when it lands).
   rules: a selected pack is available, has no problem, and its dependencies
   are selected; contributions go only to dependencies' points.
 - **Dispatch takes instances**: `decideEvent(composition, event)` and
-  `dispatch(guards, event)` no longer re-parse the event or ask whether the
-  composition is genuine; hosts parse a raw event once, in the judge. A
+  `dispatch(guards, event)` no longer re-parse the event; hosts parse a raw
+  event once, in the judge. A composition is nominal (every branded type
+  carries a module-private `unique symbol` brand, ADR 2026-012), so a typed
+  caller cannot pass a look-alike, however complete; an untyped one (a
+  JavaScript configuration, a cast) is refused at run time by
+  `Composition.parse`, the `instanceof` check in the owning class, which
+  `decideEvent` asks first. A
   guard that is not a function still refuses by name; a guard's return value
   is still parsed by `Verdict.parse`, and the promise check stays beside it
   in dispatch, since its message names the guard.
@@ -161,6 +166,18 @@ tool lifecycle, recorded below when it lands).
   port from it.
 - **R5** the routing files assert no types (above).
 - **R6** shape checks live where the shape is owned (above).
+- **Brands** stay in their contracts: no barrel exports one, or re-exports a
+  contract wholesale.
+- **These rules guard against mistakes; they do not prove the property.**
+  Each is a syntax check over one file at a time: R3b sees a pack defined
+  by calling `definePack` in an exported const, not one built through a
+  helper or re-exported from elsewhere; R5 counts assertions and silencing
+  directives in the routing files themselves, not in helpers they import;
+  R6 sees `Array.isArray`, `typeof … === "object"` and `instanceof`, not
+  checks written through helpers (`isRecord`, `own`, `Object.hasOwn`, `in`,
+  `typeof` of a primitive), and judges ownership by file, not by the class
+  or function the check sits in. The compiler, the brands and review cover
+  the rest.
 - **Exemptions, each named in the test with its reason:** the shared kernel
   (`domain/shared/{result,read,text,wire}.ts`) and barrels; `ProjectDrift`'s
   missing conformance suite and `domain/drift/watched-paths.ts`, both

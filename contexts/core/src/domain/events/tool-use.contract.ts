@@ -3,6 +3,9 @@ import type { CallId } from "./call-id.contract.ts";
 import type { Effect, EffectJSON } from "./effect.contract.ts";
 import type { Role } from "./role.contract.ts";
 
+/** The brand only ToolUse itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const toolUseBrand: unique symbol;
+
 /** What kind of tool acts, in words no host owns: kept for allowlists of tools. */
 export type ToolKind = "read" | "search" | "edit" | "write" | "shell" | "web" | "subagent" | "other";
 
@@ -12,6 +15,7 @@ export type ToolKind = "read" | "search" | "edit" | "write" | "shell" | "web" | 
  */
 export interface ToolUse {
   readonly __brand: "ToolUse";
+  readonly [toolUseBrand]: true;
   readonly kind: "tool-use";
   /** The acting role, or null when no role is active. */
   readonly role: Role | null;
