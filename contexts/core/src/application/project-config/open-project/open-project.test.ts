@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
+import { type Config, contribution, corePack, type Decision, DecisionId, DecisionTime, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
 import type { ProjectConfigSource, ProjectGuardLogs } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
-const clock: Clock = { now: () => "2026-10-07T12:00:00.000Z" };
+const clock: Clock = { now: () => decisionTime("2026-10-07T12:00:00.000Z") };
+
+/** A DecisionTime from known-good text. */
+function decisionTime(text: string): DecisionTime {
+  const parsed = DecisionTime.parse(text);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
 class Logs implements ProjectGuardLogs {
@@ -165,5 +172,25 @@ describe("OpenProjectHandler", () => {
     expect<unknown>(await project.judge(shell)).toEqual({ kind: "refuse", reason: "Locked", redirect: "Wait" });
     expect(await project.judge(write("src/a.ts"))).toBe(Verdict.allow);
     expect((await project.afterTool({ ...shell, kind: "tool-result", ok: true })).message).toBe("Checked after");
+  });
+
+  test("decisions take their ids from the ids option: the judge's, the refusing judge's and the after-tool records'", async () => {
+    const parsed = DecisionId.parse("id-1");
+    if (!parsed.ok) throw new Error(parsed.error);
+    const id = parsed.value;
+    const ids = { next: () => id };
+    const gate = definePack({
+      id: packIdsFor("test-packs")("recorder"),
+      dependsOn: [corePack],
+      contributes: [contribution(corePack.points.afterTool, [async () => ({ message: null, record: { verdict: Verdict.allow, refusedBy: null, note: "checked after" } })])],
+    });
+    const logs = new Logs();
+    const healthy = await new OpenProjectHandler(source(async () => ({ ok: true, value: defineConfig({ packs: [corePack, gate] }) })), logs, clock, { ids }).execute(command);
+    expect(await healthy.judge(write("src/a.ts"))).toBe(Verdict.allow);
+    await healthy.afterTool({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "make" }], callId: "c1", ok: true });
+    const broken = await new OpenProjectHandler(source(async () => ({ ok: false, error: "no config" })), logs, clock, { ids }).execute(command);
+    expect((await broken.judge(write("src/a.ts"))).kind).toBe("refuse");
+    expect(logs.decisions.map((decision) => decision.event)).toEqual(["tool-use", "tool-result", "tool-use"]);
+    expect(logs.decisions.map((decision) => decision.id.value)).toEqual(["id-1", "id-1", "id-1"]);
   });
 });

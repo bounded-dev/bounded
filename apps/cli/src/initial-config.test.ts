@@ -6,8 +6,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openProject } from "bounded/open-project";
-import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
-import { pathGateTreeSitter } from "bounded/path-gate/adapters/tree-sitter";
+import { pathGatePortProvisions } from "bounded/path-gate/adapters";
 import { INITIAL_CONFIG } from "./initial-config.ts";
 
 const CORE = resolve(import.meta.dir, "../../../contexts/core");
@@ -40,7 +39,7 @@ describe("bounded init's configuration", () => {
 
   test("is a working configuration: an agent's edit of it, or of .bounded/, is refused; other edits are allowed", async () => {
     const root = project();
-    const { judge, problem } = await openProject(root, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
+    const { judge, problem } = await openProject(root, { ports: pathGatePortProvisions() });
     expect(problem).toBeNull();
     const refused = await judge(edit("bounded.config.ts"));
     expect(refused.kind).toBe("refuse");
@@ -55,7 +54,7 @@ describe("bounded init's configuration", () => {
     expect(INITIAL_CONFIG).toContain("Ask a person to change Claude Code's settings");
     expect(INITIAL_CONFIG).toContain('match: ".pi/extensions/bounded/**"');
     expect(INITIAL_CONFIG).toContain('match: "node_modules/bounded/**"');
-    const { judge } = await openProject(project(), { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
+    const { judge } = await openProject(project(), { ports: pathGatePortProvisions() });
     for (const path of [".claude/settings.json", ".claude/settings.local.json", ".pi/extensions/bounded/index.ts", "node_modules/bounded/dist/hosts/claude-code/hook.js"]) {
       for (const change of ["create", "modify", "delete"] as const) {
         expect((await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change }] })).kind).toBe("refuse");
@@ -73,7 +72,7 @@ describe("bounded init's configuration", () => {
     expect(INITIAL_CONFIG).toContain('match: ".git/config"');
     expect(INITIAL_CONFIG).toContain("git runs these hooks later, outside Bounded's view");
     expect(INITIAL_CONFIG).toContain("core.hooksPath");
-    const { judge, problem } = await openProject(project(), { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
+    const { judge, problem } = await openProject(project(), { ports: pathGatePortProvisions() });
     expect(problem).toBeNull();
     const byRule = (verdict: { kind: string; reason?: string }, rule: string) => [verdict.kind, verdict.kind === "refuse" && verdict.reason?.includes(`the rule '${rule}' from bounded/project`)];
     for (const [path, rule] of [[".git/hooks/pre-commit", ".git/hooks/**"], [".git/config", ".git/config"]] as const) {
@@ -96,7 +95,7 @@ describe("bounded init's configuration", () => {
   });
 
   test("a shell write to git's hooks or config is refused by the git rules themselves, naming them", async () => {
-    const { judge } = await openProject(project(), { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
+    const { judge } = await openProject(project(), { ports: pathGatePortProvisions() });
     const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" });
     for (const [command, rule] of [
       ["echo x > .git/hooks/pre-commit", ".git/hooks/**"],
@@ -111,7 +110,7 @@ describe("bounded init's configuration", () => {
 
   test("a known way round the git rules, pinned so it stays documented: the path gate sees `git config core.hooksPath …` as reads, and allows it", async () => {
     expect(INITIAL_CONFIG).not.toContain("git -c");
-    const { judge } = await openProject(project(), { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
+    const { judge } = await openProject(project(), { ports: pathGatePortProvisions() });
     const command = "git config core.hooksPath tools/hooks";
     expect((await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" })).kind).toBe("allow");
   });

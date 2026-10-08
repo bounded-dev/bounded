@@ -6,6 +6,7 @@ import { Glob } from "bun";
 import * as ts from "typescript";
 import {
   adapterContractViolations,
+  adapterPlacementViolations,
   assertionViolations,
   barrelContracts,
   brandExportViolations,
@@ -16,6 +17,7 @@ import {
   packOverviewViolations,
   shapeCheckViolations,
   type SourceFile,
+  testDoubleViolations,
 } from "./architecture.rules.test-support.ts";
 
 const ROOT = import.meta.dir;
@@ -98,14 +100,15 @@ function exportLayerOf(context: Context, exportPath: string): Layer | undefined 
  * never depends on a pack (ADR 2026-009). Inside, it is a small hexagon
  * (ADR 2026-013): `domain/` imports only itself; `application/` its own
  * domain and application; the files at its root its domain, application and
- * root, never its adapters; `adapters/out/<tech>/` its domain, application
- * and own technology, and alone may do I/O (`node:*`, never Bun).
+ * root, never its adapters; `adapters/out/` (one folder per port, ADR
+ * 2026-017) its domain, application and adapters, never another pack's, and
+ * alone may do I/O (`node:*`, never Bun).
  */
 const packLayerOf = (file: string): string | undefined => {
   const rest = /^contexts\/[^/]+\/src\/packs\/[^/]+\/(.*)$/.exec(file)?.[1];
   if (rest === undefined) return undefined;
   const [first = "", second, third] = rest.split("/");
-  if (first === "adapters" && second === "out" && third !== undefined) return `adapters/out/${third}`;
+  if (first === "adapters" && second === "out" && third !== undefined) return "adapters";
   return ["domain", "application"].includes(first) && rest.includes("/") ? first : "root";
 };
 /** What each layer of a shipped pack may import of its own pack. */
@@ -126,12 +129,13 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     if (into !== undefined && into !== own && !rootTest) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
     if (own === undefined || isTest) continue;
     const from = packLayerOf(path) ?? "root";
-    const adapter = from.startsWith("adapters/");
+    const adapter = from === "adapters";
     if (relative) {
-      if (into !== own) out.push(`${at} — a shipped pack reaches the core through \`${context.name}/domain\` only`);
-      else {
+      // Into another pack is refused above; anything else outside the pack is the core.
+      if (into === undefined) out.push(`${at} — a shipped pack reaches the core through \`${context.name}/domain\` only`);
+      else if (into === own) {
         const to = packLayerOf(file ?? "") ?? "root";
-        const allowed = adapter ? ["domain", "application", from] : (PACK_LAYERS[from] ?? []);
+        const allowed = adapter ? ["domain", "application", "adapters"] : (PACK_LAYERS[from] ?? []);
         if (!allowed.includes(to)) out.push(`${at} — a pack's ${from} may not import its ${to}`);
       }
     } else if (exported !== undefined) {
@@ -299,7 +303,7 @@ for (const path of files) {
   const text = await Bun.file(`${ROOT}/${path}`).text();
   const shippedPack = layer === "packs";
   if (shippedPack && rest.length < 3) violations.push(`${path} — a shipped pack lives in its own directory, src/packs/<name>/`);
-  const pure = (layer === "domain" || layer === "application" || (shippedPack && !(packLayerOf(path) ?? "").startsWith("adapters/"))) && !isTest;
+  const pure = (layer === "domain" || layer === "application" || (shippedPack && packLayerOf(path) !== "adapters")) && !isTest;
   if (!isTest) violations.push(...packIdViolations(path, text, context.name));
   if (!isTest) violations.push(...brandedPrimitiveViolations(path, text));
   violations.push(...shippedPackViolations(path, importsOf(path, text), context));
@@ -390,7 +394,7 @@ function appImportViolations(path: string, text: string): string[] {
 const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
 for (const path of appFiles) violations.push(...appImportViolations(path, await Bun.file(`${ROOT}/${path}`).text()));
 
-// The contract rules R1–R6 (architecture.rules.test-support.ts): every file of every context, tests included.
+// The contract rules R1–R7 (architecture.rules.test-support.ts): every file of every context, tests included; the test-support import ban reads the apps too.
 const contextSources: SourceFile[] = await Promise.all(files.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));
 const barrels = new Map<string, ReadonlyMap<string, string>>();
 for (const context of contexts) {
@@ -421,7 +425,9 @@ const SHAPE_CHECKS = new Map([
 const texts = new Map(contextSources.map(({ path, text }) => [path, text]));
 violations.push(
   ...adapterContractViolations(contextSources, barrels),
+  ...adapterPlacementViolations(contextSources, barrels),
   ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS),
+  ...testDoubleViolations([...contextSources, ...(await Promise.all(appFiles.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() }))))], contexts),
   ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
   ...packLayoutViolations(files),
   ...packOverviewViolations(contextSources),
@@ -444,7 +450,27 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory", "./path-gate/adapters/tree-sitter", "./testing/host-installer-conformance"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters", "./testing/host-installer-conformance"]);
+  });
+
+  test("the out adapters are grouped by the port each serves: no technology folders", () => {
+    const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
+    expect(foldersUnder("contexts/core/src/adapters/out")).toEqual(["clock", "compose-packs-catalog", "decision-ids", "guard-log", "host-installer-source", "project-config-source", "project-guard-logs", "project-setup-files"]);
+    expect(foldersUnder("contexts/core/src/packs/path-gate/adapters/out")).toEqual(["path-kinds", "shell-parser", "shell-snapshots", "watched-files"]);
+  });
+
+  test("in-memory test doubles are test support beside the ports they stand in for", async () => {
+    const doubles = [
+      "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log",
+      "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.in-memory-path-kinds",
+      "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-shell-snapshots",
+      "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-watched-files",
+    ];
+    for (const double of doubles) {
+      expect(await Bun.file(`${ROOT}/${double}.test-support.ts`).exists()).toBe(true);
+      expect(await Bun.file(`${ROOT}/${double}.test.ts`).exists()).toBe(true);
+    }
+    expect(files.filter((path) => /\/adapters\/out\//.test(path) && path.includes("in-memory"))).toEqual([]);
   });
 
   test("the pi host adapter is an app depending on the core", () => {
@@ -486,12 +512,14 @@ describe("architecture", () => {
     expect(shippedPackViolations("contexts/core/src/packs/other/x.test.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
     // Inside a pack: a small hexagon.
     const at = (file: string) => `contexts/core/src/packs/path-gate/${file}`;
-    expect(shippedPackViolations(at("adapters/out/file-system/files.ts"), imports("node:fs", "../../../domain/rule.ts", "../../../application/feature/feature.contract.ts", "./other.ts"), core)).toEqual([]);
+    expect(shippedPackViolations(at("adapters/out/watched-files/files.ts"), imports("node:fs", "../../../domain/rule.ts", "../../../application/feature/feature.contract.ts", "./other.ts"), core)).toEqual([]);
     expect(shippedPackViolations(at("domain/rule.ts"), imports("node:fs"), core)).toEqual([`${at("domain/rule.ts")}:1 imports "node:fs" — a shipped pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do`]);
-    expect(shippedPackViolations(at("application/feature/feature.ts"), imports("../../adapters/out/file-system/files.ts"), core)).toEqual([`${at("application/feature/feature.ts")}:1 imports "../../adapters/out/file-system/files.ts" — a pack's application may not import its adapters/out/file-system`]);
-    expect(shippedPackViolations(at("index.ts"), imports("./adapters/out/file-system/index.ts"), core)).toEqual([`${at("index.ts")}:1 imports "./adapters/out/file-system/index.ts" — a pack's root may not import its adapters/out/file-system`]);
+    expect(shippedPackViolations(at("application/feature/feature.ts"), imports("../../adapters/out/watched-files/files.ts"), core)).toEqual([`${at("application/feature/feature.ts")}:1 imports "../../adapters/out/watched-files/files.ts" — a pack's application may not import its adapters`]);
+    expect(shippedPackViolations(at("index.ts"), imports("./adapters/out/index.ts"), core)).toEqual([`${at("index.ts")}:1 imports "./adapters/out/index.ts" — a pack's root may not import its adapters`]);
     expect(shippedPackViolations(at("domain/rule.ts"), imports("../application/feature/feature.ts"), core)).toHaveLength(1);
-    expect(shippedPackViolations(at("adapters/out/in-memory/files.ts"), imports("../file-system/files.ts"), core)).toHaveLength(1);
+    // An out adapter may use its own pack's other out adapters and their shared helpers, never another pack's.
+    expect(shippedPackViolations(at("adapters/out/watched-files/files.ts"), imports("../state-directory.ts", "../shell-snapshots/shell-snapshots.ts"), core)).toEqual([]);
+    expect(shippedPackViolations(at("adapters/out/watched-files/files.ts"), imports("../../../../other/adapters/out/x/x.ts"), core)).toHaveLength(1);
   });
 
   test("every export path points at a file that exists", async () => {
@@ -561,24 +589,94 @@ describe("architecture", () => {
   test("R1: an out adapter implements a port an application contract declares, and its file exports nothing else", () => {
     const barrel = { path: "contexts/x/src/application/index.ts", text: 'export type { Clock } from "./guard-log/judge/judge.contract.ts";\n' };
     const barrels = new Map([["x/application", barrelContracts(barrel)]]);
-    const good = { path: "contexts/x/src/adapters/out/system/clock.ts", text: 'import type { Clock } from "x/application";\nexport class SystemClock implements Clock { now() { return ""; } }\n' };
-    const bare = { path: "contexts/x/src/adapters/out/system/other.ts", text: "export class Other { now() { return \"\"; } }\n" };
-    const mixed = { path: "contexts/x/src/adapters/out/system/mixed.ts", text: 'import type { Clock } from "x/application";\nexport class Mixed implements Clock {}\nexport const helper = 1;\n' };
+    const good = { path: "contexts/x/src/adapters/out/clock/clock.ts", text: 'import type { Clock } from "x/application";\nexport class SystemClock implements Clock { now() { return ""; } }\n' };
+    const bare = { path: "contexts/x/src/adapters/out/clock/other.ts", text: "export class Other { now() { return \"\"; } }\n" };
+    const mixed = { path: "contexts/x/src/adapters/out/clock/mixed.ts", text: 'import type { Clock } from "x/application";\nexport class Mixed implements Clock {}\nexport const helper = 1;\n' };
     expect(adapterContractViolations([good], barrels)).toEqual([]);
-    expect(adapterContractViolations([bare], barrels)).toEqual(["contexts/x/src/adapters/out/system/other.ts — Other implements no port of an application contract: an out adapter implements a port its feature's contract declares"]);
-    expect(adapterContractViolations([mixed], barrels)).toEqual(["contexts/x/src/adapters/out/system/mixed.ts — a file with an adapter class exports nothing else: move its helpers to a file of their own"]);
+    expect(adapterContractViolations([bare], barrels)).toEqual(["contexts/x/src/adapters/out/clock/other.ts — Other implements no port of an application contract: an out adapter implements a port its feature's contract declares"]);
+    expect(adapterContractViolations([mixed], barrels)).toEqual(["contexts/x/src/adapters/out/clock/mixed.ts — a file with an adapter class exports nothing else: move its helpers to a file of their own"]);
+  });
+
+  test("R1: an out adapter sits in adapters/out/<its port>/, in <port>.ts, or in a file named for its class when the port has several", () => {
+    const barrel = { path: "contexts/x/src/application/index.ts", text: 'export type { Clock } from "./guard-log/judge/judge.contract.ts";\n' };
+    const barrels = new Map([["x/application", barrelContracts(barrel)]]);
+    const adapter = (path: string, name = "SystemClock") => ({ path, text: `import type { Clock } from "x/application";\nexport class ${name} implements Clock { now() { return ""; } }\n` });
+    const out = "contexts/x/src/adapters/out";
+    expect(adapterPlacementViolations([adapter(`${out}/clock/clock.ts`)], barrels)).toEqual([]);
+    expect(adapterPlacementViolations([adapter("contexts/x/src/packs/gate/adapters/out/clock/clock.ts")], barrels)).toEqual([]);
+    const misplaced = adapterPlacementViolations([adapter(`${out}/system/clock.ts`)], barrels);
+    expect(misplaced).toHaveLength(1);
+    expect(misplaced[0]).toContain(`${out}/system/clock.ts`);
+    expect(misplaced[0]).toContain("adapters/out/clock/");
+    const named = adapterPlacementViolations([adapter(`${out}/clock/system-clock.ts`)], barrels);
+    expect(named).toHaveLength(1);
+    expect(named[0]).toContain(`${out}/clock/clock.ts`);
+    expect(adapterPlacementViolations([adapter(`${out}/clock/system-clock.ts`), adapter(`${out}/clock/fixed-clock.ts`, "FixedClock")], barrels)).toEqual([]);
+    const several = adapterPlacementViolations([adapter(`${out}/clock/clock.ts`), adapter(`${out}/clock/fixed-clock.ts`, "FixedClock")], barrels);
+    expect(several).toHaveLength(1);
+    expect(several[0]).toStartWith(`${out}/clock/clock.ts — `);
+    expect(several[0]).toContain("system-clock.ts");
+    expect(adapterPlacementViolations([{ path: `${out}/clock/format.ts`, text: "export function format(time: string): string { return time; }\n" }], barrels)).toEqual([]);
   });
 
   test("R2: a port tagged @implementedBy has that adapter, a conformance suite, and a test running it beside the adapter", () => {
-    const contract = { path: "contexts/x/src/application/a/f/f.contract.ts", text: "/**\n * Time.\n * @implementedBy system\n */\nexport interface Clock { now(): string }\n" };
+    const contract = { path: "contexts/x/src/application/a/f/f.contract.ts", text: "/**\n * Time.\n * @implementedBy SystemClock\n */\nexport interface Clock { now(): string }\n" };
     const suite = { path: "contexts/x/src/application/a/f/f.clock.test-support.ts", text: 'import type { Clock } from "./f.contract.ts";\nexport function clockConformance() {}\n' };
-    const adapter = { path: "contexts/x/src/adapters/out/system/clock.ts", text: 'import type { Clock } from "../../../application/a/f/f.contract.ts";\nexport class SystemClock implements Clock {}\n' };
-    const runner = { path: "contexts/x/src/adapters/out/system/clock.test.ts", text: 'import { clockConformance } from "../../../application/a/f/f.clock.test-support.ts";\nclockConformance();\n' };
+    const adapter = { path: "contexts/x/src/adapters/out/clock/clock.ts", text: 'import type { Clock } from "../../../application/a/f/f.contract.ts";\nexport class SystemClock implements Clock {}\n' };
+    const runner = { path: "contexts/x/src/adapters/out/clock/clock.test.ts", text: 'import { clockConformance } from "../../../application/a/f/f.clock.test-support.ts";\nclockConformance();\n' };
     expect(implementedByViolations([contract, suite, adapter, runner], new Map())).toEqual([]);
-    expect(implementedByViolations([contract, suite, adapter], new Map())).toEqual(["contexts/x/src/adapters/out/system/clock.ts — SystemClock implements Clock; a test beside it runs the port's conformance suite"]);
-    expect(implementedByViolations([contract, adapter, runner], new Map())).toEqual(["contexts/x/src/application/a/f/f.contract.ts — Clock has no conformance suite: add a *.test-support.ts beside the contract that every adapter of it runs"]);
-    expect(implementedByViolations([contract, suite], new Map())).toEqual(["contexts/x/src/application/a/f/f.contract.ts — Clock says it is implemented by system, but no class under adapters/out/system/ implements it"]);
+    expect(implementedByViolations([contract, suite, adapter], new Map())).toEqual(["contexts/x/src/adapters/out/clock/clock.ts — SystemClock implements Clock; a test beside it runs the port's conformance suite"]);
+    const noSuite = implementedByViolations([contract, adapter, runner], new Map());
+    expect(noSuite).toHaveLength(1);
+    expect(noSuite[0]).toContain("conformance suite");
+    const noAdapter = implementedByViolations([contract, suite], new Map());
+    expect(noAdapter).toHaveLength(1);
+    expect(noAdapter[0]).toContain("SystemClock");
+    // Every adapter of a tagged port is named in its tag.
+    const other = { path: "contexts/x/src/adapters/out/clock/other-clock.ts", text: 'import type { Clock } from "../../../application/a/f/f.contract.ts";\nexport class OtherClock implements Clock {}\n' };
+    const otherRunner = { path: "contexts/x/src/adapters/out/clock/other-clock.test.ts", text: runner.text };
+    const untagged = implementedByViolations([contract, suite, adapter, runner, other, otherRunner], new Map());
+    expect(untagged).toHaveLength(1);
+    expect(untagged[0]).toContain("OtherClock");
+    expect(untagged[0]).toContain("@implementedBy");
+    // A test double beside the contract is not the port's conformance suite.
+    const double = { path: "contexts/x/src/application/a/f/f.in-memory-clock.test-support.ts", text: 'import type { Clock } from "./f.contract.ts";\nexport class InMemoryClock implements Clock {}\n' };
+    const doubleRunner = { path: "contexts/x/src/adapters/out/clock/clock.test.ts", text: 'import { InMemoryClock } from "../../../application/a/f/f.in-memory-clock.test-support.ts";\nnew InMemoryClock();\n' };
+    expect(implementedByViolations([contract, adapter, double, doubleRunner], new Map()).some((violation) => violation.includes("conformance suite"))).toBe(true);
     expect(implementedByViolations([contract], new Map(), new Map([["Clock", "a reason"]]))).toEqual([]);
+  });
+
+  test("R2: an in-memory test double sits beside its port, a test runs it through the port's suite, and no production code imports test support", () => {
+    const feature = "contexts/x/src/application/a/f";
+    const contract = { path: `${feature}/f.contract.ts`, text: "/**\n * Time.\n * @implementedBy SystemClock\n */\nexport interface Clock { now(): string }\n" };
+    const suite = { path: `${feature}/f.clock.test-support.ts`, text: 'import type { Clock } from "./f.contract.ts";\nexport function clockConformance() {}\n' };
+    const double = { path: `${feature}/f.in-memory-clock.test-support.ts`, text: 'import type { Clock } from "./f.contract.ts";\nexport class InMemoryClock implements Clock { now() { return ""; } }\n' };
+    const runner = { path: `${feature}/f.in-memory-clock.test.ts`, text: 'import { clockConformance } from "./f.clock.test-support.ts";\nimport { InMemoryClock } from "./f.in-memory-clock.test-support.ts";\nclockConformance("InMemoryClock", () => new InMemoryClock());\n' };
+    const x = { name: "x", dir: "contexts/x", exports: { "./testing/host-installer-conformance": "./src/application/a/f/f.host-installer.test-support.ts" } };
+    expect(testDoubleViolations([contract, suite, double, runner], [x])).toEqual([]);
+    const unrun = testDoubleViolations([contract, suite, double], [x]);
+    expect(unrun).toHaveLength(1);
+    expect(unrun[0]).toContain(double.path);
+    const notThroughSuite = { path: runner.path, text: 'import { InMemoryClock } from "./f.in-memory-clock.test-support.ts";\nnew InMemoryClock();\n' };
+    expect(testDoubleViolations([contract, suite, double, notThroughSuite], [x])).toHaveLength(1);
+    const root = (path: string, spec: string) => ({ path, text: `import { thing } from "${spec}";\nthing();\n` });
+    const fromRoot = testDoubleViolations([contract, suite, double, runner, root("contexts/x/src/composition-root/root.ts", "../application/a/f/f.in-memory-clock.test-support.ts")], [x]);
+    expect(fromRoot).toHaveLength(1);
+    expect(fromRoot[0]).toContain("test support");
+    expect(testDoubleViolations([contract, suite, double, runner, root("contexts/x/src/composition-root/root.test.ts", "../application/a/f/f.in-memory-clock.test-support.ts")], [x])).toEqual([]);
+    // Through a package's export path too: published test support gets no pass.
+    expect(testDoubleViolations([contract, suite, double, runner, root("contexts/x/src/composition-root/root.ts", "x/testing/host-installer-conformance")], [x])).toHaveLength(1);
+  });
+
+  test("the test-support import ban sees an import without its extension, with .js, and a dynamic import of a plain template", () => {
+    const at = "contexts/x/src/composition-root/root.ts";
+    const importing = (text: string) => testDoubleViolations([{ path: at, text }], []);
+    expect(importing('import { thing } from "../application/a/f/f.in-memory-clock.test-support";\nthing();\n')).toHaveLength(1);
+    expect(importing('import { thing } from "../application/a/f/f.in-memory-clock.test-support.js";\nthing();\n')).toHaveLength(1);
+    expect(importing("const loaded = await import(`../application/a/f/f.in-memory-clock.test-support.ts`);\n")).toHaveLength(1);
+    expect(importing('export { thing } from "../application/a/f/f.in-memory-clock.test-support.ts";\n')).toHaveLength(1);
+    // A name that only starts like test support is not test support.
+    expect(importing('import { thing } from "../application/a/f/f.test-supported.ts";\nthing();\n')).toEqual([]);
   });
 
   test("R3: a domain concept is a contract, an implementation and a test, and a value object has a laws test", () => {
@@ -598,7 +696,7 @@ describe("architecture", () => {
 
   test("R7: a shipped pack's directory holds its overview, contract, index and their test, and only domain/, application/ and adapters/", () => {
     const dir = "contexts/x/src/packs/gate";
-    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/file-system/files.ts`];
+    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/files/files.ts`];
     expect(packLayoutViolations(tidy)).toEqual([]);
     expect(packLayoutViolations([...tidy, `${dir}/helpers.ts`, `${dir}/lib/x.ts`])).toEqual([
       `${dir}/helpers.ts — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`,
@@ -614,7 +712,7 @@ describe("architecture", () => {
     expect(packOverviewViolations([overview("id: gateId, dependsOn: [corePack], contributes: [contribution(corePack.points.effectGuards.read, [judge])]")])).toEqual([]);
     expect(packOverviewViolations([overview("id: gateId, contributes: [contribution(corePack.points.effectGuards.read, [() => judge])]")])).toEqual([`${path}:5 — an overview binds imported names only: no functions, conditionals, operators or literal text`]);
     expect(packOverviewViolations([overview("dependsOn: [corePack], id: gateId")])).toEqual([`${path} — an overview's sections are id, dependsOn, points, contributes, ports, in that order (it gives dependsOn, id)`]);
-    expect(packOverviewViolations([overview("id: gateId", 'import { files } from "./adapters/out/file-system/files.ts";\n')])).toEqual([`${path}:5 — an overview imports only its domain/, application/, its contract and bounded/domain, never "./adapters/out/file-system/files.ts"`]);
+    expect(packOverviewViolations([overview("id: gateId", 'import { files } from "./adapters/out/files/files.ts";\n')])).toEqual([`${path}:5 — an overview imports only its domain/, application/, its contract and bounded/domain, never "./adapters/out/files/files.ts"`]);
     expect(packOverviewViolations([{ path: "contexts/x/src/packs/gate/domain/extra.ts", text: 'import { definePack } from "bounded/domain";\nexport const extra = definePack({ id: x });\n' }])).toEqual(["contexts/x/src/packs/gate/domain/extra.ts:2 — a pack is defined in its overview file, <name>.pack.ts"]);
   });
 
@@ -645,7 +743,7 @@ describe("architecture", () => {
     const loose = { path: at("loose.ts"), text: `export function decide(raw: unknown) {\n  ${check}}\n` };
     const thrown = { path: at("thrown.ts"), text: "export const text = (e: unknown) => (e instanceof Error ? e.message : String(e));\n" };
     const command = { path: "contexts/x/src/application/area/feature/feature.command.ts", text: check };
-    const adapter = { path: "contexts/x/src/adapters/out/file-system/thing.ts", text: check };
+    const adapter = { path: "contexts/x/src/adapters/out/thing/thing.ts", text: check };
     expect(shapeCheckViolations([owner, thrown, command, adapter])).toEqual([]);
     expect(shapeCheckViolations([loose])).toEqual([`${at("loose.ts")}:2,2,2 — a shape check belongs in the parse or factory of the class that owns the shape (AGENTS.md, ADR 2026-013)`]);
     expect(shapeCheckViolations([loose], new Map([[at("loose.ts"), "a reason"]]))).toEqual([]);

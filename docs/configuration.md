@@ -58,11 +58,10 @@ about every event:
 
 ```ts
 import { openProject } from "bounded/open-project";
-import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
-import { pathGateTreeSitter } from "bounded/path-gate/adapters/tree-sitter";
+import { pathGatePortProvisions } from "bounded/path-gate/adapters";
 
-// The ports the selected packs declare: here the path gate's, on disk, and its shell parser.
-const project = await openProject("/absolute/path/to/project", { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
+// The ports the selected packs declare: here every port of the path gate, its files and snapshots on disk and its shell parser.
+const project = await openProject("/absolute/path/to/project", { ports: pathGatePortProvisions() });
 if (project.problem !== null) console.error(project.problem);
 const verdict = await project.judge(eventFromTheHost);
 ```

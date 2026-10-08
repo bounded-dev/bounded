@@ -22,3 +22,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-014](2026-014-legacy-harness-moves-to-legacy.md) | The legacy harness moves to `legacy/`, both histories kept; its ADRs become `LEG-2026-NNN` |
 | [2026-015](2026-015-host-installers.md) | Host installers are found by package export, outside pack composition: installing is distribution |
 | [2026-016](2026-016-cli-app.md) | One package, `bounded`, carrying the CLI and the host adapters (separate apps in source), compiled for Node; installs and upgrades hand over to the installed version |
+| [2026-017](2026-017-adapters-by-port.md) | Out adapters are grouped by the port they serve (`adapters/out/<port>/`), in-memory doubles are test support, and `Clock` and `DecisionIds` give value objects; two internal adapter export paths |

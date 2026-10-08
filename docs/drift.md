@@ -152,9 +152,9 @@ snapshot expires.
 
 The path gate reads the project's files and keeps snapshots through two
 ports, `watchedFiles` and `shellSnapshots`, which a host supplies when it
-opens a project: `openProject(root, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] })`
-(`bounded/path-gate/adapters/file-system`; `pathGateInMemory(files,
-snapshots)` from `bounded/path-gate/adapters/in-memory` for tests). A host
+opens a project: `openProject(root, { ports: pathGatePortProvisions() })`
+(`bounded/path-gate/adapters`, which gives every port the path gate uses;
+tests use the in-memory doubles beside each port, ADR 2026-017). A host
 that selects the path gate without them refuses every event, saying what to
 pass. Snapshots and quarantined files stay where they were:
 `$XDG_STATE_HOME/bounded/<sha256 of the root>/`.

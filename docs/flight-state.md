@@ -19,6 +19,17 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `bounded/core` declares the guard points and the lifecycle points
   `onProjectOpen`, `beforeTool` and `afterTool`; packs get adapters through
   ports the host provides ([ADR 2026-013](adr/2026-013-restructure.md)).
+- **Out adapters grouped by the port they serve**
+  ([ADR 2026-017](adr/2026-017-adapters-by-port.md)): one folder per port
+  under `adapters/out/`, in the core and the path gate, behind two internal
+  export paths, `bounded/adapters` and `bounded/path-gate/adapters`. The
+  in-memory doubles are test support beside their ports. The `Clock` and
+  `DecisionIds` ports give `DecisionTime` and `DecisionId` value objects, and
+  `openProject` passes `RandomDecisionIds`. This breaks what 3.0.0
+  published (its six adapter export paths, the in-memory doubles,
+  `pathGateInMemory`, string-typed clock and ids), shipped deliberately as
+  the minor 3.1.0 because 3.0.0 was about an hour old with no users (the
+  ADR's "Release").
 - **The path gate pack** (`bounded/path-gate`, [slice 3](slice-3.md),
   [ADR 2026-009](adr/2026-009-path-gate-pack.md)): deny-only protected
   paths on reads, listings and writes; a shell guard that parses each command
@@ -27,7 +38,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   command changed in protected files.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
-- **One package, `bounded` 3.0.0, ready to publish** (issue #65, first slice;
+- **One package, `bounded` 3.1.0, ready to publish; 3.0.0 is published**
+  (issue #65, first slice;
   [ADR 2026-016](adr/2026-016-cli-app.md)). It carries the library, the path
   gate, the `bounded` command (source `apps/cli`) and the Claude Code and pi
   adapters (sources `apps/claude-code`, `apps/pi`). The three apps are
@@ -168,10 +180,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
     new version. Measured: the rule adds no time to a Bash Pre and Post
     round through the bundled hook (median 318 ms with and without; mostly
     two Node starts).
-  - Not yet published. npm's `bounded` is the legacy 2.x until 3.0.0 is
-    published ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)).
-    Until then, installs need `--from` and npx needs the tarball. A
-    `--from` install overrides `bounded` in `package.json`, each package
+  - `bounded@3.0.0` is on npm as `latest`, the new major above the legacy
+    2.x ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)):
+    `npx bounded init` in a fresh project installs it from the registry,
+    with no `--from`. Not on npm yet: 3.1.0's changes (the adapters grouped
+    by port, [ADR 2026-017](adr/2026-017-adapters-by-port.md)) and the
+    discourage-defaults rules. `--from <dir>` stays only for installing a
+    local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
     (`resolutions`).
@@ -229,8 +244,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the guard log ([guard log](guard-log.md),
   [ADR 2026-008](adr/2026-008-guard-log.md)).
-- Publishing `bounded` 3.0.0 to npm, the new major above the legacy 2.x
-  ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
+- Publishing `bounded` 3.1.0 to npm (3.0.0, the new major above the legacy
+  2.x, is published,
+  [ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
   package is ready ([releasing](releasing.md)); the publish waits for review.
 - Loading `bounded.config.ts` on Nodes older than 22.18: they are refused,
   told to upgrade or to write `bounded.config.mjs`.

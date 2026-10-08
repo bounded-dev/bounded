@@ -82,7 +82,12 @@ filled up mid-write, or a line written by something else) and carry on.
 Every text field is at most 4,096 characters (counted in code points, so a
 character is never split); longer text ends with
 "… (shortened from N characters)". Decision ids come from the `DecisionIds`
-port (random UUIDs by default, `RandomDecisionIds` in `bounded/adapters/system`).
+port, which gives a `DecisionId`. `openProject` uses `RandomDecisionIds`
+(`bounded/adapters`), a random UUID each, and a handler built directly
+falls back to the same kind of id. The time comes from the `Clock` port,
+which gives a `DecisionTime`. Both are parsed again when a decision is
+recorded, so a host clock that gives the ISO 8601 text still works, with the
+same check, and anything else is a failure to record (ADR 2026-017).
 
 ## Privacy
 
@@ -97,18 +102,19 @@ planned, not built.
 
 | Adapter | Package export | Keeps decisions |
 | --- | --- | --- |
-| `InMemoryGuardLog` | `bounded/adapters/in-memory` | in memory, for tests and short-lived hosts |
-| `FileSystemGuardLog` | `bounded/adapters/file-system` | appended to a JSON-lines file, creating its folders |
-| `SystemClock` | `bounded/adapters/system` | (the time of each decision) |
+| `FileSystemGuardLog` | `bounded/adapters` | appended to a JSON-lines file, creating its folders |
+| `SystemClock` | `bounded/adapters` | (the time of each decision, a `DecisionTime`) |
+| `RandomDecisionIds` | `bounded/adapters` | (each decision's id, a `DecisionId`) |
 
 The composition root chooses the file, such as
 `<project>/.bounded/guard-log.jsonl`. The port is asynchronous so a later
 adapter can send decisions to a service. Every log runs the conformance suite
-in `judge-event.guard-log.test-support.ts`.
+in `judge-event.guard-log.test-support.ts`. Tests use the in-memory double
+`InMemoryGuardLog` (`judge-event.in-memory-guard-log.test-support.ts`), which
+is test support and not published (ADR 2026-017).
 
 ```ts
-import { FileSystemGuardLog } from "bounded/adapters/file-system";
-import { SystemClock } from "bounded/adapters/system";
+import { FileSystemGuardLog, SystemClock } from "bounded/adapters";
 import { JudgeEventCommand, JudgeEventHandler } from "bounded/application";
 
 const judge = new JudgeEventHandler(composition, new FileSystemGuardLog(`${project}/.bounded/guard-log.jsonl`), new SystemClock());

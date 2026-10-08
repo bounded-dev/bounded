@@ -23,7 +23,7 @@ export type PrepareShell = ProjectOpenHandler;
 // Out ports: exactly what this feature needs.
 /**
  * What is at a path in one project: undefined when it cannot be told.
- * @implementedBy in-memory file-system
+ * @implementedBy FileSystemPathKinds
  */
 export interface PathKinds {
   kindOf(path: ProjectPath): PathKind | undefined;
@@ -33,7 +33,7 @@ export interface PathKinds {
  * A shell parser. `prepare` loads it, once, when the project opens; then
  * `parse` is synchronous, as guards are. Before it is prepared, or if it
  * cannot load, `parse` fails.
- * @implementedBy tree-sitter
+ * @implementedBy TreeSitterShellParser
  */
 export interface ShellParser {
   prepare(): Promise<void>;

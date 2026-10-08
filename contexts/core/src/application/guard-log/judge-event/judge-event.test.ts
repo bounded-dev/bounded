@@ -1,11 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { Composition, type Composition as CompositionType, contribution, corePack, type Decision, definePack, packIdsFor, Verdict } from "bounded/domain";
+import { Composition, type Composition as CompositionType, contribution, corePack, type Decision, DecisionId, DecisionTime, definePack, packIdsFor, Verdict } from "bounded/domain";
 import { JudgeEventCommand } from "./judge-event.command.ts";
-import type { Clock, GuardLog } from "./judge-event.contract.ts";
+import type { Clock, DecisionIds, GuardLog } from "./judge-event.contract.ts";
 import { JudgeEventHandler } from "./judge-event.handler.ts";
 
 const TIME = "2026-10-07T12:00:00.000Z";
-const clock: Clock = { now: () => TIME };
+/** A DecisionTime from known-good text. */
+function decisionTime(text: string): DecisionTime {
+  const parsed = DecisionTime.parse(text);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
+/** A DecisionId from known-good text. */
+function decisionId(text: string): DecisionId {
+  const parsed = DecisionId.parse(text);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
+const clock: Clock = { now: () => decisionTime(TIME) };
 const UNRECORDED_REDIRECT = "Make the guard log writable; until decisions can be recorded, every action is refused";
 
 class FakeLog implements GuardLog {
@@ -96,7 +108,7 @@ describe("JudgeEventHandler", () => {
   test("takes decision ids from its ids port", async () => {
     const log = new FakeLog();
     let n = 0;
-    await new JudgeEventHandler(composition, log, clock, { ids: { next: () => `id-${++n}` } }).execute(command("src/a.ts"));
+    await new JudgeEventHandler(composition, log, clock, { ids: { next: () => decisionId(`id-${++n}`) } }).execute(command("src/a.ts"));
     expect(log.decisions[0]?.id.value).toBe("id-1");
   });
 
@@ -130,10 +142,40 @@ describe("JudgeEventHandler", () => {
   });
 
   test("a clock that does not give an ISO 8601 time is a failure to record", async () => {
-    const odd: Clock = { now: () => "yesterday" };
+    // A host's clock is unchecked at run time: one giving text that is not a time is caught when the decision is recorded.
+    const odd = { now: () => "yesterday" } as unknown as Clock;
     const log = new FakeLog();
     const verdict = await new JudgeEventHandler(composition, log, odd).execute(command("src/a.ts"));
     expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: the clock gave 'yesterday', not an ISO 8601 time");
+    expect(log.decisions).toEqual([]);
+  });
+
+  test("a host clock that still gives an ISO 8601 string is accepted, with the same check", async () => {
+    const textClock = { now: () => TIME } as unknown as Clock;
+    const log = new FakeLog();
+    expect(await new JudgeEventHandler(composition, log, textClock).execute(command("src/a.ts"))).toBe(Verdict.allow);
+    expect(log.decisions.length).toBe(1);
+    expect(log.decisions[0]?.time).toBe(TIME);
+  });
+
+  test("a clock that gives something DecisionTime did not make is a failure to record", async () => {
+    const lookAlike = { value: TIME, equals: () => true, toJSON: () => TIME };
+    const forged = { now: () => lookAlike } as unknown as Clock;
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(composition, log, forged).execute(command("src/a.ts"));
+    expect(verdict.kind).toBe("refuse");
+    const reason = verdict.kind === "refuse" ? verdict.reason : "";
+    expect(reason).toStartWith("The guards allowed this, but the decision could not be recorded: the clock gave '");
+    expect(reason).toEndWith("', not an ISO 8601 time");
+    expect(log.decisions).toEqual([]);
+  });
+
+  test("an ids source that gives something DecisionId did not make is a failure to record", async () => {
+    const lookAlike = { value: "id-1", equals: () => true, toJSON: () => "id-1" };
+    const forged = { next: () => lookAlike } as unknown as DecisionIds;
+    const log = new FakeLog();
+    const verdict = await new JudgeEventHandler(composition, log, clock, { ids: forged }).execute(command("src/a.ts"));
+    expect(verdict.kind === "refuse" && verdict.reason).toContain("the decision ids gave an invalid id");
     expect(log.decisions).toEqual([]);
   });
 

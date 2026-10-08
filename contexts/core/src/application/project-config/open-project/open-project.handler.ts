@@ -3,7 +3,7 @@ import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-even
 import { JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
-import type { Clock, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge } from "./open-project.contract.ts";
+import type { Clock, DecisionIds, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge } from "./open-project.contract.ts";
 
 const NOTHING: AfterToolOutcome = Object.freeze({ message: null });
 
@@ -37,16 +37,25 @@ export class OpenProjectHandler implements OpenProject {
       if (!ports.ok) return this.refusing(log, ports.error);
       const missing = composition.value.requiredPorts().find((key) => !ports.value.provides(key));
       if (missing !== undefined) return this.refusing(log, `${missing.owner.value} needs the port '${missing.name}', which this host does not provide: pass it to openProject({ ports })`);
-      const lifecycle = new ProjectLifecycleHandler(composition.value, ports.value, log, this.clock, this.options.prepareWithinMs === undefined ? {} : { prepareWithinMs: this.options.prepareWithinMs });
+      const lifecycle = new ProjectLifecycleHandler(composition.value, ports.value, log, this.clock, {
+        ...(this.options.prepareWithinMs === undefined ? {} : { prepareWithinMs: this.options.prepareWithinMs }),
+        ...this.idsOption(),
+      });
       await lifecycle.open({ root });
       const handler = new JudgeEventHandler(composition.value, log, this.clock, {
         ...(this.options.recordWithinMs === undefined ? {} : { recordWithinMs: this.options.recordWithinMs }),
+        ...this.idsOption(),
         beforeAllow: async (event) => (event.kind === "tool-use" ? lifecycle.before(event) : Verdict.allow),
       });
       return this.judge(handler, null, lifecycle);
     } catch (thrown) {
       return this.refusing(log, text(thrown));
     }
+  }
+
+  /** The ids option, to pass on to the handlers that record decisions; nothing when it is not given, so each uses its default. */
+  private idsOption(): { readonly ids?: DecisionIds } {
+    return this.options.ids === undefined ? {} : { ids: this.options.ids };
   }
 
   private judge(handler: JudgeEvent, problem: string | null, lifecycle?: ProjectLifecycle): ProjectJudge {
@@ -62,7 +71,7 @@ export class OpenProjectHandler implements OpenProject {
   private refusing(log: GuardLog | undefined, problem: string): ProjectJudge {
     const refusal = Verdict.refuse(`This project's configuration cannot be used: ${problem}`, FIX);
     try {
-      if (log !== undefined) return this.judge(new JudgeEventHandler(null, log, this.clock, { refuseEverything: refusal }), problem);
+      if (log !== undefined) return this.judge(new JudgeEventHandler(null, log, this.clock, { refuseEverything: refusal, ...this.idsOption() }), problem);
     } catch {
       // fall through: refuse without recording
     }

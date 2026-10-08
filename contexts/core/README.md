@@ -64,6 +64,20 @@ Claude Code's sandbox mode. Known ways round it:
 - drift's snapshots, kept in a state directory the user (and so the agent)
   can write.
 
+## Export paths
+
+A configuration imports `bounded/domain` and the packs it selects, such as
+`bounded/path-gate`. The adapter export paths, `bounded/adapters` and
+`bounded/path-gate/adapters`, are internal: they serve the hooks for Claude
+Code and pi that this package carries and its `bounded` command, and may
+change in any release. 3.1.0 deliberately breaks what 3.0.0 published, in a
+minor release because 3.0.0 was about an hour old with no users: it replaced
+3.0.0's `bounded/adapters/{file-system,in-memory,system}` and
+`bounded/path-gate/adapters/{file-system,in-memory,tree-sitter}`, removed
+their in-memory doubles and `pathGateInMemory`, and made the clock and
+decision-id ports give `DecisionTime` and `DecisionId` (the repository's
+ADR 2026-017).
+
 ## More
 
 The design, the configuration, the packs and the decisions behind them are in

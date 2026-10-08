@@ -1,4 +1,4 @@
-import type { AdapterRefusalJSON, Decision, Event, Result, Verdict } from "bounded/domain";
+import type { AdapterRefusalJSON, Decision, DecisionId, DecisionTime, Event, Result, Verdict } from "bounded/domain";
 
 /** The brand only JudgeEventCommand itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const judgeEventCommandBrand: unique symbol;
@@ -45,24 +45,27 @@ export type AdapterRefusalInput = AdapterRefusalJSON;
 /**
  * Where decisions are kept, append-only. Asynchronous, so it can be a file
  * today and a remote service later.
- * @implementedBy in-memory file-system
+ * @implementedBy FileSystemGuardLog
  */
 export interface GuardLog {
   record(decision: Decision): Promise<void>;
 }
 
 /**
- * A new, unique id for each decision.
- * @implementedBy system
+ * A new `DecisionId` for each decision, never the same twice. The handlers
+ * still parse what it gives when a decision is recorded (ADR 2026-017).
+ * @implementedBy RandomDecisionIds
  */
 export interface DecisionIds {
-  next(): string;
+  next(): DecisionId;
 }
 
 /**
- * The time of a decision, ISO 8601 in UTC.
- * @implementedBy system
+ * The time of a decision, a `DecisionTime` (ISO 8601 in UTC). The handlers
+ * still parse what it gives when a decision is recorded, so a host clock that
+ * gives the ISO 8601 text is accepted with the same check (ADR 2026-017).
+ * @implementedBy SystemClock
  */
 export interface Clock {
-  now(): string;
+  now(): DecisionTime;
 }

@@ -26,7 +26,7 @@ export interface HostInstaller {
 
 /**
  * Out port: the host installers the project's installed packages offer.
- * @implementedBy system
+ * @implementedBy NodeModulesHostInstallerSource
  */
 export interface HostInstallerSource {
   /** Every installer offered by a package in the project's dependencies, in package name order; none is not a failure. */
@@ -35,7 +35,7 @@ export interface HostInstallerSource {
 
 /**
  * Out port: the project files setting up bounded reads and writes.
- * @implementedBy file-system
+ * @implementedBy FileSystemProjectSetupFiles
  */
 export interface ProjectSetupFiles {
   /** The configuration files the project has, of bounded.config.ts, .js and .mjs, in that order. */

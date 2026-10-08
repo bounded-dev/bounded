@@ -16,12 +16,30 @@ function text(thrown: unknown): string {
 /** Without a composition, and no refusal given for that, every event is refused. */
 const NO_COMPOSITION = Verdict.refuse("Dispatch was given something that is not a composition", "Compose the selected packs with Composition.compose and dispatch over the result");
 
-/** The next decision id; an id that is not one throws, so the decision is not recorded and fails closed. */
+/**
+ * The next decision id. What the ids port gives is parsed again: a host's
+ * ids source is unchecked at run time, so wire text is accepted with the same
+ * check, and anything else (a look-alike DecisionId did not make) throws, so
+ * the decision is not recorded and fails closed.
+ */
 export function nextDecisionId(ids: DecisionIds): DecisionId {
   const id = DecisionId.parse(ids.next());
   if (!id.ok) throw new Error(`the decision ids gave an invalid id: ${id.error}`);
   return id.value;
 }
+
+/**
+ * The ids a handler uses when it is given none: a DecisionId of a random UUID
+ * for each decision. Only the default for code that builds a handler
+ * directly; openProject gives the RandomDecisionIds adapter instead.
+ */
+export const defaultDecisionIds: DecisionIds = Object.freeze({
+  next: (): DecisionId => {
+    const id = DecisionId.parse(crypto.randomUUID());
+    if (!id.ok) throw new Error(`the decision ids gave an invalid id: ${id.error}`);
+    return id.value;
+  },
+});
 
 /** Why recording failed; when it timed out, the record that may still land. */
 interface Failure {
@@ -51,7 +69,7 @@ export class JudgeEventHandler implements JudgeEvent {
     const bound = options.recordWithinMs ?? JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS;
     if (!Number.isFinite(bound) || bound <= 0) throw new RangeError("recordWithinMs must be a finite number of milliseconds above zero");
     this.recordWithinMs = bound;
-    this.ids = options.ids ?? { next: () => crypto.randomUUID() };
+    this.ids = options.ids ?? defaultDecisionIds;
     this.beforeAllow = options.beforeAllow;
     const refusal = options.refuseEverything ?? (composition === null ? NO_COMPOSITION : undefined);
     if (refusal !== undefined || composition === null) this.decide = () => ({ verdict: refusal ?? NO_COMPOSITION, refusedBy: null });
@@ -122,8 +140,9 @@ export class JudgeEventHandler implements JudgeEvent {
     return enforced;
   }
 
+  /** The time of a decision. What the clock gives is parsed again: a host's clock is unchecked at run time, so ISO 8601 text is accepted with the same check. */
   private now(): string {
-    const time = this.clock.now();
+    const time: unknown = this.clock.now();
     const parsed = DecisionTime.parse(time);
     if (!parsed.ok) throw new Error(`the clock gave '${text(time)}', not an ISO 8601 time`);
     return parsed.value.value;
