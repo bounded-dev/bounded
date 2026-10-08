@@ -156,7 +156,8 @@ does two things.
     so the file can be committed and works in every checkout.
   - pi's loader goes under `.pi/extensions/`.
 
-Restart the host's session afterwards.
+Restart (or start) the hosts' sessions afterwards, as `init` says, so they
+load the hooks.
 
 The first thing to do after `init` is to add your own rules beside the
 defaults, in the `contribution(pathGate.points.protectedPaths, [...])` that
@@ -187,6 +188,19 @@ installed version, which refreshes the hooks. If the upgrade fails,
 `package.json` and the lockfile are restored. `npx bounded update --no-upgrade`
 refreshes the hooks from the installed version only. Neither touches
 `bounded.config.ts`.
+
+Each says, per host, whether its sessions must restart:
+- Claude Code runs the hook in a new node process on every tool call, so a
+  new `bounded` is live at once. Its sessions restart only when
+  `.claude/settings.json` changed:
+  `Restart Claude Code sessions in this project so they load the new hooks.`
+  Otherwise:
+  `No need to restart Claude Code sessions: bounded <version> is live on their next tool call.`
+- pi loads `bounded` into its process at session start, and the CLI cannot
+  know which version a running session loaded, so after every update:
+  `Restart pi sessions in this project to load bounded <version>.`
+- A host another package installs is told to restart after every update
+  too, as it may hold `bounded` in its process.
 
 ### From a checkout (local development)
 

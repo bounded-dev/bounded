@@ -13,7 +13,8 @@
 //   configuration and installs the hooks of the hosts named or found;
 // - `bounded update` upgrades bounded, to its latest from the registry or
 //   from the tarball in `--from <dir>`, then runs the installed
-//   `bounded update --no-upgrade`, which refreshes the hooks.
+//   `bounded update --no-upgrade`, which refreshes the hooks and says which
+//   agent host sessions must restart.
 // Those two hand-offs are the contract between versions: every version
 // accepts `bounded init --no-install [--host <host>]...` and
 // `bounded update --no-upgrade`.
@@ -103,23 +104,54 @@ function ownVersion(): string {
   return typeof version === "string" ? version : "(unknown version)";
 }
 
-const RESTART = "Restart each agent host's session in this project (start a new session) so it loads the hooks.";
+/** Which command set the hosts up: init, for the first time, or update. */
+type SetupKind = "init" | "update";
+
+/**
+ * The restart notice, a line per host set up (none for a host skipped):
+ * - Claude Code reads its hook settings at session start and runs the hook,
+ *   the same command in every version, in a new node process on every tool
+ *   call: its sessions restart only when init set it up or its settings
+ *   changed, and otherwise take the new bounded on their next tool call.
+ * - pi loads bounded into its process at session start, and nothing tells
+ *   which bounded a running session loaded (a tarball of the same version,
+ *   the project's own install): its sessions are told to restart every time.
+ * - A host another package installs may hold bounded in its process too, so
+ *   is told to restart every time: for its new hooks when its installer
+ *   changed a file, else for the bounded installed.
+ */
+function restartNotice(report: SetupReport, setupKind: SetupKind, version: string): string[] {
+  const lines: string[] = [];
+  for (const host of report.hosts) {
+    if (host.skippedBecause !== null) continue;
+    const hooksChanged = setupKind === "init" || host.changedPaths.length > 0;
+    if (host.host === "claude-code") {
+      lines.push(hooksChanged ? "Restart Claude Code sessions in this project so they load the new hooks." : `No need to restart Claude Code sessions: bounded ${version} is live on their next tool call.`);
+    } else if (host.host === "pi" || !hooksChanged) {
+      lines.push(`Restart ${host.host} sessions in this project to load bounded ${version}.`);
+    } else {
+      lines.push(`Restart ${host.host} sessions in this project so they load the new hooks.`);
+    }
+  }
+  return lines;
+}
 
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 
-function reportText(report: SetupReport): string {
-  const lines = [`bounded ${ownVersion()}`];
+function reportText(report: SetupReport, setupKind: SetupKind): string {
+  const version = ownVersion();
+  const lines = [`bounded ${version}`];
   if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the core and the path gate, with two default rules protecting the configuration and .bounded/; add your own rules there.`);
   for (const host of report.hosts) {
     if (host.skippedBecause !== null) lines.push(`${host.host}: skipped (${host.skippedBecause})`);
     else if (host.changedPaths.length > 0) lines.push(`${host.host}: updated ${host.changedPaths.join(", ")}`);
     else lines.push(`${host.host}: up to date`);
   }
-  lines.push(RESTART);
+  lines.push(...restartNotice(report, setupKind, version));
   return `${lines.join("\n")}\n`;
 }
 
-const done = (outcome: Result<SetupReport>): CliRun => (outcome.ok ? { exitCode: 0, stdout: reportText(outcome.value), stderr: "" } : refused(outcome.error));
+const done = (outcome: Result<SetupReport>, setupKind: SetupKind): CliRun => (outcome.ok ? { exitCode: 0, stdout: reportText(outcome.value, setupKind), stderr: "" } : refused(outcome.error));
 const refused = (error: string, stdout = ""): CliRun => ({ exitCode: 1, stdout, stderr: `bounded: ${error}\n` });
 const usage = (): CliRun => ({ exitCode: 2, stdout: "", stderr: USAGE });
 
@@ -413,7 +445,7 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
       if (!parsed.noInstall) return await initInstalling(projectRoot, parsed.from, parsed.hosts, files, run);
       const invalid = invalidHost(parsed.hosts);
       if (invalid !== undefined) return refused(`"${invalid}" is not a host name: name a host such as claude-code or pi`);
-      return done(await new InitProjectHandler(files, selectedSource(projectRoot, { kind: "hosts", hosts: new Set(hostsFor(projectRoot, parsed.hosts)) }), INITIAL_CONFIG).execute(projectRoot));
+      return done(await new InitProjectHandler(files, selectedSource(projectRoot, { kind: "hosts", hosts: new Set(hostsFor(projectRoot, parsed.hosts)) }), INITIAL_CONFIG).execute(projectRoot), "init");
     }
     if (command !== "update") return usage();
     const refreshOnly = options.length === 1 && options[0] === "--no-upgrade";
@@ -421,7 +453,7 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
     if (!refreshOnly && fromDir === undefined && options.length > 0) return usage();
     const initialised = await requireInitialised(files, projectRoot);
     if (!initialised.ok) return refused(initialised.error);
-    if (refreshOnly) return done(await new UpdateProjectHandler(files, selectedSource(projectRoot, { kind: "installed", found: new Set(hostsFor(projectRoot, [])) })).execute(projectRoot));
+    if (refreshOnly) return done(await new UpdateProjectHandler(files, selectedSource(projectRoot, { kind: "installed", found: new Set(hostsFor(projectRoot, [])) })).execute(projectRoot), "update");
     const packages = boundedPackage(projectRoot);
     if (!packages.ok) return refused(packages.error);
     const manifest = readJson(join(projectRoot, "package.json"));

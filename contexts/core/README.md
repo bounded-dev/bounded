@@ -23,7 +23,10 @@ selecting the core and the path gate, with default rules that keep agents
 off this configuration, `.bounded/`, Claude Code's settings, pi's loader,
 Bounded's installed code and git's hooks and config. It installs the hooks of the agent hosts the
 project uses (`.claude/`, `.pi/`, or `--host claude-code`, `--host pi`).
-Restart the host's session afterwards.
+Restart (or start) the hosts' sessions afterwards, as `init` says, so they
+load the hooks. After `bounded update`, the CLI says, per host, whether
+sessions must restart: Claude Code's only when its settings changed, pi's
+every time.
 
 Then add your own rules beside the defaults:
 

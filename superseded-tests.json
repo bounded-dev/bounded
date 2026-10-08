@@ -3784,5 +3784,95 @@
       "case": "bounded init's configuration > also keeps agents off every Claude Code settings file (settings.local.json can disable all hooks), pi's loader and bounded's installed code, saying why"
     },
     "reason": "the default rule matches .claude/settings*.json, not only .claude/settings.json: .claude/settings.local.json can set disableAllHooks (final review)"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > Claude Code settings changed: says to restart Claude Code sessions, and nothing else",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > Claude Code settings changed by an update: says to restart Claude Code sessions, and no no-restart line"
+    },
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; the same case without the flag"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > Claude Code settings unchanged, even across a version change: no restart line, and the one no-restart line",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > Claude Code settings unchanged by an update: no restart line, and Claude Code's own no-restart line"
+    },
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; the no-restart line is Claude Code's own"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > update --no-upgrade with nothing changed and only Claude Code installed prints the no-restart line, with or without the previous version",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > Claude Code settings unchanged by an update: no restart line, and Claude Code's own no-restart line"
+    },
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; the no-restart line is Claude Code's own"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > pi installed with a version change: says to restart pi sessions to load the new version",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > pi installed, nothing changed (as after a same-version --from tarball): still told to restart, since the CLI cannot know which bounded a running pi session loaded"
+    },
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; pi is told to restart whether or not the version changed"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > pi's loader changed with the version unchanged: says to restart pi sessions",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > pi's loader changed by an update: says to restart pi sessions, and no no-restart line"
+    },
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; the same case without the flag"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > pi installed, nothing changed: no restart line, and the one no-restart line",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > pi installed, nothing changed (as after a same-version --from tarball): still told to restart, since the CLI cannot know which bounded a running pi session loaded"
+    },
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; a same-version --from tarball left running pi sessions on old code while this said no restart (the review's major finding)"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > a hand-off without the previous version (an older CLI's): the version change is unknown, so pi is told to restart, conservatively",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > pi installed, nothing changed (as after a same-version --from tarball): still told to restart, since the CLI cannot know which bounded a running pi session loaded"
+    },
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; pi is told to restart in every case, without a version-unknown variant"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > a host another package installs: told to restart only when its installer changed a file",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+      "case": "the restart notice: per host, only when a session must restart > a host another package installs: told to restart after every update, to load the new hooks or the new bounded"
+    },
+    "reason": "a third-party host's sessions may hold bounded in their process, so they are told to restart after every update (final review of restart-notice)"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.restart-notice.test.ts",
+    "case": "the restart notice: per host, only when a session must restart > update --no-upgrade refuses a previous version that is not one, as not understood",
+    "successor": null,
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; there is no flag left to parse"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded update from the registry: the one bounded package > hands the version bounded was before the upgrade to a bounded that accepts it (3.1.1 or later), so its restart notice knows whether the version changed",
+    "successor": null,
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; the hand-off is `update --no-upgrade` alone again, as the existing registry case checks"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: the one bounded tarball > hands the version bounded was before the upgrade to a bounded that accepts it (3.1.1 or later)",
+    "successor": null,
+    "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; the hand-off is `update --no-upgrade` alone again, as the existing --from case checks"
   }
 ]
