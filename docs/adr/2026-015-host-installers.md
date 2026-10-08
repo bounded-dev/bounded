@@ -5,21 +5,29 @@
 ## Decision
 
 - **Installing into an agent host is distribution, not extension.**
-  `bounded init` and `bounded update` (issue #65; the app bounded-cli, [ADR 2026-016](2026-016-cli-app.md)) write a host's hooks or
+  `bounded init` and `bounded update` (issue #65; [ADR 2026-016](2026-016-cli-app.md)) write a host's hooks or
   loader into a project: `.claude/settings.json` for Claude Code, the loader
   under `.pi/extensions/` for pi. That happens before anything is composed
   and before any decision is made, and it changes no verdict. It is how the
   harness gets into the host, not something the harness does once it is
   running.
-- **The core declares the contract; each host adapter package implements
-  it.** The application feature `project-setup/init-project` declares
+- **The core declares the contract; each host adapter implements it.** The
+  application feature `project-setup/init-project` declares
   `HostInstaller` (`{ host, install(projectRoot) }`, idempotent, reporting
-  project-relative paths) and the out port `HostInstallerSource`. A host
-  adapter package offers its installer as the `hostInstaller` export of its
-  `./host-installer` export path. `NodeModulesHostInstallerSource` loads the
-  installer of every dependency in the project's `package.json` that has
-  that export path. The core names no host, and adding a host needs no
-  change to the core.
+  project-relative paths) and the out port `HostInstallerSource`.
+  `NodeModulesHostInstallerSource` loads, from every dependency in the
+  project's `package.json`, the `hostInstaller` export of its
+  `./host-installer` export path, or of each `./hosts/<host>/host-installer`
+  it has. A package bundling several hosts, as `bounded` itself does since
+  [ADR 2026-016](2026-016-cli-app.md), offers one per host there. The core
+  names no host, only the pattern, and adding a host needs no change to the
+  core.
+- **Which bundled hosts run is the caller's choice.** `bounded` carries the
+  installers of the hosts it bundles (Claude Code, pi), and the CLI runs only
+  those of the hosts named with `--host` or found by their directory
+  (`.claude/`, `.pi/`). An installer another package offers at
+  `./host-installer` always runs, since installing that package chose it.
+  So a third-party adapter package still plugs in.
 - **Every installer runs the same conformance suite**,
   `bounded/testing/host-installer-conformance`: it checks the host name,
   project-relative paths, idempotence, and refusal (changing nothing) when
@@ -53,9 +61,10 @@ host installer never contributes to a pack.
 
 ## Consequences
 
-- A project's set of hosts is its set of installed host adapter packages.
-  Installing `bounded-pi` beside `bounded-claude-code` and running
-  `bounded update` installs pi's loader too.
+- A project's hosts are the bundled hosts it uses (named at init, or found
+  by their directory, which installing them creates) and any third-party
+  adapter package it installs. Creating `.pi/` and running
+  `bounded update --no-upgrade` installs pi's loader too.
 - The source refuses rather than guessing when a declared dependency is
   missing from `<root>/node_modules` (an omitted devDependency, or a
   workspace that hoists packages elsewhere), or when a package's

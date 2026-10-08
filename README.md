@@ -86,55 +86,95 @@ hosts:
   projects contribute deny-only rules to its `protectedPaths` point (a
   glob, its own exceptions, what it denies, a redirect); its guards refuse
   reads, listings and writes a rule denies, naming the rule and the pack
-  that contributed it. A denial always wins, and it protects the project's
-  Bounded configuration itself (ADR 2026-009).
+  that contributed it. A denial always wins. The pack ships no rules of its
+  own: the configuration `bounded init` writes contributes two defaults that
+  protect the project's Bounded configuration and `.bounded/` (ADR 2026-009).
 
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
 
 ## Installing
 
-Nothing is published to npm yet, so install from packed tarballs. The hooks
-run under [bun](https://bun.sh), which must be on `PATH`.
+One package, `bounded`, carries everything: the library, the path gate, the
+`bounded` command and the hooks for Claude Code and pi. It runs on Node 22.18
+or later (which loads `bounded.config.ts` by stripping its types), with npm,
+pnpm, yarn or bun. Bun is needed only to build and publish Bounded itself.
+
+In your project (it needs a `package.json`):
 
 ```sh
-# in a checkout of this repository: one tarball per package
-(cd contexts/core && bun pm pack --destination /tmp/bounded)
-(cd apps/claude-code && bun pm pack --destination /tmp/bounded)
-(cd apps/pi && bun pm pack --destination /tmp/bounded)
-(cd apps/cli && bun pm pack --destination /tmp/bounded)
-
-# in your project (it needs a package.json): the first install runs bounded-cli through npx.
-# npx is given bounded's tarball too: on npm, `bounded` is still the legacy 2.x.
-npx -p /tmp/bounded/bounded-<version>.tgz -p /tmp/bounded/bounded-cli-<version>.tgz bounded init --from /tmp/bounded
+npx bounded init
 ```
 
-`bounded init --from <dir>` adds `bounded`, `bounded-cli` and each host's
-adapter package as devDependencies, installed from the tarballs in `<dir>`.
-The hosts are the ones whose directory the project has (`.claude/` for
-`bounded-claude-code`, `.pi/` for `bounded-pi`), or the ones named with
-`--host claude-code` or `--host pi`. It uses the project's package manager:
-its lockfile's, else `package.json`'s `packageManager`, else the one running
-npx. It also overrides `bounded` in `package.json` the way that manager takes
-overrides: `$bounded` for npm and pnpm, the local tarball for bun and yarn.
-bun and npm are tested end to end; pnpm and yarn are not yet. It then hands over to the installed `bounded init`. That writes
-`bounded.config.ts`, selecting only the core pack (which guards nothing by
-itself; add packs there, see [configuration](docs/configuration.md)), and
-installs every host's hooks. Claude Code's go into `.claude/settings.json`,
-running `bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"`,
-so the file can be committed and works in every checkout. pi's loader goes
-under `.pi/extensions/`. Restart the host's session afterwards. When the
-packages are already installed, `npx bounded init` does the second half
-alone. Once published, `npx bounded-cli init` will be the first step.
+`bounded init` adds `bounded` as a devDependency, with the project's package
+manager. That is the lockfile's, else `package.json`'s `packageManager`, else
+the one running npx. It then hands over to the `bounded` it installed, which
+does two things.
 
-To upgrade, pack the new release into an empty directory and run
-`npx bounded update --from <dir>`. It installs the tarballs in `<dir>` and
-keeps the `bounded` override pointing at the new one. It checks the
-installed versions, then hands over to the newly installed version, which
-refreshes the hooks. If the upgrade fails, `package.json` and the lockfile
-are restored.
-`npx bounded update --no-upgrade` refreshes the hooks from the installed
-version only. Neither touches `bounded.config.ts`.
+- **It writes `bounded.config.ts`**, selecting the core and the path gate.
+  The path gate ships no rules of its own
+  ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)). The configuration
+  `init` writes contributes two default rules: agents may not change
+  `bounded.config.*` or Bounded's own state in `.bounded/`. Keep, change or
+  remove them.
+- **It installs the hooks of your agent hosts.** These are the hosts whose
+  directory the project has (`.claude/`, `.pi/`), or those named with
+  `--host claude-code` or `--host pi`.
+  - Claude Code's hooks go into `.claude/settings.json`, running
+    `node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"`,
+    so the file can be committed and works in every checkout.
+  - pi's loader goes under `.pi/extensions/`.
+
+Restart the host's session afterwards.
+
+The first thing to do after `init` is to add your own rules beside the
+defaults, in the `contribution(pathGate.points.protectedPaths, [...])` that
+`init` wrote. For example, to keep agents out of `secrets/`:
+
+```ts
+// bounded.config.ts, as init wrote it, with one rule added
+import { contribution, corePack, defineConfig } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
+
+export default defineConfig({
+  packs: [corePack, pathGate],
+  contributes: [
+    contribution(pathGate.points.protectedPaths, [
+      // ...init's two default rules...
+      { match: "secrets/**", deny: ["read", "create", "modify", "delete"], why: "secrets are kept by people", redirect: "Ask a maintainer for the value you need" },
+    ]),
+  ],
+});
+```
+
+[Configuring a project](docs/configuration.md) describes the rule fields and
+other packs.
+
+To upgrade, run `npx bounded update`. It upgrades `bounded` to its latest
+version and checks the version it installed. It then hands over to the newly
+installed version, which refreshes the hooks. If the upgrade fails,
+`package.json` and the lockfile are restored. `npx bounded update --no-upgrade`
+refreshes the hooks from the installed version only. Neither touches
+`bounded.config.ts`.
+
+### From a checkout (local development)
+
+To try a build that is not published, pack it and pass the tarball's
+directory with `--from`. npx is given the tarball too, while npm's `bounded`
+is still the legacy 2.x
+([ADR 2026-014](docs/adr/2026-014-legacy-harness-moves-to-legacy.md)):
+
+```sh
+(cd contexts/core && bun pm pack --destination /tmp/bounded)   # its prepack builds dist/
+npx -p /tmp/bounded/bounded-<version>.tgz bounded init --from /tmp/bounded
+npx bounded update --from /tmp/bounded                         # later, with a newer tarball there
+```
+
+With `--from`, `package.json` overrides `bounded` with the tarball, each
+package manager in its own way: `$bounded` for npm and pnpm, the tarball for
+bun and yarn. bun and npm are tested end to end; pnpm and yarn are not yet.
+[Releasing](docs/releasing.md) describes how a release is built and
+published.
 
 ## Develop
 

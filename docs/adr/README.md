@@ -21,4 +21,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-013](2026-013-restructure.md) | The restructure: names that say what they hold, contracts everywhere, and rules that keep them |
 | [2026-014](2026-014-legacy-harness-moves-to-legacy.md) | The legacy harness moves to `legacy/`, both histories kept; its ADRs become `LEG-2026-NNN` |
 | [2026-015](2026-015-host-installers.md) | Host installers are found by package export, outside pack composition: installing is distribution |
-| [2026-016](2026-016-cli-app.md) | The `bounded` command is its own app, bounded-cli; installs and upgrades hand over to the installed version |
+| [2026-016](2026-016-cli-app.md) | One package, `bounded`, carrying the CLI and the host adapters (separate apps in source), compiled for Node; installs and upgrades hand over to the installed version |
