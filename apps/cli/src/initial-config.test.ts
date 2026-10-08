@@ -1,5 +1,5 @@
-// The configuration `bounded init` writes: live, selecting the core and the
-// path gate with the two default rules that keep agents off the project's
+// The configuration `bounded init` writes: live, selecting the path gate
+// (which brings in the core) with the two default rules that keep agents off the project's
 // guardrails (the path gate ships no rules of its own, ADR 2026-009).
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
@@ -23,10 +23,11 @@ function project(): string {
 const edit = (path: string) => ({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
 
 describe("bounded init's configuration", () => {
-  test("selects the core and the path gate, contributing the two default rules with their reasons, under a comment saying they may be changed", () => {
-    expect(INITIAL_CONFIG).toContain('import { contribution, corePack, defineConfig } from "bounded/domain";');
+  test("selects the path gate, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed", () => {
+    expect(INITIAL_CONFIG).toContain('import { contribution, defineConfig } from "bounded/domain";');
     expect(INITIAL_CONFIG).toContain('import { pathGate } from "bounded/path-gate";');
-    expect(INITIAL_CONFIG).toContain("packs: [corePack, pathGate],");
+    expect(INITIAL_CONFIG).toContain("packs: [pathGate],");
+    expect(INITIAL_CONFIG).not.toContain("corePack");
     expect(INITIAL_CONFIG).toContain('match: "**/bounded.config.*"');
     expect(INITIAL_CONFIG).toContain('match: ".bounded/**"');
     expect(INITIAL_CONFIG).toContain("Ask a person to change the project's Bounded configuration; describe the change you need");

@@ -1,6 +1,6 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
-import { contribution, corePack, definePack } from "bounded/domain";
+import { contribution, corePack, defineConfig, definePack } from "bounded/domain";
 import { pathGate, type ProtectedPath, type ProtectedPathJSON } from "bounded/path-gate";
 import type { WatchedPath } from "bounded/path-gate";
 // There is no shorthand for every write: deny lists name each kind.
@@ -26,3 +26,5 @@ export const badLiteral = definePack({ id: packId("bad-literal"), dependsOn: [pa
 export const coreOnly = definePack({ id: packId("core-only"), dependsOn: [corePack], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<NoInfer<CoreId>>'
 export const noDependency = definePack({ id: packId("no-dependency"), contributes: [contribution(pathGate.points.protectedPaths, [{ match: "a/**", deny: ["read"], redirect }])] }); // rejected: is not assignable to type 'Contribution<never>'
 export const watched: WatchedPath = { match: "a/**", except: [], why: "w", redirect: "r" }; // rejected: is missing the following properties from type 'WatchedPath': __brand
+// A project contributes to the core's points only when it lists corePack, even though the path gate brings it in.
+export const coreBroughtIn = defineConfig({ packs: [pathGate], contributes: [contribution(corePack.points.effectGuards.write, [])] }); // rejected: is not assignable to type

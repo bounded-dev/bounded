@@ -3874,5 +3874,32 @@
     "case": "bounded update --from <dir>: the one bounded tarball > hands the version bounded was before the upgrade to a bounded that accepts it (3.1.1 or later)",
     "successor": null,
     "reason": "update --no-upgrade no longer takes --previous-version (final review of restart-notice): the CLI cannot know which bounded a running pi session loaded, so pi is always told to restart; the hand-off is `update --no-upgrade` alone again, as the existing --from case checks"
+  },
+  {
+    "file": "contexts/core/src/domain/config/config.test.ts",
+    "case": "defineConfig > a selection whose packs need packs it does not list is refused at composition",
+    "successor": {
+      "file": "contexts/core/src/domain/config/config.test.ts",
+      "case": "defineConfig > a selection brings in every pack its listed packs depend on, transitively, and the project still comes last"
+    },
+    "reason": "a selection brings in every pack its listed packs depend on (ADR 2026-018), so an unlisted dependency is selected, not refused"
+  },
+  {
+    "file": "contexts/core/src/domain/config/config.test.ts",
+    "case": "defineConfig > the project acts as a final pack that depends on every selected pack",
+    "successor": {
+      "file": "contexts/core/src/domain/config/config.test.ts",
+      "case": "defineConfig > the project acts as a final pack that depends on every listed pack, not on the packs they bring in"
+    },
+    "reason": "the project depends on the listed packs, and Config's field is listedPacks, since selected now includes brought-in packs (ADR 2026-018)"
+  },
+  {
+    "file": "apps/cli/src/initial-config.test.ts",
+    "case": "bounded init's configuration > selects the core and the path gate, contributing the two default rules with their reasons, under a comment saying they may be changed",
+    "successor": {
+      "file": "apps/cli/src/initial-config.test.ts",
+      "case": "bounded init's configuration > selects the path gate, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed"
+    },
+    "reason": "init's configuration lists only the path gate, which brings in the core (ADR 2026-018)"
   }
 ]

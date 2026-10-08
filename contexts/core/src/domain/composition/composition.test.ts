@@ -42,6 +42,8 @@ function wordsPack(local: string, more: readonly BasePack[], values: string[]): 
 }
 
 const ids = (packs: readonly BasePack[]): string[] => packs.map((pack) => pack.id.value);
+const malformed = (what: string) => `Pack 'test-packs/bad' is malformed: ${what}. Fix its definition`;
+const keyRefusal = (key: string) => malformed(`its point key '${key}' must be a camelCase word, such as 'protectedPaths'`);
 
 describe("Composition — finding a pack's own point", () => {
   test("gives the point a selected pack made from a declaration, typed by it; none for another declaration or an unselected pack", () => {
@@ -144,20 +146,20 @@ describe("Composition — every refusal names the pack, the extension point and 
   const twinBase = definePack({ id: packId("base") });
   const notBuilt = (which: string, id: string) =>
     `${which} pack '${id}' was not built with definePack(...), or was built by a different copy of bounded. Build every pack with definePack from one copy`;
-  const malformed = (what: string) => `Pack 'test-packs/bad' is malformed: ${what}. Fix its definition`;
   const COPY = "by this copy of bounded";
-  const keyRefusal = (key: string) => malformed(`its point key '${key}' must be a camelCase word, such as 'protectedPaths'`);
   const plain = { __brand: "Pack", id: "test-packs/plain", dependsOn: [], points: {}, contributes: [] } as unknown as BasePack;
 
   const refusals: [string, readonly BasePack[], readonly BasePack[], string][] = [
     ["a selected pack that is not available", [base], [base, other],
-      "Pack 'test-packs/other' is selected but not available. Make it available, or remove it from the selection"],
+      "Pack 'test-packs/other' is listed but not available. Make it available, or remove it from the list"],
     ["a pack selected twice", [base], [base, base],
-      "Pack 'test-packs/base' is selected twice. Select each pack once"],
+      "Pack 'test-packs/base' is listed twice. List each pack once"],
     ["a selected pack not built with definePack", [base], [plain], notBuilt("Selected", "test-packs/plain")],
-    ["a selected pack whose dependency is not selected", [base, ext], [ext],
-      "Pack 'test-packs/ext' depends on pack 'test-packs/base', which is not selected. Select it as well, or remove the dependency"],
+    ["a dependency that is not available", [ext], [ext],
+      "Pack 'test-packs/ext' depends on pack 'test-packs/base', which is not available. Add 'test-packs/base' to the available packs, or remove the dependency"],
     ["a dependency that is another pack with the selected one's id", [twinBase, ext], [twinBase, ext],
+      "Two different packs have the id 'test-packs/base': one listed, and one that 'test-packs/ext' depends on. They are two copies of one package, or two packs given one id; make every pack use the same one"],
+    ["a dependency whose id the available pack has, but which is another pack", [twinBase, ext], [ext],
       "Pack 'test-packs/ext' depends on a pack with the id 'test-packs/base' that is not the available one (another pack with that id, or another copy of it). Make the pack it depends on available instead"],
     ["two packs with the same id", [base, twinBase], [base],
       "Two available packs have the id 'test-packs/base'. An id names one pack in selections and messages: give each pack its own"],
@@ -237,7 +239,7 @@ describe("Composition — every refusal names the pack, the extension point and 
     const one = Composition.compose([ext, base, other], [ext, zed, other]);
     const two = Composition.compose([other, base, ext], [other, zed, ext]);
     expect(one).toEqual(two);
-    expect(one).toEqual({ ok: false, error: "Pack 'test-packs/zed' is selected but not available. Make it available, or remove it from the selection" });
+    expect(one).toEqual({ ok: false, error: "Pack 'test-packs/zed' is listed but not available. Make it available, or remove it from the list" });
   });
 
   test("a check that throws refuses the value instead of letting it through", () => {
@@ -262,5 +264,45 @@ describe("Composition — every refusal names the pack, the extension point and 
   test("an unselected pack's faults are not checked", () => {
     const broken = untypedPack({ id: "test-packs/broken", dependsOn: [other], contributes: [contribution(words, [""])] });
     expect(ids(composed([base, broken], [base]).packs)).toEqual(["test-packs/base"]);
+  });
+});
+
+describe("Composition — a selection brings in its packs' dependencies", () => {
+  const top = definePack({ id: packId("top"), dependsOn: [ext] });
+
+  test("a listed pack's dependencies, and theirs, are selected with it: their points exist and their values are read", () => {
+    const composition = composed([base, ext, top], [top]);
+    expect(ids(composition.packs)).toEqual(["test-packs/base", "test-packs/ext", "test-packs/top"]);
+    expect(composition.read(words)).toEqual({ ok: true, value: ["alpha", "beta", "gamma"] });
+  });
+
+  test("the composition order is the same whether a dependency is listed or brought in", () => {
+    const broughtIn = composed([base, ext, top], [top]);
+    const listed = composed([base, ext, top], [top, ext, base]);
+    expect(broughtIn.packs).toEqual(listed.packs);
+    expect(broughtIn.read(words)).toEqual(listed.read(words));
+  });
+
+  test("a brought-in pack's ports are required", () => {
+    const [aFiles, bFiles] = [portKeysFor(packId("a"))("files"), portKeysFor(packId("b"))("files")];
+    const a = definePack({ id: packId("a"), ports: { files: aFiles } });
+    const b = definePack({ id: packId("b"), dependsOn: [a], ports: { files: bFiles } });
+    expect(composed([a, b], [b]).requiredPorts()).toEqual([aFiles, bFiles]);
+  });
+
+  test("a brought-in pack that is malformed is refused, as a listed one is", () => {
+    const bad = untypedPack({ id: "test-packs/bad", points: { "a.b": point({ description: "Dotted", check: anything }) } });
+    const usesBad = untypedPack({ id: "test-packs/uses-bad", dependsOn: [bad] });
+    expect(Composition.compose([bad, usesBad], [usesBad])).toEqual({ ok: false, error: keyRefusal("a.b") });
+  });
+
+  test("a pack neither listed nor needed by a selected pack leaves no trace", () => {
+    const unused = definePack({ id: packId("unused"), points: { words: point({ description: "Unused", check: word }) } });
+    const composition = composed([base, ext, unused], [ext]);
+    expect(ids(composition.packs)).toEqual(["test-packs/base", "test-packs/ext"]);
+    expect(composition.entries(unused.points.words)).toEqual({
+      ok: false,
+      error: "Extension point 'test-packs/unused.words' does not exist in this composition: its owner 'test-packs/unused' is not selected. Select it to use the point",
+    });
   });
 });
