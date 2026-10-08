@@ -122,11 +122,17 @@ watches what it protects through the core's `beforeTool`/`afterTool`.
     a `<rev>:<path>` operand (`git show HEAD:.env`, `git show :.env`) reads
     the path from the repository root (when the project root holds `.git`;
     unresolved otherwise) or from where it runs when written `./` or `../`,
-    and paths given with `git -C` are unresolved; `eval`'s code is
-    unresolved. **Any other
-    command reads every operand and every `--option=value`'s value** (the
-    conservative default). Short options with an attached value (`grep
-    -f.env`) are a known gap.
+    and `git -C dir` runs the rest of the git command from `dir`, as
+    `cd dir && git …` would and as `env -C` does (a later `-C` from the one
+    before; from nowhere known, its relative paths unresolved, when `dir`
+    cannot be resolved); `eval`'s code is
+    unresolved. An option the table knows takes a value takes it attached
+    too (`xargs -a.env`, `cp -tdir`). **Any other
+    command reads every operand, every `--option=value`'s value, and every
+    value a short option could have attached** (the conservative default):
+    not knowing which letters take a value, it reads the rest of the word
+    after each leading letter, as getopt reads a cluster, so `grep -f.env`
+    reads `.env` and `grep -rf.env` reads `f.env` and `.env`.
   - Absolute paths inside the project root are project paths; outside, as
     with `~`, variables and globs, they are unresolved.
   Each read, listing and write is then judged by the same functions as the
@@ -141,8 +147,8 @@ watches what it protects through the core's `beforeTool`/`afterTool`.
   from its input; loop variables (`for f in .env; do cat $f; done`);
   environment variables and other expansions that hold paths; globs;
   scripts in other languages (`python -c`, `node -e`, `awk`, `perl -e`) and
-  the files any program or script opens by itself; short options with an
-  attached value (`grep -f.env`); a brace expansion in a command's name
+  the files any program or script opens by itself, and commands that
+  change files in place (`sed -i`, `perl -i`); a brace expansion in a command's name
   (`{cat,.env}`), which the grammar does not parse as a command.
   **Preparation:** guards are synchronous, but loading a parser is not. So
   the core gives packs a point, `onProjectOpen` (ADR 2026-010), run once by
@@ -194,12 +200,15 @@ watches what it protects through the core's `beforeTool`/`afterTool`.
   ([ADR 2026-016](2026-016-cli-app.md)). There the project sees them,
   changes them, or removes them: they protect `**/bounded.config.*` (any
   depth, any extension a loader might pick up) and `.bounded/**` from every
-  write. The defaults also protect `.claude/settings.json` (it holds the Claude Code hook),
-  `.pi/extensions/bounded/**` (pi's loader) and `node_modules/bounded/**` (Bounded's
-  installed code) from every write. A refusal names them as the project's rules (`bounded/project`).
-  Drift puts back what a shell command changed in the first four, but never
-  watches `node_modules` (see drift.md), so `node_modules/bounded/**` refuses
-  only writes the path gate can see: an edit, or a command naming the path.
+  write. The defaults also protect `.claude/settings*.json` (they hold the Claude Code hook),
+  `.pi/extensions/bounded/**` (pi's loader), `node_modules/bounded/**` (Bounded's
+  installed code), `.git/hooks/**` (git runs them later, outside Bounded's view)
+  and `.git/config` (it can point `core.hooksPath` elsewhere) from every write.
+  A refusal names them as the project's rules (`bounded/project`).
+  Drift puts back what a shell command changed in `bounded.config.*`,
+  `.claude/settings*.json` and `.pi/extensions/bounded/**`, but never watches
+  `.bounded/`, `node_modules` or `.git` (see drift.md), so the rules on those
+  refuse only writes the path gate can see: an edit, or a command naming the path.
   Adapters write the guard log in `.bounded/` directly, not through guards.
 
 ## Why

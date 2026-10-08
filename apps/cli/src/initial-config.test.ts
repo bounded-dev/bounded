@@ -66,4 +66,52 @@ describe("bounded init's configuration", () => {
     expect((await judge(edit(".claude/skills/release/SKILL.md"))).kind).toBe("allow");
     expect((await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: ".claude/settings.json" }] })).kind).toBe("allow");
   });
+
+  test("also keeps agents off git's hooks (git runs them later, outside Bounded's view) and git's config (it can point core.hooksPath elsewhere), by edit and by shell, saying why", async () => {
+    expect(INITIAL_CONFIG).toContain('match: ".git/hooks/**"');
+    expect(INITIAL_CONFIG).toContain('match: ".git/config"');
+    expect(INITIAL_CONFIG).toContain("git runs these hooks later, outside Bounded's view");
+    expect(INITIAL_CONFIG).toContain("core.hooksPath");
+    const { judge, problem } = await openProject(project(), { ports: pathGatePortProvisions() });
+    expect(problem).toBeNull();
+    const byRule = (verdict: { kind: string; reason?: string }, rule: string) => [verdict.kind, verdict.kind === "refuse" && verdict.reason?.includes(`the rule '${rule}' from bounded/project`)];
+    for (const [path, rule] of [[".git/hooks/pre-commit", ".git/hooks/**"], [".git/config", ".git/config"]] as const) {
+      for (const change of ["create", "modify", "delete"] as const) {
+        const edited = await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change }] });
+        expect([path, change, edited.kind]).toEqual([path, change, "refuse"]);
+        expect([path, change, ...byRule(edited, rule)]).toEqual([path, change, "refuse", true]);
+      }
+      const command = `echo x > ${path}`;
+      const shell = await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" });
+      expect([command, shell.kind]).toEqual([command, "refuse"]);
+      expect([command, ...byRule(shell, rule)]).toEqual([command, "refuse", true]);
+    }
+    const appended = await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "echo x >> .git/hooks/post-commit", cwd: null }], callId: "call-2" });
+    expect(appended.kind).toBe("refuse");
+    expect(byRule(appended, ".git/hooks/**")).toEqual(["refuse", true]);
+    // Reading them, and git's other files, is left alone.
+    expect((await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: ".git/config" }] })).kind).toBe("allow");
+    expect((await judge(edit(".git/info/exclude"))).kind).toBe("allow");
+  });
+
+  test("a shell write to git's hooks or config is refused by the git rules themselves, naming them", async () => {
+    const { judge } = await openProject(project(), { ports: pathGatePortProvisions() });
+    const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" });
+    for (const [command, rule] of [
+      ["echo x > .git/hooks/pre-commit", ".git/hooks/**"],
+      ["echo x >> .git/hooks/post-commit", ".git/hooks/**"],
+      ["echo x > .git/config", ".git/config"],
+    ] as const) {
+      const verdict = await shell(command);
+      expect([command, verdict.kind === "refuse" ? verdict.reason : "allowed"]).toEqual([command, expect.stringContaining(`the rule '${rule}' from bounded/project`)]);
+    }
+    expect((await shell("echo x > notes.txt")).kind).toBe("allow");
+  });
+
+  test("a known way round the git rules, pinned so it stays documented: the path gate sees `git config core.hooksPath …` as reads, and allows it", async () => {
+    expect(INITIAL_CONFIG).not.toContain("git -c");
+    const { judge } = await openProject(project(), { ports: pathGatePortProvisions() });
+    const command = "git config core.hooksPath tools/hooks";
+    expect((await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" })).kind).toBe("allow");
+  });
 });
