@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict, watchedPathsOf } from "bounded/domain";
+import { type BasePack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict, watchedPathsOf } from "bounded/domain";
 import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
 import { opened } from "./shell.test-support.ts";
 
@@ -7,13 +7,13 @@ const packId = packIdsFor("test-packs");
 const { protectedPaths } = pathGate.points;
 
 /** A pack, test-packs/a or test-packs/b, that contributes `given` to the path gate's point. */
-function rules(local: "a" | "b", ...given: ProtectedPathJSON[]): AnyPack {
+function rules(local: "a" | "b", ...given: ProtectedPathJSON[]): BasePack {
   const contributes = [contribution(protectedPaths, given)];
   return local === "a" ? definePack({ id: packId("a"), dependsOn: [pathGate], contributes }) : definePack({ id: packId("b"), dependsOn: [pathGate], contributes });
 }
 
 /** Dispatch one tool call, its effects in wire form, over the core, the path gate and `packs`. */
-function decide(packs: readonly AnyPack[], effects: object[], tool = "edit"): Verdict {
+function decide(packs: readonly BasePack[], effects: object[], tool = "edit"): Verdict {
   const all = [corePack, pathGate, ...packs];
   const composed = Composition.compose(all, all);
   if (!composed.ok) throw new Error(composed.error);
@@ -166,7 +166,7 @@ describe("the path gate — a denial always wins", () => {
 });
 
 describe("the path gate — listing is judged conservatively", () => {
-  const hidden = (match: string, except: string[] = []): AnyPack => rules("a", { match, except, deny: ["list"], redirect: "Do not look there" });
+  const hidden = (match: string, except: string[] = []): BasePack => rules("a", { match, except, deny: ["list"], redirect: "Do not look there" });
 
   test("a listing whose root is the protected path, inside it or above it is refused, naming the root and the rule", () => {
     expect(reason(decide([hidden("packages/db/**")], [list("packages/db")]))).toBe(
@@ -330,7 +330,7 @@ describe("the path gate — built-in protection of its own configuration", () =>
     const composed = Composition.compose([corePack, pathGate], [corePack, pathGate]);
     if (!composed.ok) throw new Error(composed.error);
     const entries = composed.value.entries(protectedPaths);
-    expect(entries.ok && entries.value.map(({ from, value }) => [from.value, value.match, value.deny])).toEqual([
+    expect(entries.ok && entries.value.map(({ fromPackId, value }) => [fromPackId.value, value.match, value.deny])).toEqual([
       ["bounded/path-gate", "**/bounded.config.*", ["create", "modify", "delete"]],
       ["bounded/path-gate", ".bounded/**", ["create", "modify", "delete"]],
     ]);

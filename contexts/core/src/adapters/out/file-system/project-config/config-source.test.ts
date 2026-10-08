@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isConfig } from "bounded/domain";
-import { projectConfigSourceConformance } from "../../../../application/projects/open-project/open-project.config-source.test-support.ts";
+import { projectConfigSourceConformance } from "../../../../application/project-config/open-project/open-project.config-source.test-support.ts";
 import { FileSystemProjectConfigSource } from "./config-source.ts";
 
 const CORE = resolve(import.meta.dir, "../../../../..");

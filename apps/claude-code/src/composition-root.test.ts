@@ -58,12 +58,12 @@ describe("composeHook: the hook wired to the file system, the environment and ar
 
   test("decideFromConfig judges with the project's configuration; a project without one refuses, saying why", async () => {
     const event = { kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "src/a.ts" }] } as unknown as ToolUse;
-    const verdict = await decideFromConfig(event, { projectDir: root });
+    const verdict = await decideFromConfig(event, { projectRoot: root });
     expect(verdict.kind === "refuse" && verdict.reason).toStartWith("This project's configuration cannot be used: ");
   });
 
   test("recordFromConfig records the adapter's own refusal in the project's guard log", async () => {
-    await recordFromConfig({ tool: "Read", reason: "no file_path", redirect: "give one", role: null, input: {} }, { projectDir: root });
+    await recordFromConfig({ hostToolName: "Read", reason: "no file_path", redirect: "give one", role: null, input: {} }, { projectRoot: root });
     const file = join(root, ".bounded", "guard-log.jsonl");
     expect(existsSync(file)).toBe(true);
     expect(readFileSync(file, "utf8")).toContain('"event":"adapter"');
@@ -72,7 +72,7 @@ describe("composeHook: the hook wired to the file system, the environment and ar
   test("afterToolFromConfig asks the project's judge; with no snapshot there is nothing to undo", async () => {
     const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], ok: true, callId: "toolu_x" });
     if (!result.ok) throw new Error(result.error);
-    expect(await afterToolFromConfig(result.value, { projectDir: root })).toEqual({ message: null });
+    expect(await afterToolFromConfig(result.value, { projectRoot: root })).toEqual({ message: null });
   });
 
   test("bounded answers before Claude Code's timeout for the installed hook", () => {

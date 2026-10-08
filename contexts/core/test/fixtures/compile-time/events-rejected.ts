@@ -37,7 +37,7 @@ export const later: Guard<ToolUse> = async () => Verdict.allow; // rejected: Typ
 export const noRedirect = Verdict.refuse("Generated file"); // rejected: Expected 2 arguments, but got 1
 // 2. Events are built by parse, from the vocabulary only.
 export const fake: ToolUse = { kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "read", path: "a.ts" as ProjectPath }] }; // rejected: is missing the following properties from type 'ReadEffect': __brand
-export const fakeUse: ToolUse = { kind: "tool-use", role: null, tool: "edit", effects: [readEffect] }; // rejected: is missing the following properties from type 'ToolUse': __brand
+export const fakeUse: ToolUse = { kind: "tool-use", role: null, toolKind: "edit", effects: [readEffect] }; // rejected: is missing the following properties from type 'ToolUse': __brand
 export const plainResult: Verdict = { kind: "refuse", reason: "No", redirect: "Ask" }; // rejected: is missing the following properties from type 'Refuse': __brand
 export const role: Role = "builder"; // rejected: is not assignable to type 'Role'
 export const path: ProjectPath = "src/a.ts"; // rejected: is not assignable to type 'ProjectPath'

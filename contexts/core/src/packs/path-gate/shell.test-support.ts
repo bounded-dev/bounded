@@ -1,4 +1,4 @@
-import { type AnyPack, Composition, corePack, dispatchEvent, type PathKind, type ProjectPath, ToolUse, type Verdict } from "bounded/domain";
+import { type BasePack, Composition, corePack, dispatchEvent, type PathKind, type ProjectPath, ToolUse, type Verdict } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
 /** The project root the shell tests open their compositions at. */
@@ -17,7 +17,7 @@ export function kindOfPathFor(paths: PathsForTest): (path: ProjectPath) => PathK
 }
 
 /** The core, the path gate and `packs`, composed and opened as openProject opens a project; then a way to decide a call. */
-export async function opened(packs: readonly AnyPack[], paths: PathsForTest = {}): Promise<(effects: readonly object[], tool?: string) => Verdict> {
+export async function opened(packs: readonly BasePack[], paths: PathsForTest = {}): Promise<(effects: readonly object[], tool?: string) => Verdict> {
   const all = [corePack, pathGate, ...packs];
   const composed = Composition.compose(all, all);
   if (!composed.ok) throw new Error(composed.error);

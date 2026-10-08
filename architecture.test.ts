@@ -6,7 +6,7 @@ import { Glob } from "bun";
 import * as ts from "typescript";
 
 const ROOT = import.meta.dir;
-const LAYERS = ["domain", "application", "adapters", "packs", "pack"] as const;
+const LAYERS = ["domain", "application", "adapters", "packs", "composition-root"] as const;
 type Layer = (typeof LAYERS)[number];
 /** What each layer may import from its own context: dependencies point inwards. */
 const ALLOWED: Record<Layer, readonly Layer[]> = {
@@ -16,7 +16,7 @@ const ALLOWED: Record<Layer, readonly Layer[]> = {
   packs: ["domain", "packs"],
   // The composition root lists packs because its tests may import a shipped
   // pack; shippedPackViolations refuses the import in its non-test code.
-  pack: ["domain", "application", "adapters", "packs", "pack"],
+  "composition-root": ["domain", "application", "adapters", "packs", "composition-root"],
 };
 const IO_MODULES = /^(bun|bun:.*|node:.*|fs|path|child_process|net|os)$/;
 
@@ -60,14 +60,14 @@ function exportLayerOf(context: Context, exportPath: string): Layer | undefined 
  * src/packs/<name>/, and is an ordinary pack: its code depends only on the
  * package's public `domain` export path, its own directory and the libraries
  * the package declares, and does no I/O. Nothing outside that directory
- * imports it, except tests under the composition root (src/pack/), so the
+ * imports it, except tests under the composition root (src/composition-root/), so the
  * core never depends on a pack (ADR 2026-009).
  */
 function shippedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
   const packDir = (file: string | undefined) => (file === undefined ? undefined : /^contexts\/[^/]+\/src\/packs\/[^/]+\//.exec(file)?.[0]);
   const own = packDir(path);
   const isTest = /\.test(-support)?\.ts$/.test(path);
-  const rootTest = isTest && /^contexts\/[^/]+\/src\/pack\//.test(path);
+  const rootTest = isTest && /^contexts\/[^/]+\/src\/composition-root\//.test(path);
   const out: string[] = [];
   for (const { spec, line } of imports) {
     const at = `${path}:${line} imports "${spec}"`;
@@ -209,7 +209,7 @@ function valueObjectClassViolations(path: string, text: string, isValueObject: (
  * definePack, point and contribution (ADR 2026-003), and a configuration is
  * made by defineConfig (ADR 2026-010).
  */
-const IDENTITY_OBJECTS = new Set(["AnyDeclaration", "PointDeclaration", "AnyPack", "Pack", "AnyPoint", "ExtensionPoint", "Contribution", "Config"]);
+const IDENTITY_OBJECTS = new Set(["BaseDeclaration", "PointDeclaration", "BasePack", "Pack", "BasePoint", "ExtensionPoint", "Contribution", "Config"]);
 
 /** The branded interfaces a contract exports: each declares `__brand`, or extends one of the file's interfaces that does. */
 function brandedContracts(path: string, text: string): string[] {
@@ -239,7 +239,7 @@ for (const path of files) {
   const layer = layerOf(rest.join("/"));
   const isTest = /\.test(-support)?\.ts$/.test(path);
   if (context === undefined || layer === undefined) {
-    violations.push(`${path} — every file sits in src/domain, src/application, src/adapters or src/pack of a context with a package.json`);
+    violations.push(`${path} — every file sits in src/domain, src/application, src/adapters or src/composition-root of a context with a package.json`);
     continue;
   }
   const text = await Bun.file(`${ROOT}/${path}`).text();
@@ -370,8 +370,8 @@ describe("architecture", () => {
       'contexts/core/src/domain/guards/x.ts:1 imports "bounded/path-gate" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
       'contexts/core/src/domain/guards/x.ts:1 imports "../../packs/path-gate/index.ts" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
     ]);
-    expect(shippedPackViolations("contexts/core/src/pack/end-to-end.test.ts", imports("bounded/path-gate"), core)).toEqual([]);
-    expect(shippedPackViolations("contexts/core/src/pack/root.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
+    expect(shippedPackViolations("contexts/core/src/composition-root/end-to-end.test.ts", imports("bounded/path-gate"), core)).toEqual([]);
+    expect(shippedPackViolations("contexts/core/src/composition-root/root.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
     expect(shippedPackViolations("contexts/core/src/packs/other/x.test.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
   });
 
@@ -404,7 +404,7 @@ describe("architecture", () => {
   test("the value-object rule flags a branded primitive or object, and nothing else", () => {
     expect(brandedPrimitiveViolations("a.ts", "export type Role = string & { readonly __role: true };")).toHaveLength(1);
     expect(brandedPrimitiveViolations("a.ts", "export type PackId<T extends string> = T & { readonly __packId: T };")).toHaveLength(1);
-    expect(brandedPrimitiveViolations("a.ts", "type Owned = AnyPack & { readonly id: Owner };")).toEqual([]);
+    expect(brandedPrimitiveViolations("a.ts", "type Owned = BasePack & { readonly id: Owner };")).toEqual([]);
     expect(brandedPrimitiveViolations("a.ts", "export type Role = string & Brand<\"Role\">;")).toHaveLength(1);
     expect(brandedPrimitiveViolations("a.ts", "export interface Use { readonly path: string & { readonly __path: true } }")).toHaveLength(1);
     expect(brandedPrimitiveViolations("a.ts", "function f<P extends string>(pkg: P & Check<P>): void {}")).toEqual([]);

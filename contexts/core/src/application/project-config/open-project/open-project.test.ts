@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, ProjectPath, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
-import type { Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
+import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
-import type { ProjectConfigSource, ProjectDecisionLogs, ProjectPathKinds } from "./open-project.contract.ts";
+import type { ProjectConfigSource, ProjectGuardLogs, ProjectPathKinds } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
 const sha256 = (content: string): string => createHash("sha256").update(content).digest("hex");
@@ -17,17 +17,17 @@ const pathOf = (raw: string): ProjectPath => {
 const clock: Clock = { now: () => "2026-10-07T12:00:00.000Z" };
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
-class Logs implements ProjectDecisionLogs {
+class Logs implements ProjectGuardLogs {
   readonly decisions: Decision[] = [];
   readonly roots: string[] = [];
-  forProject(root: string): DecisionLog {
+  forProject(root: string): GuardLog {
     this.roots.push(root);
     return { record: async (decision) => void this.decisions.push(decision) };
   }
 }
 
 const source = (loaded: () => Promise<Result<Config>>): ProjectConfigSource => ({ load: loaded });
-const root = OpenProjectCommand.parse({ root: "/work/project" });
+const root = OpenProjectCommand.parse({ projectRoot: "/work/project" });
 if (!root.ok) throw new Error(root.error);
 const command = root.value;
 const write = (path: string) => ({ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
@@ -136,14 +136,14 @@ describe("OpenProjectHandler", () => {
   test("records a refusal the host adapter made itself, even when the configuration is broken", async () => {
     const logs = new Logs();
     const healthy = await new OpenProjectHandler(source(async () => ({ ok: true, value: config })), logs, clock).execute(command);
-    expect((await healthy.refuse({ tool: "Bash", reason: "outside", redirect: "inside" })).kind).toBe("refuse");
+    expect((await healthy.refuse({ hostToolName: "Bash", reason: "outside", redirect: "inside" })).kind).toBe("refuse");
     const broken = await new OpenProjectHandler(source(async () => ({ ok: false, error: "no config" })), logs, clock).execute(command);
-    expect((await broken.refuse({ tool: "Bash", reason: "outside", redirect: "inside" })).kind).toBe("refuse");
+    expect((await broken.refuse({ hostToolName: "Bash", reason: "outside", redirect: "inside" })).kind).toBe("refuse");
     expect(logs.decisions.map((d) => d.event)).toEqual(["adapter", "adapter"]);
   });
 
   test("a project whose log cannot be opened still refuses: nothing is allowed unrecorded", async () => {
-    const logs: ProjectDecisionLogs = {
+    const logs: ProjectGuardLogs = {
       forProject: () => {
         throw new Error("read-only file system");
       },

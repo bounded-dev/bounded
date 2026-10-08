@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readdirSync, statSync, utimesSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { shellSnapshotsConformance } from "../../../../application/drift/watch-shell/watch-shell.snapshots.test-support.ts";
-import { FileSystemProjectDrift, stateHomeFor } from "../projects/drift.ts";
+import { FileSystemProjectDrift, stateHomeFor } from "./project-drift.ts";
 import { FileSystemShellSnapshots } from "./snapshots.ts";
 
 // Hooks run as separate processes, so snapshots live in files: a new

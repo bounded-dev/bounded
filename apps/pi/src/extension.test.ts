@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ToolResult, Verdict } from "bounded/domain";
 import type { ToolUse } from "./event.ts";
-import { type AdapterRefusal, type Decide, type ExtensionOptions, type Load, type Pi, type PiHandler, piExtension } from "./extension.ts";
+import { type AdapterRefusal, type ProjectJudgeForPi, type ExtensionOptions, type LoadJudge, type Pi, type PiHandler, piExtension } from "./extension.ts";
 import { bounded } from "./index.ts";
 
 /** A value's wire form: its JSON, parsed. */
@@ -32,18 +32,18 @@ function fakePi() {
 
 // The decide a composed project would give: refuse writes under generated/.
 const seen: ToolUse[] = [];
-const noGenerated: Decide = async (event) => {
+const noGenerated: ProjectJudgeForPi = async (event) => {
   seen.push(event);
   return event.effects.some((effect) => effect.kind === "write" && effect.path.value.startsWith("generated/"))
     ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead")
     : Verdict.allow;
 };
-const loads = (decide: Decide): Load => async () => decide;
+const loads = (decide: ProjectJudgeForPi): LoadJudge => async () => decide;
 const never = <T>(): Promise<T> => new Promise<T>(() => {});
 
-async function started(load: Load, deadlines: Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs" | "composeBackoffMs"> = {}) {
+async function started(load: LoadJudge, deadlines: Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs" | "composeBackoffMs"> = {}) {
   const fake = fakePi();
-  piExtension({ root: project, load, home: "/home/agent", ...deadlines })(fake.pi);
+  piExtension({ projectRoot: project, load, home: "/home/agent", ...deadlines })(fake.pi);
   await fake.start();
   return fake;
 }
@@ -51,7 +51,7 @@ async function started(load: Load, deadlines: Pick<ExtensionOptions, "deadlineMs
 describe("piExtension — end to end through a fake pi", () => {
   test("registers for session_start, tool_call and tool_result only", () => {
     const fake = fakePi();
-    piExtension({ root: project, load: loads(noGenerated) })(fake.pi);
+    piExtension({ projectRoot: project, load: loads(noGenerated) })(fake.pi);
     expect([...fake.handlers.keys()].sort()).toEqual(["session_start", "tool_call", "tool_result"]);
   });
 
@@ -106,7 +106,7 @@ describe("piExtension — end to end through a fake pi", () => {
 });
 
 describe("piExtension — after a tool ran, and refusals the adapter makes", () => {
-  const withExtras = (extras: Pick<Decide, "afterTool" | "refuse">): Load => async () => Object.assign(async (event: ToolUse) => noGenerated(event), extras);
+  const withExtras = (extras: Pick<ProjectJudgeForPi, "afterTool" | "refuse">): LoadJudge => async () => Object.assign(async (event: ToolUse) => noGenerated(event), extras);
 
   test("a finished call is given to afterTool as a tool result with pi's call id", async () => {
     const results: ToolResult[] = [];
@@ -151,7 +151,7 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
     await fake.finished("bash", { command: "ls" });
     expect(recorded).toEqual([
       {
-        tool: "bash",
+        hostToolName: "bash",
         reason: "bounded could not check protected files after this call: boom. Check them against version control.",
         redirect: "Check the protected files against version control",
         role: null,
@@ -166,7 +166,7 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
     const result = await fake.call("read", { path: "../outside.txt" });
     expect(result).toMatchObject({ block: true });
     const [reason, redirect] = (result as { reason: string }).reason.split("\n");
-    expect<unknown>(recorded).toEqual([{ tool: "read", reason, redirect, role: null, input: { path: "../outside.txt" } }]);
+    expect<unknown>(recorded).toEqual([{ hostToolName: "read", reason, redirect, role: null, input: { path: "../outside.txt" } }]);
   });
 
   test("a recording that hangs or fails never delays or changes the block", async () => {
@@ -199,12 +199,12 @@ describe("piExtension — fails closed", () => {
 
   test("a tool call before any session start is blocked", async () => {
     const fake = fakePi();
-    piExtension({ root: project, load: loads(noGenerated) })(fake.pi);
+    piExtension({ projectRoot: project, load: loads(noGenerated) })(fake.pi);
     blocked(await fake.call("read", { path: "a.ts" }), "before the session started");
   });
 
   test("a decide that throws or returns something that is not a verdict blocks", async () => {
-    const throwing: Decide = async () => {
+    const throwing: ProjectJudgeForPi = async () => {
       throw new Error("guard exploded");
     };
     blocked(await (await started(loads(throwing))).call("read", { path: "a.ts" }), "guard exploded");
@@ -226,7 +226,7 @@ describe("piExtension — fails closed", () => {
   });
 
   test("a refusing decide is never bypassed by a later call", async () => {
-    const refuseAll: Decide = async () => Verdict.refuse("nothing runs here", "Ask the maintainer");
+    const refuseAll: ProjectJudgeForPi = async () => Verdict.refuse("nothing runs here", "Ask the maintainer");
     const fake = await started(loads(refuseAll));
     for (const [tool, input] of [["bash", { command: "ls" }], ["web_search", { query: "x" }], ["mystery", {}]] as const) {
       expect(await fake.call(tool, input)).toEqual({ block: true, reason: "nothing runs here\nAsk the maintainer" });
@@ -277,7 +277,7 @@ describe("piExtension — freezing and deadlines", () => {
   });
 
   test("composing has its own deadline, longer than each decision's", async () => {
-    const slow: Load = () => new Promise((resolve) => setTimeout(() => resolve(noGenerated), 100));
+    const slow: LoadJudge = () => new Promise((resolve) => setTimeout(() => resolve(noGenerated), 100));
     const fake = await started(slow, { deadlineMs: 50, composeDeadlineMs: 1000 });
     expect(await fake.call("read", { path: "a.ts" })).toBeUndefined();
   });

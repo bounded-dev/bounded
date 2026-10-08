@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Decision, DecisionId, SessionStart, Verdict } from "bounded/domain";
-import type { ProjectDecisionLogs } from "./open-project.contract.ts";
+import type { ProjectGuardLogs } from "./open-project.contract.ts";
 
 /** A decision id from known-good text. */
 function decisionId(text: string): DecisionId {
@@ -9,16 +9,16 @@ function decisionId(text: string): DecisionId {
   return parsed.value;
 }
 
-/** Decision logs for projects, a project root, and that project's recorded decisions read back. */
-export interface DecisionLogsFixture {
-  readonly logs: ProjectDecisionLogs;
+/** Guard logs for projects, a project root, and that project's recorded decisions read back. */
+export interface GuardLogsFixture {
+  readonly logs: ProjectGuardLogs;
   readonly root: string;
   recorded(): Promise<readonly unknown[]>;
 }
 
-/** The behaviour every ProjectDecisionLogs must have: a project's log keeps that project's decisions. */
-export function projectDecisionLogsConformance(name: string, fixture: () => Promise<DecisionLogsFixture>): void {
-  describe(`${name} conforms to ProjectDecisionLogs`, () => {
+/** The behaviour every ProjectGuardLogs must have: a project's log keeps that project's decisions. */
+export function projectGuardLogsConformance(name: string, fixture: () => Promise<GuardLogsFixture>): void {
+  describe(`${name} conforms to ProjectGuardLogs`, () => {
     test("a project's log records its decisions", async () => {
       const { logs, root, recorded } = await fixture();
       const start = SessionStart.parse({ role: null });

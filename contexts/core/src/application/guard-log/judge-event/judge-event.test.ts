@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Composition, type Composition as CompositionType, contribution, corePack, type Decision, definePack, packIdsFor, Verdict } from "bounded/domain";
 import { JudgeEventCommand } from "./judge-event.command.ts";
-import type { Clock, DecisionLog } from "./judge-event.contract.ts";
+import type { Clock, GuardLog } from "./judge-event.contract.ts";
 import { JudgeEventHandler } from "./judge-event.handler.ts";
 
 const TIME = "2026-10-07T12:00:00.000Z";
 const clock: Clock = { now: () => TIME };
-const UNRECORDED_REDIRECT = "Make the decision log writable; until decisions can be recorded, every action is refused";
+const UNRECORDED_REDIRECT = "Make the guard log writable; until decisions can be recorded, every action is refused";
 
-class FakeLog implements DecisionLog {
+class FakeLog implements GuardLog {
   readonly decisions: Decision[] = [];
   constructor(private readonly behaviour: (decision: Decision) => Promise<void> = async () => {}) {}
 
@@ -78,7 +78,7 @@ describe("JudgeEventHandler", () => {
   });
 
   test("a log that throws instead of rejecting is a failure to record", async () => {
-    const log: DecisionLog = {
+    const log: GuardLog = {
       record: () => {
         throw new Error("no log");
       },
@@ -203,7 +203,7 @@ describe("JudgeEventHandler", () => {
 
   test("a refusal the host adapter made itself is recorded and returned", async () => {
     const log = new FakeLog();
-    const verdict = await new JudgeEventHandler(composition, log, clock).refuse({ role: "builder", tool: "Bash", reason: "the path is outside the project", redirect: "Use a path inside it", input: { command: "cat /etc/passwd" } });
+    const verdict = await new JudgeEventHandler(composition, log, clock).refuse({ role: "builder", hostToolName: "Bash", reason: "the path is outside the project", redirect: "Use a path inside it", input: { command: "cat /etc/passwd" } });
     expect<unknown>(verdict).toEqual({ kind: "refuse", reason: "the path is outside the project", redirect: "Use a path inside it" });
     expect(log.decisions[0]?.event).toBe("adapter");
     expect(log.decisions[0]?.host).toEqual({ tool: "Bash", input: '{"command":"cat /etc/passwd"}' });
@@ -213,7 +213,7 @@ describe("JudgeEventHandler", () => {
     const failing = new FakeLog(async () => {
       throw new Error("disk full");
     });
-    const verdict = await new JudgeEventHandler(composition, failing, clock).refuse({ tool: "Bash", reason: "outside", redirect: "inside" });
+    const verdict = await new JudgeEventHandler(composition, failing, clock).refuse({ hostToolName: "Bash", reason: "outside", redirect: "inside" });
     expect(verdict.kind === "refuse" && verdict.reason).toBe("outside (this decision could not be recorded: disk full)");
     const odd = await new JudgeEventHandler(composition, new FakeLog(), clock).refuse(null as never);
     expect(odd.kind).toBe("refuse");

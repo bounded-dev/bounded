@@ -21,9 +21,9 @@ describe("defineConfig", () => {
 
   test("the project acts as a final pack that depends on every selected pack", () => {
     const config = defineConfig({ packs: [corePack, words] });
-    expect(config.project.id.value).toBe("bounded/project");
-    expect(config.project.dependsOn).toEqual([corePack, words]);
-    expect(config.packs).toEqual([corePack, words]);
+    expect(config.projectPack.id.value).toBe("bounded/project");
+    expect(config.projectPack.dependsOn).toEqual([corePack, words]);
+    expect(config.selectedPacks).toEqual([corePack, words]);
   });
 
   test("a project contribution to a point of a pack it did not select is refused at composition", () => {
@@ -52,7 +52,7 @@ describe("defineConfig", () => {
 
   test("is frozen, and never throws on untyped input", () => {
     const config = defineConfig({ packs: [corePack] });
-    expect(Object.isFrozen(config) && Object.isFrozen(config.packs)).toBe(true);
+    expect(Object.isFrozen(config) && Object.isFrozen(config.selectedPacks)).toBe(true);
     const odd = (defineConfig as unknown as (spec: unknown) => ReturnType<typeof defineConfig>)({ packs: 5 });
     expect(composeConfig(odd).ok).toBe(false);
     expect((): unknown => (defineConfig as unknown as (spec: unknown) => unknown)(null)).not.toThrow();

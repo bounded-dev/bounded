@@ -39,7 +39,7 @@ describe("composeProject — never fails open, whatever openProject or its judge
     const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], ok: true, callId: "1" });
     if (!result.ok) throw new Error(result.error);
     expect(await decide.afterTool?.(result.value)).toMatchObject({ message: null });
-    await decide.refuse?.({ tool: "read", reason: "outside the project", redirect: "use a path inside it", role: null, input: {} });
+    await decide.refuse?.({ hostToolName: "read", reason: "outside the project", redirect: "use a path inside it", role: null, input: {} });
     const log = join(root, ".bounded", "guard-log.jsonl");
     expect(existsSync(log)).toBe(true);
     expect(readFileSync(log, "utf8")).toContain('"event":"adapter"');
@@ -57,7 +57,7 @@ describe("composeProject — never fails open, whatever openProject or its judge
         else if (name === "session_start") start = h;
       },
     };
-    piExtension({ root, load: () => composeProject(root, rejecting) })(pi);
+    piExtension({ projectRoot: root, load: () => composeProject(root, rejecting) })(pi);
     await start?.({ type: "session_start" }, { cwd: root });
     const result = await handler?.({ type: "tool_call", toolName: "read", input: { path: "a.ts" } }, { cwd: root });
     expect(result).toMatchObject({ block: true });
