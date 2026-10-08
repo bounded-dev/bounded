@@ -1,6 +1,9 @@
 import type { Composition } from "../composition/composition.contract.ts";
 import type { Result } from "../shared/result.ts";
 
+/** The brand only WatchedPath itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const watchedPathBrand: unique symbol;
+
 /** A change a shell command can make to a file. */
 export type WatchedChange = "create" | "modify" | "delete";
 
@@ -12,6 +15,7 @@ export type WatchedChange = "create" | "modify" | "delete";
  */
 export interface WatchedPath {
   readonly __brand: "WatchedPath";
+  readonly [watchedPathBrand]: true;
   readonly match: string;
   readonly except: readonly string[];
   /** The changes a command must not make, in the order create, modify, delete. */

@@ -1,8 +1,12 @@
 import type { Result } from "../shared/result.ts";
 
+/** The brand only Verdict itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const verdictBrand: unique symbol;
+
 /** Let the action happen. */
 export interface Allow {
   readonly __brand: "Verdict";
+  readonly [verdictBrand]: true;
   readonly kind: "allow";
   equals(other: Verdict): boolean;
   toJSON(): AllowJSON;
@@ -11,6 +15,7 @@ export interface Allow {
 /** Refuse the action: why, and the permitted next step or owner. Both are non-empty, one line each. */
 export interface Refuse {
   readonly __brand: "Verdict";
+  readonly [verdictBrand]: true;
   readonly kind: "refuse";
   readonly reason: string;
   readonly redirect: string;

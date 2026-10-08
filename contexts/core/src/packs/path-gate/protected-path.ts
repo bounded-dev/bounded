@@ -1,3 +1,4 @@
+import type { protectedPathBrand } from "./protected-path.contract.ts";
 import { type Result, sameWire, wireFormOf } from "bounded/domain";
 import picomatch from "picomatch";
 import type * as Contract from "./protected-path.contract.ts";
@@ -278,6 +279,7 @@ function below(rule: RuleFields, root: string, spans: boolean): boolean {
 
 class ProtectedPathImpl implements Contract.ProtectedPath {
   declare readonly __brand: "ProtectedPath";
+  declare readonly [protectedPathBrand]: true;
   readonly #made = true;
   declare readonly why?: string;
   declare readonly file?: true;

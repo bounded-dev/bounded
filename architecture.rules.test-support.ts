@@ -247,7 +247,10 @@ export function featureContractViolations(paths: readonly string[], texts: Reado
 
 /**
  * R5: each file named in `allowed` contains exactly that many type assertions
- * (`x as T`, `<T>x`, `x!`), so routing is typed by the compiler, not claimed.
+ * (`x as T`, `<T>x`, `x!`, or a ts-ignore, ts-expect-error or
+ * ts-nocheck directive), so routing is typed by the compiler, not claimed.
+ * A guard against mistakes: an assertion hidden in a helper imported from
+ * another file is not seen.
  */
 export function assertionViolations(files: readonly SourceFile[], allowed: ReadonlyMap<string, number>): string[] {
   const out: string[] = [];
@@ -266,7 +269,10 @@ export function assertionViolations(files: readonly SourceFile[], allowed: Reado
       ts.forEachChild(node, visit);
     };
     visit(source);
-    if (lines.length !== limit) out.push(`${path} — ${lines.length} type assertions (as, <T>x, !) at line ${lines.join(", ") || "none"}; it may have ${limit}`);
+    // A directive that silences the compiler claims as much as an assertion does.
+    for (const [i, text] of file.text.split("\n").entries()) if (/@ts-(ignore|expect-error|nocheck)/.test(text)) lines.push(i + 1);
+    lines.sort((a, b) => a - b);
+    if (lines.length !== limit) out.push(`${path} — ${lines.length} type assertions (as, <T>x, !, @ts-ignore) at line ${lines.join(", ") || "none"}; it may have ${limit}`);
   }
   return out;
 }
@@ -309,6 +315,26 @@ export function shapeCheckViolations(files: readonly SourceFile[], allowed: Read
     };
     visit(source);
     if (lines.length > 0 && !owner) out.push(`${file.path}:${lines.join(",")} — a shape check belongs in the parse or factory of the class that owns the shape (AGENTS.md, ADR 2026-013)`);
+  }
+  return out;
+}
+
+/**
+ * Brands stay module-private: a contract declares `export declare const
+ * <name>Brand: unique symbol` for its class to carry, and no barrel exports
+ * it, or re-exports a contract wholesale, so code outside the package cannot
+ * write the brand into a look-alike (ADR 2026-012).
+ */
+export function brandExportViolations(files: readonly SourceFile[]): string[] {
+  const out: string[] = [];
+  for (const file of files) {
+    if (isTest(file.path) || !file.path.endsWith("/index.ts")) continue;
+    for (const statement of parse(file).statements) {
+      if (!ts.isExportDeclaration(statement)) continue;
+      const names = statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause) ? statement.exportClause.elements.map((element) => element.name.text) : undefined;
+      if (names === undefined) out.push(`${file.path} — a barrel names what it exports, so it never passes on a brand`);
+      else for (const name of names.filter((name) => name.endsWith("Brand"))) out.push(`${file.path} — ${name} is a brand: it stays in its contract, never in a barrel`);
+    }
   }
   return out;
 }

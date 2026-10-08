@@ -1,3 +1,4 @@
+import type { decisionTimeBrand } from "./decision-time.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./decision-time.contract.ts";
@@ -14,6 +15,7 @@ function isIso(raw: unknown): raw is string {
 
 class DecisionTimeImpl implements Contract.DecisionTime {
   declare readonly __brand: "DecisionTime";
+  declare readonly [decisionTimeBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

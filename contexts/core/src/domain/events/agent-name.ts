@@ -1,3 +1,4 @@
+import type { agentNameBrand } from "./agent-name.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import { hasControl } from "../shared/text.ts";
@@ -5,6 +6,7 @@ import type * as Contract from "./agent-name.contract.ts";
 
 class AgentNameImpl implements Contract.AgentName {
   declare readonly __brand: "AgentName";
+  declare readonly [agentNameBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

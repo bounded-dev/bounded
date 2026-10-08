@@ -1,3 +1,4 @@
+import type { toolUseBrand } from "./tool-use.contract.ts";
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -44,6 +45,7 @@ export function callOf(raw: object, name: string): Result<Call> {
 
 class ToolUseImpl implements Contract.ToolUse {
   declare readonly __brand: "ToolUse";
+  declare readonly [toolUseBrand]: true;
   readonly #made = true;
   readonly kind = "tool-use" as const;
   readonly role: Role | null;

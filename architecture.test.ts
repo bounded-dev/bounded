@@ -8,6 +8,7 @@ import {
   adapterContractViolations,
   assertionViolations,
   barrelContracts,
+  brandExportViolations,
   conceptTripletViolations,
   featureContractViolations,
   implementedByViolations,
@@ -379,6 +380,7 @@ violations.push(
   ...featureContractViolations(files, texts),
   ...assertionViolations(contextSources, ASSERTIONS),
   ...shapeCheckViolations(contextSources, SHAPE_CHECKS),
+  ...brandExportViolations(contextSources),
 );
 
 describe("architecture", () => {
@@ -543,7 +545,9 @@ describe("architecture", () => {
     const clean = { path: "contexts/x/src/domain/guards/clean.ts", text: "const k = [1] as const;\nconst a: C = b;\n" };
     expect(assertionViolations([file, clean], new Map([[clean.path, 0]]))).toEqual([]);
     expect(assertionViolations([file], new Map([[file.path, 3]]))).toEqual([]);
-    expect(assertionViolations([file], new Map([[file.path, 0]]))).toEqual([`${file.path} — 3 type assertions (as, <T>x, !) at line 1, 2, 3; it may have 0`]);
+    expect(assertionViolations([file], new Map([[file.path, 0]]))).toEqual([`${file.path} — 3 type assertions (as, <T>x, !, @ts-ignore) at line 1, 2, 3; it may have 0`]);
+    const silenced = { path: "contexts/x/src/domain/guards/quiet.ts", text: "// @ts-expect-error\nconst a: number = \"x\";\n" };
+    expect(assertionViolations([silenced], new Map([[silenced.path, 0]]))).toEqual([`${silenced.path} — 1 type assertions (as, <T>x, !, @ts-ignore) at line 1; it may have 0`]);
     expect(assertionViolations([], new Map([[file.path, 0]]))).toEqual([`${file.path} — named by the assertion rule but missing`]);
   });
 
@@ -558,6 +562,13 @@ describe("architecture", () => {
     expect(shapeCheckViolations([owner, thrown, command, adapter])).toEqual([]);
     expect(shapeCheckViolations([loose])).toEqual([`${at("loose.ts")}:2,2,2 — a shape check belongs in the parse or factory of the class that owns the shape (AGENTS.md, ADR 2026-013)`]);
     expect(shapeCheckViolations([loose], new Map([[at("loose.ts"), "a reason"]]))).toEqual([]);
+  });
+
+  test("brands stay in their contracts: a barrel never exports one", () => {
+    const barrel = (text: string) => ({ path: "contexts/x/src/domain/index.ts", text });
+    expect(brandExportViolations([barrel('export { Thing } from "./thing.ts";\nexport type { ThingJSON } from "./thing.contract.ts";\n')])).toEqual([]);
+    expect(brandExportViolations([barrel('export type { thingBrand } from "./thing.contract.ts";\n')])).toEqual(["contexts/x/src/domain/index.ts — thingBrand is a brand: it stays in its contract, never in a barrel"]);
+    expect(brandExportViolations([barrel('export * from "./thing.contract.ts";\n')])).toEqual(["contexts/x/src/domain/index.ts — a barrel names what it exports, so it never passes on a brand"]);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {

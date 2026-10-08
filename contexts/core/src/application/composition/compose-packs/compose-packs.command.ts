@@ -1,3 +1,4 @@
+import type { composePacksCommandBrand } from "./compose-packs.contract.ts";
 import { z } from "zod";
 import { PackId, type Result } from "bounded/domain";
 import type * as Contract from "./compose-packs.contract.ts";
@@ -9,6 +10,7 @@ const composePacksSchema = z.object({
 
 class ComposePacksCommandImpl implements Contract.ComposePacksCommand {
   declare readonly __brand: "ComposePacksCommand";
+  declare readonly [composePacksCommandBrand]: true;
   private constructor(readonly selectedPackIds: readonly PackId[]) {}
 
   static parse(raw: unknown): Result<ComposePacksCommand> {

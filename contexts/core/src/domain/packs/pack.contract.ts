@@ -1,6 +1,17 @@
 import type { Result } from "../shared/result.ts";
 import type { IsExact, PackId, Refused } from "./pack-id.contract.ts";
 
+/** The brand only PointDeclaration itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const pointDeclarationBrand: unique symbol;
+/** The brand only PointGroupDeclaration itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const pointGroupDeclarationBrand: unique symbol;
+/** The brand only Pack itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const packBrand: unique symbol;
+/** The brand only ExtensionPoint itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const extensionPointBrand: unique symbol;
+/** The brand only Contribution itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const contributionBrand: unique symbol;
+
 // The strict-typing rule (ADR 2026-003, ADR 2026-004): anything not
 // explicitly wired fails to compile, and composition repeats each rule at
 // run time.
@@ -22,6 +33,7 @@ export type Contributed<Value> = Value | WireOf<Value>;
 /** An extension point as declared inside its pack's definition, before it has an owner. */
 export interface PointDeclaration<Value> {
   readonly __brand: "PointDeclaration";
+  readonly [pointDeclarationBrand]: true;
   readonly description: string;
   /** Parses a contributed value, possibly normalising it, or refuses it with a message. */
   readonly check: (raw: unknown) => Result<Value>;
@@ -32,10 +44,12 @@ export interface PointDeclaration<Value> {
 /** A point declaration with its value type forgotten: the common base shape composition works with; the precise generic types (`PointDeclaration<Value>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
 export interface BaseDeclaration {
   readonly __brand: "PointDeclaration";
+  readonly [pointDeclarationBrand]: true;
 }
 /** Points declared together under one key, such as one per effect kind; one level deep. */
 export interface PointGroupDeclaration<Members extends Readonly<Record<string, unknown>>> {
   readonly __brand: "PointGroupDeclaration";
+  readonly [pointGroupDeclarationBrand]: true;
   readonly members: Members;
 }
 export type Declarations = Readonly<Record<string, BaseDeclaration | PointGroupDeclaration<Readonly<Record<string, BaseDeclaration>>>>>;
@@ -49,6 +63,7 @@ export type PointGroup = Readonly<Record<string, BasePoint>>;
 /** A pack with its id and points forgotten: the common base shape composition works with; the precise generic types (`Pack<Id, Points>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
 export interface BasePack {
   readonly __brand: "Pack";
+  readonly [packBrand]: true;
   readonly id: PackId;
   readonly dependsOn: readonly BasePack[];
   readonly points: Readonly<Record<string, BasePoint | PointGroup>>;
@@ -66,6 +81,7 @@ export interface BasePack {
 /** An extension point with its value type forgotten: the common base shape composition works with; the precise generic types (`ExtensionPoint<Value, Owner>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
 export interface BasePoint {
   readonly __brand: "ExtensionPoint";
+  readonly [extensionPointBrand]: true;
   readonly owner: BasePack;
   /** `<pack id>.<key>`, or `<pack id>.<group key>.<member key>`, for messages. */
   readonly id: string;
@@ -92,6 +108,7 @@ export interface Pack<Id extends PackId, Points extends Declarations> extends Ba
 /** Values one pack contributes to a point of the pack with id `Owner`. */
 export interface Contribution<Owner extends PackId> {
   readonly __brand: "Contribution";
+  readonly [contributionBrand]: true;
   readonly point: BasePoint & { readonly owner: { readonly id: Owner } };
   readonly values: readonly unknown[];
 }

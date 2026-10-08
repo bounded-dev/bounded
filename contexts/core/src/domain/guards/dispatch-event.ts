@@ -1,4 +1,5 @@
 import type { Composition, Entry } from "../composition/composition.contract.ts";
+import { Composition as CompositionFactory } from "../composition/composition.ts";
 import type { Effect, EffectByKind, EffectKind } from "../events/effect.contract.ts";
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
@@ -60,8 +61,13 @@ function judged(refusal: ReturnType<typeof firstRefusal>, effect: Effect | null)
  */
 export const decideEvent: Contract.DecideEvent = (composition, event) => outermost(() => decide(composition, event), (verdict) => plain(verdict));
 
-function decide(composition: Composition, call: Event): Judgement {
+function decide(given: Composition, call: Event): Judgement {
   try {
+    // Typed callers cannot pass a look-alike; untyped ones (a JavaScript
+    // configuration, a cast) are refused here, at run time.
+    const genuine = CompositionFactory.parse(given);
+    if (!genuine.ok) return plain(Verdict.refuse(genuine.error, "Compose the selected packs with Composition.compose and dispatch over the result"));
+    const composition = genuine.value;
     if (!composition.packs.includes(corePack)) {
       return plain(
         Verdict.refuse(

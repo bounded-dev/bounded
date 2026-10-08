@@ -1,3 +1,4 @@
+import type { packIdBrand } from "./pack-id.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./pack-id.contract.ts";
@@ -8,6 +9,7 @@ const ID = new RegExp(`^${PACKAGE}/${LOCAL}$`);
 
 class PackIdImpl<Text extends string = string> implements Contract.PackId<Text> {
   declare readonly __brand: "PackId";
+  declare readonly [packIdBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: Text) {

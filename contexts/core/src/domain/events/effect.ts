@@ -1,3 +1,4 @@
+import type { effectBrand } from "./effect.contract.ts";
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -30,6 +31,7 @@ const isKind = (raw: unknown): raw is Contract.EffectKind => typeof raw === "str
 
 class ReadEffectImpl implements Contract.ReadEffect {
   declare readonly __brand: "Effect";
+  declare readonly [effectBrand]: true;
   readonly #made = true;
   readonly kind = "read" as const;
 
@@ -58,6 +60,7 @@ class ReadEffectImpl implements Contract.ReadEffect {
 
 class ListEffectImpl implements Contract.ListEffect {
   declare readonly __brand: "Effect";
+  declare readonly [effectBrand]: true;
   readonly #made = true;
   readonly kind = "list" as const;
 
@@ -93,6 +96,7 @@ class ListEffectImpl implements Contract.ListEffect {
 
 class WriteEffectImpl implements Contract.WriteEffect {
   declare readonly __brand: "Effect";
+  declare readonly [effectBrand]: true;
   readonly #made = true;
   readonly kind = "write" as const;
 
@@ -127,6 +131,7 @@ class WriteEffectImpl implements Contract.WriteEffect {
 
 class ExecuteEffectImpl implements Contract.ExecuteEffect {
   declare readonly __brand: "Effect";
+  declare readonly [effectBrand]: true;
   readonly #made = true;
   readonly kind = "execute" as const;
 
@@ -162,6 +167,7 @@ class ExecuteEffectImpl implements Contract.ExecuteEffect {
 
 class FetchEffectImpl implements Contract.FetchEffect {
   declare readonly __brand: "Effect";
+  declare readonly [effectBrand]: true;
   readonly #made = true;
   readonly kind = "fetch" as const;
 
@@ -190,6 +196,7 @@ class FetchEffectImpl implements Contract.FetchEffect {
 
 class DelegateEffectImpl implements Contract.DelegateEffect {
   declare readonly __brand: "Effect";
+  declare readonly [effectBrand]: true;
   readonly #made = true;
   readonly kind = "delegate" as const;
 
@@ -218,6 +225,7 @@ class DelegateEffectImpl implements Contract.DelegateEffect {
 
 class InvokeEffectImpl implements Contract.InvokeEffect {
   declare readonly __brand: "Effect";
+  declare readonly [effectBrand]: true;
   readonly #made = true;
   readonly kind = "invoke" as const;
 

@@ -1,3 +1,4 @@
+import type { contributionBrand, extensionPointBrand, packBrand, pointDeclarationBrand, pointGroupDeclarationBrand } from "./pack.contract.ts";
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./pack.contract.ts";
 import { PackId, packIdText } from "./pack-id.ts";
@@ -23,6 +24,7 @@ function entriesOf(raw: unknown): [string, unknown][] {
 
 class PointDeclarationImpl<Value> implements Contract.PointDeclaration<Value> {
   declare readonly __brand: "PointDeclaration";
+  declare readonly [pointDeclarationBrand]: true;
 
   private constructor(
     readonly description: string,
@@ -59,6 +61,7 @@ class PointDeclarationImpl<Value> implements Contract.PointDeclaration<Value> {
 
 class PointGroupDeclarationImpl<Members extends Readonly<Record<string, unknown>>> implements Contract.PointGroupDeclaration<Members> {
   declare readonly __brand: "PointGroupDeclaration";
+  declare readonly [pointGroupDeclarationBrand]: true;
 
   private constructor(readonly members: Members) {
     Object.freeze(this);
@@ -73,6 +76,7 @@ class PointGroupDeclarationImpl<Members extends Readonly<Record<string, unknown>
 
 class ExtensionPointImpl implements Contract.BasePoint {
   declare readonly __brand: "ExtensionPoint";
+  declare readonly [extensionPointBrand]: true;
   readonly description: string;
   readonly ownValues: readonly unknown[];
 
@@ -126,6 +130,7 @@ class PointGroupImpl {
 
 class ContributionImpl<Owner extends Contract.BasePack["id"]> implements Contract.Contribution<Owner> {
   declare readonly __brand: "Contribution";
+  declare readonly [contributionBrand]: true;
 
   private constructor(
     readonly point: Contract.BasePoint & { readonly owner: { readonly id: Owner } },
@@ -153,6 +158,7 @@ interface UntypedSpec {
 
 class PackImpl implements Contract.BasePack {
   declare readonly __brand: "Pack";
+  declare readonly [packBrand]: true;
   readonly id: PackId;
   readonly dependsOn: readonly Contract.BasePack[];
   readonly points: Readonly<Record<string, Contract.BasePoint | Contract.PointGroup>>;

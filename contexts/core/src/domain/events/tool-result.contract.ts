@@ -4,9 +4,13 @@ import type { Effect } from "./effect.contract.ts";
 import type { Role } from "./role.contract.ts";
 import type { ToolKind, ToolUseJSON } from "./tool-use.contract.ts";
 
+/** The brand only ToolResult itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const toolResultBrand: unique symbol;
+
 /** A tool call that has run: the tool use, whether it succeeded, and its call id when the host gives one. */
 export interface ToolResult {
   readonly __brand: "ToolResult";
+  readonly [toolResultBrand]: true;
   readonly kind: "tool-result";
   readonly role: Role | null;
   readonly toolKind: ToolKind;

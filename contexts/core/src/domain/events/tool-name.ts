@@ -1,3 +1,4 @@
+import type { toolNameBrand } from "./tool-name.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import { hasControl } from "../shared/text.ts";
@@ -5,6 +6,7 @@ import type * as Contract from "./tool-name.contract.ts";
 
 class ToolNameImpl implements Contract.ToolName {
   declare readonly __brand: "ToolName";
+  declare readonly [toolNameBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

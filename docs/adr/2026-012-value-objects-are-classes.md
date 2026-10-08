@@ -23,6 +23,16 @@ objects with type-only brands; Role and ProjectPath as branded strings) and
   `ToolResult`, `Allow` and `Refuse`, `WatchedPath`, `Decision` (a log
   record: a follow-up shares its decision's id, so it is a value, not an
   entity) and the path gate's `ProtectedPath`.
+- **Branded nominally (amended by ADR 2026-013).** Besides its readable
+  `__brand` tag, each branded interface carries a module-private brand:
+  its contract declares `export declare const <name>Brand: unique symbol`
+  and the interface `readonly [<name>Brand]: true`, which the class
+  declares too. The symbol is never exported from a barrel (the
+  architecture test checks), so code outside the package cannot write it in
+  an object literal: even a complete look-alike, every field and method
+  filled in, does not type-check without a cast. The same holds for the
+  entities (`Composition`, packs, points, contributions, `Config`) and the
+  application's commands.
 - **Equal by value, serialised as before.** `equals` compares values (a
   composite compares its wire forms); `toJSON` gives the primitive, or the
   plain object the value was before this decision, so guard logs,

@@ -1,6 +1,9 @@
 import type { Result } from "../shared/result.ts";
 import type { Refuse } from "../verdicts/verdict.contract.ts";
 
+/** The brand only AdapterRefusal itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const adapterRefusalBrand: unique symbol;
+
 /** An adapter refusal's wire form: what a host adapter hands the core. */
 export interface AdapterRefusalJSON {
   /** The host's own name for the tool it refused. */
@@ -19,6 +22,7 @@ export interface AdapterRefusalJSON {
  */
 export interface AdapterRefusal {
   readonly __brand: "AdapterRefusal";
+  readonly [adapterRefusalBrand]: true;
   readonly role: string | null;
   readonly hostToolName: string;
   readonly input: unknown;

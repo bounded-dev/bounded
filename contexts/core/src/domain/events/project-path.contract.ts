@@ -1,5 +1,8 @@
 import type { Result } from "../shared/result.ts";
 
+/** The brand only ProjectPath itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const projectPathBrand: unique symbol;
+
 /**
  * A path inside the project, relative to its root and normalised: segments
  * joined by '/', without '.', empty segments or '..'. The root is ".". The
@@ -8,6 +11,7 @@ import type { Result } from "../shared/result.ts";
  */
 export interface ProjectPath {
   readonly __brand: "ProjectPath";
+  readonly [projectPathBrand]: true;
   readonly value: string;
   equals(other: ProjectPath): boolean;
   toJSON(): string;

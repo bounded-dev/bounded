@@ -2,6 +2,9 @@ import type { Composition } from "../composition/composition.contract.ts";
 import type { BasePack, Contribution, PackListRules } from "../packs/pack.contract.ts";
 import type { Result } from "../shared/result.ts";
 
+/** The brand only Config itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const configBrand: unique symbol;
+
 /**
  * A project's configuration: the packs it selects, and the project's own
  * pack, `bounded/project`, which depends on every selected pack and carries
@@ -9,6 +12,7 @@ import type { Result } from "../shared/result.ts";
  */
 export interface Config {
   readonly __brand: "Config";
+  readonly [configBrand]: true;
   readonly selectedPacks: readonly BasePack[];
   readonly projectPack: BasePack;
   /** Its packs composed: the selected packs and the project's own pack, all selected; or why they cannot be. Never throws. */

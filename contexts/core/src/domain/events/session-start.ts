@@ -1,3 +1,4 @@
+import type { sessionStartBrand } from "./session-start.contract.ts";
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -7,6 +8,7 @@ import type * as Contract from "./session-start.contract.ts";
 
 class SessionStartImpl implements Contract.SessionStart {
   declare readonly __brand: "SessionStart";
+  declare readonly [sessionStartBrand]: true;
   readonly #made = true;
   readonly kind = "session-start" as const;
 

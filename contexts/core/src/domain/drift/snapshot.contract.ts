@@ -1,5 +1,8 @@
 import type { Result } from "../shared/result.ts";
 
+/** The brand only Snapshot itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const snapshotBrand: unique symbol;
+
 /**
  * A watched file: the SHA-256 of its bytes (hex), its size in bytes, and the
  * index of the first rule that watches it. A link is never followed: `link`
@@ -41,6 +44,7 @@ export interface SnapshotJSON {
  */
 export interface Snapshot {
   readonly __brand: "Snapshot";
+  readonly [snapshotBrand]: true;
   readonly commit: string | null;
   readonly files: Readonly<Record<string, SnapshotFile>>;
   equals(other: Snapshot): boolean;

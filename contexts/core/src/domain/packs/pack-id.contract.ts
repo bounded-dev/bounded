@@ -1,5 +1,8 @@
 import type { Result } from "../shared/result.ts";
 
+/** The brand only PackId itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const packIdBrand: unique symbol;
+
 /**
  * A pack's id: `<npm package>/<local id>`, such as "bounded/core". Typed by
  * its exact text (`PackId<"bounded/core">` has the value "bounded/core"), so
@@ -9,6 +12,7 @@ import type { Result } from "../shared/result.ts";
  */
 export interface PackId<Text extends string = string> {
   readonly __brand: "PackId";
+  readonly [packIdBrand]: true;
   readonly value: Text;
   equals(other: PackId): boolean;
   toJSON(): Text;

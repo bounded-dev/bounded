@@ -1,3 +1,4 @@
+import type { roleBrand } from "./role.contract.ts";
 import { own } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
@@ -7,6 +8,7 @@ const LABEL = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
 class RoleImpl implements Contract.Role {
   declare readonly __brand: "Role";
+  declare readonly [roleBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {

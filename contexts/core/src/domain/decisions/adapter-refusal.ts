@@ -1,3 +1,4 @@
+import type { adapterRefusalBrand } from "./adapter-refusal.contract.ts";
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
@@ -9,6 +10,7 @@ const NOT_ONE = "An adapter refusal is an object: { hostToolName, reason, redire
 
 class AdapterRefusalImpl implements Contract.AdapterRefusal {
   declare readonly __brand: "AdapterRefusal";
+  declare readonly [adapterRefusalBrand]: true;
   readonly #made = true;
 
   private constructor(

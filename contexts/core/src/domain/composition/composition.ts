@@ -1,3 +1,4 @@
+import type { compositionBrand } from "./composition.contract.ts";
 import { pointsOf } from "../packs/pack.ts";
 import type { BasePack, BasePoint, ExtensionPoint } from "../packs/pack.contract.ts";
 import type { PackId as PackIdType } from "../packs/pack-id.contract.ts";
@@ -9,6 +10,7 @@ import { byId, SelectedPacks } from "./selected-packs.ts";
 
 class CompositionImpl implements Contract.Composition {
   declare readonly __brand: "Composition";
+  declare readonly [compositionBrand]: true;
 
   private constructor(
     readonly packs: readonly BasePack[],
@@ -61,6 +63,10 @@ class CompositionImpl implements Contract.Composition {
       }
     }
     return { ok: true, value: new CompositionImpl(Object.freeze(order), slots) };
+  }
+
+  static parse(raw: unknown): Result<Composition> {
+    return raw instanceof CompositionImpl ? { ok: true, value: raw } : refuse("Dispatch was given something that is not a composition");
   }
 
   read<Value>(point: ExtensionPoint<Value, PackIdType>): Result<readonly Value[]> {

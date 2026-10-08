@@ -1,9 +1,11 @@
+import type { namePatternBrand } from "./name-pattern.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./name-pattern.contract.ts";
 
 class NamePatternImpl implements Contract.NamePattern {
   declare readonly __brand: "NamePattern";
+  declare readonly [namePatternBrand]: true;
   readonly #made = true;
 
   private constructor(readonly value: string) {
