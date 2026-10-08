@@ -2626,5 +2626,59 @@
     "case": "dispatchEvent — refuses what it cannot trust > a look-alike composition, however well it imitates one, is refused",
     "successor": null,
     "reason": "decideEvent takes a Composition as Composition.compose made it; a look-alike does not type-check (compile-time fixture guards-rejected.ts), and no boundary hands dispatch an untyped composition (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > a configuration source that throws is a configuration that cannot be loaded",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that throws is a configuration that cannot be loaded"
+    },
+    "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > a configuration source that returns no result is a configuration that cannot be loaded",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that returns no result is a configuration that cannot be loaded"
+    },
+    "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/application/judging/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler > something that is not a command is refused, never thrown, and nothing is recorded",
+    "successor": null,
+    "reason": "execute takes a JudgeEventCommand made by its parse, and the judge parses a raw event with it before execute; shape checks live in the class that owns the shape (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/application/composition/compose-packs/compose-packs.test.ts",
+    "case": "ComposePacksHandler > refuses a catalog that returns something other than a list, never throws",
+    "successor": null,
+    "reason": "the catalog port answers Result<AvailablePacks>, so a catalog parses its own packs (its conformance suite refuses packs that cannot be composed from); the handler trusts its port (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > a configuration source that throws is a configuration that cannot be loaded",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that throws is a configuration that cannot be loaded"
+    },
+    "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > a configuration source that returns no result is a configuration that cannot be loaded",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that returns no result is a configuration that cannot be loaded"
+    },
+    "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/application/guard-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler > something that is not a command is refused, never thrown, and nothing is recorded",
+    "successor": null,
+    "reason": "execute takes a JudgeEventCommand made by its parse, and the judge parses a raw event with it before execute; shape checks live in the class that owns the shape (ADR 2026-013, B3)"
   }
 ]

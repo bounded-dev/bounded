@@ -1,3 +1,4 @@
+import type { AdapterRefusal } from "./adapter-refusal.contract.ts";
 import type { Event } from "../events/event.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { ToolKind } from "../events/tool-use.contract.ts";
@@ -51,14 +52,6 @@ export interface DecisionJSON {
   readonly verdict: RecordedVerdict;
   readonly note: string | null;
   readonly host?: { readonly tool: string; readonly input: string };
-}
-
-/** A call the host adapter refused itself, before it became an event. */
-export interface AdapterRefusal {
-  readonly role: string | null;
-  readonly hostToolName: string;
-  readonly input: unknown;
-  readonly verdict: Verdict;
 }
 
 export interface DecisionFactory {

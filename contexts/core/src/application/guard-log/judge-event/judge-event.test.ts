@@ -137,16 +137,6 @@ describe("JudgeEventHandler", () => {
     expect(log.decisions).toEqual([]);
   });
 
-  test("something that is not a command is refused, never thrown, and nothing is recorded", async () => {
-    const log = new FakeLog();
-    const handler = new JudgeEventHandler(composition, log, clock);
-    for (const raw of [null, undefined, 7, {}, { event: { kind: "deploy" } }]) {
-      const verdict = await handler.execute(raw as unknown as JudgeEventCommand);
-      expect(verdict.kind === "refuse" && verdict.reason.startsWith("The handler was given something that is not a judge-event command")).toBe(true);
-    }
-    expect(log.decisions).toEqual([]);
-  });
-
   test("refuses to be built with a bound that is not a finite number of milliseconds above zero", () => {
     for (const recordWithinMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => new JudgeEventHandler(composition, new FakeLog(), clock, { recordWithinMs })).toThrow("recordWithinMs must be a finite number of milliseconds above zero");

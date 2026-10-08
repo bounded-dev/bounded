@@ -1,4 +1,4 @@
-import type { Decision, Event, Result, Verdict } from "bounded/domain";
+import type { AdapterRefusalJSON, Decision, Event, Result, Verdict } from "bounded/domain";
 
 // Wire input: the event's own wire form, checked by Event.parse.
 export type JudgeEventInput = unknown;
@@ -34,14 +34,8 @@ export interface JudgeEventOptions {
   readonly beforeAllow?: (event: Event) => Promise<Verdict>;
 }
 
-/** A refusal the host adapter made itself: the host's tool name, its input, the role, and the reason and redirect. */
-export interface AdapterRefusalInput {
-  readonly hostToolName: string;
-  readonly reason: string;
-  readonly redirect: string;
-  readonly role?: string | null;
-  readonly input?: unknown;
-}
+/** A refusal the host adapter made itself, in its wire form: the host's tool name, its input, the role, and the reason and redirect (read by AdapterRefusal.parse). */
+export type AdapterRefusalInput = AdapterRefusalJSON;
 
 // Out ports: exactly what this feature needs.
 /**

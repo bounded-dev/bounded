@@ -124,6 +124,10 @@ Rules, enforced by `architecture.test.ts` unless stated:
   implements the in port from it. R5: the files that route events
   (`dispatch.ts`, `dispatch-event.ts`, `effect.contract.ts`) assert no types
   (`as`, `<T>x`, `!`), and `core-pack.ts` has exactly one, in `functionOf`.
+  R6: in domain and application code, a shape check (`Array.isArray`,
+  `typeof … === "object"`, `instanceof`) appears only in a file that owns a
+  shape (a class with a static `parse` or a private constructor, a `parse`
+  function, a command), or is named in the test with its reason.
   Exempt, each named in the test with its
   reason: barrels, the shared kernel (`domain/shared/{result,read,text,wire}.ts`)
   and, until step C, `ProjectDrift` and `domain/drift/watched-paths.ts`.

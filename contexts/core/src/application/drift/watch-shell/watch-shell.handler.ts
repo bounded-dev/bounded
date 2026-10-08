@@ -1,12 +1,11 @@
-import { type Composition, Decision, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedChange, type WatchedPath, watchedPathsOf } from "bounded/domain";
+import { type Composition, Decision, Snapshot, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedChange, type WatchedPath, watchedPathsOf } from "bounded/domain";
 
 import { nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
-import type { Clock, DecisionIds, DriftCheck, FileChange, GuardLog, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell, WatchShellOptions } from "./watch-shell.contract.ts";
+import type { Clock, DecisionIds, DriftCheck, FileChange, GuardLog, RestoreFrom, ShellSnapshots, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell, WatchShellOptions } from "./watch-shell.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
 const UNREADABLE_REDIRECT = "Fix what stops protected files from being read; until then shell commands are refused";
 const CHECK_REDIRECT = "Check the protected files by hand against version control";
-const SHA256 = /^[0-9a-f]{64}$/;
 
 /** How much a snapshot copies of the watched files that version control does not hold: 1 MB a file, 10 MB in all. */
 export const COPY_LIMITS = Object.freeze({ perFile: 1_000_000, total: 10_000_000 });
@@ -26,8 +25,6 @@ interface Rule {
 }
 
 const runsShell = (call: ToolUse | ToolResult): boolean => call.effects.some((effect) => effect.kind === "execute");
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 /** A text as it can be shown on one line: control characters (a newline in a file's name) escaped, as in JSON. */
 const shown = (text: string): string => [...text].map((char) => (char === "\u007f" ? "\\u007f" : char < " " ? JSON.stringify(char).slice(1, -1) : char)).join("");
 /** A text as one sentence: without trailing full stops or spaces, then one full stop. */
@@ -166,36 +163,24 @@ export class WatchShellHandler implements WatchShell {
         files[path] = { hash: copy.value.hash, size: copy.value.size, rule: file.rule, ...(file.rules === undefined ? {} : { rules: file.rules }), kept: { from: "copy", content: copy.value.content, executable: copy.value.executable } };
       }
     }
-    return { ok: true, value: { commit: head.value, files } };
+    return Snapshot.parse({ commit: head.value, files }, rules.length);
   }
 
-  /** A stored snapshot, checked: its form, every hash, every copy against its hash and every file kept by the commit against it. */
+  /** A stored snapshot, checked: its form (Snapshot.parse), then every copy against its hash and every file kept by the commit against it. */
   private async checked(stored: unknown, rules: readonly Rule[]): Promise<Result<Snapshot>> {
-    const altered = (why: string): Result<Snapshot> => ({ ok: false, error: why });
-    if (!isRecord(stored) || !isRecord(stored.files) || !(stored.commit === null || typeof stored.commit === "string")) return altered("it is not a snapshot");
-    const commit = stored.commit;
-    const byCommit = Object.values(stored.files).some((file) => isRecord(file) && isRecord(file.kept) && file.kept.from === "commit");
+    const parsed = Snapshot.parse(stored, rules.length);
+    if (!parsed.ok) return parsed;
+    const { commit, files } = parsed.value;
+    const byCommit = Object.values(files).some((file) => file.kept.from === "commit");
     const committed = byCommit ? await this.committed(rules, commit) : { ok: true as const, value: {} as WatchedHashes };
-    if (!committed.ok) return altered(`its commit cannot be read: ${committed.error}`);
-    const files: Record<string, SnapshotFile> = {};
-    for (const [path, file] of Object.entries(stored.files)) {
-      if (!isRecord(file) || typeof file.hash !== "string" || !SHA256.test(file.hash)) return altered(`${shown(path)} has a hash that is not a SHA-256`);
-      const { hash, size, rule, kept, link, rules: watchedBy } = file;
-      const watchingOk = watchedBy === undefined || (Array.isArray(watchedBy) && watchedBy.every((index) => isCount(index) && index < rules.length));
-      if (!isCount(size) || !isCount(rule) || rule >= rules.length || !isRecord(kept) || !(link === undefined || link === true) || !watchingOk) return altered(`${shown(path)} is not a snapshot's file`);
-      let keptAs: Kept;
-      if (kept.from === "commit") {
-        if (commit === null || committed.value[path]?.hash !== hash) return altered(`${shown(path)} does not match the commit it was kept by`);
-        keptAs = { from: "commit" };
-      } else if (kept.from === "copy") {
-        const copy = typeof kept.content === "string" ? await digest(kept.content) : undefined;
-        if (copy === undefined || copy.hash !== hash || copy.size !== size || typeof kept.executable !== "boolean") return altered(`the copy of ${shown(path)} does not match its hash`);
-        keptAs = { from: "copy", content: kept.content as string, executable: kept.executable };
-      } else if (kept.from === "nowhere") keptAs = { from: "nowhere" };
-      else return altered(`${shown(path)} is not a snapshot's file`);
-      files[path] = { hash, size, rule, kept: keptAs, ...(link === true ? { link } : {}), ...(watchedBy === undefined ? {} : { rules: watchedBy as number[] }) };
+    if (!committed.ok) return { ok: false, error: `its commit cannot be read: ${committed.error}` };
+    for (const [path, file] of Object.entries(files)) {
+      if (file.kept.from === "commit" && (commit === null || committed.value[path]?.hash !== file.hash)) return { ok: false, error: `${shown(path)} does not match the commit it was kept by` };
+      if (file.kept.from !== "copy") continue;
+      const copy = await digest(file.kept.content);
+      if (copy === undefined || copy.hash !== file.hash || copy.size !== file.size) return { ok: false, error: `the copy of ${shown(path)} does not match its hash` };
     }
-    return { ok: true, value: { commit, files } };
+    return parsed;
   }
 
   /** Puts back what the command changed, from the snapshot, records it and says what happened. */

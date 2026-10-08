@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type BasePack, definePack, packIdsFor, point } from "bounded/domain";
+import { AvailablePacks, type BasePack, definePack, packIdsFor, point, type Result } from "bounded/domain";
 import { ComposePacksCommand } from "./compose-packs.command.ts";
 import type { ComposePacksCatalog } from "./compose-packs.contract.ts";
 import { ComposePacksHandler } from "./compose-packs.handler.ts";
@@ -7,8 +7,8 @@ import { ComposePacksHandler } from "./compose-packs.handler.ts";
 class FakeCatalog implements ComposePacksCatalog {
   constructor(private readonly packs: readonly BasePack[]) {}
 
-  async available(): Promise<readonly BasePack[]> {
-    return this.packs;
+  async available(): Promise<Result<AvailablePacks>> {
+    return AvailablePacks.parse(this.packs);
   }
 }
 
@@ -51,14 +51,6 @@ describe("ComposePacksHandler", () => {
     const handler = new ComposePacksHandler(new FakeCatalog([base]));
     expect(await handler.execute(command("test-packs/zed", "test-packs/abc"))).toEqual(refusal);
     expect(await handler.execute(command("test-packs/abc", "test-packs/zed"))).toEqual(refusal);
-  });
-
-  test("refuses a catalog that returns something other than a list, never throws", async () => {
-    const odd = { available: async () => null } as unknown as ComposePacksCatalog;
-    expect(await new ComposePacksHandler(odd).execute(command("test-packs/base"))).toEqual({
-      ok: false,
-      error: "The pack catalog returned something other than a list of packs. Fix the pack catalog; nothing is composed until then",
-    });
   });
 
   test("refuses when the catalog cannot be read", async () => {

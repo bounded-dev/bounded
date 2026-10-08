@@ -1,4 +1,4 @@
-import { type Composition, Config, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
+import { AdapterRefusal, type Composition, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
 import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
 import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
@@ -88,24 +88,19 @@ export class OpenProjectHandler implements OpenProject {
     return Object.freeze({
       judge: async () => refusal,
       afterTool: async () => NOTHING,
-      refuse: async (given: AdapterRefusalInput) => Verdict.refuse(String(given?.reason ?? ""), String(given?.redirect ?? "")),
+      refuse: async (given: AdapterRefusalInput) => {
+        const refusal = AdapterRefusal.parse(given);
+        return refusal.ok ? refusal.value.verdict : Verdict.refuse(`Judging could not finish: ${refusal.error}`, "Report this to the maintainers of bounded; the action is refused meanwhile");
+      },
       problem,
     });
   }
 
   /** The project's composition, or why its configuration cannot be used. Never throws. */
   private async compose(root: string): Promise<Result<Composition>> {
-    let loaded: unknown;
-    try {
-      loaded = await this.configSource.load(root);
-    } catch (thrown) {
-      return { ok: false, error: `the configuration source failed: ${text(thrown)}` };
-    }
-    if (typeof loaded !== "object" || loaded === null || !("ok" in loaded)) return { ok: false, error: "the configuration source returned no result" };
-    const result = loaded as Result<unknown>;
-    if (!result.ok) return { ok: false, error: typeof result.error === "string" ? result.error : "the configuration source returned no reason" };
-    const config = Config.parse(result.value);
-    const composed = config.ok ? config.value.compose() : config;
+    const loaded = await this.configSource.load(root);
+    if (!loaded.ok) return loaded;
+    const composed = loaded.value.compose();
     return composed.ok ? composed : { ok: false, error: `its packs cannot be composed: ${composed.error}` };
   }
 

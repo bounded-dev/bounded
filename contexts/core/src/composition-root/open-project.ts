@@ -1,8 +1,8 @@
 import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectDrift, type ProjectJudge, type ProjectPathKinds } from "bounded/application";
 import type { Clock } from "bounded/application";
 import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs, FileSystemProjectDrift, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
-import { SystemClock } from "bounded/adapters/system";
-import { Verdict } from "bounded/domain";
+import { CheckedProjectConfigSource, SystemClock } from "bounded/adapters/system";
+import { AdapterRefusal, Verdict } from "bounded/domain";
 
 /** What a host may replace; everything else has a default. */
 export interface OpenProjectOptions {
@@ -31,7 +31,7 @@ export async function openProject(projectRoot: string, options: OpenProjectOptio
     if (!command.ok) return refusingAll(`This project cannot be opened: ${command.error}`, "Pass the project's absolute root directory to openProject", command.error);
     const { guardLog } = options;
     const guardLogs = guardLog === undefined ? new FileSystemProjectGuardLogs() : { forProject: () => guardLog };
-    const handler = new OpenProjectHandler(options.configSource ?? new FileSystemProjectConfigSource(), guardLogs, options.clock ?? new SystemClock(), {
+    const handler = new OpenProjectHandler(new CheckedProjectConfigSource(options.configSource ?? new FileSystemProjectConfigSource()), guardLogs, options.clock ?? new SystemClock(), {
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
       drift: options.drift ?? new FileSystemProjectDrift(),
       pathKinds: options.pathKinds ?? new FileSystemProjectPathKinds(),
@@ -50,7 +50,10 @@ function refusingAll(reason: string, redirect: string, problem: string): Project
   return Object.freeze({
     judge: async () => refusal,
     afterTool: async () => ({ changed: [], restored: true, message: null }),
-    refuse: async (given: { readonly reason?: string; readonly redirect?: string } | null) => Verdict.refuse(String(given?.reason ?? ""), String(given?.redirect ?? "")),
+    refuse: async (given: unknown) => {
+      const parsed = AdapterRefusal.parse(given);
+      return parsed.ok ? parsed.value.verdict : refusal;
+    },
     problem,
   });
 }

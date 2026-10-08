@@ -1,3 +1,4 @@
+import type { AdapterRefusal } from "./adapter-refusal.contract.ts";
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
@@ -93,7 +94,7 @@ class DecisionImpl implements Contract.Decision {
     return new DecisionImpl({ id, time, event: "invalid", role: null, tool: null, effects: [], verdict: verdictOf(refusal, null), note: null });
   }
 
-  static adapter(id: DecisionIdType, time: string, { role, hostToolName, input, verdict }: Contract.AdapterRefusal): Decision {
+  static adapter(id: DecisionIdType, time: string, { role, hostToolName, input, verdict }: AdapterRefusal): Decision {
     return new DecisionImpl({
       id,
       time,

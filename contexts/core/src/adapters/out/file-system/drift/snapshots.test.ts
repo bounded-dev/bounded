@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { shellSnapshotsConformance } from "../../../../application/drift/watch-shell/watch-shell.snapshots.test-support.ts";
+import { shellSnapshotsConformance, snapshotOf } from "../../../../application/drift/watch-shell/watch-shell.snapshots.test-support.ts";
 import { FileSystemProjectDrift } from "./project-drift.ts";
 import { stateHomeFor } from "./state-home.ts";
 import { FileSystemShellSnapshots } from "./snapshots.ts";
@@ -19,7 +19,7 @@ shellSnapshotsConformance("FileSystemShellSnapshots", async () => {
 });
 
 describe("FileSystemShellSnapshots — kept away from the project, and not for long", () => {
-  const snapshot = { commit: null, files: {} };
+  const snapshot = snapshotOf({ commit: null, files: {} });
   function setup() {
     const root = mkdtempSync(join(tmpdir(), "snapshots-"));
     const state = mkdtempSync(join(tmpdir(), "snapshots-state-"));

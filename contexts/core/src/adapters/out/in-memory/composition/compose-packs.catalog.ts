@@ -1,5 +1,5 @@
 import type { ComposePacksCatalog } from "bounded/application";
-import type { BasePack } from "bounded/domain";
+import { AvailablePacks, type BasePack, type Result } from "bounded/domain";
 
 /** The packs a host already holds in memory: the catalog for tests and for hosts that import their packs. */
 export class InMemoryComposePacksCatalog implements ComposePacksCatalog {
@@ -9,7 +9,7 @@ export class InMemoryComposePacksCatalog implements ComposePacksCatalog {
     this.packs = Object.freeze([...packs]);
   }
 
-  async available(): Promise<readonly BasePack[]> {
-    return this.packs;
+  async available(): Promise<Result<AvailablePacks>> {
+    return AvailablePacks.parse(this.packs);
   }
 }

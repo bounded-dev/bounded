@@ -1,43 +1,14 @@
-import type { Result, ToolResult, ToolUse, Verdict, WatchedPath } from "bounded/domain";
+import type { Result, Snapshot, ToolResult, ToolUse, Verdict, WatchedFile, WatchedPath } from "bounded/domain";
+
+// Domain types this feature's ports carry, listed here so this contract names them.
+export type { Kept, Snapshot, SnapshotFile, SnapshotJSON, WatchedFile } from "bounded/domain";
 
 // Out ports this feature shares with judge-event: declared there, listed here so this contract names every port the feature needs.
 import type { DecisionIds } from "../../guard-log/judge-event/judge-event.contract.ts";
 export type { Clock, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
-/**
- * A watched file: the SHA-256 of its bytes (hex), its size in bytes, and the
- * index of the first rule that watches it. A link is never followed: `link`
- * is true, and its hash is of where it points.
- */
-export interface WatchedFile {
-  readonly hash: string;
-  readonly size: number;
-  readonly rule: number;
-  /** Every rule that watches it, in order, when more than one does: a change any of them forbids is undone. */
-  readonly rules?: readonly number[];
-  readonly link?: true;
-}
-
 /** Every watched file by project-relative path. */
 export type WatchedHashes = Readonly<Record<string, WatchedFile>>;
-
-/**
- * How a file can be put back as it was before a command: from the commit
- * (its content matched it), from a copy of its bytes (base64), or nowhere
- * (too large to copy: a change is reported, never replaced).
- */
-export type Kept = { readonly from: "commit" } | { readonly from: "copy"; readonly content: string; readonly executable: boolean } | { readonly from: "nowhere" };
-
-/** A watched file before a command, and how it can be put back. */
-export interface SnapshotFile extends WatchedFile {
-  readonly kept: Kept;
-}
-
-/** The watched files before a command, and the commit they were compared with (null outside git or before a first commit). */
-export interface Snapshot {
-  readonly commit: string | null;
-  readonly files: Readonly<Record<string, SnapshotFile>>;
-}
 
 /** Where a restored file comes from: a commit (its bytes and executable bit), or a copy of its bytes (base64) and whether it was executable. */
 export type RestoreFrom = { readonly from: "commit"; readonly commit: string } | { readonly from: "copy"; readonly content: string; readonly executable: boolean };

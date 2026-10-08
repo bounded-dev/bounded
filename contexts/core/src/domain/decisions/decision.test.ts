@@ -5,6 +5,8 @@ import { ToolUse } from "../events/tool-use.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import { Verdict } from "../verdicts/verdict.ts";
 import { wireOf } from "../shared/value-object.laws.test-support.ts";
+import type { AdapterRefusalJSON } from "./adapter-refusal.contract.ts";
+import { AdapterRefusal } from "./adapter-refusal.ts";
 import { Decision } from "./decision.ts";
 import { DecisionId } from "./decision-id.ts";
 
@@ -20,6 +22,13 @@ const id = (text: string): DecisionId => {
 };
 
 const line = { id: "d-0", time: TIME, event: "tool-use", role: "builder", tool: "edit", effects: ["read a.ts"], verdict: { kind: "allow" }, note: null };
+
+/** An adapter refusal from its wire form. */
+function refusal(json: AdapterRefusalJSON): AdapterRefusal {
+  const parsed = AdapterRefusal.parse(json);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
 
 describe("Decision — a recorded line read back", () => {
   test("parse gives back exactly the line that was written", () => {
@@ -133,7 +142,7 @@ describe("Decision", () => {
   });
 
   test("records a call the host adapter refused before the core saw an event: the host's tool and a bounded summary of its input", () => {
-    expect(wireOf(Decision.adapter(id("d-13"), TIME, { role: "builder", hostToolName: "Bash", input: { command: "ls" }, verdict: Verdict.refuse("outside the project", "Stay inside") }))).toEqual({
+    expect(wireOf(Decision.adapter(id("d-13"), TIME, refusal({ role: "builder", hostToolName: "Bash", input: { command: "ls" }, reason: "outside the project", redirect: "Stay inside" })))).toEqual({
       id: "d-13",
       time: TIME,
       event: "adapter",
@@ -144,11 +153,11 @@ describe("Decision", () => {
       note: null,
       host: { tool: "Bash", input: '{"command":"ls"}' },
     });
-    const huge = Decision.adapter(id("d-14"), TIME, { role: null, hostToolName: "Write", input: { content: "x".repeat(10_000) }, verdict: Verdict.refuse("r", "d") });
+    const huge = Decision.adapter(id("d-14"), TIME, refusal({ role: null, hostToolName: "Write", input: { content: "x".repeat(10_000) }, reason: "r", redirect: "d" }));
     expect(huge.host?.input.endsWith("characters)")).toBe(true);
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
-    expect(Decision.adapter(id("d-15"), TIME, { role: null, hostToolName: "X", input: cyclic, verdict: Verdict.refuse("r", "d") }).host?.input).toBe("an input that cannot be shown");
+    expect(Decision.adapter(id("d-15"), TIME, refusal({ role: null, hostToolName: "X", input: cyclic, reason: "r", redirect: "d" })).host?.input).toBe("an input that cannot be shown");
   });
 
   test("is plain, frozen, serialisable data", () => {
