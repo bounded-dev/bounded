@@ -39,6 +39,24 @@ const importsOf = (text: string): string[] =>
     .map(([, spec = ""]) => spec)
     .filter((spec) => !spec.startsWith("."));
 
+/**
+ * The declarations a consumer's tsc reads (dist/types, each export path's
+ * `types`): emitted from the sources by tsc (tsconfig.types.json), with each
+ * relative `.ts` specifier rewritten to `.js`, as a consumer's tsc resolves
+ * declarations without allowImportingTsExtensions.
+ */
+async function buildDeclarations(): Promise<void> {
+  const tsc = Bun.resolveSync("typescript/bin/tsc", HERE);
+  const emitted = Bun.spawnSync([process.execPath, tsc, "-p", join(HERE, "tsconfig.types.json")], { cwd: HERE, stdout: "pipe", stderr: "pipe" });
+  if (emitted.exitCode !== 0) throw new Error(`bounded's declarations could not be emitted:\n${emitted.stdout.toString()}${emitted.stderr.toString()}`);
+  for await (const path of new Bun.Glob("dist/types/**/*.d.ts").scan({ cwd: HERE })) {
+    const file = join(HERE, path);
+    const text = await Bun.file(file).text();
+    const rewritten = text.replace(/((?:\bfrom|\bimport)\s*\(?\s*")(\.{1,2}\/[^"]*)\.ts(")/g, "$1$2.js$3");
+    if (rewritten !== text) await Bun.write(file, rewritten);
+  }
+}
+
 /** Builds dist/ and checks it: every export target built, and nothing imported but node's modules, bounded and its dependencies. */
 export async function buildDist(): Promise<void> {
   const manifest = (await Bun.file(join(HERE, "package.json")).json()) as Manifest;
@@ -74,6 +92,8 @@ export async function buildDist(): Promise<void> {
     const text = (await Bun.file(join(HERE, out)).text()).replace(/^#!.*\n/, "").replace(/^\/\/ @bun.*\n/, "");
     await Bun.write(join(HERE, out), program === true ? `#!/usr/bin/env node\n${text}` : text);
   }
+
+  await buildDeclarations();
 
   const allowed = new Set(Object.keys(manifest.dependencies ?? {}));
   const targets = Object.values(manifest.exports).flatMap((target) => (typeof target === "string" ? [target] : [target.default ?? ""])).filter((target) => target.startsWith("./dist/"));

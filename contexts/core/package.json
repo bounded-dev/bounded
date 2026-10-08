@@ -35,12 +35,12 @@
   "exports": {
     "./domain": {
       "bun": "./src/domain/index.ts",
-      "types": "./src/domain/index.ts",
+      "types": "./dist/types/domain/index.d.ts",
       "default": "./dist/domain/index.js"
     },
     "./application": {
       "bun": "./src/application/index.ts",
-      "types": "./src/application/index.ts",
+      "types": "./dist/types/application/index.d.ts",
       "default": "./dist/application/index.js"
     },
     "./testing/host-installer-conformance": {
@@ -49,42 +49,42 @@
     },
     "./adapters/in-memory": {
       "bun": "./src/adapters/out/in-memory/index.ts",
-      "types": "./src/adapters/out/in-memory/index.ts",
+      "types": "./dist/types/adapters/out/in-memory/index.d.ts",
       "default": "./dist/adapters/out/in-memory/index.js"
     },
     "./adapters/file-system": {
       "bun": "./src/adapters/out/file-system/index.ts",
-      "types": "./src/adapters/out/file-system/index.ts",
+      "types": "./dist/types/adapters/out/file-system/index.d.ts",
       "default": "./dist/adapters/out/file-system/index.js"
     },
     "./adapters/system": {
       "bun": "./src/adapters/out/system/index.ts",
-      "types": "./src/adapters/out/system/index.ts",
+      "types": "./dist/types/adapters/out/system/index.d.ts",
       "default": "./dist/adapters/out/system/index.js"
     },
     "./open-project": {
       "bun": "./src/composition-root/open-project.ts",
-      "types": "./src/composition-root/open-project.ts",
+      "types": "./dist/types/composition-root/open-project.d.ts",
       "default": "./dist/composition-root/open-project.js"
     },
     "./path-gate": {
       "bun": "./src/packs/path-gate/index.ts",
-      "types": "./src/packs/path-gate/index.ts",
+      "types": "./dist/types/packs/path-gate/index.d.ts",
       "default": "./dist/packs/path-gate/index.js"
     },
     "./path-gate/adapters/file-system": {
       "bun": "./src/packs/path-gate/adapters/out/file-system/index.ts",
-      "types": "./src/packs/path-gate/adapters/out/file-system/index.ts",
+      "types": "./dist/types/packs/path-gate/adapters/out/file-system/index.d.ts",
       "default": "./dist/packs/path-gate/adapters/out/file-system/index.js"
     },
     "./path-gate/adapters/in-memory": {
       "bun": "./src/packs/path-gate/adapters/out/in-memory/index.ts",
-      "types": "./src/packs/path-gate/adapters/out/in-memory/index.ts",
+      "types": "./dist/types/packs/path-gate/adapters/out/in-memory/index.d.ts",
       "default": "./dist/packs/path-gate/adapters/out/in-memory/index.js"
     },
     "./path-gate/adapters/tree-sitter": {
       "bun": "./src/packs/path-gate/adapters/out/tree-sitter/index.ts",
-      "types": "./src/packs/path-gate/adapters/out/tree-sitter/index.ts",
+      "types": "./dist/types/packs/path-gate/adapters/out/tree-sitter/index.d.ts",
       "default": "./dist/packs/path-gate/adapters/out/tree-sitter/index.js"
     },
     "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",

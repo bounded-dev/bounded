@@ -10,7 +10,7 @@
 // Claude Code runs it, judges calls with the path gate.
 // The registry path is unit-tested with a stub runner (bounded-cli.registry.test.ts).
 import { describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -54,6 +54,10 @@ function packRelease(version: string, scratch: string, into: string): void {
   const copy = join(scratch, "contexts/core");
   cpSync(join(CORE, "src"), join(copy, "src"), { recursive: true });
   cpSync(join(CORE, "build-dist.ts"), join(copy, "build-dist.ts"));
+  // The build emits declarations with tsc, against the base tsconfig and the workspace's libraries, as in the checkout.
+  cpSync(join(CORE, "tsconfig.types.json"), join(copy, "tsconfig.types.json"));
+  cpSync(join(REPO, "tsconfig.base.json"), join(scratch, "tsconfig.base.json"));
+  symlinkSync(join(REPO, "node_modules"), join(scratch, "node_modules"), "dir");
   const manifest = JSON.parse(readFileSync(join(CORE, "package.json"), "utf8")) as { version: string };
   manifest.version = version;
   writeFileSync(join(copy, "package.json"), JSON.stringify(manifest, null, 2));
