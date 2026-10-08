@@ -38,15 +38,21 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - `npx bounded init [--host <host>]...` adds `bounded` at the CLI's own
     version from the npm registry, with the project's package manager. It
     then hands over to the installed `bounded init --no-install`, which:
-    - writes `bounded.config.ts`: the core, the path gate, and the path
-      gate's two default rules, since the pack ships none
-      ([ADR 2026-009](adr/2026-009-path-gate-pack.md));
+    - writes `bounded.config.ts`: the core, the path gate, and five default
+      rules, since the pack ships none
+      ([ADR 2026-009](adr/2026-009-path-gate-pack.md)). They protect
+      `bounded.config.*`, `.bounded/`, `.claude/settings.json`,
+      `.pi/extensions/bounded/**` and `node_modules/bounded/**` from every
+      write;
     - runs `bounded`'s bundled installers for the hosts named or found
       (`.claude/`, `.pi/`), and any third-party package's `./host-installer`
       ([ADR 2026-015](adr/2026-015-host-installers.md)).
-  - `npx bounded update` upgrades `bounded` to its latest and checks it is
-    not older, then hands over to the installed
-    `bounded update --no-upgrade`. That refreshes the hooks only, is
+  - `npx bounded update` drops any `--from` override of `bounded`, upgrades
+    it to its latest, and checks it is at least the version the package
+    manager resolved (so a pin is refused) and not older than before. It
+    then hands over to the installed `bounded update --no-upgrade`. That
+    refreshes the hooks of the bundled hosts bounded is already installed
+    for (never adding one), and any third-party installer. It is
     idempotent and never writes the configuration. Any failed install
     restores `package.json` and the lockfiles.
   - The hand-offs are the contract between versions: every version must
@@ -122,6 +128,17 @@ when written; keep it current (AGENTS.md, "Working with the user").
   run-time parse refuses the copy
   ([ADR 2026-012](adr/2026-012-value-objects-are-classes.md)).
 - **The install command's limits** (issue #65, first slice):
+  - The default rule for `node_modules/bounded/**` refuses only writes the
+    path gate sees: an edit, or a shell command naming the path. Drift never
+    watches `node_modules` (see [drift](drift.md)), so an agent's
+    `npm install` changing Bounded's installed code is not put back. Drift
+    does put back what a shell command changed in `.claude/settings.json`
+    and `.pi/extensions/bounded/**` (the npm end-to-end case shows it for
+    the settings). An agent's `bounded update` therefore has its settings
+    change undone while package.json, the lockfile and node_modules keep the
+    new version. Measured: the rule adds no time to a Bash Pre and Post
+    round through the bundled hook (median 318 ms with and without; mostly
+    two Node starts).
   - Not yet published. npm's `bounded` is the legacy 2.x until 3.0.0 is
     published ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)).
     Until then, installs need `--from` and npx needs the tarball. A
@@ -186,9 +203,14 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - Publishing `bounded` 3.0.0 to npm, the new major above the legacy 2.x
   ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
   package is ready ([releasing](releasing.md)); the publish waits for review.
-- Compiling a bundled build of `bounded.config.ts` for Nodes older than
-  22.18 (they are refused with what to do), and declaration files (`.d.ts`):
-  TypeScript consumers read the shipped sources through `types`.
+- Declaration files (`.d.ts`). TypeScript consumers read the shipped sources
+  through `types`, and those import each other with `.ts` extensions, so a
+  consumer's `tsc` that checks them needs `allowImportingTsExtensions`; without
+  it, TS5097 (packaging.test.ts pins both). Emitting declarations fails on one
+  inferred type in `domain/packs/pack.ts` (TS7056) that needs an explicit
+  annotation first.
+- Loading `bounded.config.ts` on Nodes older than 22.18: they are refused,
+  told to upgrade or to write `bounded.config.mjs`.
 - Archiving the private repository this code was first built in, now that
   it lives here.
 - Triage of this repository's open issues, written against the legacy

@@ -23,9 +23,13 @@
   names no host, only the pattern, and adding a host needs no change to the
   core.
 - **Which bundled hosts run is the caller's choice.** `bounded` carries the
-  installers of the hosts it bundles (Claude Code, pi), and the CLI runs only
+  installers of the hosts it bundles (Claude Code, pi). `bounded init` runs
   those of the hosts named with `--host` or found by their directory
-  (`.claude/`, `.pi/`). An installer another package offers at
+  (`.claude/`, `.pi/`). `bounded update` refreshes only the bundled hosts
+  bounded is already installed for, each installer's optional
+  `isInstalled` (a bounded hook in `.claude/settings.json`, pi's loader)
+  saying so, so an update never adds a host init did not install; an
+  installer without `isInstalled` falls back to its host's directory. An installer another package offers at
   `./host-installer` always runs, since installing that package chose it.
   So a third-party adapter package still plugs in.
 - **Every installer runs the same conformance suite**,
@@ -62,9 +66,9 @@ host installer never contributes to a pack.
 ## Consequences
 
 - A project's hosts are the bundled hosts it uses (named at init, or found
-  by their directory, which installing them creates) and any third-party
-  adapter package it installs. Creating `.pi/` and running
-  `bounded update --no-upgrade` installs pi's loader too.
+  by their directory) and any third-party adapter package it installs. To
+  add a bundled host later, run `bounded init --no-install --host <host>`:
+  `bounded update` refreshes only the hosts already installed.
 - The source refuses rather than guessing when a declared dependency is
   missing from `<root>/node_modules` (an omitted devDependency, or a
   workspace that hoists packages elsewhere), or when a package's

@@ -87,8 +87,9 @@ hosts:
   glob, its own exceptions, what it denies, a redirect); its guards refuse
   reads, listings and writes a rule denies, naming the rule and the pack
   that contributed it. A denial always wins. The pack ships no rules of its
-  own: the configuration `bounded init` writes contributes two defaults that
-  protect the project's Bounded configuration and `.bounded/` (ADR 2026-009).
+  own: the configuration `bounded init` writes contributes five defaults that
+  protect the project's Bounded configuration, `.bounded/` and the files that
+  run Bounded (ADR 2026-009).
 
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
@@ -114,8 +115,8 @@ does two things.
 - **It writes `bounded.config.ts`**, selecting the core and the path gate.
   The path gate ships no rules of its own
   ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)). The configuration
-  `init` writes contributes two default rules: agents may not change
-  `bounded.config.*` or Bounded's own state in `.bounded/`. Keep, change or
+  `init` writes contributes five default rules: agents may not change
+  `bounded.config.*`, Bounded's own state in `.bounded/`, Claude Code's settings (`.claude/settings.json`, which hold the hook), pi's loader (`.pi/extensions/bounded/**`) and Bounded's installed code (`node_modules/bounded/**`). Keep, change or
   remove them.
 - **It installs the hooks of your agent hosts.** These are the hosts whose
   directory the project has (`.claude/`, `.pi/`), or those named with
@@ -140,12 +141,17 @@ export default defineConfig({
   packs: [corePack, pathGate],
   contributes: [
     contribution(pathGate.points.protectedPaths, [
-      // ...init's two default rules...
+      // ...init's five default rules...
       { match: "secrets/**", deny: ["read", "create", "modify", "delete"], why: "secrets are kept by people", redirect: "Ask a maintainer for the value you need" },
     ]),
   ],
 });
 ```
+
+If your project's `tsc` checks `bounded.config.ts`, set
+`"allowImportingTsExtensions": true` (with `noEmit`). `bounded` ships its
+TypeScript sources for types, and they import each other with `.ts`
+extensions; declaration files are planned.
 
 [Configuring a project](docs/configuration.md) describes the rule fields and
 other packs.
