@@ -102,8 +102,14 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **Apps** (`apps/*`) host contexts: no layers, no rules of their own. An app
   imports its own files by relative path, a context only through its export
   paths and only when its `package.json` declares it, and never another app.
-- **Value objects** have a private constructor and `parse(raw: unknown):
-  Result<X>`; entities are built with `new` from valid value objects.
+- **Value objects are classes, as in the worked example (ADR 2026-012).**
+  The contract declares a branded interface (`readonly __brand`, the value,
+  `equals`, `toJSON`) and a factory (`parse(raw: unknown): Result<X>`); the
+  class has a private constructor and freezes itself; `toJSON` gives the
+  wire form, so serialised data never changes shape. Never a branded
+  primitive (`string & { … }`) nor a plain object with a type-only brand:
+  the architecture test refuses both. Entities are built with `new` from
+  valid value objects.
 - **Every out port has a conformance suite** (`*.test-support.ts`) run by a
   test beside every adapter that implements it.
 - **A shipped pack is an ordinary pack** (ADR 2026-009): its code under

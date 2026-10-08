@@ -3,7 +3,10 @@
 **Status:** accepted. The tool-use shape is superseded by
 [ADR 2026-006](2026-006-effects.md) (a list of effects); the guards extension
 points and dispatch over a composition are in
-[ADR 2026-007](2026-007-guards-over-a-composition.md).
+[ADR 2026-007](2026-007-guards-over-a-composition.md). The first deviation
+below (frozen plain objects with type-only brands, branded strings) is
+superseded by [ADR 2026-012](2026-012-value-objects-are-classes.md): value
+objects are classes, as in the example.
 
 ## Decision
 
@@ -45,14 +48,14 @@ points and dispatch over a composition are in
 
 ## Deviations from the example
 
-- **Frozen plain objects with type-only brands**, not `<Name>Impl` classes:
-  as `PackId`, the brand stops a look-alike literal at compile time, and
-  every run-time entry point (`parse`, `dispatch`) checks the shape again, so
-  untyped data is held to the same rules. A brand can be forged by a cast
-  or by spreading a genuine value into a changed copy; the run-time parse
-  catches it, and guards only ever see checked events. Every `parse` reads
-  own fields only, each once, and returns a `Result`, never throwing. Role
-  and ProjectPath are branded strings, readable in messages.
+- ~~**Frozen plain objects with type-only brands**, not `<Name>Impl`
+  classes; Role and ProjectPath as branded strings.~~ Superseded by
+  [ADR 2026-012](2026-012-value-objects-are-classes.md): events, effects,
+  verdicts, `Role` and `ProjectPath` are classes with private constructors,
+  as in the example. What stays: every run-time entry point (`parse`,
+  `dispatch`) checks the shape again, so untyped data is held to the same
+  rules; every `parse` reads own fields only, each once, and returns a
+  `Result`, never throwing.
 - **A function-valued type in the domain** (`Guard`), and a domain function
   rather than an application feature for dispatch: it has no port and does
   no I/O. The integrated dispatch over a composition may become a feature.

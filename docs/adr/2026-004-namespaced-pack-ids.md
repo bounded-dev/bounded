@@ -1,13 +1,16 @@
 # 2026-004: npm-namespaced pack ids, selection by pack objects
 
 **Status:** accepted. Supersedes the id and selection parts of ADR 2026-003.
+The id is a class, not a branded string, since
+[ADR 2026-012](2026-012-value-objects-are-classes.md).
 
 ## Decision
 
 - **A pack's id is `<npm package>/<local id>`**, made by one factory per npm
   package: `const packId = packIdsFor("bounded"); packId("core")` is
-  `"bounded/core"`. The id is typed as its exact text and branded, so a plain
-  string cannot stand in for it. The package part is an npm package name,
+  `"bounded/core"`. The id is a value object typed by its exact text
+  (`PackId<"bounded/core">`, whose `value` is `"bounded/core"`), so a plain
+  string cannot stand in for it (ADR 2026-012). The package part is an npm package name,
   scoped or not; the local part is lowercase words joined by hyphens, without
   `/`. `PackId.parse` is authoritative and runs at composition, always. The
   compile-time checks on literals are approximate: they refuse what template
@@ -64,8 +67,8 @@
   apply only to fresh object literals); the point's check sees the value.
 - One `point(...)` declaration used in two packs gives each pack its own
   point, with the same check.
-- The brand and the typed pack are asserted in three places inside the
-  mechanism (`PackId.parse`, `packIdsFor`, `definePack`), and `read` asserts
+- The exact id type and the typed pack are asserted in three places inside
+  the mechanism (`PackId.parse`, `packIdsFor`, `definePack`), and `read` asserts
   a point's stored values; none in pack code. A cast in pack code can defeat
   any compile-time rule; the run-time checks remain.
 

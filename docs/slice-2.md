@@ -45,7 +45,7 @@ The decisions are in [ADR 2026-005](adr/2026-005-events-verdicts-dispatch.md).
 import { dispatch, type Guard, ToolUse, Verdict } from "bounded/domain";
 
 const noGenerated: Guard<ToolUse> = (event) =>
-  event.effects.some((effect) => effect.kind === "write" && effect.path.startsWith("generated/"))
+  event.effects.some((effect) => effect.kind === "write" && effect.path.value.startsWith("generated/"))
     ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead")
     : Verdict.allow;
 
@@ -84,7 +84,7 @@ export const gate = definePack({
     contribution(corePack.points.writeGuards, [
       (effect: WriteEffect, composition) => {
         const generated = composition.read(rules.points.generated);
-        return generated.ok && generated.value.some((p) => effect.path.startsWith(p)) ? Verdict.refuse("it is generated", "Change the generator's input instead") : Verdict.allow;
+        return generated.ok && generated.value.some((p) => effect.path.value.startsWith(p)) ? Verdict.refuse("it is generated", "Change the generator's input instead") : Verdict.allow;
       },
     ]),
   ],

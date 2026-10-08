@@ -17,3 +17,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-009](2026-009-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules |
 | [2026-010](2026-010-project-configuration.md) | A project's configuration (defineConfig), and opening a project for judging |
 | [2026-011](2026-011-drift.md) | Undoing what shell commands change in watched files |
+| [2026-012](2026-012-value-objects-are-classes.md) | Value objects are classes, as in the example; a point takes a value object's wire form |
