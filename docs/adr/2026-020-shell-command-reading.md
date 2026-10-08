@@ -232,6 +232,23 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   older than this ADR, and not fixed here. The replace-string forms are not
   in it: `xargs -I{} cp {} .git/hooks/`, its `mv` and `cp -t .git/hooks {}`
   are judged as written, a write of `.git/hooks/{}`.
+- **An unresolved word hides a literal one; planned: every-plausible-reading,
+  as xargs now does.** Outside xargs, where an unresolved word stands where
+  an option or operand could be, the reader takes it for one reading only,
+  and a literal word after it leaves judgement (each already so before this
+  ADR; a follow-up item):
+  - `sudo "$OPT" rm x`, `env "$X" rm x`, `nice "$N" rm x`,
+    `command "$X" rm x`, `exec "$X" rm x`: read as reads of `rm` and `x`
+    (the unresolved word taken as the program); lost: the delete of `x`.
+    (`timeout $T rm x` is read right: its leading operand is counted.)
+  - `bash "$X" -c "rm x"`: read as nothing (the unresolved word taken as the
+    code); lost: the code `rm x`, never walked, and its delete of `x`.
+  - `git $OPTS rm x`: read as reads of `rm` and `x` (no subcommand found);
+    lost: `git rm`'s delete of `x`.
+  - `cp -t "$D" x`: read as a read of `x`; lost: the write into the
+    directory, which only the shell can name.
+  - `env -S $S rm x`: read as nothing (`$S` unresolved code, the words after
+    it only reported as unresolved); lost: `rm x` and its delete of `x`.
 - A pack judging writes must look in readings as well as write effects.
 - `bounded/prereqs` does not use readings yet (item (ii)).
 

@@ -154,6 +154,18 @@ when written; keep it current (AGENTS.md, "Working with the user").
   confining commands at the operating-system level (for example a sandbox
   profile, or the host's own Bash sandbox settings, generated from
   `protectedPaths`): planned, not built.
+  - **Unresolved word hides a literal one; planned: every-plausible-reading,
+    as xargs now does** (ADR 2026-020, "Limits"; already so before it):
+    - `sudo "$OPT" rm x`, `env "$X" rm x`, `nice "$N" rm x`,
+      `command "$X" rm x`, `exec "$X" rm x`: read as reads of `rm` and `x`;
+      lost: the delete of `x`.
+    - `bash "$X" -c "rm x"`: read as nothing; lost: the code `rm x` and its
+      delete of `x`.
+    - `git $OPTS rm x`: read as reads of `rm` and `x`; lost: `git rm`'s
+      delete of `x`.
+    - `cp -t "$D" x`: read as a read of `x`; lost: the write into the
+      directory.
+    - `env -S $S rm x`: read as nothing; lost: `rm x` and its delete of `x`.
 - **The prerequisites pack's limits** ([ADR 2026-019](adr/2026-019-prereqs-pack.md)):
   - `before: { write }` matches file tools' writes only; a shell command's
     writes are not matched yet, though the core now carries them in each
