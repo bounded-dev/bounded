@@ -81,7 +81,7 @@ export type { Dispatch, EffectGuard, Guard } from "./guards/dispatch.contract.ts
 export type { DecideEvent, DispatchEvent, Judgement } from "./guards/dispatch-event.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
 export { corePack } from "./guards/core-pack.ts";
-export type { AfterTool, BeforeTool, CoreId, CorePack, CorePackPoints, EffectGuardPoints, LifecycleContext, OpenedProject, PathKind, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
+export type { AfterTool, BeforeTool, CoreId, CorePack, CorePackPoints, EffectGuardPoints, LifecycleContext, OpenedProject, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
 export type { BasePortKey, PortKeyFactory } from "./lifecycle/port-key.contract.ts";
 export { PortKey, portKeysFor } from "./lifecycle/port-key.ts";
 export type { PortProvision, PortsFactory } from "./lifecycle/ports.contract.ts";

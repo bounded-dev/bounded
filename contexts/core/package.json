@@ -14,7 +14,8 @@
     "./open-project": "./src/composition-root/open-project.ts",
     "./path-gate": "./src/packs/path-gate/index.ts",
     "./path-gate/adapters/file-system": "./src/packs/path-gate/adapters/out/file-system/index.ts",
-    "./path-gate/adapters/in-memory": "./src/packs/path-gate/adapters/out/in-memory/index.ts"
+    "./path-gate/adapters/in-memory": "./src/packs/path-gate/adapters/out/in-memory/index.ts",
+    "./path-gate/adapters/tree-sitter": "./src/packs/path-gate/adapters/out/tree-sitter/index.ts"
   },
   "private": true,
   "type": "module"

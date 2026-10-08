@@ -191,6 +191,21 @@ tool lifecycle, recorded below when it lands).
   `pathGateFileSystem()`. State paths are unchanged. A configuration that
   contributed to `watchedPaths` directly no longer compiles: protect the
   files with a `protectedPaths` rule that denies writes.
+- **Opening a project is a lifecycle point too.** `onProjectOpen` handlers
+  get `(project, context)`: the project's root and the same
+  `LifecycleContext` as `beforeTool`/`afterTool`; the project-lifecycle
+  feature runs them (`open`), each within the time limit, a failure let go
+  as before. What is at a project path is a question only the path gate
+  asks, so `OpenedProject.kindOfPath`, `PathKind`, the core's
+  `ProjectPathKinds` port, its file-system adapter and the `pathKinds`
+  option leave the core: the path gate declares two more ports in its
+  `judge-calls` feature, `pathKinds` (`@implementedBy in-memory
+  file-system`) and `shellParser` (`@implementedBy tree-sitter`, exported
+  as `bounded/path-gate/adapters/tree-sitter`), with conformance suites.
+  `pathGateFileSystem()` now also provides path kinds, and hosts pass
+  `[...pathGateFileSystem(), ...pathGateTreeSitter()]`. The grammar still
+  loads once per process; the shell checks stay keyed by composition, since
+  a synchronous guard cannot await a port.
 - Inside a shipped pack (architecture test): `domain/` imports only itself,
   `application/` its domain and application, the root files their domain,
   application and root, and only `adapters/out/<tech>/` may do I/O.

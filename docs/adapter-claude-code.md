@@ -113,7 +113,7 @@ after the hook answers); the hook judges the state it sees.
 `composeHook({ env, argv, decide })` is the composition root; `decide` is the
 seam, and it is told the project (`{ projectRoot }`, from
 `CLAUDE_PROJECT_DIR`). `main.ts` passes `decideFromConfig`, which calls the
-core's `openProject(projectRoot, { ports: pathGateFileSystem() })` (`bounded/open-project`, with the path gate's file-system ports) and then
+core's `openProject(projectRoot, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] })` (`bounded/open-project`, with the path gate's file-system ports and shell parser) and then
 `judge(event)`: the core composes the packs `bounded.config.ts` selects,
 decides, and records the decision in `.bounded/guard-log.jsonl`. A refusal
 from the core already names the refusing pack and effect (`test-packs/no-generated

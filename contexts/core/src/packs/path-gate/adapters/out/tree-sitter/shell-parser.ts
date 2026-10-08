@@ -1,7 +1,9 @@
 import * as treeSitterModule from "@vscode/tree-sitter-wasm";
 import type { Node } from "@vscode/tree-sitter-wasm";
+import type { Command, Result } from "bounded/domain";
 import { expandBraces } from "./brace-expansion.ts";
-import type { ShellNode, ShellParser, ShellRedirect, ShellWord } from "./shell-command.contract.ts";
+import type { ShellParser } from "../../../application/judge-calls/judge-calls.contract.ts";
+import type { ShellNode, ShellRedirect, ShellWord } from "../../../domain/shell-command.contract.ts";
 
 // The shell parser behind the path gate's port: tree-sitter's bash grammar,
 // as WebAssembly (@vscode/tree-sitter-wasm, pinned; ADR 2026-009), loaded once
@@ -207,26 +209,26 @@ function control(node: Node): ShellNode[] {
   });
 }
 
-/** A new parser; prepare it once (it loads the grammar), then parse synchronously. */
-export function treeSitterShellParser(): ShellParser {
-  let parser: treeSitterModule.Parser | undefined;
-  return {
-    async prepare() {
-      if (parser !== undefined) return;
-      const language = await loadBash();
-      const ready = new TreeSitter.Parser();
-      ready.setLanguage(language);
-      parser = ready;
-    },
-    parse(command) {
-      if (parser === undefined) return { ok: false, error: "the shell parser is not prepared: a project opened with openProject prepares it" };
-      const tree = parser.parse(command.value);
-      if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
-      try {
-        return { ok: true, value: statements(tree.rootNode) };
-      } finally {
-        tree.delete();
-      }
-    },
-  };
+/** A shell parser for one project: prepare it once (it loads the grammar, once per process), then parse synchronously. */
+export class TreeSitterShellParser implements ShellParser {
+  private parser: treeSitterModule.Parser | undefined;
+
+  async prepare(): Promise<void> {
+    if (this.parser !== undefined) return;
+    const language = await loadBash();
+    const ready = new TreeSitter.Parser();
+    ready.setLanguage(language);
+    this.parser = ready;
+  }
+
+  parse(command: Command): Result<readonly ShellNode[]> {
+    if (this.parser === undefined) return { ok: false, error: "the shell parser is not prepared: a project opened with openProject prepares it" };
+    const tree = this.parser.parse(command.value);
+    if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
+    try {
+      return { ok: true, value: statements(tree.rootNode) };
+    } finally {
+      tree.delete();
+    }
+  }
 }

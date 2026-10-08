@@ -8,13 +8,14 @@
 import { type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
 import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
+import { pathGateTreeSitter } from "bounded/path-gate/adapters/tree-sitter";
 import type { AdapterRefusal, ProjectJudgeForPi } from "./extension.ts";
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** Opens the project at `root` (absolute) and decides each event with its judge, which records every decision. */
-/** Opens a project with the adapters this host provides: the path gate's, on disk. */
-const openWithPorts: typeof openProject = (root) => openProject(root, { ports: pathGateFileSystem() });
+/** Opens a project with the adapters this host provides: the path gate's, on disk, and its shell parser. */
+const openWithPorts: typeof openProject = (root) => openProject(root, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
 
 export async function composeProject(root: string, open: typeof openProject = openWithPorts): Promise<ProjectJudgeForPi> {
   let project: Awaited<ReturnType<typeof openProject>>;

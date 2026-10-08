@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Composition, Verdict } from "bounded/domain";
 import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
+import { pathGateTreeSitter } from "bounded/path-gate/adapters/tree-sitter";
 import { openProject } from "./open-project.ts";
 
 const CORE = resolve(import.meta.dir, "../..");
@@ -109,7 +110,7 @@ export default defineConfig({
     git("init", "--quiet");
     git("add", "-A");
     git("commit", "--quiet", "-m", "base");
-    const { judge, afterTool } = await openProject(root, { ports: pathGateFileSystem() });
+    const { judge, afterTool } = await openProject(root, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
     const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_1" };
     expect((await judge(shell)).kind).toBe("allow");
     writeFileSync(join(root, "generated", "a.ts"), "tampered\n");
@@ -146,7 +147,7 @@ export default defineConfig({
       git("init", "--quiet");
       git("add", "-A");
       git("commit", "--quiet", "-m", "base");
-      const opened = await openProject(root, { ports: pathGateFileSystem() });
+      const opened = await openProject(root, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
       const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_weird" };
       expect((await opened.judge(shell)).kind).toBe("allow");
       return { root, after: () => opened.afterTool({ ...shell, kind: "tool-result", ok: true }) };
@@ -191,7 +192,7 @@ export default defineConfig({
     mkdirSync(join(root, "migrations"));
     writeFileSync(join(root, "migrations", "0001_init.sql"), "create table a;");
     writeFileSync(join(root, ".env"), "KEY=1");
-    const { judge, problem } = await openProject(root, { ports: pathGateFileSystem() });
+    const { judge, problem } = await openProject(root, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
     expect(problem).toBeNull();
     let calls = 0;
     const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: `call-${++calls}` });

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { type BasePack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
 import { watchedRulesOf } from "./domain/watched-rules.ts";
 import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
-import { opened } from "./shell.test-support.ts";
+import { opened } from "./application/judge-calls/shell.test-support.ts";
 
 const packId = packIdsFor("test-packs");
 const { protectedPaths } = pathGate.points;

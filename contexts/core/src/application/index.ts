@@ -12,7 +12,7 @@ export type { AdapterRefusalInput, Clock, DecisionIds, GuardLog, JudgeEvent, Jud
 export { JudgeEventCommand } from "./guard-log/judge-event/judge-event.command.ts";
 export { JudgeEventHandler } from "./guard-log/judge-event/judge-event.handler.ts";
 
-export type { OpenProject, OpenProjectCommandFactory, OpenProjectInput, ProjectConfigSource, ProjectGuardLogs, ProjectJudge, ProjectPathKinds } from "./project-config/open-project/open-project.contract.ts";
+export type { OpenProject, OpenProjectCommandFactory, OpenProjectInput, ProjectConfigSource, ProjectGuardLogs, ProjectJudge } from "./project-config/open-project/open-project.contract.ts";
 export { OpenProjectCommand } from "./project-config/open-project/open-project.command.ts";
 export { OpenProjectHandler } from "./project-config/open-project/open-project.handler.ts";
 export type { AfterToolOutcome, ProjectLifecycle, ProjectLifecycleOptions } from "./lifecycle/project-lifecycle/project-lifecycle.contract.ts";

@@ -1,4 +1,4 @@
-import type { Config, PathKind, PortProvision, ProjectPath, Result, Verdict } from "bounded/domain";
+import type { Config, PortProvision, Result, Verdict } from "bounded/domain";
 import type { AfterToolOutcome } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import type { AdapterRefusalInput, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
@@ -66,20 +66,10 @@ export interface ProjectGuardLogs {
   forProject(projectRoot: string): GuardLog;
 }
 
-/**
- * What is at a path in each project, for the packs that prepare when it
- * opens: undefined when it cannot be told.
- * @implementedBy file-system
- */
-export interface ProjectPathKinds {
-  forProject(projectRoot: string): (path: ProjectPath) => PathKind | undefined;
-}
-
 /** How an open-project handler is set up, beyond its out ports. */
 export interface OpenProjectOptions {
   /** How long recording a decision may take before the event is refused. */
   readonly recordWithinMs?: number;
-  readonly pathKinds?: ProjectPathKinds;
   /** How long each pack's work on opening may take before the project opens without it. */
   readonly prepareWithinMs?: number;
   /** Adapters for the ports the selected packs declare, from the host's composition root. */

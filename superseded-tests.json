@@ -405,7 +405,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
@@ -414,7 +414,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
@@ -423,7 +423,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
     },
     "reason": "moved into shell-reads.test.ts, then superseded there: a shell command is translated into the reads and writes it names, each judged by the file tools' own code, and what the parser cannot read is unresolved, not matched by text"
@@ -432,7 +432,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
@@ -441,7 +441,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
@@ -450,7 +450,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
@@ -459,7 +459,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "moved into shell-reads.test.ts, then superseded there: a shell command is translated into the reads and writes it names, each judged by the file tools' own code, and what the parser cannot read is unresolved, not matched by text"
@@ -468,7 +468,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
@@ -492,7 +492,7 @@
     "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
     },
     "reason": "a shell command is now translated into the reads and writes it names, each judged by the same code as a file tool's, so the refusal is the read guard's own, prefixed by what the command reads (maintainer direction: one judging code path)"
@@ -501,7 +501,7 @@
     "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "no separate textual matching (maintainer direction): what the parser cannot read is unresolved, not guessed at; OS confinement is the real control"
@@ -510,7 +510,7 @@
     "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is left unresolved, and allowed",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
       "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "the shell guard now parses a full syntax tree (review: a tokeniser made the translation guess): what the parser could not read is unresolved, and what it did read, such as `cat .env` before a stray `${`, is still judged"
@@ -519,7 +519,7 @@
     "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
     "case": "shellQuoteParser: the shell parser behind the port > gives words without quotes, operators, and globs as unresolved; drops comments",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
       "case": "treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them"
     },
     "reason": "shell-quote, a tokeniser, is replaced by a full shell parser behind the same port (review: no guessing); its words are checked by the new parser's case"
@@ -528,7 +528,7 @@
     "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
     "case": "shellQuoteParser: the shell parser behind the port > keeps variables as written, so they stay unresolved",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
+      "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
       "case": "treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them"
     },
     "reason": "shell-quote is replaced by a full shell parser; variables are unresolved words of its syntax tree"
@@ -543,8 +543,8 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell for a path that is not a plain project path",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/path-kinds/path-kinds.test.ts",
-      "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "after the value-objects refactor the port takes a ProjectPath, which cannot be absolute, empty or climb out of the project, so the case it pinned cannot arise; what is left to pin is a disk that cannot answer"
   },
@@ -2719,5 +2719,89 @@
       "case": "OpenProjectHandler > before- and after-tool checks run with the ports the host provides: a refusal before replaces the allow, a message after reaches the host"
     },
     "reason": "the core no longer watches files itself: drift is the path gate's, run through the core's beforeTool and afterTool points with the ports the host provides (ADR 2026-013, C)"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
+    "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
+    },
+    "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/file-system/path-kinds/path-kinds.test.ts",
+    "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
+    },
+    "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+    "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
+    },
+    "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
+    "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
+    },
+    "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/file-system/path-kinds/path-kinds.test.ts",
+    "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
+    },
+    "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+    "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
+    },
+    "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > what packs do when a project opens runs before it is judged, given the project's root and what is at a path",
+    "successor": {
+      "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+      "case": "OpenProjectHandler > what packs do when a project opens runs before it is judged, given the project's root, its composition and the host's ports"
+    },
+    "reason": "a pack opening a project is given its lifecycle context (composition and ports); what is at a path is the path gate's own port (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > without a way to ask what is at a path, a pack is told it cannot know",
+    "successor": null,
+    "reason": "the core no longer asks what is at a path: the path gate declares a pathKinds port, and a project whose host does not provide it refuses every event when it opens (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > what packs do when a project opens runs before it is judged, given the project's root and what is at a path",
+    "successor": {
+      "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+      "case": "OpenProjectHandler > what packs do when a project opens runs before it is judged, given the project's root, its composition and the host's ports"
+    },
+    "reason": "a pack opening a project is given its lifecycle context (composition and ports); what is at a path is the path gate's own port (ADR 2026-013, C8)"
+  },
+  {
+    "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler > without a way to ask what is at a path, a pack is told it cannot know",
+    "successor": null,
+    "reason": "the core no longer asks what is at a path: the path gate declares a pathKinds port, and a project whose host does not provide it refuses every event when it opens (ADR 2026-013, C8)"
   }
 ]

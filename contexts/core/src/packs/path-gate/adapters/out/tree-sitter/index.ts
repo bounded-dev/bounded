@@ -1,6 +1,6 @@
-export { FileSystemGuardLog } from "./guard-log/guard-log.ts";
-export { FileSystemProjectConfigSource } from "./project-config/config-source.ts";
-export { FileSystemProjectGuardLogs } from "./guard-log/project-guard-logs.ts";
+// bounded/path-gate/adapters/tree-sitter: the path gate's shell parser, for hosts' composition roots.
+export { pathGateTreeSitter } from "./provisions.ts";
+export { TreeSitterShellParser } from "./shell-parser.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

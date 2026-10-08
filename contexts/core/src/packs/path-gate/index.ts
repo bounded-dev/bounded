@@ -6,6 +6,8 @@ export type { PathAccess, ProtectedPathFactory, ProtectedPathJSON } from "./doma
 export { ProtectedPath } from "./domain/protected-path.ts";
 export type { DriftReport, FileChange, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, SnapshotJSON, WatchedFile, WatchedFiles, WatchedHashes, WatchShell } from "./application/watch-shell/watch-shell.contract.ts";
 export { shellSnapshotsPort, watchedFilesPort } from "./application/watch-shell/watch-shell.contract.ts";
+export type { PathKind, PathKinds, ShellCheck, ShellParser } from "./application/judge-calls/judge-calls.contract.ts";
+export { pathKindsPort, shellParserPort } from "./application/judge-calls/judge-calls.contract.ts";
 export type { WatchedChange, WatchedPathFactory, WatchedPathJSON } from "./domain/watched-path.contract.ts";
 export { WatchedPath } from "./domain/watched-path.ts";
 export type { SnapshotFactory } from "./domain/snapshot.contract.ts";

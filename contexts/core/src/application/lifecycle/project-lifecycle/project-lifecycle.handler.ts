@@ -1,4 +1,4 @@
-import { AfterToolReport, type Composition, corePack, Decision, DecisionTime, type LifecycleContext, type Ports, type ToolResult, type ToolUse, Verdict } from "bounded/domain";
+import { AfterToolReport, type Composition, corePack, Decision, DecisionTime, type OpenedProject, type LifecycleContext, type Ports, type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, Clock, DecisionIds, GuardLog, ProjectLifecycle, ProjectLifecycleOptions } from "./project-lifecycle.contract.ts";
 
@@ -10,9 +10,22 @@ function text(thrown: unknown): string {
   }
 }
 
+/** How long one pack's work on opening may take before the project opens without it. */
+const PREPARE_WITHIN_MS = 5000;
+
+/** `work`, or a rejection once `ms` have passed. */
+function within(work: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 export class ProjectLifecycleHandler implements ProjectLifecycle {
   private readonly context: LifecycleContext;
   private readonly ids: DecisionIds;
+  private readonly prepareWithinMs: number;
 
   constructor(
     private readonly composition: Composition,
@@ -23,6 +36,14 @@ export class ProjectLifecycleHandler implements ProjectLifecycle {
   ) {
     this.context = Object.freeze({ composition, ports });
     this.ids = options.ids ?? { next: () => crypto.randomUUID() };
+    this.prepareWithinMs = options.prepareWithinMs ?? PREPARE_WITHIN_MS;
+  }
+
+  async open(project: OpenedProject): Promise<void> {
+    const openings = this.composition.read(corePack.points.onProjectOpen);
+    if (!openings.ok) return;
+    const opened = Object.freeze({ root: project.root });
+    await Promise.allSettled(openings.value.map((open) => within(Promise.resolve().then(() => open(opened, this.context)), this.prepareWithinMs)));
   }
 
   async before(call: ToolUse): Promise<Verdict> {

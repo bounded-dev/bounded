@@ -1,4 +1,4 @@
-import { AdapterRefusal, type Composition, corePack, Ports, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
+import { AdapterRefusal, type Composition, Ports, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
@@ -15,18 +15,6 @@ function text(thrown: unknown): string {
   } catch {
     return "a value that cannot be printed";
   }
-}
-
-/** How long one pack's work on opening may take before the project opens without it. */
-const PREPARE_WITHIN_MS = 5000;
-
-/** `work`, or a rejection once `ms` have passed. */
-function within(work: Promise<void>, ms: number): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms);
-  });
-  return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
 
 export class OpenProjectHandler implements OpenProject {
@@ -49,8 +37,8 @@ export class OpenProjectHandler implements OpenProject {
       if (!ports.ok) return this.refusing(log, ports.error);
       const missing = composition.value.requiredPorts().find((key) => !ports.value.provides(key));
       if (missing !== undefined) return this.refusing(log, `${missing.owner.value} needs the port '${missing.name}', which this host does not provide: pass it to openProject({ ports })`);
-      await this.prepare(root, composition.value);
-      const lifecycle = new ProjectLifecycleHandler(composition.value, ports.value, log, this.clock);
+      const lifecycle = new ProjectLifecycleHandler(composition.value, ports.value, log, this.clock, this.options.prepareWithinMs === undefined ? {} : { prepareWithinMs: this.options.prepareWithinMs });
+      await lifecycle.open({ root });
       const handler = new JudgeEventHandler(composition.value, log, this.clock, {
         ...(this.options.recordWithinMs === undefined ? {} : { recordWithinMs: this.options.recordWithinMs }),
         beforeAllow: async (event) => (event.kind === "tool-use" ? lifecycle.before(event) : Verdict.allow),
@@ -59,16 +47,6 @@ export class OpenProjectHandler implements OpenProject {
     } catch (thrown) {
       return this.refusing(log, text(thrown));
     }
-  }
-
-  /** Runs what each pack does when a project opens. One that fails leaves its own guards to refuse what they cannot check. */
-  private async prepare(root: string, composition: Composition): Promise<void> {
-    const openings = composition.read(corePack.points.onProjectOpen);
-    if (!openings.ok) return;
-    const kindOf = this.options.pathKinds?.forProject(root);
-    const project: OpenedProject = Object.freeze({ root, kindOfPath: (path: ProjectPath) => kindOf?.(path) });
-    const withinMs = this.options.prepareWithinMs ?? PREPARE_WITHIN_MS;
-    await Promise.allSettled(openings.value.map((open) => within(Promise.resolve().then(() => open(project, composition)), withinMs)));
   }
 
   private judge(handler: JudgeEvent, problem: string | null, lifecycle?: ProjectLifecycle): ProjectJudge {

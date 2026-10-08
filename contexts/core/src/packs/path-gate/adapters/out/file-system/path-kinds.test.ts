@@ -3,26 +3,26 @@ import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectPath } from "bounded/domain";
-import { pathKindsConformance } from "../../../../application/project-config/open-project/open-project.path-kinds.test-support.ts";
-import { FileSystemProjectPathKinds } from "./path-kinds.ts";
+import { pathKindsConformance } from "../../../application/judge-calls/judge-calls.path-kinds.test-support.ts";
+import { FileSystemPathKinds } from "./path-kinds.ts";
 
-pathKindsConformance("FileSystemProjectPathKinds", async ({ files, dirs }) => {
+pathKindsConformance("FileSystemPathKinds", async ({ files, dirs }) => {
   const projectRoot = mkdtempSync(join(tmpdir(), "path-kinds-conformance-"));
   for (const dir of dirs) mkdirSync(join(projectRoot, dir), { recursive: true });
   for (const file of files) writeFileSync(join(projectRoot, file), "x");
-  return { projectRoot, pathKinds: new FileSystemProjectPathKinds() };
+  return new FileSystemPathKinds(projectRoot);
 });
 
-describe("FileSystemProjectPathKinds: what is at a project path", () => {
+describe("FileSystemPathKinds: what is at a project path", () => {
   const root = mkdtempSync(join(tmpdir(), "path-kinds-"));
   mkdirSync(join(root, "src"));
   writeFileSync(join(root, "src", "a.ts"), "a");
   symlinkSync("a.ts", join(root, "src", "alias.ts"));
-  const kinds = new FileSystemProjectPathKinds().forProject(root);
+  const kinds = new FileSystemPathKinds(root);
   const kindOf = (raw: string) => {
     const path = ProjectPath.parse(raw);
     if (!path.ok) throw new Error(path.error);
-    return kinds(path.value);
+    return kinds.kindOf(path.value);
   };
 
   test("a file, a directory, something else (a link, never followed) or nothing", () => {
@@ -43,7 +43,7 @@ describe("FileSystemProjectPathKinds: what is at a project path", () => {
     try {
       const path = ProjectPath.parse("locked/a.ts");
       if (!path.ok) throw new Error(path.error);
-      expect(new FileSystemProjectPathKinds().forProject(sealed)(path.value)).toBeUndefined();
+      expect(new FileSystemPathKinds(sealed).kindOf(path.value)).toBeUndefined();
     } finally {
       chmodSync(join(sealed, "locked"), 0o700);
     }

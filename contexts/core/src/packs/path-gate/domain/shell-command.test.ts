@@ -3,12 +3,14 @@ import { Command, contribution, Composition, corePack, definePack, dispatchEvent
 import { pathGate } from "bounded/path-gate";
 import { commandMeaning } from "./command-meanings.ts";
 import { describeShellCommand } from "./shell-command.ts";
-import type { ShellParser, ShellWord } from "./shell-command.contract.ts";
-import { prepareShellCheck, startShellCheck } from "./shell-check.ts";
-import { treeSitterShellParser } from "./shell-parser.tree-sitter.ts";
-import { kindOfPathFor, type PathsForTest, ROOT } from "./shell.test-support.ts";
+import { InMemoryPathKinds } from "../adapters/out/in-memory/path-kinds.ts";
+import { TreeSitterShellParser } from "../adapters/out/tree-sitter/shell-parser.ts";
+import type { ShellParser } from "../application/judge-calls/judge-calls.contract.ts";
+import { prepareShellCheck, startShellCheck } from "../application/judge-calls/shell-check.ts";
+import { type PathsForTest, ROOT } from "../application/judge-calls/shell.test-support.ts";
+import type { ShellWord } from "./shell-command.contract.ts";
 
-const parser = treeSitterShellParser();
+const parser = new TreeSitterShellParser();
 beforeAll(() => parser.prepare());
 
 /** A value object from its wire form, as the core makes them. */
@@ -25,7 +27,7 @@ function described(command: string, cwd: string | null = null, paths: PathsForTe
     const nested = Command.parse(text);
     return nested.ok ? parser.parse(nested.value) : nested;
   };
-  const effects = describeShellCommand(script, { cwd: cwd === null ? null : made(ProjectPath.parse(cwd)), root: ROOT, kindOfPath: kindOfPathFor(paths), parseScript });
+  const effects = describeShellCommand(script, { cwd: cwd === null ? null : made(ProjectPath.parse(cwd)), root: ROOT, kindOfPath: (path) => new InMemoryPathKinds(paths).kindOf(path), parseScript });
   return {
     reads: effects.reads.map((path) => path.value),
     lists: effects.lists.map((path) => path.value),
@@ -124,15 +126,15 @@ describe("commandMeaning: the small table of what a command does with its argume
 
 describe("the shell check: the parser, loaded once when the project opens", () => {
   test("a parser used before it is prepared, or that cannot load, refuses rather than guesses", async () => {
-    expect(treeSitterShellParser().parse(commandOf("ls")).ok).toBe(false);
+    expect(new TreeSitterShellParser().parse(commandOf("ls")).ok).toBe(false);
     const failing: ShellParser = { prepare: async () => { throw new Error("main.wasm is missing"); }, parse: () => ({ ok: false, error: "not loaded" }) };
-    const check = await prepareShellCheck(failing, { root: ROOT, kindOfPath: () => "absent" });
+    const check = await prepareShellCheck(failing, ROOT, new InMemoryPathKinds({}));
     expect(check.describe(commandOf("ls"), null)).toEqual({ ok: false, error: "bounded's shell parser could not load (main.wasm is missing)" });
   });
 
   test("a parser still loading when the project opened refuses, saying it timed out", () => {
     const hanging: ShellParser = { prepare: () => new Promise(() => {}), parse: () => ({ ok: false, error: "not loaded" }) };
-    const { check } = startShellCheck(hanging, { root: ROOT, kindOfPath: () => "absent" });
+    const { check } = startShellCheck(hanging, ROOT, new InMemoryPathKinds({}));
     expect(check.describe(commandOf("ls"), null)).toEqual({ ok: false, error: "bounded's shell parser could not load (it had not finished loading when the project opened: timed out)" });
   });
 
