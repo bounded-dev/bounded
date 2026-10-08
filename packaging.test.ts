@@ -8,11 +8,16 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PRIVATE_PACKAGE_EXPORTS, unknownDistImport } from "./contexts/core/build-dist.ts";
 
 const ROOT = import.meta.dir;
 const CORE = join(ROOT, "contexts/core");
 const VERSION = "3.2.0";
 const CONFORMANCE = "src/application/project-setup/init-project/init-project.host-installer.test-support.ts";
+/** The conformance suites bounded publishes for other packages' tests (bounded/testing/*): the only test support in its tarball. */
+const PUBLISHED_TEST_SUPPORT = [CONFORMANCE, "src/application/guard-log/judge-event/judge-event.shell-command-reader.test-support.ts"];
+/** The private apps bounded's dist carries. */
+const APPS = ["apps/cli", "apps/claude-code", "apps/pi"];
 /** What the hooks and the pi loader run, beside every export target: the Claude Code hook is run by path, not imported. */
 const RUN_BY_PATH = ["dist/cli.js", "dist/hosts/claude-code/hook.js"];
 
@@ -47,6 +52,10 @@ function packedFiles(): string[] {
 }
 const packed = packedFiles();
 
+/** The modules a built file imports: its import and export statements' (over several lines too) and dynamic imports' specifiers. */
+const importsIn = (text: string): string[] =>
+  [...text.matchAll(/^(?:import|export)\b[^";]*?\bfrom\s*"([^"]+)"/gm), ...text.matchAll(/^import\s*"([^"]+)"/gm), ...text.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)].map(([, spec = ""]) => spec);
+
 /** Every file under dist/, as built by the prepack. */
 function distFiles(dir = join(CORE, "dist")): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? distFiles(join(dir, entry.name)) : [join(dir, entry.name)]));
@@ -55,11 +64,13 @@ function distFiles(dir = join(CORE, "dist")): string[] {
 describe("bounded, the one published package", () => {
   test("the root workspace and the apps stay private, at the lockstep version, and depend on no app", () => {
     expect(manifestOf(".").private).toBe(true);
-    for (const dir of ["apps/cli", "apps/claude-code", "apps/pi"]) {
+    const appNames = APPS.map((dir) => manifestOf(dir).name);
+    // The private context bounded's dist carries (ADR 2026-020) moves in lockstep with them.
+    for (const dir of [...APPS, "contexts/shell-command-reader"]) {
       const app = manifestOf(dir);
       expect(app.private).toBe(true);
       expect(app.version).toBe(VERSION);
-      expect(Object.keys(app.dependencies ?? {}).filter((name) => name.startsWith("bounded-"))).toEqual([]);
+      expect(Object.keys(app.dependencies ?? {}).filter((name) => appNames.includes(name))).toEqual([]);
     }
   });
 
@@ -81,9 +92,16 @@ describe("bounded, the one published package", () => {
   test("every library export runs from dist/ under node, with declarations for types and its TypeScript source for bun, bun first", () => {
     const exports = manifestOf("contexts/core").exports ?? {};
     for (const [path, target] of Object.entries(exports)) {
-      if (path === "./testing/host-installer-conformance") {
+      if (path.startsWith("./testing/")) {
         // A bun:test module: it runs only under bun's test runner, so it has no node build.
-        expect(target).toEqual({ types: `./${CONFORMANCE}`, bun: `./${CONFORMANCE}` });
+        expect(typeof target === "object" && Object.keys(target).sort()).toEqual(["bun", "types"]);
+        expect(typeof target === "object" && target.types).toBe(typeof target === "object" ? target.bun : "");
+        expect(PUBLISHED_TEST_SUPPORT).toContain(typeof target === "object" ? (target.bun ?? "").replace(/^\.\//, "") : "");
+        continue;
+      }
+      if (path === "./shell-command-reader") {
+        // Built only into dist/, from the private context bounded-shell-command-reader: there is no source of it in bounded for bun.
+        expect(target).toEqual({ types: "./dist/types/shell-command-reader/index.d.ts", default: "./dist/shell-command-reader/index.js" });
         continue;
       }
       if (path.startsWith("./hosts/")) {
@@ -106,7 +124,7 @@ describe("bounded, the one published package", () => {
     expect(packed).toContain(CONFORMANCE);
     for (const target of [...Object.values(manifestOf("contexts/core").exports ?? {}).flatMap(targetsOf), ...RUN_BY_PATH]) expect(packed).toContain(target);
     expect(packed.filter((file) => file.endsWith(".test.ts"))).toEqual([]);
-    expect(packed.filter((file) => file.endsWith(".test-support.ts") && file !== CONFORMANCE)).toEqual([]);
+    expect(packed.filter((file) => file.endsWith(".test-support.ts")).sort()).toEqual([...PUBLISHED_TEST_SUPPORT].sort());
     expect(packed.filter((file) => file.split("/").includes("fixtures") || file.startsWith("test/"))).toEqual([]);
   });
 
@@ -217,6 +235,45 @@ describe("bounded, the one published package", () => {
       expect(broughtInRejected.stdout.toString()).toContain("is not assignable to type");
     }
   }, 120_000);
+
+  test("bounded/shell-command-reader is built into dist from the private context, with declarations, and imports only bounded and its dependencies", () => {
+    for (const file of ["dist/shell-command-reader/index.js", "dist/types/shell-command-reader/index.d.ts"]) expect(packed).toContain(file);
+    const specs = importsIn(readFileSync(join(CORE, "dist/shell-command-reader/index.js"), "utf8")).filter((spec) => !spec.startsWith("."));
+    expect(specs.length).toBeGreaterThan(0);
+    for (const spec of specs) expect([spec, spec === "bounded/domain" || spec === "bounded/application" || spec.startsWith("@vscode/tree-sitter-wasm") || spec.startsWith("node:")]).toEqual([spec, true]);
+    const declarations = readFileSync(join(CORE, "dist/types/shell-command-reader/index.d.ts"), "utf8");
+    expect(declarations).toContain("TreeSitterShellCommandReader");
+    const loaded = Bun.spawnSync(["node", "--input-type=module", "-e", 'const r = await import("bounded/shell-command-reader"); console.log(typeof r.TreeSitterShellCommandReader)'], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
+    expect(loaded.stderr.toString()).toBe("");
+    expect(loaded.stdout.toString().trim()).toBe("function");
+  });
+
+  test("the built hosts reach the shell command reader through bounded/shell-command-reader: dist/hosts/claude-code and dist/hosts/pi import it, and no dist file imports bounded-shell-command-reader", () => {
+    const files = distFiles().filter((file) => file.endsWith(".js"));
+    const importing = (dir: string, spec: string) => files.filter((file) => file.startsWith(join(CORE, dir)) && importsIn(readFileSync(file, "utf8")).includes(spec));
+    expect(importing("dist/hosts/claude-code", "bounded/shell-command-reader").length).toBeGreaterThan(0);
+    expect(importing("dist/hosts/pi", "bounded/shell-command-reader").length).toBeGreaterThan(0);
+    expect(files.filter((file) => importsIn(readFileSync(file, "utf8")).some((spec) => spec.startsWith("bounded-shell-command-reader")))).toEqual([]);
+    // One copy of the reader in dist: its translation of commands is not inlined into the hosts.
+    expect(files.filter((file) => readFileSync(file, "utf8").includes("function describeShellCommand")).map((file) => file.slice(CORE.length + 1))).toEqual(["dist/shell-command-reader/index.js"]);
+  });
+
+  test("build-dist rewrites only the shell command reader's package to its export", () => {
+    expect(PRIVATE_PACKAGE_EXPORTS).toEqual({ "bounded-shell-command-reader/adapters": "bounded/shell-command-reader" });
+    const dependencies = Object.keys(manifestOf("contexts/core").dependencies ?? {});
+    expect(unknownDistImport("dist/hosts/pi/index.js", "bounded-shell-command-reader/adapters", dependencies)).toBe(
+      "dist/hosts/pi/index.js imports bounded-shell-command-reader/adapters, which is neither node's, bounded's nor one of bounded's dependencies: add it to bounded's dependencies",
+    );
+    expect(unknownDistImport("dist/hosts/pi/index.js", "bounded/shell-command-reader", dependencies)).toBeUndefined();
+    expect(unknownDistImport("dist/shell-command-reader/index.js", "@vscode/tree-sitter-wasm", dependencies)).toBeUndefined();
+  });
+
+  test("under Node, the built library parses an execute effect with a reading", () => {
+    const script = 'const { Effect } = await import("bounded/domain"); const parsed = Effect.parse({ kind: "execute", command: "ls", reading: { outcome: "read", programs: [{ name: { kind: "literal", text: "ls" }, arguments: [], workingDirectory: "." }], fileEffects: [{ effect: { kind: "list", root: "." } }], unresolved: [] } }); console.log(parsed.ok && parsed.value.reading.outcome)';
+    const ran = Bun.spawnSync(["node", "--input-type=module", "-e", script], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
+    expect(ran.stderr.toString()).toBe("");
+    expect(ran.stdout.toString().trim()).toBe("read");
+  });
 
   test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {
     const into = mkdtempSync(join(tmpdir(), "bounded-packaging-"));

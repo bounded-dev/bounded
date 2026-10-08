@@ -1,17 +1,22 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { Command, contribution, Composition, corePack, definePack, dispatchEvent, packIdsFor, ProjectPath, ToolUse } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
-import { commandMeaning } from "./command-meanings.ts";
-import { describeShellCommand } from "./shell-command.ts";
-import { InMemoryPathKinds } from "../application/judge-calls/judge-calls.in-memory-path-kinds.test-support.ts";
-import { TreeSitterShellParser } from "../adapters/out/shell-parser/shell-parser.ts";
-import type { ShellParser } from "../application/judge-calls/judge-calls.contract.ts";
-import { prepareShellCheck, startShellCheck } from "../application/judge-calls/shell-check.ts";
-import { type PathsForTest, ROOT } from "../application/judge-calls/shell.test-support.ts";
-import type { ShellWord } from "./shell-command.contract.ts";
+import { Command, ProjectPath } from "bounded/domain";
+import type { PathKind } from "../../../domain/shell-command.contract.ts";
+import { describeShellCommand } from "../../../domain/shell-command.ts";
+import { type BashSyntaxTree, bashSyntaxTree } from "./bash-syntax-tree.ts";
 
-const parser = new TreeSitterShellParser();
-beforeAll(() => parser.prepare());
+// What the reader makes of a command before it becomes a reading: tree-sitter's
+// bash syntax tree (bash-syntax-tree.ts), translated by describeShellCommand
+// into the paths it reads, lists and writes.
+
+/** The project root the commands are described in. */
+const ROOT = "/work/project";
+/** What a test says is at a path: a kind, or "unknown" when it cannot be told. */
+type PathsForTest = Readonly<Record<string, PathKind | "unknown">>;
+
+let parser: BashSyntaxTree;
+beforeAll(async () => {
+  parser = await bashSyntaxTree();
+});
 
 /** A value object from its wire form, as the core makes them. */
 function made<T>(parsed: { ok: true; value: T } | { ok: false; error: string }): T {
@@ -20,23 +25,32 @@ function made<T>(parsed: { ok: true; value: T } | { ok: false; error: string }):
 }
 const commandOf = (text: string): Command => made(Command.parse(text));
 
-/** What `command` reads, lists and writes from `cwd`, with `paths` saying what exists; paths as text. */
+/** What is at a path, as `paths` gives it: undefined where given as unknown, else a directory for the root, else nothing. */
+const kindOf =
+  (paths: PathsForTest) =>
+  ({ value: path }: ProjectPath): PathKind | undefined => {
+    const given = Object.hasOwn(paths, path) ? paths[path] : undefined;
+    if (given === "unknown") return undefined;
+    return given ?? (path === "." ? "directory" : "absent");
+  };
+
+/** What `command` reads, lists and writes from `cwd`, with `paths` saying what exists; paths as text, unresolved parts by their text. */
 function described(command: string, cwd: string | null = null, paths: PathsForTest = {}) {
   const script = made(parser.parse(commandOf(command)));
   const parseScript = (text: string) => {
     const nested = Command.parse(text);
     return nested.ok ? parser.parse(nested.value) : nested;
   };
-  const effects = describeShellCommand(script, { cwd: cwd === null ? null : made(ProjectPath.parse(cwd)), root: ROOT, kindOfPath: (path) => new InMemoryPathKinds(paths).kindOf(path), parseScript });
+  const effects = describeShellCommand(script, { cwd: cwd === null ? null : made(ProjectPath.parse(cwd)), root: ROOT, kindOfPath: kindOf(paths), parseScript });
   return {
     reads: effects.reads.map((path) => path.value),
     lists: effects.lists.map((path) => path.value),
     writes: effects.writes.map((write) => ({ ...write, path: write.path.value })),
-    unresolved: effects.unresolved,
+    unresolved: effects.unresolved.map((part) => part.text),
   };
 }
 
-describe("describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing", () => {
+describe("read by bounded's shell command reader — describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing", () => {
   test("arguments are reads, the command's name is not; `>` and `>>` targets are writes and `<` sources reads", () => {
     expect(described("sort a.txt < b.txt > out.txt; echo hi >> log.txt", null, { "log.txt": "file" })).toEqual({
       reads: ["a.txt", "b.txt"],
@@ -82,7 +96,7 @@ describe("describeShellCommand: a parsed command as the paths it reads and write
   });
 });
 
-describe("describeShellCommand: braces, nested shells and repository paths, as the shell reads them", () => {
+describe("read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them", () => {
   test("brace expansion of literals gives each word; braces inside quotes are text", () => {
     expect(described("cat {.env,x} a{1..3}b '{q,r}' \"{s,t}\"").reads).toEqual([".env", "x", "a1b", "a2b", "a3b", "{q,r}", "{s,t}"]);
     expect(described("cat a{c..e}").reads).toEqual(["ac", "ad", "ae"]);
@@ -129,49 +143,7 @@ describe("describeShellCommand: braces, nested shells and repository paths, as t
   });
 });
 
-describe("commandMeaning: the small table of what a command does with its arguments", () => {
-  const words = (...texts: string[]): ShellWord[] => texts.map((text) => ({ kind: "literal", text }));
-  test("a command it does not know reads every operand and every long option's value", () => {
-    expect(commandMeaning("mytool", words("-v", "--config=c.json", "a", "--", "-b"))).toMatchObject({ reads: words("c.json", "a", "-b") });
-  });
-  test("text commands name nothing; ls with no operand lists where it runs", () => {
-    expect(commandMeaning("echo", words(".env"))).toMatchObject({ reads: [], lists: [], writes: [] });
-    expect(commandMeaning("ls", [])).toMatchObject({ lists: words(".") });
-  });
-  test("cd and pushd move, popd and an argument-less or dashed cd leave the place unknown", () => {
-    expect(commandMeaning("cd", words("sub")).location).toEqual({ to: { kind: "literal", text: "sub" } });
-    for (const [name, args] of [["cd", []], ["cd", words("-")], ["popd", []]] as const) expect(commandMeaning(name, [...args]).location).toEqual({ to: null });
-  });
-});
-
-describe("the shell check: the parser, loaded once when the project opens", () => {
-  test("a parser used before it is prepared, or that cannot load, refuses rather than guesses", async () => {
-    expect(new TreeSitterShellParser().parse(commandOf("ls")).ok).toBe(false);
-    const failing: ShellParser = { prepare: async () => { throw new Error("main.wasm is missing"); }, parse: () => ({ ok: false, error: "not loaded" }) };
-    const check = await prepareShellCheck(failing, ROOT, new InMemoryPathKinds({}));
-    expect(check.describe(commandOf("ls"), null)).toEqual({ ok: false, error: "bounded's shell parser could not load (main.wasm is missing)" });
-  });
-
-  test("a parser still loading when the project opened refuses, saying it timed out", () => {
-    const hanging: ShellParser = { prepare: () => new Promise(() => {}), parse: () => ({ ok: false, error: "not loaded" }) };
-    const { check } = startShellCheck(hanging, ROOT, new InMemoryPathKinds({}));
-    expect(check.describe(commandOf("ls"), null)).toEqual({ ok: false, error: "bounded's shell parser could not load (it had not finished loading when the project opened: timed out)" });
-  });
-
-  test("a project the path gate was never opened for refuses shell commands, saying how to open it", () => {
-    const all = [corePack, pathGate, definePack({ id: packIdsFor("test-packs")("a"), dependsOn: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, [{ match: ".env", deny: ["read"], redirect: "Ask" }])] })];
-    const composed = Composition.compose(all, all);
-    const call = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: null }] });
-    if (!composed.ok || !call.ok) throw new Error("expected a composition and a call");
-    expect(dispatchEvent(composed.value, call.value)).toMatchObject({
-      kind: "refuse",
-      reason: "bounded/path-gate refused execute `ls`: the path gate cannot check shell commands: this project was not opened with openProject, which prepares the check",
-      redirect: "Open the project with openProject (bounded/open-project); shell commands are refused until then",
-    });
-  });
-});
-
-describe("treeSitterShellParser: the shell parser behind the port", () => {
+describe("read by bounded's shell command reader — treeSitterShellParser: the shell parser behind the port", () => {
   test("gives commands with their words, redirections, lists, pipelines, subshells, groups and substitutions", () => {
     const script = parser.parse(commandOf("(cd a); { cat b; } | wc && echo `x` > o"));
     expect(script.ok).toBe(true);

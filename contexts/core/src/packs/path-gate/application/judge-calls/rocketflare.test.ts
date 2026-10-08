@@ -1,9 +1,8 @@
 // End to end: a project selects the core, the path gate and its own pack of
 // rules, and a host adapter dispatches the tool calls it sees.
-import { beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
-import { openComposition } from "./shell.test-support.ts";
 
 const rocketflare = definePack({
   id: packIdsFor("rocketflare")("rules"),
@@ -27,12 +26,7 @@ const rocketflare = definePack({
 
 const selected = [corePack, pathGate, rocketflare];
 const composed = Composition.compose(selected, selected);
-
-// Opened as openProject opens a project, so its shell commands can be checked.
-beforeAll(async () => {
-  if (!composed.ok) throw new Error(composed.error);
-  await openComposition(composed.value, "/work/rocketflare", { kindOf: () => undefined });
-});
+// Shell commands carry the reading the judge gives them (ADR 2026-020): the path gate judges from it, so no project needs opening here.
 
 function judge(tool: string, effects: object[]): Verdict {
   if (!composed.ok) throw new Error(composed.error);
@@ -81,7 +75,12 @@ describe("a Rocketflare-like project: core, path gate and the project's rules", 
         { kind: "read", path: "apps/web/src/page.tsx" },
         { kind: "list", root: "apps/web/src", filter: "*.tsx" },
         { kind: "write", path: "apps/web/src/page.tsx", change: "modify" },
-        { kind: "execute", command: "bun test" },
+        // As bounded's reader reads it: bun runs with test, which it is taken to read.
+        {
+          kind: "execute",
+          command: "bun test",
+          reading: { outcome: "read", programs: [{ name: { kind: "literal", text: "bun" }, arguments: [{ kind: "literal", text: "test" }], workingDirectory: "." }], fileEffects: [{ effect: { kind: "read", path: "test" } }], unresolved: [] },
+        },
       ]),
     ).toBe(Verdict.allow);
   });

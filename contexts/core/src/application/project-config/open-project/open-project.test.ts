@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { type Config, contribution, corePack, type Decision, DecisionId, DecisionTime, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
-import type { ProjectConfigSource, ProjectGuardLogs } from "./open-project.contract.ts";
+import type { ProjectConfigSource, ProjectGuardLogs, ShellCommandReader } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
 const clock: Clock = { now: () => decisionTime("2026-10-07T12:00:00.000Z") };
@@ -195,5 +196,94 @@ describe("OpenProjectHandler", () => {
     expect((await broken.judge(write("src/a.ts"))).kind).toBe("refuse");
     expect(logs.decisions.map((decision) => decision.event)).toEqual(["tool-use", "tool-result", "tool-use"]);
     expect(logs.decisions.map((decision) => decision.id.value)).toEqual(["id-1", "id-1", "id-1"]);
+  });
+});
+
+describe("OpenProjectHandler — the shell command reader", () => {
+  const READ = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
+  /** A configuration whose execute guard refuses with the reading it sees, as JSON. */
+  const showing = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.effectGuards.execute, [(effect) => Verdict.refuse(JSON.stringify(effect.reading), "Seen")])] });
+  const shell = (callId: string) => ({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "tool-a" }], callId });
+  const reasonOf = (verdict: Verdict): string => (verdict.kind === "refuse" ? verdict.reason : "allowed");
+
+  test("the shell command reader is prepared when the project opens, alongside the packs' work, and given each command with the project's root", async () => {
+    let prepareStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      prepareStarted = resolve;
+    });
+    let openSawPrepare = false;
+    const opening: ProjectOpenHandler = async () => {
+      await started;
+      openSawPrepare = true;
+    };
+    const config = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.onProjectOpen, [opening]), contribution(corePack.points.effectGuards.execute, [(effect) => Verdict.refuse(JSON.stringify(effect.reading), "Seen")])] });
+    const roots: string[] = [];
+    let prepared = 0;
+    const reader: ShellCommandReader = {
+      prepare: async () => {
+        prepared++;
+        prepareStarted();
+      },
+      read: async (projectRoot) => {
+        roots.push(projectRoot);
+        return READ;
+      },
+    };
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: config })), new Logs(), clock, { shellCommandReader: reader, prepareWithinMs: 1000 }).execute(command);
+    expect(project.problem).toBeNull();
+    expect(prepared).toBe(1);
+    expect(openSawPrepare).toBe(true);
+    expect(reasonOf(await project.judge(shell("c1")))).toBe(`bounded/project refused execute \`tool-a\`: ${JSON.stringify(READ)}`);
+    expect(roots).toEqual(["/work/project"]);
+  });
+
+  test("a reader whose preparation fails or hangs does not stop the project opening", async () => {
+    for (const prepare of [async () => Promise.reject(new Error("main.wasm is missing")), () => new Promise<void>(() => {})]) {
+      let reads = 0;
+      const reader: ShellCommandReader = {
+        prepare,
+        read: async () => {
+          reads++;
+          return READ;
+        },
+      };
+      const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: showing })), new Logs(), clock, { shellCommandReader: reader, prepareWithinMs: 50 }).execute(command);
+      expect(project.problem).toBeNull();
+      expect(reasonOf(await project.judge(shell("c1")))).toEndWith(JSON.stringify(READ));
+      expect(reads).toBe(1);
+    }
+  });
+
+  test("a reader whose prepare throws instead of rejecting does not stop the project opening", async () => {
+    const reader: ShellCommandReader = {
+      prepare: () => {
+        throw new Error("no grammar");
+      },
+      read: async () => READ,
+    };
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: showing })), new Logs(), clock, { shellCommandReader: reader }).execute(command);
+    expect(project.problem).toBeNull();
+    expect(reasonOf(await project.judge(shell("c1")))).toEndWith(JSON.stringify(READ));
+  });
+
+  test("without prepareWithinMs, the reader's preparation is bounded by the packs' default", async () => {
+    const reader: ShellCommandReader = { prepare: () => new Promise<void>(() => {}), read: async () => READ };
+    const bounds: unknown[] = [];
+    const real = globalThis.setTimeout;
+    // Every timer set while the project opens is recorded; one of the packs' default length fires at once, so the test need not wait it out.
+    const recording = ((callback: () => void, ms?: number, ...rest: unknown[]) => {
+      bounds.push(ms);
+      return ms === ProjectLifecycleHandler.DEFAULT_PREPARE_WITHIN_MS ? real(callback, 0) : real(callback, ms, ...rest);
+    }) as typeof setTimeout;
+    globalThis.setTimeout = recording;
+    let problem: string | null = "not opened";
+    try {
+      problem = (await new OpenProjectHandler(source(async () => ({ ok: true, value: showing })), new Logs(), clock, { shellCommandReader: reader }).execute(command)).problem;
+    } finally {
+      globalThis.setTimeout = real;
+    }
+    expect(problem).toBeNull();
+    expect(ProjectLifecycleHandler.DEFAULT_PREPARE_WITHIN_MS).toBe(5000);
+    expect(bounds).toContain(ProjectLifecycleHandler.DEFAULT_PREPARE_WITHIN_MS);
   });
 });

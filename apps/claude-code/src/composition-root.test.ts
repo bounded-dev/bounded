@@ -18,6 +18,21 @@ export default defineConfig({
 });
 `;
 
+/** A project whose execute guard allows a command only when bounded read it as running tool-a alone. */
+const PROGRAMS_CONFIG = `import { contribution, corePack, defineConfig, Verdict } from "bounded/domain";
+export default defineConfig({
+  packs: [corePack],
+  contributes: [
+    contribution(corePack.points.effectGuards.execute, [
+      (effect) =>
+        effect.reading?.outcome === "read" && effect.reading.programs.map((program) => program.name.text).join(",") === "tool-a"
+          ? Verdict.allow
+          : Verdict.refuse("Only tool-a runs here", "Run tool-a"),
+    ]),
+  ],
+});
+`;
+
 /** A value's wire form: its JSON, parsed. */
 const wireOf = (value: unknown): unknown => JSON.parse(JSON.stringify(value) ?? "null");
 
@@ -98,6 +113,17 @@ describe("composeHook: the hook wired to the file system, the environment and ar
     expect(verdict.kind === "refuse" && verdict.reason).toStartWith("bounded/prereqs.rules:");
     expect(verdict.kind === "refuse" && verdict.reason).toContain("has not succeeded");
     expect(verdict.kind === "refuse" && verdict.redirect).toBe("Have plan-reviewer review the current plan before editing src/");
+  });
+
+  test("decideFromConfig reads shell commands: the project's execute guard sees the programs bounded read", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bounded-cc-shell-"));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(CORE, join(project, "node_modules", "bounded"), "dir");
+    writeFileSync(join(project, "bounded.config.ts"), PROGRAMS_CONFIG);
+    const shell = (command: string, callId: string) => ({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command }], callId }) as unknown as ToolUse;
+    expect((await decideFromConfig(shell("tool-a x", "c1"), { projectRoot: project })).kind).toBe("allow");
+    const refused = await decideFromConfig(shell("tool-b x", "c2"), { projectRoot: project });
+    expect(refused.kind === "refuse" && refused.reason).toBe("bounded/project refused execute `tool-b x`: Only tool-a runs here");
   });
 
   test("bounded answers before Claude Code's timeout for the installed hook", () => {

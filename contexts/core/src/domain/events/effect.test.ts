@@ -48,6 +48,17 @@ describe("Effect — the seven kinds", () => {
     expect(error({ kind: "execute", command: "make", cwd: "/tmp" })).toBe("Path '/tmp' is absolute. Give it relative to the project root, such as 'src/a.ts'");
   });
 
+  test("an execute may carry bounded's reading of its command; without one its reading is null and its wire form has none", () => {
+    const reading = { outcome: "read", programs: [{ name: { kind: "literal", text: "make" }, arguments: [], workingDirectory: "." }], fileEffects: [{ effect: { kind: "read", path: "Makefile" } }], unresolved: [] };
+    const carried = Effect.parse({ kind: "execute", command: "make", reading });
+    expect(carried.ok && carried.value.kind === "execute" && carried.value.reading?.outcome).toBe("read");
+    expect(wireOf(carried)).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null, reading } });
+    const plain = Effect.parse({ kind: "execute", command: "make" });
+    expect(plain.ok && plain.value.kind === "execute" && plain.value.reading).toBeNull();
+    expect(plain.ok && Object.keys(plain.value.toJSON())).toEqual(["kind", "command", "cwd"]);
+    expect(error({ kind: "execute", command: "make", reading: { outcome: "maybe" } })).toBe("A shell command reading is { outcome: 'read', programs, fileEffects, unresolved } or { outcome: 'unread', why }");
+  });
+
   test("a fetch names an absolute URL without spaces or control characters", () => {
     expect(error({ kind: "fetch", url: "example.com" })).toBe("Fetch URL 'example.com' must be an absolute URL with a scheme, without spaces or control characters");
     expect(error({ kind: "fetch", url: "https://a b" })).toBe("Fetch URL 'https://a b' must be an absolute URL with a scheme, without spaces or control characters");
@@ -100,7 +111,7 @@ describe("Effect — nonsense is refused", () => {
     expect(error({ kind: "read", path: "a", command: "cat a" })).toBe("A read effect is { kind, path }");
     expect(error({ kind: "read" })).toBe("A read effect is { kind, path }");
     expect(error({ kind: "write", path: "a" })).toBe("A write effect is { kind, path, change }");
-    expect(error({ kind: "execute", command: "ls", path: "a" })).toBe("An execute effect is { kind, command, cwd? }");
+    expect(error({ kind: "execute", command: "ls", path: "a" })).toBe("An execute effect is { kind, command, cwd?, reading? }");
     expect(error({ kind: "list", path: "a" })).toBe("A list effect is { kind, root, filter? }");
     expect(error({ kind: "fetch", url: "https://a", path: "x" })).toBe("A fetch effect is { kind, url }");
     expect(error({ kind: "delegate" })).toBe("A delegate effect is { kind, agent, isolated?, finishUnreported? }");

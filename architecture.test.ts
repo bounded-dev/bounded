@@ -441,8 +441,8 @@ describe("architecture", () => {
   test("the Claude Code adapter is an app depending on the core", () => {
     const app = apps.find((a) => a.name === "bounded-claude-code");
     expect(app?.dir).toBe("apps/claude-code");
-    // The core, and picomatch to split a search filter's fixed part from its pattern.
-    expect(app?.dependencies).toEqual(["bounded", "picomatch"]);
+    // The core, bounded's shell command reader, and picomatch to split a search filter's fixed part from its pattern.
+    expect(app?.dependencies).toEqual(["bounded", "bounded-shell-command-reader", "picomatch"]);
     expect(appFiles.some((path) => path.startsWith("apps/claude-code/src/"))).toBe(true);
   });
 
@@ -450,20 +450,19 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters", "./prereqs", "./prereqs/adapters", "./testing/host-installer-conformance"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters", "./prereqs", "./prereqs/adapters", "./shell-command-reader", "./testing/host-installer-conformance", "./testing/shell-command-reader-conformance"]);
   });
 
   test("the out adapters are grouped by the port each serves: no technology folders", () => {
     const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
     expect(foldersUnder("contexts/core/src/adapters/out")).toEqual(["clock", "compose-packs-catalog", "decision-ids", "guard-log", "host-installer-source", "project-config-source", "project-guard-logs", "project-setup-files"]);
-    expect(foldersUnder("contexts/core/src/packs/path-gate/adapters/out")).toEqual(["path-kinds", "shell-parser", "shell-snapshots", "watched-files"]);
+    expect(foldersUnder("contexts/core/src/packs/path-gate/adapters/out")).toEqual(["shell-snapshots", "watched-files"]);
     expect(foldersUnder("contexts/core/src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records"]);
   });
 
   test("in-memory test doubles are test support beside the ports they stand in for", async () => {
     const doubles = [
       "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log",
-      "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.in-memory-path-kinds",
       "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-shell-snapshots",
       "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-watched-files",
       "contexts/core/src/packs/prereqs/application/check-prerequisites/check-prerequisites.in-memory-file-set-fingerprints",
@@ -480,6 +479,7 @@ describe("architecture", () => {
     const pi = apps.find((a) => a.name === "bounded-pi");
     expect(pi?.dir).toBe("apps/pi");
     expect(pi?.dependencies).toContain("bounded");
+    expect(pi?.dependencies).toContain("bounded-shell-command-reader");
   });
 
   test("the path gate is a pack shipped in the bounded package, in its own directory", () => {
@@ -489,6 +489,65 @@ describe("architecture", () => {
   test("prereqs is a pack shipped in the bounded package, in its own directory", () => {
     expect(byName.get("bounded")?.exports["./prereqs"]).toBe("./src/packs/prereqs/index.ts");
     expect(byName.get("bounded")?.exports["./prereqs/adapters"]).toBe("./src/packs/prereqs/adapters/out/index.ts");
+  });
+
+  test("the shell command reader is a private context depending only on the core and tree-sitter", async () => {
+    const manifest = (await Bun.file(`${ROOT}/contexts/shell-command-reader/package.json`).json()) as { name: string; private?: boolean; dependencies?: Record<string, string>; exports?: Record<string, unknown> };
+    expect(byName.get("bounded-shell-command-reader")?.dir).toBe("contexts/shell-command-reader");
+    expect(manifest.name).toBe("bounded-shell-command-reader");
+    expect(manifest.private).toBe(true);
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "bounded"]);
+    expect(Object.keys(manifest.exports ?? {})).toEqual(["./adapters"]);
+  });
+
+  test("no file of the core imports tree-sitter; bounded depends on it for its dist only, at the reader's version", async () => {
+    const coreFiles = files.filter((path) => path.startsWith("contexts/core/"));
+    expect(coreFiles.length).toBeGreaterThan(0);
+    const importing: string[] = [];
+    for (const path of coreFiles) {
+      if (importsOf(path, await Bun.file(`${ROOT}/${path}`).text()).some(({ spec }) => spec.startsWith("@vscode/tree-sitter-wasm"))) importing.push(path);
+    }
+    expect(importing).toEqual([]);
+    const versionIn = async (dir: string) => ((await Bun.file(`${ROOT}/${dir}/package.json`).json()) as { dependencies?: Record<string, string> }).dependencies?.["@vscode/tree-sitter-wasm"];
+    expect(await versionIn("contexts/core")).toBeDefined();
+    expect(await versionIn("contexts/core")).toBe(await versionIn("contexts/shell-command-reader"));
+  });
+
+  test("R2: an adapter in another context may implement an untagged port only when a test beside it runs the port's suite through the declaring package's export path", () => {
+    const feature = "contexts/x/src/application/a/f";
+    const contract = { path: `${feature}/f.contract.ts`, text: "/** Reads things. */\nexport interface Reader { read(): string }\n" };
+    const suite = { path: `${feature}/f.reader.test-support.ts`, text: 'import type { Reader } from "./f.contract.ts";\nexport function readerConformance() {}\n' };
+    const barrels = new Map([["x/application", barrelContracts({ path: "contexts/x/src/application/index.ts", text: 'export type { Reader } from "./a/f/f.contract.ts";\n' })]]);
+    const x = { name: "x", dir: "contexts/x", exports: { "./application": "./src/application/index.ts", "./testing/reader-conformance": "./src/application/a/f/f.reader.test-support.ts" } };
+    const adapter = { path: "contexts/y/src/adapters/out/reader/reader.ts", text: 'import type { Reader } from "x/application";\nexport class FileReader implements Reader { read() { return ""; } }\n' };
+    const runner = { path: "contexts/y/src/adapters/out/reader/reader.test.ts", text: 'import { readerConformance } from "x/testing/reader-conformance";\nreaderConformance();\n' };
+    expect(implementedByViolations([contract, suite, adapter, runner], barrels, new Map(), [x])).toEqual([]);
+    const unrun = implementedByViolations([contract, suite, adapter], barrels, new Map(), [x]);
+    expect(unrun).toHaveLength(1);
+    expect(unrun[0]).toStartWith(`${adapter.path} — FileReader implements Reader`);
+    expect(unrun[0]).toContain("conformance suite");
+    // The same adapter beside its own context's contract is not excused: an untagged port names no adapter of its context.
+    const own = { path: "contexts/x/src/adapters/out/reader/reader.ts", text: 'import type { Reader } from "../../../application/a/f/f.contract.ts";\nexport class FileReader implements Reader { read() { return ""; } }\n' };
+    const ownRunner = { path: "contexts/x/src/adapters/out/reader/reader.test.ts", text: 'import { readerConformance } from "../../../application/a/f/f.reader.test-support.ts";\nreaderConformance();\n' };
+    expect(implementedByViolations([contract, suite, own, ownRunner], barrels, new Map(), [x])).toEqual([
+      `${own.path} — FileReader implements Reader, but Reader's @implementedBy in ${contract.path} does not name it`,
+    ]);
+  });
+
+  test("an app's test file may import its devDependencies; its other files may not", () => {
+    const reader = 'import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";\n';
+    expect(apps.find((app) => app.name === "bounded-cli")?.devDependencies).toContain("bounded-shell-command-reader");
+    expect(appImportViolations("apps/cli/src/x.test.ts", reader)).toEqual([]);
+    expect(appImportViolations("apps/cli/src/x.ts", reader)).toEqual([
+      'apps/cli/src/x.ts:1 imports "bounded-shell-command-reader/adapters" — bounded-cli does not declare bounded-shell-command-reader as a dependency (devDependencies serve its tests only)',
+    ]);
+  });
+
+  test("a context's domain reaches another context only through its domain export path", () => {
+    const domainFile = "contexts/shell-command-reader/src/domain/x.ts";
+    expect(contextImportViolations(domainFile, 'import { ProjectPath } from "bounded/domain";\n')).toEqual([]);
+    expect(contextImportViolations(domainFile, 'import { JudgeEventHandler } from "bounded/application";\n')).toEqual([`${domainFile}:1 imports "bounded/application" — domain may not depend on application`]);
+    expect(contextImportViolations("contexts/shell-command-reader/src/adapters/out/x/x.ts", 'import type { ShellCommandReader } from "bounded/application";\n')).toEqual([]);
   });
 
   test("an app never imports an app, nor the host adapters' code bundled into bounded (bounded/hosts/*)", () => {

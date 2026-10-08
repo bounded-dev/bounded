@@ -17,6 +17,20 @@ export default defineConfig({
   contributes: [contribution(prereqs.points.rules, [{ before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: ["plans/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" }])],
 });
 `;
+/** A project whose execute guard allows a command only when bounded read it as running tool-a alone. */
+const PROGRAMS_CONFIG = `import { contribution, corePack, defineConfig, Verdict } from "bounded/domain";
+export default defineConfig({
+  packs: [corePack],
+  contributes: [
+    contribution(corePack.points.effectGuards.execute, [
+      (effect) =>
+        effect.reading?.outcome === "read" && effect.reading.programs.map((program) => program.name.text).join(",") === "tool-a"
+          ? Verdict.allow
+          : Verdict.refuse("Only tool-a runs here", "Run tool-a"),
+    ]),
+  ],
+});
+`;
 const root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-root-")));
 const parsed = ToolUse.parse({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "a.ts" }] });
 if (!parsed.ok) throw new Error(parsed.error);
@@ -72,6 +86,22 @@ describe("composeProject — never fails open, whatever openProject or its judge
     expect(verdict.kind === "refuse" && verdict.reason).toStartWith("bounded/prereqs.rules:");
     expect(verdict.kind === "refuse" && verdict.reason).toContain("has not succeeded");
     expect(verdict.kind === "refuse" && verdict.redirect).toBe("Have plan-reviewer review the current plan before editing src/");
+  });
+
+  test("the default open reads shell commands: the project's execute guard sees the programs bounded read", async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-shell-")));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(CORE, join(project, "node_modules", "bounded"), "dir");
+    writeFileSync(join(project, "bounded.config.ts"), PROGRAMS_CONFIG);
+    const decide = await composeProject(project);
+    const shell = (command: string, callId: string) => {
+      const call = ToolUse.parse({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command }], callId });
+      if (!call.ok) throw new Error(call.error);
+      return call.value;
+    };
+    expect((await decide(shell("tool-a x", "c1"))).kind).toBe("allow");
+    const refused = await decide(shell("tool-b x", "c2"));
+    expect(refused.kind === "refuse" && refused.reason).toBe("bounded/project refused execute `tool-b x`: Only tool-a runs here");
   });
 
   test("the refusal reaches pi as a block with a reason and a redirect", async () => {

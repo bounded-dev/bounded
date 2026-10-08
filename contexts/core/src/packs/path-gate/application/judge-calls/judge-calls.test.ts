@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { type BasePack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
 import { watchedRulesOf } from "../../domain/watched-rules.ts";
 import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
-import { opened } from "./shell.test-support.ts";
 
 const packId = packIdsFor("test-packs");
 const { protectedPaths } = pathGate.points;
@@ -310,13 +309,14 @@ describe("the path gate — limits and honest redirects", () => {
 });
 
 describe("the path gate — what it does not judge in this slice", () => {
-  test("fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path", async () => {
+  test("fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path", () => {
     const everything = rules("a", { match: "packages/**", deny: ["read", "list", "create", "modify", "delete"], redirect: "Nothing" });
-    const decideOpened = await opened([everything]);
+    const removesOldDocs = { outcome: "read", programs: [{ name: { kind: "literal", text: "rm" }, arguments: [{ kind: "literal", text: "-rf" }, { kind: "literal", text: "docs/old" }], workingDirectory: "." }], fileEffects: [{ effect: write("docs/old", "delete") }], unresolved: [] };
     expect(
-      decideOpened(
+      decide(
+        [everything],
         [
-          { kind: "execute", command: "rm -rf docs/old" },
+          { kind: "execute", command: "rm -rf docs/old", reading: removesOldDocs },
           { kind: "fetch", url: "https://example.com" },
           { kind: "delegate", agent: "reviewer" },
           { kind: "invoke", name: "mcp__db__migrate" },
@@ -324,6 +324,58 @@ describe("the path gate — what it does not judge in this slice", () => {
         "other",
       ),
     ).toBe(Verdict.allow);
+  });
+});
+
+describe("the path gate — shell commands, judged from bounded's reading", () => {
+  const env = rules("a", { match: ".env", deny: ["read"], redirect: "Ask a maintainer for the value", file: true });
+  const generated = rules("b", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
+  const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project) and a shell command reader, and reinstall bounded's dependencies if its parser cannot load; shell commands are refused until then";
+  /** A read reading of a command that touches `fileEffects` and leaves `unresolved` unresolved. */
+  const reading = (fileEffects: object[], unresolved: object[] = []) => ({ outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects, unresolved });
+  const execute = (command: string, given?: object) => ({ kind: "execute", command, ...(given === undefined ? {} : { reading: given }) });
+
+  test("a shell command bounded did not read is refused, saying so", () => {
+    expect(decide([], [execute("ls")], "shell")).toMatchObject({
+      kind: "refuse",
+      reason: "bounded/path-gate refused execute `ls`: the path gate cannot check shell commands: bounded did not read this command; openProject's judge, given a shell command reader, reads every command",
+      redirect: UNREAD_REDIRECT,
+    });
+  });
+
+  test("an unread command is refused with the reader's why", () => {
+    expect(decide([env], [execute("ls", { outcome: "unread", why: "bounded's shell parser could not load (main.wasm is missing)" })], "shell")).toMatchObject({
+      kind: "refuse",
+      reason: "bounded/path-gate refused execute `ls`: the path gate cannot check shell commands: bounded's shell parser could not load (main.wasm is missing)",
+      redirect: UNREAD_REDIRECT,
+    });
+  });
+
+  test("a reading's reads, lists and writes are judged as file tools' are, reads first, with the command named", () => {
+    const secrets = rules("a", { match: "secrets/**", deny: ["list"], redirect: "Do not look there" });
+    const touchesAll = reading([{ effect: write("generated/a.ts", "modify") }, { effect: list("secrets") }, { effect: read(".env") }]);
+    expect(reason(decide([env, generated], [execute("tool-a", touchesAll)], "shell"))).toBe(
+      "bounded/path-gate refused execute `tool-a`: this command reads '.env' — the rule '.env' from test-packs/a denies read of '.env'",
+    );
+    expect(reason(decide([secrets, generated], [execute("tool-a", touchesAll)], "shell"))).toStartWith("bounded/path-gate refused execute `tool-a`: this command lists 'secrets' — the rule 'secrets/**' from test-packs/a denies list");
+    expect(reason(decide([generated], [execute("tool-a", touchesAll)], "shell"))).toBe(
+      "bounded/path-gate refused execute `tool-a`: this command writes 'generated/a.ts' — the rule 'generated/**' from test-packs/b denies modify of 'generated/a.ts'",
+    );
+    expect(reason(decide([generated], [execute("tool-a", reading([{ effect: write("generated/a.ts", "delete") }]))], "shell"))).toContain("this command deletes 'generated/a.ts'");
+    expect(decide([generated], [execute("tool-a", reading([{ effect: read("generated/a.ts") }]))], "shell")).toBe(Verdict.allow);
+  });
+
+  test("a write of unknown existence says it is judged as both", () => {
+    const migrations = rules("a", { match: "migrations/**", deny: ["modify", "delete"], redirect: "Add a new migration instead" });
+    const both = reading([{ effect: write("migrations/0003.sql", "create"), existenceUnknown: true }, { effect: write("migrations/0003.sql", "modify"), existenceUnknown: true }]);
+    expect(reason(decide([migrations], [execute("tool-a > migrations/0003.sql", both)], "shell"))).toContain(
+      "this command writes 'migrations/0003.sql' (whether it exists could not be determined, so it is judged as both a create and a modify) — the rule 'migrations/**' from test-packs/a denies modify",
+    );
+  });
+
+  test("unresolved parts are not guessed at: allowed", () => {
+    const unresolved = reading([], [{ text: "$ENV_FILE", role: "read" }, { text: "*.env", role: "list" }, { text: "$OUT", role: "write" }, { text: "$DIR", role: "directory" }, { text: "print(1)", role: "code" }]);
+    expect(decide([env, generated], [execute("tool-a $ENV_FILE", unresolved)], "shell")).toBe(Verdict.allow);
   });
 });
 
