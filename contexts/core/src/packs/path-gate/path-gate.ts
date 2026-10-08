@@ -15,7 +15,7 @@ import {
   type WatchedPathSource,
   type WriteEffect,
 } from "bounded/domain";
-import { contains, filterable, matches, reaches, unavoidable } from "./matching.ts";
+import type { PathGate } from "./path-gate.contract.ts";
 import type { ProtectedPathJSON } from "./protected-path.contract.ts";
 import { ProtectedPath, WRITES } from "./protected-path.ts";
 import { type ShellCheck, startShellCheck } from "./shell-check.ts";
@@ -71,18 +71,18 @@ function firstDenial(composition: Composition, denies: (rule: ProtectedPath) => 
  * neither can, the honest options.
  */
 function elsewhere(verb: "List" | "Search", rule: ProtectedPath, root: string): string {
-  if (unavoidable(rule)) {
+  if (rule.unavoidable()) {
     const [noun, act] = verb === "List" ? ["listing", "name"] : ["search", "read"];
     return `No ${noun} can avoid '${rule.match}'; ${act} the files you need directly, or ask a person — ${rule.redirect}`;
   }
-  const filter = filterable(rule) ? `, or give a filter that cannot match '${rule.match}'` : "";
+  const filter = rule.filterable() ? `, or give a filter that cannot match '${rule.match}'` : "";
   if (root === ".") return `${verb} a narrower path (not the whole project)${filter === "" ? ` that cannot reach '${rule.match}'` : filter} — ${rule.redirect}`;
   return `${verb} a root outside '${rule.match}'${filter} — ${rule.redirect}`;
 }
 
 /** Why `rule` denies reading the file `path`, or undefined: what every read, from a file tool or a shell command, is judged by. */
 function readDenial(rule: ProtectedPath, path: string): Denial {
-  return rule.deny.includes("read") && matches(rule, path) ? { what: `denies read of '${path}'` } : undefined;
+  return rule.deny.includes("read") && rule.matches(path) ? { what: `denies read of '${path}'` } : undefined;
 }
 
 /**
@@ -95,8 +95,8 @@ function readDenial(rule: ProtectedPath, path: string): Denial {
  */
 function writeDenial(rule: ProtectedPath, path: string, change: WriteEffect["change"]): Denial {
   if (!rule.deny.includes(change)) return undefined;
-  if (matches(rule, path)) return { what: `denies ${change} of '${path}'` };
-  if (change === "delete" && contains(rule, path)) return { what: `denies delete, and deleting '${path}' could delete a path it matches` };
+  if (rule.matches(path)) return { what: `denies ${change} of '${path}'` };
+  if (change === "delete" && rule.contains(path)) return { what: `denies delete, and deleting '${path}' could delete a path it matches` };
   return undefined;
 }
 
@@ -111,7 +111,7 @@ const onRead: EffectGuard<ReadEffect, Composition> = (effect, composition, call)
   return firstDenial(composition, (rule) => {
     const direct = readDenial(rule, path);
     if (direct !== undefined || !rule.deny.includes("read")) return direct;
-    const search = searches.find((list) => reaches(rule, list.root.value, filterOf(list)));
+    const search = searches.find((list) => rule.reaches(list.root.value, filterOf(list)));
     if (search === undefined) return undefined;
     return { what: `denies read, and searching '${search.root.value}' could read a path it matches`, redirect: elsewhere("Search", rule, search.root.value) };
   });
@@ -119,7 +119,7 @@ const onRead: EffectGuard<ReadEffect, Composition> = (effect, composition, call)
 
 /** Why `rule` denies listing `root` (by a name `filter`, or none), or undefined: what every listing, from a file tool or a shell command, is judged by. */
 function listDenial(rule: ProtectedPath, root: string, filter: string | null): Denial {
-  return rule.deny.includes("list") && reaches(rule, root, filter)
+  return rule.deny.includes("list") && rule.reaches(root, filter)
     ? { what: `denies list, and listing '${root}' could reveal a path it matches`, redirect: elsewhere("List", rule, root) }
     : undefined;
 }
@@ -207,7 +207,7 @@ const watchedFromRules: WatchedPathSource = (composition) => {
  * core's watched paths, which undo a shell command's changes. Fetch,
  * delegate and invoke are not judged by path.
  */
-export const pathGate = definePack({
+export const pathGate: PathGate = definePack({
   id: packIdsFor("bounded")("path-gate"),
   dependsOn: [corePack],
   points: {

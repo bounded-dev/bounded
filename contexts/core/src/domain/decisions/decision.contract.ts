@@ -1,7 +1,7 @@
 import type { Event } from "../events/event.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { ToolKind } from "../events/tool-use.contract.ts";
-import type { Judgement } from "../guards/guard.contract.ts";
+import type { Judgement } from "../guards/dispatch-event.contract.ts";
 import type { Result } from "../shared/result.ts";
 import type { Verdict } from "../verdicts/verdict.contract.ts";
 import type { DecisionId } from "./decision-id.contract.ts";

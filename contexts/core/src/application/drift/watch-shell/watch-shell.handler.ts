@@ -1,7 +1,7 @@
 import { type Composition, Decision, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedChange, type WatchedPath, watchedPathsOf } from "bounded/domain";
-import type { Clock, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+
 import { nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
-import type { FileChange, DriftCheck, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell } from "./watch-shell.contract.ts";
+import type { Clock, DecisionIds, DriftCheck, FileChange, GuardLog, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell, WatchShellOptions } from "./watch-shell.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
 const UNREADABLE_REDIRECT = "Fix what stops protected files from being read; until then shell commands are refused";
@@ -65,7 +65,7 @@ export class WatchShellHandler implements WatchShell {
     private readonly snapshots: ShellSnapshots,
     private readonly log: GuardLog,
     private readonly clock: Clock,
-    options: { readonly ids?: DecisionIds; readonly limits?: { readonly perFile: number; readonly total: number } } = {},
+    options: WatchShellOptions = {},
   ) {
     this.ids = options.ids ?? { next: () => crypto.randomUUID() };
     this.limits = options.limits ?? COPY_LIMITS;

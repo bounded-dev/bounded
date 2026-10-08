@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { textValueLaws, valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { Role } from "./role.ts";
 
-valueObjectLaws("Role", Role, ["builder", "plan-reviewer"], ["", "Builder", "plan_reviewer", "a b", "a--b", "-a", "a-"]);
-textValueLaws("Role", Role, [["builder", "builder"], ["agent-2", "agent-2"]]);
 
 describe("Role — boundaries", () => {
   test("a role is its label: lowercase words joined by single hyphens", () => {

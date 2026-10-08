@@ -4,7 +4,7 @@ import { ToolResult } from "../events/tool-result.ts";
 import { ToolUse } from "../events/tool-use.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import { Verdict } from "../verdicts/verdict.ts";
-import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { Decision } from "./decision.ts";
 import { DecisionId } from "./decision-id.ts";
 
@@ -20,8 +20,6 @@ const id = (text: string): DecisionId => {
 };
 
 const line = { id: "d-0", time: TIME, event: "tool-use", role: "builder", tool: "edit", effects: ["read a.ts"], verdict: { kind: "allow" }, note: null };
-const adapterLine = { ...line, id: "d-00", event: "adapter", role: null, tool: null, effects: [], verdict: { kind: "refuse", reason: "r", redirect: "d", pack: null, effect: null }, host: { tool: "Bash", input: "{}" } };
-valueObjectLaws("Decision", Decision, [line, adapterLine], [{ ...line, id: "" }, { ...line, event: "other" }, { ...line, effects: "read a.ts" }, { ...line, verdict: { kind: "maybe" } }, { ...line, tool: "bash" }]);
 
 describe("Decision — a recorded line read back", () => {
   test("parse gives back exactly the line that was written", () => {

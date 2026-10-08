@@ -1,7 +1,7 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
 // compile-time.test.ts runs the TypeScript compiler on this file and checks both.
-import { type BasePack, type Composition, contribution, definePack, type PackId, packIdsFor, point, type Result } from "bounded/domain";
+import { type BasePack, type Composition, type CorePack, contribution, definePack, type PackId, packIdsFor, point, type Result } from "bounded/domain";
 import { base, ext, packId, tags, text } from "./packs.ts";
 
 declare const somePacks: BasePack[];
@@ -65,3 +65,6 @@ export function read(composition: Composition): readonly number[] {
   const words = composition.read(base.points.words);
   return words.ok ? words.value : []; // rejected: Type 'string' is not assignable to type 'number'
 }
+
+// A pack the package ships is typed by its contract: a definition missing a contracted point does not compile.
+export const missingPoint: CorePack = definePack({ id: packIdsFor("bounded")("core"), points: { toolUseGuards: point({ description: "x", check: (raw: unknown) => ({ ok: false as const, error: String(raw) }) }) } }); // rejected: is not assignable to type 'CorePack'

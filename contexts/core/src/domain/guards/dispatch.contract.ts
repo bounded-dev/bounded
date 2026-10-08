@@ -13,12 +13,6 @@ import type { Verdict } from "../verdicts/verdict.contract.ts";
  */
 export type Guard<E extends Event, Context = unknown> = (event: E, context: Context) => Verdict;
 
-/** A verdict, and the pack (and effect) that refused when a pack's guard refused or failed. */
-export interface Judgement {
-  readonly verdict: Verdict;
-  readonly refusedBy: { readonly packId: PackId; readonly effect: Effect | null } | null;
-}
-
 /**
  * Decides one effect of a tool call: given the effect, the context and the
  * whole call (for its role and tool). Synchronous and pure. A guard for one
@@ -36,3 +30,14 @@ export type Dispatch = <E extends Event, Context = unknown>(guards: readonly Gua
 
 /** The context: required when a guard needs a particular one, optional when none does. */
 type ContextArgument<Context> = unknown extends Context ? [context?: Context] : [context: Context];
+
+/**
+ * A guard to run: the label its failures are named by, and, when it came
+ * from a pack, the words its refusals start with ("bounded/x refused read a.ts").
+ */
+export interface LabelledGuard {
+  readonly guard: unknown;
+  readonly label: string;
+  readonly refusedBy?: string;
+  readonly from?: PackId;
+}

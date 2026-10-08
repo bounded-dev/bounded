@@ -1,9 +1,9 @@
 import { type Composition, composeConfig, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
 import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
-import type { AdapterRefusalInput, Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
-import type { OpenProject, OpenProjectCommand, ProjectConfigSource, ProjectGuardLogs, ProjectDrift, ProjectJudge, ProjectPathKinds } from "./open-project.contract.ts";
+import type { Clock, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge } from "./open-project.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
 
@@ -34,7 +34,7 @@ export class OpenProjectHandler implements OpenProject {
     private readonly configSource: ProjectConfigSource,
     private readonly guardLogs: ProjectGuardLogs,
     private readonly clock: Clock,
-    private readonly options: { readonly recordWithinMs?: number; readonly drift?: ProjectDrift; readonly pathKinds?: ProjectPathKinds; readonly prepareWithinMs?: number } = {},
+    private readonly options: OpenProjectOptions = {},
   ) {}
 
   /** Never rejects: whatever goes wrong, the judge refuses every event (and records it, when the log can be opened). */
@@ -68,7 +68,7 @@ export class OpenProjectHandler implements OpenProject {
     await Promise.allSettled(openings.value.map((open) => within(Promise.resolve().then(() => open(project, composition)), withinMs)));
   }
 
-  private judge(handler: JudgeEventHandler, problem: string | null, watch?: WatchShell): ProjectJudge {
+  private judge(handler: JudgeEvent, problem: string | null, watch?: WatchShell): ProjectJudge {
     return Object.freeze({
       judge: (event: unknown) => handler.judge(event),
       afterTool: (result: unknown) => afterTool(watch, result),

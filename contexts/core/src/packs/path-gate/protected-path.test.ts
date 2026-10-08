@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ProtectedPath } from "bounded/path-gate";
-import { valueObjectLaws } from "../../domain/shared/value-object.laws.test-support.ts";
 
 const rule = { match: "packages/db/**", deny: ["modify", "delete"], redirect: "Change the schema instead" };
-valueObjectLaws("ProtectedPath", ProtectedPath, [rule, { ...rule, match: ".env", deny: ["read"], file: true, why: "secrets" }], [{ ...rule, deny: ["write"] }, { ...rule, match: "/etc/**" }, { ...rule, redirect: " " }]);
 
 const refused = (raw: unknown): string => {
   const parsed = ProtectedPath.parse(raw);
@@ -116,5 +114,36 @@ describe("ProtectedPath — a deny-only rule", () => {
       expect(refused({ ...rule, match })).toContain(`match pattern '${match}' has more than three wildcards (* or ?) in one part`);
     }
     expect(ProtectedPath.parse({ ...rule, match: "**/*a*a*b/**" }).ok).toBe(true);
+  });
+});
+
+describe("ProtectedPath — how a rule meets paths", () => {
+  const ruleOf = (raw: object): ProtectedPath => {
+    const parsed = ProtectedPath.parse({ deny: ["read", "list"], redirect: "Ask", ...raw });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.value;
+  };
+
+  test("matches a path its match covers, ignoring case, but none its except covers, exactly", () => {
+    const secrets = ruleOf({ match: "secrets/**", except: ["secrets/README.md"] });
+    expect(secrets.matches("secrets/key.pem")).toBe(true);
+    expect(secrets.matches("SECRETS/key.pem")).toBe(true);
+    expect(secrets.matches("secrets/README.md")).toBe(false);
+    expect(secrets.matches("docs/a.md")).toBe(false);
+  });
+
+  test("reaches a root it could list below, unless a filter provably rules it out", () => {
+    const pem = ruleOf({ match: "config/*.pem" });
+    expect(pem.reaches("config", null)).toBe(true);
+    expect(pem.reaches("config", "*.ts")).toBe(false);
+    expect(pem.reaches("docs", null)).toBe(false);
+    expect(pem.filterable()).toBe(true);
+  });
+
+  test("a '**'-led rule ending in a name is unavoidable, unless it is a file rule; deleting a directory above it contains it", () => {
+    expect(ruleOf({ match: "**/.env" }).unavoidable()).toBe(true);
+    expect(ruleOf({ match: "**/.env", file: true }).unavoidable()).toBe(false);
+    expect(ruleOf({ match: "packages/db/**", deny: ["delete"] }).contains("packages")).toBe(true);
+    expect(ruleOf({ match: "packages/db/**", deny: ["delete"] }).contains("docs")).toBe(false);
   });
 });

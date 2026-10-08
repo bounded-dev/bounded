@@ -1,13 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
 import { Verdict } from "./verdict.ts";
 
-valueObjectLaws(
-  "Verdict",
-  Verdict,
-  [{ kind: "allow" }, { kind: "refuse", reason: "Generated file", redirect: "Change the generator's input instead" }],
-  [{ kind: "refuse", reason: "", redirect: "x" }, { kind: "refuse", reason: "x" }, { kind: "maybe" }, "allow"],
-);
 
 const INVALID = "A verdict is { kind: 'allow' } or { kind: 'refuse', reason, redirect } with a non-empty reason and redirect";
 

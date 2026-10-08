@@ -3,7 +3,15 @@ import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectPath } from "bounded/domain";
+import { pathKindsConformance } from "../../../../application/project-config/open-project/open-project.path-kinds.test-support.ts";
 import { FileSystemProjectPathKinds } from "./path-kinds.ts";
+
+pathKindsConformance("FileSystemProjectPathKinds", async ({ files, dirs }) => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "path-kinds-conformance-"));
+  for (const dir of dirs) mkdirSync(join(projectRoot, dir), { recursive: true });
+  for (const file of files) writeFileSync(join(projectRoot, file), "x");
+  return { projectRoot, pathKinds: new FileSystemProjectPathKinds() };
+});
 
 describe("FileSystemProjectPathKinds: what is at a project path", () => {
   const root = mkdtempSync(join(tmpdir(), "path-kinds-"));

@@ -20,6 +20,20 @@ export interface ProtectedPath {
   readonly why?: string;
   /** True when the match names files only, not what is under them; absent otherwise. */
   readonly file?: true;
+  /** Whether the rule applies to this exact path: its match covers it (ignoring case) and none of its exceptions does (exactly). */
+  matches(path: string): boolean;
+  /**
+   * Whether listing or searching `root`, limited by a file-name `filter` (or
+   * none), could reach a path the rule applies to. Conservative: no only
+   * when that is provable.
+   */
+  reaches(root: string, filter: string | null): boolean;
+  /** Whether deleting `path`, were it a directory, could delete a path the rule applies to. */
+  contains(path: string): boolean;
+  /** Whether no root or filter can keep a listing away from the rule: '**'-led, ending in a name that is not a file rule's. */
+  unavoidable(): boolean;
+  /** Whether a file-name filter can ever keep a listing away from the rule: its last part names the files themselves. */
+  filterable(): boolean;
   equals(other: ProtectedPath): boolean;
   toJSON(): ProtectedPathJSON;
 }

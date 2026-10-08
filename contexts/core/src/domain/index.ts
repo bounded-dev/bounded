@@ -71,10 +71,11 @@ export type { WatchedChange, WatchedPathFactory, WatchedPathJSON, WatchedPathSou
 export type { Watched } from "./drift/watched-paths.ts";
 export { watchedPathsOf } from "./drift/watched-paths.ts";
 export { WatchedPath } from "./drift/watched-path.ts";
-export type { Dispatch, EffectGuard, Guard, Judgement } from "./guards/guard.contract.ts";
+export type { Dispatch, EffectGuard, Guard } from "./guards/dispatch.contract.ts";
+export type { DecideEvent, DispatchEvent, Judgement } from "./guards/dispatch-event.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
 export { corePack } from "./guards/core-pack.ts";
-export type { OpenedProject, PathKind, ProjectOpenHandler } from "./guards/project-opening.contract.ts";
+export type { CoreId, CorePack, CorePackPoints, OpenedProject, PathKind, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
 export { decideEvent, dispatchEvent } from "./guards/dispatch-event.ts";
 export type { AdapterRefusal, DecisionEvent, DecisionFactory, DecisionJSON, RecordedVerdict } from "./decisions/decision.contract.ts";
 export { Decision } from "./decisions/decision.ts";
@@ -84,6 +85,8 @@ export type { Config, ConfigFactory, ConfigSpec } from "./config/config.contract
 export { composeConfig, defineConfig, isConfig } from "./config/config.ts";
 export type { Allow, AllowJSON, Refuse, RefuseJSON, VerdictFactory, VerdictJSON } from "./verdicts/verdict.contract.ts";
 export { Verdict } from "./verdicts/verdict.ts";
+
+export { sameWire, wireFormOf } from "./shared/wire.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

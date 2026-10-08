@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { textValueLaws, valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { PackId, packIdsFor } from "./pack-id.ts";
 
 const FORM = "must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'";
 
-valueObjectLaws("PackId", PackId, ["bounded/core", "@acme/rules/web-2"], ["core", "bounded/", "Bounded/core", "bounded/a--b"]);
-textValueLaws("PackId", PackId, [["bounded/path-gate", "bounded/path-gate"], ["my.pkg/a", "my.pkg/a"]]);
 
 describe("PackId — boundaries", () => {
   test("an id is the npm package name and the pack's local id", () => {

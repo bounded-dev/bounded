@@ -14,13 +14,13 @@ class ComposePacksCommandImpl implements Contract.ComposePacksCommand {
   static parse(raw: unknown): Result<ComposePacksCommand> {
     const input = composePacksSchema.safeParse(raw);
     if (!input.success) return { ok: false, error: "Invalid compose packs input: give { selectedPackIds: [pack ids] }" };
-    const selected: PackId[] = [];
+    const selectedPackIds: PackId[] = [];
     for (const name of input.data.selectedPackIds) {
       const parsed = PackId.parse(name);
       if (!parsed.ok) return parsed;
-      selected.push(parsed.value);
+      selectedPackIds.push(parsed.value);
     }
-    return { ok: true, value: new ComposePacksCommandImpl(Object.freeze(selected)) };
+    return { ok: true, value: new ComposePacksCommandImpl(Object.freeze(selectedPackIds)) };
   }
 }
 

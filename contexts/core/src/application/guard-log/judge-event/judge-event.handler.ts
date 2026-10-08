@@ -1,5 +1,5 @@
 import { type Composition, Decision, DecisionId, decideEvent, Event, type Judgement, Verdict } from "bounded/domain";
-import type { AdapterRefusalInput, Clock, DecisionIds, GuardLog, JudgeEvent, JudgeEventCommand } from "./judge-event.contract.ts";
+import type { AdapterRefusalInput, Clock, DecisionIds, GuardLog, JudgeEvent, JudgeEventCommand, JudgeEventOptions } from "./judge-event.contract.ts";
 
 const UNRECORDED_REDIRECT = "Make the guard log writable; until decisions can be recorded, every action is refused";
 const LATE_NOTE = "not recorded in time; enforced: refuse";
@@ -50,13 +50,7 @@ export class JudgeEventHandler implements JudgeEvent {
     composition: Composition | null,
     private readonly log: GuardLog,
     private readonly clock: Clock,
-    options: {
-      readonly recordWithinMs?: number;
-      readonly refuseEverything?: Verdict;
-      readonly ids?: DecisionIds;
-      /** Run when the guards allow an event, before it is recorded; a refusal replaces the allow. */
-      readonly beforeAllow?: (event: Event) => Promise<Verdict>;
-    } = {},
+    options: JudgeEventOptions = {},
   ) {
     const bound = options.recordWithinMs ?? JudgeEventHandler.DEFAULT_RECORD_WITHIN_MS;
     if (!Number.isFinite(bound) || bound <= 0) throw new RangeError("recordWithinMs must be a finite number of milliseconds above zero");
