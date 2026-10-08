@@ -1,5 +1,6 @@
 import * as treeSitterModule from "@vscode/tree-sitter-wasm";
 import type { Node } from "@vscode/tree-sitter-wasm";
+import { expandBraces } from "./brace-expansion.ts";
 import type { ShellNode, ShellParser, ShellRedirect, ShellWord } from "./shell-command.contract.ts";
 
 // The shell parser behind the path gate's port: tree-sitter's bash grammar,
@@ -36,29 +37,66 @@ function substituted(node: Node): ShellNode[] {
 const unresolved = (node: Node): ShellWord => ({ kind: "unresolved", text: node.text, commands: substituted(node) });
 const withoutEscapes = (text: string): string => text.replace(/\\(.)/gs, "$1");
 
-/** A word of a command: literal when its text is fixed, else unresolved. */
-function word(node: Node): ShellWord {
+/** Quoted text in a brace-expansion template: every character that could expand escaped. */
+const quoted = (text: string): string => text.replace(/[\\{},.]/g, "\\$&");
+
+const ANSI_C: Readonly<Record<string, string>> = { n: "\n", t: "\t", r: "\r", a: "\x07", b: "\b", e: "\x1b", E: "\x1b", f: "\f", v: "\v", "\\": "\\", "'": "'", '"': '"', "?": "?" };
+
+/** The text of a $'…' string with simple escapes only; undefined when it holds others (\x, \u, octal, \c), which only the shell decodes. */
+function ansiC(text: string): string | undefined {
+  let simple = true;
+  const decoded = text.slice(2, -1).replace(/\\(.)/gs, (_, char: string) => {
+    const replaced = ANSI_C[char];
+    if (replaced === undefined) simple = false;
+    return replaced ?? "";
+  });
+  return simple ? decoded : undefined;
+}
+
+/**
+ * A word as a brace-expansion template: unquoted text as written (its
+ * escapes kept), quoted text with its characters escaped; undefined when
+ * part of it only the shell can resolve (an expansion, a glob, '~').
+ */
+function template(node: Node): string | undefined {
   switch (node.type) {
     case "word":
-    case "number": {
-      const text = node.text;
-      if (text.startsWith("~") || GLOB.test(text) || /\{[^}]*(,|\.\.)[^}]*\}/.test(text)) return unresolved(node);
-      return { kind: "literal", text: withoutEscapes(text) };
-    }
+    case "number":
+      return node.text.startsWith("~") || GLOB.test(node.text) ? undefined : node.text;
+    case "brace_expression":
+      return node.text;
     case "raw_string":
-      return { kind: "literal", text: node.text.slice(1, -1) };
+      return quoted(node.text.slice(1, -1));
+    case "ansi_c_string": {
+      const decoded = ansiC(node.text);
+      return decoded === undefined ? undefined : quoted(decoded);
+    }
     case "string": {
       const parts = named(node);
-      if (!parts.every((part) => part.type === "string_content")) return unresolved(node);
-      return { kind: "literal", text: parts.map((part) => part.text.replace(/\\([$`"\\\n])/g, "$1")).join("") };
+      if (!parts.every((part) => part.type === "string_content")) return undefined;
+      return quoted(parts.map((part) => part.text.replace(/\\([$`"\\\n])/g, "$1")).join(""));
     }
     case "concatenation": {
-      const parts = named(node).map(word);
-      return parts.every((part) => part.kind === "literal") ? { kind: "literal", text: parts.map((part) => part.text).join("") } : unresolved(node);
+      const parts = named(node).map(template);
+      return parts.every((part) => part !== undefined) ? parts.join("") : undefined;
     }
     default:
-      return unresolved(node);
+      return undefined;
   }
+}
+
+/** The words a word becomes: its brace expansion, each literal; one unresolved word when the shell alone can say. */
+function words(node: Node): ShellWord[] {
+  const text = template(node);
+  const expanded = text === undefined ? undefined : expandBraces(text);
+  if (expanded === undefined) return [unresolved(node)];
+  return expanded.map((each) => ({ kind: "literal", text: withoutEscapes(each) }));
+}
+
+/** One word: a word that expands to several is one only the shell can make sense of here (a redirection's target, an assignment's value). */
+function word(node: Node): ShellWord {
+  const all = words(node);
+  return all.length === 1 && all[0] !== undefined ? all[0] : unresolved(node);
 }
 
 function redirect(node: Node): ShellRedirect {
@@ -74,10 +112,12 @@ const nonNull = (nodes: (Node | null)[]): Node[] => nodes.filter((node): node is
 function command(node: Node, redirects: readonly ShellRedirect[] = []): ShellNode {
   const name = node.childForFieldName("name");
   const nameWord = name === null ? null : (named(name)[0] ?? name);
+  // The name's own expansion runs as the command and its first arguments, as in {cat,.env}.
+  const [first = null, ...more] = nameWord === null ? [] : words(nameWord);
   return {
     kind: "command",
-    name: nameWord === null ? null : word(nameWord),
-    args: nonNull(node.childrenForFieldName("argument")).map(word),
+    name: first,
+    args: [...more, ...nonNull(node.childrenForFieldName("argument")).flatMap(words)],
     redirects: [...nonNull(node.childrenForFieldName("redirect")).map(redirect), ...redirects],
     assignments: named(node)
       .filter((child) => child.type === "variable_assignment")
@@ -137,6 +177,11 @@ function statement(node: Node): ShellNode | undefined {
       const [inner] = named(node);
       return inner === undefined ? undefined : statement(inner);
     }
+    case "file_redirect":
+    case "heredoc_redirect":
+    case "herestring_redirect":
+      // A redirection alone, as in $(< file).
+      return { kind: "command", name: null, args: [], redirects: [redirect(node)], assignments: [] };
     case "test_command":
       return textOnly(node, "[");
     case "declaration_command":

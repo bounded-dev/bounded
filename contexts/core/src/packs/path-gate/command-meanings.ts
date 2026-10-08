@@ -6,7 +6,8 @@ import type { ShellWord } from "./shell-command.contract.ts";
 // conservative default). Short options with an attached value (grep -f.env)
 // are not read: a known gap.
 
-const NONE: CommandMeaning = Object.freeze({ reads: [], lists: [], writes: [], transfers: [], runs: [], unresolved: [] });
+const NONE: CommandMeaning = Object.freeze({ reads: [], lists: [], writes: [], transfers: [], runs: [], scripts: [], repositoryReads: [], unresolved: [] });
+const literalWord = (text: string): ShellWord => ({ kind: "literal", text });
 const meaning = (part: Partial<CommandMeaning>): CommandMeaning => ({ ...NONE, ...part });
 const literal = (word: ShellWord | undefined): string | undefined => (word?.kind === "literal" ? word.text : undefined);
 const here: ShellWord = Object.freeze({ kind: "literal", text: "." });
@@ -116,10 +117,55 @@ function git(args: readonly ShellWord[]): CommandMeaning {
   const subcommand = literal(args[index]);
   const rest = args.slice(index + 1);
   if (elsewhere) return meaning({ unresolved: operands(rest) });
+  // <rev>:<path> names a path in the repository (git show HEAD:.env, git cat-file -p :.env).
+  const repositoryReads = operands(rest).filter((operand) => {
+    const text = literal(operand);
+    return text?.includes(":") === true && !text.includes("://");
+  });
   if (subcommand === "add" || subcommand === "stage") return NONE;
   if (subcommand === "rm") return rest.some((word) => literal(word) === "--cached") ? NONE : meaning({ writes: operands(rest).map((word) => ({ word, change: "delete" as const })) });
   if (subcommand === "mv") return transfer(rest, true);
-  return meaning({ reads: readsOf(rest) });
+  return meaning({ reads: readsOf(rest), repositoryReads });
+}
+
+/** A shell: with -c, its first operand is code it runs; else it reads the script it is given. */
+function shell(args: readonly ShellWord[]): CommandMeaning {
+  let runsCode = false;
+  const rest: ShellWord[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const text = literal(args[index]);
+    if (text === "-o" || text === "+o" || text === "-O" || text === "+O") index++;
+    else if (text !== undefined && /^[-+][a-zA-Z]+$/.test(text)) runsCode ||= text.includes("c");
+    else if (text?.startsWith("--") !== true) rest.push(args[index] as ShellWord);
+  }
+  const [first] = rest;
+  if (first === undefined) return NONE;
+  return runsCode ? meaning({ scripts: [first] }) : meaning({ reads: [first] });
+}
+
+/** dd: if= is read, of= is written; its other operands are settings. */
+function dd(args: readonly ShellWord[]): CommandMeaning {
+  const valued = (key: string) => args.flatMap((arg) => (literal(arg)?.startsWith(key) === true ? [literalWord((literal(arg) ?? "").slice(key.length))] : []));
+  return meaning({ reads: valued("if="), writes: valued("of=").map((target) => ({ word: target, change: "write" as const })) });
+}
+
+/** curl: it reads the files its data and upload options name with @ (or -T), writes its -o file; its URLs name no project file. */
+function curl(args: readonly ShellWord[]): CommandMeaning {
+  const reads: ShellWord[] = [];
+  const writes: { word: ShellWord; change: "write" }[] = [];
+  const data = ["-d", "--data", "--data-ascii", "--data-binary", "--data-urlencode", "-F", "--form", "--form-string"];
+  for (let index = 0; index < args.length; index++) {
+    const text = literal(args[index]) ?? "";
+    const [option, attached] = text.startsWith("--") ? [text.split("=")[0] ?? text, text.includes("=") ? text.slice(text.indexOf("=") + 1) : undefined] : [text.slice(0, 2), text.length > 2 ? text.slice(2) : undefined];
+    if (!data.includes(option) && !["-T", "--upload-file", "-o", "--output"].includes(option)) continue;
+    const value = attached ?? literal(args[++index]);
+    if (value === undefined) continue;
+    if (option === "-T" || option === "--upload-file") reads.push(literalWord(value));
+    else if (option === "-o" || option === "--output") writes.push({ word: literalWord(value), change: "write" });
+    else if (option !== "--form-string" && value.includes("@")) reads.push(literalWord(value.slice(value.indexOf("@") + 1).split(";")[0] ?? ""));
+    else if ((option === "-F" || option === "--form") && value.includes("=<")) reads.push(literalWord(value.slice(value.indexOf("=<") + 2).split(";")[0] ?? ""));
+  }
+  return meaning({ reads, writes });
 }
 
 /** xargs: the command it runs, with the arguments given to it literally (the rest come from its input). */
@@ -152,6 +198,14 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   cp: (args) => transfer(args, false),
   mv: (args) => transfer(args, true),
   git,
+  sh: shell,
+  bash: shell,
+  zsh: shell,
+  dash: shell,
+  ksh: shell,
+  tee: (args) => meaning({ writes: operands(args).map((target) => ({ word: target, change: "write" as const })) }),
+  dd,
+  curl,
   cd: moves,
   pushd: moves,
   popd: () => meaning({ location: { to: null } }),

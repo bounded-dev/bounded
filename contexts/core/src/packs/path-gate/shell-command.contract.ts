@@ -46,11 +46,12 @@ export interface ShellParser {
   parse(command: Command): Result<readonly ShellNode[]>;
 }
 
-/** Where a command runs: its directory (null for the project root), the project root (absolute), and what is at a path. */
+/** Where a command runs: its directory (null for the project root), the project root (absolute), what is at a path, and how to parse code given to a nested shell. */
 export interface ShellPlace {
   readonly cwd: ProjectPath | null;
   readonly root: string;
   kindOfPath(path: ProjectPath): PathKind | undefined;
+  parseScript(script: string): Result<readonly ShellNode[]>;
 }
 
 /** A write a command makes; `undetermined` when whether the file exists could not be told, so it is judged as both a create and a modify. */

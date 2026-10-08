@@ -103,13 +103,31 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       const to = resolve(destination, scope);
       for (const source of sources) {
         const from = resolve(source, scope);
-        if (from !== undefined) (moves ? writes.push({ path: from, change: "delete" }) : reads.push(from));
+        if (from !== undefined) reads.push(from);
+        if (from !== undefined && moves) writes.push({ path: from, change: "delete" });
         if (to === undefined) continue;
         if (place.kindOfPath(to) !== "directory") write(to, "write");
         else if (from !== undefined) {
           const inside = pathOf(from.value.split("/").at(-1) ?? from.value, { at: partsOf(to) });
           if (inside !== undefined) write(inside, "write");
         }
+      }
+    }
+    for (const operand of meaning.repositoryReads) {
+      // The path after <rev>: is from where the command runs when written ./ or ../, else from the repository root, which is the project root only when it holds .git.
+      const text = operand.text.slice(operand.text.indexOf(":") + 1);
+      const fromHere = text.startsWith("./") || text.startsWith("../");
+      const path = operand.kind === "literal" && (fromHere || repositoryAtRoot()) ? pathOf(text === "" ? "." : text, fromHere ? scope : { at: [] }) : undefined;
+      if (path === undefined) unresolved.push(operand.text);
+      else reads.push(path);
+    }
+    for (const word of meaning.scripts) {
+      // Code a nested shell runs: parsed and walked in a shell of its own, so its cd does not leak.
+      const script = word.kind === "literal" ? place.parseScript(word.text) : undefined;
+      if (script === undefined || !script.ok) unresolved.push(word.text);
+      else {
+        const inside: Scope = { at: scope.at };
+        for (const node of script.value) walk(node, inside);
       }
     }
     for (const word of meaning.unresolved) unresolved.push(word.text);
@@ -170,6 +188,13 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
         unresolved.push(node.text);
         return;
     }
+  };
+
+  /** Whether the project root is the repository's root: it holds .git. */
+  const repositoryAtRoot = (): boolean => {
+    const git = ProjectPath.parse(".git");
+    const kind = git.ok ? place.kindOfPath(git.value) : undefined;
+    return kind !== undefined && kind !== "absent";
   };
 
   const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };

@@ -15,6 +15,8 @@ export interface OpenProjectOptions {
   readonly drift?: ProjectDrift;
   /** What is at a project path, for the packs that prepare when the project opens; by default the project's disk. */
   readonly pathKinds?: ProjectPathKinds;
+  /** How long each pack's work on opening may take before the project opens without it; 5 seconds by default. */
+  readonly prepareWithinMs?: number;
 }
 
 /**
@@ -33,6 +35,7 @@ export async function openProject(root: string, options: OpenProjectOptions = {}
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
       drift: options.drift ?? new FileSystemProjectDrift(),
       pathKinds: options.pathKinds ?? new FileSystemProjectPathKinds(),
+      ...(options.prepareWithinMs === undefined ? {} : { prepareWithinMs: options.prepareWithinMs }),
     });
     return await handler.execute(command.value);
   } catch (thrown) {

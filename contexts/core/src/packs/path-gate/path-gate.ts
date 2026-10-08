@@ -18,7 +18,7 @@ import {
 import { contains, filterable, matches, reaches, unavoidable } from "./matching.ts";
 import type { ProtectedPathJSON } from "./protected-path.contract.ts";
 import { ProtectedPath, WRITES } from "./protected-path.ts";
-import { prepareShellCheck, type ShellCheck } from "./shell-check.ts";
+import { type ShellCheck, startShellCheck } from "./shell-check.ts";
 import { treeSitterShellParser } from "./shell-parser.tree-sitter.ts";
 
 /**
@@ -137,7 +137,9 @@ const shellChecks = new WeakMap<Composition, ShellCheck>();
 
 /** When a project opens: load the shell parser, and keep the project's root and what is at its paths for its check. */
 const prepareShell: ProjectOpenHandler = async (project, composition) => {
-  shellChecks.set(composition, await prepareShellCheck(shellParser, project));
+  const { check, ready } = startShellCheck(shellParser, project);
+  shellChecks.set(composition, check);
+  await ready;
 };
 
 const UNCHECKED = "the path gate cannot check shell commands";
