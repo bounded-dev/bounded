@@ -86,8 +86,8 @@ export type { AdapterRefusal, DecisionEvent, DecisionFactory, DecisionJSON, Reco
 export { Decision } from "./decisions/decision.ts";
 export type { DecisionIdFactory } from "./decisions/decision-id.contract.ts";
 export { DecisionId } from "./decisions/decision-id.ts";
-export type { Config, ConfigFactory, ConfigSpec } from "./config/config.contract.ts";
-export { composeConfig, defineConfig, isConfig } from "./config/config.ts";
+export type { ConfigFactory, ConfigSpec } from "./config/config.contract.ts";
+export { Config, defineConfig } from "./config/config.ts";
 export type { Allow, AllowJSON, Refuse, RefuseJSON, VerdictFactory, VerdictJSON } from "./verdicts/verdict.contract.ts";
 export { Verdict } from "./verdicts/verdict.ts";
 

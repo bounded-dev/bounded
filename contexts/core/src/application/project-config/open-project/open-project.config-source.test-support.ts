@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isConfig } from "bounded/domain";
+import { Config } from "bounded/domain";
 import type { ProjectConfigSource } from "./open-project.contract.ts";
 
 /** A project directory set up as asked, and the source that loads it. */
@@ -14,7 +14,7 @@ export function projectConfigSourceConformance(name: string, fixture: (project: 
     test("loads a project's configuration made by defineConfig", async () => {
       const { source, root } = await fixture("valid");
       const loaded = await source.load(root);
-      expect(loaded.ok && isConfig(loaded.value)).toBe(true);
+      expect(loaded.ok && Config.parse(loaded.value).ok).toBe(true);
     });
 
     test("refuses a project without a configuration, saying how to add one", async () => {

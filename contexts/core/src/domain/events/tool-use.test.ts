@@ -58,6 +58,40 @@ describe("ToolUse — boundaries", () => {
     expect(error({ ...edit, kind: "session-start" })).toBe("A tool use has kind 'tool-use', not 'session-start'");
   });
 
+  test("paths are normalised, so a guard cannot be dodged by spelling a path differently", () => {
+    const result = ToolUse.parse({ role: null, tool: "edit", effects: [{ kind: "write", path: "./generated//api.ts", change: "modify" }] });
+    expect(result.ok).toBe(true);
+    expect(wireOf(result.ok && result.value)).toEqual({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "generated/api.ts", change: "modify" }] });
+  });
+
+  test("a tool use is a frozen copy: changing it fails, and the input stays as given", () => {
+    const input = { role: null, tool: "read", effects: [{ kind: "read", path: "a.ts" }] };
+    const result = ToolUse.parse(input);
+    expect(() => result.ok && (result.value.effects as unknown as object[]).push({ kind: "read", path: "b.ts" })).toThrow();
+    expect(result.ok && result.value.effects.length).toBe(1);
+    expect(input.effects).toEqual([{ kind: "read", path: "a.ts" }]);
+  });
+
+  test("extra fields are dropped, and missing optional ones become null", () => {
+    const result = ToolUse.parse({ role: null, tool: "search", effects: [{ kind: "list", root: "src" }], content: "secret" });
+    expect(result.ok && Object.hasOwn(result.value, "content")).toBe(false);
+    expect(wireOf(result.ok && result.value.effects)).toEqual([{ kind: "list", root: "src", filter: null }]);
+  });
+
+  test("a getter on the input is read once; the tool use keeps the value it gave", () => {
+    let reads = 0;
+    const result = ToolUse.parse({
+      role: null,
+      tool: "edit",
+      get effects() {
+        reads += 1;
+        return [{ kind: "write", path: reads === 1 ? "generated/a.ts" : "safe.ts", change: "modify" }];
+      },
+    });
+    expect(reads).toBe(1);
+    expect(wireOf(result.ok && result.value.effects)).toEqual([{ kind: "write", path: "generated/a.ts", change: "modify" }]);
+  });
+
   test("is frozen, its effects too", () => {
     const result = ToolUse.parse(grep);
     expect(result.ok && Object.isFrozen(result.value) && Object.isFrozen(result.value.effects) && result.value.effects.every((e) => Object.isFrozen(e))).toBe(true);

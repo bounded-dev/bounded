@@ -13,10 +13,11 @@ export interface Judgement {
 /**
  * Decides an event with a composition's guards: the core pack's whole-call
  * guards, then each effect's guards; the first refusal wins, attributed to
- * the pack (and effect) that refused. Without a genuine composition, or for
- * an event that cannot be read, it refuses. Never throws.
+ * the pack (and effect) that refused. Takes a composition and an event as
+ * their classes made them: untyped input is parsed before it reaches here.
+ * Never throws.
  */
-export type DecideEvent = (composition: Composition | null, event: Event) => Judgement;
+export type DecideEvent = (composition: Composition, event: Event) => Judgement;
 
 /** DecideEvent's verdict alone. */
 export type DispatchEvent = (composition: Composition, event: Event) => Verdict;

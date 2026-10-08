@@ -2554,5 +2554,77 @@
       "case": "ProtectedPath — laws > refuses what it does not accept, with a reason"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch.test.ts",
+    "case": "dispatch — guards see only the checked event > a guard receives normalised paths, so it cannot be dodged by spelling a path differently",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > paths are normalised, so a guard cannot be dodged by spelling a path differently"
+    },
+    "reason": "dispatch takes an Event as its class made it: the event is parsed once, where untyped input arrives (the judge), so what a guard sees is what Event.parse gives (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch.test.ts",
+    "case": "dispatch — guards see only the checked event > extra fields never reach a guard, and missing optional ones arrive as null",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > extra fields are dropped, and missing optional ones become null"
+    },
+    "reason": "dispatch takes an Event as its class made it: the event is parsed once, where untyped input arrives (the judge), so what a guard sees is what Event.parse gives (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch.test.ts",
+    "case": "dispatch — guards see only the checked event > a guard sees a frozen copy: one that tries to change it affects neither later guards nor the caller",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > a tool use is a frozen copy: changing it fails, and the input stays as given"
+    },
+    "reason": "dispatch takes an Event as its class made it: the event is parsed once, where untyped input arrives (the judge), so what a guard sees is what Event.parse gives (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch.test.ts",
+    "case": "dispatch — guards see only the checked event > a getter on the input is read once, by the check; guards see the value it gave",
+    "successor": {
+      "file": "contexts/core/src/domain/events/tool-use.test.ts",
+      "case": "ToolUse — boundaries > a getter on the input is read once; the tool use keeps the value it gave"
+    },
+    "reason": "dispatch takes an Event as its class made it: the event is parsed once, where untyped input arrives (the judge), so what a guard sees is what Event.parse gives (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch.test.ts",
+    "case": "dispatch — fail closed, never throws > an invalid event refuses without running any guard",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.test.ts",
+      "case": "Event — boundaries > refuses an event whose effect is invalid, naming the effect and why"
+    },
+    "reason": "dispatch takes an Event as its class made it: the event is parsed once, where untyped input arrives (the judge), so what a guard sees is what Event.parse gives (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch-event.test.ts",
+    "case": "dispatchEvent — fails closed > an invalid event is refused",
+    "successor": {
+      "file": "contexts/core/src/domain/events/event.test.ts",
+      "case": "Event — boundaries > refuses an event whose effect is invalid, naming the effect and why"
+    },
+    "reason": "dispatch takes an Event as its class made it: the event is parsed once, where untyped input arrives (the judge), so what a guard sees is what Event.parse gives (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch.test.ts",
+    "case": "dispatch — fail closed, never throws > guards that are not a list refuse",
+    "successor": null,
+    "reason": "dispatch takes its guards as a typed list; shape checks live in the classes that own the shapes, not in functions (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch-event.test.ts",
+    "case": "dispatchEvent — fails closed > something that is not a composition is refused, never thrown",
+    "successor": null,
+    "reason": "decideEvent takes a Composition as Composition.compose made it; a look-alike does not type-check (compile-time fixture guards-rejected.ts), and no boundary hands dispatch an untyped composition (ADR 2026-013, B3)"
+  },
+  {
+    "file": "contexts/core/src/domain/guards/dispatch-event.test.ts",
+    "case": "dispatchEvent — refuses what it cannot trust > a look-alike composition, however well it imitates one, is refused",
+    "successor": null,
+    "reason": "decideEvent takes a Composition as Composition.compose made it; a look-alike does not type-check (compile-time fixture guards-rejected.ts), and no boundary hands dispatch an untyped composition (ADR 2026-013, B3)"
   }
 ]

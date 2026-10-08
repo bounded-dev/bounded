@@ -1,4 +1,4 @@
-import { type Composition, composeConfig, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
+import { type Composition, Config, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
 import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
 import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
@@ -102,9 +102,10 @@ export class OpenProjectHandler implements OpenProject {
       return { ok: false, error: `the configuration source failed: ${text(thrown)}` };
     }
     if (typeof loaded !== "object" || loaded === null || !("ok" in loaded)) return { ok: false, error: "the configuration source returned no result" };
-    const result = loaded as Result<Parameters<typeof composeConfig>[0]>;
+    const result = loaded as Result<unknown>;
     if (!result.ok) return { ok: false, error: typeof result.error === "string" ? result.error : "the configuration source returned no reason" };
-    const composed = composeConfig(result.value);
+    const config = Config.parse(result.value);
+    const composed = config.ok ? config.value.compose() : config;
     return composed.ok ? composed : { ok: false, error: `its packs cannot be composed: ${composed.error}` };
   }
 

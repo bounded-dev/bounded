@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { wireOf } from "../shared/value-object.laws.test-support.ts";
-import type { Event as EventType } from "../events/event.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import { SessionStart as SessionStartFactory } from "../events/session-start.ts";
 import { ToolUse } from "../events/tool-use.ts";
@@ -63,62 +61,6 @@ describe("dispatch — the verdict", () => {
   });
 });
 
-describe("dispatch — guards see only the checked event", () => {
-  /** An event as untyped data would bring it, unchecked. */
-  const raw = (fields: object): ToolUseType => fields as ToolUseType;
-  const seenBy = (event: ToolUseType): EventType[] => {
-    const seen: EventType[] = [];
-    dispatch([(e) => { seen.push(e); return Verdict.allow; }], event);
-    return seen;
-  };
-
-  test("a guard receives normalised paths, so it cannot be dodged by spelling a path differently", () => {
-    const noGenerated: Guard<ToolUseType> = (event) =>
-      event.effects.some((effect) => effect.kind === "write" && effect.path.value.startsWith("generated/")) ? Verdict.refuse("Generated file", "Change the generator's input instead") : Verdict.allow;
-    const event = raw({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "./generated//api.ts", change: "modify" }] });
-    expect(dispatch([noGenerated], event).kind).toBe("refuse");
-    expect(wireOf(seenBy(event)[0])).toEqual({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "generated/api.ts", change: "modify" }] });
-  });
-
-  test("extra fields never reach a guard, and missing optional ones arrive as null", () => {
-    const [seen] = seenBy(raw({ kind: "tool-use", role: null, tool: "search", effects: [{ kind: "list", root: "src" }], content: "secret" }));
-    expect(seen !== undefined && Object.hasOwn(seen, "content")).toBe(false);
-    expect(wireOf(seen?.kind === "tool-use" && seen.effects)).toEqual([{ kind: "list", root: "src", filter: null }]);
-  });
-
-  test("a guard sees a frozen copy: one that tries to change it affects neither later guards nor the caller", () => {
-    const event = raw({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "a.ts" }] });
-    const meddler: Guard<ToolUseType> = (e) => {
-      try {
-        (e.effects as unknown as object[]).push({ kind: "read", path: "b.ts" });
-      } catch {
-        // frozen: the change is refused
-      }
-      return Verdict.allow;
-    };
-    const later: number[] = [];
-    dispatch([meddler, (e) => { later.push(e.effects.length); return Verdict.allow; }], event);
-    expect(later).toEqual([1]);
-    expect<unknown>(event.effects).toEqual([{ kind: "read", path: "a.ts" }]);
-  });
-
-  test("a getter on the input is read once, by the check; guards see the value it gave", () => {
-    let reads = 0;
-    const event = raw({
-      kind: "tool-use",
-      role: null,
-      tool: "edit",
-      get effects() {
-        reads += 1;
-        return [{ kind: "write", path: reads === 1 ? "generated/a.ts" : "safe.ts", change: "modify" }];
-      },
-    });
-    const seen = seenBy(event);
-    expect(reads).toBe(1);
-    expect(wireOf(seen[0]?.kind === "tool-use" && seen[0].effects)).toEqual([{ kind: "write", path: "generated/a.ts", change: "modify" }]);
-  });
-});
-
 describe("dispatch — fail closed, never throws", () => {
   test("a guard that throws refuses, naming the guard by its position and the error", () => {
     const broken: Guard<ToolUseType> = () => {
@@ -160,25 +102,6 @@ describe("dispatch — fail closed, never throws", () => {
 
   test("a guard that is not a function refuses", () => {
     expect<unknown>(dispatch(untyped(allow, "allow"), write)).toEqual({ kind: "refuse", reason: "Guard 2 of 2 is not a function", redirect: FIX });
-  });
-
-  test("guards that are not a list refuse", () => {
-    expect<unknown>(dispatch(untyped as never, write)).toEqual({
-      kind: "refuse",
-      reason: "Dispatch was given guards that are not a list",
-      redirect: "Pass the guards for this event as a list; with no guards, pass []",
-    });
-  });
-
-  test("an invalid event refuses without running any guard", () => {
-    let ran = false;
-    const verdict = dispatch([() => { ran = true; return Verdict.allow; }], { kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "../x", change: "create" }] } as unknown as ToolUseType);
-    expect(ran).toBe(false);
-    expect<unknown>(verdict).toEqual({
-      kind: "refuse",
-      reason: "Dispatch was given an invalid event: Effect 1 of 1: Path '../x' climbs out of the project with '..'. Only paths inside the project can be checked",
-      redirect: "Build the event with Event.parse, ToolUse.parse or SessionStart.parse",
-    });
   });
 
   test("extra fields on a verdict are dropped; an unknown verdict kind is refused", () => {

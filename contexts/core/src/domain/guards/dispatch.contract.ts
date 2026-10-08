@@ -21,10 +21,11 @@ export type Guard<E extends Event, Context = unknown> = (event: E, context: Cont
 export type EffectGuard<F extends Effect, Context = unknown> = (effect: F, context: Context, call: ToolUse) => Verdict;
 
 /**
- * Runs the guards in the order given; the first refusal wins and later
- * guards do not run. No guards, or none refusing, allows. A guard that
- * throws, is not a function or returns anything but a verdict refuses,
- * naming the guard and the failure. Never throws.
+ * Runs the guards in the order given over an event made by its class; the
+ * first refusal wins and later guards do not run. No guards, or none
+ * refusing, allows. A guard that throws, is not a function or returns
+ * anything but a verdict refuses, naming the guard and the failure. Never
+ * throws.
  */
 export type Dispatch = <E extends Event, Context = unknown>(guards: readonly Guard<E, Context>[], event: E, ...context: ContextArgument<Context>) => Verdict;
 

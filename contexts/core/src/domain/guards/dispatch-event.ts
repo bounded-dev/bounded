@@ -2,8 +2,6 @@ import type { Composition, Entry } from "../composition/composition.contract.ts"
 import type { Effect, EffectByKind, EffectKind } from "../events/effect.contract.ts";
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
-import { isComposition } from "../composition/composition.ts";
-import { Event as EventFactory } from "../events/event.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { Verdict } from "../verdicts/verdict.ts";
@@ -11,7 +9,7 @@ import type * as Contract from "./dispatch-event.contract.ts";
 import type { Judgement } from "./dispatch-event.contract.ts";
 import type { LabelledGuard } from "./dispatch.contract.ts";
 import { corePack } from "./core-pack.ts";
-import { firstRefusal, invalidEvent, outermost, unfinished } from "./dispatch.ts";
+import { firstRefusal, outermost, unfinished } from "./dispatch.ts";
 
 const CORE = corePack.id.value;
 const { points } = corePack;
@@ -62,13 +60,8 @@ function judged(refusal: ReturnType<typeof firstRefusal>, effect: Effect | null)
  */
 export const decideEvent: Contract.DecideEvent = (composition, event) => outermost(() => decide(composition, event), (verdict) => plain(verdict));
 
-function decide(composition: Composition | null, event: Event): Judgement {
+function decide(composition: Composition, call: Event): Judgement {
   try {
-    if (!isComposition(composition)) {
-      return plain(Verdict.refuse("Dispatch was given something that is not a composition", "Compose the selected packs with Composition.compose and dispatch over the result"));
-    }
-    const checked = EventFactory.parse(event);
-    if (!checked.ok) return plain(invalidEvent(checked.error));
     if (!composition.packs.includes(corePack)) {
       return plain(
         Verdict.refuse(
@@ -77,7 +70,6 @@ function decide(composition: Composition | null, event: Event): Judgement {
         ),
       );
     }
-    const call = checked.value;
     if (call.kind === "session-start") {
       const starts = labelled(composition.entries(points.sessionStartGuards), "", (guard) => guard(call, composition));
       if (!starts.ok) return plain(unreadable(starts.error));

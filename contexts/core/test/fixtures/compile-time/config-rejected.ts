@@ -1,6 +1,6 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
-import { type BasePack, contribution, corePack, defineConfig } from "bounded/domain";
+import { type BasePack, type Config, contribution, corePack, defineConfig } from "bounded/domain";
 import { base, tags } from "./packs.ts";
 
 declare const somePacks: BasePack[];
@@ -14,3 +14,5 @@ export const twice = defineConfig({ packs: [corePack, corePack] }); // rejected:
 export const loose = defineConfig({ packs: [corePack, tags as BasePack] }); // rejected: each selected pack is a pack with an exact id
 // Values have exactly the point's type.
 export const wrongType = defineConfig({ packs: [corePack, base], contributes: [contribution(base.points.words, [42])] }); // rejected: Type 'number' is not assignable to type 'string'
+// A configuration is made by defineConfig, never written as a look-alike.
+export const lookAlike: Config = { __brand: "Config", selectedPacks: [corePack], projectPack: base }; // rejected: Property 'compose' is missing

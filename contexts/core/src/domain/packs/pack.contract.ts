@@ -53,6 +53,14 @@ export interface BasePack {
   readonly dependsOn: readonly BasePack[];
   readonly points: Readonly<Record<string, BasePoint | PointGroup>>;
   readonly contributes: readonly Contribution<PackId>[];
+  /**
+   * What is wrong with the pack's shape, when it was built from untyped data
+   * (a dependency that is not a pack, a point key that is not camelCase, a
+   * point not declared with point(...), a contribution not made with
+   * contribution(...)), or undefined. Composition refuses a selected pack
+   * that has one.
+   */
+  readonly problem: string | undefined;
 }
 
 /** An extension point with its value type forgotten: the common base shape composition works with; the precise generic types (`ExtensionPoint<Value, Owner>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
@@ -62,6 +70,10 @@ export interface BasePoint {
   /** `<pack id>.<key>`, or `<pack id>.<group key>.<member key>`, for messages. */
   readonly id: string;
   readonly description: string;
+  /** The owner's own values for this point, before the point's check parses them. */
+  readonly ownValues: readonly unknown[];
+  /** Parses a value with the point's own check; a check that throws, or returns no result, refuses it. Never throws. */
+  parseValue(raw: unknown): Result<unknown>;
 }
 
 /** An extension point of the pack with id `Owner`, accepting values of type `Value`. */
@@ -210,6 +222,8 @@ export interface PackFactory {
    * `<pack id>.<key>.<member>`; contribute to a member, never to the group.
    */
   pointGroup<const Members extends Readonly<Record<string, BaseDeclaration | PointGroupDeclaration<Readonly<Record<string, unknown>>>>>>(members: Members & StrictMembers<Members>): PointGroupDeclaration<Members>;
+  /** The pack itself when `raw` was made by definePack in this copy of bounded, or why not. */
+  parsePack(raw: unknown): Result<BasePack>;
   /** Contribute values of exactly the point's type (or a value object's wire form) to a point of a pack you depend on. */
   contribution<Value, Owner extends PackId>(point: ExtensionPoint<Value, Owner>, values: readonly NoInfer<Contributed<Value>>[]): Contribution<Owner>;
 }

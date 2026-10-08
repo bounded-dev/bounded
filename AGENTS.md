@@ -127,6 +127,16 @@ Rules, enforced by `architecture.test.ts` unless stated:
   Exempt, each named in the test with its
   reason: barrels, the shared kernel (`domain/shared/{result,read,text,wire}.ts`)
   and, until step C, `ProjectDrift` and `domain/drift/watched-paths.ts`.
+- **Shape checks live in the class that owns the shape (ADR 2026-013).**
+  Every check of the form "is this really an X, with the right fields" is in
+  the `parse` (or factory) of the class that owns X, the only way to get an
+  instance; an `instanceof` of a domain class appears only there. Functions
+  and handlers take valid instances and apply business and combination rules
+  only (a pack contributes only to its dependencies' points; the first
+  refusal wins). Untyped input is parsed once, at a boundary: a command's
+  `parse`, an adapter (config load, a port's output, a host payload), a
+  point's check, or the return value of contributed code (a guard's verdict,
+  a point check's result). A moved check keeps its message.
 - **A shipped pack is an ordinary pack** (ADR 2026-009): its code under
   `src/packs/<name>/` imports only the package's `domain` export path, its
   own directory and libraries the package declares, and does no I/O; nothing
