@@ -1,0 +1,42 @@
+import type { Result } from "../shared/result.ts";
+import type { CallId } from "./call-id.contract.ts";
+import type { Effect, EffectJSON } from "./effect.contract.ts";
+import type { Role } from "./role.contract.ts";
+
+/** The brand only ToolUse itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
+export declare const toolUseBrand: unique symbol;
+
+/** What kind of tool acts, in words no host owns: kept for allowlists of tools. */
+export type ToolKind = "read" | "search" | "edit" | "write" | "shell" | "web" | "subagent" | "other";
+
+/**
+ * An agent using a tool: who acts, with what kind of tool, and every precise
+ * effect the call has (at least one). Built only by `ToolUse.parse`.
+ */
+export interface ToolUse {
+  readonly __brand: "ToolUse";
+  readonly [toolUseBrand]: true;
+  readonly kind: "tool-use";
+  /** The acting role, or null when no role is active. */
+  readonly role: Role | null;
+  readonly toolKind: ToolKind;
+  readonly effects: readonly [Effect, ...Effect[]];
+  /** The host's id for this call, when it gives one: a tool result names the same id. */
+  readonly callId?: CallId;
+  equals(other: ToolUse): boolean;
+  toJSON(): ToolUseJSON;
+}
+
+/** A tool use's wire form: what its toJSON gives and ToolUse.parse takes (`kind` may be left out). */
+export interface ToolUseJSON {
+  readonly kind?: "tool-use";
+  readonly role: string | null;
+  readonly tool: ToolKind;
+  readonly effects: readonly EffectJSON[];
+  readonly callId?: string;
+}
+
+export interface ToolUseFactory {
+  /** A frozen tool use from its wire form, or why the value is not one. */
+  parse(raw: unknown): Result<ToolUse>;
+}

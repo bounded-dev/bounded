@@ -1,0 +1,22 @@
+{
+  "name": "bounded",
+  "dependencies": {
+    "@vscode/tree-sitter-wasm": "0.3.1",
+    "picomatch": "4.0.7",
+    "zod": "4.6.4"
+  },
+  "exports": {
+    "./domain": "./src/domain/index.ts",
+    "./application": "./src/application/index.ts",
+    "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts",
+    "./adapters/file-system": "./src/adapters/out/file-system/index.ts",
+    "./adapters/system": "./src/adapters/out/system/index.ts",
+    "./open-project": "./src/composition-root/open-project.ts",
+    "./path-gate": "./src/packs/path-gate/index.ts",
+    "./path-gate/adapters/file-system": "./src/packs/path-gate/adapters/out/file-system/index.ts",
+    "./path-gate/adapters/in-memory": "./src/packs/path-gate/adapters/out/in-memory/index.ts",
+    "./path-gate/adapters/tree-sitter": "./src/packs/path-gate/adapters/out/tree-sitter/index.ts"
+  },
+  "private": true,
+  "type": "module"
+}
