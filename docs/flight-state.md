@@ -39,6 +39,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
   with tree-sitter-bash and judges the files it names; [drift](drift.md)
   ([ADR 2026-011](adr/2026-011-drift.md)), which puts back what a shell
   command changed in protected files.
+- **The prerequisites pack** (`bounded/prereqs`,
+  [ADR 2026-019](adr/2026-019-prereqs-pack.md), [its README](../contexts/core/src/packs/prereqs/README.md)),
+  shipping in 3.2.0: a project's rules make an action (a
+  delegation to an agent, or a file tool's write a pattern matches) wait
+  until a delegation to another agent has succeeded over files unchanged
+  since. Its records and starts are in `.bounded/prereqs/`; its two ports
+  are provided by both hosts. The core's delegate effect carries `isolated`
+  and `finishUnreported`, and a tool result `delegatedAgentRuns`: only a run
+  the host says finished counts.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
 - **One package, `bounded` 3.2.0, ready to publish; 3.1.0 is published**
@@ -127,6 +136,26 @@ when written; keep it current (AGENTS.md, "Working with the user").
   confining commands at the operating-system level (for example a sandbox
   profile, or the host's own Bash sandbox settings, generated from
   `protectedPaths`): planned, not built.
+- **The prerequisites pack's limits** ([ADR 2026-019](adr/2026-019-prereqs-pack.md)):
+  - `before: { write }` matches file tools' writes only; a shell command's
+    writes are not matched.
+  - Drift never watches `.bounded/`, so records forged by a shell command
+    the path gate does not see are kept: the records rest on the path gate's
+    `.bounded/**` rule.
+  - Agent definitions, which say who an agent is, come from five places;
+    only the project's (`.claude/agents/`, pi-subagents' project agent
+    directory) can be protected. User-level `~/.claude/agents/` and pi's
+    user-level agents are not covered.
+  - Background runs never count until the finish event is built: in
+    interactive Claude Code a requirement is met only with background
+    subagents disabled (`CLAUDE_CODE_FORK_SUBAGENT=0` or
+    `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`); pi's asynchronous runs are
+    refused.
+  - Records are never compacted.
+  - `beforeTool` refusals are recorded with `refusedBy: null`, naming no
+    pack in the guard log (the reason names it).
+  - A requirement over patterns that match no file can never be met.
+  - ABA: files edited and put back during a run compare equal, so it counts.
 - **Interrupted tool calls are unchecked.** Pressing Esc in Claude Code fires
   no hook, so the change is never checked and its drift snapshot expires
   ([Claude Code adapter](adapter-claude-code.md), [drift](drift.md)).
@@ -255,7 +284,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - Beyond `bounded init` and `bounded update` (see "The install command"
   below), no other command-line tool exists.
 - A file-backed pack catalog (only the in-memory catalog exists).
-- A workflow or phase state pack.
+- The prerequisites pack's next items (ADR 2026-019, "Future work"):
+  observing an agent run's finish (`prereqs-run-finish`, gated on a capture
+  of Claude Code's SubagentStop payloads), pi-subagents' asynchronous
+  completion (`prereqs-pi-async`), `before: { execute }` with shell writes,
+  and a Claude Code status widget listing each requirement as holds, stale
+  or missing.
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the guard log ([guard log](guard-log.md),

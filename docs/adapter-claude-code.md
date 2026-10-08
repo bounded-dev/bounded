@@ -35,7 +35,7 @@ of its own and imports the core only through its export paths.
 | Glob | search | list root `path` (else the session's directory), filter `pattern` |
 | Grep | search | list root `path` (else the session's directory), filter `glob`; read the root. The regex is not an effect |
 | Bash, PowerShell, Monitor | shell | execute `command`, `cwd` the session's directory, project-relative |
-| Agent, Task | subagent | delegate to `subagent_type` (Claude Code's default, `general-purpose`, when absent) |
+| Agent, Task | subagent | delegate to `subagent_type` (Claude Code's default, `general-purpose`, when absent); `isolation: "worktree"` makes it `isolated`, a teammate spawn (`name` without `isolation`) `finishUnreported` (ADR 2026-019) |
 | WebFetch | web | fetch `url` |
 | WebSearch | web | invoke `WebSearch` |
 | anything else (Skill, `mcp__*`, ...) | other | invoke the tool's name |
@@ -113,7 +113,7 @@ after the hook answers); the hook judges the state it sees.
 `composeHook({ env, argv, decide })` is the composition root; `decide` is the
 seam, and it is told the project (`{ projectRoot }`, from
 `CLAUDE_PROJECT_DIR`). `main.ts` passes `decideFromConfig`, which calls the
-core's `openProject(projectRoot, { ports: pathGatePortProvisions() })` (`bounded/open-project`, with every port of the path gate, from `bounded/path-gate/adapters`) and then
+core's `openProject(projectRoot, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()] })` (`bounded/open-project`, with every port of the path gate, from `bounded/path-gate/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`) and then
 `judge(event)`: the core composes the packs `bounded.config.ts` selects,
 decides, and records the decision in `.bounded/guard-log.jsonl`. A refusal
 from the core already names the refusing pack and effect (`test-packs/no-generated
@@ -147,6 +147,15 @@ the `...FromConfig` ones, which open the project the same way):
   past the deadline, the answer says so and asks for the files to be checked
   against version control: never silence; the failure is also recorded.
   Without `afterTool`, `PostToolUse` answers nothing.
+- An Agent or Task result says whether the agent's run finished, as the
+  core's `delegatedAgentRuns` (one entry, for its one delegate effect; ADR
+  2026-019): finished only when `tool_response.status` is `"completed"` and
+  `harnessNoteCount` is a number equal to 0. A background run answers
+  `async_launched` at launch, and a run stopped at its turn limit answers
+  `completed` with `harnessNoteCount: 1`; anything else, or a missing count,
+  is not finished, and a `PostToolUseFailure` never is. Any other `isolation`
+  than `"worktree"` refuses the call. `run_in_background` is not read: in fork
+  mode it does not say what happens.
 - A call that fails (a Bash command exiting non-zero, a tool that errors)
   reaches `PostToolUseFailure`, not `PostToolUse`, so `echo x > protected;
   exit 1` would otherwise escape the check. It is checked the same way, as a

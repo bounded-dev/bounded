@@ -11,7 +11,7 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-003](2026-003-packs-refer-to-packs.md) | Packs refer to each other as objects; strict typing is binding |
 | [2026-004](2026-004-namespaced-pack-ids.md) | npm-namespaced pack ids; selection by pack objects; workspace package `bounded` |
 | [2026-005](2026-005-events-verdicts-dispatch.md) | Host-neutral events, verdicts and a pure dispatch |
-| [2026-006](2026-006-effects.md) | A tool use is a list of precise effects |
+| [2026-006](2026-006-effects.md) | A tool use is a list of precise effects (amended by 2026-019) |
 | [2026-007](2026-007-guards-over-a-composition.md) | Guards over a composition: the core pack and per-effect dispatch |
 | [2026-008](2026-008-guard-log.md) | Every decision is recorded in the guard log, and an unrecorded decision fails closed |
 | [2026-009](2026-009-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules |
@@ -24,3 +24,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-016](2026-016-cli-app.md) | One package, `bounded`, carrying the CLI and the host adapters (separate apps in source), compiled for Node; installs and upgrades hand over to the installed version |
 | [2026-017](2026-017-adapters-by-port.md) | Out adapters are grouped by the port they serve (`adapters/out/<port>/`), in-memory doubles are test support, and `Clock` and `DecisionIds` give value objects; two internal adapter export paths |
 | [2026-018](2026-018-selection-brings-in-dependencies.md) | A selection brings in every pack its packs depend on, transitively; the project still contributes only to the packs it lists |
+| [2026-019](2026-019-prereqs-pack.md) | The prerequisites pack, `bounded/prereqs`: an action needs a delegation that succeeded over unchanged files; amends 2026-006 (a delegate effect's `isolated` and `finishUnreported`, a tool result's `delegatedAgentRuns`) |
