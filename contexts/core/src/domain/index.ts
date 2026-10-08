@@ -85,6 +85,7 @@ export type {
   ShellFileEffectJSON,
   ShellProgramRun,
   ShellProgramRunJSON,
+  UnreadShellCommandCause,
   UnreadShellCommandReading,
   UnreadShellCommandReadingJSON,
   UnresolvedShellPart,

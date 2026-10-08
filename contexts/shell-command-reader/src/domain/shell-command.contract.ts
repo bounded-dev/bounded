@@ -93,4 +93,6 @@ export interface ShellCommandEffects {
   readonly unresolved: readonly UnresolvedWord[];
   /** Why the command cannot be read, when reading it outgrew the work budget: then nothing above is a reading of it. */
   readonly unreadWhy?: string;
+  /** The work steps reading it took, out of the budget (WORK_BUDGET_STEPS). */
+  readonly workSpent: number;
 }

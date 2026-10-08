@@ -14,6 +14,8 @@ shellCommandReaderConformance("TreeSitterShellCommandReader", async ({ files, di
 });
 
 const ROOT = "/work/project";
+/** A realistic install script (test/fixtures/install.sh): lists, if, for, while, case, $(...), a heredoc, sudo, git -C and one xargs. */
+const INSTALL_SCRIPT = join(import.meta.dir, "../../../../test/fixtures/install.sh");
 const made = <T>(parsed: { ok: true; value: T } | { ok: false; error: string }): T => {
   if (!parsed.ok) throw new Error(parsed.error);
   return parsed.value;
@@ -164,17 +166,67 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     for (const command of [
       `${"xargs $A ".repeat(24)}true`,
       `${"xargs --b ".repeat(24)}true`,
-      `xargs ${"--b ".repeat(20)}rm .git/hooks/pre-commit`,
+      `xargs ${"--b ".repeat(30)}rm .git/hooks/pre-commit`,
       `${"xargs ".repeat(200)}true`,
       `${"sudo ".repeat(200)}rm x`,
+      // Few readings, each slicing thousands of words: the budget counts the work, not the calls.
+      `${"xargs $A ".repeat(24)}true ${"w ".repeat(5000)}`,
+      `${"xargs $A ".repeat(24)}touch ${"w ".repeat(5000)}`,
     ]) {
       const started = performance.now();
       const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
       const elapsed = performance.now() - started;
       expect({ command: command.slice(0, 40), fast: elapsed < 2000, outcome: reading.outcome }).toEqual({ command: command.slice(0, 40), fast: true, outcome: "unread" });
-      expect(reading.outcome === "unread" && reading.why).toBe("the command is too complex to read within bounded's work budget (20000 steps): its words could be read too many ways, or it nests too deep");
+      expect(reading.outcome === "unread" && reading.why).toBe("the command is too complex to read within bounded's work budget (200000 steps): its words could be read too many ways, or it nests too deep");
+      expect(reading.outcome === "unread" && reading.cause).toBe("too-complex");
     }
   }, 30_000);
+
+  test("a command past the length limits is unread before it is parsed, saying which limit, as too complex", async () => {
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    const cases: readonly (readonly [string, string])[] = [
+      [`echo ${"a".repeat(65_536)}`, "the command is too long to read: 65541 characters, past bounded's limit of 65536"],
+      [`echo ${"a ".repeat(10_000)}`, "the command is too long to read: 10001 words, past bounded's limit of 10000"],
+    ];
+    for (const [command, why] of cases) {
+      const started = performance.now();
+      const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
+      expect(performance.now() - started).toBeLessThan(2000);
+      expect(reading.toJSON()).toEqual({ outcome: "unread", why, cause: "too-complex" });
+    }
+  });
+
+  test("a word too long to brace-expand makes the command unread as too complex, quickly: brace expansion is bounded", async () => {
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    const started = performance.now();
+    const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(`cat ${"{a,b}".repeat(10_000)}`)), null)));
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read: a word with a brace in it is longer than 4096 characters, past what bounded will brace-expand", cause: "too-complex" });
+    // Below the bound, braces still expand.
+    expect((await read(`cat ${"{a,b}".repeat(8)}`)).fileEffects).toHaveLength(256);
+    expect((await read(`cat ${"{a,b}".repeat(9)}`)).unresolved).toEqual([{ text: "{a,b}".repeat(9), role: "read" }]);
+    expect((await read("cat {a,b}.txt")).fileEffects).toEqual([{ effect: { kind: "read", path: "a.txt" } }, { effect: { kind: "read", path: "b.txt" } }]);
+  });
+
+  test("a realistic install script of about 500 lines is read, programs and all, well within the budget", async () => {
+    const script = await Bun.file(INSTALL_SCRIPT).text();
+    expect(script.split("\n").length).toBeGreaterThan(450);
+    const reading = await read(script);
+    const names = new Set(reading.programs.map((program) => program.name.text));
+    for (const name of ["mkdir", "curl", "tar", "make", "sudo", "git", "xargs", "rm", "cp", "date", "tee"]) expect({ name, ran: names.has(name) }).toEqual({ name, ran: true });
+    expect(reading.programs.length).toBeGreaterThan(300);
+    // A cd to a directory only the shell can name leaves where later commands run unknown, so their paths are unresolved, never guessed.
+    expect(reading.unresolved).toContainEqual({ text: '"$COMPONENT_DIR"', role: "directory" });
+    expect(reading.unresolved).toContainEqual({ text: "vendor/postgres", role: "directory" });
+  });
+
+  test("commands nested just inside the limit are read; one level past it, unread", async () => {
+    expect((await read(`${"sudo ".repeat(60)}rm x`)).fileEffects).toEqual([{ effect: { kind: "write", path: "x", change: "delete" } }]);
+    expect((await read(`${"sh -c 'sudo ".repeat(20)}rm x${"'".repeat(20)}`)).programs.length).toBeGreaterThan(0);
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    const past = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(`${"sudo ".repeat(70)}rm x`)), null)));
+    expect(past.outcome).toBe("unread");
+  });
 
   test("xargs's input reaches the command a wrapper under it runs", async () => {
     const sudo = await read("ls | xargs sudo rm");

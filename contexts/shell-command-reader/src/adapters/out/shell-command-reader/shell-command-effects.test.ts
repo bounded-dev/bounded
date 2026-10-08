@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { Command, ProjectPath } from "bounded/domain";
 import type { PathKind } from "../../../domain/shell-command.contract.ts";
+import { WORK_BUDGET_STEPS } from "../../../domain/command-meanings.ts";
 import { describeShellCommand } from "../../../domain/shell-command.ts";
 import { type BashSyntaxTree, bashSyntaxTree } from "./bash-syntax-tree.ts";
 
@@ -180,5 +182,29 @@ describe("the bash syntax tree: a redirection after a list or a pipeline is its 
       { path: "b.txt", change: "create" },
     ]);
     expect(described("{ cd sub; echo x; } > out.txt", null, { sub: "directory" }).writes).toEqual([{ path: "out.txt", change: "create" }]);
+  });
+});
+
+describe("the work budget: what reading a command costs", () => {
+  /** The steps reading `command` takes, and whether it ran out. */
+  const cost = (command: string) => {
+    const script = made(parser.parse(commandOf(command)));
+    const effects = describeShellCommand(script, { cwd: null, root: ROOT, kindOfPath: kindOf({}), parseScript: () => ({ ok: false, error: "no nested shell" }) });
+    return { workSpent: effects.workSpent, unread: effects.unreadWhy !== undefined };
+  };
+
+  test("a realistic 500-line install script takes a small part of the budget", async () => {
+    const script = await Bun.file(join(import.meta.dir, "../../../../test/fixtures/install.sh")).text();
+    const spent = cost(script);
+    expect(spent.unread).toBe(false);
+    expect(spent.workSpent).toBeGreaterThan(1000);
+    expect(spent.workSpent).toBeLessThan(WORK_BUDGET_STEPS / 10);
+  });
+
+  test("the budget counts work, not calls: a word costs a step each time it is handled", () => {
+    const few = cost(`cat ${"a ".repeat(10)}`).workSpent;
+    const many = cost(`cat ${"a ".repeat(1000)}`).workSpent;
+    expect(many).toBeGreaterThan(few * 50);
+    expect(cost(`${"xargs $A ".repeat(24)}true ${"w ".repeat(5000)}`)).toMatchObject({ unread: true });
   });
 });

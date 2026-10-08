@@ -1,4 +1,4 @@
-import { type Composition, Verdict, type ListEffect, type WriteEffect } from "bounded/domain";
+import { type Composition, type ListEffect, type UnreadShellCommandCause, Verdict, type WriteEffect } from "bounded/domain";
 import { pathGateId } from "../../domain/path-gate-id.ts";
 import type { ProtectedPath } from "../../domain/protected-path.contract.ts";
 import { protectedPathsIn } from "../../domain/protected-path.ts";
@@ -100,6 +100,11 @@ export const judgeWrite: Contract.JudgeWrite = (effect, composition) => firstDen
 
 const UNCHECKED = "the path gate cannot check shell commands";
 const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project) and a shell command reader, and reinstall bounded's dependencies if its parser cannot load; shell commands are refused until then";
+/** The redirect for each cause a reader gives: what would let the command be read. */
+const UNREAD_REDIRECTS: Readonly<Record<UnreadShellCommandCause, string>> = Object.freeze({
+  "too-complex": "Split the command into simpler commands, or simplify it (fewer nested commands, no words only the shell can resolve where a program's options are), and run each on its own; this one is refused as it is",
+  unparsable: "Check the command's quoting and syntax, or split it into simpler commands; this one is refused as it is",
+});
 
 /**
  * A shell command is judged by the core's reading of it (ADR 2026-020): the
@@ -114,7 +119,7 @@ const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project
 export const judgeExecute: Contract.JudgeExecute = (effect, composition) => {
   const { reading } = effect;
   if (reading === null) return Verdict.refuse(`${UNCHECKED}: bounded did not read this command; openProject's judge, given a shell command reader, reads every command`, UNREAD_REDIRECT);
-  if (reading.outcome === "unread") return Verdict.refuse(`${UNCHECKED}: ${reading.why}`, UNREAD_REDIRECT);
+  if (reading.outcome === "unread") return Verdict.refuse(`${UNCHECKED}: ${reading.why}`, reading.cause === undefined ? UNREAD_REDIRECT : UNREAD_REDIRECTS[reading.cause]);
   const judged = (what: string, verdict: Verdict): Verdict | undefined => (verdict.kind === "refuse" ? Verdict.refuse(`this command ${what} — ${verdict.reason}`, verdict.redirect) : undefined);
   for (const { effect: read } of reading.fileEffects) {
     if (read.kind !== "read") continue;

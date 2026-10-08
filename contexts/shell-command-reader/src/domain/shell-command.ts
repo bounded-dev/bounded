@@ -21,7 +21,7 @@ interface Scope {
 /** Why a command that outgrew its work budget is unread. */
 const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
 
-const WRITE_REDIRECTS =new Set([">", ">>", ">|", "&>", "&>>"]);
+const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
 
@@ -33,7 +33,7 @@ const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path
  * written, never these.
  */
 function inputRoles(name: ShellWord, words: readonly ShellWord[], budget: WorkBudget, depth = 0): UnresolvedWord["role"][] {
-  if (!spend(budget)) return [];
+  if (!spend(budget, 1 + words.length)) return [];
   if (name === XARGS_INPUT) return ["code"];
   if (name.kind !== "literal" || depth > 8) return ["code"];
   const meaning = commandMeaning(name.text, words, budget);
@@ -115,6 +115,8 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   /** A word as a project path; recorded as unresolved, with the role it would have had, when it cannot be one. */
   const resolve = (word: ShellWord, scope: Scope, role: UnresolvedWord["role"]): ProjectPath | undefined => {
+    // Resolving costs a step and one more per 64 characters; once the budget is spent nothing more is kept.
+    if (!spend(budget, 1 + (word.text.length >> 6))) return undefined;
     const path = word.kind === "literal" ? pathOf(word.text, scope) : undefined;
     if (path === undefined) unresolved.push({ text: word.text, role });
     return path;
@@ -122,6 +124,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   /** A write of `path`, a create or a modify by whether it exists, as a file tool's would be. */
   const write = (path: ProjectPath, change: MeaningChange): void => {
+    if (!spend(budget)) return;
     if (change === "create" || change === "delete") {
       writes.push({ path, change });
       return;
@@ -165,10 +168,10 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * substitution adds a report, never replaces the check).
    */
   const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
-    if (name === null || !spend(budget)) return;
+    if (name === null || !spend(budget, 1 + args.length)) return;
     if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
     if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT], budget)) unresolved.push({ text: XARGS_INPUT.text, role });
-    if (how.replace !== undefined) {
+    if (how.replace !== undefined && spend(budget, 1 + args.length)) {
       const [inputName = name, ...inputArgs] = withInputReplaced([name, ...args], how.replace) ?? [XARGS_INPUT];
       const roles = inputName === name && !inputArgs.includes(XARGS_INPUT) ? [] : inputRoles(inputName, inputArgs, budget);
       for (const role of roles) unresolved.push({ text: XARGS_INPUT.text, role });
@@ -192,7 +195,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
         const from = resolve(source, scope, "read");
         if (from !== undefined) reads.push(from);
         if (from !== undefined && moves) writes.push({ path: from, change: "delete" });
-        if (to === undefined) continue;
+        if (to === undefined || !spend(budget)) continue;
         if (place.kindOfPath(to) !== "directory") write(to, "write");
         else if (from !== undefined) {
           const inside = pathOf(from.value.split("/").at(-1) ?? from.value, { at: partsOf(to) });
@@ -201,6 +204,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       }
     }
     for (const operand of meaning.repositoryReads) {
+      if (!spend(budget, 2)) break;
       // The path after <rev>: is from where the command runs when written ./ or ../, else from the repository root, which is the project root only when it holds .git.
       const text = operand.text.slice(operand.text.indexOf(":") + 1);
       const fromHere = text.startsWith("./") || text.startsWith("../");
@@ -238,6 +242,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   };
 
   const walk = (node: ShellNode, scope: Scope): void => {
+    if (!spend(budget)) return;
     switch (node.kind) {
       case "command": {
         for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, scope);
@@ -298,6 +303,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };
   for (const node of script) walk(node, start);
-  if (budget.exhausted) return { programs: [], reads: [], lists: [], writes: [], unresolved: [], unreadWhy: TOO_COMPLEX };
-  return { programs, reads, lists, writes, unresolved };
+  const workSpent = WORK_BUDGET_STEPS - Math.max(budget.left, 0);
+  if (budget.exhausted) return { programs: [], reads: [], lists: [], writes: [], unresolved: [], unreadWhy: TOO_COMPLEX, workSpent };
+  return { programs, reads, lists, writes, unresolved, workSpent };
 }

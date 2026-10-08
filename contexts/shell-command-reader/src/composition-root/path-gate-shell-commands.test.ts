@@ -234,7 +234,11 @@ describe("read by bounded's shell command reader — the path gate — what each
     const verdict = await shell(command);
     expect(performance.now() - started).toBeLessThan(2000);
     expect(reason(verdict)).toBe(
-      `bounded/path-gate refused execute \`${command}\`: the path gate cannot check shell commands: the command is too complex to read within bounded's work budget (20000 steps): its words could be read too many ways, or it nests too deep`,
+      `bounded/path-gate refused execute \`${command}\`: the path gate cannot check shell commands: the command is too complex to read within bounded's work budget (200000 steps): its words could be read too many ways, or it nests too deep`,
+    );
+    // Its own fix: split or simplify the command.
+    expect(verdict.kind === "refuse" && verdict.redirect).toBe(
+      "Split the command into simpler commands, or simplify it (fewer nested commands, no words only the shell can resolve where a program's options are), and run each on its own; this one is refused as it is",
     );
     // The same shape within the budget is read, and allowed.
     expect(await shell(`${"xargs $A ".repeat(2)}true`)).toBe(Verdict.allow);

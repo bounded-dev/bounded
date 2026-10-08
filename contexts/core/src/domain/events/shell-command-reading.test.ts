@@ -74,6 +74,17 @@ describe("ShellCommandReading — what bounded made of a shell command", () => {
     expect(error({ ...EMPTY_READ, programs: "cat" })).toBe("A shell command reading's programs, fileEffects and unresolved are lists");
   });
 
+  test("an unread reading may say what made it unreadable: too complex or unparsable; without a cause its wire form has none", () => {
+    for (const cause of ["too-complex", "unparsable"] as const) {
+      const parsed = ShellCommandReading.parse({ outcome: "unread", why: "x", cause });
+      expect(parsed.ok && parsed.value.outcome === "unread" && parsed.value.cause).toBe(cause);
+      expect(wireOf(parsed)).toEqual({ ok: true, value: { outcome: "unread", why: "x", cause } });
+    }
+    const plain = ShellCommandReading.parse({ outcome: "unread", why: "x" });
+    expect(plain.ok && Object.keys(plain.value.toJSON())).toEqual(["outcome", "why"]);
+    expect(error({ outcome: "unread", why: "x", cause: "slow" })).toBe("An unread reading's cause is too-complex or unparsable, not 'slow'");
+  });
+
   test("is frozen, its lists and entries too", () => {
     const reading = read({ ...EMPTY_READ, programs: [{ name: { kind: "literal", text: "cat" }, arguments: [], workingDirectory: "." }], fileEffects: [{ effect: { kind: "read", path: "a.txt" } }], unresolved: [{ text: "$X", role: "read" }] });
     expect([reading, reading.programs, reading.programs[0], reading.programs[0]?.name, reading.programs[0]?.arguments, reading.fileEffects, reading.fileEffects[0], reading.unresolved, reading.unresolved[0]].every(Object.isFrozen)).toBe(true);

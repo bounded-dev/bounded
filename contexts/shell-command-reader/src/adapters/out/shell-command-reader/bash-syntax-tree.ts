@@ -1,6 +1,6 @@
 import * as treeSitterModule from "@vscode/tree-sitter-wasm";
 import type { Node } from "@vscode/tree-sitter-wasm";
-import type { Command, Result } from "bounded/domain";
+import type { Command, UnreadShellCommandCause } from "bounded/domain";
 import type { ShellNode, ShellRedirect, ShellWord } from "../../../domain/shell-command.contract.ts";
 import { expandBraces } from "./brace-expansion.ts";
 
@@ -16,10 +16,23 @@ let bash: Promise<treeSitterModule.Language> | undefined;
 /** A loaded grammar, as tree-sitter gives it. */
 export type BashGrammar = treeSitterModule.Language;
 
-/** A command line as the shell would run it, synchronously; fails when the parser cannot parse it. */
+/** A command line parsed: its syntax tree, or why it cannot be read, with the cause the reader gives. */
+export type ParsedCommand = { readonly ok: true; readonly value: readonly ShellNode[] } | { readonly ok: false; readonly error: string; readonly cause: UnreadShellCommandCause };
+
+/** A command line as the shell would run it, synchronously; fails when the parser cannot parse it, or a word is too long to brace-expand. */
 export interface BashSyntaxTree {
-  parse(command: Command): Result<readonly ShellNode[]>;
+  parse(command: Command): ParsedCommand;
 }
+
+/**
+ * The longest word brace expansion is tried on, in characters. Past it, a
+ * word holding a brace is too complex to read: expanding `{a,b}` × 10,000
+ * would cost more than any command is worth, and only the shell could say
+ * what it gives.
+ */
+const MAX_BRACE_WORD = 4096;
+/** Whether the command being parsed holds a word past MAX_BRACE_WORD with a brace in it: set by `words`, read by `parse`. */
+let braceWordTooLong = false;
 
 /** The bash grammar, loaded once for the whole program; a load that fails is tried again next time. */
 export function loadBashGrammar(): Promise<BashGrammar> {
@@ -97,6 +110,10 @@ function template(node: Node): string | undefined {
 /** The words a word becomes: its brace expansion, each literal; one unresolved word when the shell alone can say. */
 function words(node: Node): ShellWord[] {
   const text = template(node);
+  if (text !== undefined && text.length > MAX_BRACE_WORD && text.includes("{")) {
+    braceWordTooLong = true;
+    return [unresolved(node)];
+  }
   const expanded = text === undefined ? undefined : expandBraces(text);
   if (expanded === undefined) return [unresolved(node)];
   return expanded.map((each) => ({ kind: "literal", text: withoutEscapes(each) }));
@@ -235,11 +252,14 @@ export async function bashSyntaxTree(loadGrammar: () => Promise<BashGrammar> = l
   const parser = new TreeSitter.Parser();
   parser.setLanguage(grammar);
   return Object.freeze({
-    parse(command: Command): Result<readonly ShellNode[]> {
+    parse(command: Command): ParsedCommand {
       const tree = parser.parse(command.value);
-      if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
+      if (tree === null) return { ok: false, error: "the shell parser could not parse this command", cause: "unparsable" };
+      braceWordTooLong = false;
       try {
-        return { ok: true, value: statements(tree.rootNode) };
+        const value = statements(tree.rootNode);
+        if (braceWordTooLong) return { ok: false, error: `the command is too complex to read: a word with a brace in it is longer than ${MAX_BRACE_WORD} characters, past what bounded will brace-expand`, cause: "too-complex" };
+        return { ok: true, value };
       } finally {
         tree.delete();
       }

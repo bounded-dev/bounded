@@ -60,9 +60,21 @@ export interface ReadShellCommandReading extends ShellCommandReadingOf<"read", R
   readonly unresolved: readonly UnresolvedShellPart[];
 }
 
+/**
+ * Why a reader says it could not read a command, when it can tell: the
+ * command is too complex (too long, read too many ways, nested too deep,
+ * expanding to too many words), so splitting or simplifying it would help;
+ * or it cannot be parsed at all. Absent, the reading failed for no reason
+ * the command can change (no reader, one that failed or was too slow, an
+ * answer that could not be used): its why says which.
+ */
+export type UnreadShellCommandCause = "too-complex" | "unparsable";
+
 /** A command that could not be read, and why: a pack that needs the reading refuses it (fail closed). */
 export interface UnreadShellCommandReading extends ShellCommandReadingOf<"unread", UnreadShellCommandReadingJSON> {
   readonly why: string;
+  /** What the reader says made it unreadable, when it can tell; present only then. */
+  readonly cause?: UnreadShellCommandCause;
 }
 
 /** What bounded made of a shell command: read, or unread with why. */
@@ -96,6 +108,8 @@ export interface ReadShellCommandReadingJSON {
 export interface UnreadShellCommandReadingJSON {
   readonly outcome: "unread";
   readonly why: string;
+  /** Written by toJSON only when the reading has one. */
+  readonly cause?: UnreadShellCommandCause;
 }
 export type ShellCommandReadingJSON = ReadShellCommandReadingJSON | UnreadShellCommandReadingJSON;
 

@@ -20,6 +20,7 @@ const FILE_EFFECT = "A shell command reading's file effect is { effect, existenc
 const EXISTENCE = "A shell command reading's file effect's existenceUnknown must be true or false";
 const PART = "An unresolved part is { text, role }";
 const ROLES: readonly Contract.UnresolvedShellRole[] = ["read", "list", "write", "directory", "code"];
+const CAUSES: readonly Contract.UnreadShellCommandCause[] = ["too-complex", "unparsable"];
 /** Each outcome's fields: a field not listed does not belong, and none may be missing. */
 const FIELDS = { read: ["programs", "fileEffects", "unresolved"], unread: ["why"] } as const;
 
@@ -140,7 +141,13 @@ class UnreadShellCommandReadingImpl implements Contract.UnreadShellCommandReadin
   readonly #made = true;
   readonly outcome = "unread" as const;
 
-  private constructor(readonly why: string) {
+  declare readonly cause?: Contract.UnreadShellCommandCause;
+
+  private constructor(
+    readonly why: string,
+    cause: Contract.UnreadShellCommandCause | undefined,
+  ) {
+    if (cause !== undefined) this.cause = cause;
     Object.freeze(this);
   }
 
@@ -152,15 +159,19 @@ class UnreadShellCommandReadingImpl implements Contract.UnreadShellCommandReadin
   static parse(raw: object): Result<Contract.UnreadShellCommandReading> {
     const why = own(raw, "why");
     if (typeof why !== "string" || why.trim() === "") return refuse("An unread reading says why it could not be read");
-    return { ok: true, value: new UnreadShellCommandReadingImpl(why) };
+    const rawCause = own(raw, "cause");
+    const cause = CAUSES.find((known) => known === rawCause);
+    if (rawCause !== undefined && cause === undefined) return refuse(`An unread reading's cause is too-complex or unparsable, not '${show(rawCause)}'`);
+    return { ok: true, value: new UnreadShellCommandReadingImpl(why, cause) };
   }
 
   equals(other: Contract.ShellCommandReading): boolean {
     return sameWire(this, other);
   }
 
+  /** The why and, only when it has one, the cause: readings written before causes existed keep their shape. */
   toJSON(): Contract.UnreadShellCommandReadingJSON {
-    return { outcome: this.outcome, why: this.why };
+    return { outcome: this.outcome, why: this.why, ...(this.cause === undefined ? {} : { cause: this.cause }) };
   }
 }
 
@@ -169,7 +180,7 @@ function check(raw: unknown): Result<Contract.ShellCommandReading> {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse(FORM);
   const outcome = own(raw, "outcome");
   if (outcome === "read" && hasExactly(raw, ["outcome", ...FIELDS.read])) return ReadShellCommandReadingImpl.parse(raw);
-  if (outcome === "unread" && hasExactly(raw, ["outcome", ...FIELDS.unread])) return UnreadShellCommandReadingImpl.parse(raw);
+  if (outcome === "unread" && hasExactly(raw, ["outcome", ...FIELDS.unread], ["cause"])) return UnreadShellCommandReadingImpl.parse(raw);
   return refuse(FORM);
 }
 

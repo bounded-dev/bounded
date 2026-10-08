@@ -11,6 +11,11 @@ export interface TreeSitterShellCommandReaderOptions {
   readonly loadGrammar?: () => Promise<BashGrammar>;
 }
 
+/** The longest command read, in characters: far past any typed or generated for one tool call; past it, the command is unread. */
+const MAX_COMMAND_CHARACTERS = 65_536;
+/** The most words (runs of non-blank characters) a command read may have; past it, the command is unread. */
+const MAX_COMMAND_WORDS = 10_000;
+
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const wordOf = ({ kind, text }: ShellWord): ShellCommandWordJSON => ({ kind, text });
 
@@ -40,15 +45,20 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
 
   async read(projectRoot: string, command: Command, cwd: ProjectPath | null): Promise<ShellCommandReadingJSON> {
     const tree = await this.parser();
+    // Bounded before parsing: a command past either limit is unread, too complex, whatever it says.
+    const characters = command.value.length;
+    if (characters > MAX_COMMAND_CHARACTERS) return { outcome: "unread", why: `the command is too long to read: ${characters} characters, past bounded's limit of ${MAX_COMMAND_CHARACTERS}`, cause: "too-complex" };
+    const words = command.value.split(/\s+/).filter((word) => word !== "").length;
+    if (words > MAX_COMMAND_WORDS) return { outcome: "unread", why: `the command is too long to read: ${words} words, past bounded's limit of ${MAX_COMMAND_WORDS}`, cause: "too-complex" };
     const parsed = tree.parse(command);
-    if (!parsed.ok) return { outcome: "unread", why: parsed.error };
+    if (!parsed.ok) return { outcome: "unread", why: parsed.error, cause: parsed.cause };
     const parseScript = (script: string) => {
       const nested = Command.parse(script);
       return nested.ok ? tree.parse(nested.value) : nested;
     };
     const described = describeShellCommand(parsed.value, { cwd, root: projectRoot, kindOfPath: (path) => this.pathKindOf(projectRoot, path), parseScript });
     // A command that outgrew the work budget is unread, never a reduced reading: a pack that needs the reading refuses it.
-    if (described.unreadWhy !== undefined) return { outcome: "unread", why: described.unreadWhy };
+    if (described.unreadWhy !== undefined) return { outcome: "unread", why: described.unreadWhy, cause: "too-complex" };
     return {
       outcome: "read",
       programs: described.programs.map((program) => ({ name: wordOf(program.name), arguments: program.arguments.map(wordOf), workingDirectory: program.workingDirectory === null ? null : program.workingDirectory.value })),

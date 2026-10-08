@@ -24,7 +24,8 @@ names no tool or language (AGENTS.md). It can own the shape.
 - **An execute effect carries `reading: ShellCommandReading | null`**, a
   value object (`contexts/core/src/domain/events/shell-command-reading.*`)
   with two outcomes: `{ outcome: "read", programs, fileEffects, unresolved }`
-  or `{ outcome: "unread", why }`.
+  or `{ outcome: "unread", why, cause? }`, where a reader that can tell says
+  what made the command unreadable (`too-complex` or `unparsable`).
   - `programs`: every program the command runs, nested and wrapped ones
     included (a wrapper and what it runs, literal `sh -c` code, `find -exec`'s
     and xargs's commands, builtins such as `cd`, `[` and `export`), in the
@@ -73,19 +74,41 @@ names no tool or language (AGENTS.md). It can own the shape.
     and, for a resolvable word, as the command; the words after it are also
     read as operands. Nothing is ever dropped from judgement because it
     became unresolved.
-  - **One work budget per command: 20,000 steps, and nesting at most 64
-    deep.** A step is one command, one reading of xargs's options or one
-    report of xargs's input; the budget covers the whole reading, nested
-    runs included. Readings multiply (nested xargs over words that cannot be
-    told doubles them at each word), and the reader is synchronous, so the
-    judge's `readWithinMs` cannot stop it and a hook would time out and let
-    the call through. An ordinary command takes tens of steps and a long
-    script a few thousand; 20,000 keeps a command built to multiply readings
-    to about 15 ms (measured: `"xargs $A " × 24 + "true"`). Past the budget
-    or the depth the command is **unread** ("the command is too complex to
-    read within bounded's work budget (20000 steps): its words could be read
-    too many ways, or it nests too deep"), which the path gate refuses:
-    never a reduced reading.
+  - **Reading is bounded in time, because the reader is synchronous:** the
+    judge's `readWithinMs` cannot stop it, and a hook that ran out of time
+    would let the call through. Three bounds, each making the command
+    **unread** with cause `too-complex` (never a reduced reading), which the
+    path gate refuses:
+    - **Input size, checked before parsing:** at most 65,536 characters and
+      10,000 words (runs of non-blank characters), each refused with its own
+      why ("the command is too long to read: N characters, past bounded's
+      limit of 65536", or words).
+    - **Brace expansion:** a word holding a brace and longer than 4,096
+      characters is not expanded; the command is unread ("a word with a
+      brace in it is longer than 4096 characters, past what bounded will
+      brace-expand"). Below that, expansion stops at 256 words, past which
+      the word is unresolved, as before.
+    - **One work budget per command: 200,000 steps, and nesting at most 64
+      deep.** The budget counts work, not calls: a step for each command and
+      each node of its syntax tree, one for each word a command is given or
+      a reading of xargs's options slices, one for each word resolved (and
+      one more per 64 of its characters), and one for each look at what is at
+      a path; readings, nested runs and the reports of xargs's input all
+      share it, and nothing is kept past it. Readings multiply (nested xargs
+      over words that cannot be told), so the budget, not the readings, is
+      the bound. Measured: a realistic 488-line install script
+      (`test/fixtures/install.sh`) takes 3,897 steps, 2% of the budget; a
+      5,000-word `cat` 15,003; `"xargs $A " × 24` with 5,000 words after it
+      runs out in about 25 ms; a 50,000-character command reads in about
+      11 ms; `{a,b}` × 10,000 is unread in about 45 ms. The why is "the
+      command is too complex to read within bounded's work budget (200000
+      steps): its words could be read too many ways, or it nests too deep".
+    - The unread reading carries `cause: "too-complex"`, and the path gate's
+      redirect for it says to split or simplify the command; `unparsable`
+      (the parser gave no tree) says to check its quoting and syntax. The
+      judge's own unread readings (no reader, one that failed or was too
+      slow, an answer that could not be used) carry no cause and keep the
+      redirect to open the project with a reader.
   - Nothing is guessed (AGENTS.md).
 - **Why a field, not more effects of the tool use.** ADR 2026-006's effects
   are what the call does, as the host describes it; a command's files are
