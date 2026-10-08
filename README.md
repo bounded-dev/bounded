@@ -1,8 +1,8 @@
-# bounded-core
+# The Bounded harness
 
-The small, pure core of the Bounded harness, a set of guardrails for coding
-agents: the mechanism by which packs (selectable bundles of behaviour) extend
-one another. [docs/spec.md](docs/spec.md) is the requirement.
+A set of guardrails for coding agents, built on a small, pure core: the
+mechanism by which packs (selectable bundles of behaviour) extend one another.
+[docs/spec.md](docs/spec.md) is the requirement.
 
 ## The legacy harness
 

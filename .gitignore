@@ -9,8 +9,10 @@ node_modules/
 .DS_Store
 *.log
 
-# Runtime state the legacy harness kept at the root of a checkout (ADR
-# 2026-014); ignored so an older checkout never commits it
+# What an older checkout may still hold at its root from the legacy harness
+# (ADR 2026-014): its runtime state and its old package build output; ignored
+# so it is never committed
+/agent/
 /auth.json
 /sessions/
 /models-store.json

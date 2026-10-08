@@ -37,7 +37,7 @@ error, never an empty list.
 Duplicate names count among all available packs, selected or not: a name must
 identify one pack, and the refusal is reported in name order.
 
-Prior art: the Bounded harness's `agent/src/socket-registry.ts`.
+Prior art: the legacy harness's `legacy/agent/src/socket-registry.ts`.
 
 ## Deviations from the hexagonal worked example
 

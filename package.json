@@ -1,5 +1,5 @@
 {
-  "name": "bounded-core",
+  "name": "the-bounded-harness",
   "private": true,
   "type": "module",
   "workspaces": [

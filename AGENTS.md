@@ -1,4 +1,4 @@
-# Agent and contributor instructions: bounded-core
+# Agent and contributor instructions: the Bounded harness
 
 This file is binding for every agent and every human contributor. It is
 written for an open-source audience: keep everything in this repository
