@@ -3,8 +3,8 @@ import { Command, contribution, Composition, corePack, definePack, dispatchEvent
 import { pathGate } from "bounded/path-gate";
 import { commandMeaning } from "./command-meanings.ts";
 import { describeShellCommand } from "./shell-command.ts";
-import { InMemoryPathKinds } from "../adapters/out/in-memory/path-kinds.ts";
-import { TreeSitterShellParser } from "../adapters/out/tree-sitter/shell-parser.ts";
+import { InMemoryPathKinds } from "../application/judge-calls/judge-calls.in-memory-path-kinds.test-support.ts";
+import { TreeSitterShellParser } from "../adapters/out/shell-parser/shell-parser.ts";
 import type { ShellParser } from "../application/judge-calls/judge-calls.contract.ts";
 import { prepareShellCheck, startShellCheck } from "../application/judge-calls/shell-check.ts";
 import { type PathsForTest, ROOT } from "../application/judge-calls/shell.test-support.ts";

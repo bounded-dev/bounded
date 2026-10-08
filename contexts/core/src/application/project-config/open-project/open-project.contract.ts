@@ -1,12 +1,12 @@
 import type { Config, PortProvision, Result, Verdict } from "bounded/domain";
 import type { AfterToolOutcome } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
-import type { AdapterRefusalInput, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+import type { AdapterRefusalInput, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
 /** The brand only OpenProjectCommand itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const openProjectCommandBrand: unique symbol;
 
 // Out ports this feature shares with judge-event: declared there, listed here so this contract names every port the feature needs.
-export type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+export type { Clock, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 
 // Wire input: what a host's composition root sends.
 export interface OpenProjectInput {
@@ -49,10 +49,10 @@ export interface OpenProject {
   execute(command: OpenProjectCommand): Promise<ProjectJudge>;
 }
 
-// Out ports: exactly what this feature needs (with the judge-event feature's Clock).
+// Out ports: exactly what this feature needs (with the judge-event feature's Clock, DecisionIds and GuardLog).
 /**
  * A project's configuration, made by defineConfig.
- * @implementedBy file-system
+ * @implementedBy FileSystemProjectConfigSource CheckedProjectConfigSource
  */
 export interface ProjectConfigSource {
   load(projectRoot: string): Promise<Result<Config>>;
@@ -60,7 +60,7 @@ export interface ProjectConfigSource {
 
 /**
  * Each project's guard log.
- * @implementedBy file-system
+ * @implementedBy FileSystemProjectGuardLogs
  */
 export interface ProjectGuardLogs {
   forProject(projectRoot: string): GuardLog;
@@ -74,4 +74,6 @@ export interface OpenProjectOptions {
   readonly prepareWithinMs?: number;
   /** Adapters for the ports the selected packs declare, from the host's composition root. */
   readonly ports?: readonly PortProvision[];
+  /** Where every decision's id comes from, the judges' and the after-tool records'; by default a random UUID each. */
+  readonly ids?: DecisionIds;
 }

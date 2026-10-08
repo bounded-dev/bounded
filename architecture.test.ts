@@ -100,14 +100,15 @@ function exportLayerOf(context: Context, exportPath: string): Layer | undefined 
  * never depends on a pack (ADR 2026-009). Inside, it is a small hexagon
  * (ADR 2026-013): `domain/` imports only itself; `application/` its own
  * domain and application; the files at its root its domain, application and
- * root, never its adapters; `adapters/out/<tech>/` its domain, application
- * and own technology, and alone may do I/O (`node:*`, never Bun).
+ * root, never its adapters; `adapters/out/` (one folder per port, ADR
+ * 2026-017) its domain, application and adapters, never another pack's, and
+ * alone may do I/O (`node:*`, never Bun).
  */
 const packLayerOf = (file: string): string | undefined => {
   const rest = /^contexts\/[^/]+\/src\/packs\/[^/]+\/(.*)$/.exec(file)?.[1];
   if (rest === undefined) return undefined;
   const [first = "", second, third] = rest.split("/");
-  if (first === "adapters" && second === "out" && third !== undefined) return `adapters/out/${third}`;
+  if (first === "adapters" && second === "out" && third !== undefined) return "adapters";
   return ["domain", "application"].includes(first) && rest.includes("/") ? first : "root";
 };
 /** What each layer of a shipped pack may import of its own pack. */
@@ -128,12 +129,13 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     if (into !== undefined && into !== own && !rootTest) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
     if (own === undefined || isTest) continue;
     const from = packLayerOf(path) ?? "root";
-    const adapter = from.startsWith("adapters/");
+    const adapter = from === "adapters";
     if (relative) {
-      if (into !== own) out.push(`${at} — a shipped pack reaches the core through \`${context.name}/domain\` only`);
-      else {
+      // Into another pack is refused above; anything else outside the pack is the core.
+      if (into === undefined) out.push(`${at} — a shipped pack reaches the core through \`${context.name}/domain\` only`);
+      else if (into === own) {
         const to = packLayerOf(file ?? "") ?? "root";
-        const allowed = adapter ? ["domain", "application", from] : (PACK_LAYERS[from] ?? []);
+        const allowed = adapter ? ["domain", "application", "adapters"] : (PACK_LAYERS[from] ?? []);
         if (!allowed.includes(to)) out.push(`${at} — a pack's ${from} may not import its ${to}`);
       }
     } else if (exported !== undefined) {
@@ -301,7 +303,7 @@ for (const path of files) {
   const text = await Bun.file(`${ROOT}/${path}`).text();
   const shippedPack = layer === "packs";
   if (shippedPack && rest.length < 3) violations.push(`${path} — a shipped pack lives in its own directory, src/packs/<name>/`);
-  const pure = (layer === "domain" || layer === "application" || (shippedPack && !(packLayerOf(path) ?? "").startsWith("adapters/"))) && !isTest;
+  const pure = (layer === "domain" || layer === "application" || (shippedPack && packLayerOf(path) !== "adapters")) && !isTest;
   if (!isTest) violations.push(...packIdViolations(path, text, context.name));
   if (!isTest) violations.push(...brandedPrimitiveViolations(path, text));
   violations.push(...shippedPackViolations(path, importsOf(path, text), context));
@@ -392,7 +394,7 @@ function appImportViolations(path: string, text: string): string[] {
 const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
 for (const path of appFiles) violations.push(...appImportViolations(path, await Bun.file(`${ROOT}/${path}`).text()));
 
-// The contract rules R1–R6 (architecture.rules.test-support.ts): every file of every context, tests included.
+// The contract rules R1–R7 (architecture.rules.test-support.ts): every file of every context, tests included; the test-support import ban reads the apps too.
 const contextSources: SourceFile[] = await Promise.all(files.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));
 const barrels = new Map<string, ReadonlyMap<string, string>>();
 for (const context of contexts) {
@@ -423,7 +425,9 @@ const SHAPE_CHECKS = new Map([
 const texts = new Map(contextSources.map(({ path, text }) => [path, text]));
 violations.push(
   ...adapterContractViolations(contextSources, barrels),
+  ...adapterPlacementViolations(contextSources, barrels),
   ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS),
+  ...testDoubleViolations([...contextSources, ...(await Promise.all(appFiles.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() }))))], contexts),
   ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
   ...packLayoutViolations(files),
   ...packOverviewViolations(contextSources),

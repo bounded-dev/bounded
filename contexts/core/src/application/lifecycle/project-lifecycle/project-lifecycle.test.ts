@@ -7,6 +7,8 @@ import {
   contribution,
   corePack,
   type Decision,
+  DecisionId,
+  DecisionTime,
   definePack,
   packIdsFor,
   Ports,
@@ -18,10 +20,10 @@ import type { Clock, GuardLog } from "./project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "./project-lifecycle.handler.ts";
 
 const packId = packIdsFor("test-packs");
-const clock: Clock = { now: () => "2026-10-07T12:00:00.000Z" };
+const clock: Clock = { now: () => parsed(DecisionTime.parse("2026-10-07T12:00:00.000Z")) };
 const ids = { next: (() => {
   let n = 0;
-  return () => `d-${++n}`;
+  return () => parsed(DecisionId.parse(`d-${++n}`));
 })() };
 
 class Log implements GuardLog {

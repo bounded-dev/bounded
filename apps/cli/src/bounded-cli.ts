@@ -21,8 +21,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FileSystemProjectSetupFiles } from "bounded/adapters/file-system";
-import { NodeModulesHostInstallerSource } from "bounded/adapters/system";
+import { FileSystemProjectSetupFiles, NodeModulesHostInstallerSource } from "bounded/adapters";
 import {
   type HostInstaller,
   type HostInstallerSource,

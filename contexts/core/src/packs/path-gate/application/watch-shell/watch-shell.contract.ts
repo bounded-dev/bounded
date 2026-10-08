@@ -44,7 +44,7 @@ export interface WatchShell {
  * The project's files: hashing those the rules watch (a rule's match ignores
  * case, its except does not), what a commit holds, copies of files, and
  * putting a file back. Never inside .git or .bounded.
- * @implementedBy in-memory file-system
+ * @implementedBy FileSystemWatchedFiles
  */
 export interface WatchedFiles {
   /** The watched files now; never inside node_modules or .git at any depth, nor .bounded, and never through a linked directory. */
@@ -68,7 +68,7 @@ export interface WatchedFiles {
  * each hook in a process of its own, so a store must outlive it. What it
  * gives back is checked by the handler: a store outside the process can be
  * changed by anything running as the same user.
- * @implementedBy in-memory file-system
+ * @implementedBy FileSystemShellSnapshots
  */
 export interface ShellSnapshots {
   save(callId: string, snapshot: Snapshot): Promise<void>;

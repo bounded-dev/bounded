@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { type Config, contribution, corePack, type Decision, DecisionId, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
+import { type Config, contribution, corePack, type Decision, DecisionId, DecisionTime, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
 import type { ProjectConfigSource, ProjectGuardLogs } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
-const clock: Clock = { now: () => "2026-10-07T12:00:00.000Z" };
+const clock: Clock = { now: () => decisionTime("2026-10-07T12:00:00.000Z") };
+
+/** A DecisionTime from known-good text. */
+function decisionTime(text: string): DecisionTime {
+  const parsed = DecisionTime.parse(text);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
 class Logs implements ProjectGuardLogs {

@@ -1,5 +1,5 @@
 import { AfterToolReport, type Composition, corePack, Decision, DecisionTime, type OpenedProject, type LifecycleContext, type Ports, type ToolResult, type ToolUse, Verdict } from "bounded/domain";
-import { nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
+import { defaultDecisionIds, nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, Clock, DecisionIds, GuardLog, ProjectLifecycle, ProjectLifecycleOptions } from "./project-lifecycle.contract.ts";
 
 function text(thrown: unknown): string {
@@ -35,7 +35,7 @@ export class ProjectLifecycleHandler implements ProjectLifecycle {
     options: ProjectLifecycleOptions = {},
   ) {
     this.context = Object.freeze({ composition, ports });
-    this.ids = options.ids ?? { next: () => crypto.randomUUID() };
+    this.ids = options.ids ?? defaultDecisionIds;
     this.prepareWithinMs = options.prepareWithinMs ?? PREPARE_WITHIN_MS;
   }
 

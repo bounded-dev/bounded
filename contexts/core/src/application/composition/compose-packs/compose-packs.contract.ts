@@ -26,7 +26,10 @@ export interface ComposePacks {
 }
 
 // Out port: exactly what this feature needs.
-/** The packs available to compose from, parsed (each made by definePack, each id its own), or why they cannot be. */
+/**
+ * The packs available to compose from, parsed (each made by definePack, each id its own), or why they cannot be.
+ * @implementedBy InMemoryComposePacksCatalog
+ */
 export interface ComposePacksCatalog {
   available(): Promise<Result<AvailablePacks>>;
 }

@@ -1,5 +1,8 @@
-// The contract rules (AGENTS.md "Layout", ADR 2026-013): adapters implement
-// contract ports (R1), every @implementedBy is true (R2), every domain concept
+// The contract rules (AGENTS.md "Layout", ADRs 2026-013 and 2026-017): adapters
+// implement contract ports and sit in the folder of the port they serve (R1),
+// every @implementedBy names the adapter classes and each runs its port's
+// suite, and in-memory doubles are test support no production code
+// imports (R2), every domain concept
 // is a triplet, four files for a value object (R3), every pack a package ships
 // is laid out and bound in an overview file typed by its contract (R7), every feature has a contract its handler implements
 // (R4), the files that route events assert no types (R5), and shape checks
@@ -114,46 +117,171 @@ export function adapterContractViolations(files: readonly SourceFile[], barrels:
   return out;
 }
 
-/** The technologies a contract's interface names in `@implementedBy`. */
-function implementedBy(file: SourceFile): { readonly name: string; readonly techs: readonly string[] }[] {
-  const out: { name: string; techs: string[] }[] = [];
+/** A type's name in kebab case: `GuardLog` → `guard-log`, `SystemClock` → `system-clock`. */
+export const kebab = (name: string): string =>
+  name
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
+    .toLowerCase();
+
+/** An out adapter file's port folder and file name: `…/adapters/out/<folder>/<file>.ts` (undefined when it sits elsewhere). */
+const placementOf = (path: string): { readonly folder: string; readonly file: string } | undefined => {
+  const match = /\/adapters\/out\/(.+)\/([^/]+)\.ts$/.exec(path);
+  return match === null ? undefined : { folder: match[1] ?? "", file: match[2] ?? "" };
+};
+
+/**
+ * R1, placement: an out adapter class sits in `adapters/out/<port>/`, the
+ * kebab-case name of a port of an application contract it implements; its
+ * file is `<port>.ts` when it is the only file in that folder holding an
+ * adapter class, and named for its class (`<class>.ts`, kebab case)
+ * otherwise. Files that hold no adapter class are not constrained.
+ */
+export function adapterPlacementViolations(files: readonly SourceFile[], barrels: ReadonlyMap<string, ReadonlyMap<string, string>>): string[] {
+  const out: string[] = [];
+  const adapters = adapterClasses(files, barrels);
+  const adapterFilesIn = (dir: string): number => new Set(adapters.filter((adapter) => dirOf(adapter.path) === dir).map((adapter) => adapter.path)).size;
+  for (const adapter of adapters) {
+    const ports = adapter.ports.filter(({ contract }) => isApplicationContract(contract)).map(({ name }) => kebab(name));
+    if (ports.length === 0) continue;
+    const placed = placementOf(adapter.path);
+    const port = ports.find((name) => placed?.folder === name);
+    if (placed === undefined || port === undefined) {
+      out.push(`${adapter.path} — ${adapter.name} is an out adapter of ${ports.join(", ")}: it sits in ${ports.map((name) => `adapters/out/${name}/`).join(" or ")}`);
+      continue;
+    }
+    const several = adapterFilesIn(dirOf(adapter.path)) > 1;
+    const expected = several ? kebab(adapter.name) : port;
+    if (placed.file !== expected) {
+      out.push(
+        several
+          ? `${adapter.path} — adapters/out/${port}/ holds several adapters of the port, so each file is named for its class: ${dirOf(adapter.path)}/${expected}.ts`
+          : `${adapter.path} — ${adapter.name} is the only adapter in adapters/out/${port}/, so its file is named for the port: ${dirOf(adapter.path)}/${expected}.ts`,
+      );
+    }
+  }
+  return out;
+}
+
+/** The adapter classes a contract's interface names in `@implementedBy`. */
+function implementedBy(file: SourceFile): { readonly name: string; readonly classes: readonly string[] }[] {
+  const out: { name: string; classes: string[] }[] = [];
   for (const statement of parse(file).statements) {
     if (!ts.isInterfaceDeclaration(statement)) continue;
     const tags = ts.getJSDocTags(statement).filter((tag) => tag.tagName.text === "implementedBy");
-    const techs = tags.flatMap((tag) => (typeof tag.comment === "string" ? tag.comment : "").split(/\s+/).filter((tech) => tech !== ""));
-    if (techs.length > 0) out.push({ name: statement.name.text, techs });
+    const classes = tags.flatMap((tag) => (typeof tag.comment === "string" ? tag.comment : "").split(/\s+/).filter((name) => name !== ""));
+    if (classes.length > 0) out.push({ name: statement.name.text, classes });
   }
   return out;
 }
 
 /**
+ * A port's conformance suite: `<feature>.<name>.test-support.ts` beside its
+ * contract, `<name>` the port's kebab-case name without a leading
+ * `<feature>-` (`ComposePacksCatalog` of compose-packs → `compose-packs.catalog`).
+ */
+export function suitePathOf(contractPath: string, port: string): string {
+  const feature = contractPath.split("/").at(-1)?.replace(/\.contract\.ts$/, "") ?? "";
+  const name = kebab(port);
+  return `${dirOf(contractPath)}/${feature}.${name.startsWith(`${feature}-`) ? name.slice(feature.length + 1) : name}.test-support.ts`;
+}
+
+/** Every module a file imports or re-exports from, dynamic imports with a literal specifier included. */
+function importSpecs(file: SourceFile): string[] {
+  const specs: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)) specs.push(node.moduleSpecifier.text);
+    const argument = ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword ? node.arguments[0] : undefined;
+    if (argument !== undefined && ts.isStringLiteral(argument)) specs.push(argument.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(file));
+  return specs;
+}
+
+/** Whether a file imports `target` by relative path. */
+const importsFile = (file: SourceFile, target: string): boolean => importSpecs(file).some((spec) => spec.startsWith(".") && resolve(file.path, spec) === target);
+
+/**
  * R2: for every interface an application contract tags `@implementedBy
- * <tech…>`, each tech has an adapter class under adapters/out/<tech>/
- * implementing it, and a conformance suite (a *.test-support.ts beside the
- * contract that names the port) is imported by a test beside that class.
- * `exempt` names ports excused, each with its reason.
+ * <Class…>`, each class is under `adapters/out/<port>/` and implements it;
+ * every out adapter class implementing an application contract's port is
+ * named in that port's tag; the port's conformance suite is exactly
+ * `<feature>.<port>.test-support.ts` beside the contract (see suitePathOf),
+ * and a test beside each adapter class runs it. `exempt` names ports
+ * excused, each with its reason.
  */
 export function implementedByViolations(files: readonly SourceFile[], barrels: ReadonlyMap<string, ReadonlyMap<string, string>>, exempt: ReadonlyMap<string, string> = new Map()): string[] {
   const out: string[] = [];
   const adapters = adapterClasses(files, barrels);
+  const tags = new Map<string, readonly string[]>();
   for (const contract of files.filter((file) => isApplicationContract(file.path))) {
-    for (const { name, techs } of implementedBy(contract)) {
+    for (const { name, classes } of implementedBy(contract)) {
+      tags.set(`${contract.path}#${name}`, classes);
       if (exempt.has(name)) continue;
-      const suites = files.filter((file) => file.path.endsWith(".test-support.ts") && dirOf(file.path) === dirOf(contract.path) && new RegExp(`\\b${name}\\b`).test(file.text)).map((file) => file.path);
-      if (suites.length === 0) out.push(`${contract.path} — ${name} has no conformance suite: add a *.test-support.ts beside the contract that every adapter of it runs`);
-      for (const tech of techs) {
-        const classes = adapters.filter((adapter) => adapter.path.includes(`/adapters/out/${tech}/`) && adapter.ports.some((port) => port.name === name && port.contract === contract.path));
-        if (classes.length === 0) {
-          out.push(`${contract.path} — ${name} says it is implemented by ${tech}, but no class under adapters/out/${tech}/ implements it`);
+      const suite = suitePathOf(contract.path, name);
+      const hasSuite = files.some((file) => file.path === suite);
+      if (!hasSuite) out.push(`${contract.path} — ${name} has no conformance suite: add ${suite.split("/").at(-1)} beside the contract, which every adapter of it runs`);
+      for (const className of classes) {
+        const adapter = adapters.find((candidate) => candidate.name === className && candidate.path.includes(`/adapters/out/${kebab(name)}/`) && candidate.ports.some((port) => port.name === name && port.contract === contract.path));
+        if (adapter === undefined) {
+          out.push(`${contract.path} — ${name} says it is implemented by ${className}, but no class ${className} under adapters/out/${kebab(name)}/ implements it`);
           continue;
         }
-        for (const adapter of classes) {
-          const tested = files.some(
-            (file) => file.path.endsWith(".test.ts") && dirOf(file.path) === dirOf(adapter.path) && [...importedNames(parse(file)).values()].some(({ spec }) => spec.startsWith(".") && suites.includes(resolve(file.path, spec))),
-          );
-          if (suites.length > 0 && !tested) out.push(`${adapter.path} — ${adapter.name} implements ${name}; a test beside it runs the port's conformance suite`);
-        }
+        const tested = files.some((file) => file.path.endsWith(".test.ts") && dirOf(file.path) === dirOf(adapter.path) && importsFile(file, suite));
+        if (hasSuite && !tested) out.push(`${adapter.path} — ${adapter.name} implements ${name}; a test beside it runs the port's conformance suite`);
       }
+    }
+  }
+  for (const adapter of adapters) {
+    for (const port of adapter.ports) {
+      if (port.contract === undefined || !isApplicationContract(port.contract) || exempt.has(port.name)) continue;
+      if (!(tags.get(`${port.contract}#${port.name}`) ?? []).includes(adapter.name)) {
+        out.push(`${adapter.path} — ${adapter.name} implements ${port.name}, but ${port.name}'s @implementedBy in ${port.contract} does not name it`);
+      }
+    }
+  }
+  return out;
+}
+
+/** A package's name, directory and export paths, each mapped to the source file it serves. */
+export interface PackageExports {
+  readonly name: string;
+  readonly dir: string;
+  readonly exports: Readonly<Record<string, string>>;
+}
+
+/**
+ * R2, test doubles: an in-memory test double (`<feature>.in-memory-<name>.test-support.ts`)
+ * sits in an application feature's directory (the core's or a pack's), and a
+ * test in that directory runs it through the port's suite
+ * (`<feature>.<name>.test-support.ts`), importing both. No production file
+ * (anything under contexts/<context>/src or apps/<app>/src but tests, test
+ * support and fixtures) imports test support, by relative path or through a
+ * package's export path, resolved to its target: test support that is
+ * published for other packages' tests goes through `exports`, which this
+ * does not touch, and is still never imported by production code.
+ */
+export function testDoubleViolations(files: readonly SourceFile[], packages: readonly PackageExports[]): string[] {
+  const out: string[] = [];
+  for (const double of files.filter((file) => /\.in-memory-[^/]+\.test-support\.ts$/.test(file.path))) {
+    // A feature is application/<area>/<feature>/ in a context, application/<feature>/ in a shipped pack.
+    const placed = /^(contexts\/[^/]+\/src\/(?:application\/[^/]+|packs\/[^/]+\/application)\/([^/]+))\/\2\.in-memory-([^/]+)\.test-support\.ts$/.exec(double.path);
+    if (placed === null) {
+      out.push(`${double.path} — an in-memory test double sits in its port's feature directory, as <feature>.in-memory-<port>.test-support.ts`);
+      continue;
+    }
+    const [, dir = "", feature = "", name = ""] = placed;
+    const suite = `${dir}/${feature}.${name}.test-support.ts`;
+    const run = files.some((file) => file.path.endsWith(".test.ts") && dirOf(file.path) === dir && importsFile(file, double.path) && importsFile(file, suite));
+    if (!run) out.push(`${double.path} — a test beside it runs this double through its port's conformance suite, ${feature}.${name}.test-support.ts`);
+  }
+  for (const file of files) {
+    if (isTest(file.path) || !/^(contexts|apps)\/[^/]+\/src\//.test(file.path)) continue;
+    for (const spec of new Set(importSpecs(file))) {
+      const exported = packages.find((pkg) => spec.startsWith(`${pkg.name}/`));
+      const target = spec.startsWith(".") ? resolve(file.path, spec) : exported === undefined ? undefined : `${exported.dir}/${(exported.exports[`./${spec.slice(exported.name.length + 1)}`] ?? "").replace(/^\.\//, "")}`;
+      if (target?.endsWith(".test-support.ts")) out.push(`${file.path} imports "${spec}" — production code never imports test support`);
     }
   }
   return out;

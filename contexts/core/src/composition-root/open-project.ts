@@ -1,7 +1,6 @@
 import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge } from "bounded/application";
 import type { Clock } from "bounded/application";
-import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs } from "bounded/adapters/file-system";
-import { CheckedProjectConfigSource, SystemClock } from "bounded/adapters/system";
+import { CheckedProjectConfigSource, FileSystemProjectConfigSource, FileSystemProjectGuardLogs, RandomDecisionIds, SystemClock } from "bounded/adapters";
 import { AdapterRefusal, type PortProvision, Verdict } from "bounded/domain";
 
 /** What a host may replace; everything else has a default. */
@@ -33,6 +32,7 @@ export async function openProject(projectRoot: string, options: OpenProjectOptio
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
       ...(options.prepareWithinMs === undefined ? {} : { prepareWithinMs: options.prepareWithinMs }),
       ...(options.ports === undefined ? {} : { ports: options.ports }),
+      ids: new RandomDecisionIds(),
     });
     return await handler.execute(command.value);
   } catch (thrown) {

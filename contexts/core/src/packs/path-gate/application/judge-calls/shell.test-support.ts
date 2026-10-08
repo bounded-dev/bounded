@@ -1,7 +1,7 @@
 import { type BasePack, Composition, corePack, dispatchEvent, Ports, ToolUse, type Verdict } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
-import { InMemoryPathKinds } from "../../adapters/out/in-memory/path-kinds.ts";
-import { TreeSitterShellParser } from "../../adapters/out/tree-sitter/shell-parser.ts";
+import { InMemoryPathKinds } from "./judge-calls.in-memory-path-kinds.test-support.ts";
+import { TreeSitterShellParser } from "../../adapters/out/shell-parser/shell-parser.ts";
 import { type PathKind, type PathKinds, pathKindsPort, shellParserPort } from "./judge-calls.contract.ts";
 
 /** The project root the shell tests open their compositions at. */

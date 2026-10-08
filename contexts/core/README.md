@@ -45,6 +45,16 @@ export default defineConfig({
 
 Run `npx bounded update` to upgrade Bounded and refresh the hooks.
 
+## Export paths
+
+A configuration imports `bounded/domain` and the packs it selects, such as
+`bounded/path-gate`. The adapter export paths, `bounded/adapters` and
+`bounded/path-gate/adapters`, are internal: they serve the hooks for Claude
+Code and pi that this package carries and its `bounded` command, and may
+change in any release. In 3.1.0 they replaced 3.0.0's
+`bounded/adapters/{file-system,in-memory,system}` and
+`bounded/path-gate/adapters/{file-system,in-memory,tree-sitter}`.
+
 ## More
 
 The design, the configuration, the packs and the decisions behind them are in
