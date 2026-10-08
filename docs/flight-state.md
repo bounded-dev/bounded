@@ -25,7 +25,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
   export paths, `bounded/adapters` and `bounded/path-gate/adapters`. The
   in-memory doubles are test support beside their ports. The `Clock` and
   `DecisionIds` ports give `DecisionTime` and `DecisionId` value objects, and
-  `openProject` passes `RandomDecisionIds`.
+  `openProject` passes `RandomDecisionIds`. This breaks what 3.0.0
+  published (its six adapter export paths, the in-memory doubles,
+  `pathGateInMemory`, string-typed clock and ids), shipped deliberately as
+  the minor 3.1.0 because 3.0.0 was about an hour old with no users (the
+  ADR's "Release").
 - **The path gate pack** (`bounded/path-gate`, [slice 3](slice-3.md),
   [ADR 2026-009](adr/2026-009-path-gate-pack.md)): deny-only protected
   paths on reads, listings and writes; a shell guard that parses each command

@@ -1,7 +1,8 @@
 # 2026-017: Out adapters are grouped by the port they serve; test doubles are test support; Clock and DecisionIds give value objects
 
 **Status:** accepted (the maintainer's decisions, in the reviews of the
-adapter-naming plan). Supersedes in part ADR 2026-013 (its R2 wording, and
+adapter-naming plan and the final review), shipped in `bounded` 3.1.0 as a
+deliberate breaking change in a minor release (see "Release"). Supersedes in part ADR 2026-013 (its R2 wording, and
 the path gate's export paths in its drift and path-kinds bullets) and ADR
 2026-012 (the bullet "Ports keep text where it is the store's key", as it
 applies to `DecisionIds`).
@@ -58,13 +59,21 @@ applies to `DecisionIds`).
   `build-dist.ts` builds and declares them as it does every library export.
   Two, not one, so a host that does not select the path gate never loads
   tree-sitter.
-- **They are internal.** `bounded` 3.0.0 was published with
-  `bounded/adapters/{file-system,in-memory,system}` and
-  `bounded/path-gate/adapters/{file-system,in-memory,tree-sitter}`. Only the
-  hosts bundled inside `bounded` used them, so the change ships as 3.1.0,
-  without compatibility aliases, and the package's README says the adapter
-  export paths are internal: they serve the bundled hosts and the `bounded`
-  command and may change in any release.
+- **They are internal.** The package's README says the adapter export
+  paths serve the bundled hosts and the `bounded` command and may change in
+  any release.
+
+### Release
+
+This change breaks what `bounded` 3.0.0 published. It removes the six
+adapter export paths (`bounded/adapters/{file-system,in-memory,system}` and
+`bounded/path-gate/adapters/{file-system,in-memory,tree-sitter}`), the
+in-memory doubles they exported (`InMemoryGuardLog`, `InMemoryPathKinds`,
+`InMemoryShellSnapshots`, `InMemoryWatchedFiles`) and `pathGateInMemory`,
+and it retypes `Clock.now()` and `DecisionIds.next()`. All were published
+in 3.0.0. The maintainer deliberately ships that break as a minor release,
+3.1.0, with no compatibility aliases: 3.0.0 had been published about an hour
+earlier and had no users.
 
 ### Ports
 
@@ -162,8 +171,9 @@ architecture test, and so can the suite's name and the tag's classes.
   class's name, as R1 then requires.
 - A published `testing/` export of the doubles can come later, through
   `exports`; production code still may not import it.
-- Code built against 3.0.0's adapter export paths must move to
-  `bounded/adapters` and `bounded/path-gate/adapters`; only the hosts
-  bundled in `bounded` did.
+- Code built against 3.0.0's adapter export paths, doubles or string-typed
+  clock and ids would have to move to `bounded/adapters` and
+  `bounded/path-gate/adapters`, the doubles' test support and the value
+  objects; 3.0.0 had no users when 3.1.0 replaced it (see "Release").
 - The older ADRs stay as written; this record says what of them it
   replaces.
