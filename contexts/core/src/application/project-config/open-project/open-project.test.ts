@@ -61,26 +61,6 @@ describe("OpenProjectHandler", () => {
     expect(logs.decisions[0]?.verdict.kind).toBe("refuse");
   });
 
-  test("a configuration source that throws is a configuration that cannot be loaded", async () => {
-    const project = await new OpenProjectHandler(
-      source(async () => {
-        throw new Error("disk gone");
-      }),
-      new Logs(),
-      clock,
-    ).execute(command);
-    expect(project.problem).toBe("the configuration source failed: disk gone");
-    expect((await project.judge(write("src/a.ts"))).kind).toBe("refuse");
-  });
-
-  test("a configuration source that returns no result is a configuration that cannot be loaded", async () => {
-    const logs = new Logs();
-    const project = await new OpenProjectHandler(source(async () => undefined as never), logs, clock).execute(command);
-    expect(project.problem).toBe("the configuration source returned no result");
-    expect((await project.judge(write("src/a.ts"))).kind).toBe("refuse");
-    expect(logs.decisions.length).toBe(1);
-  });
-
   test("never rejects: a bound that cannot be used gives a judge that refuses every event, still recording", async () => {
     const logs = new Logs();
     const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: config })), logs, clock, { recordWithinMs: -1 }).execute(command);

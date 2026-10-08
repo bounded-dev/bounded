@@ -1,20 +1,19 @@
-import { Composition, type BasePack, type Result } from "bounded/domain";
+import { type AvailablePacks, type BasePack, Composition, type Result } from "bounded/domain";
 import type { ComposePacks, ComposePacksCatalog, ComposePacksCommand } from "./compose-packs.contract.ts";
 
 export class ComposePacksHandler implements ComposePacks {
   constructor(private readonly catalog: ComposePacksCatalog) {}
 
   async execute(command: ComposePacksCommand): Promise<Result<Composition>> {
-    let available: readonly BasePack[];
+    let listed: Result<AvailablePacks>;
     try {
-      available = await this.catalog.available();
+      listed = await this.catalog.available();
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);
       return { ok: false, error: `The available packs cannot be listed (${why}). Fix the pack catalog; nothing is composed until then` };
     }
-    if (!Array.isArray(available)) {
-      return { ok: false, error: "The pack catalog returned something other than a list of packs. Fix the pack catalog; nothing is composed until then" };
-    }
+    if (!listed.ok) return listed;
+    const { packs: available } = listed.value;
     // The wire names packs by id; composition selects the pack objects. Ids
     // are resolved in id order, so the first refusal never depends on the
     // order they were given in.

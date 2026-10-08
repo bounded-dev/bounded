@@ -126,6 +126,25 @@ tool lifecycle, recorded below when it lands).
   guard that is not a function still refuses by name; a guard's return value
   is still parsed by `Verdict.parse`, and the promise check stays beside it
   in dispatch, since its message names the guard.
+- **Ports' answers are parsed where they arrive.** The pack catalog answers
+  `Result<AvailablePacks>` (the in-memory catalog parses its packs), so
+  compose-packs only maps ids to packs. A host's configuration source is
+  wrapped in `CheckedProjectConfigSource` (`bounded/adapters/system`), which
+  turns a throw, an answer that is not a result, a refusal without a reason
+  or a value `defineConfig` did not make into today's messages; the
+  open-project handler trusts its port. The judge parses a raw event with
+  `JudgeEventCommand.parse`, and `execute` trusts its command.
+- **New value objects**: `AdapterRefusal` (a refusal a host adapter made
+  itself, read leniently: text coerced, a missing tool name 'unknown');
+  `DecisionTime` (the clock's answer, ISO 8601 in UTC); `Snapshot` (the
+  watched files before a shell command: its form is checked by
+  `Snapshot.parse(raw, ruleCount)` with today's messages, while whether its
+  copies and committed files match their hashes stays with the feature that
+  restores from it).
+- **R6**: in domain and application code a shape check (`Array.isArray`,
+  `typeof … === "object"`, `instanceof` of anything but `Error`) appears
+  only where a shape is owned, or in a file named in the test with its
+  reason (dispatch's promise check; `watched-paths.ts` until step C).
 
 ### The rules, in `architecture.test.ts` (each tested on small fixtures)
 
@@ -141,6 +160,7 @@ tool lifecycle, recorded below when it lands).
 - **R4** every feature has a contract, and its handler implements the in
   port from it.
 - **R5** the routing files assert no types (above).
+- **R6** shape checks live where the shape is owned (above).
 - **Exemptions, each named in the test with its reason:** the shared kernel
   (`domain/shared/{result,read,text,wire}.ts`) and barrels; `ProjectDrift`'s
   missing conformance suite and `domain/drift/watched-paths.ts`, both

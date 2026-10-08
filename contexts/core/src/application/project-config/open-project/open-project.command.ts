@@ -9,7 +9,7 @@ class OpenProjectCommandImpl implements Contract.OpenProjectCommand {
   private constructor(readonly projectRoot: string) {}
 
   static parse(raw: unknown): Result<OpenProjectCommand> {
-    const projectRoot = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "projectRoot") ? (raw as { projectRoot: unknown }).projectRoot : undefined;
+    const projectRoot = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "projectRoot") && "projectRoot" in raw ? raw.projectRoot : undefined;
     if (typeof projectRoot !== "string" || !ABSOLUTE.test(projectRoot)) return { ok: false, error: INVALID };
     return { ok: true, value: new OpenProjectCommandImpl(projectRoot) };
   }

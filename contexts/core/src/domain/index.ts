@@ -2,6 +2,10 @@ export type { Result } from "./shared/result.ts";
 
 export type { CompositionFactory, Entry } from "./composition/composition.contract.ts";
 export { Composition } from "./composition/composition.ts";
+export type { AvailablePacksFactory } from "./composition/available-packs.contract.ts";
+export { AvailablePacks } from "./composition/available-packs.ts";
+export type { SelectedPacksFactory } from "./composition/selected-packs.contract.ts";
+export { SelectedPacks } from "./composition/selected-packs.ts";
 export type {
   BasePack,
   BasePoint,
@@ -76,13 +80,19 @@ export type { WatchedChange, WatchedPathFactory, WatchedPathJSON, WatchedPathSou
 export type { Watched } from "./drift/watched-paths.ts";
 export { watchedPathsOf } from "./drift/watched-paths.ts";
 export { WatchedPath } from "./drift/watched-path.ts";
+export type { Kept, SnapshotFactory, SnapshotFile, SnapshotJSON, WatchedFile } from "./drift/snapshot.contract.ts";
+export { Snapshot } from "./drift/snapshot.ts";
 export type { Dispatch, EffectGuard, Guard } from "./guards/dispatch.contract.ts";
 export type { DecideEvent, DispatchEvent, Judgement } from "./guards/dispatch-event.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
 export { corePack } from "./guards/core-pack.ts";
 export type { CoreId, CorePack, CorePackPoints, EffectGuardPoints, OpenedProject, PathKind, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
 export { decideEvent, dispatchEvent } from "./guards/dispatch-event.ts";
-export type { AdapterRefusal, DecisionEvent, DecisionFactory, DecisionJSON, RecordedVerdict } from "./decisions/decision.contract.ts";
+export type { DecisionEvent, DecisionFactory, DecisionJSON, RecordedVerdict } from "./decisions/decision.contract.ts";
+export type { AdapterRefusalFactory, AdapterRefusalJSON } from "./decisions/adapter-refusal.contract.ts";
+export { AdapterRefusal } from "./decisions/adapter-refusal.ts";
+export type { DecisionTimeFactory } from "./decisions/decision-time.contract.ts";
+export { DecisionTime } from "./decisions/decision-time.ts";
 export { Decision } from "./decisions/decision.ts";
 export type { DecisionIdFactory } from "./decisions/decision-id.contract.ts";
 export { DecisionId } from "./decisions/decision-id.ts";
