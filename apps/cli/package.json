@@ -1,0 +1,12 @@
+{
+  "name": "bounded-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bounded": "./src/main.ts"
+  },
+  "dependencies": {
+    "bounded": "workspace:*"
+  }
+}

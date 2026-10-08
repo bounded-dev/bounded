@@ -18,6 +18,22 @@ export function packageManagerFor(fileNames: readonly string[]): PackageManager 
   return LOCKFILES.find(([lockfile]) => fileNames.includes(lockfile))?.[1] ?? "npm";
 }
 
+const MANAGERS: readonly PackageManager[] = ["bun", "npm", "pnpm", "yarn"];
+const managerNamed = (name: string | undefined): PackageManager | undefined => MANAGERS.find((manager) => manager === name);
+
+/**
+ * The project's package manager: its lockfile's; else package.json's
+ * `packageManager` field (`bun@1.3.14`); else the one running this command
+ * (npx, bunx, pnpm dlx and yarn dlx set `npm_config_user_agent`, such as
+ * `bun/1.3.14 npm/? node/v24`); else npm. A fresh project has no lockfile yet.
+ */
+export function packageManagerOf(fileNames: readonly string[], manifest: Readonly<Record<string, unknown>>, userAgent: string | undefined): PackageManager {
+  if (LOCKFILES.some(([lockfile]) => fileNames.includes(lockfile))) return packageManagerFor(fileNames);
+  const declared = typeof manifest.packageManager === "string" ? manifest.packageManager.split("@")[0] : undefined;
+  if (declared !== undefined) return managerNamed(declared) ?? "npm";
+  return managerNamed(userAgent?.split("/")[0]) ?? "npm";
+}
+
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The one tarball `<name>-<version>.tgz` among `fileNames`; a package with none, or several, is refused. */

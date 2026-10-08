@@ -24,6 +24,15 @@ export function hookCommand({ bun, main, role }: { bun: string; main: string; ro
   return [quote(bun), quote(main), ...(role === undefined ? [] : ["--role", quote(role)])].join(" ");
 }
 
+/**
+ * The command a project's hook runs: bun on the project's own installed
+ * copy, found through CLAUDE_PROJECT_DIR, which Claude Code sets for every
+ * hook to the project's root. The variable sits inside double quotes, so the
+ * shell expands it and a root with spaces stays one word; the rest is fixed
+ * text. The same settings therefore work in every checkout, wherever it is.
+ */
+export const PROJECT_HOOK_COMMAND = 'bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"';
+
 /** The hook events bounded is installed for: before every call to judge it, after it to undo what it changed. */
 type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
 

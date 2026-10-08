@@ -1,13 +1,13 @@
 // The host installer `bounded init` and `bounded update` load from this
 // package (its ./host-installer export): bounded's hooks merged into the
 // project's .claude/settings.json, running the project's own installed copy
-// of bounded-claude-code under bun. A bounded hook pointing anywhere else
-// (the project moved, or the settings came from another checkout) is replaced.
+// of bounded-claude-code under bun, through $CLAUDE_PROJECT_DIR. A bounded hook pointing elsewhere
+// (an older install's absolute path, or a checkout of this repository) is replaced.
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostInstaller } from "bounded/application";
-import { hookCommand, withProjectHooks } from "./install.ts";
+import { PROJECT_HOOK_COMMAND, withProjectHooks } from "./install.ts";
 
 const SETTINGS = ".claude/settings.json";
 
@@ -38,7 +38,7 @@ export const hostInstaller: HostInstaller = {
     const path = join(projectRoot, SETTINGS);
     const settings = await readSettings(path);
     if (!settings.ok) return settings;
-    const merged = withProjectHooks(settings.value, hookCommand({ bun: "bun", main }));
+    const merged = withProjectHooks(settings.value, PROJECT_HOOK_COMMAND);
     if (!merged.ok) return merged;
     if (!merged.value.changed) return { ok: true, value: { host: "claude-code", changedPaths: [], skippedBecause: null } };
     await mkdir(join(projectRoot, ".claude"), { recursive: true });

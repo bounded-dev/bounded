@@ -25,6 +25,16 @@
         "@types/picomatch": "4.0.3",
       },
     },
+    "apps/cli": {
+      "name": "bounded-cli",
+      "version": "0.1.0",
+      "bin": {
+        "bounded": "./src/main.ts",
+      },
+      "dependencies": {
+        "bounded": "workspace:*",
+      },
+    },
     "apps/pi": {
       "name": "bounded-pi",
       "version": "0.1.0",
@@ -72,6 +82,8 @@
     "bounded": ["bounded@workspace:contexts/core"],
 
     "bounded-claude-code": ["bounded-claude-code@workspace:apps/claude-code"],
+
+    "bounded-cli": ["bounded-cli@workspace:apps/cli"],
 
     "bounded-pi": ["bounded-pi@workspace:apps/pi"],
 
