@@ -126,8 +126,10 @@ commits changed the record. It cannot tell whether the successor tests the
 same requirement, whether a record with no successor was justified, or
 whether the reason is true. Assertions inside helpers and in loop tables are
 invisible to its counts. "Still exists" is checked in the case's own file,
-followed through renames by git's rename detection; a case moved to an
-unrelated file under the same title is not detected. Every record is printed as a note: the final
+followed through renames by git's rename detection, and, when the red
+commit and the head no longer pair up, rename by rename through the commits
+between them (a file moved and later rewritten is still followed); a case
+moved to an unrelated file under the same title is not detected. Every record is printed as a note: the final
 reviewer must read each one against the spec and the replaced case.
 
 **The comparison counts assertions; it never reads them.** A red

@@ -19,7 +19,8 @@
 //   3. preserved  at the branch head, none of the red commit's test cases (the
 //                 cases it added or changed) is deleted, skipped, emptied, or
 //                 left with fewer assertions. A file renamed after the red
-//                 commit is followed through git's rename detection.
+//                 commit is followed through git's rename detection, and
+//                 rename by rename through the history when that fails.
 //   4. head       `bun test`, run at the branch head in a temporary worktree on
 //                 those files (at their head paths) with the JUnit reporter,
 //                 exits 0, collects every red case, runs it, sees it pass, and
@@ -586,8 +587,22 @@ function headPathOf(repo: string, red: string, head: string, path: string): stri
   const changes = parseNameStatus(git(repo, "diff", "--name-status", "-M", red, head));
   const change = changes.find((c) => (c.from ?? c.path) === path);
   if (change === undefined) return path;
-  if (change.status === "D") return undefined;
-  return change.path;
+  if (change.status !== "D") return change.path;
+  return followedPath(repo, red, head, path);
+}
+
+/**
+ * Where `path` went, followed rename by rename through the commits from
+ * `red` to `head`: a file moved and then changed past git's rename detection
+ * is still found. Undefined when it was deleted, or is not at the head.
+ */
+function followedPath(repo: string, red: string, head: string, path: string): string | undefined {
+  let current = path;
+  for (const line of git(repo, "log", "--reverse", "--format=", "--name-status", "-M", "--diff-filter=R", `${red}..${head}`).split("\n")) {
+    const [status, from, to] = line.split("\t");
+    if (status?.startsWith("R") === true && from === current && to !== undefined) current = to;
+  }
+  return current !== path && show(repo, head, current) !== undefined ? current : undefined;
 }
 
 function run(args: readonly string[], print: (line: string) => void): number {
