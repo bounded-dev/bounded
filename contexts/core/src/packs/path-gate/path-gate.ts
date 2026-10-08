@@ -6,6 +6,7 @@ import {
   type EffectGuard,
   type ExecuteEffect,
   type ListEffect,
+  type ProjectOpenHandler,
   packIdsFor,
   point,
   type ReadEffect,
@@ -17,8 +18,8 @@ import {
 import { contains, filterable, matches, reaches, unavoidable } from "./matching.ts";
 import type { ProtectedPathJSON } from "./protected-path.contract.ts";
 import { ProtectedPath, WRITES } from "./protected-path.ts";
-import { describeShellCommand } from "./shell-command.ts";
-import { shellQuoteParser } from "./shell-parser.shell-quote.ts";
+import { prepareShellCheck, type ShellCheck } from "./shell-check.ts";
+import { treeSitterShellParser } from "./shell-parser.tree-sitter.ts";
 
 /**
  * The path gate's own rules: an agent can never edit its own guardrails.
@@ -116,43 +117,61 @@ const onRead: EffectGuard<ReadEffect, Composition> = (effect, composition, call)
   });
 };
 
+/** Why `rule` denies listing `root` (by a name `filter`, or none), or undefined: what every listing, from a file tool or a shell command, is judged by. */
+function listDenial(rule: ProtectedPath, root: string, filter: string | null): Denial {
+  return rule.deny.includes("list") && reaches(rule, root, filter)
+    ? { what: `denies list, and listing '${root}' could reveal a path it matches`, redirect: elsewhere("List", rule, root) }
+    : undefined;
+}
+
 /** A listing's file-name filter as text, or null when it has none. */
 const filterOf = (list: ListEffect): string | null => (list.filter === null ? null : list.filter.value);
 
-const onList: EffectGuard<ListEffect, Composition> = (effect, composition) =>
-  firstDenial(composition, (rule) =>
-    rule.deny.includes("list") && reaches(rule, effect.root.value, filterOf(effect))
-      ? { what: `denies list, and listing '${effect.root.value}' could reveal a path it matches`, redirect: elsewhere("List", rule, effect.root.value) }
-      : undefined,
-  );
+const onList: EffectGuard<ListEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => listDenial(rule, effect.root.value, filterOf(effect)));
 
 const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
 
+/** One parser for the pack, loaded once per process; each opened project gets its own check. */
+const shellParser = treeSitterShellParser();
+const shellChecks = new WeakMap<Composition, ShellCheck>();
+
+/** When a project opens: load the shell parser, and keep the project's root and what is at its paths for its check. */
+const prepareShell: ProjectOpenHandler = async (project, composition) => {
+  shellChecks.set(composition, await prepareShellCheck(shellParser, project));
+};
+
+const UNCHECKED = "the path gate cannot check shell commands";
+
 /**
- * A shell command is translated (shell-command.ts) into the paths it reads
- * and writes, and each is judged exactly as a file tool's read or write.
- * A redirection's write is judged as a create and as a modify, since which
- * it is cannot be known before it runs. What only the shell can resolve
- * (globs, variables, substitutions' output, scripts, an unparseable
- * command) is not guessed at: it is allowed. Confining the command at the
- * operating-system level is the real control; drift undoes its writes to
- * watched files.
+ * A shell command is parsed and translated (shell-command.ts) into the paths
+ * it reads, lists and writes, and each is judged exactly as a file tool's
+ * read, listing or write. What only the shell can resolve (globs,
+ * variables, substitutions' output, files programs open by themselves) is
+ * not guessed at: it is allowed. A command that cannot be checked at all is
+ * refused. Confining the command at the operating-system level is the real
+ * control; drift undoes its writes to watched files.
  */
 const onExecute: EffectGuard<ExecuteEffect, Composition> = (effect, composition) => {
-  const parsed = shellQuoteParser(effect.command.value);
-  if (!parsed.ok) return Verdict.allow;
-  const { reads, writes } = describeShellCommand(parsed.value, effect.cwd === null ? null : effect.cwd.value);
-  const judged = (verb: "reads" | "writes", path: string, verdict: Verdict): Verdict | undefined =>
-    verdict.kind === "refuse" ? Verdict.refuse(`this command ${verb} '${path}' — ${verdict.reason}`, verdict.redirect) : undefined;
-  for (const path of reads) {
-    const refused = judged("reads", path, firstDenial(composition, (rule) => readDenial(rule, path)));
+  const check = shellChecks.get(composition);
+  if (check === undefined) {
+    return Verdict.refuse(`${UNCHECKED}: this project was not opened with openProject, which prepares the check`, "Open the project with openProject (bounded/open-project); shell commands are refused until then");
+  }
+  const described = check.describe(effect.command, effect.cwd);
+  if (!described.ok) return Verdict.refuse(`${UNCHECKED}: ${described.error}`, "Reinstall bounded's dependencies (bun install), then start a new session; shell commands are refused until the parser loads");
+  const { reads, lists, writes } = described.value;
+  const judged = (what: string, verdict: Verdict): Verdict | undefined => (verdict.kind === "refuse" ? Verdict.refuse(`this command ${what} — ${verdict.reason}`, verdict.redirect) : undefined);
+  for (const { value: path } of reads) {
+    const refused = judged(`reads '${path}'`, firstDenial(composition, (rule) => readDenial(rule, path)));
     if (refused !== undefined) return refused;
   }
-  for (const { path } of writes) {
-    for (const change of ["create", "modify"] as const) {
-      const refused = judged("writes", path, firstDenial(composition, (rule) => writeDenial(rule, path, change)));
-      if (refused !== undefined) return refused;
-    }
+  for (const { value: root } of lists) {
+    const refused = judged(`lists '${root}'`, firstDenial(composition, (rule) => listDenial(rule, root, null)));
+    if (refused !== undefined) return refused;
+  }
+  for (const { path, change, undetermined } of writes) {
+    const both = undetermined === true ? " (whether it exists could not be determined, so it is judged as both a create and a modify)" : "";
+    const refused = judged(`${change === "delete" ? "deletes" : "writes"} '${path.value}'${both}`, firstDenial(composition, (rule) => writeDenial(rule, path.value, change)));
+    if (refused !== undefined) return refused;
   }
   return Verdict.allow;
 };
@@ -200,6 +219,7 @@ export const pathGate = definePack({
     contribution(corePack.points.listGuards, [onList]),
     contribution(corePack.points.writeGuards, [onWrite]),
     contribution(corePack.points.executeGuards, [onExecute]),
+    contribution(corePack.points.onProjectOpen, [prepareShell]),
     contribution(corePack.points.watchedPaths, [watchedFromRules]),
   ],
 });

@@ -31,6 +31,14 @@
   wires the defaults: the file-system configuration source, a decision log
   at `<root>/.bounded/guard-log.jsonl`, the system clock.
 
+- **Packs prepare when a project opens.** The core pack declares
+  `onProjectOpen`: what a pack does once, before any event is judged, given
+  the project (its root, and `kindOfPath` asking what is at a project path,
+  through an application port with a file-system adapter) and its
+  composition. `OpenProjectHandler` runs every contribution and waits for
+  all of them; one that fails does not stop the project opening, since the
+  pack's own guards refuse what they cannot check. The path gate loads its
+  shell parser this way (ADR 2026-009).
 - **Opening never rejects.** `openProject` and `OpenProjectHandler.execute`
   catch every failure (an unusable `recordWithinMs`, a source that returns
   nothing, anything thrown) and return a judge that refuses every event,

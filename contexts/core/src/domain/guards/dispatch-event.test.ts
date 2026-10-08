@@ -326,6 +326,7 @@ describe("corePack", () => {
       "fetchGuards",
       "invokeGuards",
       "listGuards",
+      "onProjectOpen",
       "readGuards",
       "sessionStartGuards",
       "toolUseGuards",

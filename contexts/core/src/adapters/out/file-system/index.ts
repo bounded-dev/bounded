@@ -4,6 +4,7 @@ export { FileSystemProjectDecisionLogs } from "./projects/decision-logs.ts";
 export { FileSystemShellSnapshots } from "./drift/snapshots.ts";
 export { FileSystemWatchedFiles } from "./drift/watched-files.ts";
 export { FileSystemProjectDrift } from "./projects/drift.ts";
+export { FileSystemProjectPathKinds } from "./projects/path-kinds.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

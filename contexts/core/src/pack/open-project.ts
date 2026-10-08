@@ -1,6 +1,6 @@
-import { type DecisionLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectDrift, type ProjectJudge } from "bounded/application";
+import { type DecisionLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectDrift, type ProjectJudge, type ProjectPathKinds } from "bounded/application";
 import type { Clock } from "bounded/application";
-import { FileSystemProjectConfigSource, FileSystemProjectDecisionLogs, FileSystemProjectDrift } from "bounded/adapters/file-system";
+import { FileSystemProjectConfigSource, FileSystemProjectDecisionLogs, FileSystemProjectDrift, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
 import { SystemClock } from "bounded/adapters/system";
 import { Verdict } from "bounded/domain";
 
@@ -13,6 +13,8 @@ export interface OpenProjectOptions {
   readonly recordWithinMs?: number;
   /** Where watched files are hashed and restored, and snapshots kept; by default the project's disk and `.bounded/snapshots/`. */
   readonly drift?: ProjectDrift;
+  /** What is at a project path, for the packs that prepare when the project opens; by default the project's disk. */
+  readonly pathKinds?: ProjectPathKinds;
 }
 
 /**
@@ -30,6 +32,7 @@ export async function openProject(root: string, options: OpenProjectOptions = {}
     const handler = new OpenProjectHandler(options.configSource ?? new FileSystemProjectConfigSource(), logs, options.clock ?? new SystemClock(), {
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
       drift: options.drift ?? new FileSystemProjectDrift(),
+      pathKinds: options.pathKinds ?? new FileSystemProjectPathKinds(),
     });
     return await handler.execute(command.value);
   } catch (thrown) {

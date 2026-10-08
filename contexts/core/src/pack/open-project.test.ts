@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Composition, Verdict } from "bounded/domain";
@@ -169,6 +169,33 @@ export default defineConfig({
       expect(check.message).toContain("generated/we\\nird.ts was modified");
       expect(readFileSync(join(root, "generated", WEIRD), "utf8")).toBe("original\n");
     });
+  });
+
+  test("openProject prepares the path gate's shell check: reads by absolute path, and redirects judged by whether the file exists", async () => {
+    const config = `import { corePack, defineConfig, contribution } from "bounded/domain";
+import { pathGate } from "bounded/path-gate";
+export default defineConfig({
+  packs: [corePack, pathGate],
+  contributes: [
+    contribution(pathGate.points.protectedPaths, [
+      { match: ".env", file: true, deny: ["read"], redirect: "Ask a maintainer for the value" },
+      { match: "migrations/**", deny: ["modify", "delete"], redirect: "Add a new migration instead" },
+    ]),
+  ],
+});
+`;
+    const root = realpathSync(project({ "bounded.config.ts": config }));
+    mkdirSync(join(root, "migrations"));
+    writeFileSync(join(root, "migrations", "0001_init.sql"), "create table a;");
+    writeFileSync(join(root, ".env"), "KEY=1");
+    const { judge, problem } = await openProject(root);
+    expect(problem).toBeNull();
+    let calls = 0;
+    const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: `call-${++calls}` });
+    expect(await shell(`cat ${join(root, ".env")}`)).toMatchObject({ kind: "refuse", redirect: "Ask a maintainer for the value" });
+    expect((await shell("cat /etc/hosts")).kind).toBe("allow");
+    expect((await shell("echo 'create table b;' > migrations/0002_add.sql")).kind).toBe("allow");
+    expect(await shell("echo 'drop table a;' >> migrations/0001_init.sql")).toMatchObject({ kind: "refuse", redirect: "Add a new migration instead" });
   });
 
   test("a root that is not an absolute path gives a judge that refuses everything", async () => {

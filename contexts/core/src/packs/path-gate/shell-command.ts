@@ -1,78 +1,178 @@
 import { ProjectPath } from "bounded/domain";
-import type { ShellCommandEffects, ShellToken, ShellWrite } from "./shell-command.contract.ts";
+import { commandMeaning } from "./command-meanings.ts";
+import type { MeaningChange } from "./command-meanings.contract.ts";
+import type { ShellCommandEffects, ShellNode, ShellPlace, ShellRedirect, ShellWord, ShellWrite } from "./shell-command.contract.ts";
 
-// A parsed shell command as the project paths it names: a translation that
-// decides nothing. A command's arguments are taken as reads of the paths
-// they name (its name is not), an option's `=value` too; a `<` source is a
-// read, a `>` or `>>` target a write; `cd` moves where later paths resolve
-// from. Variables, globs, `~`, absolute paths and paths leaving the project
-// are unresolved: only the shell can resolve them.
+// A parsed command line as the project paths it reads, lists and writes: a
+// translation that decides nothing. Where each command runs is followed as
+// the shell would: a cd carries on to later commands in the same shell, never
+// out of a subshell, a substitution or a pipeline stage, and leaves where
+// later commands run unknown when it may or may not have happened, or when
+// its target cannot be resolved. What only the shell can resolve is
+// reported as unresolved, never guessed at.
 
-const READ_REDIRECTS = new Set(["<"]);
-const WRITE_REDIRECTS = new Set([">", ">>", ">|"]);
-/** Redirections whose target is not a file: a descriptor, a here-document's delimiter or text. */
-const OTHER_REDIRECTS = new Set([">&", "<&", "<<", "<<<", "<>"]);
-const isRedirect = (token: ShellToken | undefined): boolean =>
-  token?.kind === "operator" && (READ_REDIRECTS.has(token.operator) || WRITE_REDIRECTS.has(token.operator) || OTHER_REDIRECTS.has(token.operator));
-
-/** `text` as a project path from the directory `at` (its parts), or undefined when only the shell could resolve it. */
-function resolve(at: readonly string[], text: string): string | undefined {
-  if (text === "" || text.includes("$") || text.includes("`") || text.startsWith("/") || text.startsWith("~")) return undefined;
-  const parts = [...at];
-  for (const part of text.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part !== "..") parts.push(part);
-    else if (parts.pop() === undefined) return undefined;
-  }
-  const path = ProjectPath.parse(parts.length === 0 ? "." : parts.join("/"));
-  return path.ok ? path.value.value : undefined;
+/** Where commands run: a project directory (its parts), or null when it cannot be known. */
+interface Scope {
+  at: readonly string[] | null;
 }
 
-/** What `tokens`, run from `cwd` (project-relative, or null for the project root), read and write. */
-export function describeShellCommand(tokens: readonly ShellToken[], cwd: string | null): ShellCommandEffects {
-  let at: string[] = cwd === null || cwd === "." ? [] : cwd.split("/");
-  const reads: string[] = [];
+const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
+const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
+const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
+
+/** What `script`, run at `place`, reads, lists and writes. */
+export function describeShellCommand(script: readonly ShellNode[], place: ShellPlace): ShellCommandEffects {
+  const reads: ProjectPath[] = [];
+  const lists: ProjectPath[] = [];
   const writes: ShellWrite[] = [];
   const unresolved: string[] = [];
-  const named = (text: string, into: (path: string) => void): void => {
-    const path = resolve(at, text);
-    if (path === undefined) unresolved.push(text);
-    else into(path);
+
+  /** `text` as a project path from `scope`, or undefined when only the shell could resolve it. */
+  const pathOf = (text: string, scope: Scope): ProjectPath | undefined => {
+    let parts: string[];
+    let rest = text;
+    if (text.startsWith("/")) {
+      if (text !== place.root && !text.startsWith(`${place.root}/`)) return undefined;
+      parts = [];
+      rest = text.slice(place.root.length);
+    } else if (scope.at === null) return undefined;
+    else parts = [...scope.at];
+    for (const part of rest.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part !== "..") parts.push(part);
+      else if (parts.pop() === undefined) return undefined;
+    }
+    const path = ProjectPath.parse(parts.length === 0 ? "." : parts.join("/"));
+    return path.ok ? path.value : undefined;
   };
-  /** What the next word is: a command's name, cd's directory, an argument, or a redirection's target. */
-  let next: "name" | "cd" | "argument" | "read" | "write" | "skip" = "name";
-  for (const [index, token] of tokens.entries()) {
-    if (token.kind === "operator") {
-      if (READ_REDIRECTS.has(token.operator)) next = "read";
-      else if (WRITE_REDIRECTS.has(token.operator)) next = "write";
-      else if (OTHER_REDIRECTS.has(token.operator)) next = "skip";
-      else next = "name";
-      continue;
+
+  /** A word as a project path; recorded as unresolved when it cannot be one. */
+  const resolve = (word: ShellWord, scope: Scope): ProjectPath | undefined => {
+    const path = word.kind === "literal" ? pathOf(word.text, scope) : undefined;
+    if (path === undefined) unresolved.push(word.text);
+    return path;
+  };
+
+  /** A write of `path`, a create or a modify by whether it exists, as a file tool's would be. */
+  const write = (path: ProjectPath, change: MeaningChange): void => {
+    if (change === "create" || change === "delete") {
+      writes.push({ path, change });
+      return;
     }
-    if (token.kind === "unresolved") {
-      unresolved.push(token.text);
-      next = next === "name" ? "argument" : next === "read" || next === "write" || next === "skip" ? "argument" : next;
-      continue;
+    const kind = place.kindOfPath(path);
+    if (kind === undefined) {
+      writes.push({ path, change: "create", undetermined: true });
+      if (change === "write") writes.push({ path, change: "modify", undetermined: true });
+    } else if (kind === "absent") writes.push({ path, change: "create" });
+    else if (change === "write") writes.push({ path, change: "modify" });
+  };
+
+  /** The commands substituted in a word run in subshells of their own. */
+  const substitutions = (word: ShellWord, scope: Scope): void => {
+    if (word.kind === "unresolved") for (const node of word.commands) walk(node, { at: scope.at });
+  };
+
+  const redirect = ({ operator, target }: ShellRedirect, scope: Scope): void => {
+    if (operator === "<" || operator === "<>") {
+      const path = resolve(target, scope);
+      if (path !== undefined) reads.push(path);
     }
-    const { text } = token;
-    if (next === "read" || next === "write" || next === "skip") {
-      if (next === "read") named(text, (path) => reads.push(path));
-      if (next === "write") named(text, (path) => writes.push({ path, change: "create-or-modify" }));
-      next = "argument";
-    } else if (/^\d+$/.test(text) && isRedirect(tokens[index + 1])) {
-      // A file descriptor, as in 2>&1 or 2> errors.log.
-    } else if (next === "name") {
-      // An assignment before the command (NAME=value) names its value; the command's own name is not read.
-      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) named(text.slice(text.indexOf("=") + 1), (path) => reads.push(path));
-      else next = text === "cd" ? "cd" : "argument";
-    } else if (next === "cd") {
-      const moved = resolve(at, text);
-      if (moved === undefined) unresolved.push(text);
-      else at = moved === "." ? [] : moved.split("/");
-      next = "argument";
-    } else if (text.startsWith("-")) {
-      if (text.includes("=")) named(text.slice(text.indexOf("=") + 1), (path) => reads.push(path));
-    } else named(text, (path) => reads.push(path));
-  }
-  return { reads, writes, unresolved };
+    const duplicates = (operator === ">&" || operator === "<&") && /^(\d+|-)$/.test(target.kind === "literal" ? target.text : "");
+    if (WRITE_REDIRECTS.has(operator) || operator === "<>" || (operator === ">&" && !duplicates)) {
+      const path = resolve(target, scope);
+      if (path !== undefined) write(path, "write");
+    }
+  };
+
+  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope): void => {
+    if (name === null) return;
+    const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args);
+    for (const word of meaning.reads) {
+      const path = resolve(word, scope);
+      if (path !== undefined) reads.push(path);
+    }
+    for (const word of meaning.lists) {
+      const path = resolve(word, scope);
+      if (path !== undefined) lists.push(path);
+    }
+    for (const { word, change } of meaning.writes) {
+      const path = resolve(word, scope);
+      if (path !== undefined) write(path, change);
+    }
+    for (const { sources, destination, moves } of meaning.transfers) {
+      const to = resolve(destination, scope);
+      for (const source of sources) {
+        const from = resolve(source, scope);
+        if (from !== undefined) (moves ? writes.push({ path: from, change: "delete" }) : reads.push(from));
+        if (to === undefined) continue;
+        if (place.kindOfPath(to) !== "directory") write(to, "write");
+        else if (from !== undefined) {
+          const inside = pathOf(from.value.split("/").at(-1) ?? from.value, { at: partsOf(to) });
+          if (inside !== undefined) write(inside, "write");
+        }
+      }
+    }
+    for (const word of meaning.unresolved) unresolved.push(word.text);
+    for (const ran of meaning.runs) command(ran.name, ran.args, scope);
+    if (meaning.location !== undefined) {
+      const to = meaning.location.to === null ? undefined : resolve(meaning.location.to, scope);
+      scope.at = to === undefined ? null : partsOf(to);
+    }
+  };
+
+  const walk = (node: ShellNode, scope: Scope): void => {
+    switch (node.kind) {
+      case "command": {
+        for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, scope);
+        command(node.name, node.args, scope);
+        for (const each of node.redirects) redirect(each, scope);
+        return;
+      }
+      case "list": {
+        if (node.operator === "&") {
+          walk(node.left, { at: scope.at });
+          walk(node.right, scope);
+        } else if (node.operator === "||") {
+          // The right side runs only when the left failed, so from where the left started.
+          const before = scope.at;
+          walk(node.left, scope);
+          const right: Scope = { at: before };
+          walk(node.right, right);
+          scope.at = sameAt(scope.at, before) && sameAt(right.at, before) ? before : null;
+        } else {
+          walk(node.left, scope);
+          walk(node.right, scope);
+        }
+        return;
+      }
+      case "pipeline":
+        for (const stage of node.stages) walk(stage, { at: scope.at });
+        return;
+      case "subshell": {
+        const inside: Scope = { at: scope.at };
+        for (const inner of node.body) walk(inner, inside);
+        return;
+      }
+      case "group":
+        for (const each of node.redirects) {
+          substitutions(each.target, scope);
+          redirect(each, scope);
+        }
+        for (const inner of node.body) walk(inner, scope);
+        return;
+      case "conditional": {
+        const maybe: Scope = { at: scope.at };
+        for (const inner of node.body) walk(inner, maybe);
+        if (!sameAt(maybe.at, scope.at)) scope.at = null;
+        return;
+      }
+      case "unparsed":
+        unresolved.push(node.text);
+        return;
+    }
+  };
+
+  const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };
+  for (const node of script) walk(node, start);
+  return { reads, lists, writes, unresolved };
 }

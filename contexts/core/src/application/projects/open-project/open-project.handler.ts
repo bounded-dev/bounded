@@ -1,9 +1,9 @@
-import { type Composition, composeConfig, type Result, ToolResult, Verdict } from "bounded/domain";
+import { type Composition, composeConfig, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
 import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
 import type { AdapterRefusalInput, Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 import { JudgeEventHandler } from "../../judging/judge-event/judge-event.handler.ts";
-import type { OpenProject, OpenProjectCommand, ProjectConfigSource, ProjectDecisionLogs, ProjectDrift, ProjectJudge } from "./open-project.contract.ts";
+import type { OpenProject, OpenProjectCommand, ProjectConfigSource, ProjectDecisionLogs, ProjectDrift, ProjectJudge, ProjectPathKinds } from "./open-project.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
 
@@ -22,7 +22,7 @@ export class OpenProjectHandler implements OpenProject {
     private readonly configs: ProjectConfigSource,
     private readonly logs: ProjectDecisionLogs,
     private readonly clock: Clock,
-    private readonly options: { readonly recordWithinMs?: number; readonly drift?: ProjectDrift } = {},
+    private readonly options: { readonly recordWithinMs?: number; readonly drift?: ProjectDrift; readonly pathKinds?: ProjectPathKinds } = {},
   ) {}
 
   /** Never rejects: whatever goes wrong, the judge refuses every event (and records it, when the log can be opened). */
@@ -33,6 +33,7 @@ export class OpenProjectHandler implements OpenProject {
       log = this.logFor(root);
       const composition = await this.compose(root);
       if (!composition.ok) return this.refusing(log, composition.error);
+      await this.prepare(root, composition.value);
       const drift = this.options.drift?.forProject(root);
       const watch = drift === undefined ? undefined : new WatchShellHandler(composition.value, drift.files, drift.snapshots, log, this.clock);
       const handler = new JudgeEventHandler(composition.value, log, this.clock, {
@@ -43,6 +44,15 @@ export class OpenProjectHandler implements OpenProject {
     } catch (thrown) {
       return this.refusing(log, text(thrown));
     }
+  }
+
+  /** Runs what each pack does when a project opens. One that fails leaves its own guards to refuse what they cannot check. */
+  private async prepare(root: string, composition: Composition): Promise<void> {
+    const openings = composition.read(corePack.points.onProjectOpen);
+    if (!openings.ok) return;
+    const kindOf = this.options.pathKinds?.forProject(root);
+    const project: OpenedProject = Object.freeze({ root, kindOfPath: (path: ProjectPath) => kindOf?.(path) });
+    await Promise.allSettled(openings.value.map((open) => Promise.resolve().then(() => open(project, composition))));
   }
 
   private judge(handler: JudgeEventHandler, problem: string | null, watch?: WatchShell): ProjectJudge {

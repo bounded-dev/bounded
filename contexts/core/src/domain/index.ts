@@ -74,6 +74,7 @@ export { WatchedPath } from "./drift/watched-path.ts";
 export type { Dispatch, EffectGuard, Guard, Judgement } from "./guards/guard.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
 export { corePack } from "./guards/core-pack.ts";
+export type { OpenedProject, PathKind, ProjectOpenHandler } from "./guards/project-opening.contract.ts";
 export { decideEvent, dispatchEvent } from "./guards/dispatch-event.ts";
 export type { AdapterRefusal, DecisionEvent, DecisionFactory, DecisionJSON, RecordedVerdict } from "./decisions/decision.contract.ts";
 export { Decision } from "./decisions/decision.ts";
