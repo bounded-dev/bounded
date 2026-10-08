@@ -1,0 +1,3 @@
+# The legacy harness under legacy/ is read-only reference: never tested here.
+[test]
+pathIgnorePatterns = ["legacy/**"]

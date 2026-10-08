@@ -9,6 +9,12 @@ notes belong in an untracked local file.
 `docs/spec.md` is the product requirement. `README.md` explains the design.
 Decisions are recorded in `docs/adr/` (index in `docs/adr/README.md`).
 
+**`legacy/` is read-only.** It holds the original Bounded harness, which this
+code supersedes (ADR 2026-014). Read it for reference; never edit, build, test
+or import it, and never add it to the workspaces, `tsconfig.json`, the linter
+or the tests. Its ADRs are `LEG-2026-NNN`; a decision here that draws on one
+cites it by that number.
+
 ## Tooling
 
 Bun is the runtime, package manager and test runner.
@@ -58,6 +64,7 @@ architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below
 scripts/workflow/                    the lifecycle's two scripts
+legacy/                              the original harness, read-only reference (ADR 2026-014)
 ```
 
 Each context is a workspace package with this source layout, adapted from the

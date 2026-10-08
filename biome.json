@@ -5,7 +5,8 @@
 			"**",
 			"!**/node_modules",
 			"!**/fixtures",
-			"!**/.agent-state"
+			"!**/.agent-state",
+			"!legacy"
 		]
 	},
 	"formatter": { "enabled": false },

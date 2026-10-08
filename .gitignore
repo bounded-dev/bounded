@@ -1,2 +1,20 @@
 node_modules/
 .agent-state/
+
+# Per-checkout state (ADR 2026-014): git worktrees of this repository and
+# Claude Code's local state
+.worktrees/
+.claude/worktrees/
+.claude/settings.local.json
+.DS_Store
+*.log
+
+# Runtime state the legacy harness kept at the root of a checkout (ADR
+# 2026-014); ignored so an older checkout never commits it
+/auth.json
+/sessions/
+/models-store.json
+/bin/
+/missions/
+/run-history.jsonl
+/docs/dogfood/.rendered-*

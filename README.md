@@ -4,6 +4,14 @@ The small, pure core of the Bounded harness, a set of guardrails for coding
 agents: the mechanism by which packs (selectable bundles of behaviour) extend
 one another. [docs/spec.md](docs/spec.md) is the requirement.
 
+## The legacy harness
+
+The original Bounded harness, which this code supersedes, is kept read-only
+in [legacy/](legacy/README.md): not built or tested, there for its decisions
+(ADRs `LEG-2026-NNN`) and dogfood records. This code was developed as
+`bounded-core` and merged into this repository with both histories kept
+([ADR 2026-014](docs/adr/2026-014-legacy-harness-moves-to-legacy.md)).
+
 ## Status
 
 Built and running on two real hosts:
