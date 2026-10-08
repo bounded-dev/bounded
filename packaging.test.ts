@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 const ROOT = import.meta.dir;
 const CORE = join(ROOT, "contexts/core");
-const VERSION = "3.0.0";
+const VERSION = "3.1.0";
 const CONFORMANCE = "src/application/project-setup/init-project/init-project.host-installer.test-support.ts";
 /** What the hooks and the pi loader run, beside every export target: the Claude Code hook is run by path, not imported. */
 const RUN_BY_PATH = ["dist/cli.js", "dist/hosts/claude-code/hook.js"];
@@ -154,6 +154,15 @@ describe("bounded, the one published package", () => {
     expect(readme).toContain("npx bounded init");
     expect(readme).toContain("pathGate.points.protectedPaths");
     expect(readme).toContain("https://github.com/bounded-dev/the-bounded-harness");
+  });
+
+  test("its README says the adapter export paths are internal: they serve the hosts bounded carries, not a project's configuration", () => {
+    const exports = Object.keys(manifestOf("contexts/core").exports ?? {});
+    expect(exports.filter((path) => path.includes("adapters"))).toEqual(["./adapters", "./path-gate/adapters"]);
+    const readme = readFileSync(join(CORE, "README.md"), "utf8");
+    const internal = readme.split("\n\n").find((paragraph) => paragraph.includes("`bounded/adapters`") && paragraph.includes("`bounded/path-gate/adapters`"));
+    expect(internal).toBeDefined();
+    expect(internal ?? "").toContain("internal");
   });
 
   test("a consumer's tsc (strict, skipLibCheck, bundler and nodenext, no allowImportingTsExtensions) compiles a configuration against the packed tarball's declarations, and still rejects a contribution to an unselected pack's point", () => {

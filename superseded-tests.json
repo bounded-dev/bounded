@@ -372,7 +372,7 @@
     "file": "contexts/core/src/adapters/out/file-system/drift/watched-files.test.ts",
     "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/watched-files.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/watched-files/watched-files.test.ts",
       "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
     },
     "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
@@ -381,7 +381,7 @@
     "file": "contexts/core/src/adapters/out/in-memory/drift/watched-files.test.ts",
     "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/in-memory/watched-files.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-watched-files.test.ts",
       "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
     },
     "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
@@ -543,7 +543,7 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell for a path that is not a plain project path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "after the value-objects refactor the port takes a ProjectPath, which cannot be absolute, empty or climb out of the project, so the case it pinned cannot arise; what is left to pin is a disk that cannot answer"
@@ -552,7 +552,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > creates the folders on the way to its file",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog > creates the folders on the way to its file"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -561,7 +561,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > appends one JSON line per decision, keeping what the file already holds",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog > appends one JSON line per decision, keeping what the file already holds"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -570,7 +570,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > creates its file readable and writable by its owner only",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog > creates its file readable and writable by its owner only"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -579,7 +579,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > makes an existing log file readable and writable by its owner only",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog > makes an existing log file readable and writable by its owner only"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -588,7 +588,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > two processes appending at once leave only whole lines",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog > two processes appending at once leave only whole lines"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -597,7 +597,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > rejects when the file cannot be written",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog > rejects when the file cannot be written"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -606,7 +606,7 @@
     "file": "contexts/core/src/adapters/out/in-memory/judging/decision-log.test.ts",
     "case": "InMemoryDecisionLog conforms to DecisionLog > holds nothing until a decision is recorded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/in-memory/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
       "case": "InMemoryGuardLog conforms to GuardLog > holds nothing until a decision is recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -615,7 +615,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog conforms to DecisionLog > holds nothing until a decision is recorded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog conforms to GuardLog > holds nothing until a decision is recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -624,7 +624,7 @@
     "file": "contexts/core/src/adapters/out/in-memory/judging/decision-log.test.ts",
     "case": "InMemoryDecisionLog conforms to DecisionLog > records each decision, whole, in the order recorded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/in-memory/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
       "case": "InMemoryGuardLog conforms to GuardLog > records each decision, whole, in the order recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -633,7 +633,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog conforms to DecisionLog > records each decision, whole, in the order recorded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog conforms to GuardLog > records each decision, whole, in the order recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -642,7 +642,7 @@
     "file": "contexts/core/src/adapters/out/in-memory/judging/decision-log.test.ts",
     "case": "InMemoryDecisionLog conforms to DecisionLog > decisions recorded at once all arrive",
     "successor": {
-      "file": "contexts/core/src/adapters/out/in-memory/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
       "case": "InMemoryGuardLog conforms to GuardLog > decisions recorded at once all arrive"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -651,7 +651,7 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog conforms to DecisionLog > decisions recorded at once all arrive",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/guard-log.test.ts",
+      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
       "case": "FileSystemGuardLog conforms to GuardLog > decisions recorded at once all arrive"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -660,7 +660,7 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/decision-logs.test.ts",
     "case": "FileSystemProjectDecisionLogs conforms to ProjectDecisionLogs > a project's log records its decisions",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/guard-log/project-guard-logs.test.ts",
+      "file": "contexts/core/src/adapters/out/project-guard-logs/project-guard-logs.test.ts",
       "case": "FileSystemProjectGuardLogs conforms to ProjectGuardLogs > a project's log records its decisions"
     },
     "reason": "renamed: guard log, ADR 2026-013"
@@ -2619,7 +2619,7 @@
     "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
     "case": "OpenProjectHandler > a configuration source that throws is a configuration that cannot be loaded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "file": "contexts/core/src/adapters/out/project-config-source/checked-project-config-source.test.ts",
       "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that throws is a configuration that cannot be loaded"
     },
     "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
@@ -2628,7 +2628,7 @@
     "file": "contexts/core/src/application/projects/open-project/open-project.test.ts",
     "case": "OpenProjectHandler > a configuration source that returns no result is a configuration that cannot be loaded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "file": "contexts/core/src/adapters/out/project-config-source/checked-project-config-source.test.ts",
       "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that returns no result is a configuration that cannot be loaded"
     },
     "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
@@ -2649,7 +2649,7 @@
     "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
     "case": "OpenProjectHandler > a configuration source that throws is a configuration that cannot be loaded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "file": "contexts/core/src/adapters/out/project-config-source/checked-project-config-source.test.ts",
       "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that throws is a configuration that cannot be loaded"
     },
     "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
@@ -2658,7 +2658,7 @@
     "file": "contexts/core/src/application/project-config/open-project/open-project.test.ts",
     "case": "OpenProjectHandler > a configuration source that returns no result is a configuration that cannot be loaded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/system/project-config/checked-config-source.test.ts",
+      "file": "contexts/core/src/adapters/out/project-config-source/checked-project-config-source.test.ts",
       "case": "CheckedProjectConfigSource — a host's configuration source, its answers checked > a configuration source that returns no result is a configuration that cannot be loaded"
     },
     "reason": "a host's configuration source is checked where its answer arrives, by CheckedProjectConfigSource, which the composition root wraps around it; the open-project handler trusts its port (ADR 2026-013, B3)"
@@ -2724,7 +2724,7 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2733,7 +2733,7 @@
     "file": "contexts/core/src/adapters/out/file-system/path-kinds/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2742,7 +2742,7 @@
     "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2751,7 +2751,7 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2760,7 +2760,7 @@
     "file": "contexts/core/src/adapters/out/file-system/path-kinds/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2769,7 +2769,7 @@
     "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -3753,7 +3753,7 @@
     "file": "contexts/core/src/adapters/out/file-system/project-config/load-failure.test.ts",
     "case": "loadFailure: why a project's configuration file could not be loaded > a TypeScript configuration a Node without type stripping cannot load is refused, saying to upgrade Node or write it in JavaScript",
     "successor": {
-      "file": "contexts/core/src/adapters/out/file-system/project-config/load-failure.test.ts",
+      "file": "contexts/core/src/adapters/out/project-config-source/load-failure.test.ts",
       "case": "loadFailure: why a project's configuration file could not be loaded > a TypeScript configuration a Node without type stripping cannot load is refused, saying to upgrade Node or write it as bounded.config.mjs, a module in any project"
     },
     "reason": "the advice names bounded.config.mjs only: a .js configuration fails in a CommonJS project (npm init -y writes \"type\": \"commonjs\"), so advising it would mislead (final review)"

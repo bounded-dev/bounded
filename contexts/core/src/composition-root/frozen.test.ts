@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import * as fileSystem from "bounded/adapters/file-system";
-import * as inMemory from "bounded/adapters/in-memory";
-import * as system from "bounded/adapters/system";
+import * as adapters from "bounded/adapters";
 import * as application from "bounded/application";
 import * as domain from "bounded/domain";
 import * as openProject from "bounded/open-project";
 import * as pathGate from "bounded/path-gate";
+import * as pathGateAdapters from "bounded/path-gate/adapters";
 
 // Everything a configuration (or a pack it imports) can reach through the
 // public entry points must be frozen, so loading bounded.config.ts cannot
@@ -14,11 +13,10 @@ import * as pathGate from "bounded/path-gate";
 const ENTRY_POINTS: Record<string, Record<string, unknown>> = {
   "bounded/domain": domain,
   "bounded/application": application,
-  "bounded/adapters/in-memory": inMemory,
-  "bounded/adapters/file-system": fileSystem,
-  "bounded/adapters/system": system,
+  "bounded/adapters": adapters,
   "bounded/open-project": openProject,
   "bounded/path-gate": pathGate,
+  "bounded/path-gate/adapters": pathGateAdapters,
 };
 
 function unfrozen(name: string, value: unknown): string[] {

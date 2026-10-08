@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { shellSnapshotsConformance, snapshotOf } from "../../../application/watch-shell/watch-shell.snapshots.test-support.ts";
 import { Ports } from "bounded/domain";
 import { shellSnapshotsPort } from "../../../application/watch-shell/watch-shell.contract.ts";
-import { pathGateFileSystem } from "./provisions.ts";
+import { pathGatePortProvisions } from "../port-provisions.ts";
 import { stateHomeFor } from "./state-home.ts";
 import { FileSystemShellSnapshots } from "./snapshots.ts";
 
@@ -78,7 +78,7 @@ describe("FileSystemShellSnapshots — kept away from the project, and not for l
   test("a project's drift adapters keep its snapshots under the given state directory", async () => {
     const root = mkdtempSync(join(tmpdir(), "snapshots-"));
     const state = mkdtempSync(join(tmpdir(), "snapshots-state-"));
-    const ports = Ports.forProject(root, pathGateFileSystem(state));
+    const ports = Ports.forProject(root, pathGatePortProvisions(state));
     const snapshots = ports.ok ? ports.value.get(shellSnapshotsPort) : undefined;
     await (snapshots?.ok ? snapshots.value.save("c1", snapshot) : Promise.reject(new Error("no snapshots port")));
     expect(readdirSync(join(state, "bounded")).length).toBe(1);
