@@ -116,10 +116,15 @@ adapter package the project depends on: Claude Code's into
 `.claude/settings.json`, and pi's loader when the project has `.pi/`. Restart
 the host's session afterwards.
 
-To upgrade, pack the new release and run `npx bounded update --from <dir>`:
-it installs the tarballs in `<dir>`, then the newly installed version
-refreshes the hooks itself. `npx bounded update --no-upgrade` refreshes the
-hooks from the installed version only. Neither touches `bounded.config.ts`.
+To upgrade, pack the new release into an empty directory and run
+`npx bounded update --from <dir>`. It installs the tarballs in `<dir>` and
+points the `bounded` override at the new tarball itself. It checks the
+installed versions, then hands over to the newly installed version, which
+refreshes the hooks. If the upgrade fails, `package.json` is restored.
+`npx bounded update --no-upgrade` refreshes the hooks from the installed
+version only. Neither touches `bounded.config.ts`. Run `bounded update`
+again after moving or re-cloning the project: the Claude Code hook names
+the project's absolute path.
 
 ## Develop
 

@@ -157,7 +157,20 @@ the `...FromConfig` ones, which open the project the same way):
   interruption reaches Claude in the tool result. Such a call goes unchecked
   and its snapshot expires (see [drift.md](drift.md)).
 
-To install, read `.claude/settings.json` (or `{}`), pass it to
+`bounded init` and `bounded update` install the hook for you (README,
+"Installing"). They load this package's `./host-installer` export
+(`src/host-installer.ts`, [ADR 2026-015](adr/2026-015-host-installers.md)).
+It runs `bun` on the project's own
+`node_modules/bounded-claude-code/src/main.ts`, through `withProjectHooks`.
+That first removes every bounded hook without a role (`isBoundedHook`: a
+command running bounded-claude-code's or a checkout's
+`apps/claude-code/src/main.ts`, at any path), so the hook of a moved or
+re-cloned project is replaced, not duplicated. The command is an absolute
+path, so a `.claude/settings.json` committed and checked out elsewhere needs
+`bounded update` there before the hook runs. Settings that exist but cannot
+be read, or are not JSON, are refused and left alone.
+
+To install by hand, read `.claude/settings.json` (or `{}`), pass it to
 `withHooks(settings, command)` with the command that runs `src/main.ts`, and
 write the result back when `changed`. `hookCommand({ bun, main, role })`
 builds that command with every path shell-quoted, such as

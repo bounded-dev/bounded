@@ -5,7 +5,7 @@ session start it composes the project's guards, and on every tool call it
 turns pi's call into a host-neutral tool use, decides it, and answers pi.
 Anything it cannot read, translate or decide in time blocks the call.
 
-bounded-pi is not installable outside this workspace yet: it is a private
+bounded-pi is not published to npm yet; install it from a packed tarball (README, "Installing"). It is a private
 workspace package. A project configures its packs in `bounded.config.ts`
 ([configuring a project](configuration.md)).
 
@@ -139,6 +139,12 @@ The decide also carries the project's `afterTool` and `refuse`:
 `end-to-end.test.ts` runs this with a real `bounded.config.ts`; the other
 tests inject their own `load`. `piLoader()` is pure: the caller writes the
 file.
+
+`bounded init` and `bounded update` write it for you (README,
+"Installing"). They load this package's `./host-installer` export
+(`src/host-installer.ts`, [ADR 2026-015](adr/2026-015-host-installers.md)),
+which writes the loader only when the project has `.pi/`. It rewrites a
+loader that differs and leaves one that cannot be read alone, refusing.
 
 ## Trust and residual risks
 

@@ -41,7 +41,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `HostInstaller` contract) takes part; `bounded-claude-code` merges its
   hooks into `.claude/settings.json`, pointing at the project's own
   `node_modules/bounded-claude-code/src/main.ts`, and `bounded-pi` writes
-  its loader when `.pi/` exists. The end-to-end test
+  its loader when `.pi/` exists ([ADR 2026-015](adr/2026-015-host-installers.md);
+  every installer runs the conformance suite
+  `bounded/application/host-installer-conformance`). The end-to-end test
   (`contexts/core/test/bounded-cli.e2e.test.ts`) packs the workspace with
   `bun pm pack` and runs `npx bounded` against the tarballs.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
@@ -102,7 +104,29 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - The packages are versioned `0.1.0`; publishing them as a new major above
     the legacy 2.x is still to decide. Until then a project installing from
     tarballs must override `bounded` with the local tarball (`overrides`),
-    or its package manager resolves `bounded@0.1.0` on npm and fails.
+    or its package manager resolves `bounded@0.1.0` on npm and fails. The
+    first install sets that override by hand; `bounded update --from` then
+    points it at each new tarball itself, checks every upgraded package's
+    installed version against its tarball's, and restores `package.json`
+    on any failure.
+  - The Claude Code hook runs an absolute path. A moved or re-cloned
+    project's stale hook (which blocks every call) is replaced by
+    `bounded update`, whatever path it pointed at, but until then it
+    blocks. A `.claude/settings.json` committed and checked out elsewhere
+    therefore needs `bounded update` in each checkout. A command relative to
+    `$CLAUDE_PROJECT_DIR` would avoid this. It was not adopted here because
+    the slice's red-commit tests require the absolute path; it needs a
+    decision and a superseded-tests record.
+  - `NodeModulesHostInstallerSource` refuses when a declared dependency is
+    missing from `<root>/node_modules`: a devDependency left out
+    (`--production`), or a workspace that hoists packages to a parent
+    directory. It reads only `<root>/node_modules`.
+  - **An agent running `bounded update --from` can swap out the hook's own
+    code**: it installs whatever tarballs it is given, and the new version's
+    CLI and hooks run from then on. Nothing guards that command yet; a
+    project must guard it (for example, protect `package.json`,
+    `node_modules/` and the lockfile, or refuse the command, in its packs'
+    rules) until a shipped pack does.
   - Hooks run TypeScript under bun (`bun …/src/main.ts`); the packages ship
     their `.ts` sources. Compiled JavaScript for node is not built.
   - The CLI and its upgrade step live in the composition root

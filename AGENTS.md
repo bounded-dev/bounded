@@ -25,7 +25,7 @@ Bun is the runtime, package manager and test runner.
 | `bun run check` | The whole check: `typecheck`, `lint`, `test` |
 | `bun run typecheck` | `tsc` over every workspace, strict |
 | `bun run lint` | Biome's linter |
-| `bun run test` | `bun test`: unit, law, conformance, architecture and compile-time tests |
+| `bun run test` | `bun test`: unit, law, conformance, architecture, compile-time and end-to-end tests. The CLI's end-to-end test (`contexts/core/test/bounded-cli.e2e.test.ts`) packs the workspace, installs it with bun (fetching its libraries unless bun's cache has them, so it may need the network) and runs `npx` (or `bunx`); expect `bun run check` to take up to about 3 minutes |
 
 `bun run check` must be green before any commit that is not a red commit.
 
@@ -87,7 +87,7 @@ src/
     index.ts              the application barrel
   adapters/in/<tech>/     driving adapters: depend on in ports, never handlers
   adapters/out/<tech>/    driven adapters: implement out ports; each runs its port's conformance suite
-  composition-root/       the context's composition root: openProject, which host adapters call (ADR 2026-010)
+  composition-root/       the context's composition root: openProject, which host adapters call (ADR 2026-010), and the `bounded` CLI bin (init, update; ADR 2026-015)
   packs/<name>/           a pack shipped in the context's package, such as path-gate/ (ADR 2026-009)
 ```
 

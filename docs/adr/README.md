@@ -20,3 +20,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-012](2026-012-value-objects-are-classes.md) | Value objects are classes, as in the example; a point takes a value object's wire form |
 | [2026-013](2026-013-restructure.md) | The restructure: names that say what they hold, contracts everywhere, and rules that keep them |
 | [2026-014](2026-014-legacy-harness-moves-to-legacy.md) | The legacy harness moves to `legacy/`, both histories kept; its ADRs become `LEG-2026-NNN` |
+| [2026-015](2026-015-host-installers.md) | Host installers are found by package export, outside pack composition: installing is distribution |
