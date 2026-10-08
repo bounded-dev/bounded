@@ -6,16 +6,24 @@ import type { ComposePacksCatalog } from "./compose-packs.contract.ts";
 export function composePacksCatalogConformance(name: string, fixture: (packs: readonly BasePack[]) => Promise<ComposePacksCatalog>): void {
   describe(`${name} conforms to ComposePacksCatalog`, () => {
     test("offers nothing when it holds nothing", async () => {
-      expect(await (await fixture([])).available()).toEqual([]);
+      const available = await (await fixture([])).available();
+      expect(available.ok && available.value.packs).toEqual([]);
     });
 
     test("offers every pack it holds, the very objects, in order", async () => {
       const packId = packIdsFor("test-packs");
       const packs = [definePack({ id: packId("b") }), definePack({ id: packId("a") })];
       const available = await (await fixture(packs)).available();
-      expect(available).toHaveLength(2);
-      expect(available[0]).toBe(packs[0] as BasePack);
-      expect(available[1]).toBe(packs[1] as BasePack);
+      const listed = available.ok ? available.value.packs : [];
+      expect(listed).toHaveLength(2);
+      expect(listed[0]).toBe(packs[0] as BasePack);
+      expect(listed[1]).toBe(packs[1] as BasePack);
+    });
+
+    test("refuses packs that cannot be composed from, saying why", async () => {
+      const packId = packIdsFor("test-packs");
+      const available = await (await fixture([definePack({ id: packId("a") }), definePack({ id: packId("a") })])).available();
+      expect(available).toEqual({ ok: false, error: "Two available packs have the id 'test-packs/a'. An id names one pack in selections and messages: give each pack its own" });
     });
   });
 }

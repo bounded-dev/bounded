@@ -2,7 +2,8 @@
 // contract ports (R1), every @implementedBy is true (R2), every domain concept
 // is a triplet, four files for a value object (R3), every pack a package ships
 // has a contract (R3b), every feature has a contract its handler implements
-// (R4), and the files that route events assert no types (R5). Each rule reads
+// (R4), the files that route events assert no types (R5), and shape checks
+// live where the shape is owned (R6). Each rule reads
 // source text with the TypeScript parser and is a pure function of the files
 // it is given, so it can be tested on small fixtures as well as run on the
 // repository.
@@ -266,6 +267,48 @@ export function assertionViolations(files: readonly SourceFile[], allowed: Reado
     };
     visit(source);
     if (lines.length !== limit) out.push(`${path} — ${lines.length} type assertions (as, <T>x, !) at line ${lines.join(", ") || "none"}; it may have ${limit}`);
+  }
+  return out;
+}
+
+/**
+ * R6: in domain and application code (the core's and packs'), a shape check
+ * (`Array.isArray(…)`, `typeof … === "object"`, `… instanceof …`) appears
+ * only where a shape is owned: a file with a class that has a static `parse`
+ * or a private constructor (its factory), or a `parse` function, or a
+ * command file. Any other file is named in `allowed`, with its reason.
+ * Reading what was thrown (`instanceof Error`) is not a shape check.
+ */
+export function shapeCheckViolations(files: readonly SourceFile[], allowed: ReadonlyMap<string, string> = new Map()): string[] {
+  const out: string[] = [];
+  for (const file of files) {
+    if (isTest(file.path) || allowed.has(file.path) || file.path.endsWith(".command.ts")) continue;
+    if (!/^contexts\/[^/]+\/src\/(?:packs\/[^/]+\/)?(?:domain|application)\//.test(file.path) && !/^contexts\/[^/]+\/src\/packs\/[^/]+\/[^/]+\.ts$/.test(file.path)) continue;
+    const source = parse(file);
+    let owner = false;
+    const lines: number[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === "parse") owner = true;
+      if (ts.isClassDeclaration(node)) {
+        owner ||= node.members.some(
+          (member) =>
+            (ts.isMethodDeclaration(member) && ts.isIdentifier(member.name) && member.name.text === "parse" && (ts.getModifiers(member) ?? []).some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) ||
+            (ts.isConstructorDeclaration(member) && (ts.getModifiers(member) ?? []).some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)),
+        );
+      }
+      const isArrayCheck = ts.isCallExpression(node) && node.expression.getText(source) === "Array.isArray";
+      const isObjectCheck =
+        ts.isBinaryExpression(node) &&
+        [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(node.operatorToken.kind) &&
+        [node.left, node.right].some((side) => ts.isTypeOfExpression(side)) &&
+        [node.left, node.right].some((side) => ts.isStringLiteral(side) && side.text === "object");
+      // Reading what was thrown (`instanceof Error`) is not a shape check.
+      const isInstanceCheck = ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword && node.right.getText(source) !== "Error";
+      if (isArrayCheck || isObjectCheck || isInstanceCheck) lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    if (lines.length > 0 && !owner) out.push(`${file.path}:${lines.join(",")} — a shape check belongs in the parse or factory of the class that owns the shape (AGENTS.md, ADR 2026-013)`);
   }
   return out;
 }

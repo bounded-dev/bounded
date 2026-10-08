@@ -12,6 +12,7 @@ import {
   featureContractViolations,
   implementedByViolations,
   packContractViolations,
+  shapeCheckViolations,
   type SourceFile,
 } from "./architecture.rules.test-support.ts";
 
@@ -339,7 +340,7 @@ for (const path of appFiles) {
   }
 }
 
-// The contract rules R1–R5 (architecture.rules.test-support.ts): every file of every context, tests included.
+// The contract rules R1–R6 (architecture.rules.test-support.ts): every file of every context, tests included.
 const contextSources: SourceFile[] = await Promise.all(files.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));
 const barrels = new Map<string, ReadonlyMap<string, string>>();
 for (const context of contexts) {
@@ -364,6 +365,11 @@ const ASSERTIONS = new Map([
   // functionOf: a contributed function's signature cannot be checked at run time (ADR 2026-007).
   ["contexts/core/src/domain/guards/core-pack.ts", 1],
 ]);
+/** R6: files with a shape check that owns no shape, each with its reason. */
+const SHAPE_CHECKS = new Map([
+  ["contexts/core/src/domain/guards/dispatch.ts", "a guard's return value is contributed code's output, a boundary: the promise check stays beside Verdict.parse because its message names the guard"],
+  ["contexts/core/src/domain/drift/watched-paths.ts", "removed by step C of the restructure: the path gate's watched-rules concept replaces it"],
+]);
 const texts = new Map(contextSources.map(({ path, text }) => [path, text]));
 violations.push(
   ...adapterContractViolations(contextSources, barrels),
@@ -372,6 +378,7 @@ violations.push(
   ...packContractViolations(contextSources),
   ...featureContractViolations(files, texts),
   ...assertionViolations(contextSources, ASSERTIONS),
+  ...shapeCheckViolations(contextSources, SHAPE_CHECKS),
 );
 
 describe("architecture", () => {
@@ -538,6 +545,19 @@ describe("architecture", () => {
     expect(assertionViolations([file], new Map([[file.path, 3]]))).toEqual([]);
     expect(assertionViolations([file], new Map([[file.path, 0]]))).toEqual([`${file.path} — 3 type assertions (as, <T>x, !) at line 1, 2, 3; it may have 0`]);
     expect(assertionViolations([], new Map([[file.path, 0]]))).toEqual([`${file.path} — named by the assertion rule but missing`]);
+  });
+
+  test("R6: a shape check appears only where its shape is owned, or with a stated reason", () => {
+    const at = (name: string) => `contexts/x/src/domain/area/${name}`;
+    const check = "if (!Array.isArray(raw) || typeof raw === \"object\" || raw instanceof Thing) return;\n";
+    const owner = { path: at("owner.ts"), text: `class OwnerImpl {\n  private constructor() {}\n  static parse(raw: unknown) {\n    ${check}  }\n}\n` };
+    const loose = { path: at("loose.ts"), text: `export function decide(raw: unknown) {\n  ${check}}\n` };
+    const thrown = { path: at("thrown.ts"), text: "export const text = (e: unknown) => (e instanceof Error ? e.message : String(e));\n" };
+    const command = { path: "contexts/x/src/application/area/feature/feature.command.ts", text: check };
+    const adapter = { path: "contexts/x/src/adapters/out/file-system/thing.ts", text: check };
+    expect(shapeCheckViolations([owner, thrown, command, adapter])).toEqual([]);
+    expect(shapeCheckViolations([loose])).toEqual([`${at("loose.ts")}:2,2,2 — a shape check belongs in the parse or factory of the class that owns the shape (AGENTS.md, ADR 2026-013)`]);
+    expect(shapeCheckViolations([loose], new Map([[at("loose.ts"), "a reason"]]))).toEqual([]);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {
