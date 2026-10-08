@@ -1,6 +1,6 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
-import { type CorePackPoints, contribution, corePack, definePack, type Guard, type KindsMatch, type ReadEffect, type SessionStart, Verdict, type WriteEffect } from "bounded/domain";
+import { type CorePackPoints, contribution, corePack, decideEvent, definePack, type Guard, type KindsMatch, type ReadEffect, type SessionStart, type ToolUse, Verdict, type WriteEffect } from "bounded/domain";
 import { packId } from "./packs.ts";
 
 const guards = corePack.points;
@@ -27,3 +27,6 @@ export const swapped: CorePackPoints["effectGuards"] = { ...guards.effectGuards,
 export const toGroup = contribution(guards.effectGuards, [onWrite]); // rejected: is not assignable to parameter of type 'ExtensionPoint
 // An effect's kind is its key.
 export type Mislabelled = KindsMatch<{ read: WriteEffect }>; // rejected: does not satisfy the constraint
+// Dispatch takes a composition Composition.compose made, never a look-alike.
+declare const someCall: ToolUse;
+export const forged = decideEvent({ __brand: "Composition", packs: [corePack] }, someCall); // rejected: is missing the following properties from type 'Composition': read, entries

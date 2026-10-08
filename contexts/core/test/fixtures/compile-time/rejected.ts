@@ -70,3 +70,5 @@ export function read(composition: Composition): readonly number[] {
 
 // A pack the package ships is typed by its contract: a definition missing a contracted point does not compile.
 export const missingPoint: CorePack = definePack({ id: packIdsFor("bounded")("core"), points: { toolUseGuards: point({ description: "x", check: (raw: unknown) => ({ ok: false as const, error: String(raw) }) }) } }); // rejected: is not assignable to type 'CorePack'
+// A pack is made by definePack, never written as a look-alike.
+export const lookAlikePack: BasePack = { __brand: "Pack", id: packId("look-alike"), dependsOn: [], points: {}, contributes: [] }; // rejected: Property 'problem' is missing

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Composition } from "../composition/composition.ts";
 import type { Result } from "../shared/result.ts";
-import { contribution, definePack, point, pointGroup } from "./pack.ts";
+import type { BasePack } from "./pack.contract.ts";
+import { contribution, definePack, parsePack, point, pointGroup } from "./pack.ts";
 import { packIdsFor } from "./pack-id.ts";
 
 const packId = packIdsFor("test-packs");
@@ -44,7 +45,7 @@ describe("definePack, point and contribution — packs as the core makes them", 
     });
     const { english, french } = words.points.byLanguage;
     expect(Object.isFrozen(words.points.byLanguage)).toBe(true);
-    expect(Object.getPrototypeOf(words.points.byLanguage)).toBe(null);
+    expect(Object.keys(words.points.byLanguage)).toEqual(["english", "french"]);
     expect([english.id, french.id]).toEqual(["test-packs/words.byLanguage.english", "test-packs/words.byLanguage.french"]);
     expect(english.owner).toBe(words);
     expect(Object.isFrozen(english)).toBe(true);
@@ -52,5 +53,64 @@ describe("definePack, point and contribution — packs as the core makes them", 
     const composed = Composition.compose([words, user], [words, user]);
     expect(composed.ok && composed.value.read(english)).toEqual({ ok: true, value: ["alpha"] });
     expect(composed.ok && composed.value.read(french)).toEqual({ ok: true, value: ["bonjour"] });
+  });
+});
+
+describe("Pack — its shape, checked when it is made", () => {
+  /** A pack built from untyped data at run time, where the compiler checks nothing. */
+  const untypedPack = (spec: object): BasePack => (definePack as unknown as (spec: object) => BasePack)(spec);
+  const COPY = "by this copy of bounded";
+  const anything = (raw: unknown): Result<unknown> => ({ ok: true, value: raw });
+  const base = definePack({ id: packId("base"), points: { words: point({ description: "Words", check: text }) } });
+
+  test("a pack made from typed parts has no problem", () => {
+    expect(base.problem).toBeUndefined();
+    expect(definePack({ id: packId("user"), dependsOn: [base], contributes: [contribution(base.points.words, ["x"])] }).problem).toBeUndefined();
+  });
+
+  const problems: [string, object, string][] = [
+    ["dependencies that are not a list", { dependsOn: 5 }, `its dependsOn must be a list of packs made with definePack(...) ${COPY}`],
+    ["dependencies given by id, not as packs", { dependsOn: ["test-packs/base"] }, `its dependsOn must be a list of packs made with definePack(...) ${COPY}`],
+    ["a dependency listed twice", { dependsOn: [base, base] }, "it lists 'test-packs/base' twice in dependsOn"],
+    ["a point key that is not camelCase", { points: { "a.b": point({ description: "Dotted", check: anything }) } }, "its point key 'a.b' must be a camelCase word, such as 'protectedPaths'"],
+    ["a point declared on another pack's behalf", { points: { stolen: base.points.words } }, `its points must each be declared with point(...) ${COPY}`],
+    ["a point declared without a check", { points: { loose: point({ description: "No check" } as never) } }, "its point 'loose' has no check: every point parses the values it accepts"],
+    ["a point whose own values are not a list", { points: { odd: point({ description: "Odd", check: anything, values: 5 } as never) } }, "the own values of its point 'odd' must be a list"],
+    ["a contribution that is not a genuine contribution", { dependsOn: [base], contributes: [{ __brand: "Contribution", point: base.points.words, values: [] }] }, `its contributes must be a list of contributions made with contribution(...) ${COPY}`],
+    ["a group inside a group", { points: { outer: pointGroup({ inner: pointGroup({ deep: point({ description: "Deep", check: anything }) }) } as never) } }, "its point 'outer.inner' is a group inside a group: groups of points are one level deep"],
+  ];
+  for (const [title, spec, problem] of problems) {
+    test(`names its problem: ${title}`, () => {
+      expect(untypedPack({ id: "test-packs/bad", ...spec }).problem).toBe(problem);
+    });
+  }
+
+  test("parsePack takes a pack definePack made, and refuses a copy or anything else, naming it", () => {
+    expect(parsePack(base)).toEqual({ ok: true, value: base });
+    const refusal = (id: string) => ({ ok: false as const, error: `'${id}' was not built with definePack(...), or was built by a different copy of bounded. Build every pack with definePack from one copy` });
+    expect(parsePack({ ...base })).toEqual(refusal("test-packs/base"));
+    expect(parsePack(null)).toEqual(refusal("null"));
+  });
+
+  test("points, declarations and contributions are instances of their classes, not plain objects", () => {
+    const declared = point({ description: "Words", check: text });
+    expect(Object.getPrototypeOf(declared)).not.toBe(Object.prototype);
+    expect(Object.getPrototypeOf(base.points.words)).not.toBe(Object.prototype);
+    expect(Object.getPrototypeOf(contribution(base.points.words, ["x"]))).not.toBe(Object.prototype);
+    expect(Object.getPrototypeOf(base)).not.toBe(Object.prototype);
+  });
+
+  test("a point parses a value with its own check: a check that throws or returns no result refuses, never throws", () => {
+    const odd = definePack({
+      id: packId("odd"),
+      points: {
+        throws: point({ description: "Throws", check: (): Result<string> => { throw new Error("boom"); } }),
+        empty: point({ description: "Empty", check: () => ({ ok: true }) as unknown as Result<string> }),
+      },
+    });
+    expect(base.points.words.parseValue("x")).toEqual({ ok: true, value: "x" });
+    expect(base.points.words.parseValue(5)).toEqual({ ok: false, error: "not text" });
+    expect(odd.points.throws.parseValue("x")).toEqual({ ok: false, error: "its check failed (boom)" });
+    expect(odd.points.empty.parseValue("x")).toEqual({ ok: false, error: "its check returned no result" });
   });
 });

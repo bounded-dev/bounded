@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { isConfig } from "bounded/domain";
+import { Config } from "bounded/domain";
 import { projectConfigSourceConformance } from "../../../../application/project-config/open-project/open-project.config-source.test-support.ts";
 import { FileSystemProjectConfigSource } from "./config-source.ts";
 
@@ -29,7 +29,7 @@ describe("FileSystemProjectConfigSource", () => {
   test("loads bounded.config.ts, .js or .mjs", async () => {
     for (const name of ["bounded.config.ts", "bounded.config.js", "bounded.config.mjs"]) {
       const loaded = await source.load(project({ [name]: VALID }));
-      expect(loaded.ok && isConfig(loaded.value)).toBe(true);
+      expect(loaded.ok && Config.parse(loaded.value).ok).toBe(true);
     }
   });
 
