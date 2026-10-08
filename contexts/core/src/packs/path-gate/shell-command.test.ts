@@ -4,7 +4,7 @@ import { pathGate } from "bounded/path-gate";
 import { commandMeaning } from "./command-meanings.ts";
 import { describeShellCommand } from "./shell-command.ts";
 import type { ShellParser, ShellWord } from "./shell-command.contract.ts";
-import { prepareShellCheck } from "./shell-check.ts";
+import { prepareShellCheck, startShellCheck } from "./shell-check.ts";
 import { treeSitterShellParser } from "./shell-parser.tree-sitter.ts";
 import { kindOfPathFor, type PathsForTest, ROOT } from "./shell.test-support.ts";
 
@@ -21,7 +21,11 @@ const commandOf = (text: string): Command => made(Command.parse(text));
 /** What `command` reads, lists and writes from `cwd`, with `paths` saying what exists; paths as text. */
 function described(command: string, cwd: string | null = null, paths: PathsForTest = {}) {
   const script = made(parser.parse(commandOf(command)));
-  const effects = describeShellCommand(script, { cwd: cwd === null ? null : made(ProjectPath.parse(cwd)), root: ROOT, kindOfPath: kindOfPathFor(paths) });
+  const parseScript = (text: string) => {
+    const nested = Command.parse(text);
+    return nested.ok ? parser.parse(nested.value) : nested;
+  };
+  const effects = describeShellCommand(script, { cwd: cwd === null ? null : made(ProjectPath.parse(cwd)), root: ROOT, kindOfPath: kindOfPathFor(paths), parseScript });
   return {
     reads: effects.reads.map((path) => path.value),
     lists: effects.lists.map((path) => path.value),
@@ -62,7 +66,7 @@ describe("describeShellCommand: a parsed command as the paths it reads and write
 
   test("listing commands give lists, deleting and moving commands deletes, and an undetermined write says so", () => {
     expect(described("ls docs; find src -name x; rm a.txt; mv b.txt c.txt; echo > d.txt", null, { "b.txt": "file", "d.txt": "unknown" })).toEqual({
-      reads: [],
+      reads: ["b.txt"],
       lists: ["docs", "src"],
       writes: [
         { path: "a.txt", change: "delete" },
@@ -73,6 +77,33 @@ describe("describeShellCommand: a parsed command as the paths it reads and write
       ],
       unresolved: [],
     });
+  });
+});
+
+describe("describeShellCommand: braces, nested shells and repository paths, as the shell reads them", () => {
+  test("brace expansion of literals gives each word; braces inside quotes are text", () => {
+    expect(described("cat {.env,x} a{1..3}b '{q,r}' \"{s,t}\"").reads).toEqual([".env", "x", "a1b", "a2b", "a3b", "{q,r}", "{s,t}"]);
+    expect(described("cat a{c..e}").reads).toEqual(["ac", "ad", "ae"]);
+    expect(described("cat {1..100000}").reads).toEqual([]);
+  });
+
+  test("a shell given code with -c runs it as a nested command line, in a shell of its own", () => {
+    expect(described("bash -c 'cat a.txt'").reads).toEqual(["a.txt"]);
+    expect(described('sh -c "cd sub && cat ../b.txt" name arg').reads).toEqual(["b.txt"]);
+    expect(described("bash -lc 'cd sub'; cat c.txt").reads).toEqual(["c.txt"]);
+    expect(described("bash script.sh").reads).toEqual(["script.sh"]);
+  });
+
+  test("git's <rev>:<path> reads the path from the repository root, or from where it runs with ./; unresolved without a repository at the root", () => {
+    expect(described("git show HEAD:.env", "sub", { ".git": "directory" }).reads).toContain(".env");
+    expect(described("git show HEAD:./x.txt", "sub", { ".git": "directory" }).reads).toContain("sub/x.txt");
+    expect(described("git show HEAD:.env").unresolved).toContain("HEAD:.env");
+  });
+
+  test("ANSI-C strings with simple escapes are literal, others unresolved; $(< file) reads the file", () => {
+    expect(described("cat $'a.txt' $'it\\'s.txt'").reads).toEqual(["a.txt", "it's.txt"]);
+    expect(described("cat $'\\x2eenv'").unresolved).toEqual(["$'\\x2eenv'"]);
+    expect(described("echo $(< f.txt)").reads).toEqual(["f.txt"]);
   });
 });
 
@@ -97,6 +128,12 @@ describe("the shell check: the parser, loaded once when the project opens", () =
     const failing: ShellParser = { prepare: async () => { throw new Error("main.wasm is missing"); }, parse: () => ({ ok: false, error: "not loaded" }) };
     const check = await prepareShellCheck(failing, { root: ROOT, kindOfPath: () => "absent" });
     expect(check.describe(commandOf("ls"), null)).toEqual({ ok: false, error: "bounded's shell parser could not load (main.wasm is missing)" });
+  });
+
+  test("a parser still loading when the project opened refuses, saying it timed out", () => {
+    const hanging: ShellParser = { prepare: () => new Promise(() => {}), parse: () => ({ ok: false, error: "not loaded" }) };
+    const { check } = startShellCheck(hanging, { root: ROOT, kindOfPath: () => "absent" });
+    expect(check.describe(commandOf("ls"), null)).toEqual({ ok: false, error: "bounded's shell parser could not load (it had not finished loading when the project opened: timed out)" });
   });
 
   test("a project the path gate was never opened for refuses shell commands, saying how to open it", () => {

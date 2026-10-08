@@ -17,12 +17,24 @@ function text(thrown: unknown): string {
   }
 }
 
+/** How long one pack's work on opening may take before the project opens without it. */
+const PREPARE_WITHIN_MS = 5000;
+
+/** `work`, or a rejection once `ms` have passed. */
+function within(work: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 export class OpenProjectHandler implements OpenProject {
   constructor(
     private readonly configs: ProjectConfigSource,
     private readonly logs: ProjectDecisionLogs,
     private readonly clock: Clock,
-    private readonly options: { readonly recordWithinMs?: number; readonly drift?: ProjectDrift; readonly pathKinds?: ProjectPathKinds } = {},
+    private readonly options: { readonly recordWithinMs?: number; readonly drift?: ProjectDrift; readonly pathKinds?: ProjectPathKinds; readonly prepareWithinMs?: number } = {},
   ) {}
 
   /** Never rejects: whatever goes wrong, the judge refuses every event (and records it, when the log can be opened). */
@@ -52,7 +64,8 @@ export class OpenProjectHandler implements OpenProject {
     if (!openings.ok) return;
     const kindOf = this.options.pathKinds?.forProject(root);
     const project: OpenedProject = Object.freeze({ root, kindOfPath: (path: ProjectPath) => kindOf?.(path) });
-    await Promise.allSettled(openings.value.map((open) => Promise.resolve().then(() => open(project, composition))));
+    const withinMs = this.options.prepareWithinMs ?? PREPARE_WITHIN_MS;
+    await Promise.allSettled(openings.value.map((open) => within(Promise.resolve().then(() => open(project, composition)), withinMs)));
   }
 
   private judge(handler: JudgeEventHandler, problem: string | null, watch?: WatchShell): ProjectJudge {

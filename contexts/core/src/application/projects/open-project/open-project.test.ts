@@ -184,4 +184,14 @@ describe("OpenProjectHandler", () => {
     await new OpenProjectHandler(source(async () => ({ ok: true, value: preparing })), new Logs(), clock).execute(command);
     expect(kind).toBeUndefined();
   });
+
+  test("a pack's work on opening that never finishes is cut off, so the project still opens", async () => {
+    const hanging: ProjectOpenHandler = () => new Promise(() => {});
+    const preparing = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.onProjectOpen, [hanging])] });
+    const started = performance.now();
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: preparing })), new Logs(), clock, { prepareWithinMs: 50 }).execute(command);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(project.problem).toBeNull();
+    expect(await project.judge(write("src/a.ts"))).toBe(Verdict.allow);
+  });
 });
