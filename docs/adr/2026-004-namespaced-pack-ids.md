@@ -26,7 +26,7 @@ The id is a class, not a branded string, since
   still refuses two available packs with one id.
 - **Ownership at the type level is the exact id.** A contribution's point must
   be owned by a pack whose exact id is in `dependsOn`. A dependency whose id
-  is not one exact literal (a pack upcast to `AnyPack`, cast with `as`, or a
+  is not one exact literal (a pack upcast to `BasePack`, cast with `as`, or a
   union of packs) does not compile. At run time packs are matched by object
   identity, never by id.
 - **Selection is by pack objects.** `Composition.compose(available, selected)`

@@ -29,7 +29,7 @@ function declarePoint<Value>(spec: {
   return declaration;
 }
 
-function contribute<Value, Owner extends Contract.AnyPack["id"]>(
+function contribute<Value, Owner extends Contract.BasePack["id"]>(
   point: Contract.ExtensionPoint<Value, Owner>,
   values: readonly NoInfer<Contract.Contributed<Value>>[],
 ): Contract.Contribution<Owner> {
@@ -38,9 +38,9 @@ function contribute<Value, Owner extends Contract.AnyPack["id"]>(
 
 interface UntypedSpec {
   readonly id: unknown;
-  readonly dependsOn?: readonly Contract.AnyPack[];
+  readonly dependsOn?: readonly Contract.BasePack[];
   readonly points?: Readonly<Record<string, unknown>>;
-  readonly contributes?: readonly Contract.Contribution<Contract.AnyPack["id"]>[];
+  readonly contributes?: readonly Contract.Contribution<Contract.BasePack["id"]>[];
 }
 
 function define(spec: UntypedSpec): never {
@@ -79,12 +79,12 @@ export function isGenuine<Brand extends string>(x: unknown, brand: Brand): x is 
 }
 
 /** The declaration a point was made from: its check and the owner's own values. */
-export function declarationOf(point: Contract.AnyPoint): Contract.PointDeclaration<unknown> | undefined {
+export function declarationOf(point: Contract.BasePoint): Contract.PointDeclaration<unknown> | undefined {
   return declarations.get(point);
 }
 
 /** Run a point's own check on a value; a check that throws, or returns no value, refuses it. */
-export function checkValue(point: Contract.AnyPoint, raw: unknown): Result<unknown> {
+export function checkValue(point: Contract.BasePoint, raw: unknown): Result<unknown> {
   try {
     const result: unknown = declarationOf(point)?.check(raw);
     if (typeof result === "object" && result !== null && "ok" in result) {
@@ -97,4 +97,4 @@ export function checkValue(point: Contract.AnyPoint, raw: unknown): Result<unkno
   }
 }
 
-export type { AnyPack, AnyPoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, WireOf } from "./pack.contract.ts";
+export type { BasePack, BasePoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, WireOf } from "./pack.contract.ts";

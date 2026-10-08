@@ -17,9 +17,9 @@ Built and running on two real hosts:
 - **The path gate** (`bounded/path-gate`): deny-only rules on reads,
   listings and writes, file rules, honest redirects, and protection of the
   project's own configuration ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)).
-- **The decision log**: every decision, and every refusal a host adapter
+- **The guard log**: every decision, and every refusal a host adapter
   makes itself, recorded in `.bounded/guard-log.jsonl`
-  ([docs/decision-log.md](docs/decision-log.md)).
+  ([docs/guard-log.md](docs/guard-log.md)).
 - **Configuration**: `bounded.config.ts` selects packs; `openProject(root)`
   gives the judge hosts ask, and refuses everything when the configuration
   is broken ([docs/configuration.md](docs/configuration.md)).
@@ -57,7 +57,7 @@ Built and running on two real hosts:
 - **Decisions are recorded.** The judge-event feature decides an event and
   records the decision through an asynchronous log (in memory, or a JSON-lines
   file); if the decision cannot be recorded in time, the action is refused
-  ([docs/decision-log.md](docs/decision-log.md), ADR 2026-008).
+  ([docs/guard-log.md](docs/guard-log.md), ADR 2026-008).
 
 - **Configuration.** A project selects its packs in `bounded.config.ts` with
   `defineConfig`; host adapters call `openProject(root)` and ask its judge

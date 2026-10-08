@@ -1,5 +1,5 @@
 import { checkValue, declarationOf, isGenuine } from "../packs/pack.ts";
-import type { AnyPack, AnyPoint, ExtensionPoint } from "../packs/pack.contract.ts";
+import type { BasePack, BasePoint, ExtensionPoint } from "../packs/pack.contract.ts";
 import type { PackId as PackIdType } from "../packs/pack-id.contract.ts";
 import { PackId, packIdText } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
@@ -11,35 +11,35 @@ class CompositionImpl implements Contract.Composition {
   declare readonly __brand: "Composition";
 
   private constructor(
-    readonly packs: readonly AnyPack[],
-    private readonly slots: ReadonlyMap<AnyPoint, readonly Contract.Entry<unknown>[]>,
+    readonly packs: readonly BasePack[],
+    private readonly slots: ReadonlyMap<BasePoint, readonly Contract.Entry<unknown>[]>,
   ) {
     Object.freeze(this);
   }
 
-  static compose(available: readonly AnyPack[], selected: readonly AnyPack[]): Result<Composition> {
-    if (!Array.isArray(available) || !Array.isArray(selected)) return refuse("Compose takes a list of available packs and a list of selected packs");
+  static compose(availablePacks: readonly BasePack[], selectedPacks: readonly BasePack[]): Result<Composition> {
+    if (!Array.isArray(availablePacks) || !Array.isArray(selectedPacks)) return refuse("Compose takes a list of available packs and a list of selected packs");
     const notGenuine = (which: string, list: readonly unknown[]) => {
       const entry = list.find((x) => !isGenuine(x, "Pack"));
       const id = typeof entry === "object" && entry !== null && "id" in entry ? packIdText(entry.id) : String(entry);
       return `${which} pack '${id}' was not built with definePack(...), or was built by a different copy of bounded. Build every pack with definePack from one copy`;
     };
-    if (available.some((x) => !isGenuine(x, "Pack"))) return refuse(notGenuine("Available", available));
-    for (const pack of available) {
+    if (availablePacks.some((x) => !isGenuine(x, "Pack"))) return refuse(notGenuine("Available", availablePacks));
+    for (const pack of availablePacks) {
       const id = PackId.parse(pack.id);
       if (!id.ok) return refuse(`Available pack '${packIdText(pack.id)}' has an invalid id: ${id.error}. Give it an id from packIdsFor(...)`);
     }
     // Every check runs in id order, so which refusal comes first never
     // depends on the order packs were listed in.
-    const ids = available.map((pack) => pack.id.value).sort();
+    const ids = availablePacks.map((pack) => pack.id.value).sort();
     const duplicate = ids.find((id, i) => ids[i + 1] === id);
     if (duplicate !== undefined) return refuse(`Two available packs have the id '${duplicate}'. An id names one pack in selections and messages: give each pack its own`);
 
-    if (selected.some((x) => !isGenuine(x, "Pack"))) return refuse(notGenuine("Selected", selected));
-    const chosen = [...selected].sort(byId);
+    if (selectedPacks.some((x) => !isGenuine(x, "Pack"))) return refuse(notGenuine("Selected", selectedPacks));
+    const chosen = [...selectedPacks].sort(byId);
     for (const [i, pack] of chosen.entries()) {
       if (chosen[i + 1] === pack) return refuse(`Pack '${packIdText(pack.id)}' is selected twice. Select each pack once`);
-      if (!available.includes(pack)) return refuse(`Pack '${packIdText(pack.id)}' is selected but not available. Make it available, or remove it from the selection`);
+      if (!availablePacks.includes(pack)) return refuse(`Pack '${packIdText(pack.id)}' is selected but not available. Make it available, or remove it from the selection`);
     }
     for (const pack of chosen) {
       const problem = shapeProblem(pack);
@@ -57,7 +57,7 @@ class CompositionImpl implements Contract.Composition {
     }
 
     const order = dependencyOrder(chosen);
-    const slots = new Map<AnyPoint, Contract.Entry<unknown>[]>();
+    const slots = new Map<BasePoint, Contract.Entry<unknown>[]>();
     for (const pack of order) {
       for (const point of Object.values(pack.points)) {
         slots.set(point, []);
@@ -103,25 +103,25 @@ function refuse(error: string): { ok: false; error: string } {
   return { ok: false, error };
 }
 
-const byId = (a: AnyPack, b: AnyPack): number => {
+const byId = (a: BasePack, b: BasePack): number => {
   const [x, y] = [packIdText(a.id), packIdText(b.id)];
   return x < y ? -1 : x > y ? 1 : 0;
 };
 
 /** Check each value with the point's own check and store what it returns; a refusal message, or undefined. */
-function place(pack: AnyPack, point: AnyPoint, values: readonly unknown[], slots: Map<AnyPoint, Contract.Entry<unknown>[]>): string | undefined {
+function place(pack: BasePack, point: BasePoint, values: readonly unknown[], slots: Map<BasePoint, Contract.Entry<unknown>[]>): string | undefined {
   const slot = slots.get(point);
   if (slot === undefined) return `Pack '${pack.id.value}' contributes to extension point '${point.id}', which has no place in this composition. Report this as a defect`;
   for (const raw of values) {
     const checked = checkValue(point, raw);
     if (!checked.ok) return `Pack '${pack.id.value}' contributes an invalid value to extension point '${point.id}': ${checked.error}. Fix the value, or remove the contribution`;
-    slot.push(Object.freeze({ from: pack.id, value: checked.value }));
+    slot.push(Object.freeze({ fromPackId: pack.id, value: checked.value }));
   }
   return undefined;
 }
 
 /** What is wrong with a pack built from untyped data, if anything. */
-function shapeProblem(pack: AnyPack): string | undefined {
+function shapeProblem(pack: BasePack): string | undefined {
   const { dependsOn, points, contributes } = pack;
   if (!Array.isArray(dependsOn) || !dependsOn.every((dependency) => isGenuine(dependency, "Pack"))) return `its dependsOn must be a list of packs made with definePack(...) ${COPY}`;
   const twice = dependsOn.find((dependency, i) => dependsOn.indexOf(dependency) !== i);
@@ -139,9 +139,9 @@ function shapeProblem(pack: AnyPack): string | undefined {
 }
 
 /** The packs in composition order (see Composition.packs). Packs are frozen and depend only on packs that already existed, so there is no cycle. */
-function dependencyOrder(packs: readonly AnyPack[]): AnyPack[] {
-  const order: AnyPack[] = [];
-  const visit = (pack: AnyPack): void => {
+function dependencyOrder(packs: readonly BasePack[]): BasePack[] {
+  const order: BasePack[] = [];
+  const visit = (pack: BasePack): void => {
     if (order.includes(pack)) return;
     for (const dependency of [...pack.dependsOn].sort(byId)) visit(dependency);
     order.push(pack);

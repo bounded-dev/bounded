@@ -5,7 +5,7 @@ import { base, packId } from "./packs.ts";
 const guards = corePack.points;
 
 // Whole-call guards, for one event kind or any.
-const noEditTools: Guard<ToolUse> = (use) => (use.tool === "edit" ? Verdict.refuse("No editing tools", "Use the generator") : Verdict.allow);
+const noEditTools: Guard<ToolUse> = (use) => (use.toolKind === "edit" ? Verdict.refuse("No editing tools", "Use the generator") : Verdict.allow);
 const needsRole: Guard<Event> = (event) => (event.role === null ? Verdict.refuse("No role", "Start as a role") : Verdict.allow);
 const onStart: Guard<SessionStart> = () => Verdict.allow;
 // Effect guards: one effect of their kind, the composition, and the whole call.

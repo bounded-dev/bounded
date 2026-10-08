@@ -36,24 +36,24 @@ export interface Wiring {
  * names the refusing pack and effect. Anything openProject or the judge
  * throws or rejects with reaches the hook, which denies.
  */
-export const decideFromConfig: Decide = async (event, { projectDir }) => {
-  const project = await openProject(projectDir);
+export const decideFromConfig: Decide = async (event, { projectRoot }) => {
+  const project = await openProject(projectRoot);
   return project.judge(event);
 };
 
 /** After a call ran: the project's judge undoes what a shell command changed in watched files, and says so. */
-export const afterToolFromConfig: AfterTool = async (result, { projectDir }) => {
-  const { message } = await (await openProject(projectDir)).afterTool(result);
+export const afterToolFromConfig: AfterTool = async (result, { projectRoot }) => {
+  const { message } = await (await openProject(projectRoot)).afterTool(result);
   return { message };
 };
 
-/** Records a refusal the hook made itself in the project's decision log. */
-export const recordFromConfig: RecordRefusal = async (refusal, { projectDir }) => (await openProject(projectDir)).refuse(refusal);
+/** Records a refusal the hook made itself in the project's guard log. */
+export const recordFromConfig: RecordRefusal = async (refusal, { projectRoot }) => (await openProject(projectRoot)).refuse(refusal);
 
 /** The hook for one process: stdin text in, stdout text out. */
 export function composeHook({ env, argv, decide, afterTool, record, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
-  const projectDir = env.CLAUDE_PROJECT_DIR;
-  if (projectDir === undefined || !projectDir.startsWith("/")) {
+  const projectRoot = env.CLAUDE_PROJECT_DIR;
+  if (projectRoot === undefined || !projectRoot.startsWith("/")) {
     return refuseAll(
       "CLAUDE_PROJECT_DIR is not set to an absolute directory, so no path can be checked",
       "Run the hook from Claude Code, which sets CLAUDE_PROJECT_DIR to the project's root",
@@ -62,7 +62,7 @@ export function composeHook({ env, argv, decide, afterTool, record, deadlineMs =
   const role = roleFrom(argv);
   if (role === undefined) return refuseAll("--role is given without a role label", "Give the role after it, as in --role builder");
   const extras = { ...(afterTool === undefined ? {} : { afterTool }), ...(record === undefined ? {} : { record }) };
-  return (stdin) => runHook(stdin, { projectDir, role, decide, paths: projectPaths(projectDir), deadlineMs, ...extras });
+  return (stdin) => runHook(stdin, { projectRoot, role, decide, paths: projectPaths(projectRoot), deadlineMs, ...extras });
 }
 
 /** `--role <label>` or `--role=<label>`; null when absent, undefined when given without a label. */

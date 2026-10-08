@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Composition, contribution, corePack, type Decision, definePack, packIdsFor, type Result, ToolResult, ToolUse, type WatchedPath } from "bounded/domain";
-import type { Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
+import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 import type { RestoreFrom, ShellSnapshots, Snapshot, WatchedFile, WatchedFiles, WatchedHashes } from "./watch-shell.contract.ts";
 import { WatchShellHandler } from "./watch-shell.handler.ts";
 
@@ -101,7 +101,7 @@ class FakeSnapshots implements ShellSnapshots {
   }
 }
 
-class FakeLog implements DecisionLog {
+class FakeLog implements GuardLog {
   readonly decisions: Decision[] = [];
   async record(decision: Decision): Promise<void> {
     this.decisions.push(decision);

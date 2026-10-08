@@ -47,13 +47,13 @@ class ToolUseImpl implements Contract.ToolUse {
   readonly #made = true;
   readonly kind = "tool-use" as const;
   readonly role: Role | null;
-  readonly tool: Contract.ToolKind;
+  readonly toolKind: Contract.ToolKind;
   readonly effects: readonly [Effect, ...Effect[]];
   declare readonly callId?: CallId;
 
   private constructor(call: Call) {
     this.role = call.role;
-    this.tool = call.tool;
+    this.toolKind = call.tool;
     this.effects = call.effects;
     if (call.callId !== undefined) this.callId = call.callId;
     Object.freeze(this);
@@ -80,7 +80,7 @@ class ToolUseImpl implements Contract.ToolUse {
   }
 
   toJSON(): Contract.ToolUseJSON {
-    const json = { kind: this.kind, role: this.role === null ? null : this.role.value, tool: this.tool, effects: this.effects.map((effect) => effect.toJSON()) };
+    const json = { kind: this.kind, role: this.role === null ? null : this.role.value, tool: this.toolKind, effects: this.effects.map((effect) => effect.toJSON()) };
     return this.callId === undefined ? json : { ...json, callId: this.callId.value };
   }
 }

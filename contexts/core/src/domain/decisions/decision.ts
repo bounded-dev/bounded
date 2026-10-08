@@ -26,7 +26,7 @@ function verdictOf(verdict: Verdict, refusedBy: Judgement["refusedBy"]): Contrac
     kind: "refuse",
     reason: bounded(verdict.reason),
     redirect: bounded(verdict.redirect),
-    pack: refusedBy === null ? null : refusedBy.pack.value,
+    pack: refusedBy === null ? null : refusedBy.packId.value,
     effect: refusedBy === null || refusedBy.effect === null ? null : bounded(describeEffect(refusedBy.effect)),
   });
 }
@@ -82,7 +82,7 @@ class DecisionImpl implements Contract.Decision {
       time,
       event: event.kind,
       role: event.role === null ? null : event.role.value,
-      tool: tool === null ? null : tool.tool,
+      tool: tool === null ? null : tool.toolKind,
       effects: tool === null ? [] : tool.effects.map((effect) => bounded(describeEffect(effect))),
       verdict: verdictOf(judgement.verdict, judgement.refusedBy),
       note: note === undefined ? null : bounded(note),
@@ -93,7 +93,7 @@ class DecisionImpl implements Contract.Decision {
     return new DecisionImpl({ id, time, event: "invalid", role: null, tool: null, effects: [], verdict: verdictOf(refusal, null), note: null });
   }
 
-  static adapter(id: DecisionIdType, time: string, { role, tool, input, verdict }: Contract.AdapterRefusal): Decision {
+  static adapter(id: DecisionIdType, time: string, { role, hostToolName, input, verdict }: Contract.AdapterRefusal): Decision {
     return new DecisionImpl({
       id,
       time,
@@ -103,7 +103,7 @@ class DecisionImpl implements Contract.Decision {
       effects: [],
       verdict: verdictOf(verdict, null),
       note: null,
-      host: { tool: bounded(String(tool)), input: summary(input) },
+      host: { tool: bounded(String(hostToolName)), input: summary(input) },
     });
   }
 

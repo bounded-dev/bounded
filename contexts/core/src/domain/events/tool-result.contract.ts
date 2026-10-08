@@ -9,7 +9,7 @@ export interface ToolResult {
   readonly __brand: "ToolResult";
   readonly kind: "tool-result";
   readonly role: Role | null;
-  readonly tool: ToolKind;
+  readonly toolKind: ToolKind;
   readonly effects: readonly [Effect, ...Effect[]];
   readonly callId?: CallId;
   readonly ok: boolean;

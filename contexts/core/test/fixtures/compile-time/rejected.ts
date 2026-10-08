@@ -1,14 +1,14 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
 // compile-time.test.ts runs the TypeScript compiler on this file and checks both.
-import { type AnyPack, type Composition, contribution, definePack, type PackId, packIdsFor, point, type Result } from "bounded/domain";
+import { type BasePack, type Composition, contribution, definePack, type PackId, packIdsFor, point, type Result } from "bounded/domain";
 import { base, ext, packId, tags, text } from "./packs.ts";
 
-declare const somePacks: AnyPack[];
+declare const somePacks: BasePack[];
 declare const either: typeof base | typeof tags;
 declare const anyId: PackId;
 declare const anyText: string;
-const upcast: AnyPack = tags;
+const upcast: BasePack = tags;
 
 // 1. Only points of the pack's direct dependencies.
 export const rogue = definePack({ id: packId("rogue"), contributes: [contribution(base.points.words, ["x"])] }); // rejected: is not assignable to type 'Contribution<never>'
@@ -38,11 +38,11 @@ export const anyInLeaf = point({ description: "Errors", check: parsed<DetailedEr
 export const notTuple = definePack({ id: packId("list"), dependsOn: somePacks }); // rejected: list dependsOn as a tuple of packs
 export const unionDep = definePack({ id: packId("union"), dependsOn: [either], contributes: [contribution(base.points.words, ["x"])] }); // rejected: each dependency is a pack with an exact id
 export const upcastDep = definePack({ id: packId("upcast"), dependsOn: [upcast], contributes: [contribution(base.points.words, ["x"])] }); // rejected: each dependency is a pack with an exact id
-export const castDep = definePack({ id: packId("cast"), dependsOn: [tags as AnyPack], contributes: [contribution(base.points.words, ["x"])] }); // rejected: each dependency is a pack with an exact id
+export const castDep = definePack({ id: packId("cast"), dependsOn: [tags as BasePack], contributes: [contribution(base.points.words, ["x"])] }); // rejected: each dependency is a pack with an exact id
 export const twice = definePack({ id: packId("twice"), dependsOn: [base, base] }); // rejected: list each dependency once
 export const typeArgs = definePack<PackId<"test-packs/args">, Record<never, never>, [typeof base]>({ id: packId("args"), contributes: [contribution(base.points.words, ["x"])] }); // rejected: Property 'dependsOn' is missing
 // 4. Points are declared only inside their own pack, under camelCase keys, each with a check.
-export const thief = definePack({ id: packId("thief"), points: { stolen: base.points.words } }); // rejected: is not assignable to type 'AnyDeclaration'
+export const thief = definePack({ id: packId("thief"), points: { stolen: base.points.words } }); // rejected: is not assignable to type 'BaseDeclaration'
 export const dotted = definePack({ id: packId("dotted"), points: { "a.b": point({ description: "Dotted", check: text }) } }); // rejected: point keys are camelCase words
 export const proto = definePack({ id: packId("proto"), points: { ["__proto__"]: point({ description: "Prototype", check: text }) } }); // rejected: point keys are camelCase words
 export const capital = definePack({ id: packId("capital"), points: { Words: point({ description: "Capital", check: text }) } }); // rejected: point keys are camelCase words

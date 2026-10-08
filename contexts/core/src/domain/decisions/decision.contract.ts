@@ -15,7 +15,7 @@ export type RecordedVerdict =
 export type DecisionEvent = Event["kind"] | ToolResult["kind"] | "invalid" | "adapter";
 
 /**
- * One decision on one event, for a decision log: its record is text, as it
+ * One decision on one event, for a guard log: its record is text, as it
  * was decided. Every text field is at most 4,096 characters, longer text
  * shortened saying so. When two records share an id, the later one says what
  * was enforced (see `note`), so a decision is a value, not an entity.
@@ -40,7 +40,7 @@ export interface Decision {
   toJSON(): DecisionJSON;
 }
 
-/** A decision as one line of a decision log. */
+/** A decision as one line of a guard log. */
 export interface DecisionJSON {
   readonly id: string;
   readonly time: string;
@@ -56,7 +56,7 @@ export interface DecisionJSON {
 /** A call the host adapter refused itself, before it became an event. */
 export interface AdapterRefusal {
   readonly role: string | null;
-  readonly tool: string;
+  readonly hostToolName: string;
   readonly input: unknown;
   readonly verdict: Verdict;
 }

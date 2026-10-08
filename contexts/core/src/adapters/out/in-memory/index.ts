@@ -1,5 +1,5 @@
 export { InMemoryComposePacksCatalog } from "./composition/compose-packs.catalog.ts";
-export { InMemoryDecisionLog } from "./judging/decision-log.ts";
+export { InMemoryGuardLog } from "./guard-log/guard-log.ts";
 export { InMemoryShellSnapshots } from "./drift/snapshots.ts";
 export { InMemoryWatchedFiles } from "./drift/watched-files.ts";
 

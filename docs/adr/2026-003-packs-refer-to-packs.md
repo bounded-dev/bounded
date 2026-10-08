@@ -55,7 +55,7 @@ refusal in `composition.test.ts`:
 2. A contributed value has exactly the point's value type, nested types
    included; points are invariant in their value type.
 3. `dependsOn` is a tuple of distinct packs, each a single pack: no widened
-   `AnyPack[]`, no repeats, no unions, and type arguments cannot stand in for
+   `BasePack[]`, no repeats, no unions, and type arguments cannot stand in for
    it.
 4. Points are declared only inside their own pack, under camelCase keys
    without dots, each with a check; a pack's id is a string literal.

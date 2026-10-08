@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { type AnyPack, definePack, packIdsFor, point } from "bounded/domain";
+import { type BasePack, definePack, packIdsFor, point } from "bounded/domain";
 import { ComposePacksCommand } from "./compose-packs.command.ts";
 import type { ComposePacksCatalog } from "./compose-packs.contract.ts";
 import { ComposePacksHandler } from "./compose-packs.handler.ts";
 
 class FakeCatalog implements ComposePacksCatalog {
-  constructor(private readonly packs: readonly AnyPack[]) {}
+  constructor(private readonly packs: readonly BasePack[]) {}
 
-  async available(): Promise<readonly AnyPack[]> {
+  async available(): Promise<readonly BasePack[]> {
     return this.packs;
   }
 }
@@ -17,7 +17,7 @@ const text = (raw: unknown) => (typeof raw === "string" ? { ok: true as const, v
 const base = definePack({ id: packId("base"), points: { items: point({ description: "Items", check: text, values: ["x"] }) } });
 
 function command(...selected: string[]): ComposePacksCommand {
-  const parsed = ComposePacksCommand.parse({ selected });
+  const parsed = ComposePacksCommand.parse({ selectedPackIds: selected });
   if (!parsed.ok) throw new Error(parsed.error);
   return parsed.value;
 }

@@ -90,7 +90,7 @@ after the hook answers); the hook judges the state it sees.
 - Empty or malformed stdin, an untranslatable call, a refused path, a
   missing `CLAUDE_PROJECT_DIR`, a decide that throws, rejects or returns no
   verdict: all refuse.
-- `decide` is asynchronous (the core's judging awaits its decision log). If
+- `decide` is asynchronous (the core's judging awaits its guard log). If
   it has not settled within 20 seconds the call is refused. The deadline
   bounds asynchronous work only: a decide that is busy synchronously holds
   the process and can still overrun it.
@@ -102,7 +102,7 @@ after the hook answers); the hook judges the state it sees.
   command's wrapper (`... || { echo "bounded hook failed" >&2; exit 2; }`)
   blocks the call.
 - After writing its answer the hook sets `process.exitCode` and lets the
-  event loop drain, so work still pending (the core's decision log may write
+  event loop drain, so work still pending (the core's guard log may write
   a follow-up line after a late record settles) can finish, but for at most
   5 seconds: then it exits. Deadline plus drain (25 seconds) ends well before
   the 30-second `timeout` the install helper sets on the hook entry, because
@@ -111,9 +111,9 @@ after the hook answers); the hook judges the state it sees.
 ## Plugging it in
 
 `composeHook({ env, argv, decide })` is the composition root; `decide` is the
-seam, and it is told the project (`{ projectDir }`, from
+seam, and it is told the project (`{ projectRoot }`, from
 `CLAUDE_PROJECT_DIR`). `main.ts` passes `decideFromConfig`, which calls the
-core's `openProject(projectDir)` (`bounded/open-project`) and then
+core's `openProject(projectRoot)` (`bounded/open-project`) and then
 `judge(event)`: the core composes the packs `bounded.config.ts` selects,
 decides, and records the decision in `.bounded/guard-log.jsonl`. A refusal
 from the core already names the refusing pack and effect (`test-packs/no-generated
@@ -134,7 +134,7 @@ the `...FromConfig` ones, which open the project the same way):
 - `record(refusal, project)`: every deny the hook makes itself (unreadable
   input, an untranslatable call, a refused path, the deadline, a decide that
   fails) is handed to the project's `refuse`, which records it in the
-  decision log as an `"adapter"` decision with Claude Code's tool name and
+  guard log as an `"adapter"` decision with Claude Code's tool name and
   input. It is not awaited: a recording that fails or hangs never changes or
   delays the deny. Refusals from the core are already recorded by its judge.
 - `afterTool(result, project)`: on `PostToolUse` the finished call becomes the

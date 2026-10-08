@@ -4,18 +4,18 @@ import type * as Contract from "./compose-packs.contract.ts";
 
 // Wire contract: kept inside the module, since a zod schema cannot be frozen.
 const composePacksSchema = z.object({
-  selected: z.array(z.string()),
+  selectedPackIds: z.array(z.string()),
 }) satisfies z.ZodType<Contract.ComposePacksInput>;
 
 class ComposePacksCommandImpl implements Contract.ComposePacksCommand {
   declare readonly __brand: "ComposePacksCommand";
-  private constructor(readonly selected: readonly PackId[]) {}
+  private constructor(readonly selectedPackIds: readonly PackId[]) {}
 
   static parse(raw: unknown): Result<ComposePacksCommand> {
     const input = composePacksSchema.safeParse(raw);
-    if (!input.success) return { ok: false, error: "Invalid compose packs input: give { selected: [pack ids] }" };
+    if (!input.success) return { ok: false, error: "Invalid compose packs input: give { selectedPackIds: [pack ids] }" };
     const selected: PackId[] = [];
-    for (const name of input.data.selected) {
+    for (const name of input.data.selectedPackIds) {
       const parsed = PackId.parse(name);
       if (!parsed.ok) return parsed;
       selected.push(parsed.value);

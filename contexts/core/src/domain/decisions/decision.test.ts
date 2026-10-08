@@ -25,7 +25,7 @@ valueObjectLaws("Decision", Decision, [line, adapterLine], [{ ...line, id: "" },
 
 describe("Decision — a recorded line read back", () => {
   test("parse gives back exactly the line that was written", () => {
-    const decision = Decision.of(id("d-16"), TIME, use.value, { verdict: Verdict.refuse("No", "Ask"), refusedBy: { pack: gate, effect: null } });
+    const decision = Decision.of(id("d-16"), TIME, use.value, { verdict: Verdict.refuse("No", "Ask"), refusedBy: { packId: gate, effect: null } });
     const read = Decision.parse(JSON.parse(JSON.stringify(decision)));
     expect(read.ok && JSON.stringify(read.value)).toBe(JSON.stringify(decision));
   });
@@ -54,7 +54,7 @@ describe("Decision", () => {
     const [, write] = use.value.effects;
     if (write === undefined) throw new Error("expected a write");
     const refusal = Verdict.refuse("test-packs/gate refused write (modify) generated/x.ts: generated", "Change the generator's input");
-    expect<unknown>(Decision.of(id("d-2"), TIME, use.value, { verdict: refusal, refusedBy: { pack: gate, effect: write } }).verdict).toEqual({
+    expect<unknown>(Decision.of(id("d-2"), TIME, use.value, { verdict: refusal, refusedBy: { packId: gate, effect: write } }).verdict).toEqual({
       kind: "refuse",
       reason: "test-packs/gate refused write (modify) generated/x.ts: generated",
       redirect: "Change the generator's input",
@@ -66,7 +66,7 @@ describe("Decision", () => {
   test("a refusal no pack made, or a whole-call refusal, records what it knows", () => {
     const refusal = Verdict.refuse("No guards can be found", "Select the core");
     expect<unknown>(Decision.of(id("d-3"), TIME, use.value, { verdict: refusal, refusedBy: null }).verdict).toEqual({ kind: "refuse", reason: "No guards can be found", redirect: "Select the core", pack: null, effect: null });
-    expect<unknown>(Decision.of(id("d-4"), TIME, use.value, { verdict: refusal, refusedBy: { pack: gate, effect: null } }).verdict).toEqual({ kind: "refuse", reason: "No guards can be found", redirect: "Select the core", pack: "test-packs/gate", effect: null });
+    expect<unknown>(Decision.of(id("d-4"), TIME, use.value, { verdict: refusal, refusedBy: { packId: gate, effect: null } }).verdict).toEqual({ kind: "refuse", reason: "No guards can be found", redirect: "Select the core", pack: "test-packs/gate", effect: null });
   });
 
   test("records a session start with no tool and no effects", () => {
@@ -135,7 +135,7 @@ describe("Decision", () => {
   });
 
   test("records a call the host adapter refused before the core saw an event: the host's tool and a bounded summary of its input", () => {
-    expect(wireOf(Decision.adapter(id("d-13"), TIME, { role: "builder", tool: "Bash", input: { command: "ls" }, verdict: Verdict.refuse("outside the project", "Stay inside") }))).toEqual({
+    expect(wireOf(Decision.adapter(id("d-13"), TIME, { role: "builder", hostToolName: "Bash", input: { command: "ls" }, verdict: Verdict.refuse("outside the project", "Stay inside") }))).toEqual({
       id: "d-13",
       time: TIME,
       event: "adapter",
@@ -146,11 +146,11 @@ describe("Decision", () => {
       note: null,
       host: { tool: "Bash", input: '{"command":"ls"}' },
     });
-    const huge = Decision.adapter(id("d-14"), TIME, { role: null, tool: "Write", input: { content: "x".repeat(10_000) }, verdict: Verdict.refuse("r", "d") });
+    const huge = Decision.adapter(id("d-14"), TIME, { role: null, hostToolName: "Write", input: { content: "x".repeat(10_000) }, verdict: Verdict.refuse("r", "d") });
     expect(huge.host?.input.endsWith("characters)")).toBe(true);
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
-    expect(Decision.adapter(id("d-15"), TIME, { role: null, tool: "X", input: cyclic, verdict: Verdict.refuse("r", "d") }).host?.input).toBe("an input that cannot be shown");
+    expect(Decision.adapter(id("d-15"), TIME, { role: null, hostToolName: "X", input: cyclic, verdict: Verdict.refuse("r", "d") }).host?.input).toBe("an input that cannot be shown");
   });
 
   test("is plain, frozen, serialisable data", () => {

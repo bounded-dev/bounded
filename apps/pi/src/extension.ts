@@ -9,9 +9,9 @@ import type { ToolUse } from "./event.ts";
 import { locator } from "./pi-path.ts";
 import { translate } from "./translate.ts";
 
-/** A block the extension made itself, before the project judged anything: what the project's decision log records. */
+/** A block the extension made itself, before the project judged anything: what the project's guard log records. */
 export interface AdapterRefusal {
-  readonly tool: string;
+  readonly hostToolName: string;
   readonly reason: string;
   readonly redirect: string;
   readonly role: null;
@@ -19,7 +19,7 @@ export interface AdapterRefusal {
 }
 
 /** Decides one tool use: the composed project's guards, dispatched. */
-export interface Decide {
+export interface ProjectJudgeForPi {
   (event: ToolUse): Promise<Verdict>;
   /** After a tool ran: what the project undid, to tell the agent; null when nothing. */
   readonly afterTool?: (result: ToolResult) => Promise<{ readonly message: string | null }>;
@@ -28,7 +28,7 @@ export interface Decide {
 }
 
 /** The composition root's seam: composes the project once and gives its decide. May reject. */
-export type Load = () => Promise<Decide>;
+export type LoadJudge = () => Promise<ProjectJudgeForPi>;
 
 /** What pi does with a handler's answer: undefined runs the call; a block stops it, telling the agent why. */
 export interface PiBlock {
@@ -52,8 +52,8 @@ export interface Pi {
 
 export interface ExtensionOptions {
   /** The project's root directory. */
-  readonly root: string;
-  readonly load: Load;
+  readonly projectRoot: string;
+  readonly load: LoadJudge;
   /** The home directory pi expands '~' to; the user's by default. */
   readonly home?: string;
   /** How long deciding one call may take before the call is blocked. 3 seconds by default. */
@@ -87,7 +87,7 @@ function deepFreeze(value: unknown, seen = new Set<object>()): void {
   for (const inner of Object.values(value)) deepFreeze(inner, seen);
 }
 
-type Composed = { ok: true; decide: Decide } | { ok: false; error: string; timedOut: boolean };
+type Composed = { ok: true; decide: ProjectJudgeForPi } | { ok: false; error: string; timedOut: boolean };
 
 /** pi's call id, when it gives one. */
 const callIdOf = (event: unknown): { callId?: string } => {
@@ -96,19 +96,19 @@ const callIdOf = (event: unknown): { callId?: string } => {
 };
 
 /** Hands a refusal the extension made itself to the project's refuse, without waiting for it or letting it fail. */
-function record(decide: Decide, event: unknown, reason: string, redirect: string): void {
+function record(decide: ProjectJudgeForPi, event: unknown, reason: string, redirect: string): void {
   const { refuse } = decide;
   if (refuse === undefined) return;
   const tool = field(event, "toolName");
-  const refusal: AdapterRefusal = { tool: typeof tool === "string" && tool !== "" ? tool : "unknown", reason, redirect, role: null, input: field(event, "input") ?? null };
+  const refusal: AdapterRefusal = { hostToolName: typeof tool === "string" && tool !== "" ? tool : "unknown", reason, redirect, role: null, input: field(event, "input") ?? null };
   Promise.resolve()
     .then(() => refuse(refusal))
     .catch(() => {});
 }
 
 /** The extension pi loads: `(pi) => void`, given the project and its composition root. */
-export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadlineMs = 15000, composeBackoffMs = 30000 }: ExtensionOptions): (pi: Pi) => void {
-  const locate = locator(root, home);
+export function piExtension({ projectRoot, load, home, deadlineMs = 3000, composeDeadlineMs = 15000, composeBackoffMs = 30000 }: ExtensionOptions): (pi: Pi) => void {
+  const locate = locator(projectRoot, home);
   return (pi) => {
     let started = false;
     /** The composition calls wait for. */
@@ -160,7 +160,7 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
           if (typeof cwd !== "string" || !isAbsolute(cwd)) return blocked(`bounded could not read pi's context for the ${toolName} call: its cwd is not an absolute directory`, "Report this to the maintainers of bounded-pi");
           const translated = translate({ toolName, input }, cwd, locate);
           if (!translated.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${translated.error}`, "Use paths inside the project, spelled plainly, and the tool's documented arguments");
-          const use = Use.parse({ ...translated.value, ...callIdOf(event) });
+          const use = Use.parse({ ...translated.value.toJSON(), ...callIdOf(event) });
           if (!use.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${use.error}`, "Report this to the maintainers of bounded-pi");
           const decided = await within(() => project.decide(use.value), deadlineMs, `bounded did not decide within ${deadlineMs} ms on pi's ${toolName} call`);
           const verdict = Verdict.parse(decided);
@@ -186,7 +186,7 @@ export function piExtension({ root, load, home, deadlineMs = 3000, composeDeadli
         if (typeof toolName !== "string" || toolName === "") throw new Error("pi's tool result names no tool");
         const use = typeof cwd === "string" && isAbsolute(cwd) ? translate({ toolName, input: field(event, "input") }, cwd, locate) : undefined;
         const result = ToolResult.parse({
-          ...(use?.ok ? use.value : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
+          ...(use?.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
           kind: "tool-result",
           ok: field(event, "isError") !== true,
           ...callIdOf(event),

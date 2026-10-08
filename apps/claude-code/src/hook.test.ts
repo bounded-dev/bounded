@@ -11,7 +11,7 @@ const deny = (reason: string, redirect: string): string =>
 
 const paths: PathResolver = { resolve: (raw) => ({ ok: true, value: { path: raw.replace(/^\/p\/?/, "") || ".", exists: true } }) };
 const stdin = (tool_name: string, tool_input: Record<string, unknown>): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name, tool_input, cwd: "/p", session_id: "s" });
-const hook = (decide: Decide, role: string | null = null) => ({ projectDir: "/p", role, decide, paths, deadlineMs: 1000 });
+const hook = (decide: Decide, role: string | null = null) => ({ projectRoot: "/p", role, decide, paths, deadlineMs: 1000 });
 const recording =
   (seen: ToolUse[]): Decide =>
   (event) => {
@@ -34,7 +34,7 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
     const recorded: AdapterRefusal[] = [];
     const out = await runHook(stdin("Read", {}), { ...hook(recording([]), "builder"), record: async (refusal) => void recorded.push(refusal) });
     expect(out).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
-    expect(recorded).toEqual([{ tool: "Read", reason: "Claude Code's Read call has no file_path to check", redirect: "Retry the call with its file_path given as text", role: "builder", input: {} }]);
+    expect(recorded).toEqual([{ hostToolName: "Read", reason: "Claude Code's Read call has no file_path to check", redirect: "Retry the call with its file_path given as text", role: "builder", input: {} }]);
   });
 
   test("a recording that fails or hangs never changes or delays the answer", async () => {
@@ -81,7 +81,7 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
     const out = await runHook(after("Bash", { command: "ls" }), { ...hook(recording([]), "builder"), afterTool: async () => { throw new Error("boom"); }, record: async (refusal) => void recorded.push(refusal) });
     const reason = "bounded could not check protected files after this call: boom. Check them against version control.";
     expect(JSON.parse(out)).toEqual({ decision: "block", reason });
-    expect(recorded).toEqual([{ tool: "Bash", reason, redirect: "Check the protected files against version control", role: "builder", input: { command: "ls" } }]);
+    expect(recorded).toEqual([{ hostToolName: "Bash", reason, redirect: "Check the protected files against version control", role: "builder", input: { command: "ls" } }]);
   });
 
   test("a PostToolUse whose check fails tells Claude so, never silently", async () => {
@@ -169,6 +169,6 @@ describe("runHook: stdin to stdout, fail closed", () => {
       projects.push(project);
       return Verdict.allow;
     }));
-    expect(projects).toEqual([{ projectDir: "/p" }]);
+    expect(projects).toEqual([{ projectRoot: "/p" }]);
   });
 });

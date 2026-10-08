@@ -56,11 +56,11 @@ function firstDenial(composition: Composition, denies: (rule: ProtectedPath) => 
   if (!rules.ok) {
     return Verdict.refuse(`The protected paths cannot be read: ${rules.error}`, `Select ${pathGate.id.value} with the packs that contribute rules`);
   }
-  for (const { from, value: rule } of rules.value) {
+  for (const { fromPackId, value: rule } of rules.value) {
     const denial = denies(rule);
     if (denial === undefined) continue;
     const why = rule.why === undefined ? "" : ` (${rule.why})`;
-    return Verdict.refuse(`the rule '${rule.match}' from ${from.value} ${denial.what}${why}`, denial.redirect ?? rule.redirect);
+    return Verdict.refuse(`the rule '${rule.match}' from ${fromPackId.value} ${denial.what}${why}`, denial.redirect ?? rule.redirect);
   }
   return Verdict.allow;
 }

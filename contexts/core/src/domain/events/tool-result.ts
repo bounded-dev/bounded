@@ -13,14 +13,14 @@ class ToolResultImpl implements Contract.ToolResult {
   readonly #made = true;
   readonly kind = "tool-result" as const;
   readonly role: Role | null;
-  readonly tool: ToolKind;
+  readonly toolKind: ToolKind;
   readonly effects: readonly [Effect, ...Effect[]];
   readonly ok: boolean;
   declare readonly callId?: CallId;
 
   private constructor(call: Call, ok: boolean) {
     this.role = call.role;
-    this.tool = call.tool;
+    this.toolKind = call.tool;
     this.effects = call.effects;
     this.ok = ok;
     if (call.callId !== undefined) this.callId = call.callId;
@@ -51,7 +51,7 @@ class ToolResultImpl implements Contract.ToolResult {
   }
 
   toJSON(): Contract.ToolResultJSON {
-    const json = { kind: this.kind, role: this.role === null ? null : this.role.value, tool: this.tool, effects: this.effects.map((effect) => effect.toJSON()), ok: this.ok };
+    const json = { kind: this.kind, role: this.role === null ? null : this.role.value, tool: this.toolKind, effects: this.effects.map((effect) => effect.toJSON()), ok: this.ok };
     return this.callId === undefined ? json : { ...json, callId: this.callId.value };
   }
 }

@@ -11,7 +11,7 @@ export interface Timing {
 
 /**
  * Answers one call. The process is then left to drain, so work still pending
- * (a decision log's follow-up line) can finish, but for at most `drainMs`:
+ * (a guard log's follow-up line) can finish, but for at most `drainMs`:
  * after that it exits, so nothing outlasts Claude Code's timeout for the hook.
  */
 export async function run(decide: Decide, { deadlineMs = DEADLINE_MS, drainMs = DRAIN_MS }: Timing = {}, extras: Pick<Wiring, "afterTool" | "record"> = {}): Promise<void> {

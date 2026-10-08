@@ -16,7 +16,7 @@ export type Guard<E extends Event, Context = unknown> = (event: E, context: Cont
 /** A verdict, and the pack (and effect) that refused when a pack's guard refused or failed. */
 export interface Judgement {
   readonly verdict: Verdict;
-  readonly refusedBy: { readonly pack: PackId; readonly effect: Effect | null } | null;
+  readonly refusedBy: { readonly packId: PackId; readonly effect: Effect | null } | null;
 }
 
 /**

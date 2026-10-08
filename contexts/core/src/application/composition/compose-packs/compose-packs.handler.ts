@@ -1,11 +1,11 @@
-import { Composition, type AnyPack, type Result } from "bounded/domain";
+import { Composition, type BasePack, type Result } from "bounded/domain";
 import type { ComposePacks, ComposePacksCatalog, ComposePacksCommand } from "./compose-packs.contract.ts";
 
 export class ComposePacksHandler implements ComposePacks {
   constructor(private readonly catalog: ComposePacksCatalog) {}
 
   async execute(command: ComposePacksCommand): Promise<Result<Composition>> {
-    let available: readonly AnyPack[];
+    let available: readonly BasePack[];
     try {
       available = await this.catalog.available();
     } catch (error) {
@@ -18,13 +18,13 @@ export class ComposePacksHandler implements ComposePacks {
     // The wire names packs by id; composition selects the pack objects. Ids
     // are resolved in id order, so the first refusal never depends on the
     // order they were given in.
-    const selected: AnyPack[] = [];
-    const ids = [...command.selected].sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+    const selectedPacks: BasePack[] = [];
+    const ids = [...command.selectedPackIds].sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
     for (const id of ids) {
       const pack = available.find((candidate) => id.equals(candidate.id));
       if (pack === undefined) return { ok: false, error: `Pack '${id.value}' is selected but not available. Make it available, or remove it from the selection` };
-      selected.push(pack);
+      selectedPacks.push(pack);
     }
-    return Composition.compose(available, selected);
+    return Composition.compose(available, selectedPacks);
   }
 }
