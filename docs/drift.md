@@ -23,9 +23,9 @@ denies. Only those changes are undone: under the `migrations/**` path above a
 command may add `migrations/0002_add.sql` (it is left in place, with nothing
 reported), but a change to or deletion of an existing migration is put back.
 
-`match` and `except` are project-relative globs; a file is watched by the
-first rule that matches it and does not except it, with that rule's
-`changes`. `match` ignores case, as
+`match` and `except` are project-relative globs; a file is watched by every
+rule that matches it and does not except it; when several do, a change any
+of them forbids is undone, reported under the first that forbids it. `match` ignores case, as
 the path gate's does, so a file cannot be dodged by its case on a
 case-insensitive file system; `except` is exact.
 

@@ -22,6 +22,8 @@ class FakeFiles implements WatchedFiles {
   /** Files moved aside, by path, and the paths that are links. */
   readonly quarantined = new Map<string, string>();
   readonly links = new Set<string>();
+  /** Whether hashes name every watched path that matches a file, as the adapters do. */
+  allRules = false;
   constructor(private readonly committedFiles: Record<string, string>) {
     this.working = new Map(Object.entries(committedFiles));
   }
@@ -30,7 +32,8 @@ class FakeFiles implements WatchedFiles {
     const out: Record<string, WatchedFile> = {};
     for (const [path, content] of files) {
       const rule = rules.findIndex((r) => new Bun.Glob(r.match).match(path) && !(r.except ?? []).some((e) => new Bun.Glob(e).match(path)));
-      if (rule >= 0) out[path] = { hash: sha(content), size: content.length, rule, ...(this.links.has(path) ? { link: true as const } : {}) };
+      const every = this.allRules ? rules.flatMap((r, index) => (new Bun.Glob(r.match).match(path) && !(r.except ?? []).some((e) => new Bun.Glob(e).match(path)) ? [index] : [])) : [];
+      if (rule >= 0) out[path] = { hash: sha(content), size: content.length, rule, ...(every.length > 1 ? { rules: every } : {}), ...(this.links.has(path) ? { link: true as const } : {}) };
     }
     return out;
   }
@@ -473,5 +476,36 @@ describe("WatchShellHandler — only the changes a watched path forbids are undo
     files.working.set("migrations/0001_init.sql", "drop table a;");
     const check = await watch.verify(result({ callId: "never-seen" }));
     expect(check.changed).toEqual([{ path: "migrations/0001_init.sql", change: "modified" }]);
+  });
+});
+
+describe("WatchShellHandler — every watched path that matches a file counts", () => {
+  test("a looser path never shadows a stricter one: a change any of them forbids is undone, reported by the first that forbids it", async () => {
+    const layered = definePack({
+      id: packIdsFor("test-packs")("layered"),
+      dependsOn: [corePack],
+      contributes: [
+        contribution(corePack.points.watchedPaths, [
+          { match: "generated/**", changes: ["create"], why: "nothing new goes into generated/", redirect: "Change the generator's input" },
+          { match: "generated/a.ts", changes: ["modify"], why: "a.ts is pinned", redirect: "Ask the owner of a.ts" },
+        ]),
+      ],
+    });
+    const all = [layered, corePack];
+    const composed = Composition.compose(all, all);
+    if (!composed.ok) throw new Error(composed.error);
+    const files = new FakeFiles({ "generated/a.ts": "a", "generated/b.ts": "b" });
+    files.allRules = true;
+    const log = new FakeLog();
+    const watch = new WatchShellHandler(composed.value, files, new FakeSnapshots(), log, clock);
+    await watch.snapshot(use(shell));
+    files.working.set("generated/a.ts", "tampered");
+    files.working.set("generated/b.ts", "changed, which is allowed");
+    const check = await watch.verify(result());
+    expect(check.changed).toEqual([{ path: "generated/a.ts", change: "modified" }]);
+    expect(files.working.get("generated/a.ts")).toBe("a");
+    expect(files.working.get("generated/b.ts")).toBe("changed, which is allowed");
+    expect(check.message).toBe("This command changed protected files, and they were restored: generated/a.ts was modified — protected because a.ts is pinned. Ask the owner of a.ts.");
+    expect(log.decisions[0]?.verdict).toMatchObject({ redirect: "Ask the owner of a.ts" });
   });
 });
