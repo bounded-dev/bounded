@@ -17,10 +17,10 @@
   points at.
 - **Rules are deny-only.** The point `protectedPaths` takes
   `{ match, except?, deny, redirect, why?, file? }`. `deny` is a non-empty list of
-  `read`, `list`, `create`, `modify`, `delete`; `writes` is a convenience for
-  the last three, spread into the list, so a stored rule is always explicit
-  (the spec's coarse "read, write or both" became precise effect kinds, ADR
-  2026-006). A rule denying `modify` must also deny `create` or `delete`, or
+  `read`, `list`, `create`, `modify`, `delete`, each named: there is no
+  shorthand for every write (an exported `writes` list was removed as
+  unclear), so a rule reads as exactly what it stops (the spec's coarse
+  "read, write or both" became precise effect kinds, ADR 2026-006). A rule denying `modify` must also deny `create` or `delete`, or
   a delete and a create would change the file. There are no allow rules:
   any rule that denies refuses. A rule's `except` carves paths out of that
   rule only, and may not cover the whole match (identical, or `**`).
@@ -59,9 +59,31 @@
   path could hold a path the rule denies delete for, walking the rule only up
   to its first spanning part, since the guard cannot know whether the path is
   a directory: `packages/db/**` refuses deleting `packages`, and deleting `.`
-  is always refused, but `**`-led rules do not refuse every delete. Execute,
-  fetch, delegate and invoke are not judged by path: a shell command's paths
-  cannot be read from its text (the later hash-check slice covers them).
+  is always refused, but `**`-led rules do not refuse every delete. Fetch,
+  delegate and invoke are not judged by path.
+- **Shell commands, best effort.** A shell command's paths cannot really be
+  read from its text, but plain mentions can: an `execute` effect is refused
+  when a word of its command names a path a rule denies `read` for (`cat
+  ./.env`, `grep KEY .env`, `cat < .env`, `$(cat .env)`, `--env-file=.env`,
+  `cd sub && cat ../.env`), each word resolved from the effect's `cwd` and
+  any `cd` before it; the refusal says shell reads of protected files are
+  refused, with the rule's redirect. The words come from a shell parser, not
+  hand-written tokenising: **shell-quote**, pinned at 1.12.0, inside the
+  path gate pack (the core's domain names no parser). Chosen over the
+  candidates because guards are synchronous and must run under Bun and node
+  (pi) with no native addon or network: shell-quote is a small, synchronous,
+  dependency-free tokeniser, widely used and maintained, that yields words,
+  operators (including redirections), globs and comments; `mvdan-sh` is
+  deprecated in favour of `sh-syntax`, which, like `web-tree-sitter` with
+  `tree-sitter-bash`, needs an asynchronous WebAssembly load (and
+  `tree-sitter-bash` ships a native addon); `bash-parser` has not been
+  released since 2022. A command the parser cannot read (such as an
+  unterminated `${`) is refused only when its text contains the literal name
+  a read rule ends in, and allowed otherwise. Out of reach, by design: globs,
+  variables, the output of command substitution, `~` and absolute paths,
+  and every file a program or script opens by itself. Confining commands at
+  the operating-system level is the real control (planned); drift (ADR
+  2026-011) undoes what a command changes in protected files.
 - **Provenance and redirects.** A refusal names the path (via dispatch's
   prefix), the rule's `match`, the pack that contributed the rule (from the
   composition's entries) and the rule's `why`. The redirect is the rule's;

@@ -385,5 +385,20 @@
       "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
     },
     "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
+    "case": "ProtectedPath — a deny-only rule > `writes` is the convenience for every write: create, modify and delete",
+    "successor": null,
+    "reason": "the `writes` export is removed (user decision): deny lists name each kind explicitly, as `[\"create\", \"modify\", \"delete\"]`; the compile-time fixture pins that `writes` no longer exists"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — what it does not judge in this slice > execute, fetch, delegate and invoke are not judged by path",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+      "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
+    },
+    "reason": "the path gate now refuses, best effort, a shell command that names a path a rule denies read for"
   }
 ]

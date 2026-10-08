@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict, watchedPathsOf } from "bounded/domain";
-import { pathGate, type ProtectedPath, writes } from "bounded/path-gate";
+import { pathGate, type ProtectedPath } from "bounded/path-gate";
 
 const packId = packIdsFor("test-packs");
 const { protectedPaths } = pathGate.points;
@@ -25,7 +25,7 @@ const write = (path: string, change: "create" | "modify" | "delete") => ({ kind:
 const list = (root: string, filter: string | null = null) => ({ kind: "list", root, filter });
 const reason = (verdict: Verdict): string => (verdict.kind === "refuse" ? verdict.reason : "allowed");
 
-const db: ProtectedPath = { match: "packages/db/**", deny: [...writes], redirect: "Change the schema and run the generator" };
+const db: ProtectedPath = { match: "packages/db/**", deny: ["create", "modify", "delete"], redirect: "Change the schema and run the generator" };
 
 describe("the path gate is an ordinary pack", () => {
   test("bounded/path-gate depends on the core pack and declares protectedPaths", () => {
@@ -49,7 +49,7 @@ describe("the path gate is an ordinary pack", () => {
     expect(Composition.compose([corePack, pathGate, pack], [corePack, pathGate, pack])).toEqual({
       ok: false,
       error:
-        "Pack 'test-packs/a' contributes an invalid value to extension point 'bounded/path-gate.protectedPaths': A rule cannot deny 'write': it denies read, list, create, modify or delete (spread `writes` for every write). Fix the value, or remove the contribution",
+        "Pack 'test-packs/a' contributes an invalid value to extension point 'bounded/path-gate.protectedPaths': A rule cannot deny 'write': it denies read, list, create, modify or delete (list each write it denies: create, modify, delete). Fix the value, or remove the contribution",
     });
   });
 });
@@ -97,7 +97,7 @@ describe("the path gate — reads and writes", () => {
 
 describe("the path gate — names and directories", () => {
   test("a rule ending in a literal name covers everything under that name", () => {
-    const db = rules("a", { match: "packages/db", deny: [...writes], redirect: "Leave the database package alone" });
+    const db = rules("a", { match: "packages/db", deny: ["create", "modify", "delete"], redirect: "Leave the database package alone" });
     expect(reason(decide([db], [write("packages/db/src/x.ts", "modify")]))).toContain("the rule 'packages/db' from test-packs/a denies modify of 'packages/db/src/x.ts'");
     expect(decide([db], [write("packages/dbx/x.ts", "modify")])).toBe(Verdict.allow);
     expect(decide([db], [read("packages/db/src/x.ts")])).toBe(Verdict.allow);
@@ -276,7 +276,7 @@ describe("the path gate — rules that name files only", () => {
   });
 
   test("a file rule that denies writes is watched as the file alone", () => {
-    const all = [corePack, pathGate, rules("a", { match: ".env", deny: [...writes], redirect: "Ask", file: true })];
+    const all = [corePack, pathGate, rules("a", { match: ".env", deny: ["create", "modify", "delete"], redirect: "Ask", file: true })];
     const composed = Composition.compose(all, all);
     if (!composed.ok) throw new Error(composed.error);
     const watched = watchedPathsOf(composed.value);
@@ -307,13 +307,13 @@ describe("the path gate — limits and honest redirects", () => {
 });
 
 describe("the path gate — what it does not judge in this slice", () => {
-  test("execute, fetch, delegate and invoke are not judged by path", () => {
-    const everything = rules("a", { match: "**", deny: ["read", "list", ...writes], redirect: "Nothing" });
+  test("fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path", () => {
+    const everything = rules("a", { match: "packages/**", deny: ["read", "list", "create", "modify", "delete"], redirect: "Nothing" });
     expect(
       decide(
         [everything],
         [
-          { kind: "execute", command: "rm -rf packages/db" },
+          { kind: "execute", command: "rm -rf docs/old" },
           { kind: "fetch", url: "https://example.com" },
           { kind: "delegate", agent: "reviewer" },
           { kind: "invoke", name: "mcp__db__migrate" },
@@ -321,6 +321,55 @@ describe("the path gate — what it does not judge in this slice", () => {
         "other",
       ),
     ).toBe(Verdict.allow);
+  });
+});
+
+describe("the path gate — shell commands that name read-protected paths (best effort)", () => {
+  const env = rules("a", { match: ".env", deny: ["read"], redirect: "Ask a maintainer for the value", file: true });
+  const shell = (command: string, cwd: string | null = null) => decide([env], [{ kind: "execute", command, cwd }], "shell");
+
+  test("a command naming the protected file is refused, however it spells the path", () => {
+    for (const command of ["cat ./.env", "cat .env", 'less "./.env"', "less './.env'", "grep KEY .env", "source .env && run", "cp .env /tmp/x", "env $(cat .env | xargs) node app.js", "node --env-file=.env app.js"]) {
+      expect(shell(command)).toMatchObject({ kind: "refuse", redirect: "Ask a maintainer for the value" });
+    }
+  });
+
+  test("relative paths are resolved from the command's directory, and from a cd inside it", () => {
+    expect(shell("cat ../.env", "sub").kind).toBe("refuse");
+    expect(shell("cd sub && cat ../.env").kind).toBe("refuse");
+    expect(shell("cat .env", "sub")).toBe(Verdict.allow);
+  });
+
+  test("the refusal says shell reads of protected files are refused, naming the rule and the path", () => {
+    expect(reason(shell("cat ./.env"))).toBe(
+      "bounded/path-gate refused execute `cat ./.env`: the rule '.env' from test-packs/a denies read, and this shell command names '.env': shell reads of protected files are refused",
+    );
+  });
+
+  test("a name that only resembles the protected one is not refused", () => {
+    expect(shell("cat .envrc")).toBe(Verdict.allow);
+    expect(shell("cat .env.example")).toBe(Verdict.allow);
+  });
+
+  test("a '**'-led rule ending in a name refuses the name anywhere", () => {
+    const anywhere = rules("a", { match: "**/.env", deny: ["read"], redirect: "Ask" });
+    expect(decide([anywhere], [{ kind: "execute", command: "cat services/api/.env", cwd: null }], "shell").kind).toBe("refuse");
+    expect(decide([anywhere], [{ kind: "execute", command: "cat .env", cwd: "services/api" }], "shell").kind).toBe("refuse");
+  });
+
+  test("redirections, command substitution and option values are read as the shell parses them", () => {
+    for (const command of ["cat < .env", "sort .env > out.txt", "echo $(cat .env)", "node --env-file=.env app.js"]) expect(shell(command).kind).toBe("refuse");
+    expect(shell("echo done # not cat .env")).toBe(Verdict.allow);
+  });
+
+  test("a command the parser cannot read is refused only when its text names a read-protected file", () => {
+    expect(shell("cat .env ${").kind).toBe("refuse");
+    expect(shell("ls ${")).toBe(Verdict.allow);
+  });
+
+  test("a rule that does not deny read leaves shell commands alone", () => {
+    const writeOnly = rules("a", { match: ".env", deny: ["create", "modify", "delete"], redirect: "Ask" });
+    expect(decide([writeOnly], [{ kind: "execute", command: "cat .env", cwd: null }], "shell")).toBe(Verdict.allow);
   });
 });
 
@@ -336,7 +385,7 @@ describe("the path gate — built-in protection of its own configuration", () =>
   });
 
   test("an agent cannot write its own guardrails", () => {
-    for (const change of writes) {
+    for (const change of ["create", "modify", "delete"] as const) {
       expect(reason(decide([], [write("bounded.config.ts", change)]))).toBe(
         `bounded/path-gate refused write (${change}) bounded.config.ts: the rule '**/bounded.config.*' from bounded/path-gate denies ${change} of 'bounded.config.ts' (the project's guardrails are changed by people, not by agents)`,
       );
