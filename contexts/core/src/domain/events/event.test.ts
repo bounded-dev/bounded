@@ -19,6 +19,12 @@ describe("Event — boundaries", () => {
     }
   });
 
+  test("refuses an event whose effect is invalid, naming the effect and why", () => {
+    const result = Event.parse({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "../x", change: "create" }] });
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toBe("Effect 1 of 1: Path '../x' climbs out of the project with '..'. Only paths inside the project can be checked");
+  });
+
   test("refuses a malformed event of a known kind with that kind's reason", () => {
     expect(Event.parse({ ...write, tool: "bash" })).toEqual({ ok: false, error: "Tool kind 'bash' is not one of: read, search, edit, write, shell, web, subagent, other" });
   });

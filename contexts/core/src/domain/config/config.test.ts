@@ -46,6 +46,7 @@ describe("defineConfig", () => {
     const config = defineConfig({ packs: [corePack] });
     expect(Config.parse(config)).toEqual({ ok: true, value: config });
     expect(Config.parse(null).ok).toBe(false);
+    expect(Config.parse(undefined).ok).toBe(false);
     expect(Config.parse({ ...config })).toEqual({ ok: false, error: "This is not a configuration made by defineConfig: export default defineConfig({ packs: [...] })" });
   });
 
