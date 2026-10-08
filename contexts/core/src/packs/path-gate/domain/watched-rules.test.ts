@@ -16,14 +16,13 @@ const project = definePack({
 });
 
 describe("the path gate watches what it protects from writes", () => {
-  test("every rule that denies a write becomes a watched path; read-only rules and .bounded/ do not", () => {
+  test("every rule that denies a write becomes a watched path, and only those: read-only rules do not, and the path gate adds none", () => {
     const all = [corePack, pathGate, project];
     const composed = Composition.compose(all, all);
     if (!composed.ok) throw new Error(composed.error);
     const watched = watchedRulesOf(composed.value, pathGate.points.protectedPaths);
     if (!watched.ok) throw new Error(watched.error);
     expect(watched.value.map(({ rule, fromPackId }) => [rule.match, rule.except, fromPackId.value])).toEqual([
-      ["**/bounded.config.*", [], "bounded/path-gate"],
       ["packages/db/**", ["packages/db/src/schema/**"], "bounded/path-gate"],
       ["vendor", [], "bounded/path-gate"],
       ["vendor/**", [], "bounded/path-gate"],
@@ -34,14 +33,13 @@ describe("the path gate watches what it protects from writes", () => {
     expect(watched.value.find(({ rule }) => rule.match === "vendor")?.rule.why).toBe("the path gate protects 'vendor'");
   });
 
-  test("a watched path forbids only the changes its rule denies", () => {
+  test("a watched path forbids only the changes its rule denies, for the project's rules alone", () => {
     const all = [corePack, pathGate, project];
     const composed = Composition.compose(all, all);
     if (!composed.ok) throw new Error(composed.error);
     const watched = watchedRulesOf(composed.value, pathGate.points.protectedPaths);
     if (!watched.ok) throw new Error(watched.error);
     expect(watched.value.map(({ rule }) => [rule.match, rule.changes])).toEqual([
-      ["**/bounded.config.*", ["create", "modify", "delete"]],
       ["packages/db/**", ["create", "modify", "delete"]],
       ["vendor", ["delete"]],
       ["vendor/**", ["delete"]],

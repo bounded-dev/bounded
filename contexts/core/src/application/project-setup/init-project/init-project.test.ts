@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Result } from "bounded/domain";
 import type { HostInstaller, HostInstallerSource, HostInstallReport, ProjectSetupFiles } from "./init-project.contract.ts";
-import { INITIAL_CONFIG, InitProjectHandler } from "./init-project.handler.ts";
+import { InitProjectHandler } from "./init-project.handler.ts";
+
+/** The configuration the caller gives the handler to write: the content is the caller's (the CLI's), the core only writes it. */
+const CONFIG = "export default 1;\n";
 
 const ROOT = "/project";
 
@@ -34,11 +37,11 @@ function installer(host: string, answer: Result<HostInstallReport> = { ok: true,
 const source = (...installers: HostInstaller[]): HostInstallerSource => ({ load: async () => ({ ok: true, value: installers }) });
 
 describe("InitProjectHandler: bounded init", () => {
-  test("in a fresh project, writes a configuration selecting only the core pack, then runs every host installer", async () => {
+  test("in a fresh project, writes the configuration it is given, then runs every host installer", async () => {
     const files = memoryFiles();
     const claude = installer("claude-code");
     const pi = installer("pi", { ok: true, value: { host: "pi", changedPaths: [], skippedBecause: "the project has no .pi/ directory" } });
-    const done = await new InitProjectHandler(files, source(claude, pi)).execute(ROOT);
+    const done = await new InitProjectHandler(files, source(claude, pi), CONFIG).execute(ROOT);
     expect(done).toEqual({
       ok: true,
       value: {
@@ -49,21 +52,15 @@ describe("InitProjectHandler: bounded init", () => {
         ],
       },
     });
-    expect(files.written).toEqual([INITIAL_CONFIG]);
+    expect(files.written).toEqual([CONFIG]);
     expect(claude.runs).toEqual([ROOT]);
-  });
-
-  test("the configuration selects the core pack only, and says where to read about adding packs", () => {
-    expect(INITIAL_CONFIG).toContain('import { corePack, defineConfig } from "bounded/domain";');
-    expect(INITIAL_CONFIG).toContain("export default defineConfig({ packs: [corePack] });");
-    expect(INITIAL_CONFIG).toMatch(/README|docs/);
   });
 
   test("refuses a project that already has a configuration, writing and installing nothing", async () => {
     for (const present of [["bounded.config.ts"], ["bounded.config.mjs"], ["bounded.config.js", "bounded.config.ts"]]) {
       const files = memoryFiles(present);
       const claude = installer("claude-code");
-      const done = await new InitProjectHandler(files, source(claude)).execute(ROOT);
+      const done = await new InitProjectHandler(files, source(claude), CONFIG).execute(ROOT);
       expect(done.ok).toBe(false);
       if (!done.ok) expect(done.error).toContain("bounded update");
       expect(files.written).toEqual([]);
@@ -73,7 +70,7 @@ describe("InitProjectHandler: bounded init", () => {
 
   test("refuses when no installed package offers a host installer, writing nothing", async () => {
     const files = memoryFiles();
-    const done = await new InitProjectHandler(files, source()).execute(ROOT);
+    const done = await new InitProjectHandler(files, source(), CONFIG).execute(ROOT);
     expect(done.ok).toBe(false);
     if (!done.ok) expect(done.error).toContain("host adapter");
     expect(files.written).toEqual([]);
@@ -81,13 +78,13 @@ describe("InitProjectHandler: bounded init", () => {
 
   test("refuses when the installers cannot be loaded, writing nothing", async () => {
     const files = memoryFiles();
-    const done = await new InitProjectHandler(files, { load: async () => ({ ok: false, error: "no package.json" }) }).execute(ROOT);
+    const done = await new InitProjectHandler(files, { load: async () => ({ ok: false, error: "no package.json" }) }, CONFIG).execute(ROOT);
     expect(done).toEqual({ ok: false, error: "no package.json" });
     expect(files.written).toEqual([]);
   });
 
   test("a host installer that fails is a refusal naming the host", async () => {
-    const done = await new InitProjectHandler(memoryFiles(), source(installer("claude-code", { ok: false, error: "settings.json is not JSON" }))).execute(ROOT);
+    const done = await new InitProjectHandler(memoryFiles(), source(installer("claude-code", { ok: false, error: "settings.json is not JSON" })), CONFIG).execute(ROOT);
     expect(done.ok).toBe(false);
     if (!done.ok) expect(done.error).toContain("claude-code: settings.json is not JSON");
   });

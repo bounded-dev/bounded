@@ -5,11 +5,11 @@ import { shellSnapshotsPort, watchedFilesPort } from "./application/watch-shell/
 import { pathGate } from "./path-gate.pack.ts";
 
 describe("pathGate — the path gate's overview", () => {
-  test("is bounded/path-gate, depending on the core, declaring protectedPaths with its own rules first", () => {
+  test("is bounded/path-gate, depending on the core, declaring protectedPaths with no rules of its own", () => {
     expect(pathGate.id.value).toBe("bounded/path-gate");
     expect(pathGate.dependsOn).toEqual([corePack]);
     expect(Object.keys(pathGate.points)).toEqual(["protectedPaths"]);
-    expect(pathGate.points.protectedPaths.ownValues.length).toBe(2);
+    expect(pathGate.points.protectedPaths.ownValues).toEqual([]);
   });
 
   test("contributes its guards, its work on opening a project, and its checks around tool calls", () => {

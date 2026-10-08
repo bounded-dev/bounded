@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INITIAL_CONFIG } from "bounded/application";
+import { INITIAL_CONFIG } from "./initial-config.ts";
 import { runBoundedCli } from "./bounded-cli.ts";
 
 // A host installer that writes fake-hook.json once and reports it; afterwards it changes nothing.

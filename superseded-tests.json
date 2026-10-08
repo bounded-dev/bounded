@@ -319,9 +319,9 @@
     "case": "piLoader — the file pi loads as the project's bounded extension > default-exports bounded-pi's extension for the project it sits in",
     "successor": {
       "file": "apps/pi/src/install.test.ts",
-      "case": "piLoader — loaded by pi's own jiti, under node > hands the project root to bounded-pi's extension"
+      "case": "piLoader — loaded by pi's own jiti, under node > hands the project root to bounded's bundled pi extension"
     },
-    "reason": "the loader is now an async factory that fails closed when bounded-pi cannot be loaded, so it is exercised as pi loads it: through pi's jiti, under node"
+    "reason": "the loader is now an async factory that fails closed when bounded-pi cannot be loaded, so it is exercised as pi loads it: through pi's jiti, under node; then bounded carries the pi extension (bounded/hosts/pi), so the loader imports it from bounded, not from a bounded-pi package (ADR 2026-016)"
   },
   {
     "file": "apps/pi/src/extension.test.ts",
@@ -2674,9 +2674,9 @@
     "case": "watchedPathsOf > gives every watched path with the pack that contributed it, calling sources with the composition",
     "successor": {
       "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
-      "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path; read-only rules and .bounded/ do not"
+      "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path, and only those: read-only rules do not, and the path gate adds none"
     },
-    "reason": "watched paths are the path gate's own, worked out from its protected paths, so the core's watchedPaths point and its watchedPathsOf are gone (ADR 2026-013, C)"
+    "reason": "watched paths are the path gate's own, worked out from its protected paths, so the core's watchedPaths point and its watchedPathsOf are gone (ADR 2026-013, C); then the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
   {
     "file": "contexts/core/src/domain/drift/watched-paths.test.ts",
@@ -2917,90 +2917,90 @@
     "case": "bounded update --from > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI"
+      "case": "bounded update --from <dir>: the one bounded tarball > upgrades bounded alone, points its override at the new tarball, checks the version and hands over to the new bounded"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses a directory that cannot be read",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory that cannot be read"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses a directory that cannot be read"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses when a package's tarball is missing, naming it, and changes nothing",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when a package's tarball is missing, naming it, and changes nothing"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses a directory without bounded's tarball, naming it, and changes nothing"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses two tarballs of one package, naming both",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses two tarballs of one package, naming both"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses two tarballs of bounded, naming both"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > when the package manager fails, package.json is restored and the message says so",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the package manager fails, package.json is restored and the message says so"
+      "case": "bounded update --from <dir>: the one bounded tarball > when the package manager fails, package.json is restored and the message says so"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses when the installed version is not the tarball's, restoring package.json",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when the installed version is not the tarball's, restoring package.json"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses when the installed bounded is not its tarball's version, restoring package.json and the lockfile"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks"
+      "case": "bounded update --from <dir>: the one bounded tarball > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/test/bounded-cli.e2e.test.ts",
     "case": "npx bounded, installed from packed tarballs > init sets a fresh repository up; update upgrades the packages, hands over to the new CLI and is idempotent",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > with bun: npx -p bounded's tarball bounded init --from adds bounded and the hosts' adapters and sets the repository up; npx bounded update --from upgrades and hands over to the new bounded; both are idempotent"
+      "case": "npx bounded end to end, from the one bounded tarball, under node > with bun: npx -p bounded's tarball bounded init --from sets a repository up for Claude Code and pi; npx bounded update --from upgrades and hands over; both are idempotent"
     },
-    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "contexts/core/test/bounded-cli.e2e.test.ts",
     "case": "npx bounded, installed from packed tarballs > update --from upgrades by itself: it points the project's override of bounded at the new tarball",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > with bun: npx -p bounded's tarball bounded init --from adds bounded and the hosts' adapters and sets the repository up; npx bounded update --from upgrades and hands over to the new bounded; both are idempotent"
+      "case": "npx bounded end to end, from the one bounded tarball, under node > with bun: npx -p bounded's tarball bounded init --from sets a repository up for Claude Code and pi; npx bounded update --from upgrades and hands over; both are idempotent"
     },
-    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/claude-code/src/host-installer.test.ts",
     "case": "the Claude Code host installer > in a fresh project, creates .claude/settings.json with the hooks running the project's own installed copy",
     "successor": {
       "file": "apps/claude-code/src/host-installer.test.ts",
-      "case": "the Claude Code host installer > in a fresh project, creates .claude/settings.json with the hooks running the project's own installed copy through $CLAUDE_PROJECT_DIR"
+      "case": "the Claude Code host installer > in a fresh project, creates .claude/settings.json with the hooks running bounded's bundled hook under node, through $CLAUDE_PROJECT_DIR"
     },
-    "reason": "the hook command is relative to $CLAUDE_PROJECT_DIR, not the project's absolute path, so committed settings work for teammates and survive a move (decided in the final review)"
+    "reason": "the hook command is relative to $CLAUDE_PROJECT_DIR, not the project's absolute path, so committed settings work for teammates and survive a move (decided in the final review); then bounded carries the Claude Code hook as JavaScript for node, so the hook command runs `node` on bounded's bundled hook through $CLAUDE_PROJECT_DIR (ADR 2026-016)"
   },
   {
     "file": "apps/claude-code/src/host-installer.conformance.test.ts",
@@ -3043,242 +3043,710 @@
     "case": "bounded-cli — bounded init from the registry > `with ${manager}: adds bounded, bounded-cli and the host's adapter at exactly this CLI's version, with no override, installs, and hands over`",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded init from the registry: bounded and the hosts' adapters > with each of bun, npm, pnpm and yarn: adds bounded and the host's adapter at exactly this CLI's version, with no override, installs, and hands over to the installed bounded"
+      "case": "bounded init from the registry: the one bounded package > with each of bun, npm, pnpm and yarn: adds bounded alone at exactly this CLI's version, with no override, installs, and hands over with the hosts found"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded init from the registry > adds every host found or named",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded init from the registry: bounded and the hosts' adapters > adds every host found or named, beside bounded alone"
+      "case": "bounded init from the registry: the one bounded package > hands over every host found or named, installing bounded alone"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded init from the registry > when the install fails, package.json and the lockfile are restored and nothing is handed over",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded init from the registry: bounded and the hosts' adapters > when the install fails, package.json and the lockfile are restored and nothing is handed over"
+      "case": "bounded init from the registry: the one bounded package > when the install fails, package.json and the lockfile are restored and nothing is handed over"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded init from the registry > refuses an installed version that is not this CLI's, restoring package.json",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded init from the registry: bounded and the hosts' adapters > refuses an installed bounded that is not this CLI's version, restoring package.json"
+      "case": "bounded init from the registry: the one bounded package > refuses an installed bounded that is not this CLI's version, restoring package.json"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded init from the registry > refuses, running nothing, a project with a configuration, with no host, or with no package.json",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded init from the registry: bounded and the hosts' adapters > refuses, running nothing, a project with a configuration, with no host, or with no package.json"
+      "case": "bounded init from the registry: the one bounded package > refuses, running nothing, a project with a configuration, with no host, or with no package.json"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded update from the registry > `with ${manager}: upgrades the bounded packages present to their latest, checks them, and hands over`",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded update from the registry: bounded and the hosts' adapters > with each of bun, npm, pnpm and yarn: upgrades bounded and the host adapters present to their latest, checks them, and hands over"
+      "case": "bounded update from the registry: the one bounded package > with each of bun, npm, pnpm and yarn: upgrades bounded alone to its latest, leaving other packages, checks it, and hands over"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded update from the registry > upgrades dependencies and devDependencies each where they are",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded update from the registry: bounded and the hosts' adapters > upgrades dependencies and devDependencies each where they are"
+      "case": "bounded update from the registry: the one bounded package > upgrades bounded where the project lists it: in dependencies"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded update from the registry > when the upgrade fails, package.json and the lockfile are restored and nothing is handed over",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded update from the registry: bounded and the hosts' adapters > when the upgrade fails, package.json and the lockfile are restored and nothing is handed over"
+      "case": "bounded update from the registry: the one bounded package > when the upgrade fails, package.json and the lockfile are restored and nothing is handed over"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded update from the registry > refuses packages left out of lockstep, or moved to an older version, restoring the lockfile",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded update from the registry: bounded and the hosts' adapters > refuses bounded and its host adapters left out of lockstep, or moved to an older version, restoring the lockfile"
+      "case": "bounded update from the registry: the one bounded package > refuses bounded moved to an older version, restoring the lockfile"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.registry.test.ts",
     "case": "bounded-cli — bounded update from the registry > refuses a project that was never initialised, running nothing",
     "successor": {
       "file": "apps/cli/src/bounded-cli.registry.test.ts",
-      "case": "bounded update from the registry: bounded and the hosts' adapters > refuses a project that was never initialised, running nothing"
+      "case": "bounded update from the registry: the one bounded package > refuses a project that was never initialised, running nothing"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.update-from.test.ts",
     "case": "bounded-cli — bounded update --from > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI"
+      "case": "bounded update --from <dir>: the one bounded tarball > upgrades bounded alone, points its override at the new tarball, checks the version and hands over to the new bounded"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.update-from.test.ts",
     "case": "bounded-cli — bounded update --from > refuses a directory that cannot be read",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory that cannot be read"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses a directory that cannot be read"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.update-from.test.ts",
     "case": "bounded-cli — bounded update --from > refuses when a package's tarball is missing, naming it, and changes nothing",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when a package's tarball is missing, naming it, and changes nothing"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses a directory without bounded's tarball, naming it, and changes nothing"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.update-from.test.ts",
     "case": "bounded-cli — bounded update --from > refuses two tarballs of one package, naming both",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses two tarballs of one package, naming both"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses two tarballs of bounded, naming both"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.update-from.test.ts",
     "case": "bounded-cli — bounded update --from > when the package manager fails, package.json is restored and the message says so",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the package manager fails, package.json is restored and the message says so"
+      "case": "bounded update --from <dir>: the one bounded tarball > when the package manager fails, package.json is restored and the message says so"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.update-from.test.ts",
     "case": "bounded-cli — bounded update --from > refuses when the installed version is not the tarball's, restoring package.json",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when the installed version is not the tarball's, restoring package.json"
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses when the installed bounded is not its tarball's version, restoring package.json and the lockfile"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.update-from.test.ts",
     "case": "bounded-cli — bounded update --from > when the new bounded-cli cannot be run, the upgrade stands and the message says to refresh the hooks",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks"
+      "case": "bounded update --from <dir>: the one bounded tarball > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > adds bounded, bounded-cli and the detected host's adapter as devDependencies, overrides bounded, and hands over to the installed CLI",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > adds bounded and the detected host's adapter as devDependencies, overrides bounded, and hands over to the installed bounded"
+      "case": "bounded init --from <dir>: the one bounded tarball > adds bounded alone as a devDependency, overrides it with its tarball, and hands over to the installed bounded with the host found"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs bounded and the host adapter"
+      "case": "bounded init --from <dir>: the one bounded tarball > under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs bounded alone"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > adds every detected host's adapter: .claude/ and .pi/",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > adds every detected host's adapter beside bounded: .claude/ and .pi/"
+      "case": "bounded init --from <dir>: the one bounded tarball > hands over every host found: .claude/ and .pi/"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > --host names the hosts instead of detecting them",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > --host names the hosts instead of detecting them, beside bounded"
+      "case": "bounded init --from <dir>: the one bounded tarball > --host names the hosts instead of finding them, and they are handed over"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > refuses when no host is found and none is named, saying how to name one",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when no host is found and none is named, saying how to name one"
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses when no host is found and none is named, saying how to name one"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > refuses a host name that is not one, and a host with no tarball",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a host name that is not one, and a host with no tarball"
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses a host name that is not one, changing nothing"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > refuses a project that already has a configuration, changing nothing",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a project that already has a configuration, changing nothing"
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses a project that already has a configuration, changing nothing"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/src/bounded-cli.init-from.test.ts",
     "case": "bounded-cli — bounded init --from > refuses a directory with no package.json, saying to create one",
     "successor": {
       "file": "apps/cli/src/bounded-cli.init-from.test.ts",
-      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory with no package.json, saying to create one"
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses a directory with no package.json, saying to create one"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/test/bounded-cli.e2e.test.ts",
     "case": "bounded-cli end to end, from packed tarballs > npx bounded-cli init --from adds the packages and sets the repository up; npx bounded update --from upgrades and hands over to the new CLI; both are idempotent",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > with bun: npx -p bounded's tarball bounded init --from adds bounded and the hosts' adapters and sets the repository up; npx bounded update --from upgrades and hands over to the new bounded; both are idempotent"
+      "case": "npx bounded end to end, from the one bounded tarball, under node > with bun: npx -p bounded's tarball bounded init --from sets a repository up for Claude Code and pi; npx bounded update --from upgrades and hands over; both are idempotent"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
   {
     "file": "apps/cli/test/bounded-cli.e2e.test.ts",
     "case": "bounded-cli end to end, from packed tarballs > under npm (skipped when npm is not installed): npx bounded-cli init --from, then npx bounded update --from to a later release",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > under npm (skipped when npm is not installed): npx -p bounded's tarball bounded init --from, then npx bounded update --from to a later release"
+      "case": "npx bounded end to end, from the one bounded tarball, under node > under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the path gate judges with init's default rules and a project rule; then update --from"
     },
-    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
+    "case": "pathGate — the path gate's overview > is bounded/path-gate, depending on the core, declaring protectedPaths with its own rules first",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
+      "case": "pathGate — the path gate's overview > is bounded/path-gate, depending on the core, declaring protectedPaths with no rules of its own"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
+    "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path; read-only rules and .bounded/ do not",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
+      "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path, and only those: read-only rules do not, and the path gate adds none"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
+    "case": "the path gate watches what it protects from writes > a watched path forbids only the changes its rule denies",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
+      "case": "the path gate watches what it protects from writes > a watched path forbids only the changes its rule denies, for the project's rules alone"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — names and directories > deleting the project root is always refused",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+      "case": "the path gate — names and directories > deleting the project root is refused when a rule protects anything in it, and allowed when none does"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — built-in protection of its own configuration > its own rules protect bounded.config.* and .bounded/** from every write, contributed by bounded/path-gate",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > selected with no rules contributed, it protects nothing, not even the configuration"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — built-in protection of its own configuration > an agent cannot write its own guardrails",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > with the default rules, an agent cannot write the project's guardrails, and the refusal names the project's rule"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — built-in protection of its own configuration > the configuration can still be read, and other files written",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > with the default rules, the configuration can still be read, and other files written"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — built-in protection of its own configuration > a configuration file is protected at any depth",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > with the default rules, a configuration file is protected at any depth"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — built-in protection of its own configuration > no pack's except can carve out the built-in protection",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > another pack's except carves out only its own rule: the default rule still protects the configuration"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/rocketflare.test.ts",
+    "case": "a Rocketflare-like project: core, path gate and the project's rules > the project's guardrails are protected by the path gate itself",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/rocketflare.test.ts",
+      "case": "a Rocketflare-like project: core, path gate and the project's rules > the project's guardrails are protected by the default rule in its own configuration"
+    },
+    "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/application/project-setup/init-project/init-project.test.ts",
+    "case": "InitProjectHandler: bounded init > in a fresh project, writes a configuration selecting only the core pack, then runs every host installer",
+    "successor": {
+      "file": "contexts/core/src/application/project-setup/init-project/init-project.test.ts",
+      "case": "InitProjectHandler: bounded init > in a fresh project, writes the configuration it is given, then runs every host installer"
+    },
+    "reason": "the configuration init writes is content, so the CLI owns it (apps/cli/src/initial-config.ts) and the core's init feature writes the text it is given; it now selects the core and the path gate with the two default rules (ADR 2026-009)"
+  },
+  {
+    "file": "contexts/core/src/application/project-setup/init-project/init-project.test.ts",
+    "case": "InitProjectHandler: bounded init > the configuration selects the core pack only, and says where to read about adding packs",
+    "successor": {
+      "file": "apps/cli/src/initial-config.test.ts",
+      "case": "bounded init's configuration > selects the core and the path gate, contributing the two default rules with their reasons, under a comment saying they may be changed"
+    },
+    "reason": "the configuration init writes is content, so the CLI owns it (apps/cli/src/initial-config.ts) and the core's init feature writes the text it is given; it now selects the core and the path gate with the two default rules (ADR 2026-009)"
+  },
+  {
+    "file": "apps/claude-code/src/host-installer.test.ts",
+    "case": "the Claude Code host installer > in a fresh project, creates .claude/settings.json with the hooks running the project's own installed copy through $CLAUDE_PROJECT_DIR",
+    "successor": {
+      "file": "apps/claude-code/src/host-installer.test.ts",
+      "case": "the Claude Code host installer > in a fresh project, creates .claude/settings.json with the hooks running bounded's bundled hook under node, through $CLAUDE_PROJECT_DIR"
+    },
+    "reason": "bounded carries the Claude Code hook as JavaScript for node, so the hook command runs `node` on bounded's bundled hook through $CLAUDE_PROJECT_DIR (ADR 2026-016)"
+  },
+  {
+    "file": "apps/claude-code/src/host-installer.test.ts",
+    "case": "the Claude Code host installer > refuses a project without its own installed copy of bounded-claude-code, saying to install it",
+    "successor": {
+      "file": "apps/claude-code/src/host-installer.test.ts",
+      "case": "the Claude Code host installer > refuses a project without its own installed copy of bounded, saying to install it"
+    },
+    "reason": "bounded carries the Claude Code hook as JavaScript for node, so the hook command runs `node` on bounded's bundled hook through $CLAUDE_PROJECT_DIR (ADR 2026-016)"
+  },
+  {
+    "file": "apps/pi/src/install.test.ts",
+    "case": "piLoader — the file pi loads as the project's bounded extension > is the same every time: it names no machine, user or absolute path",
+    "successor": {
+      "file": "apps/pi/src/install.test.ts",
+      "case": "piLoader — the file pi loads as the project's bounded extension > is the same every time: it names no machine, user or absolute path, and loads bounded's bundled pi extension"
+    },
+    "reason": "bounded carries the pi extension (bounded/hosts/pi), so the loader imports it from bounded, not from a bounded-pi package (ADR 2026-016)"
+  },
+  {
+    "file": "apps/pi/src/install.test.ts",
+    "case": "piLoader — loaded by pi's own jiti, under node > hands the project root to bounded-pi's extension",
+    "successor": {
+      "file": "apps/pi/src/install.test.ts",
+      "case": "piLoader — loaded by pi's own jiti, under node > hands the project root to bounded's bundled pi extension"
+    },
+    "reason": "bounded carries the pi extension (bounded/hosts/pi), so the loader imports it from bounded, not from a bounded-pi package (ADR 2026-016)"
+  },
+  {
+    "file": "apps/pi/src/install.test.ts",
+    "case": "piLoader — loaded by pi's own jiti, under node > when bounded-pi cannot be loaded, blocks every tool call, saying how to fix it",
+    "successor": {
+      "file": "apps/pi/src/install.test.ts",
+      "case": "piLoader — loaded by pi's own jiti, under node > when bounded's pi extension cannot be loaded, blocks every tool call, saying how to fix it"
+    },
+    "reason": "bounded carries the pi extension (bounded/hosts/pi), so the loader imports it from bounded, not from a bounded-pi package (ADR 2026-016)"
+  },
+  {
+    "file": "apps/pi/src/install.test.ts",
+    "case": "piLoader — loaded by pi's own jiti, under node > when bounded-pi's extension throws while registering, blocks every tool call",
+    "successor": {
+      "file": "apps/pi/src/install.test.ts",
+      "case": "piLoader — loaded by pi's own jiti, under node > when bounded's pi extension throws while registering, blocks every tool call"
+    },
+    "reason": "bounded carries the pi extension (bounded/hosts/pi), so the loader imports it from bounded, not from a bounded-pi package (ADR 2026-016)"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded init from the registry: bounded and the hosts' adapters > with each of bun, npm, pnpm and yarn: adds bounded and the host's adapter at exactly this CLI's version, with no override, installs, and hands over to the installed bounded",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: the one bounded package > with each of bun, npm, pnpm and yarn: adds bounded alone at exactly this CLI's version, with no override, installs, and hands over with the hosts found"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded init from the registry: bounded and the hosts' adapters > adds every host found or named, beside bounded alone",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: the one bounded package > hands over every host found or named, installing bounded alone"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded init from the registry: bounded and the hosts' adapters > when the install fails, package.json and the lockfile are restored and nothing is handed over",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: the one bounded package > when the install fails, package.json and the lockfile are restored and nothing is handed over"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded init from the registry: bounded and the hosts' adapters > refuses an installed bounded that is not this CLI's version, restoring package.json",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: the one bounded package > refuses an installed bounded that is not this CLI's version, restoring package.json"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded init from the registry: bounded and the hosts' adapters > refuses, running nothing, a project with a configuration, with no host, or with no package.json",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: the one bounded package > refuses, running nothing, a project with a configuration, with no host, or with no package.json"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded update from the registry: bounded and the hosts' adapters > with each of bun, npm, pnpm and yarn: upgrades bounded and the host adapters present to their latest, checks them, and hands over",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: the one bounded package > with each of bun, npm, pnpm and yarn: upgrades bounded alone to its latest, leaving other packages, checks it, and hands over"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded update from the registry: bounded and the hosts' adapters > upgrades dependencies and devDependencies each where they are",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: the one bounded package > upgrades bounded where the project lists it: in dependencies"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded update from the registry: bounded and the hosts' adapters > when the upgrade fails, package.json and the lockfile are restored and nothing is handed over",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: the one bounded package > when the upgrade fails, package.json and the lockfile are restored and nothing is handed over"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded update from the registry: bounded and the hosts' adapters > refuses bounded and its host adapters left out of lockstep, or moved to an older version, restoring the lockfile",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: the one bounded package > refuses bounded moved to an older version, restoring the lockfile"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded update from the registry: bounded and the hosts' adapters > refuses a project that was never initialised, running nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: the one bounded package > refuses a project that was never initialised, running nothing"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > adds bounded and the detected host's adapter as devDependencies, overrides bounded, and hands over to the installed bounded",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > adds bounded alone as a devDependency, overrides it with its tarball, and hands over to the installed bounded with the host found"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs bounded and the host adapter",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs bounded alone"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > adds every detected host's adapter beside bounded: .claude/ and .pi/",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > hands over every host found: .claude/ and .pi/"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > --host names the hosts instead of detecting them, beside bounded",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > --host names the hosts instead of finding them, and they are handed over"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when no host is found and none is named, saying how to name one",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses when no host is found and none is named, saying how to name one"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a host name that is not one, and a host with no tarball",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses a host name that is not one, changing nothing"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a project that already has a configuration, changing nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses a project that already has a configuration, changing nothing"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory with no package.json, saying to create one",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: the one bounded tarball > refuses a directory with no package.json, saying to create one"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: the one bounded tarball > upgrades bounded alone, points its override at the new tarball, checks the version and hands over to the new bounded"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory that cannot be read",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses a directory that cannot be read"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when a package's tarball is missing, naming it, and changes nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses a directory without bounded's tarball, naming it, and changes nothing"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses two tarballs of one package, naming both",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses two tarballs of bounded, naming both"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the package manager fails, package.json is restored and the message says so",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: the one bounded tarball > when the package manager fails, package.json is restored and the message says so"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when the installed version is not the tarball's, restoring package.json",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: the one bounded tarball > refuses when the installed bounded is not its tarball's version, restoring package.json and the lockfile"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: the one bounded tarball > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+    "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > bounded's tarball carries the bundled CLI, dist/cli.js, which runs under bun",
+    "successor": {
+      "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+      "case": "npx bounded end to end, from the one bounded tarball, under node > bounded's tarball carries every entry the bin, the hooks and the pi loader run, and its bin runs under node"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+    "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > with bun: npx -p bounded's tarball bounded init --from adds bounded and the hosts' adapters and sets the repository up; npx bounded update --from upgrades and hands over to the new bounded; both are idempotent",
+    "successor": {
+      "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+      "case": "npx bounded end to end, from the one bounded tarball, under node > with bun: npx -p bounded's tarball bounded init --from sets a repository up for Claude Code and pi; npx bounded update --from upgrades and hands over; both are idempotent"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+    "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > under npm (skipped when npm is not installed): npx -p bounded's tarball bounded init --from, then npx bounded update --from to a later release",
+    "successor": {
+      "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+      "case": "npx bounded end to end, from the one bounded tarball, under node > under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the path gate judges with init's default rules and a project rule; then update --from"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "the published packages > the root workspace stays private",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > the root workspace and the apps stay private, at the lockstep version, and depend on no app"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "the published packages > `${name}` > has a publishable manifest: not private, the lockstep version, the repository's licence, its directory, a description, files, and bun as its engine",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > has a publishable manifest: not private, the version, the repository's licence and directory, a description, node as its engine, and its prepack build"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "the published packages > `${name}` > its tarball ships the sources and the licence, without tests, test support or fixtures, and holds every export path and bin target",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > its tarball holds every export target, the bin, the Claude Code hook and the licence, without tests, test support or fixtures"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "the published packages > bounded's tarball ships the exported installer conformance suite",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > its tarball holds every export target, the bin, the Claude Code hook and the licence, without tests, test support or fixtures"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "the published packages > packed, every workspace:* dependency becomes the released version",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "packaging.test.ts",
+    "case": "the published packages > the CLI is an app in source, private at the lockstep version, and ships as bounded's bin, built by bounded's prepack",
+    "successor": {
+      "file": "packaging.test.ts",
+      "case": "bounded, the one published package > has a publishable manifest: not private, the version, the repository's licence and directory, a description, node as its engine, and its prepack build"
+    },
+    "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   }
 ]

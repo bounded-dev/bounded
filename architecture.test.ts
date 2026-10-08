@@ -36,14 +36,36 @@ const IO_MODULES = /^(bun|bun:.*|node:.*|fs|path|child_process|net|os)$/;
 interface Context {
   readonly dir: string;
   readonly name: string;
+  /** Each export path's source: the file the rules read (a conditional export's `bun` or `types` target, the TypeScript source). */
   readonly exports: Record<string, string>;
+  /** Each export path's every target, every condition's: all must exist. */
+  readonly exportTargets: Record<string, readonly string[]>;
   readonly dependencies: readonly string[];
+}
+
+/**
+ * An export target as package.json gives it: a path, or conditions
+ * (`types` and `bun` name the TypeScript source, `default` its build for
+ * node, ADR 2026-016). The rules read the source.
+ */
+type ExportTarget = string | Record<string, string>;
+const sourceOf = (target: ExportTarget): string => (typeof target === "string" ? target : (target.bun ?? target.types ?? target.default ?? ""));
+const targetsOf = (target: ExportTarget): string[] => (typeof target === "string" ? [target] : Object.values(target));
+
+function contextOf(manifest: string, pkg: { name: string; exports?: Record<string, ExportTarget>; dependencies?: Record<string, string> }): Context {
+  const entries = Object.entries(pkg.exports ?? {});
+  return {
+    dir: manifest.replace("/package.json", ""),
+    name: pkg.name,
+    exports: Object.fromEntries(entries.map(([path, target]) => [path, sourceOf(target)])),
+    exportTargets: Object.fromEntries(entries.map(([path, target]) => [path, targetsOf(target)])),
+    dependencies: Object.keys(pkg.dependencies ?? {}),
+  };
 }
 
 const contexts: Context[] = [];
 for (const manifest of new Glob("contexts/*/package.json").scanSync({ cwd: ROOT })) {
-  const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name: string; exports?: Record<string, string>; dependencies?: Record<string, string> };
-  contexts.push({ dir: manifest.replace("/package.json", ""), name: pkg.name, exports: pkg.exports ?? {}, dependencies: Object.keys(pkg.dependencies ?? {}) });
+  contexts.push(contextOf(manifest, await Bun.file(`${ROOT}/${manifest}`).json()));
 }
 const byName = new Map(contexts.map((c) => [c.name, c]));
 
@@ -52,8 +74,7 @@ const byName = new Map(contexts.map((c) => [c.name, c]));
 // through its export paths and declared dependencies, and never another app.
 const apps: Context[] = [];
 for (const manifest of new Glob("apps/*/package.json").scanSync({ cwd: ROOT })) {
-  const pkg = (await Bun.file(`${ROOT}/${manifest}`).json()) as { name: string; exports?: Record<string, string>; dependencies?: Record<string, string> };
-  apps.push({ dir: manifest.replace("/package.json", ""), name: pkg.name, exports: pkg.exports ?? {}, dependencies: Object.keys(pkg.dependencies ?? {}) });
+  apps.push(contextOf(manifest, await Bun.file(`${ROOT}/${manifest}`).json()));
 }
 
 /** The layer a source path (relative to src/) belongs to. */
@@ -416,7 +437,7 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory", "./path-gate/adapters/tree-sitter", "./testing/host-installer-conformance"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory", "./path-gate/adapters/tree-sitter", "./testing/host-installer-conformance"]);
   });
 
   test("the pi host adapter is an app depending on the core", () => {
@@ -459,7 +480,7 @@ describe("architecture", () => {
 
   test("every export path points at a file that exists", async () => {
     for (const context of [...contexts, ...apps]) {
-      for (const target of Object.values(context.exports)) expect(await Bun.file(`${ROOT}/${context.dir}/${target}`).exists()).toBe(true);
+      for (const target of Object.values(context.exportTargets).flat()) expect(await Bun.file(`${ROOT}/${context.dir}/${target}`).exists()).toBe(true);
     }
   });
 

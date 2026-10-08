@@ -1,8 +1,10 @@
 // `bounded update --from <dir>`: each way the upgrade can be refused, and the
-// override following the upgrade. The packages are small stand-ins packed
+// override following the upgrade. Only bounded is upgraded: it carries the
+// CLI and the host adapters; a third-party host adapter package the project
+// also depends on is left as it is. The packages are small stand-ins packed
 // here, so bun installs them without the network.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBoundedCli } from "./bounded-cli.ts";
@@ -31,21 +33,14 @@ function pack(into: string, name: string, version: string, options: { bin?: bool
   return join(into, `${name}-${version}.tgz`);
 }
 
-/** A release in `into`: bounded, which carries the CLI's bin unless `cliBin` is false, and the fake host adapter. */
-function release(into: string, version: string, cliBin = true): { bounded: string } {
-  const bounded = pack(into, "bounded", version, { bin: cliBin });
-  pack(into, "fake-host", version);
-  return { bounded };
-}
-
 const release1 = join(scratch, "release-1");
-const { bounded: bounded1 } = release(release1, "1.0.0");
+const bounded1 = pack(release1, "bounded", "1.0.0", { bin: true });
+const fakeHost = pack(join(scratch, "third-party"), "fake-host", "1.0.0");
 
-/** An initialised project that installed release 1 with bun as devDependencies, overriding `bounded` with its tarball. */
+/** An initialised project that installed bounded 1.0.0 (overridden with its tarball) and a third-party host adapter, with bun, as devDependencies. */
 function project(): string {
   const root = mkdtempSync(join(scratch, "project-"));
-  const devDependencies = Object.fromEntries(["bounded", "fake-host"].map((name) => [name, join(release1, `${name}-1.0.0.tgz`)]));
-  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", private: true, overrides: { bounded: `file:${bounded1}` }, devDependencies }, null, 2));
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", private: true, overrides: { bounded: `file:${bounded1}` }, devDependencies: { bounded: bounded1, "fake-host": fakeHost } }, null, 2));
   writeFileSync(join(root, "bounded.config.ts"), "// mine\n");
   const ran = Bun.spawnSync(["bun", "install"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (ran.exitCode !== 0) throw new Error(ran.stderr.toString());
@@ -55,21 +50,21 @@ function project(): string {
 const manifestOf = (root: string): string => readFileSync(join(root, "package.json"), "utf8");
 const versionOf = (root: string, name: string): unknown => (JSON.parse(readFileSync(join(root, "node_modules", name, "package.json"), "utf8")) as { version: unknown }).version;
 
-describe("bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters", () => {
-  test("upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI", async () => {
+describe("bounded update --from <dir>: the one bounded tarball", () => {
+  test("upgrades bounded alone, points its override at the new tarball, checks the version and hands over to the new bounded", async () => {
     const root = project();
     const release2 = join(scratch, "release-2-ok");
-    const { bounded: bounded2 } = release(release2, "2.0.0");
+    const bounded2 = pack(release2, "bounded", "2.0.0", { bin: true });
     const ran = await runBoundedCli(["update", "--from", release2], root);
     expect(ran.stderr).toBe("");
     expect(ran.exitCode).toBe(0);
-    expect(ran.stdout).toContain("Upgraded bounded 2.0.0, fake-host 2.0.0 with bun");
+    expect(ran.stdout).toContain("Upgraded bounded 2.0.0 with bun");
     expect(ran.stdout).toContain("handed over to bounded 2.0.0: update --no-upgrade");
     expect(versionOf(root, "bounded")).toBe("2.0.0");
-    expect(existsSync(join(root, "node_modules", "bounded-cli"))).toBe(false);
-    expect(versionOf(root, "fake-host")).toBe("2.0.0");
+    expect(versionOf(root, "fake-host")).toBe("1.0.0");
     const manifest = JSON.parse(manifestOf(root)) as { overrides: { bounded: string }; devDependencies: Record<string, string>; dependencies?: unknown };
     expect(manifest.overrides.bounded).toBe(`file:${bounded2}`);
+    expect(manifest.devDependencies["fake-host"]).toBe(fakeHost);
     expect(Object.keys(manifest.devDependencies).sort()).toEqual(["bounded", "fake-host"]);
     expect(manifest.dependencies ?? {}).toEqual({});
     expect(readFileSync(join(root, "bounded.config.ts"), "utf8")).toBe("// mine\n");
@@ -82,22 +77,22 @@ describe("bounded update --from <dir>: tarballs of bounded, which carries the CL
     expect(ran.stderr).toContain("cannot be read");
   });
 
-  test("refuses when a package's tarball is missing, naming it, and changes nothing", async () => {
+  test("refuses a directory without bounded's tarball, naming it, and changes nothing", async () => {
     const root = project();
     const before = manifestOf(root);
     const dir = join(scratch, "release-missing");
-    pack(dir, "bounded", "2.0.0", { bin: true });
+    pack(dir, "fake-host", "2.0.0");
     const ran = await runBoundedCli(["update", "--from", dir], root);
     expect(ran.exitCode).toBe(1);
-    expect(ran.stderr).toContain("no fake-host-<version>.tgz");
+    expect(ran.stderr).toContain("no bounded-<version>.tgz");
     expect(manifestOf(root)).toBe(before);
   });
 
-  test("refuses two tarballs of one package, naming both", async () => {
+  test("refuses two tarballs of bounded, naming both", async () => {
     const root = project();
     const dir = join(scratch, "release-two");
-    release(dir, "2.0.0");
-    pack(dir, "bounded", "2.1.0");
+    pack(dir, "bounded", "2.0.0", { bin: true });
+    pack(dir, "bounded", "2.1.0", { bin: true });
     const ran = await runBoundedCli(["update", "--from", dir], root);
     expect(ran.exitCode).toBe(1);
     expect(ran.stderr).toContain("bounded-2.0.0.tgz, bounded-2.1.0.tgz");
@@ -108,7 +103,7 @@ describe("bounded update --from <dir>: tarballs of bounded, which carries the CL
     const before = manifestOf(root);
     const dir = join(scratch, "release-broken");
     mkdirSync(dir, { recursive: true });
-    for (const name of ["bounded", "fake-host"]) writeFileSync(join(dir, `${name}-2.0.0.tgz`), "not a tarball");
+    writeFileSync(join(dir, "bounded-2.0.0.tgz"), "not a tarball");
     const ran = await runBoundedCli(["update", "--from", dir], root);
     expect(ran.exitCode).toBe(1);
     expect(ran.stderr).toContain("bun install failed");
@@ -116,14 +111,13 @@ describe("bounded update --from <dir>: tarballs of bounded, which carries the CL
     expect(manifestOf(root)).toBe(before);
   });
 
-  test("refuses when the installed version is not the tarball's, restoring package.json", async () => {
+  test("refuses when the installed bounded is not its tarball's version, restoring package.json and the lockfile", async () => {
     const root = project();
     const before = manifestOf(root);
     const lockfileBefore = readFileSync(join(root, "bun.lock"), "utf8");
     const dir = join(scratch, "release-mislabelled");
     const packed = pack(dir, "bounded", "1.5.0", { bin: true });
     renameSync(packed, join(dir, "bounded-2.0.0.tgz"));
-    pack(dir, "fake-host", "2.0.0");
     const ran = await runBoundedCli(["update", "--from", dir], root);
     expect(ran.exitCode).toBe(1);
     expect(ran.stderr).toContain("bounded is version 1.5.0, not 2.0.0");
@@ -135,8 +129,9 @@ describe("bounded update --from <dir>: tarballs of bounded, which carries the CL
 
   test("when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks", async () => {
     const root = project();
-    release(join(scratch, "release-no-bin"), "2.0.0", false);
-    const ran = await runBoundedCli(["update", "--from", join(scratch, "release-no-bin")], root);
+    const dir = join(scratch, "release-no-bin");
+    pack(dir, "bounded", "2.0.0");
+    const ran = await runBoundedCli(["update", "--from", dir], root);
     expect(ran.exitCode).toBe(1);
     expect(ran.stdout).toContain("Upgraded bounded 2.0.0");
     expect(ran.stderr).toContain("bounded update --no-upgrade");

@@ -1,8 +1,8 @@
 // `bounded init` and `bounded update` from the npm registry, with a stub
 // command runner: the commands built for each package manager are checked,
 // and the stub plays the install by writing node_modules, so no test touches
-// the network. The CLI ships inside `bounded` (its bin, dist/cli.js), so the
-// packages are bounded and the hosts' adapters.
+// the network. One package is installed, `bounded`: it carries the CLI (its
+// bin, dist/cli.js) and the host adapters, bundled at pack time.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,13 +16,13 @@ type Manager = (typeof MANAGERS)[number];
 const LOCKFILE: Record<Manager, string> = { bun: "bun.lock", npm: "package-lock.json", pnpm: "pnpm-lock.yaml", yarn: "yarn.lock" };
 const BIN = "dist/cli.js";
 
-/** Writes an installed package into the project's node_modules: bounded with its bin, a host adapter with its installer export. */
+/** Writes an installed package into the project's node_modules: bounded with its bin, any other as a third-party host adapter. */
 function installed(root: string, name: string, version: string): void {
   const dir = join(root, "node_modules", name);
   mkdirSync(dir, { recursive: true });
   const manifest: Record<string, unknown> = { name, version };
   if (name === "bounded") manifest.bin = { bounded: BIN };
-  else manifest.exports = { "./host-installer": "./src/host-installer.ts" };
+  else manifest.exports = { "./host-installer": "./host-installer.js" };
   writeFileSync(join(dir, "package.json"), JSON.stringify(manifest));
 }
 
@@ -62,33 +62,37 @@ const installManifest = (root: string) => () => {
   for (const [name, spec] of Object.entries(manifest.devDependencies)) installed(root, name, spec);
 };
 
-describe("bounded init from the registry: bounded and the hosts' adapters", () => {
-  test("with each of bun, npm, pnpm and yarn: adds bounded and the host's adapter at exactly this CLI's version, with no override, installs, and hands over to the installed bounded", async () => {
+describe("bounded init from the registry: the one bounded package", () => {
+  test("with each of bun, npm, pnpm and yarn: adds bounded alone at exactly this CLI's version, with no override, installs, and hands over with the hosts found", async () => {
     for (const manager of MANAGERS) {
       const root = fresh(manager);
       const runner = stub(root, installManifest(root));
       const ran = await runBoundedCli(["init"], root, runner.run);
       expect(ran.stderr).toBe("");
       expect(ran.exitCode).toBe(0);
-      expect(runner.commands).toEqual([[manager, "install"], handOver(root, "init", "--no-install")]);
+      expect(runner.commands).toEqual([[manager, "install"], handOver(root, "init", "--no-install", "--host", "claude-code")]);
       const manifest = json<Record<string, unknown>>(join(root, "package.json"));
-      expect(manifest.devDependencies).toEqual({ bounded: OWN, "bounded-claude-code": OWN });
+      expect(manifest.devDependencies).toEqual({ bounded: OWN });
       expect(manifest.dependencies ?? {}).toEqual({});
       expect(manifest.overrides).toBeUndefined();
       expect(manifest.resolutions).toBeUndefined();
       expect(manifest.pnpm).toBeUndefined();
-      expect(ran.stdout).toContain("handed over: init --no-install");
-      expect(JSON.stringify(manifest)).not.toContain("bounded-cli");
+      expect(ran.stdout).toContain("handed over: init --no-install --host claude-code");
+      expect(JSON.stringify(manifest)).not.toMatch(/bounded-(cli|claude-code|pi)/);
     }
   });
 
-  test("adds every host found or named, beside bounded alone", async () => {
+  test("hands over every host found or named, installing bounded alone", async () => {
     const both = fresh("bun", [".claude", ".pi"]);
-    await runBoundedCli(["init"], both, stub(both, installManifest(both)).run);
-    expect(Object.keys(json<{ devDependencies: object }>(join(both, "package.json")).devDependencies).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-pi"]);
+    const bothRunner = stub(both, installManifest(both));
+    await runBoundedCli(["init"], both, bothRunner.run);
+    expect(bothRunner.commands[1]).toEqual(handOver(both, "init", "--no-install", "--host", "claude-code", "--host", "pi"));
+    expect(Object.keys(json<{ devDependencies: object }>(join(both, "package.json")).devDependencies)).toEqual(["bounded"]);
     const named = fresh("bun", []);
-    await runBoundedCli(["init", "--host", "pi"], named, stub(named, installManifest(named)).run);
-    expect(Object.keys(json<{ devDependencies: object }>(join(named, "package.json")).devDependencies).sort()).toEqual(["bounded", "bounded-pi"]);
+    const namedRunner = stub(named, installManifest(named));
+    await runBoundedCli(["init", "--host", "pi"], named, namedRunner.run);
+    expect(namedRunner.commands[1]).toEqual(handOver(named, "init", "--no-install", "--host", "pi"));
+    expect(Object.keys(json<{ devDependencies: object }>(join(named, "package.json")).devDependencies)).toEqual(["bounded"]);
   });
 
   test("when the install fails, package.json and the lockfile are restored and nothing is handed over", async () => {
@@ -108,9 +112,7 @@ describe("bounded init from the registry: bounded and the hosts' adapters", () =
   test("refuses an installed bounded that is not this CLI's version, restoring package.json", async () => {
     const root = fresh("bun");
     const before = readFileSync(join(root, "package.json"), "utf8");
-    const runner = stub(root, () => {
-      for (const name of ["bounded", "bounded-claude-code"]) installed(root, name, "2.0.2");
-    });
+    const runner = stub(root, () => installed(root, "bounded", "2.0.2"));
     const ran = await runBoundedCli(["init"], root, runner.run);
     expect(ran.exitCode).toBe(1);
     expect(ran.stderr).toContain(`is version 2.0.2, not ${OWN}`);
@@ -137,34 +139,33 @@ describe("bounded init from the registry: bounded and the hosts' adapters", () =
   });
 });
 
-/** An initialised project using `manager`, with bounded and bounded-claude-code installed at 3.0.0. */
+/** An initialised project using `manager`, with bounded installed at 3.0.0 (in devDependencies, or dependencies) and a third-party host adapter. */
 function initialised(manager: Manager, devDependencies = true): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), `bounded-registry-update-${manager}-`)));
-  const names = { bounded: "3.0.0", "bounded-claude-code": "3.0.0" };
-  const manifest = devDependencies ? { name: "demo", private: true, devDependencies: names } : { name: "demo", private: true, dependencies: { bounded: "3.0.0" }, devDependencies: { "bounded-claude-code": "3.0.0" } };
-  writeFileSync(join(root, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  const group = devDependencies ? "devDependencies" : "dependencies";
+  writeFileSync(join(root, "package.json"), `${JSON.stringify({ name: "demo", private: true, [group]: { bounded: "3.0.0", "third-party-host": "1.0.0" } }, null, 2)}\n`);
   writeFileSync(join(root, LOCKFILE[manager]), "lock before\n");
   writeFileSync(join(root, "bounded.config.ts"), "// mine\n");
-  for (const name of Object.keys(names)) installed(root, name, "3.0.0");
+  installed(root, "bounded", "3.0.0");
+  installed(root, "third-party-host", "1.0.0");
   return root;
 }
 
-/** The stub upgrade: bounded and bounded-claude-code to `versions` (one for all, or one each), and the lockfile rewritten. */
-const upgradeTo = (root: string, manager: Manager, versions: string | Record<string, string>) => () => {
-  for (const name of ["bounded", "bounded-claude-code"]) installed(root, name, typeof versions === "string" ? versions : (versions[name] ?? "3.0.0"));
+/** The stub upgrade: bounded to `version`, and the lockfile rewritten. */
+const upgradeTo = (root: string, manager: Manager, version: string) => () => {
+  installed(root, "bounded", version);
   writeFileSync(join(root, LOCKFILE[manager]), "lock after\n");
 };
 
-const LATEST = ["bounded@latest", "bounded-claude-code@latest"];
 const UPGRADE: Record<Manager, string[]> = {
-  bun: ["bun", "add", "--dev", ...LATEST],
-  npm: ["npm", "install", "--save-dev", ...LATEST],
-  pnpm: ["pnpm", "add", "--save-dev", ...LATEST],
-  yarn: ["yarn", "add", "--dev", ...LATEST],
+  bun: ["bun", "add", "--dev", "bounded@latest"],
+  npm: ["npm", "install", "--save-dev", "bounded@latest"],
+  pnpm: ["pnpm", "add", "--save-dev", "bounded@latest"],
+  yarn: ["yarn", "add", "--dev", "bounded@latest"],
 };
 
-describe("bounded update from the registry: bounded and the hosts' adapters", () => {
-  test("with each of bun, npm, pnpm and yarn: upgrades bounded and the host adapters present to their latest, checks them, and hands over", async () => {
+describe("bounded update from the registry: the one bounded package", () => {
+  test("with each of bun, npm, pnpm and yarn: upgrades bounded alone to its latest, leaving other packages, checks it, and hands over", async () => {
     for (const manager of MANAGERS) {
       const root = initialised(manager);
       const runner = stub(root, upgradeTo(root, manager, "3.1.0"));
@@ -178,14 +179,11 @@ describe("bounded update from the registry: bounded and the hosts' adapters", ()
     }
   });
 
-  test("upgrades dependencies and devDependencies each where they are", async () => {
+  test("upgrades bounded where the project lists it: in dependencies", async () => {
     const root = initialised("npm", false);
     const runner = stub(root, upgradeTo(root, "npm", "3.1.0"));
     expect((await runBoundedCli(["update"], root, runner.run)).exitCode).toBe(0);
-    expect(runner.commands.slice(0, 2)).toEqual([
-      ["npm", "install", "bounded@latest"],
-      ["npm", "install", "--save-dev", "bounded-claude-code@latest"],
-    ]);
+    expect(runner.commands[0]).toEqual(["npm", "install", "bounded@latest"]);
   });
 
   test("when the upgrade fails, package.json and the lockfile are restored and nothing is handed over", async () => {
@@ -200,16 +198,14 @@ describe("bounded update from the registry: bounded and the hosts' adapters", ()
     expect(runner.commands).toHaveLength(1);
   });
 
-  test("refuses bounded and its host adapters left out of lockstep, or moved to an older version, restoring the lockfile", async () => {
-    for (const versions of [{ bounded: "3.1.0", "bounded-claude-code": "3.0.5" }, "2.0.2"]) {
-      const root = initialised("yarn");
-      const runner = stub(root, upgradeTo(root, "yarn", versions));
-      const ran = await runBoundedCli(["update"], root, runner.run);
-      expect(ran.exitCode).toBe(1);
-      expect(ran.stderr).toMatch(/not all at one version|older than/);
-      expect(readFileSync(join(root, "yarn.lock"), "utf8")).toBe("lock before\n");
-      expect(runner.commands).toHaveLength(1);
-    }
+  test("refuses bounded moved to an older version, restoring the lockfile", async () => {
+    const root = initialised("yarn");
+    const runner = stub(root, upgradeTo(root, "yarn", "2.0.2"));
+    const ran = await runBoundedCli(["update"], root, runner.run);
+    expect(ran.exitCode).toBe(1);
+    expect(ran.stderr).toContain("older than 3.0.0");
+    expect(readFileSync(join(root, "yarn.lock"), "utf8")).toBe("lock before\n");
+    expect(runner.commands).toHaveLength(1);
   });
 
   test("refuses a project that was never initialised, running nothing", async () => {

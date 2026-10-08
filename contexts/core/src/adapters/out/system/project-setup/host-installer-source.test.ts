@@ -55,6 +55,29 @@ describe("NodeModulesHostInstallerSource", () => {
     expect(loaded.ok && loaded.value.map((installer) => installer.host)).toEqual(["a-host", "z-host"]);
   });
 
+  test("loads the installers a dependency bundles at ./hosts/<host>/host-installer, beside another package's ./host-installer, in package then export order", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-installers-")));
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", devDependencies: { bundle: "1", "third-party": "1" } }));
+    const installerFor = (host: string) => FAKE_INSTALLER.replace('host: "fake"', `host: "${host}"`);
+    installPackage(
+      root,
+      "bundle",
+      { "./domain": "./domain.js", "./hosts/zed/host-installer": "./zed.js", "./hosts/alpha/host-installer": "./alpha.js", "./hosts/alpha": "./alpha-extension.js" },
+      { "zed.js": installerFor("zed"), "alpha.js": installerFor("alpha") },
+    );
+    installPackage(root, "third-party", { "./host-installer": "./host-installer.js" }, { "host-installer.js": installerFor("third") });
+    const loaded = await new NodeModulesHostInstallerSource().load(root);
+    expect(loaded.ok && loaded.value.map((installer) => installer.host)).toEqual(["alpha", "zed", "third"]);
+  });
+
+  test("refuses a bundled installer export that is not an installer, naming the package and the export", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-installers-")));
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", dependencies: { bundle: "1" } }));
+    installPackage(root, "bundle", { "./hosts/zed/host-installer": "./zed.js" }, { "zed.js": "export const hostInstaller = 42;\n" });
+    const loaded = await new NodeModulesHostInstallerSource().load(root);
+    expect(!loaded.ok && loaded.error.includes("bundle") && loaded.error.includes("./hosts/zed/host-installer")).toBe(true);
+  });
+
   test("refuses a dependency that is declared but not installed, saying to install it", async () => {
     const root = project({ "fake-host": "1.0.0" });
     const loaded = await new NodeModulesHostInstallerSource().load(root);

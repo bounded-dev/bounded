@@ -6,11 +6,11 @@ import { hostInstallerConformance, snapshotFiles } from "bounded/testing/host-in
 import { hostInstaller } from "./host-installer.ts";
 import { HOOK_TIMEOUT_SECONDS, hookCommand, PROJECT_HOOK_COMMAND } from "./install.ts";
 
-/** A project with bounded-claude-code installed under its node_modules. */
+/** A project with bounded installed under its node_modules, its bundled Claude Code hook present. */
 function project(): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-claude-conformance-")));
-  mkdirSync(join(root, "node_modules", "bounded-claude-code", "src"), { recursive: true });
-  writeFileSync(join(root, "node_modules", "bounded-claude-code", "src", "main.ts"), "// stand-in\n");
+  mkdirSync(join(root, "node_modules", "bounded", "dist", "hosts", "claude-code"), { recursive: true });
+  writeFileSync(join(root, "node_modules", "bounded", "dist", "hosts", "claude-code", "hook.js"), "// stand-in\n");
   return root;
 }
 
@@ -21,6 +21,7 @@ hostInstallerConformance("the Claude Code host installer", hostInstaller, async 
   return { root, snapshot: () => snapshotFiles(root) };
 });
 
+/** Where an earlier install's hook lived: the separate bounded-claude-code package's main.ts. */
 const mainOf = (root: string): string => join(root, "node_modules", "bounded-claude-code", "src", "main.ts");
 const wrapped = (command: string): string => `{\n${command}\n} || { echo "bounded hook failed" >&2; exit 2; }`;
 const settingsOf = (root: string): { hooks: Record<string, { hooks: { command: string }[] }[]> } => JSON.parse(readFileSync(join(root, ".claude", "settings.json"), "utf8"));
@@ -39,6 +40,17 @@ describe("the Claude Code host installer, in a project that moved or shares its 
       expect(entries[0]?.hooks[0]?.command).toBe(wrapped(PROJECT_HOOK_COMMAND));
     }
     expect(JSON.stringify(settingsOf(b))).not.toContain(a);
+  });
+
+  test("the hook of the separate bounded-claude-code package, run through $CLAUDE_PROJECT_DIR, is replaced by bounded's bundled one", async () => {
+    const root = project();
+    const earlier = { type: "command", command: wrapped('bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"'), timeout: HOOK_TIMEOUT_SECONDS };
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "", hooks: [earlier] }], PostToolUse: [{ matcher: "", hooks: [earlier] }] } }));
+    expect(await hostInstaller.install(root)).toEqual({ ok: true, value: { host: "claude-code", changedPaths: [".claude/settings.json"], skippedBecause: null } });
+    for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure"]) {
+      expect((settingsOf(root).hooks[event] ?? []).map((entry) => entry.hooks.map((hook) => hook.command))).toEqual([[wrapped(PROJECT_HOOK_COMMAND)]]);
+    }
   });
 
   test("an older install's absolute-path hook is replaced by the project-relative one", async () => {
