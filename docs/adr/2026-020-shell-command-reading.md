@@ -43,8 +43,13 @@ names no tool or language (AGENTS.md). It can own the shape.
     text, `eval`'s words, `env -S`'s trailing words, a nested shell's code
     that is not literal, and inline code for another language: `python -c`,
     `node -e`/`--eval`/`-p`/`--print`, `perl -e`/`-E`, `ruby -e`, awk's
-    program without `-f`). xargs's command gets one more unresolved
-    argument, `(input)`. Nothing is guessed (AGENTS.md).
+    program without `-f`; short options cluster as getopt reads them, as in
+    `perl -ne` or `python3 -Bc`). Without a replace string, xargs's command
+    gets one more unresolved argument, `(input)`, reported as an unresolved
+    part with each role it could have; it is never an operand, so the
+    command's literal words (a `cp` destination) are judged as written. With
+    one (`-I`, `-i`, `--replace`, BSD `-J`) the input is substituted in
+    place. Nothing is guessed (AGENTS.md).
 - **Why a field, not more effects of the tool use.** ADR 2026-006's effects
   are what the call does, as the host describes it; a command's files are
   bounded's best-effort reading of one execute, with unknown existence and
@@ -71,6 +76,10 @@ names no tool or language (AGENTS.md). It can own the shape.
   `ShellCommandReading.parse`, and rejects when it cannot read. The event is
   rebuilt through `ToolUse.parse`; **a reading the host sent is replaced,
   never trusted**. A handler refusing every event reads nothing.
+  `dispatchEvent` (and `decideEvent`) trust whatever reading an execute
+  carries: only the judge replaces it, so hosts must judge through the
+  judge-event feature (`openProject`'s judge), never dispatch a host's event
+  themselves.
 - **`readWithinMs` (2000 by default) bounds reading the whole event**: every
   execute of a call is read at once, and each still unread at the bound is
   unread, timed out. A synchronous throw from `read` or `prepare` is handled

@@ -194,6 +194,16 @@ describe("read by bounded's shell command reader — the path gate — what each
     expect((await shell("find . -name x -exec cat .env {} \\;")).kind).toBe("refuse");
   });
 
+  test("xargs's input never takes a literal destination out of judgement", async () => {
+    const generated = rules("a", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
+    const hooks = rules("b", { match: ".git/hooks/**", deny: ["create", "modify", "delete"], redirect: "Ask a person to add or change git hooks" });
+    const shell = await shellWith([generated, hooks], { src: "directory", "src/a.ts": "file", generated: "directory", ".git": "directory", ".git/hooks": "directory" });
+    for (const command of ["ls src | xargs -I % cp % generated/a.ts", "ls | xargs -I % cp % .git/hooks/pre-commit", "echo x | xargs cp src/a.ts generated/a.ts"]) {
+      expect([command, (await shell(command)).kind]).toEqual([command, "refuse"]);
+    }
+    expect(reason(await shell("ls | xargs -I{} mv {} .git/hooks/pre-commit"))).toContain("this command writes '.git/hooks/pre-commit'");
+  });
+
   test("builtin, command and exec are looked past; an unknown command's arguments are reads", async () => {
     const shell = await shellWith([env]);
     expect((await shell("exec cat .env")).kind).toBe("refuse");

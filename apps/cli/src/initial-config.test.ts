@@ -113,6 +113,16 @@ describe("bounded init's configuration", () => {
     expect((await shell("echo x > notes.txt")).kind).toBe("allow");
   });
 
+  test("a copy through xargs into git's hooks is refused by the git rule: its input never takes the literal destination out of judgement", async () => {
+    const { judge } = await openProject(project(), { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    let calls = 0;
+    const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: `call-${++calls}` });
+    for (const command of ["ls | xargs -I % cp % .git/hooks/pre-commit", "ls | xargs -I{} cp {} .git/hooks/pre-commit", "echo x | xargs cp notes.txt .git/hooks/pre-commit"]) {
+      const verdict = await shell(command);
+      expect([command, verdict.kind === "refuse" ? verdict.reason : "allowed"]).toEqual([command, expect.stringContaining("the rule '.git/hooks/**' from bounded/project")]);
+    }
+  });
+
   test("a known way round the git rules, pinned so it stays documented: the path gate sees `git config core.hooksPath …` as reads, and allows it", async () => {
     expect(INITIAL_CONFIG).not.toContain("git -c");
     const { judge } = await openProject(project(), { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });

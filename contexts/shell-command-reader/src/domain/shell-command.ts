@@ -1,5 +1,5 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning } from "./command-meanings.ts";
+import { commandMeaning, XARGS_INPUT } from "./command-meanings.ts";
 import type { MeaningChange } from "./command-meanings.contract.ts";
 import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord } from "./shell-command.contract.ts";
 
@@ -21,6 +21,28 @@ interface Scope {
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
+
+/**
+ * The roles xargs's input would have for the command `name` run with `args`
+ * and then the input: where the table puts the input word, followed into a
+ * command the command runs. Only a report: the input is never judged.
+ */
+function inputRoles(name: ShellWord, args: readonly ShellWord[], depth = 0): UnresolvedWord["role"][] {
+  if (name.kind !== "literal" || depth > 8) return ["code"];
+  const meaning = commandMeaning(name.text, [...args, XARGS_INPUT]);
+  const has = (words: readonly ShellWord[]): boolean => words.includes(XARGS_INPUT);
+  const roles: UnresolvedWord["role"][] = [];
+  if (has(meaning.reads) || has(meaning.repositoryReads) || meaning.transfers.some((transfer) => has(transfer.sources))) roles.push("read");
+  if (has(meaning.lists)) roles.push("list");
+  if (has(meaning.writes.map(({ word }) => word)) || meaning.transfers.some((transfer) => transfer.destination === XARGS_INPUT)) roles.push("write");
+  if (meaning.location?.to === XARGS_INPUT) roles.push("directory");
+  if (has(meaning.scripts) || has(meaning.unresolved)) roles.push("code");
+  for (const ran of meaning.runs) {
+    if (ran.name === XARGS_INPUT) roles.push("code");
+    else if (has(ran.args)) roles.push(...inputRoles(ran.name, ran.args.filter((word) => word !== XARGS_INPUT), depth + 1));
+  }
+  return [...new Set(roles)];
+}
 
 /** Where a scope runs, as a project path ("." for the root), or null when it cannot be known. */
 function directoryOf(scope: Scope): ProjectPath | null {
@@ -94,9 +116,17 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
   };
 
-  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, standIn = false): void => {
+  /**
+   * A simple command: a program (unless the parser's stand-in), then what it
+   * does with its literal words. With `input` (xargs without a replace
+   * string), more arguments come from its input: they are the program's
+   * last argument and an unresolved part with each role they could have,
+   * never an operand, so the literal words are judged as written.
+   */
+  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean } = {}): void => {
     if (name === null) return;
-    if (!standIn) programs.push({ name, arguments: args, workingDirectory: directoryOf(scope) });
+    if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
+    if (how.input === true) for (const role of inputRoles(name, args)) unresolved.push({ text: XARGS_INPUT.text, role });
     const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args);
     for (const word of meaning.reads) {
       const path = resolve(word, scope, "read");
@@ -143,11 +173,11 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
     for (const ran of meaning.runs) {
-      if (ran.directory === undefined) command(ran.name, ran.args, scope);
+      if (ran.directory === undefined) command(ran.name, ran.args, scope, { input: ran.input === true });
       else {
         // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.
         const from = ran.directory === null ? undefined : resolve(ran.directory, scope, "directory");
-        command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) });
+        command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) }, { input: ran.input === true });
       }
     }
     if (meaning.location !== undefined) {
@@ -160,7 +190,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     switch (node.kind) {
       case "command": {
         for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, scope);
-        command(node.name, node.args, scope, node.standIn === true);
+        command(node.name, node.args, scope, { standIn: node.standIn === true });
         for (const each of node.redirects) redirect(each, scope);
         return;
       }

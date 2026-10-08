@@ -64,6 +64,37 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect((await read("awk -f prog.awk data.csv")).fileEffects).toEqual([{ effect: { kind: "read", path: "prog.awk" } }, { effect: { kind: "read", path: "data.csv" } }]);
   });
 
+  test("inline code given in a cluster of short options is unresolved code too, as getopt reads the cluster", async () => {
+    const cases: readonly (readonly [string, string])[] = [
+      ["perl -ne 'print if /x/' data.csv", "print if /x/"],
+      ["perl -pe 's/a/b/' data.csv", "s/a/b/"],
+      ["perl -lne 'print' data.csv", "print"],
+      ["perl -pi -e 's/a/b/' data.csv", "s/a/b/"],
+      ["node -pe 'process.version'", "process.version"],
+      ["ruby -ne 'puts $_' data.csv", "puts $_"],
+      ["python3 -Bc 'print(1)' data.csv", "print(1)"],
+      ["python3 -c'print(1)'", "print(1)"],
+    ];
+    for (const [command, code] of cases) {
+      const reading = await read(command);
+      expect({ command, unresolved: reading.unresolved }).toEqual({ command, unresolved: expect.arrayContaining([{ text: code, role: "code" }]) });
+    }
+    // A letter that takes a value ends the cluster: perl's -M takes the rest of its word, here a module.
+    expect((await read("perl -Mfeature=say data.csv")).unresolved).toEqual([]);
+  });
+
+  test("xargs's input is never an operand: with a replace string it is substituted in place, else it is an unresolved part with its role", async () => {
+    const replaced = await read("ls | xargs -I % cp % out/a.txt");
+    expect(replaced.programs.at(-1)?.arguments).toEqual([{ kind: "literal", text: "%" }, { kind: "literal", text: "out/a.txt" }]);
+    expect(replaced.fileEffects).toContainEqual({ effect: { kind: "write", path: "out/a.txt", change: "create" } });
+    expect(replaced.unresolved.filter((part) => part.text === "(input)")).toEqual([]);
+    const appended = await read("ls | xargs cp a.txt out/a.txt");
+    expect(appended.fileEffects).toContainEqual({ effect: { kind: "write", path: "out/a.txt", change: "create" } });
+    expect(appended.unresolved).toContainEqual({ text: "(input)", role: "write" });
+    expect((await read("ls | xargs rm")).unresolved).toEqual([{ text: "(input)", role: "write" }]);
+    expect((await read("ls | xargs grep -i x")).programs.at(-1)?.arguments.at(-1)).toEqual({ kind: "unresolved", text: "(input)" });
+  });
+
   test("xargs's command gets an unresolved argument for its input", async () => {
     const reading = await read("xargs tool-a -v");
     expect(reading.programs.at(-1)).toEqual({ name: { kind: "literal", text: "tool-a" }, arguments: [{ kind: "literal", text: "-v" }, { kind: "unresolved", text: "(input)" }], workingDirectory: "." });

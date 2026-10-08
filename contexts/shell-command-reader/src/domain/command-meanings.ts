@@ -250,31 +250,58 @@ function xargs(args: readonly ShellWord[]): CommandMeaning {
     if (text === "-a" && args[index + 1] !== undefined) fromFile.push(args[index + 1] as ShellWord);
     else if (value !== undefined) fromFile.push(literalWord(value));
   }
-  const ran = runs(args, ["-I", "-L", "-l", "-n", "-P", "-d", "-E", "-e", "-s", "-a"]);
-  // The rest of its command's arguments come from its input, which only the run can tell.
-  return meaning({ ...ran, runs: ran.runs.map((run) => ({ ...run, args: [...run.args, INPUT] })), reads: fromFile });
+  const withValues = ["-I", "-J", "-L", "-l", "-n", "-P", "-d", "-E", "-e", "-s", "-a"];
+  const ran = runs(args, withValues);
+  // With a replace string (-I, -i, --replace, BSD -J) the input is substituted in place, among the literal words; without one, more
+  // arguments come after them from its input, which only the run can tell. Either way the literal words are judged as written.
+  let replaces = false;
+  for (let index = 0; index < args.length; index++) {
+    const text = literal(args[index]);
+    if (text === "--" || !isOption(args[index] as ShellWord)) break;
+    if (text === undefined) break;
+    if (text === "--replace" || text.startsWith("--replace=") || /^-[IJi]/.test(text)) replaces = true;
+    if (withValues.includes(text)) index++;
+  }
+  return meaning({ ...ran, runs: replaces ? ran.runs : ran.runs.map((run) => ({ ...run, input: true as const })), reads: fromFile });
 }
 
 /** The arguments xargs reads from its input, as one word only the run can resolve. */
-const INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(input)", commands: Object.freeze([]) });
+export const XARGS_INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(input)", commands: Object.freeze([]) });
 
 /**
- * A program given code inline with one of `options` (python -c, node -e):
- * what it reads is taken as an unknown command's is, and the code, another
- * language's, is unresolved: only the program can say what it does.
+ * A program given code inline (python -c, node -e, perl -ne): what it reads
+ * is taken as an unknown command's is, and the code, another language's, is
+ * unresolved: only the program can say what it does. Short options cluster
+ * as getopt reads them (-Bc, -lne, -pe): a letter in `codeLetters` takes the
+ * rest of its word, or the next word when it ends it; a letter in
+ * `valueLetters` takes the rest of its word as its value, so the cluster
+ * ends there. A long option in `codeOptions` takes `=code` or the next word.
+ * Without `codeAttached` (node), a code letter takes only the next word, and
+ * only when it ends its cluster (-pe: -p, then -e and its code).
  */
-function inlineCode(options: readonly string[]) {
+function inlineCode(codeLetters: string, valueLetters: string, codeOptions: readonly string[] = [], codeAttached = true) {
   return (args: readonly ShellWord[]): CommandMeaning => {
     const code: ShellWord[] = [];
     for (let index = 0; index < args.length; index++) {
       const text = literal(args[index]);
       if (text === "--") break;
-      if (text === undefined || !text.startsWith("-")) continue;
-      const option = options.find((each) => text === each || attached(text, each) !== undefined);
-      if (option === undefined) continue;
-      const value = attached(text, option);
-      const word = value === undefined ? args[++index] : literalWord(value);
-      if (word !== undefined) code.push(word);
+      if (text === undefined || !text.startsWith("-") || text === "-") continue;
+      if (text.startsWith("--")) {
+        const option = codeOptions.find((each) => text === each || text.startsWith(`${each}=`));
+        const word = option === undefined ? undefined : text === option ? args[++index] : literalWord(text.slice(option.length + 1));
+        if (word !== undefined) code.push(word);
+        continue;
+      }
+      for (let at = 1; at < text.length; at++) {
+        const letter = text.charAt(at);
+        if (codeLetters.includes(letter) && (codeAttached || at === text.length - 1)) {
+          const rest = text.slice(at + 1);
+          const word = rest === "" ? args[++index] : literalWord(rest);
+          if (word !== undefined) code.push(word);
+          break;
+        }
+        if (valueLetters.includes(letter)) break;
+      }
     }
     return meaning({ reads: readsOf(args), unresolved: code });
   };
@@ -341,11 +368,11 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   command: (args) => (args.some((word) => ["-v", "-V"].includes(literal(word) ?? "")) ? NONE : runs(args)),
   xargs,
   eval: (args) => meaning({ unresolved: args }),
-  python: inlineCode(["-c"]),
-  python3: inlineCode(["-c"]),
-  node: inlineCode(["-e", "--eval", "-p", "--print"]),
-  perl: inlineCode(["-e", "-E"]),
-  ruby: inlineCode(["-e"]),
+  python: inlineCode("c", "WXQm"),
+  python3: inlineCode("c", "WXQm"),
+  node: inlineCode("ep", "rC", ["--eval", "--print"], false),
+  perl: inlineCode("eE", "MmIxCi"),
+  ruby: inlineCode("e", "rIECFKxTWi"),
   awk,
   gawk: awk,
   mawk: awk,

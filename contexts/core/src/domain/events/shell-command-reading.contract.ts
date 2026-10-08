@@ -25,7 +25,6 @@ export interface ShellProgramRun {
   readonly workingDirectory: ProjectPath | null;
 }
 
-
 /**
  * A file the command reads, lists or writes. `existenceUnknown` marks a
  * create or a modify of a path whose existence could not be told, so it is

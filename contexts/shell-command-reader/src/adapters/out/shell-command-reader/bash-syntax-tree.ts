@@ -140,7 +140,7 @@ function command(node: Node, redirects: readonly ShellRedirect[] = []): ShellNod
 /** A builtin whose words are text, not paths (a test, a declaration): the program runs, and only the commands substituted in it run besides. */
 const textOnly = (node: Node, name: string): ShellNode => ({ kind: "command", name: { kind: "literal", text: name }, args: [], redirects: [], assignments: [unresolved(node)] });
 /** Text the shell does not run as a command (a loop's values, an assignment): a stand-in, no program; only the commands substituted in it run. */
-const standIn =(node: Node): ShellNode => ({ kind: "command", name: { kind: "literal", text: "true" }, args: [], redirects: [], assignments: [unresolved(node)], standIn: true });
+const standIn = (node: Node): ShellNode => ({ kind: "command", name: { kind: "literal", text: "true" }, args: [], redirects: [], assignments: [unresolved(node)], standIn: true });
 
 /** The statements inside `node`, in order; a statement followed by '&' runs in the background, in a subshell. */
 function statements(node: Node): ShellNode[] {

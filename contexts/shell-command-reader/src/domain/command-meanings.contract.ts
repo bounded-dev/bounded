@@ -19,7 +19,18 @@ export interface CommandMeaning {
    * xargs, find -exec, sudo, env …), from `directory` when it sets one
    * (env -C, sudo -D, git -C): null when that directory cannot be known.
    */
-  readonly runs: readonly { readonly name: ShellWord; readonly args: readonly ShellWord[]; readonly directory?: ShellWord | null }[];
+  readonly runs: readonly {
+    readonly name: ShellWord;
+    readonly args: readonly ShellWord[];
+    readonly directory?: ShellWord | null;
+    /**
+     * xargs without a replace string: more arguments come after `args` from
+     * its input. They are never operands of the command (so a literal
+     * destination is still judged), only a program argument and an
+     * unresolved part.
+     */
+    readonly input?: true;
+  }[];
   /** Code a nested shell runs (sh -c '…'), parsed and walked in a shell of its own. */
   readonly scripts: readonly ShellWord[];
   /** Operands naming a path in the repository as <rev>:<path>: the path is read, relative to the repository's root, or to where the command runs when it starts with ./ or ../. */

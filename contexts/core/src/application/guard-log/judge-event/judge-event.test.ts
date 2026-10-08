@@ -389,6 +389,21 @@ describe("JudgeEventHandler — reading shell commands", () => {
     expect(seen).toEqual([reading("tool-a")]);
   });
 
+  test("a handler refusing everything reads no command", async () => {
+    let reads = 0;
+    const reader: ShellCommandReader = {
+      prepare: async () => {},
+      read: () => {
+        reads++;
+        throw new Error("read must not be called");
+      },
+    };
+    const refusal = Verdict.refuse("The configuration cannot be loaded: broken", "Fix bounded.config.ts");
+    const verdict = await new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: reader, projectRoot: ROOT, refuseEverything: refusal }).judge(shell([{ kind: "execute", command: "ls" }]));
+    expect<unknown>(verdict).toEqual({ kind: "refuse", reason: "The configuration cannot be loaded: broken", redirect: "Fix bounded.config.ts" });
+    expect(reads).toBe(0);
+  });
+
   test("a reader without the project's root is refused when the handler is made", () => {
     expect(() => new JudgeEventHandler(showing, new FakeLog(), clock, { shellCommandReader: answering(async () => reading("tool-a")) })).toThrow(new RangeError("a shell command reader needs the project's root"));
   });
