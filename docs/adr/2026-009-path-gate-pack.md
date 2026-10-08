@@ -61,29 +61,40 @@
   a directory: `packages/db/**` refuses deleting `packages`, and deleting `.`
   is always refused, but `**`-led rules do not refuse every delete. Fetch,
   delegate and invoke are not judged by path.
-- **Shell commands, best effort.** A shell command's paths cannot really be
-  read from its text, but plain mentions can: an `execute` effect is refused
-  when a word of its command names a path a rule denies `read` for (`cat
-  ./.env`, `grep KEY .env`, `cat < .env`, `$(cat .env)`, `--env-file=.env`,
-  `cd sub && cat ../.env`), each word resolved from the effect's `cwd` and
-  any `cd` before it; the refusal says shell reads of protected files are
-  refused, with the rule's redirect. The words come from a shell parser, not
-  hand-written tokenising: **shell-quote**, pinned at 1.12.0, inside the
-  path gate pack (the core's domain names no parser). Chosen over the
-  candidates because guards are synchronous and must run under Bun and node
-  (pi) with no native addon or network: shell-quote is a small, synchronous,
-  dependency-free tokeniser, widely used and maintained, that yields words,
-  operators (including redirections), globs and comments; `mvdan-sh` is
-  deprecated in favour of `sh-syntax`, which, like `web-tree-sitter` with
-  `tree-sitter-bash`, needs an asynchronous WebAssembly load (and
-  `tree-sitter-bash` ships a native addon); `bash-parser` has not been
-  released since 2022. A command the parser cannot read (such as an
-  unterminated `${`) is refused only when its text contains the literal name
-  a read rule ends in, and allowed otherwise. Out of reach, by design: globs,
-  variables, the output of command substitution, `~` and absolute paths,
-  and every file a program or script opens by itself. Confining commands at
-  the operating-system level is the real control (planned); drift (ADR
-  2026-011) undoes what a command changes in protected files.
+- **Shell commands: translated, then judged as file tools are.** The path
+  gate's execute guard decides nothing itself. A **parser port**
+  (`ShellParser`, `shell-command.contract.ts`) gives a command's tokens:
+  words with quotes removed, operators, and globs as unresolved. A **pure
+  translation** (`describeShellCommand`, `shell-command.ts`) turns them, with
+  the effect's `cwd` and any `cd` before them, into
+  `{ reads, writes, unresolved }`: a command's arguments (not its name),
+  option values (`--env-file=.env`) and assignment values are reads of the
+  paths they name, a `<` source is a read, a `>` or `>>` target a write
+  (`create-or-modify`, as which it is cannot be known before it runs). Each
+  read and write is then judged by the same functions as the read and write
+  guards (`readDenial`, `writeDenial`), so rules, `except`, file rules, case
+  and messages are identical; the refusal reads "this command reads '.env'
+  — <the read guard's refusal>" with the rule's redirect, and a
+  redirection's write is judged as a create and as a modify.
+  **Unresolved is never guessed at**: globs, variables, `~`, absolute paths,
+  paths leaving the project, the output of command substitution, scripts
+  and every file a program opens by itself are out of reach for a static
+  check, and allowed, as is a command the parser cannot read. Confining
+  commands at the operating-system level is the real control (planned); the
+  drift check (ADR 2026-011) still undoes writes to watched files afterwards.
+  **Placement:** the translation is domain-pure and the parser sits behind
+  its port, both inside the path gate pack (the core names no parser), so
+  the planned restructure can give the path gate its own hexagon with the
+  translation in its domain and the parser as an adapter.
+  **The parser:** shell-quote, pinned at 1.12.0, the port's one adapter
+  (`shell-parser.shell-quote.ts`). Guards are synchronous and must run under
+  Bun and node (pi) with no native addon or network: shell-quote is a small,
+  synchronous, dependency-free tokeniser, widely used and maintained, that
+  yields words, operators (including redirections), globs and comments.
+  `mvdan-sh` is deprecated in favour of `sh-syntax`, which, like
+  `web-tree-sitter` with `tree-sitter-bash`, needs an asynchronous
+  WebAssembly load (and `tree-sitter-bash` ships a native addon);
+  `bash-parser` has not been released since 2022.
 - **Provenance and redirects.** A refusal names the path (via dispatch's
   prefix), the rule's `match`, the pack that contributed the rule (from the
   composition's entries) and the rule's `why`. The redirect is the rule's;

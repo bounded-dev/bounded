@@ -35,10 +35,47 @@ describe("the path gate — shell commands that name read-protected paths (best 
     expect(shell("cat .env", "sub")).toBe(Verdict.allow);
   });
 
-  test("the refusal says shell reads of protected files are refused, naming the rule and the path", () => {
-    expect(reason(shell("cat ./.env"))).toBe(
-      "bounded/path-gate refused execute `cat ./.env`: the rule '.env' from test-packs/a denies read, and this shell command names '.env': shell reads of protected files are refused",
-    );
+  test("the refusal says what the command reads, then gives the rule's own refusal and redirect", () => {
+    expect(shell("cat ./.env")).toMatchObject({
+      kind: "refuse",
+      reason: "bounded/path-gate refused execute `cat ./.env`: this command reads '.env' — the rule '.env' from test-packs/a denies read of '.env'",
+      redirect: "Ask a maintainer for the value",
+    });
+  });
+
+  test("a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case", () => {
+    const fixtures = [
+      rules("a", { match: "secrets/**", except: ["secrets/README.md"], deny: ["read"], redirect: "Ask the owner", why: "credentials" }),
+      rules("a", { match: "**/.env", deny: ["read"], redirect: "Ask a maintainer" }),
+      rules("a", { match: "config", deny: ["read"], redirect: "Use the defaults" }),
+      env,
+    ];
+    const paths = ["secrets/key.pem", "secrets/README.md", "SECRETS/key.pem", "api/.env", ".env", ".ENV", "config/app.json", "configs/app.json", ".envrc"];
+    for (const pack of fixtures) {
+      for (const path of paths) {
+        const asFile = decide([pack], [{ kind: "read", path }], "read");
+        const asShell = decide([pack], [{ kind: "execute", command: `cat ${path}`, cwd: null }], "shell");
+        expect(asShell.kind).toBe(asFile.kind);
+        if (asFile.kind === "refuse" && asShell.kind === "refuse") {
+          expect(asShell.redirect).toBe(asFile.redirect);
+          expect(asShell.reason.endsWith(asFile.reason.slice(asFile.reason.indexOf(": ") + 2))).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("a redirect target is a write, judged as a file write; a redirect source is a read", () => {
+    const generated = rules("a", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
+    const run = (command: string) => decide([generated], [{ kind: "execute", command, cwd: null }], "shell");
+    expect(run("echo x > generated/a.ts")).toMatchObject({ kind: "refuse", redirect: "Change the generator's input" });
+    expect(reason(run("echo x >> generated/a.ts"))).toStartWith("bounded/path-gate refused execute `echo x >> generated/a.ts`: this command writes 'generated/a.ts' — the rule 'generated/**' from test-packs/a denies ");
+    expect(run("cat generated/a.ts > out.txt")).toBe(Verdict.allow);
+    expect(shell("sort < .env").kind).toBe("refuse");
+    expect(shell("echo x 2>&1")).toBe(Verdict.allow);
+  });
+
+  test("what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed", () => {
+    for (const command of ["cat *.env", "cat $ENV_FILE", "cat $" + "{DIR}/.env", "cat ~/.env", "cat /etc/.env", "cat `echo .env`"]) expect(shell(command)).toBe(Verdict.allow);
   });
 
   test("a name that only resembles the protected one is not refused", () => {
@@ -57,8 +94,8 @@ describe("the path gate — shell commands that name read-protected paths (best 
     expect(shell("echo done # not cat .env")).toBe(Verdict.allow);
   });
 
-  test("a command the parser cannot read is refused only when its text names a read-protected file", () => {
-    expect(shell("cat .env ${").kind).toBe("refuse");
+  test("a command the parser cannot read is left unresolved, and allowed", () => {
+    expect(shell("cat .env ${")).toBe(Verdict.allow);
     expect(shell("ls ${")).toBe(Verdict.allow);
   });
 

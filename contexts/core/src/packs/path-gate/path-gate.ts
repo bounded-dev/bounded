@@ -16,7 +16,8 @@ import {
 } from "bounded/domain";
 import { contains, filterable, matches, reaches, unavoidable } from "./matching.ts";
 import { ProtectedPath, WRITES } from "./protected-path.ts";
-import { namedPaths } from "./shell-paths.ts";
+import { describeShellCommand } from "./shell-command.ts";
+import { shellQuoteParser } from "./shell-parser.shell-quote.ts";
 
 /**
  * The path gate's own rules: an agent can never edit its own guardrails.
@@ -77,6 +78,26 @@ function elsewhere(verb: "List" | "Search", rule: ProtectedPath, root: string): 
   return `${verb} a root outside '${rule.match}'${filter} — ${rule.redirect}`;
 }
 
+/** Why `rule` denies reading the file `path`, or undefined: what every read, from a file tool or a shell command, is judged by. */
+function readDenial(rule: ProtectedPath, path: string): Denial {
+  return rule.deny.includes("read") && matches(rule, path) ? { what: `denies read of '${path}'` } : undefined;
+}
+
+/**
+ * Why `rule` denies this change of `path`, or undefined: what every write,
+ * from a file tool or a shell command, is judged by. Deleting a directory
+ * deletes everything under it, so a delete is also refused when the path
+ * could hold a path a rule denies delete for (see `contains`); deleting '.'
+ * always is, since the path gate's own rules cover '.bounded/**' in every
+ * project.
+ */
+function writeDenial(rule: ProtectedPath, path: string, change: WriteEffect["change"]): Denial {
+  if (!rule.deny.includes(change)) return undefined;
+  if (matches(rule, path)) return { what: `denies ${change} of '${path}'` };
+  if (change === "delete" && contains(rule, path)) return { what: `denies delete, and deleting '${path}' could delete a path it matches` };
+  return undefined;
+}
+
 /**
  * A read of a file is judged by the file. A read over a root the same call
  * also lists is the read half of a content search (ADR 2026-006): it could
@@ -86,8 +107,8 @@ const onRead: EffectGuard<ReadEffect, Composition> = (effect, composition, call)
   const path = effect.path.toLowerCase();
   const searches = call.effects.filter((other): other is ListEffect => other.kind === "list" && other.root.toLowerCase() === path);
   return firstDenial(composition, (rule) => {
-    if (!rule.deny.includes("read")) return undefined;
-    if (matches(rule, effect.path)) return { what: `denies read of '${effect.path}'` };
+    const direct = readDenial(rule, effect.path);
+    if (direct !== undefined || !rule.deny.includes("read")) return direct;
     const search = searches.find((list) => reaches(rule, list.root, list.filter));
     if (search === undefined) return undefined;
     return { what: `denies read, and searching '${search.root}' could read a path it matches`, redirect: elsewhere("Search", rule, search.root) };
@@ -101,45 +122,36 @@ const onList: EffectGuard<ListEffect, Composition> = (effect, composition) =>
       : undefined,
   );
 
-/**
- * A write is judged by its change. Deleting a directory deletes everything
- * under it, so a delete is also refused when the path could hold a path a
- * rule denies delete for (see `contains`); deleting '.' always is, since the
- * path gate's own rules cover '.bounded/**' in every project.
- */
-const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) =>
-  firstDenial(composition, (rule) => {
-    if (!rule.deny.includes(effect.change)) return undefined;
-    if (matches(rule, effect.path)) return { what: `denies ${effect.change} of '${effect.path}'` };
-    if (effect.change === "delete" && contains(rule, effect.path)) {
-      return { what: `denies delete, and deleting '${effect.path}' could delete a path it matches` };
-    }
-    return undefined;
-  });
+const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path, effect.change));
 
 /**
- * Best effort: a shell command whose text names a path a rule denies read
- * for is refused (see shell-paths.ts). Globs, variables and scripts get past
- * it; confining the command itself is the real control.
+ * A shell command is translated (shell-command.ts) into the paths it reads
+ * and writes, and each is judged exactly as a file tool's read or write.
+ * A redirection's write is judged as a create and as a modify, since which
+ * it is cannot be known before it runs. What only the shell can resolve
+ * (globs, variables, substitutions' output, scripts, an unparseable
+ * command) is not guessed at: it is allowed. Confining the command at the
+ * operating-system level is the real control; drift undoes its writes to
+ * watched files.
  */
 const onExecute: EffectGuard<ExecuteEffect, Composition> = (effect, composition) => {
-  const named = namedPaths(effect.command, effect.cwd);
-  return firstDenial(composition, (rule) => {
-    if (!rule.deny.includes("read")) return undefined;
-    if (named === undefined) {
-      // A command the parser cannot read is judged by its text: refused when it mentions the rule's name.
-      const name = literalName(rule.match);
-      return name !== "" && effect.command.includes(name)
-        ? { what: `denies read, and this shell command, which cannot be parsed, mentions '${name}': shell reads of protected files are refused` }
-        : undefined;
+  const parsed = shellQuoteParser(effect.command);
+  if (!parsed.ok) return Verdict.allow;
+  const { reads, writes } = describeShellCommand(parsed.value, effect.cwd);
+  const judged = (verb: "reads" | "writes", path: string, verdict: Verdict): Verdict | undefined =>
+    verdict.kind === "refuse" ? Verdict.refuse(`this command ${verb} '${path}' — ${verdict.reason}`, verdict.redirect) : undefined;
+  for (const path of reads) {
+    const refused = judged("reads", path, firstDenial(composition, (rule) => readDenial(rule, path)));
+    if (refused !== undefined) return refused;
+  }
+  for (const { path } of writes) {
+    for (const change of ["create", "modify"] as const) {
+      const refused = judged("writes", path, firstDenial(composition, (rule) => writeDenial(rule, path, change)));
+      if (refused !== undefined) return refused;
     }
-    const path = named.find((candidate) => matches(rule, candidate));
-    return path === undefined ? undefined : { what: `denies read, and this shell command names '${path}': shell reads of protected files are refused` };
-  });
+  }
+  return Verdict.allow;
 };
-
-/** The literal start of a pattern's last part, before any wildcard: '.env' for '**\/.env*'. */
-const literalName = (match: string): string => /^[^*?[\]{}]*/.exec(match.split("/").at(-1) ?? "")?.[0] ?? "";
 
 /** Whether a pattern's last part is a literal name, which the path gate reads as covering everything under it too (but for a file rule). */
 const endsInName = (match: string): boolean => !/[*?[\]{}]/.test(match.split("/").at(-1) ?? "");

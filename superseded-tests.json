@@ -424,9 +424,9 @@
     "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path",
     "successor": {
       "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path"
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
     },
-    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+    "reason": "moved into shell-reads.test.ts, then superseded there: a shell command is translated into the reads and writes it names, each judged by the file tools' own code, and what the parser cannot read is unresolved, not matched by text"
   },
   {
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
@@ -460,9 +460,9 @@
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
     "successor": {
       "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file"
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is left unresolved, and allowed"
     },
-    "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
+    "reason": "moved into shell-reads.test.ts, then superseded there: a shell command is translated into the reads and writes it names, each judged by the file tools' own code, and what the parser cannot read is unresolved, not matched by text"
   },
   {
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
@@ -487,5 +487,23 @@
       "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
     },
     "reason": "the path gate now refuses, best effort, a shell command that names a read-protected path; this is the case under the path the path gate's first red commit gave it, before the pack moved to src/packs/"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
+    },
+    "reason": "a shell command is now translated into the reads and writes it names, each judged by the same code as a file tool's, so the refusal is the read guard's own, prefixed by what the command reads (maintainer direction: one judging code path)"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+    "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
+    "successor": {
+      "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
+      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is left unresolved, and allowed"
+    },
+    "reason": "no separate textual matching (maintainer direction): what the parser cannot read is unresolved, not guessed at; OS confinement is the real control"
   }
 ]
