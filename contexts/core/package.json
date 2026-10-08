@@ -12,6 +12,7 @@
   "exports": {
     "./domain": "./src/domain/index.ts",
     "./application": "./src/application/index.ts",
+    "./application/host-installer-conformance": "./src/application/project-setup/init-project/init-project.host-installer.test-support.ts",
     "./adapters/in-memory": "./src/adapters/out/in-memory/index.ts",
     "./adapters/file-system": "./src/adapters/out/file-system/index.ts",
     "./adapters/system": "./src/adapters/out/system/index.ts",

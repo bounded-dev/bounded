@@ -416,7 +416,7 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./domain", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory", "./path-gate/adapters/tree-sitter"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters/file-system", "./adapters/in-memory", "./adapters/system", "./application", "./application/host-installer-conformance", "./domain", "./open-project", "./path-gate", "./path-gate/adapters/file-system", "./path-gate/adapters/in-memory", "./path-gate/adapters/tree-sitter"]);
   });
 
   test("the pi host adapter is an app depending on the core", () => {

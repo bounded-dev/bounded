@@ -59,6 +59,45 @@ export function withHooks(settings: unknown, command: string): Result<{ settings
   return { ok: true, value: out };
 }
 
+/**
+ * Whether a settings hook is bounded's own Claude Code hook without a role,
+ * wherever it pointed: a command hook running bounded-claude-code's main.ts
+ * (an installed copy, or a checkout's apps/claude-code), in any form an
+ * install wrote. Its path does not count, so a moved or re-cloned project's
+ * stale entry is recognised.
+ */
+export function isBoundedHook(hook: unknown): boolean {
+  if (!isRecord(hook) || hook.type !== "command" || typeof hook.command !== "string") return false;
+  return /(bounded-claude-code|apps\/claude-code)\/src\/main\.ts\b/.test(hook.command) && !/\s--role\s/.test(hook.command);
+}
+
+/**
+ * The settings with bounded's hooks running `command` before every tool call,
+ * after it and after its failure, and every other bounded hook without a
+ * role (one pointing at another path, as after the project moved) removed.
+ * Idempotent; everything else is kept.
+ */
+export function withProjectHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
+  if (!isRecord(settings) || !isRecord(settings.hooks)) return withHooks(settings, command);
+  const installed = failClosed(command);
+  const isStale = (hook: unknown): boolean => isBoundedHook(hook) && isRecord(hook) && hook.command !== installed;
+  let stripped = false;
+  const hooks: Record<string, unknown> = { ...settings.hooks };
+  for (const event of EVENTS) {
+    const entries = hooks[event];
+    if (!Array.isArray(entries)) continue;
+    hooks[event] = entries.flatMap((entry) => {
+      if (!isRecord(entry) || !Array.isArray(entry.hooks) || !entry.hooks.some(isStale)) return [entry];
+      stripped = true;
+      const kept = entry.hooks.filter((hook) => !isStale(hook));
+      return kept.length === 0 ? [] : [{ ...entry, hooks: kept }];
+    });
+  }
+  const merged = withHooks(stripped ? { ...settings, hooks } : settings, command);
+  if (!merged.ok) return merged;
+  return { ok: true, value: { settings: merged.value.settings, changed: stripped || merged.value.changed } };
+}
+
 /** The settings with bounded's hook running `command` on every tool call's `event`, PreToolUse by default. Idempotent; everything else is kept. */
 export function withHook(settings: unknown, command: string, event: HookEvent = "PreToolUse"): Result<{ settings: Settings; changed: boolean }> {
   if (command.trim() === "") return { ok: false, error: "The hook command is empty" };
