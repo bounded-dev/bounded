@@ -8,9 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = import.meta.dir;
+/** The published packages. The CLI (apps/cli, bounded-cli) is not one: bounded's prepack bundles it as bounded's bin. */
 const PACKAGES = [
   { name: "bounded", dir: "contexts/core" },
-  { name: "bounded-cli", dir: "apps/cli" },
   { name: "bounded-claude-code", dir: "apps/claude-code" },
   { name: "bounded-pi", dir: "apps/pi" },
 ] as const;
@@ -77,6 +77,19 @@ describe("the published packages", () => {
       });
     });
   }
+
+  test("the CLI is an app in source, private at the lockstep version, and ships as bounded's bin, built by bounded's prepack", () => {
+    const cli = manifestOf("apps/cli");
+    expect(cli.private).toBe(true);
+    expect(cli.version).toBe(VERSION);
+    const core = manifestOf("contexts/core") as Manifest & { scripts?: Record<string, string> };
+    expect(core.bin).toEqual({ bounded: "dist/cli.js" });
+    expect(core.files).toContain("dist/cli.js");
+    expect(core.scripts?.prepack).toContain("apps/cli/src/main.ts");
+    expect(core.scripts?.prepack).toContain("dist/cli.js");
+    expect(packedFiles("contexts/core")).toContain("dist/cli.js");
+    for (const { dir } of PACKAGES) expect(manifestOf(dir).dependencies?.["bounded-cli"]).toBeUndefined();
+  });
 
   test("bounded's tarball ships the exported installer conformance suite", () => {
     expect(packedFiles("contexts/core")).toContain(CONFORMANCE);

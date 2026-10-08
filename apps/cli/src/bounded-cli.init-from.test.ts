@@ -1,7 +1,7 @@
 // `bounded init --from <dir>`: the first install, run through npx before the
-// project has any bounded package. It adds bounded, bounded-cli and the
-// detected hosts' adapter packages as devDependencies from the tarballs in
-// <dir>, then hands over to the bounded-cli it installed. The packages are
+// project has any bounded package. It adds bounded (which carries the CLI)
+// and the detected hosts' adapter packages as devDependencies from the
+// tarballs in <dir>, then hands over to the bounded it installed. The packages are
 // small stand-ins packed here, so bun installs them without the network.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -27,8 +27,7 @@ function pack(into: string, name: string, version: string, options: { bin?: bool
 }
 
 const releaseDir = join(scratch, "release");
-const boundedTarball = pack(releaseDir, "bounded", "1.0.0");
-pack(releaseDir, "bounded-cli", "1.0.0", { bin: true });
+const boundedTarball = pack(releaseDir, "bounded", "1.0.0", { bin: true });
 pack(releaseDir, "bounded-claude-code", "1.0.0");
 pack(releaseDir, "bounded-pi", "1.0.0");
 
@@ -43,20 +42,20 @@ function project(dirs: readonly string[], manifest = true): string {
 
 const manifestOf = (root: string): { devDependencies?: Record<string, string>; dependencies?: Record<string, string>; overrides?: Record<string, string> } => JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
-describe("bounded-cli — bounded init --from", () => {
-  test("adds bounded, bounded-cli and the detected host's adapter as devDependencies, overrides bounded, and hands over to the installed CLI", async () => {
+describe("bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters", () => {
+  test("adds bounded and the detected host's adapter as devDependencies, overrides bounded, and hands over to the installed bounded", async () => {
     const root = project([".claude"]);
     const ran = await runBoundedCli(["init", "--from", releaseDir], root);
     expect(ran.stderr).toBe("");
     expect(ran.exitCode).toBe(0);
-    expect(ran.stdout).toContain("handed over to bounded-cli 1.0.0: init");
+    expect(ran.stdout).toContain("handed over to bounded 1.0.0: init --no-install");
     const manifest = manifestOf(root);
-    expect(Object.keys(manifest.devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-cli"]);
+    expect(Object.keys(manifest.devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-claude-code"]);
     expect(manifest.dependencies ?? {}).toEqual({});
     expect(manifest.overrides?.bounded).toBe(`file:${boundedTarball}`);
   });
 
-  test.skipIf(Bun.which("npm") === null)("under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs", async () => {
+  test.skipIf(Bun.which("npm") === null)("under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs bounded and the host adapter", async () => {
     const root = mkdtempSync(join(scratch, "project-npm-"));
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", private: true, packageManager: "npm@11.0.0" }, null, 2));
     mkdirSync(join(root, ".claude"));
@@ -64,23 +63,23 @@ describe("bounded-cli — bounded init --from", () => {
     expect(ran.stderr).toBe("");
     expect(ran.exitCode).toBe(0);
     expect(ran.stdout).toContain("with npm");
-    expect(ran.stdout).toContain("handed over to bounded-cli 1.0.0: init");
+    expect(ran.stdout).toContain("handed over to bounded 1.0.0: init --no-install");
     const manifest = manifestOf(root);
-    expect(Object.keys(manifest.devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-cli"]);
+    expect(Object.keys(manifest.devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-claude-code"]);
     expect(manifest.overrides?.bounded).toBe("$bounded");
-    expect(readFileSync(join(root, "package-lock.json"), "utf8")).toContain("bounded-cli");
+    expect(readFileSync(join(root, "package-lock.json"), "utf8")).toContain("bounded-claude-code");
   });
 
-  test("adds every detected host's adapter: .claude/ and .pi/", async () => {
+  test("adds every detected host's adapter beside bounded: .claude/ and .pi/", async () => {
     const root = project([".claude", ".pi"]);
     expect((await runBoundedCli(["init", "--from", releaseDir], root)).exitCode).toBe(0);
-    expect(Object.keys(manifestOf(root).devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-cli", "bounded-pi"]);
+    expect(Object.keys(manifestOf(root).devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-pi"]);
   });
 
-  test("--host names the hosts instead of detecting them", async () => {
+  test("--host names the hosts instead of detecting them, beside bounded", async () => {
     const root = project([]);
     expect((await runBoundedCli(["init", "--from", releaseDir, "--host", "pi"], root)).exitCode).toBe(0);
-    expect(Object.keys(manifestOf(root).devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-cli", "bounded-pi"]);
+    expect(Object.keys(manifestOf(root).devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-pi"]);
   });
 
   test("refuses when no host is found and none is named, saying how to name one", async () => {

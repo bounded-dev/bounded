@@ -2917,81 +2917,81 @@
     "case": "bounded update --from > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded-cli — bounded update --from > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI"
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses a directory that cannot be read",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded-cli — bounded update --from > refuses a directory that cannot be read"
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory that cannot be read"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses when a package's tarball is missing, naming it, and changes nothing",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded-cli — bounded update --from > refuses when a package's tarball is missing, naming it, and changes nothing"
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when a package's tarball is missing, naming it, and changes nothing"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses two tarballs of one package, naming both",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded-cli — bounded update --from > refuses two tarballs of one package, naming both"
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses two tarballs of one package, naming both"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > when the package manager fails, package.json is restored and the message says so",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded-cli — bounded update --from > when the package manager fails, package.json is restored and the message says so"
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the package manager fails, package.json is restored and the message says so"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > refuses when the installed version is not the tarball's, restoring package.json",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded-cli — bounded update --from > refuses when the installed version is not the tarball's, restoring package.json"
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when the installed version is not the tarball's, restoring package.json"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.update-from.test.ts",
     "case": "bounded update --from > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks",
     "successor": {
       "file": "apps/cli/src/bounded-cli.update-from.test.ts",
-      "case": "bounded-cli — bounded update --from > when the new bounded-cli cannot be run, the upgrade stands and the message says to refresh the hooks"
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; bounded-cli is now one of the packages an update installs, and its bin is the one handed over to; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/test/bounded-cli.e2e.test.ts",
     "case": "npx bounded, installed from packed tarballs > init sets a fresh repository up; update upgrades the packages, hands over to the new CLI and is idempotent",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "bounded-cli end to end, from packed tarballs > npx bounded-cli init --from adds the packages and sets the repository up; npx bounded update --from upgrades and hands over to the new CLI; both are idempotent"
+      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > with bun: npx -p bounded's tarball bounded init --from adds bounded and the hosts' adapters and sets the repository up; npx bounded update --from upgrades and hands over to the new bounded; both are idempotent"
     },
-    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced"
+    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "contexts/core/test/bounded-cli.e2e.test.ts",
     "case": "npx bounded, installed from packed tarballs > update --from upgrades by itself: it points the project's override of bounded at the new tarball",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "bounded-cli end to end, from packed tarballs > npx bounded-cli init --from adds the packages and sets the repository up; npx bounded update --from upgrades and hands over to the new CLI; both are idempotent"
+      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > with bun: npx -p bounded's tarball bounded init --from adds bounded and the hosts' adapters and sets the repository up; npx bounded update --from upgrades and hands over to the new bounded; both are idempotent"
     },
-    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced"
+    "reason": "the CLI moved into apps/cli (ADR 2026-016): the first install now runs bounded-cli through npx and adds the packages itself, and the Claude Code hook runs through $CLAUDE_PROJECT_DIR instead of the project's absolute path (decided in the final review), so the case asserting that path is replaced; then the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   },
   {
     "file": "apps/claude-code/src/host-installer.test.ts",
@@ -3037,5 +3037,248 @@
       "case": "bounded-cli: the bounded command, in its own app > init --no-install in a fresh project writes the configuration, runs the host installers and says to restart the host session"
     },
     "reason": "plain `bounded init` now installs bounded, bounded-cli and the hosts' adapters from the npm registry, then hands over to the installed `bounded init --no-install`, which sets the project up: the case runs that form"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded init from the registry > `with ${manager}: adds bounded, bounded-cli and the host's adapter at exactly this CLI's version, with no override, installs, and hands over`",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: bounded and the hosts' adapters > with each of bun, npm, pnpm and yarn: adds bounded and the host's adapter at exactly this CLI's version, with no override, installs, and hands over to the installed bounded"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded init from the registry > adds every host found or named",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: bounded and the hosts' adapters > adds every host found or named, beside bounded alone"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded init from the registry > when the install fails, package.json and the lockfile are restored and nothing is handed over",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: bounded and the hosts' adapters > when the install fails, package.json and the lockfile are restored and nothing is handed over"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded init from the registry > refuses an installed version that is not this CLI's, restoring package.json",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: bounded and the hosts' adapters > refuses an installed bounded that is not this CLI's version, restoring package.json"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded init from the registry > refuses, running nothing, a project with a configuration, with no host, or with no package.json",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded init from the registry: bounded and the hosts' adapters > refuses, running nothing, a project with a configuration, with no host, or with no package.json"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded update from the registry > `with ${manager}: upgrades the bounded packages present to their latest, checks them, and hands over`",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: bounded and the hosts' adapters > with each of bun, npm, pnpm and yarn: upgrades bounded and the host adapters present to their latest, checks them, and hands over"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded update from the registry > upgrades dependencies and devDependencies each where they are",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: bounded and the hosts' adapters > upgrades dependencies and devDependencies each where they are"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded update from the registry > when the upgrade fails, package.json and the lockfile are restored and nothing is handed over",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: bounded and the hosts' adapters > when the upgrade fails, package.json and the lockfile are restored and nothing is handed over"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded update from the registry > refuses packages left out of lockstep, or moved to an older version, restoring the lockfile",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: bounded and the hosts' adapters > refuses bounded and its host adapters left out of lockstep, or moved to an older version, restoring the lockfile"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.registry.test.ts",
+    "case": "bounded-cli — bounded update from the registry > refuses a project that was never initialised, running nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: bounded and the hosts' adapters > refuses a project that was never initialised, running nothing"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded-cli — bounded update --from > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > upgrades, points the override of bounded at the new tarball, checks the versions and hands over to the new CLI"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded-cli — bounded update --from > refuses a directory that cannot be read",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory that cannot be read"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded-cli — bounded update --from > refuses when a package's tarball is missing, naming it, and changes nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when a package's tarball is missing, naming it, and changes nothing"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded-cli — bounded update --from > refuses two tarballs of one package, naming both",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses two tarballs of one package, naming both"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded-cli — bounded update --from > when the package manager fails, package.json is restored and the message says so",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the package manager fails, package.json is restored and the message says so"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded-cli — bounded update --from > refuses when the installed version is not the tarball's, restoring package.json",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when the installed version is not the tarball's, restoring package.json"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+    "case": "bounded-cli — bounded update --from > when the new bounded-cli cannot be run, the upgrade stands and the message says to refresh the hooks",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.update-from.test.ts",
+      "case": "bounded update --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > when the new bounded cannot be run, the upgrade stands and the message says to refresh the hooks"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > adds bounded, bounded-cli and the detected host's adapter as devDependencies, overrides bounded, and hands over to the installed CLI",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > adds bounded and the detected host's adapter as devDependencies, overrides bounded, and hands over to the installed bounded"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs bounded and the host adapter"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > adds every detected host's adapter: .claude/ and .pi/",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > adds every detected host's adapter beside bounded: .claude/ and .pi/"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > --host names the hosts instead of detecting them",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > --host names the hosts instead of detecting them, beside bounded"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > refuses when no host is found and none is named, saying how to name one",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses when no host is found and none is named, saying how to name one"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > refuses a host name that is not one, and a host with no tarball",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a host name that is not one, and a host with no tarball"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > refuses a project that already has a configuration, changing nothing",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a project that already has a configuration, changing nothing"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+    "case": "bounded-cli — bounded init --from > refuses a directory with no package.json, saying to create one",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.init-from.test.ts",
+      "case": "bounded init --from <dir>: tarballs of bounded, which carries the CLI, and the host adapters > refuses a directory with no package.json, saying to create one"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+    "case": "bounded-cli end to end, from packed tarballs > npx bounded-cli init --from adds the packages and sets the repository up; npx bounded update --from upgrades and hands over to the new CLI; both are idempotent",
+    "successor": {
+      "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > with bun: npx -p bounded's tarball bounded init --from adds bounded and the hosts' adapters and sets the repository up; npx bounded update --from upgrades and hands over to the new bounded; both are idempotent"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
+  },
+  {
+    "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+    "case": "bounded-cli end to end, from packed tarballs > under npm (skipped when npm is not installed): npx bounded-cli init --from, then npx bounded update --from to a later release",
+    "successor": {
+      "file": "apps/cli/test/bounded-cli.e2e.test.ts",
+      "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > under npm (skipped when npm is not installed): npx -p bounded's tarball bounded init --from, then npx bounded update --from to a later release"
+    },
+    "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin"
   }
 ]
