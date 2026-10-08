@@ -2,7 +2,12 @@
 
 **Status:** accepted. A rule is a class, not a frozen plain object, since
 [ADR 2026-012](2026-012-value-objects-are-classes.md); rules are still
-written as object literals (its wire form).
+written as object literals (its wire form). Amended by
+[ADR 2026-013](2026-013-restructure.md): the path gate is a small hexagon
+(`domain/`, `application/`, `adapters/`) bound in `path-gate.pack.ts`, with
+ports a host provides (watched files, shell snapshots, path kinds, the
+shell parser); it no longer contributes to a core `watchedPaths` point, it
+watches what it protects through the core's `beforeTool`/`afterTool`.
 
 ## Decision
 
