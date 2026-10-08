@@ -11,14 +11,14 @@
 // Those two hand-offs are the contract between versions: every version
 // accepts `bounded init` and `bounded update --no-upgrade`.
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileSystemProjectSetupFiles } from "bounded/adapters/file-system";
 import { NodeModulesHostInstallerSource } from "bounded/adapters/system";
 import { InitProjectHandler, type ProjectSetupFiles, requireInitialised, type SetupReport, UpdateProjectHandler } from "bounded/application";
 import type { Result } from "bounded/domain";
-import { type PackageToUpgrade, packageManagerOf, tarballFor, tarballVersion, upgradeCommands, withBoundedOverride, withUpgradedSpecs } from "./package-upgrade.ts";
+import { installCommand, LOCKFILE_NAMES, type PackageToUpgrade, packageManagerOf, tarballFor, tarballVersion, withBoundedOverride, withUpgradedSpecs } from "./package-upgrade.ts";
 
 /** What a run of the CLI printed, and its exit code: 0 done, 1 refused, 2 not understood. */
 export interface CliRun {
@@ -103,11 +103,12 @@ function boundedPackages(projectRoot: string): Result<readonly { name: string; d
 /**
  * Installs `packages` from the tarballs in `from`, checks each installed
  * version is its tarball's, then runs the installed bounded-cli with
- * `handOverArgs`. Any failure before the hand-off restores package.json.
- * `addOverride` makes package.json override `bounded` with its tarball (the
- * first install); otherwise an existing override follows the upgrade.
+ * `handOverArgs`. The specs and the package manager's own override of
+ * `bounded` are written into package.json, then the manager's plain install
+ * runs. Any failure before the hand-off restores package.json and the
+ * lockfiles.
  */
-function installThenHandOver(projectRoot: string, from: string, packages: readonly { name: string; dev: boolean }[], handOverArgs: readonly string[], addOverride: boolean): CliRun {
+function installThenHandOver(projectRoot: string, from: string, packages: readonly { name: string; dev: boolean }[], handOverArgs: readonly string[]): CliRun {
   let tarballs: string[];
   try {
     tarballs = readdirSync(from);
@@ -121,31 +122,36 @@ function installThenHandOver(projectRoot: string, from: string, packages: readon
     toInstall.push({ name, dev, spec: join(from, tarball.value), version: tarballVersion(name, tarball.value) });
   }
   const manifestPath = join(projectRoot, "package.json");
-  const manifestText = readFileSync(manifestPath, "utf8");
   const original = readJson(manifestPath);
   const manager = packageManagerOf(readdirSync(projectRoot), original, process.env.npm_config_user_agent);
-  /** Puts package.json back as it was, so a failed install leaves the project's manifest unchanged. */
+  // package.json and every lockfile as they were (undefined: absent), so a failed install can be undone.
+  const saved = new Map<string, string | undefined>(
+    ["package.json", ...LOCKFILE_NAMES].map((name) => [name, existsSync(join(projectRoot, name)) ? readFileSync(join(projectRoot, name), "utf8") : undefined]),
+  );
+  /** Puts package.json and the lockfiles back as they were, so a failed install leaves the project's manifest and lock unchanged. */
   const restored = (error: string): CliRun => {
-    writeFileSync(manifestPath, manifestText);
-    return refused(`${error}\npackage.json was restored and the hooks were not changed; if node_modules changed, run your package manager's install to return to the previous versions`);
+    const lockfiles: string[] = [];
+    for (const [name, text] of saved) {
+      const path = join(projectRoot, name);
+      if (text !== undefined) {
+        writeFileSync(path, text);
+        if (name !== "package.json") lockfiles.push(name);
+      } else if (existsSync(path)) {
+        rmSync(path);
+        lockfiles.push(`${name} (removed: it did not exist before)`);
+      }
+    }
+    const withLockfiles = lockfiles.length === 0 ? "" : `, with ${lockfiles.join(", ")},`;
+    return refused(`${error}\npackage.json was restored${withLockfiles} and the hooks were not changed; if node_modules changed, run your package manager's install to return to the previous versions`);
   };
   const bounded = toInstall.find(({ name }) => name === "bounded");
-  const boundedSpec = bounded === undefined ? null : `file:${bounded.spec}`;
-  // While the npm package `bounded` is the legacy 2.x, a project installing from tarballs overrides it with the local one.
-  const withOverride = addOverride && boundedSpec !== null ? { ...original, overrides: { ...(isRecord(original.overrides) ? original.overrides : {}), bounded: boundedSpec } } : original;
-  let manifest = withBoundedOverride(withOverride, boundedSpec);
-  let commands = upgradeCommands(manager, toInstall);
-  if (manager === "bun") {
-    // bun's `add` cannot replace one tarball dependency with another; install from the rewritten manifest (package-upgrade.ts).
-    manifest = withUpgradedSpecs(manifest, toInstall);
-    commands = [["bun", "install"]];
-  }
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  for (const command of commands) {
-    const [program = manager, ...args] = command;
-    const ran = spawnSync(program, args, { cwd: projectRoot, encoding: "utf8" });
-    if (ran.status !== 0) return restored(`${command.join(" ")} failed${ran.error === undefined ? "" : ` (${ran.error.message})`}:\n${ran.stdout ?? ""}${ran.stderr ?? ""}`);
-  }
+  // While the npm package `bounded` is the legacy 2.x, a project installing from tarballs overrides it, each manager in its own way.
+  const withOverride = bounded === undefined ? original : withBoundedOverride(original, manager, bounded.spec);
+  writeFileSync(manifestPath, `${JSON.stringify(withUpgradedSpecs(withOverride, toInstall), null, 2)}\n`);
+  const command = installCommand(manager);
+  const [program = manager, ...args] = command;
+  const ran = spawnSync(program, args, { cwd: projectRoot, encoding: "utf8" });
+  if (ran.status !== 0) return restored(`${command.join(" ")} failed${ran.error === undefined ? "" : ` (${ran.error.message})`}:\n${ran.stdout ?? ""}${ran.stderr ?? ""}`);
   for (const { name, version } of toInstall) {
     let installed: unknown;
     try {
@@ -184,7 +190,7 @@ async function initFrom(projectRoot: string, from: string, namedHosts: readonly 
     return refused(`no agent host found in ${projectRoot} (${HOST_DIRECTORIES.map(([dir]) => `${dir}/`).join(", ")}): name the hosts you use with --host, such as --host claude-code`);
   }
   const packages = ["bounded", "bounded-cli", ...new Set(hosts.map((host) => `bounded-${host}`))].map((name) => ({ name, dev: true }));
-  return installThenHandOver(projectRoot, from, packages, ["init"], true);
+  return installThenHandOver(projectRoot, from, packages, ["init"]);
 }
 
 /** Runs `bounded <args>` in the project at `projectRoot`. Never throws. */
@@ -219,7 +225,7 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
     }
     const packages = boundedPackages(projectRoot);
     if (!packages.ok) return refused(packages.error);
-    return installThenHandOver(projectRoot, resolve(projectRoot, fromDir), packages.value, ["update", "--no-upgrade"], false);
+    return installThenHandOver(projectRoot, resolve(projectRoot, fromDir), packages.value, ["update", "--no-upgrade"]);
   } catch (thrown) {
     return refused(`failed: ${message(thrown)}`);
   }

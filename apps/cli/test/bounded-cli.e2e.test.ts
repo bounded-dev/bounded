@@ -22,7 +22,9 @@ const PACKAGES = [
 ] as const;
 
 function run(command: readonly string[], cwd: string): { exitCode: number; stdout: string; stderr: string } {
-  const ran = Bun.spawnSync([...command], { cwd, stdout: "pipe", stderr: "pipe", env: { ...process.env, npm_config_yes: "true" } });
+  // As from a user's shell: `bun run check` sets npm_config_user_agent to bun's, and npx keeps an inherited one.
+  const { npm_config_user_agent: _inherited, ...env } = process.env;
+  const ran = Bun.spawnSync([...command], { cwd, stdout: "pipe", stderr: "pipe", env: { ...env, npm_config_yes: "true" } });
   return { exitCode: ran.exitCode, stdout: ran.stdout.toString(), stderr: ran.stderr.toString() };
 }
 

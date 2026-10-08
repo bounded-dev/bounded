@@ -51,21 +51,36 @@ export function tarballVersion(name: string, tarball: string): string {
   return tarball.slice(name.length + 1, -".tgz".length);
 }
 
+const recordOf = (value: unknown): Record<string, unknown> => (typeof value === "object" && value !== null && !Array.isArray(value) ? { ...value } : {});
+
 /**
- * The manifest with its override of `bounded` (`overrides` or `resolutions`)
- * pointing at `spec`; unchanged when it overrides nothing, or `spec` is null.
- * Without this, a project that overrides `bounded` with a local tarball
- * would keep installing the old one.
+ * The manifest overriding `bounded` the way `manager` takes overrides, so
+ * every package depending on `bounded` gets the project's own copy, not the
+ * legacy 2.x on npm:
+ * - npm (`overrides`) and pnpm (`pnpm.overrides`) refer to the direct
+ *   dependency's own spec, `$bounded`; npm refuses an override that differs
+ *   from it (EOVERRIDE), and the reference follows every upgrade by itself;
+ * - bun (`overrides`) and yarn (`resolutions`) name the tarball, `file:<path>`.
+ * Every other field and override is kept.
  */
-export function withBoundedOverride(manifest: Readonly<Record<string, unknown>>, spec: string | null): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...manifest };
-  if (spec === null) return out;
-  for (const field of ["overrides", "resolutions"]) {
-    const group = manifest[field];
-    if (typeof group === "object" && group !== null && !Array.isArray(group) && "bounded" in group) out[field] = { ...group, bounded: spec };
+export function withBoundedOverride(manifest: Readonly<Record<string, unknown>>, manager: PackageManager, tarballPath: string): Record<string, unknown> {
+  const tarball = `file:${tarballPath}`;
+  if (manager === "npm") return { ...manifest, overrides: { ...recordOf(manifest.overrides), bounded: "$bounded" } };
+  if (manager === "pnpm") {
+    const pnpm = recordOf(manifest.pnpm);
+    return { ...manifest, pnpm: { ...pnpm, overrides: { ...recordOf(pnpm.overrides), bounded: "$bounded" } } };
   }
-  return out;
+  if (manager === "yarn") return { ...manifest, resolutions: { ...recordOf(manifest.resolutions), bounded: tarball } };
+  return { ...manifest, overrides: { ...recordOf(manifest.overrides), bounded: tarball } };
 }
+
+/** The command that installs what package.json names, once its specs and override are written: each manager's plain install. */
+export function installCommand(manager: PackageManager): string[] {
+  return [manager, "install"];
+}
+
+/** The lockfiles a package manager may write: restored with package.json when an install is undone. */
+export const LOCKFILE_NAMES: readonly string[] = LOCKFILES.map(([lockfile]) => lockfile);
 
 /** A package to upgrade: its name, whether the project lists it in devDependencies, and what to install. */
 export interface PackageToUpgrade {
@@ -74,29 +89,12 @@ export interface PackageToUpgrade {
   readonly spec: string;
 }
 
-const ADD: Record<PackageManager, { readonly add: readonly string[]; readonly dev: string }> = {
-  bun: { add: ["bun", "add"], dev: "--dev" },
-  npm: { add: ["npm", "install"], dev: "--save-dev" },
-  pnpm: { add: ["pnpm", "add"], dev: "--save-dev" },
-  yarn: { add: ["yarn", "add"], dev: "--dev" },
-};
-
-/** The commands that install `packages`, dependencies first, each group where the project lists it. */
-export function upgradeCommands(manager: PackageManager, packages: readonly PackageToUpgrade[]): string[][] {
-  const { add, dev } = ADD[manager];
-  const commands: string[][] = [];
-  const dependencies = packages.filter((item) => !item.dev).map((item) => item.spec);
-  const devDependencies = packages.filter((item) => item.dev).map((item) => item.spec);
-  if (dependencies.length > 0) commands.push([...add, ...dependencies]);
-  if (devDependencies.length > 0) commands.push([...add, dev, ...devDependencies]);
-  return commands;
-}
-
 /**
  * The project's package.json with each package's spec replaced by `spec`, in
- * the group that lists it (dependencies by default). Used for bun, whose
- * `add` cannot replace one tarball dependency with another (bun 1.3.14
- * reports a dependency loop): bun installs from the rewritten manifest instead.
+ * the group that lists it (dependencies by default). Every package manager
+ * installs from this rewritten manifest: bun's `add` cannot replace one
+ * tarball dependency with another (bun 1.3.14 reports a dependency loop), and
+ * npm's `add` checks the `$bounded` override before the dependency exists.
  */
 export function withUpgradedSpecs(manifest: Readonly<Record<string, unknown>>, packages: readonly PackageToUpgrade[]): Record<string, unknown> {
   const group = (field: string): Record<string, unknown> => {

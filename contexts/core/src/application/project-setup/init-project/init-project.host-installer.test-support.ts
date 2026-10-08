@@ -1,5 +1,5 @@
 // The behaviour every HostInstaller must have. Host adapter packages run it
-// from their own tests through `bounded/application/host-installer-conformance`.
+// from their own tests through `bounded/testing/host-installer-conformance`.
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
