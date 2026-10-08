@@ -60,6 +60,17 @@ export interface ShellWrite {
   readonly undetermined?: true;
 }
 
+/**
+ * The steps reading one whole command may take, shared by everything its
+ * reading does (each command, each xargs reading, each report of xargs's
+ * input), and how deep its commands may nest. Once spent, the command is
+ * unread: never a reduced reading (ADR 2026-020).
+ */
+export interface WorkBudget {
+  left: number;
+  exhausted: boolean;
+}
+
 /** A program a command runs: its name and arguments as words, and the project directory it runs in, null when that cannot be known. */
 export interface ShellProgram {
   readonly name: ShellWord;
@@ -80,4 +91,6 @@ export interface ShellCommandEffects {
   readonly lists: readonly ProjectPath[];
   readonly writes: readonly ShellWrite[];
   readonly unresolved: readonly UnresolvedWord[];
+  /** Why the command cannot be read, when reading it outgrew the work budget: then nothing above is a reading of it. */
+  readonly unreadWhy?: string;
 }

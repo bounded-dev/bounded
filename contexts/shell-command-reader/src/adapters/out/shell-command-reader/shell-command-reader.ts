@@ -47,6 +47,8 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
       return nested.ok ? tree.parse(nested.value) : nested;
     };
     const described = describeShellCommand(parsed.value, { cwd, root: projectRoot, kindOfPath: (path) => this.pathKindOf(projectRoot, path), parseScript });
+    // A command that outgrew the work budget is unread, never a reduced reading: a pack that needs the reading refuses it.
+    if (described.unreadWhy !== undefined) return { outcome: "unread", why: described.unreadWhy };
     return {
       outcome: "read",
       programs: described.programs.map((program) => ({ name: wordOf(program.name), arguments: program.arguments.map(wordOf), workingDirectory: program.workingDirectory === null ? null : program.workingDirectory.value })),

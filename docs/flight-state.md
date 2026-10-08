@@ -156,11 +156,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `protectedPaths`): planned, not built.
   - **Unresolved word hides a literal one; planned: every-plausible-reading,
     as xargs now does** (ADR 2026-020, "Limits"; already so before it):
-    - `sudo "$OPT" rm x`, `env "$X" rm x`, `nice "$N" rm x`,
-      `command "$X" rm x`, `exec "$X" rm x`: read as reads of `rm` and `x`;
-      lost: the delete of `x`.
-    - `bash "$X" -c "rm x"`: read as nothing; lost: the code `rm x` and its
-      delete of `x`.
+    - `sudo "$OPT" rm x`, `doas "$X" rm x`, `env "$X" rm x`,
+      `nice "$N" rm x`, `nohup "$X" rm x`, `stdbuf "$X" rm x`,
+      `ionice "$X" rm x`, `builtin "$X" rm x`, `command "$X" rm x`,
+      `exec "$X" rm x`: read as reads of `rm` and `x`; lost: the delete of
+      `x`.
+    - `bash "$X" -c "rm x"`, and the same with `sh`, `zsh`, `dash` and
+      `ksh`: read as nothing; lost: the code `rm x` and its delete of `x`.
     - `git $OPTS rm x`: read as reads of `rm` and `x`; lost: `git rm`'s
       delete of `x`.
     - `cp -t "$D" x`: read as a read of `x`; lost: the write into the

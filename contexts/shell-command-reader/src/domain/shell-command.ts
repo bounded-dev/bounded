@@ -1,7 +1,7 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning, XARGS_INPUT } from "./command-meanings.ts";
+import { commandMeaning, MAX_NESTING, newWorkBudget, spend, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
 import type { MeaningChange } from "./command-meanings.contract.ts";
-import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord } from "./shell-command.contract.ts";
+import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
 
 // A parsed command line as the programs it runs and the project paths it
 // reads, lists and writes: a translation that decides nothing. Programs are
@@ -18,7 +18,10 @@ interface Scope {
   at: readonly string[] | null;
 }
 
-const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
+/** Why a command that outgrew its work budget is unread. */
+const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
+
+const WRITE_REDIRECTS =new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
 
@@ -29,10 +32,11 @@ const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path
  * a command the command runs. Only a report: the words are judged as
  * written, never these.
  */
-function inputRoles(name: ShellWord, words: readonly ShellWord[], depth = 0): UnresolvedWord["role"][] {
+function inputRoles(name: ShellWord, words: readonly ShellWord[], budget: WorkBudget, depth = 0): UnresolvedWord["role"][] {
+  if (!spend(budget)) return [];
   if (name === XARGS_INPUT) return ["code"];
   if (name.kind !== "literal" || depth > 8) return ["code"];
-  const meaning = commandMeaning(name.text, words);
+  const meaning = commandMeaning(name.text, words, budget);
   const has = (words: readonly ShellWord[]): boolean => words.includes(XARGS_INPUT);
   const roles: UnresolvedWord["role"][] = [];
   if (has(meaning.reads) || has(meaning.repositoryReads) || meaning.transfers.some((transfer) => has(transfer.sources))) roles.push("read");
@@ -43,7 +47,7 @@ function inputRoles(name: ShellWord, words: readonly ShellWord[], depth = 0): Un
   for (const ran of meaning.runs) {
     // A command the input would name is code; a trailing run (a wrapper's command) is given the input itself, and reports it there.
     if (ran.name === XARGS_INPUT) roles.push("code");
-    else if (ran.trailing !== true && has(ran.args)) roles.push(...inputRoles(ran.name, ran.args, depth + 1));
+    else if (ran.trailing !== true && has(ran.args)) roles.push(...inputRoles(ran.name, ran.args, budget, depth + 1));
   }
   return [...new Set(roles)];
 }
@@ -73,6 +77,22 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   const writes: ShellWrite[] = [];
   const unresolved: UnresolvedWord[] = [];
   const programs: ShellProgram[] = [];
+  // One budget for the whole command: every command, xargs reading and report of xargs's input spends from it, and nesting is bounded.
+  const budget = newWorkBudget();
+  let nesting = 0;
+  /** `work`, one level deeper; past MAX_NESTING the budget is spent, so the command is unread. */
+  const nested = (work: () => void): void => {
+    if (nesting >= MAX_NESTING) {
+      budget.exhausted = true;
+      return;
+    }
+    nesting++;
+    try {
+      work();
+    } finally {
+      nesting--;
+    }
+  };
 
   /** `text` as a project path from `scope`, or undefined when only the shell could resolve it. */
   const pathOf = (text: string, scope: Scope): ProjectPath | undefined => {
@@ -116,7 +136,9 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   /** The commands substituted in a word run in subshells of their own. */
   const substitutions = (word: ShellWord, scope: Scope): void => {
-    if (word.kind === "unresolved") for (const node of word.commands) walk(node, { at: scope.at });
+    if (word.kind === "unresolved") nested(() => {
+      for (const node of word.commands) walk(node, { at: scope.at });
+    });
   };
 
   const redirect = ({ operator, target }: ShellRedirect, scope: Scope): void => {
@@ -143,15 +165,15 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * substitution adds a report, never replaces the check).
    */
   const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
-    if (name === null) return;
+    if (name === null || !spend(budget)) return;
     if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
-    if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT])) unresolved.push({ text: XARGS_INPUT.text, role });
+    if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT], budget)) unresolved.push({ text: XARGS_INPUT.text, role });
     if (how.replace !== undefined) {
       const [inputName = name, ...inputArgs] = withInputReplaced([name, ...args], how.replace) ?? [XARGS_INPUT];
-      const roles = inputName === name && !inputArgs.includes(XARGS_INPUT) ? [] : inputRoles(inputName, inputArgs);
+      const roles = inputName === name && !inputArgs.includes(XARGS_INPUT) ? [] : inputRoles(inputName, inputArgs, budget);
       for (const role of roles) unresolved.push({ text: XARGS_INPUT.text, role });
     }
-    const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args);
+    const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args, budget);
     for (const word of meaning.reads) {
       const path = resolve(word, scope, "read");
       if (path !== undefined) reads.push(path);
@@ -192,7 +214,9 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       if (script === undefined || !script.ok) unresolved.push({ text: word.text, role: "code" });
       else {
         const inside: Scope = { at: scope.at };
-        for (const node of script.value) walk(node, inside);
+        nested(() => {
+          for (const node of script.value) walk(node, inside);
+        });
       }
     }
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
@@ -200,11 +224,11 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
       const replace = ran.replace ?? (ran.trailing === true ? how.replace : undefined);
       const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(replace === undefined ? {} : { replace }) };
-      if (ran.directory === undefined) command(ran.name, ran.args, scope, passed);
+      if (ran.directory === undefined) nested(() => command(ran.name, ran.args, scope, passed));
       else {
         // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.
         const from = ran.directory === null ? undefined : resolve(ran.directory, scope, "directory");
-        command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) }, passed);
+        nested(() => command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) }, passed));
       }
     }
     if (meaning.location !== undefined) {
@@ -274,5 +298,6 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
 
   const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };
   for (const node of script) walk(node, start);
+  if (budget.exhausted) return { programs: [], reads: [], lists: [], writes: [], unresolved: [], unreadWhy: TOO_COMPLEX };
   return { programs, reads, lists, writes, unresolved };
 }

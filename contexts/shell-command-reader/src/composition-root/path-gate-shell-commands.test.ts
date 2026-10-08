@@ -219,11 +219,26 @@ describe("read by bounded's shell command reader — the path gate — what each
       "echo x | xargs --max 1 rm .git/hooks/pre-commit",
       'xargs "$OPTS" rm .git/hooks/pre-commit',
       'xargs -d"$D" rm .git/hooks/pre-commit',
+      // Past the work budget the command is unread, never a reduced reading: refused.
+      `xargs ${"--b ".repeat(20)}rm .git/hooks/pre-commit`,
     ]) {
       expect([command, (await shell(command)).kind]).toEqual([command, "refuse"]);
     }
     expect(reason(await shell("ls | xargs -I{} mv {} .git/hooks/pre-commit"))).toContain("this command writes '.git/hooks/pre-commit'");
   });
+
+  test("a command too complex for the reader's work budget is unread, and so refused, though it names no protected path", async () => {
+    const shell = await shellWith([env]);
+    const command = `${"xargs $A ".repeat(24)}true`;
+    const started = performance.now();
+    const verdict = await shell(command);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(reason(verdict)).toBe(
+      `bounded/path-gate refused execute \`${command}\`: the path gate cannot check shell commands: the command is too complex to read within bounded's work budget (20000 steps): its words could be read too many ways, or it nests too deep`,
+    );
+    // The same shape within the budget is read, and allowed.
+    expect(await shell(`${"xargs $A ".repeat(2)}true`)).toBe(Verdict.allow);
+  }, 30_000);
 
   test("builtin, command and exec are looked past; an unknown command's arguments are reads", async () => {
     const shell = await shellWith([env]);

@@ -122,8 +122,13 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
       ["xargs -rI % rm %", "%"],
     ] as const) {
       const reading = await read(command);
-      // With one, no input is appended: the command's words are only those written.
-      expect({ command, arguments: reading.programs.at(-1)?.arguments, unresolved: reading.unresolved }).toEqual({ command, arguments: [{ kind: "literal", text: replaced }], unresolved: [{ text: "(input)", role: "write" }] });
+      // With one, no input is appended: the command's words are only those written, each judged as written.
+      expect({ command, arguments: reading.programs.at(-1)?.arguments, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({
+        command,
+        arguments: [{ kind: "literal", text: replaced }],
+        fileEffects: [{ effect: { kind: "write", path: replaced, change: "delete" } }],
+        unresolved: [{ text: "(input)", role: "write" }],
+      });
     }
     // Without one, the literal words are judged as written, and the input comes after them.
     for (const command of ["xargs -l rm old.txt", "xargs --max-args 1 rm old.txt", "xargs -n1 rm old.txt", "xargs -L 1 -P 2 rm old.txt", "xargs -R 1 -S 255 rm old.txt", "xargs --max-lines rm old.txt"]) {
@@ -153,6 +158,23 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
       expect({ command, reads: reading.fileEffects.some(({ effect }) => effect.kind === "read" && effect.path.endsWith("old.txt")) }).toEqual({ command, reads: true });
     }
   });
+
+  test("a command whose plausible readings or nesting outgrow the work budget comes back unread, quickly, never as a reduced reading", async () => {
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    for (const command of [
+      `${"xargs $A ".repeat(24)}true`,
+      `${"xargs --b ".repeat(24)}true`,
+      `xargs ${"--b ".repeat(20)}rm .git/hooks/pre-commit`,
+      `${"xargs ".repeat(200)}true`,
+      `${"sudo ".repeat(200)}rm x`,
+    ]) {
+      const started = performance.now();
+      const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
+      const elapsed = performance.now() - started;
+      expect({ command: command.slice(0, 40), fast: elapsed < 2000, outcome: reading.outcome }).toEqual({ command: command.slice(0, 40), fast: true, outcome: "unread" });
+      expect(reading.outcome === "unread" && reading.why).toBe("the command is too complex to read within bounded's work budget (20000 steps): its words could be read too many ways, or it nests too deep");
+    }
+  }, 30_000);
 
   test("xargs's input reaches the command a wrapper under it runs", async () => {
     const sudo = await read("ls | xargs sudo rm");

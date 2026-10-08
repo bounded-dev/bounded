@@ -73,6 +73,19 @@ names no tool or language (AGENTS.md). It can own the shape.
     and, for a resolvable word, as the command; the words after it are also
     read as operands. Nothing is ever dropped from judgement because it
     became unresolved.
+  - **One work budget per command: 20,000 steps, and nesting at most 64
+    deep.** A step is one command, one reading of xargs's options or one
+    report of xargs's input; the budget covers the whole reading, nested
+    runs included. Readings multiply (nested xargs over words that cannot be
+    told doubles them at each word), and the reader is synchronous, so the
+    judge's `readWithinMs` cannot stop it and a hook would time out and let
+    the call through. An ordinary command takes tens of steps and a long
+    script a few thousand; 20,000 keeps a command built to multiply readings
+    to about 15 ms (measured: `"xargs $A " × 24 + "true"`). Past the budget
+    or the depth the command is **unread** ("the command is too complex to
+    read within bounded's work budget (20000 steps): its words could be read
+    too many ways, or it nests too deep"), which the path gate refuses:
+    never a reduced reading.
   - Nothing is guessed (AGENTS.md).
 - **Why a field, not more effects of the tool use.** ADR 2026-006's effects
   are what the call does, as the host describes it; a command's files are
@@ -237,12 +250,15 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   an option or operand could be, the reader takes it for one reading only,
   and a literal word after it leaves judgement (each already so before this
   ADR; a follow-up item):
-  - `sudo "$OPT" rm x`, `env "$X" rm x`, `nice "$N" rm x`,
-    `command "$X" rm x`, `exec "$X" rm x`: read as reads of `rm` and `x`
-    (the unresolved word taken as the program); lost: the delete of `x`.
-    (`timeout $T rm x` is read right: its leading operand is counted.)
-  - `bash "$X" -c "rm x"`: read as nothing (the unresolved word taken as the
-    code); lost: the code `rm x`, never walked, and its delete of `x`.
+  - `sudo "$OPT" rm x`, `doas "$X" rm x`, `env "$X" rm x`,
+    `nice "$N" rm x`, `nohup "$X" rm x`, `stdbuf "$X" rm x`,
+    `ionice "$X" rm x`, `builtin "$X" rm x`, `command "$X" rm x`,
+    `exec "$X" rm x`: read as reads of `rm` and `x` (the unresolved word
+    taken as the program); lost: the delete of `x`. (`timeout $T rm x` is
+    read right: its leading operand is counted.)
+  - `bash "$X" -c "rm x"`, and the same with `sh`, `zsh`, `dash` and `ksh`:
+    read as nothing (the unresolved word taken as the code); lost: the code
+    `rm x`, never walked, and its delete of `x`.
   - `git $OPTS rm x`: read as reads of `rm` and `x` (no subcommand found);
     lost: `git rm`'s delete of `x`.
   - `cp -t "$D" x`: read as a read of `x`; lost: the write into the

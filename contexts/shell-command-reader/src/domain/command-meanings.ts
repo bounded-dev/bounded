@@ -1,5 +1,5 @@
 import type { CommandMeaning } from "./command-meanings.contract.ts";
-import type { ShellWord } from "./shell-command.contract.ts";
+import type { ShellWord, WorkBudget } from "./shell-command.contract.ts";
 
 // What a command does with its arguments: a small table, kept explicit. A
 // command not in it reads every operand and every long option's value (the
@@ -251,11 +251,11 @@ function curl(args: readonly ShellWord[]): CommandMeaning {
  * plausible reading runs, and the words that follow are also read as
  * operands: the strictest verdict wins, and nothing leaves judgement.
  */
-function xargs(args: readonly ShellWord[]): CommandMeaning {
+function xargs(args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
   const ran: { name: ShellWord; args: ShellWord[]; input?: true; replace?: ShellWord }[] = [];
   const reads: ShellWord[] = [];
   const seen = new Set<string>();
-  for (const reading of xargsReadings(args, 0, { replace: undefined, argFiles: [] }, { left: XARGS_MAX_READINGS })) {
+  for (const reading of xargsReadings(args, 0, { replace: undefined, argFiles: [] }, budget)) {
     reads.push(...reading.argFiles, ...reading.operands);
     const [name, ...rest] = reading.command;
     if (name === undefined) continue;
@@ -295,8 +295,6 @@ const XARGS_LONG_OPTIONS: Readonly<Record<string, "value" | "optional" | "none">
   "--version": "none",
   "--help": "none",
 });
-/** How many readings of one xargs command are judged at most; past that, the rest of the words are one command and operands. */
-const XARGS_MAX_READINGS = 16;
 
 /** A long option as getopt_long matches it: exactly, else by a prefix of exactly one option; undefined when unknown or ambiguous. */
 function xargsLongOption(name: string): string | undefined {
@@ -322,15 +320,15 @@ interface XargsReading {
  * word, or the word and the next, were options, and, for a resolvable word,
  * that the command starts there. Every reading is returned.
  */
-function xargsReadings(args: readonly ShellWord[], start: number, given: { readonly replace: ShellWord | undefined; readonly argFiles: readonly ShellWord[] }, budget: { left: number }): XargsReading[] {
+function xargsReadings(args: readonly ShellWord[], start: number, given: { readonly replace: ShellWord | undefined; readonly argFiles: readonly ShellWord[] }, budget: WorkBudget): XargsReading[] {
+  // Every reading spends from the whole command's budget; once it is spent, the command is unread, so what is returned no longer matters.
+  if (!spend(budget)) return [];
   let replace = given.replace;
   const argFiles = [...given.argFiles];
   const reading = (command: readonly ShellWord[], operands: readonly ShellWord[] = []): XargsReading => ({ command, replace, argFiles, operands });
   /** Every way on after an option at `index` the walk cannot read: it took no value, or the next word, and the words after are also operands. */
   const uncertain = (index: number, commandHere: boolean, takesNoNextWord = false): XargsReading[] => {
     const rest = args.slice(index);
-    budget.left -= 1;
-    if (budget.left <= 0) return [reading(rest, rest)];
     const state = { replace, argFiles };
     return [
       ...(commandHere ? [reading(rest, rest)] : [reading([], rest)]),
@@ -437,7 +435,7 @@ const TEXT = [
   "umask", "break", "continue", "read",
 ];
 
-const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMeaning>> = Object.freeze({
+const TABLE: Readonly<Record<string, (args: readonly ShellWord[], budget: WorkBudget) => CommandMeaning>> = Object.freeze({
   ...Object.fromEntries(TEXT.map((name) => [name, () => NONE])),
   ls: (args) => meaning({ lists: operands(args).length === 0 ? [here] : operands(args) }),
   tree: (args) => meaning({ lists: operands(args).length === 0 ? [here] : operands(args) }),
@@ -484,8 +482,31 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   mawk: awk,
 });
 
-/** What the command `name` does with `args`. */
-export function commandMeaning(name: string, args: readonly ShellWord[]): CommandMeaning {
+/**
+ * The steps reading one whole command may take. A step is one command, one
+ * reading of xargs's options or one report of its input; an ordinary command
+ * takes tens, a long script a few thousand. The bound keeps a command built
+ * to multiply its readings (nested xargs over words that cannot be told) to
+ * a few tens of milliseconds, since the reader is synchronous and no timer
+ * can stop it (ADR 2026-020).
+ */
+export const WORK_BUDGET_STEPS = 20_000;
+/** How deep commands may nest (a wrapper's command, a nested shell's code): far past any written by hand. */
+export const MAX_NESTING = 64;
+
+/** A fresh budget for reading one command. */
+export const newWorkBudget = (): WorkBudget => ({ left: WORK_BUDGET_STEPS, exhausted: false });
+
+/** Spends one step; false once the budget is spent, which marks it exhausted. */
+export function spend(budget: WorkBudget): boolean {
+  if (budget.exhausted) return false;
+  budget.left -= 1;
+  if (budget.left < 0) budget.exhausted = true;
+  return !budget.exhausted;
+}
+
+/** What the command `name` does with `args`, spending from `budget`, the whole command's (one of its own when not given). */
+export function commandMeaning(name: string, args: readonly ShellWord[], budget: WorkBudget = newWorkBudget()): CommandMeaning {
   const known = Object.hasOwn(TABLE, name) ? TABLE[name] : undefined;
-  return known === undefined ? meaning({ reads: readsOf(args) }) : known(args);
+  return known === undefined ? meaning({ reads: readsOf(args) }) : known(args, budget);
 }
