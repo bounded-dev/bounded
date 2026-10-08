@@ -18,17 +18,17 @@ interface Scope {
 
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
-const partsOf = (path: string): string[] => (path === "." ? [] : path.split("/"));
+const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
 
 /** What `script`, run at `place`, reads, lists and writes. */
 export function describeShellCommand(script: readonly ShellNode[], place: ShellPlace): ShellCommandEffects {
-  const reads: string[] = [];
-  const lists: string[] = [];
+  const reads: ProjectPath[] = [];
+  const lists: ProjectPath[] = [];
   const writes: ShellWrite[] = [];
   const unresolved: string[] = [];
 
   /** `text` as a project path from `scope`, or undefined when only the shell could resolve it. */
-  const pathOf = (text: string, scope: Scope): string | undefined => {
+  const pathOf = (text: string, scope: Scope): ProjectPath | undefined => {
     let parts: string[];
     let rest = text;
     if (text.startsWith("/")) {
@@ -47,14 +47,14 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   };
 
   /** A word as a project path; recorded as unresolved when it cannot be one. */
-  const resolve = (word: ShellWord, scope: Scope): string | undefined => {
+  const resolve = (word: ShellWord, scope: Scope): ProjectPath | undefined => {
     const path = word.kind === "literal" ? pathOf(word.text, scope) : undefined;
     if (path === undefined) unresolved.push(word.text);
     return path;
   };
 
   /** A write of `path`, a create or a modify by whether it exists, as a file tool's would be. */
-  const write = (path: string, change: MeaningChange): void => {
+  const write = (path: ProjectPath, change: MeaningChange): void => {
     if (change === "create" || change === "delete") {
       writes.push({ path, change });
       return;
@@ -106,7 +106,10 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
         if (from !== undefined) (moves ? writes.push({ path: from, change: "delete" }) : reads.push(from));
         if (to === undefined) continue;
         if (place.kindOfPath(to) !== "directory") write(to, "write");
-        else if (from !== undefined) write(to === "." ? (from.split("/").at(-1) ?? from) : `${to}/${from.split("/").at(-1)}`, "write");
+        else if (from !== undefined) {
+          const inside = pathOf(from.value.split("/").at(-1) ?? from.value, { at: partsOf(to) });
+          if (inside !== undefined) write(inside, "write");
+        }
       }
     }
     for (const word of meaning.unresolved) unresolved.push(word.text);
@@ -169,7 +172,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
   };
 
-  const start: Scope = { at: place.cwd === null || place.cwd === "." ? [] : partsOf(place.cwd) };
+  const start: Scope = { at: place.cwd === null ? [] : partsOf(place.cwd) };
   for (const node of script) walk(node, start);
   return { reads, lists, writes, unresolved };
 }

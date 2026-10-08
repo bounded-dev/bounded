@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
+import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
 import { describeEffect, Effect } from "./effect.ts";
 
 const read = { kind: "read", path: "src/a.ts" };
@@ -19,12 +19,12 @@ const error = (raw: unknown): string | undefined => {
 
 describe("Effect — the seven kinds", () => {
   test("a read names the file whose contents it reads, normalised", () => {
-    expect<unknown>(Effect.parse({ kind: "read", path: "./src//a.ts" })).toEqual({ ok: true, value: { kind: "read", path: "src/a.ts" } });
+    expect(wireOf(Effect.parse({ kind: "read", path: "./src//a.ts" }))).toEqual({ ok: true, value: { kind: "read", path: "src/a.ts" } });
   });
 
   test("a list names the directory it lists and an optional file-name filter", () => {
-    expect<unknown>(Effect.parse(list)).toEqual({ ok: true, value: { kind: "list", root: "src", filter: "*.ts" } });
-    expect<unknown>(Effect.parse({ kind: "list", root: "." })).toEqual({ ok: true, value: { kind: "list", root: ".", filter: null } });
+    expect(wireOf(Effect.parse(list))).toEqual({ ok: true, value: { kind: "list", root: "src", filter: "*.ts" } });
+    expect(wireOf(Effect.parse({ kind: "list", root: "." }))).toEqual({ ok: true, value: { kind: "list", root: ".", filter: null } });
     expect(error({ kind: "list", root: "src", filter: " " })).toBe("A list's filter is a non-empty file-name pattern, or null");
     expect(error({ kind: "list", root: "../x" })).toBe("Path '../x' climbs out of the project with '..'. Only paths inside the project can be checked");
     expect(error({ kind: "read", path: "src", filter: "*.ts" })).toBe("A read effect is { kind, path }");
@@ -36,15 +36,15 @@ describe("Effect — the seven kinds", () => {
   });
 
   test("an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not", () => {
-    expect<unknown>(Effect.parse({ kind: "execute", command: " make\n\tbuild " })).toEqual({ ok: true, value: { kind: "execute", command: " make\n\tbuild ", cwd: null } });
+    expect(wireOf(Effect.parse({ kind: "execute", command: " make\n\tbuild " }))).toEqual({ ok: true, value: { kind: "execute", command: " make\n\tbuild ", cwd: null } });
     expect(error({ kind: "execute", command: " " })).toBe("An execute effect must name the command it runs");
     expect(error({ kind: "execute", command: "rm a\0b" })).toBe("A command must not contain a NUL character");
     expect(error({ kind: "execute", command: "echo \u001b[31m" })).toBe("A command must not contain control characters other than tab and line breaks");
   });
 
   test("an execute may name the project directory it runs in, normalised; outside the project is refused", () => {
-    expect<unknown>(Effect.parse({ kind: "execute", command: "make", cwd: "./apps//web" })).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: "apps/web" } });
-    expect<unknown>(Effect.parse({ kind: "execute", command: "make", cwd: null })).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null } });
+    expect(wireOf(Effect.parse({ kind: "execute", command: "make", cwd: "./apps//web" }))).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: "apps/web" } });
+    expect(wireOf(Effect.parse({ kind: "execute", command: "make", cwd: null }))).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null } });
     expect(error({ kind: "execute", command: "make", cwd: "../elsewhere" })).toBe("Path '../elsewhere' climbs out of the project with '..'. Only paths inside the project can be checked");
     expect(error({ kind: "execute", command: "make", cwd: "/tmp" })).toBe("Path '/tmp' is absolute. Give it relative to the project root, such as 'src/a.ts'");
   });
@@ -61,7 +61,7 @@ describe("Effect — the seven kinds", () => {
   });
 
   test("an invoke names a tool whose effects the host cannot describe", () => {
-    expect<unknown>(Effect.parse(invoke)).toEqual({ ok: true, value: { kind: "invoke", name: "mcp__docs__search" } });
+    expect(wireOf(Effect.parse(invoke))).toEqual({ ok: true, value: { kind: "invoke", name: "mcp__docs__search" } });
     expect(error({ kind: "invoke", name: " " })).toBe("An invoke effect must name the tool it invokes");
     expect(error({ kind: "invoke", name: "a\u0000b" })).toBe("A tool name must not contain NUL or control characters");
     expect(error({ kind: "invoke", name: "web", url: "https://a" })).toBe("An invoke effect is { kind, name }");

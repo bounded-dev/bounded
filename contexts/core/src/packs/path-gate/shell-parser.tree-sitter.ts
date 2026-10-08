@@ -175,7 +175,7 @@ export function treeSitterShellParser(): ShellParser {
     },
     parse(command) {
       if (parser === undefined) return { ok: false, error: "the shell parser is not prepared: a project opened with openProject prepares it" };
-      const tree = parser.parse(command);
+      const tree = parser.parse(command.value);
       if (tree === null) return { ok: false, error: "the shell parser could not parse this command" };
       try {
         return { ok: true, value: statements(tree.rootNode) };

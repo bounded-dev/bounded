@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type AnyPack, contribution, definePack, packIdsFor, Verdict } from "bounded/domain";
-import { pathGate, type ProtectedPath } from "bounded/path-gate";
+import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
 import { opened, type PathsForTest, ROOT } from "./shell.test-support.ts";
 
 // The path gate's guard on shell commands: a command is parsed into a syntax
@@ -9,7 +9,7 @@ import { opened, type PathsForTest, ROOT } from "./shell.test-support.ts";
 const packId = packIdsFor("test-packs");
 
 /** A pack, test-packs/a, that contributes `given` to the path gate's point. */
-const rules = (local: "a" | "b", ...given: ProtectedPath[]): AnyPack => {
+const rules = (local: "a" | "b", ...given: ProtectedPathJSON[]): AnyPack => {
   const contributes = [contribution(pathGate.points.protectedPaths, given)];
   return local === "a" ? definePack({ id: packId("a"), dependsOn: [pathGate], contributes }) : definePack({ id: packId("b"), dependsOn: [pathGate], contributes });
 };

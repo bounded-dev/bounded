@@ -1,4 +1,4 @@
-import type { PathKind, Result } from "bounded/domain";
+import type { Command, PathKind, ProjectPath, Result } from "bounded/domain";
 
 // What the path gate needs from a shell parser, and what it makes of a
 // command: a syntax tree, then a translation into the paths the command
@@ -43,27 +43,27 @@ export type ShellNode =
  */
 export interface ShellParser {
   prepare(): Promise<void>;
-  parse(command: string): Result<readonly ShellNode[]>;
+  parse(command: Command): Result<readonly ShellNode[]>;
 }
 
-/** Where a command runs: its directory (project-relative, or null for the root), the project root, and what is at a path. */
+/** Where a command runs: its directory (null for the project root), the project root (absolute), and what is at a path. */
 export interface ShellPlace {
-  readonly cwd: string | null;
+  readonly cwd: ProjectPath | null;
   readonly root: string;
-  kindOfPath(path: string): PathKind | undefined;
+  kindOfPath(path: ProjectPath): PathKind | undefined;
 }
 
 /** A write a command makes; `undetermined` when whether the file exists could not be told, so it is judged as both a create and a modify. */
 export interface ShellWrite {
-  readonly path: string;
+  readonly path: ProjectPath;
   readonly change: "create" | "modify" | "delete";
   readonly undetermined?: true;
 }
 
 /** The project paths a command reads, lists and writes, and what in it only the shell can resolve. */
 export interface ShellCommandEffects {
-  readonly reads: readonly string[];
-  readonly lists: readonly string[];
+  readonly reads: readonly ProjectPath[];
+  readonly lists: readonly ProjectPath[];
   readonly writes: readonly ShellWrite[];
   readonly unresolved: readonly string[];
 }

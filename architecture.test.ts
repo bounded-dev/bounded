@@ -148,6 +148,89 @@ function packIdViolations(path: string, text: string, packageName: string): stri
   return out;
 }
 
+/**
+ * Value objects are classes, as in the worked example (ADR 2026-012): never a
+ * branded primitive. Refused anywhere in source: an intersection of a
+ * primitive with anything else (`string & { readonly __role: true }`,
+ * `string & Brand<"Role">`), and a type alias intersecting an object type
+ * that declares a `__` property (`Text & { readonly __packId: Text }`).
+ */
+function brandedPrimitiveViolations(path: string, text: string): string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const PRIMITIVES = new Set([ts.SyntaxKind.StringKeyword, ts.SyntaxKind.NumberKeyword, ts.SyntaxKind.BooleanKeyword, ts.SyntaxKind.BigIntKeyword, ts.SyntaxKind.SymbolKeyword]);
+  const declaresDunder = (node: ts.TypeNode): boolean =>
+    ts.isTypeLiteralNode(node) && node.members.some((member) => member.name !== undefined && ts.isIdentifier(member.name) && member.name.text.startsWith("__"));
+  const flag = (node: ts.Node): void => {
+    out.push(`${path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1} — a value object is a class with a private constructor, as in the worked example, never a branded primitive or object: ${node.getText(file)}`);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isIntersectionTypeNode(node) && node.types.some((member) => PRIMITIVES.has(member.kind)) && node.types.some((member) => !PRIMITIVES.has(member.kind))) flag(node);
+    else if (ts.isTypeAliasDeclaration(node) && ts.isIntersectionTypeNode(node.type) && !node.type.types.some((member) => PRIMITIVES.has(member.kind)) && node.type.types.some(declaresDunder)) flag(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+}
+
+/**
+ * A value-object class keeps its constructor private, and its file exports
+ * that class as the factory (`export const X: Contract.XFactory = XImpl`), as
+ * in the worked example. `classes` maps each contract a class implements to
+ * the class.
+ */
+function valueObjectClassViolations(path: string, text: string, isValueObject: (contract: string) => boolean): string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const at = (node: ts.Node) => `${path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1}`;
+  const classes = new Map<string, string>();
+  for (const node of file.statements.filter(ts.isClassDeclaration)) {
+    const contracts = (node.heritageClauses ?? []).filter((clause) => clause.token === ts.SyntaxKind.ImplementsKeyword).flatMap((clause) => clause.types.map((type) => type.expression.getText(file).replace(/^Contract\./, "")));
+    const valueObjects = contracts.filter(isValueObject);
+    if (node.name === undefined || valueObjects.length === 0) continue;
+    for (const contract of valueObjects) classes.set(contract, node.name.text);
+    const declared = node.members.find(ts.isConstructorDeclaration);
+    const isPrivate = declared?.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword) === true;
+    if (!isPrivate) out.push(`${at(node)} — ${node.name.text} is a value object: give it a private constructor, so only its parse and named constructors make one`);
+  }
+  for (const statement of file.statements.filter(ts.isVariableStatement)) {
+    for (const declaration of statement.declarationList.declarations) {
+      const factory = declaration.type?.getText(file).match(/^Contract\.(\w+)Factory$/)?.[1];
+      const made = factory === undefined ? undefined : classes.get(factory);
+      if (made !== undefined && declaration.initializer?.getText(file) !== made) out.push(`${at(declaration)} — export the class ${made} itself as the ${factory} factory, as in the worked example`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Branded contracts that are not value objects, so no class implements them:
+ * packs, points, declarations and contributions are identity objects made by
+ * definePack, point and contribution (ADR 2026-003), and a configuration is
+ * made by defineConfig (ADR 2026-010).
+ */
+const IDENTITY_OBJECTS = new Set(["AnyDeclaration", "PointDeclaration", "AnyPack", "Pack", "AnyPoint", "ExtensionPoint", "Contribution", "Config"]);
+
+/** The branded interfaces a contract exports: each declares `__brand`, or extends one of the file's interfaces that does. */
+function brandedContracts(path: string, text: string): string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const interfaces = file.statements.filter(ts.isInterfaceDeclaration);
+  const branded = new Set<string>();
+  const declaresBrand = (node: ts.InterfaceDeclaration): boolean => node.members.some((member) => member.name !== undefined && ts.isIdentifier(member.name) && member.name.text === "__brand");
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const node of interfaces) {
+      const parents = (node.heritageClauses ?? []).flatMap((clause) => clause.types.map((type) => type.expression.getText(file)));
+      if (!branded.has(node.name.text) && (declaresBrand(node) || parents.some((parent) => branded.has(parent)))) {
+        branded.add(node.name.text);
+        grew = true;
+      }
+    }
+  }
+  const exported = (node: ts.InterfaceDeclaration): boolean => node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true;
+  return interfaces.filter((node) => exported(node) && branded.has(node.name.text)).map((node) => node.name.text);
+}
+
 const violations: string[] = [];
 const files = [...new Glob("contexts/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
 for (const path of files) {
@@ -164,6 +247,7 @@ for (const path of files) {
   if (shippedPack && rest.length < 3) violations.push(`${path} — a shipped pack lives in its own directory, src/packs/<name>/`);
   const pure = (layer === "domain" || layer === "application" || shippedPack) && !isTest;
   if (!isTest) violations.push(...packIdViolations(path, text, context.name));
+  if (!isTest) violations.push(...brandedPrimitiveViolations(path, text));
   violations.push(...shippedPackViolations(path, importsOf(path, text), context));
   if (pure && /\b(Bun|process|fetch|require)\s*[.(]/.test(text)) violations.push(`${path} — ${layer} code does no I/O`);
   if (!isTest && /\bBun\s*\./.test(text)) violations.push(`${path} — runtime code uses no Bun API: hosts such as pi run the core under node`);
@@ -195,6 +279,22 @@ for (const path of files) {
     }
     else if (pure && !shippedPack && !typeOnly && spec !== "zod") violations.push(`${at} — ${layer} code uses no library but zod${IO_MODULES.test(spec) ? " and does no I/O" : ""}`);
   }
+}
+
+// Every branded contract but an identity object is implemented by a class in its context.
+for (const context of contexts) {
+  const sources = files.filter((path) => path.startsWith(`${context.dir}/`) && !/\.test(-support)?\.ts$/.test(path));
+  const texts = await Promise.all(sources.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));
+  for (const { path, text } of texts.filter(({ path }) => path.endsWith(".contract.ts"))) {
+    for (const name of brandedContracts(path, text)) {
+      const implemented = new RegExp(`^class \\w+(<[^>]*>)? implements (Contract\\.)?${name}\\b`, "m");
+      if (!IDENTITY_OBJECTS.has(name) && !texts.some(({ text }) => implemented.test(text))) {
+        violations.push(`${path} — ${name} is a value object: implement it with a class with a private constructor (class ${name}Impl implements Contract.${name}), as in the worked example`);
+      }
+    }
+  }
+  const valueObjects = new Set(texts.filter(({ path }) => path.endsWith(".contract.ts")).flatMap(({ path, text }) => brandedContracts(path, text)).filter((name) => !IDENTITY_OBJECTS.has(name)));
+  for (const { path, text } of texts) violations.push(...valueObjectClassViolations(path, text, (contract) => valueObjects.has(contract)));
 }
 
 const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
@@ -299,6 +399,29 @@ describe("architecture", () => {
       'a.ts:1 — PackId.parse is the core\'s; build this workspace\'s ids with packIdsFor("my-pack")',
     ]);
     expect(packIdViolations("a.ts", 'const id = PackId.parse("bounded/core");', "bounded")).toEqual([]);
+  });
+
+  test("the value-object rule flags a branded primitive or object, and nothing else", () => {
+    expect(brandedPrimitiveViolations("a.ts", "export type Role = string & { readonly __role: true };")).toHaveLength(1);
+    expect(brandedPrimitiveViolations("a.ts", "export type PackId<T extends string> = T & { readonly __packId: T };")).toHaveLength(1);
+    expect(brandedPrimitiveViolations("a.ts", "type Owned = AnyPack & { readonly id: Owner };")).toEqual([]);
+    expect(brandedPrimitiveViolations("a.ts", "export type Role = string & Brand<\"Role\">;")).toHaveLength(1);
+    expect(brandedPrimitiveViolations("a.ts", "export interface Use { readonly path: string & { readonly __path: true } }")).toHaveLength(1);
+    expect(brandedPrimitiveViolations("a.ts", "function f<P extends string>(pkg: P & Check<P>): void {}")).toEqual([]);
+    expect(brandedPrimitiveViolations("a.ts", "export interface Role { readonly __brand: \"Role\"; readonly value: string }")).toEqual([]);
+  });
+
+  test("the value-object rule wants a private constructor and the class itself as the factory", () => {
+    const isValueObject = (name: string) => name === "Role";
+    const good = "class RoleImpl implements Contract.Role {\n  private constructor(readonly value: string) {}\n}\nexport const Role: Contract.RoleFactory = RoleImpl;";
+    expect(valueObjectClassViolations("a.ts", good, isValueObject)).toEqual([]);
+    const open = "class RoleImpl implements Contract.Role {\n  constructor(readonly value: string) {}\n}\nexport const Role: Contract.RoleFactory = Object.freeze({ parse });";
+    expect(valueObjectClassViolations("a.ts", open, isValueObject)).toHaveLength(2);
+  });
+
+  test("the value-object rule finds every branded contract, including one that inherits its brand", () => {
+    const contract = "interface Base { readonly __brand: \"Effect\" }\nexport interface Read extends Base { readonly path: string }\nexport interface Plain { readonly path: string }\nexport interface Id { readonly __brand: \"Id\" }";
+    expect(brandedContracts("a.contract.ts", contract)).toEqual(["Read", "Id"]);
   });
 
   test("no runtime code in a context uses Bun's API: pi runs the core under node", () => {

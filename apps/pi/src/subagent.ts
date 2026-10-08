@@ -2,7 +2,7 @@
 // translation understands, so nothing it does goes undescribed. Unlike pi's
 // built-in tools, it honours a `cwd` argument, so paths start there.
 import type { Result } from "bounded/domain";
-import type { Effect } from "./event.ts";
+import type { EffectJSON } from "./event.ts";
 import type { Locate } from "./pi-path.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
@@ -19,7 +19,7 @@ const isFields = (value: unknown): value is Fields => typeof value === "object" 
 const own = (fields: Fields, name: string): unknown => (Object.hasOwn(fields, name) ? fields[name] : undefined);
 
 /** The effects of one subagent call, or why it cannot be translated. */
-export function subagentEffects(toolName: string, input: Fields, sessionCwd: string, locate: Locate): Result<Effect[]> {
+export function subagentEffects(toolName: string, input: Fields, sessionCwd: string, locate: Locate): Result<EffectJSON[]> {
   const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error: `pi's ${toolName} call ${error}` });
   const unknownFields = (fields: Fields, allowed: ReadonlySet<string>): string | undefined => {
     const unknown = Object.keys(fields).filter((name) => !allowed.has(name));
@@ -41,7 +41,7 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
     return { ok: true, value: [{ kind: "invoke", name: `${toolName}.${action}` }] };
   }
 
-  const effects: Effect[] = [];
+  const effects: EffectJSON[] = [];
   /** The directory a `cwd` field names, from `base`; `base` itself when there is none. */
   const directory = (fields: Fields, base: string): Result<string> => {
     const cwd = own(fields, "cwd");
@@ -63,7 +63,7 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
     if (typeof output === "string") {
       const located = locate(output, where.value);
       if (!located.ok) return located;
-      effects.push({ kind: "write", path: located.value.path, change: located.value.exists ? "modify" : "create" });
+      effects.push({ kind: "write", path: located.value.path.value, change: located.value.exists ? "modify" : "create" });
     } else if (output !== undefined && output !== false) return refuse("has an 'output' that is not a file path or false");
     return where;
   };

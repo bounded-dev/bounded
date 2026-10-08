@@ -1,5 +1,6 @@
 import type { Result } from "../shared/result.ts";
-import type { Effect } from "./effect.contract.ts";
+import type { CallId } from "./call-id.contract.ts";
+import type { Effect, EffectJSON } from "./effect.contract.ts";
 import type { Role } from "./role.contract.ts";
 
 /** What kind of tool acts, in words no host owns: kept for allowlists of tools. */
@@ -17,6 +18,17 @@ export interface ToolUse {
   readonly tool: ToolKind;
   readonly effects: readonly [Effect, ...Effect[]];
   /** The host's id for this call, when it gives one: a tool result names the same id. */
+  readonly callId?: CallId;
+  equals(other: ToolUse): boolean;
+  toJSON(): ToolUseJSON;
+}
+
+/** A tool use's wire form: what its toJSON gives and ToolUse.parse takes (`kind` may be left out). */
+export interface ToolUseJSON {
+  readonly kind?: "tool-use";
+  readonly role: string | null;
+  readonly tool: ToolKind;
+  readonly effects: readonly EffectJSON[];
   readonly callId?: string;
 }
 

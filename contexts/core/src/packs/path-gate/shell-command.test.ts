@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { contribution, Composition, corePack, definePack, dispatchEvent, packIdsFor, ToolUse } from "bounded/domain";
+import { Command, contribution, Composition, corePack, definePack, dispatchEvent, packIdsFor, ProjectPath, ToolUse } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 import { commandMeaning } from "./command-meanings.ts";
 import { describeShellCommand } from "./shell-command.ts";
@@ -11,11 +11,23 @@ import { kindOfPathFor, type PathsForTest, ROOT } from "./shell.test-support.ts"
 const parser = treeSitterShellParser();
 beforeAll(() => parser.prepare());
 
-/** What `command` reads, lists and writes from `cwd`, with `paths` saying what exists. */
+/** A value object from its wire form, as the core makes them. */
+function made<T>(parsed: { ok: true; value: T } | { ok: false; error: string }): T {
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
+const commandOf = (text: string): Command => made(Command.parse(text));
+
+/** What `command` reads, lists and writes from `cwd`, with `paths` saying what exists; paths as text. */
 function described(command: string, cwd: string | null = null, paths: PathsForTest = {}) {
-  const script = parser.parse(command);
-  if (!script.ok) throw new Error(script.error);
-  return describeShellCommand(script.value, { cwd, root: ROOT, kindOfPath: kindOfPathFor(paths) });
+  const script = made(parser.parse(commandOf(command)));
+  const effects = describeShellCommand(script, { cwd: cwd === null ? null : made(ProjectPath.parse(cwd)), root: ROOT, kindOfPath: kindOfPathFor(paths) });
+  return {
+    reads: effects.reads.map((path) => path.value),
+    lists: effects.lists.map((path) => path.value),
+    writes: effects.writes.map((write) => ({ ...write, path: write.path.value })),
+    unresolved: effects.unresolved,
+  };
 }
 
 describe("describeShellCommand: a parsed command as the paths it reads and writes, deciding nothing", () => {
@@ -81,10 +93,10 @@ describe("commandMeaning: the small table of what a command does with its argume
 
 describe("the shell check: the parser, loaded once when the project opens", () => {
   test("a parser used before it is prepared, or that cannot load, refuses rather than guesses", async () => {
-    expect(treeSitterShellParser().parse("ls").ok).toBe(false);
+    expect(treeSitterShellParser().parse(commandOf("ls")).ok).toBe(false);
     const failing: ShellParser = { prepare: async () => { throw new Error("main.wasm is missing"); }, parse: () => ({ ok: false, error: "not loaded" }) };
     const check = await prepareShellCheck(failing, { root: ROOT, kindOfPath: () => "absent" });
-    expect(check.describe("ls", null)).toEqual({ ok: false, error: "bounded's shell parser could not load (main.wasm is missing)" });
+    expect(check.describe(commandOf("ls"), null)).toEqual({ ok: false, error: "bounded's shell parser could not load (main.wasm is missing)" });
   });
 
   test("a project the path gate was never opened for refuses shell commands, saying how to open it", () => {
@@ -102,7 +114,7 @@ describe("the shell check: the parser, loaded once when the project opens", () =
 
 describe("treeSitterShellParser: the shell parser behind the port", () => {
   test("gives commands with their words, redirections, lists, pipelines, subshells, groups and substitutions", () => {
-    const script = parser.parse("(cd a); { cat b; } | wc && echo `x` > o");
+    const script = parser.parse(commandOf("(cd a); { cat b; } | wc && echo `x` > o"));
     expect(script.ok).toBe(true);
     if (!script.ok) return;
     expect(script.value.map((node) => node.kind)[0]).toBe("subshell");
@@ -110,7 +122,7 @@ describe("treeSitterShellParser: the shell parser behind the port", () => {
   });
 
   test("quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them", () => {
-    const script = parser.parse("cat \"a b\" 'c' d\\ e $X *.ts ~/f \"$(cat g)\"");
+    const script = parser.parse(commandOf("cat \"a b\" 'c' d\\ e $X *.ts ~/f \"$(cat g)\""));
     if (!script.ok) throw new Error(script.error);
     const [command] = script.value;
     if (command?.kind !== "command") throw new Error("expected a command");

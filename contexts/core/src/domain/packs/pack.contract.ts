@@ -5,14 +5,28 @@ import type { IsExact, PackId, Refused } from "./pack-id.contract.ts";
 // explicitly wired fails to compile, and composition repeats each rule at
 // run time.
 
+/**
+ * A value object's wire form: what its `toJSON` gives and its `parse` takes.
+ * Never for any other type.
+ */
+export type WireOf<Value> = Value extends { readonly __brand: string; toJSON(): infer Wire } ? Wire : never;
+
+/**
+ * What may be given for a point whose values are `Value`: a `Value`, or, when
+ * it is a value object, its wire form (a rule written as an object literal).
+ * The point's check parses every value at composition, so readers always get
+ * what the check returned.
+ */
+export type Contributed<Value> = Value | WireOf<Value>;
+
 /** An extension point as declared inside its pack's definition, before it has an owner. */
 export interface PointDeclaration<Value> {
   readonly __brand: "PointDeclaration";
   readonly description: string;
   /** Parses a contributed value, possibly normalising it, or refuses it with a message. */
   readonly check: (raw: unknown) => Result<Value>;
-  /** The owning pack's own values for this point. */
-  readonly values: readonly Value[];
+  /** The owning pack's own values for this point, before its check parses them. */
+  readonly values: readonly Contributed<Value>[];
 }
 
 /** Any declaration, its value type forgotten. */
@@ -68,7 +82,7 @@ export interface PackSpec<Id extends PackId, Points extends Declarations, Depend
   readonly contributes?: readonly Contribution<NoInfer<Dependencies[number]["id"]>>[];
 }
 
-type ExactId<Id> = [Id] extends [{ readonly __packId: infer Text extends string }] ? IsExact<Text> : false;
+type ExactId<Id> = [Id] extends [{ readonly value: infer Text extends string }] ? IsExact<Text> : false;
 type CamelCase<K> = K extends string ? (K extends "" | `${string}${"." | "-" | "_" | "/" | " " | "$"}${string}` ? false : K extends Uncapitalize<K> ? true : false) : false;
 type Repeats<List extends readonly unknown[]> = List extends readonly [infer Head, ...infer Tail] ? ([Head] extends [Tail[number]] ? true : Repeats<Tail>) : false;
 
@@ -169,10 +183,10 @@ export interface PackFactory {
    * in the type, is not.
    */
   point<Value>(
-    spec: { readonly description: string; readonly check: (raw: unknown) => Result<Value>; readonly values?: readonly NoInfer<Value>[] } & (true extends ContainsAny<Value>
+    spec: { readonly description: string; readonly check: (raw: unknown) => Result<Value>; readonly values?: readonly NoInfer<Contributed<Value>>[] } & (true extends ContainsAny<Value>
       ? { readonly check: Refused<"a point's check must return a precise type, not any"> }
       : unknown),
   ): PointDeclaration<Value>;
-  /** Contribute values of exactly the point's type to a point of a pack you depend on. */
-  contribution<Value, Owner extends PackId>(point: ExtensionPoint<Value, Owner>, values: readonly NoInfer<Value>[]): Contribution<Owner>;
+  /** Contribute values of exactly the point's type (or a value object's wire form) to a point of a pack you depend on. */
+  contribution<Value, Owner extends PackId>(point: ExtensionPoint<Value, Owner>, values: readonly NoInfer<Contributed<Value>>[]): Contribution<Owner>;
 }

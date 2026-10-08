@@ -7,6 +7,9 @@ import type { ToolUse } from "./event.ts";
 import { type AdapterRefusal, type Decide, type ExtensionOptions, type Load, type Pi, type PiHandler, piExtension } from "./extension.ts";
 import { bounded } from "./index.ts";
 
+/** A value's wire form: its JSON, parsed. */
+const wireOf = (value: unknown): unknown => JSON.parse(JSON.stringify(value) ?? "null");
+
 const project = mkdtempSync(join(tmpdir(), "bounded-pi-extension-"));
 mkdirSync(join(project, "generated"), { recursive: true });
 writeFileSync(join(project, "generated", "api.ts"), "");
@@ -31,7 +34,7 @@ function fakePi() {
 const seen: ToolUse[] = [];
 const noGenerated: Decide = async (event) => {
   seen.push(event);
-  return event.effects.some((effect) => effect.kind === "write" && effect.path.startsWith("generated/"))
+  return event.effects.some((effect) => effect.kind === "write" && effect.path.value.startsWith("generated/"))
     ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead")
     : Verdict.allow;
 };
@@ -55,7 +58,7 @@ describe("piExtension — end to end through a fake pi", () => {
   test("an allowed call returns undefined, so pi runs it", async () => {
     const fake = await started(loads(noGenerated));
     expect(await fake.call("read", { path: "generated/api.ts" })).toBeUndefined();
-    expect<unknown>(seen.at(-1)).toEqual({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "generated/api.ts" }], callId: "1" });
+    expect(wireOf(seen.at(-1))).toEqual({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "generated/api.ts" }], callId: "1" });
   });
 
   test("a refused call blocks, with the reason and the redirect on separate lines", async () => {
@@ -87,7 +90,7 @@ describe("piExtension — end to end through a fake pi", () => {
   test("a shell call's execute effect carries the session's directory, project-relative", async () => {
     const fake = await started(loads(noGenerated));
     await fake.call("bash", { command: "ls" }, { cwd: join(project, "generated") });
-    expect<unknown>(seen.at(-1)).toEqual({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "generated" }], callId: "1" });
+    expect(wireOf(seen.at(-1))).toEqual({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "generated" }], callId: "1" });
   });
 
   test("an allowed call's input is frozen, so a later handler cannot change what was judged", async () => {
@@ -112,7 +115,7 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
       return { message: null };
     } }));
     expect(await fake.finished("bash", { command: "./regenerate.sh" })).toBeUndefined();
-    expect<unknown>(results).toEqual([{ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "1" }]);
+    expect(wireOf(results)).toEqual([{ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "1" }]);
   });
 
   test("what afterTool undid is added to the result pi gives the agent, marked as an error", async () => {
@@ -130,7 +133,7 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
       return { message: null };
     } }));
     await fake.finished("read", { path: "../outside.txt" }, true);
-    expect<unknown>(results).toEqual([{ kind: "tool-result", role: null, tool: "other", effects: [{ kind: "invoke", name: "read" }], ok: false, callId: "1" }]);
+    expect(wireOf(results)).toEqual([{ kind: "tool-result", role: null, tool: "other", effects: [{ kind: "invoke", name: "read" }], ok: false, callId: "1" }]);
     expect(await (await started(loads(noGenerated))).finished("bash", { command: "ls" })).toBeUndefined();
   });
 

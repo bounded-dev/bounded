@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
+import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
 import { ToolUse } from "./tool-use.ts";
 
 const edit = { role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] };
@@ -15,7 +15,7 @@ const error = (raw: unknown): string | undefined => {
 
 describe("ToolUse — boundaries", () => {
   test("a tool use: who acts, with what kind of tool, and every effect the call has", () => {
-    expect<unknown>(ToolUse.parse(edit)).toEqual({
+    expect(wireOf(ToolUse.parse(edit))).toEqual({
       ok: true,
       value: { kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] },
     });
@@ -23,7 +23,7 @@ describe("ToolUse — boundaries", () => {
 
   test("its effects keep the order given, each checked and normalised", () => {
     const rename = { role: null, tool: "edit", effects: [{ kind: "write", path: "./a.ts", change: "delete" }, { kind: "write", path: "b//a.ts", change: "create" }] };
-    expect<unknown>(ToolUse.parse(rename)).toEqual({
+    expect(wireOf(ToolUse.parse(rename))).toEqual({
       ok: true,
       value: { kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "a.ts", change: "delete" }, { kind: "write", path: "b/a.ts", change: "create" }] },
     });
@@ -68,7 +68,7 @@ describe("ToolUse — boundaries", () => {
 describe("ToolUse — the call's id", () => {
   test("a tool use may carry the host's id for the call, kept as given", () => {
     const result = ToolUse.parse({ ...run, callId: "toolu_01ABC" });
-    expect(result.ok && result.value.callId).toBe("toolu_01ABC");
+    expect(result.ok && result.value.callId?.value).toBe("toolu_01ABC");
     const without = ToolUse.parse(run);
     expect(without.ok && Object.hasOwn(without.value, "callId")).toBe(false);
   });

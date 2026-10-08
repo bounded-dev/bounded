@@ -7,6 +7,17 @@ import type { Result } from "../shared/result.ts";
  * and what to do instead. A shell command's changes to them are undone.
  */
 export interface WatchedPath {
+  readonly __brand: "WatchedPath";
+  readonly match: string;
+  readonly except: readonly string[];
+  readonly why: string;
+  readonly redirect: string;
+  equals(other: WatchedPath): boolean;
+  toJSON(): WatchedPathJSON;
+}
+
+/** A watched path's wire form: what its toJSON gives, and what WatchedPath.parse and the watchedPaths point take. */
+export interface WatchedPathJSON {
   readonly match: string;
   readonly except?: readonly string[];
   readonly why: string;
@@ -15,9 +26,10 @@ export interface WatchedPath {
 
 /**
  * Watched paths worked out from the composition, such as from another
- * point's rules: called each time the watched files are hashed.
+ * point's rules: called each time the watched files are hashed. Each is
+ * checked with WatchedPath.parse.
  */
-export type WatchedPathSource = (composition: Composition) => readonly WatchedPath[];
+export type WatchedPathSource = (composition: Composition) => readonly (WatchedPath | WatchedPathJSON)[];
 
 export interface WatchedPathFactory {
   /** A frozen watched path, `except` always a list, or why the value is not one. */

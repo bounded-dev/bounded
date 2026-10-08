@@ -33,12 +33,12 @@ export function watchedPathsOf(composition: Composition): Result<readonly Watche
     try {
       given = value(composition);
     } catch (thrown) {
-      return { ok: false, error: `the watched paths from ${from} cannot be read: ${show(thrown)}` };
+      return { ok: false, error: `the watched paths from ${from.value} cannot be read: ${show(thrown)}` };
     }
-    if (!Array.isArray(given)) return { ok: false, error: `the watched paths from ${from} cannot be read: its source gave something that is not a list` };
+    if (!Array.isArray(given)) return { ok: false, error: `the watched paths from ${from.value} cannot be read: its source gave something that is not a list` };
     for (const raw of given) {
       const rule = WatchedPath.parse(raw);
-      if (!rule.ok) return { ok: false, error: `the watched paths from ${from} cannot be read: ${rule.error}` };
+      if (!rule.ok) return { ok: false, error: `the watched paths from ${from.value} cannot be read: ${rule.error}` };
       out.push({ rule: rule.value, from });
     }
   }

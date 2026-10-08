@@ -6,6 +6,14 @@ export interface SessionStart {
   readonly __brand: "SessionStart";
   readonly kind: "session-start";
   readonly role: Role | null;
+  equals(other: SessionStart): boolean;
+  toJSON(): SessionStartJSON;
+}
+
+/** A session start's wire form (`kind` may be left out). */
+export interface SessionStartJSON {
+  readonly kind?: "session-start";
+  readonly role: string | null;
 }
 
 export interface SessionStartFactory {

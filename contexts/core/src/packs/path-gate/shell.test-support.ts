@@ -1,4 +1,4 @@
-import { type AnyPack, Composition, corePack, dispatchEvent, type PathKind, ToolUse, type Verdict } from "bounded/domain";
+import { type AnyPack, Composition, corePack, dispatchEvent, type PathKind, type ProjectPath, ToolUse, type Verdict } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
 
 /** The project root the shell tests open their compositions at. */
@@ -8,8 +8,8 @@ export const ROOT = "/work/project";
 export type PathsForTest = Readonly<Record<string, PathKind | "unknown">>;
 
 /** What is at `path` for a test: as given, else a directory for the root, else nothing. */
-export function kindOfPathFor(paths: PathsForTest): (path: string) => PathKind | undefined {
-  return (path) => {
+export function kindOfPathFor(paths: PathsForTest): (path: ProjectPath) => PathKind | undefined {
+  return ({ value: path }) => {
     const given = paths[path];
     if (given === "unknown") return undefined;
     return given ?? (path === "." ? "directory" : "absent");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
+import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, ProjectPath, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
@@ -8,6 +8,12 @@ import type { ProjectConfigSource, ProjectDecisionLogs, ProjectPathKinds } from 
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
 const sha256 = (content: string): string => createHash("sha256").update(content).digest("hex");
+/** A project path, as the core makes them. */
+const pathOf = (raw: string): ProjectPath => {
+  const path = ProjectPath.parse(raw);
+  if (!path.ok) throw new Error(path.error);
+  return path.value;
+};
 const clock: Clock = { now: () => "2026-10-07T12:00:00.000Z" };
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
@@ -26,7 +32,7 @@ if (!root.ok) throw new Error(root.error);
 const command = root.value;
 const write = (path: string) => ({ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
 
-const noGenerated = (effect: WriteEffect) => (effect.path.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow);
+const noGenerated = (effect: WriteEffect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow);
 const config = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.writeGuards, [noGenerated])] });
 
 describe("OpenProjectHandler", () => {
@@ -150,10 +156,10 @@ describe("OpenProjectHandler", () => {
   test("what packs do when a project opens runs before it is judged, given the project's root and what is at a path", async () => {
     const seen: { root: string; kind: unknown; composed: boolean }[] = [];
     const opening: ProjectOpenHandler = async (project, composition) => {
-      seen.push({ root: project.root, kind: project.kindOfPath("src/a.ts"), composed: composition.read(corePack.points.onProjectOpen).ok });
+      seen.push({ root: project.root, kind: project.kindOfPath(pathOf("src/a.ts")), composed: composition.read(corePack.points.onProjectOpen).ok });
     };
     const preparing = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.onProjectOpen, [opening])] });
-    const pathKinds: ProjectPathKinds = { forProject: (projectRoot) => (path) => (projectRoot === "/work/project" && path === "src/a.ts" ? "file" : "absent") };
+    const pathKinds: ProjectPathKinds = { forProject: (projectRoot) => (path) => (projectRoot === "/work/project" && path.value === "src/a.ts" ? "file" : "absent") };
     const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: preparing })), new Logs(), clock, { pathKinds }).execute(command);
     expect(project.problem).toBeNull();
     expect(seen).toEqual([{ root: "/work/project", kind: "file", composed: true }]);
@@ -172,7 +178,7 @@ describe("OpenProjectHandler", () => {
   test("without a way to ask what is at a path, a pack is told it cannot know", async () => {
     let kind: unknown = "unset";
     const opening: ProjectOpenHandler = async (project) => {
-      kind = project.kindOfPath("src/a.ts");
+      kind = project.kindOfPath(pathOf("src/a.ts"));
     };
     const preparing = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.onProjectOpen, [opening])] });
     await new OpenProjectHandler(source(async () => ({ ok: true, value: preparing })), new Logs(), clock).execute(command);

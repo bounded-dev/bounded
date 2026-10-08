@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { ProtectedPath } from "bounded/path-gate";
+import { valueObjectLaws } from "../../domain/shared/value-object.laws.test-support.ts";
 
 const rule = { match: "packages/db/**", deny: ["modify", "delete"], redirect: "Change the schema instead" };
+valueObjectLaws("ProtectedPath", ProtectedPath, [rule, { ...rule, match: ".env", deny: ["read"], file: true, why: "secrets" }], [{ ...rule, deny: ["write"] }, { ...rule, match: "/etc/**" }, { ...rule, redirect: " " }]);
+
 const refused = (raw: unknown): string => {
   const parsed = ProtectedPath.parse(raw);
   return parsed.ok ? "accepted" : parsed.error;
@@ -10,7 +13,7 @@ const refused = (raw: unknown): string => {
 describe("ProtectedPath — a deny-only rule", () => {
   test("accepts a rule and stores it explicitly: patterns tidied, deny in a fixed order without repeats, except always present, frozen", () => {
     const parsed = ProtectedPath.parse({ match: " ./packages//db/** ", deny: ["delete", "read", "delete"], redirect: " Ask the db owner ", why: " generated " });
-    expect(parsed).toEqual({ ok: true, value: { match: "packages/db/**", except: [], deny: ["read", "delete"], redirect: "Ask the db owner", why: "generated" } });
+    expect<unknown>(parsed).toEqual({ ok: true, value: { match: "packages/db/**", except: [], deny: ["read", "delete"], redirect: "Ask the db owner", why: "generated" } });
     if (!parsed.ok) return;
     expect(Object.isFrozen(parsed.value)).toBe(true);
     expect(Object.isFrozen(parsed.value.deny)).toBe(true);

@@ -1,12 +1,18 @@
 import type { Result } from "../shared/result.ts";
 
 /**
- * A pack's id: `<npm package>/<local id>`, such as "bounded/core". Typed as
- * its exact text and branded, so a plain string cannot stand in for it. The
- * id names the pack in selections, messages and logs; packs are matched by
- * object identity, never by id.
+ * A pack's id: `<npm package>/<local id>`, such as "bounded/core". Typed by
+ * its exact text (`PackId<"bounded/core">` has the value "bounded/core"), so
+ * the compiler can tell one pack's id from another's, and a plain string
+ * cannot stand in for it. The id names the pack in selections, messages and
+ * logs; packs are matched by object identity, never by id.
  */
-export type PackId<Text extends string = string> = Text & { readonly __packId: Text };
+export interface PackId<Text extends string = string> {
+  readonly __brand: "PackId";
+  readonly value: Text;
+  equals(other: PackId): boolean;
+  toJSON(): Text;
+}
 
 /** A type the compiler shows as an error naming what to fix. */
 export type Refused<Message extends string> = { readonly [K in `Error: ${Message}`]: never };

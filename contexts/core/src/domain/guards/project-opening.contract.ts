@@ -1,4 +1,5 @@
 import type { Composition } from "../composition/composition.contract.ts";
+import type { ProjectPath } from "../events/project-path.contract.ts";
 
 /** What is at a project path: a file, a directory, something else (such as a link, never followed), or nothing. */
 export type PathKind = "file" | "directory" | "other" | "absent";
@@ -10,7 +11,7 @@ export type PathKind = "file" | "directory" | "other" | "absent";
  */
 export interface OpenedProject {
   readonly root: string;
-  kindOfPath(path: string): PathKind | undefined;
+  kindOfPath(path: ProjectPath): PathKind | undefined;
 }
 
 /**

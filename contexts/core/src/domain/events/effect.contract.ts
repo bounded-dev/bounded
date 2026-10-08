@@ -1,57 +1,98 @@
 import type { Result } from "../shared/result.ts";
+import type { AgentName } from "./agent-name.contract.ts";
+import type { Command } from "./command.contract.ts";
+import type { NamePattern } from "./name-pattern.contract.ts";
 import type { ProjectPath } from "./project-path.contract.ts";
+import type { ToolName } from "./tool-name.contract.ts";
+import type { Url } from "./url.contract.ts";
+
+export type Change = "create" | "modify" | "delete";
+
+/** What every effect is: a value object of one kind, equal by value, whose wire form is a plain object. */
+interface EffectOf<Kind extends string, Wire> {
+  readonly __brand: "Effect";
+  readonly kind: Kind;
+  equals(other: Effect): boolean;
+  toJSON(): Wire;
+}
 
 /** Reads a file's contents. */
-export interface ReadEffect {
-  readonly kind: "read";
+export interface ReadEffect extends EffectOf<"read", ReadEffectJSON> {
   readonly path: ProjectPath;
 }
 
 /** Lists names under a directory (no contents), optionally limited by a file-name pattern. */
-export interface ListEffect {
-  readonly kind: "list";
+export interface ListEffect extends EffectOf<"list", ListEffectJSON> {
   readonly root: ProjectPath;
-  readonly filter: string | null;
+  readonly filter: NamePattern | null;
 }
 
-export type Change = "create" | "modify" | "delete";
-
 /** Creates, modifies or deletes a file. A rename is a delete and a create. */
-export interface WriteEffect {
-  readonly kind: "write";
+export interface WriteEffect extends EffectOf<"write", WriteEffectJSON> {
   readonly path: ProjectPath;
   readonly change: Change;
 }
 
 /** Runs a shell command, and nothing else. */
-export interface ExecuteEffect {
-  readonly kind: "execute";
-  readonly command: string;
+export interface ExecuteEffect extends EffectOf<"execute", ExecuteEffectJSON> {
+  readonly command: Command;
   /** The project directory the command runs in, when the host says; adapters refuse a directory outside the project. */
   readonly cwd: ProjectPath | null;
 }
 
 /** Reaches the network. */
-export interface FetchEffect {
-  readonly kind: "fetch";
-  readonly url: string;
+export interface FetchEffect extends EffectOf<"fetch", FetchEffectJSON> {
+  readonly url: Url;
 }
 
 /** Hands work to another agent. */
-export interface DelegateEffect {
-  readonly kind: "delegate";
-  readonly agent: string;
+export interface DelegateEffect extends EffectOf<"delegate", DelegateEffectJSON> {
+  readonly agent: AgentName;
 }
 
 /** Calls a tool whose effects the host cannot describe: an unknown tool, a tool from another server, a skill. */
-export interface InvokeEffect {
-  readonly kind: "invoke";
-  readonly name: string;
+export interface InvokeEffect extends EffectOf<"invoke", InvokeEffectJSON> {
+  readonly name: ToolName;
 }
 
 /** One precise thing a tool call does. A call has one or more. */
 export type Effect = ReadEffect | ListEffect | WriteEffect | ExecuteEffect | FetchEffect | DelegateEffect | InvokeEffect;
 export type EffectKind = Effect["kind"];
+
+// Wire forms: what each effect's toJSON gives and Effect.parse takes. Host
+// adapters build these; a list's filter and an execute's cwd may be left out.
+export interface ReadEffectJSON {
+  readonly kind: "read";
+  readonly path: string;
+}
+export interface ListEffectJSON {
+  readonly kind: "list";
+  readonly root: string;
+  readonly filter?: string | null;
+}
+export interface WriteEffectJSON {
+  readonly kind: "write";
+  readonly path: string;
+  readonly change: Change;
+}
+export interface ExecuteEffectJSON {
+  readonly kind: "execute";
+  readonly command: string;
+  readonly cwd?: string | null;
+}
+export interface FetchEffectJSON {
+  readonly kind: "fetch";
+  readonly url: string;
+}
+export interface DelegateEffectJSON {
+  readonly kind: "delegate";
+  readonly agent: string;
+}
+export interface InvokeEffectJSON {
+  readonly kind: "invoke";
+  readonly name: string;
+}
+export type EffectJSON = ReadEffectJSON | ListEffectJSON | WriteEffectJSON | ExecuteEffectJSON | FetchEffectJSON | DelegateEffectJSON | InvokeEffectJSON;
 
 export interface EffectFactory {
   /** A frozen effect from its wire form, or why the value is not one. Never throws. */

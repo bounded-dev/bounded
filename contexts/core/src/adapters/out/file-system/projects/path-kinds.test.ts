@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ProjectPath } from "bounded/domain";
 import { FileSystemProjectPathKinds } from "./path-kinds.ts";
 
 describe("FileSystemProjectPathKinds: what is at a project path", () => {
@@ -9,7 +10,12 @@ describe("FileSystemProjectPathKinds: what is at a project path", () => {
   mkdirSync(join(root, "src"));
   writeFileSync(join(root, "src", "a.ts"), "a");
   symlinkSync("a.ts", join(root, "src", "alias.ts"));
-  const kindOf = new FileSystemProjectPathKinds().forProject(root);
+  const kinds = new FileSystemProjectPathKinds().forProject(root);
+  const kindOf = (raw: string) => {
+    const path = ProjectPath.parse(raw);
+    if (!path.ok) throw new Error(path.error);
+    return kinds(path.value);
+  };
 
   test("a file, a directory, something else (a link, never followed) or nothing", () => {
     expect(kindOf("src/a.ts")).toBe("file");
@@ -19,9 +25,7 @@ describe("FileSystemProjectPathKinds: what is at a project path", () => {
     expect(kindOf("src/missing.ts")).toBe("absent");
   });
 
-  test("cannot tell for a path that is not a plain project path", () => {
-    expect(kindOf("../outside")).toBeUndefined();
-    expect(kindOf("/etc/passwd")).toBeUndefined();
-    expect(kindOf("")).toBeUndefined();
+  test("cannot tell when the disk cannot say, such as a path through a file", () => {
+    expect(kindOf("src/a.ts/inner")).toBeUndefined();
   });
 });

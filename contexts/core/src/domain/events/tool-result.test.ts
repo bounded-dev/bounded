@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
 import { ToolResult } from "./tool-result.ts";
 
 const done = { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make" }], ok: true, callId: "toolu_1" };
 
+valueObjectLaws("ToolResult", ToolResult, [done, { ...done, ok: false, callId: "toolu_2" }], [{ ...done, ok: "yes" }, { ...done, effects: [] }, { ...done, kind: "tool-use" }]);
+
 describe("ToolResult", () => {
   test("a tool result is a finished tool use: who, which tool, its effects, the call id and whether it succeeded", () => {
-    expect<unknown>(ToolResult.parse(done)).toEqual({
+    expect(wireOf(ToolResult.parse(done))).toEqual({
       ok: true,
       value: { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", cwd: null }], ok: true, callId: "toolu_1" },
     });

@@ -1,4 +1,4 @@
-import { type Composition, composeConfig, corePack, type OpenedProject, type Result, ToolResult, Verdict } from "bounded/domain";
+import { type Composition, composeConfig, corePack, type OpenedProject, type ProjectPath, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { DriftCheck, WatchShell } from "../../drift/watch-shell/watch-shell.contract.ts";
 import { WatchShellHandler } from "../../drift/watch-shell/watch-shell.handler.ts";
 import type { AdapterRefusalInput, Clock, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
@@ -51,7 +51,7 @@ export class OpenProjectHandler implements OpenProject {
     const openings = composition.read(corePack.points.onProjectOpen);
     if (!openings.ok) return;
     const kindOf = this.options.pathKinds?.forProject(root);
-    const project: OpenedProject = Object.freeze({ root, kindOfPath: (path: string) => kindOf?.(path) });
+    const project: OpenedProject = Object.freeze({ root, kindOfPath: (path: ProjectPath) => kindOf?.(path) });
     await Promise.allSettled(openings.value.map((open) => Promise.resolve().then(() => open(project, composition))));
   }
 

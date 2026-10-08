@@ -1,5 +1,5 @@
 import picomatch from "picomatch";
-import type { ProtectedPath } from "./protected-path.ts";
+import type { ProtectedPath } from "./protected-path.contract.ts";
 
 // How a rule meets a path. Every glob is compiled by picomatch, without
 // extglobs; nothing here parses a glob beyond splitting it at '/'. That split
@@ -38,7 +38,7 @@ function compile(rule: ProtectedPath): Compiled {
   const parts = rule.match.split("/");
   const last = parts[parts.length - 1] ?? "";
   const name = !isGlob(last) && rule.file !== true;
-  const except = rule.except ?? [];
+  const except = rule.except;
   const made: Compiled = {
     match: picomatch(name ? [rule.match, `${rule.match}/**`] : rule.match, DENYING),
     except: except.map((pattern) => picomatch(pattern, EXACT)),
