@@ -75,15 +75,21 @@ describe("bounded init's configuration", () => {
     expect(INITIAL_CONFIG).toContain("core.hooksPath");
     const { judge, problem } = await openProject(project(), { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
     expect(problem).toBeNull();
-    for (const path of [".git/hooks/pre-commit", ".git/config"]) {
+    const byRule = (verdict: { kind: string; reason?: string }, rule: string) => [verdict.kind, verdict.kind === "refuse" && verdict.reason?.includes(`the rule '${rule}' from bounded/project`)];
+    for (const [path, rule] of [[".git/hooks/pre-commit", ".git/hooks/**"], [".git/config", ".git/config"]] as const) {
       for (const change of ["create", "modify", "delete"] as const) {
-        expect([path, change, (await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change }] })).kind]).toEqual([path, change, "refuse"]);
+        const edited = await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change }] });
+        expect([path, change, edited.kind]).toEqual([path, change, "refuse"]);
+        expect([path, change, ...byRule(edited, rule)]).toEqual([path, change, "refuse", true]);
       }
       const command = `echo x > ${path}`;
-      const shell = await judge({ kind: "tool-use", role: null, tool: "bash", effects: [{ kind: "execute", command, cwd: null }] });
+      const shell = await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" });
       expect([command, shell.kind]).toEqual([command, "refuse"]);
+      expect([command, ...byRule(shell, rule)]).toEqual([command, "refuse", true]);
     }
-    expect((await judge({ kind: "tool-use", role: null, tool: "bash", effects: [{ kind: "execute", command: "echo x >> .git/hooks/post-commit", cwd: null }] })).kind).toBe("refuse");
+    const appended = await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "echo x >> .git/hooks/post-commit", cwd: null }], callId: "call-2" });
+    expect(appended.kind).toBe("refuse");
+    expect(byRule(appended, ".git/hooks/**")).toEqual(["refuse", true]);
     // Reading them, and git's other files, is left alone.
     expect((await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: ".git/config" }] })).kind).toBe("allow");
     expect((await judge(edit(".git/info/exclude"))).kind).toBe("allow");
