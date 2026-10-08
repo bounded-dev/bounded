@@ -15,13 +15,13 @@ export async function requireInitialised(files: ProjectSetupFiles, projectRoot: 
 export class UpdateProjectHandler implements UpdateProject {
   constructor(
     private readonly files: ProjectSetupFiles,
-    private readonly installers: HostInstallerSource,
+    private readonly hostInstallerSource: HostInstallerSource,
   ) {}
 
   async execute(projectRoot: string): Promise<Result<SetupReport>> {
     const initialised = await requireInitialised(this.files, projectRoot);
     if (!initialised.ok) return initialised;
-    const installers = await loadInstallers(this.installers, projectRoot);
+    const installers = await loadInstallers(this.hostInstallerSource, projectRoot);
     if (!installers.ok) return installers;
     const hosts = await runInstallers(installers.value, projectRoot);
     if (!hosts.ok) return hosts;

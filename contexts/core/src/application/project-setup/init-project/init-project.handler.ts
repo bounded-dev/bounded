@@ -13,8 +13,8 @@ export default defineConfig({ packs: [corePack] });
 `;
 
 /** The project's host installers, or a refusal when there are none: a project bounded cannot hook into is not set up. */
-export async function loadInstallers(installers: HostInstallerSource, projectRoot: string): Promise<Result<readonly HostInstaller[]>> {
-  const loaded = await installers.load(projectRoot);
+export async function loadInstallers(hostInstallerSource: HostInstallerSource, projectRoot: string): Promise<Result<readonly HostInstaller[]>> {
+  const loaded = await hostInstallerSource.load(projectRoot);
   if (!loaded.ok) return loaded;
   if (loaded.value.length === 0) {
     return { ok: false, error: `No package in ${projectRoot}'s dependencies offers a host installer: install the host adapter package for your agent host beside bounded, then run this again` };
@@ -36,7 +36,7 @@ export async function runInstallers(installers: readonly HostInstaller[], projec
 export class InitProjectHandler implements InitProject {
   constructor(
     private readonly files: ProjectSetupFiles,
-    private readonly installers: HostInstallerSource,
+    private readonly hostInstallerSource: HostInstallerSource,
   ) {}
 
   async execute(projectRoot: string): Promise<Result<SetupReport>> {
@@ -45,7 +45,7 @@ export class InitProjectHandler implements InitProject {
     if (present.value.length > 0) {
       return { ok: false, error: `${projectRoot} already has ${present.value.join(", ")}: init never overwrites a configuration. Run \`bounded update\` to bring its hooks up to date` };
     }
-    const installers = await loadInstallers(this.installers, projectRoot);
+    const installers = await loadInstallers(this.hostInstallerSource, projectRoot);
     if (!installers.ok) return installers;
     const written = await this.files.createConfig(projectRoot, INITIAL_CONFIG);
     if (!written.ok) return written;

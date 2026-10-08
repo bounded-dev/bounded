@@ -30,6 +30,27 @@ export function tarballFor(name: string, fileNames: readonly string[]): Result<s
   return { ok: true, value: only };
 }
 
+/** The version a tarball tarballFor picked holds, read from its name: `bounded-0.2.0.tgz` is 0.2.0. */
+export function tarballVersion(name: string, tarball: string): string {
+  return tarball.slice(name.length + 1, -".tgz".length);
+}
+
+/**
+ * The manifest with its override of `bounded` (`overrides` or `resolutions`)
+ * pointing at `spec`; unchanged when it overrides nothing, or `spec` is null.
+ * Without this, a project that overrides `bounded` with a local tarball
+ * would keep installing the old one.
+ */
+export function withBoundedOverride(manifest: Readonly<Record<string, unknown>>, spec: string | null): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...manifest };
+  if (spec === null) return out;
+  for (const field of ["overrides", "resolutions"]) {
+    const group = manifest[field];
+    if (typeof group === "object" && group !== null && !Array.isArray(group) && "bounded" in group) out[field] = { ...group, bounded: spec };
+  }
+  return out;
+}
+
 /** A package to upgrade: its name, whether the project lists it in devDependencies, and what to install. */
 export interface PackageToUpgrade {
   readonly name: string;

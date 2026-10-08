@@ -13,7 +13,7 @@ import { InitProjectHandler, requireInitialised, type SetupReport, UpdateProject
 import { FileSystemProjectSetupFiles } from "bounded/adapters/file-system";
 import { NodeModulesHostInstallerSource } from "bounded/adapters/system";
 import type { Result } from "bounded/domain";
-import { type PackageToUpgrade, packageManagerFor, tarballFor, upgradeCommands, withUpgradedSpecs } from "./package-upgrade.ts";
+import { type PackageToUpgrade, packageManagerFor, tarballFor, tarballVersion, upgradeCommands, withBoundedOverride, withUpgradedSpecs } from "./package-upgrade.ts";
 
 /** What a run of the CLI printed, and its exit code: 0 done, 1 refused, 2 not understood. */
 export interface CliRun {
@@ -45,7 +45,9 @@ function ownVersion(): string {
 
 const RESTART = "Restart each agent host's session in this project (start a new session) so it loads the hooks.";
 
-function describe(report: SetupReport): string {
+const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
+
+function reportText(report: SetupReport): string {
   const lines = [`bounded ${ownVersion()}`];
   if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the core pack only; add packs there to guard this project.`);
   for (const host of report.hosts) {
@@ -57,7 +59,7 @@ function describe(report: SetupReport): string {
   return `${lines.join("\n")}\n`;
 }
 
-const done = (outcome: Result<SetupReport>): CliRun => (outcome.ok ? { exitCode: 0, stdout: describe(outcome.value), stderr: "" } : refused(outcome.error));
+const done = (outcome: Result<SetupReport>): CliRun => (outcome.ok ? { exitCode: 0, stdout: reportText(outcome.value), stderr: "" } : refused(outcome.error));
 const refused = (error: string, stdout = ""): CliRun => ({ exitCode: 1, stdout, stderr: `bounded: ${error}\n` });
 
 /** The bounded packages the project depends on: bounded itself, and every package offering a host installer. */
@@ -92,27 +94,45 @@ function upgradeThenHandOver(projectRoot: string, from: string): CliRun {
   } catch {
     return refused(`${from} cannot be read: pass --from a directory holding the packed tarballs (bun pm pack) of ${packages.value.map(({ name }) => name).join(", ")}`);
   }
-  const toUpgrade: PackageToUpgrade[] = [];
+  const toUpgrade: (PackageToUpgrade & { version: string })[] = [];
   for (const { name, dev } of packages.value) {
     const tarball = tarballFor(name, tarballs);
     if (!tarball.ok) return refused(`${from}: ${tarball.error}`);
-    toUpgrade.push({ name, dev, spec: join(from, tarball.value) });
+    toUpgrade.push({ name, dev, spec: join(from, tarball.value), version: tarballVersion(name, tarball.value) });
   }
   const manager = packageManagerFor(readdirSync(projectRoot));
-  const log: string[] = [];
+  const manifestPath = join(projectRoot, "package.json");
+  const manifestText = readFileSync(manifestPath, "utf8");
+  /** Puts package.json back as it was, so a failed upgrade leaves the project's manifest unchanged. */
+  const restored = (error: string): CliRun => {
+    writeFileSync(manifestPath, manifestText);
+    return refused(`${error}\npackage.json was restored and the hooks were not changed; if node_modules changed, run your package manager's install to return to the previous versions`);
+  };
+  const bounded = toUpgrade.find(({ name }) => name === "bounded");
+  // A project that overrides `bounded` (to a local tarball, while the npm package is the legacy 2.x) has the override follow the upgrade.
+  let manifest = withBoundedOverride(readJson(manifestPath), bounded === undefined ? null : `file:${bounded.spec}`);
   let commands = upgradeCommands(manager, toUpgrade);
   if (manager === "bun") {
     // bun's `add` cannot replace one tarball dependency with another; install from the rewritten manifest (package-upgrade.ts).
-    const manifestPath = join(projectRoot, "package.json");
-    writeFileSync(manifestPath, `${JSON.stringify(withUpgradedSpecs(readJson(manifestPath), toUpgrade), null, 2)}\n`);
+    manifest = withUpgradedSpecs(manifest, toUpgrade);
     commands = [["bun", "install"]];
   }
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   for (const command of commands) {
     const [program = manager, ...args] = command;
     const ran = spawnSync(program, args, { cwd: projectRoot, encoding: "utf8" });
-    if (ran.status !== 0) return refused(`${command.join(" ")} failed${ran.error === undefined ? "" : ` (${ran.error.message})`}; the hooks were not changed:\n${ran.stdout ?? ""}${ran.stderr ?? ""}`, log.join(""));
+    if (ran.status !== 0) return restored(`${command.join(" ")} failed${ran.error === undefined ? "" : ` (${ran.error.message})`}:\n${ran.stdout ?? ""}${ran.stderr ?? ""}`);
   }
-  log.push(`Upgraded ${toUpgrade.map(({ name }) => name).join(", ")} with ${manager}; handing over to the installed bounded.\n`);
+  for (const { name, version } of toUpgrade) {
+    let installed: unknown;
+    try {
+      installed = readJson(join(projectRoot, "node_modules", name, "package.json")).version;
+    } catch (thrown) {
+      return restored(`${name} is not installed after the upgrade (${message(thrown)})`);
+    }
+    if (installed !== version) return restored(`after the upgrade ${name} is version ${String(installed)}, not ${version} from its tarball`);
+  }
+  const log = `Upgraded ${toUpgrade.map(({ name, version }) => `${name} ${version}`).join(", ")} with ${manager}; handing over to the installed bounded.\n`;
   let installedBin: string;
   try {
     const installed = readJson(join(projectRoot, "node_modules", "bounded", "package.json"));
@@ -120,26 +140,27 @@ function upgradeThenHandOver(projectRoot: string, from: string): CliRun {
     if (typeof bin !== "string") throw new Error("it has no bounded bin");
     installedBin = join(projectRoot, "node_modules", "bounded", bin);
   } catch (thrown) {
-    return refused(`the installed bounded cannot be run (${thrown instanceof Error ? thrown.message : String(thrown)}): run \`bounded update --no-upgrade\` with it yourself`, log.join(""));
+    return refused(`the installed bounded cannot be run (${message(thrown)}), so the hooks were not refreshed: run \`bounded update --no-upgrade\` with it yourself`, log);
   }
   const handedOver = spawnSync(process.execPath, [installedBin, "update", "--no-upgrade"], { cwd: projectRoot, encoding: "utf8" });
-  return { exitCode: handedOver.status ?? 1, stdout: `${log.join("")}${handedOver.stdout ?? ""}`, stderr: handedOver.stderr ?? (handedOver.error === undefined ? "" : `bounded: ${handedOver.error.message}\n`) };
+  const spawnError = handedOver.error === undefined ? "" : `bounded: the installed bounded could not be started: ${handedOver.error.message}\n`;
+  return { exitCode: handedOver.status ?? 1, stdout: `${log}${handedOver.stdout ?? ""}`, stderr: `${handedOver.stderr ?? ""}${spawnError}` };
 }
 
 /** Runs `bounded <args>` in the project at `projectRoot`. Never throws. */
 export async function runBoundedCli(args: readonly string[], projectRoot: string): Promise<CliRun> {
   try {
     const files = new FileSystemProjectSetupFiles();
-    const installers = new NodeModulesHostInstallerSource();
+    const hostInstallerSource = new NodeModulesHostInstallerSource();
     const [command, ...options] = args;
-    if (command === "init" && options.length === 0) return done(await new InitProjectHandler(files, installers).execute(projectRoot));
+    if (command === "init" && options.length === 0) return done(await new InitProjectHandler(files, hostInstallerSource).execute(projectRoot));
     if (command !== "update") return { exitCode: 2, stdout: "", stderr: USAGE };
     const refreshOnly = options.length === 1 && options[0] === "--no-upgrade";
     const fromDir = options.length === 2 && options[0] === "--from" ? options[1] : undefined;
     if (!refreshOnly && fromDir === undefined && options.length > 0) return { exitCode: 2, stdout: "", stderr: USAGE };
     const initialised = await requireInitialised(files, projectRoot);
     if (!initialised.ok) return refused(initialised.error);
-    if (refreshOnly) return done(await new UpdateProjectHandler(files, installers).execute(projectRoot));
+    if (refreshOnly) return done(await new UpdateProjectHandler(files, hostInstallerSource).execute(projectRoot));
     if (fromDir === undefined) {
       return refused(
         "the bounded packages are not published to the npm registry yet (`bounded` there is still the legacy harness, 2.x; ADR 2026-014), so update cannot fetch a newer version by itself. Pass --from <directory> holding the packed tarballs, or run `bounded update --no-upgrade` to refresh the hooks from the installed version",

@@ -116,4 +116,29 @@ describe("npx bounded, installed from packed tarballs", () => {
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsText);
   }, 180_000);
+
+  test("update --from upgrades by itself: it points the project's override of bounded at the new tarball", () => {
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cli-e2e-")));
+    const first = join(scratch, "release-1");
+    const second = join(scratch, "release-2");
+    const version = (JSON.parse(readFileSync(join(REPO, "contexts/core/package.json"), "utf8")) as { version: string }).version;
+    packWorkspace(first);
+    packRelease("99.0.0", join(scratch, "copies"), second);
+    const project = join(scratch, "project");
+    mkdirSync(project, { recursive: true });
+    mustRun(["git", "init", "--quiet"], project);
+    writeFileSync(join(project, "package.json"), JSON.stringify({ name: "demo", private: true }));
+    overrideBounded(project, first, version);
+    mustRun(["bun", "add", ...PACKAGES.map(({ name }) => tarball(first, name, version))], project);
+    expect(run([...npx(), "bounded", "init"], project).exitCode).toBe(0);
+    const config = readFileSync(join(project, "bounded.config.ts"), "utf8");
+
+    const update = run([...npx(), "bounded", "update", "--from", second], project);
+    expect(update.stderr).toBe("");
+    expect(update.exitCode).toBe(0);
+    expect(update.stdout).toContain("bounded 99.0.0");
+    expect((JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { overrides: { bounded: string } }).overrides.bounded).toBe(`file:${tarball(second, "bounded", "99.0.0")}`);
+    expect((JSON.parse(readFileSync(join(project, "node_modules", "bounded", "package.json"), "utf8")) as { version: string }).version).toBe("99.0.0");
+    expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
+  }, 180_000);
 });
