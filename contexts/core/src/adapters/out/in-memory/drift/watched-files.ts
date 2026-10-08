@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { RestoreFrom, WatchedFiles, WatchedHashes } from "bounded/application";
 import type { Result, WatchedPath } from "bounded/domain";
-import { isInside, watcher } from "../../shared/watching.ts";
+import { isInside, ruleFields, watcher } from "../../shared/watching.ts";
 
 /** The commit an in-memory project is checked out from. */
 const COMMIT = "memory";
@@ -79,11 +79,11 @@ export class InMemoryWatchedFiles implements WatchedFiles {
 
 function hashes(files: Iterable<[string, string]>, rules: readonly WatchedPath[]): WatchedHashes {
   const watching = watcher(rules);
-  const out: Record<string, { hash: string; size: number; rule: number }> = {};
+  const out: Record<string, { hash: string; size: number; rule: number; rules?: readonly number[] }> = {};
   for (const [path, content] of files) {
-    const rule = watching(path);
+    const by = watching(path);
     const bytes = Buffer.from(content);
-    if (rule >= 0) out[path] = { hash: sha256(bytes), size: bytes.length, rule };
+    if (by.length > 0) out[path] = { hash: sha256(bytes), size: bytes.length, ...ruleFields(by) };
   }
   return out;
 }

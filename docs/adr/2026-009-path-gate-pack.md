@@ -80,7 +80,10 @@ written as object literals (its wire form).
     project, or a cd that may or may not have run (inside an if or a loop, on
     the left of `||`), where later commands run is unknown and their
     relative paths are unresolved. `builtin`, `command`, `exec`, `xargs`
-    (its literal arguments) and `find -exec` are looked past. A shell given
+    (its literal arguments), `find -exec`, and the wrappers `sudo`, `doas`,
+    `env`, `timeout`, `nice`, `nohup`, `stdbuf` and `ionice` (their options,
+    option values, assignments and timeout's duration skipped) are looked
+    past: the rest is translated as a command. A shell given
     code with `-c` (`sh`, `bash`, `zsh`, `dash`, `ksh`) has that code parsed
     and walked as a nested command line, in a shell of its own.
   - Words: brace expansion of literals (`{a,b}`, `{1..3}`, `{a..e}`,

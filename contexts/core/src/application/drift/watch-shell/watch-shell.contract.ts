@@ -9,6 +9,8 @@ export interface WatchedFile {
   readonly hash: string;
   readonly size: number;
   readonly rule: number;
+  /** Every rule that watches it, in order, when more than one does: a change any of them forbids is undone. */
+  readonly rules?: readonly number[];
   readonly link?: true;
 }
 

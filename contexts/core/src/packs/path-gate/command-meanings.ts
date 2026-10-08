@@ -75,6 +75,28 @@ const run = (words: readonly ShellWord[]): CommandMeaning => {
   return name === undefined ? NONE : meaning({ runs: [{ name, args }] });
 };
 
+/**
+ * A wrapper that runs the rest of its words as a command (sudo, env,
+ * timeout …): its options are skipped, with the values of those in
+ * `withValues`, then its own `leading` operands (timeout's duration) and, when
+ * `assignments`, NAME=value words.
+ */
+function wrapper(withValues: readonly string[], options: { readonly leading?: number; readonly assignments?: boolean } = {}) {
+  return (args: readonly ShellWord[]): CommandMeaning => {
+    let leading = options.leading ?? 0;
+    for (let index = 0; index < args.length; index++) {
+      const text = literal(args[index]);
+      if (text === "--") return run(args.slice(index + 1));
+      if (text?.startsWith("-") === true && text !== "-") {
+        if (withValues.includes(text)) index++;
+      } else if (options.assignments === true && text !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) continue;
+      else if (leading > 0) leading--;
+      else return run(args.slice(index));
+    }
+    return NONE;
+  };
+}
+
 /** cd and pushd: to their operand, or nowhere known (no operand, '-', or a stack position). */
 function moves(args: readonly ShellWord[]): CommandMeaning {
   const [to] = operands(args);
@@ -209,6 +231,14 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[]) => CommandMean
   cd: moves,
   pushd: moves,
   popd: () => meaning({ location: { to: null } }),
+  sudo: wrapper(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"], { assignments: true }),
+  doas: wrapper(["-u", "-C"]),
+  env: wrapper(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"], { assignments: true }),
+  timeout: wrapper(["-s", "--signal", "-k", "--kill-after"], { leading: 1 }),
+  nice: wrapper(["-n", "--adjustment"]),
+  nohup: wrapper([]),
+  stdbuf: wrapper(["-i", "-o", "-e", "--input", "--output", "--error"]),
+  ionice: wrapper(["-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"]),
   builtin: (args) => runs(args),
   exec: (args) => runs(args, ["-a"]),
   command: (args) => (args.some((word) => ["-v", "-V"].includes(literal(word) ?? "")) ? NONE : runs(args)),

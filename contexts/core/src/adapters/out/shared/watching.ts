@@ -21,23 +21,26 @@ const hasControl = (text: string): boolean => [...text].some((char) => char < " 
 const within = (base: string, path: string): boolean => base === "" || path.toLowerCase() === base || path.toLowerCase().startsWith(`${base}/`);
 
 /**
- * For `rules`: the index of the first rule that watches a path, or -1 when
- * none does. picomatch never matches a control character such as a newline,
- * so a path holding one is watched conservatively: by the first rule whose
- * fixed leading folder holds it, its exceptions aside.
+ * For `rules`: the indexes of every rule that watches a path, in order;
+ * none when no rule does. picomatch never matches a control character such
+ * as a newline, so a path holding one is watched conservatively: by every
+ * rule whose fixed leading folder holds it, exceptions aside.
  */
-export function watcher(rules: readonly WatchedPath[]): (path: string) => number {
+export function watcher(rules: readonly WatchedPath[]): (path: string) => readonly number[] {
   const compiled = rules.map((rule) => ({
     match: picomatch(rule.match, MATCH),
     except: (rule.except ?? []).map((except) => picomatch(except, EXCEPT)),
     base: picomatch.scan(rule.match).base.toLowerCase(),
   }));
   return (path) => {
-    if (isOwnState(path)) return -1;
-    if (hasControl(path)) return compiled.findIndex(({ base }) => within(base, path));
-    return compiled.findIndex(({ match, except }) => match(path) && !except.some((test) => test(path)));
+    if (isOwnState(path)) return [];
+    const watches = hasControl(path) ? ({ base }: (typeof compiled)[number]) => within(base, path) : ({ match, except }: (typeof compiled)[number]) => match(path) && !except.some((test) => test(path));
+    return compiled.flatMap((rule, index) => (watches(rule) ? [index] : []));
   };
 }
+
+/** A watched file's rule fields from the rules that watch it: the first as its rule, all of them when there are several. */
+export const ruleFields = (by: readonly number[]): { rule: number; rules?: readonly number[] } => ({ rule: by[0] ?? -1, ...(by.length > 1 ? { rules: by } : {}) });
 
 /**
  * For `rules`: whether a directory may hold a watched file, so a walk need

@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSyn
 import { dirname, join } from "node:path";
 import type { RestoreFrom, WatchedFiles, WatchedHashes } from "bounded/application";
 import type { Result, WatchedPath } from "bounded/domain";
-import { isInside, isOwnState, mayHold, watcher } from "../../shared/watching.ts";
+import { isInside, isOwnState, mayHold, ruleFields, watcher } from "../../shared/watching.ts";
 
 const text = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
@@ -33,17 +33,17 @@ export class FileSystemWatchedFiles implements WatchedFiles {
     try {
       const watching = watcher(rules);
       const enter = mayHold(rules);
-      const out: Record<string, { hash: string; size: number; rule: number; link?: true }> = {};
+      const out: Record<string, { hash: string; size: number; rule: number; rules?: readonly number[]; link?: true }> = {};
       /** A file or link, hashed when a rule watches it. */
       const take = (path: string, kind: "file" | "link"): void => {
-        const rule = watching(path);
-        if (rule < 0) return;
+        const by = watching(path);
+        if (by.length === 0) return;
         if (kind === "link") {
           const target = Buffer.from(readlinkSync(join(this.root, path)));
-          out[path] = { hash: sha256(Buffer.concat([Buffer.from("link\0"), target])), size: target.length, rule, link: true };
+          out[path] = { hash: sha256(Buffer.concat([Buffer.from("link\0"), target])), size: target.length, ...ruleFields(by), link: true };
         } else {
           const bytes = readFileSync(join(this.root, path));
-          out[path] = { hash: sha256(bytes), size: bytes.length, rule };
+          out[path] = { hash: sha256(bytes), size: bytes.length, ...ruleFields(by) };
         }
       };
       const walk = (dir: string): void => {
@@ -107,25 +107,25 @@ export class FileSystemWatchedFiles implements WatchedFiles {
     // Paths relative to the project, which may be a directory inside the repository.
     const listed = this.git(["ls-tree", "-r", "-z", commit]);
     if (listed.error !== undefined || listed.status !== 0) return { ok: false, error: `git could not list commit ${commit}: ${listed.error?.message ?? listed.stderr.toString().trim()}` };
-    const blobs: { path: string; oid: string; rule: number }[] = [];
+    const blobs: { path: string; oid: string; by: readonly number[] }[] = [];
     for (const entry of listed.stdout.toString().split("\0")) {
       const match = /^(\d+) blob ([0-9a-f]+)\t(.+)$/s.exec(entry);
       // Regular files only (a link is mode 120000), as the walk sees them.
       if (match === null || match[1] === "120000") continue;
       const [, , oid = "", path = ""] = match;
-      const rule = watching(path);
-      if (rule >= 0) blobs.push({ path, oid, rule });
+      const by = watching(path);
+      if (by.length > 0) blobs.push({ path, oid, by });
     }
     if (blobs.length === 0) return { ok: true, value: {} };
     const read = this.git(["cat-file", "--batch"], `${blobs.map((blob) => blob.oid).join("\n")}\n`);
     if (read.error !== undefined || read.status !== 0) return { ok: false, error: `git could not read commit ${commit}: ${read.error?.message ?? read.stderr.toString().trim()}` };
-    const out: Record<string, { hash: string; size: number; rule: number }> = {};
+    const out: Record<string, { hash: string; size: number; rule: number; rules?: readonly number[] }> = {};
     let at = 0;
     for (const blob of blobs) {
       const newline = read.stdout.indexOf(0x0a, at);
       const size = Number(read.stdout.subarray(at, newline).toString().split(" ")[2]);
       const bytes = read.stdout.subarray(newline + 1, newline + 1 + size);
-      out[blob.path] = { hash: sha256(bytes), size, rule: blob.rule };
+      out[blob.path] = { hash: sha256(bytes), size, ...ruleFields(blob.by) };
       at = newline + 1 + size + 1;
     }
     return { ok: true, value: out };
