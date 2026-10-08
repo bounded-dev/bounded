@@ -21,7 +21,8 @@ an outward action (AGENTS.md).
    tarball, with bun and with npm without bun).
 3. **Dry-run first.** In `contexts/core`, run `bun publish --dry-run`. Its
    prepack (`bun build-dist.ts`) builds `dist/` afresh. Check the file list:
-   - `dist/` (the library, `dist/cli.js` and `dist/hosts/`);
+   - `dist/` (the library, its declarations in `dist/types/`, `dist/cli.js`
+     and `dist/hosts/`);
    - `src/` without tests, test support (but
      `init-project.host-installer.test-support.ts`) or fixtures;
    - `LICENSE` and `package.json`.

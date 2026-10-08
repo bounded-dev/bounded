@@ -45,14 +45,6 @@ export default defineConfig({
 
 Run `npx bounded update` to upgrade Bounded and refresh the hooks.
 
-## TypeScript
-
-The package ships its TypeScript sources for types, and they import each
-other with `.ts` extensions. If your project's `tsc` checks
-`bounded.config.ts`, set `"allowImportingTsExtensions": true` (with
-`noEmit`); without it, `tsc` reports TS5097 in Bounded's sources.
-Declaration files are planned.
-
 ## More
 
 The design, the configuration, the packs and the decisions behind them are in

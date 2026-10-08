@@ -148,11 +148,6 @@ export default defineConfig({
 });
 ```
 
-If your project's `tsc` checks `bounded.config.ts`, set
-`"allowImportingTsExtensions": true` (with `noEmit`). `bounded` ships its
-TypeScript sources for types, and they import each other with `.ts`
-extensions; declaration files are planned.
-
 [Configuring a project](docs/configuration.md) describes the rule fields and
 other packs.
 

@@ -203,12 +203,6 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - Publishing `bounded` 3.0.0 to npm, the new major above the legacy 2.x
   ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
   package is ready ([releasing](releasing.md)); the publish waits for review.
-- Declaration files (`.d.ts`). TypeScript consumers read the shipped sources
-  through `types`, and those import each other with `.ts` extensions, so a
-  consumer's `tsc` that checks them needs `allowImportingTsExtensions`; without
-  it, TS5097 (packaging.test.ts pins both). Emitting declarations fails on one
-  inferred type in `domain/packs/pack.ts` (TS7056) that needs an explicit
-  annotation first.
 - Loading `bounded.config.ts` on Nodes older than 22.18: they are refused,
   told to upgrade or to write `bounded.config.mjs`.
 - Archiving the private repository this code was first built in, now that
