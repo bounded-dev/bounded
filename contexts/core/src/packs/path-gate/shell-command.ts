@@ -25,7 +25,7 @@ function resolve(at: readonly string[], text: string): string | undefined {
     else if (parts.pop() === undefined) return undefined;
   }
   const path = ProjectPath.parse(parts.length === 0 ? "." : parts.join("/"));
-  return path.ok ? path.value : undefined;
+  return path.ok ? path.value.value : undefined;
 }
 
 /** What `tokens`, run from `cwd` (project-relative, or null for the project root), read and write. */

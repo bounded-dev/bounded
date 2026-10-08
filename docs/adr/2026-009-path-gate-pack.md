@@ -1,6 +1,8 @@
 # 2026-009: The path gate is an ordinary pack shipped in `bounded`
 
-**Status:** accepted.
+**Status:** accepted. A rule is a class, not a frozen plain object, since
+[ADR 2026-012](2026-012-value-objects-are-classes.md); rules are still
+written as object literals (its wire form).
 
 ## Decision
 
@@ -118,8 +120,10 @@ rule-owned exceptions means no pack can weaken another's protection.
 
 ## Consequences
 
-- A rule is a frozen plain object, not a class with a private constructor:
-  contributions are written as object literals of the point's type.
+- ~~A rule is a frozen plain object, not a class with a private
+  constructor.~~ Superseded by ADR 2026-012: `ProtectedPath` is a class, and
+  contributions are written as object literals of its wire form
+  (`ProtectedPathJSON`), which the point's check parses.
 - `**`-led rules make listings and searches across the project refused
   unless the root is outside their reach or a filter provably excludes them.
   Rule authors should prefer literal last parts or pure suffixes

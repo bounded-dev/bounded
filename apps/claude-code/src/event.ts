@@ -1,6 +1,6 @@
 // The step that resolves a translated call's paths and builds the core's
 // host-neutral tool-use event from it, through the core's own parse.
-import { type Effect, ProjectPath, type Refuse, type Result, Role, ToolUse, Verdict } from "bounded/domain";
+import { type EffectJSON, ProjectPath, type Refuse, type Result, Role, ToolUse, Verdict } from "bounded/domain";
 import type { HostCall } from "./translate.ts";
 
 export type { ToolUse } from "bounded/domain";
@@ -20,8 +20,7 @@ export interface Resolving {
   readonly callId?: string;
 }
 
-type Resolved = Result<{ path: ProjectPath; exists: boolean }, Refuse>;
-type Wire<E> = { -readonly [K in keyof E]: E[K] };
+type Resolved = Result<{ path: string; exists: boolean }, Refuse>;
 
 /** The translated call as the core's event, every path resolved and checked; any refused path refuses the call. */
 export function toToolUse(call: HostCall, { role, cwd, paths, callId }: Resolving): Result<ToolUse, Refuse> {
@@ -38,10 +37,10 @@ export function toToolUse(call: HostCall, { role, cwd, paths, callId }: Resolvin
     if (!found.ok) return found;
     const path = ProjectPath.parse(found.value.path);
     if (!path.ok) return { ok: false, error: Verdict.refuse(path.error, "Use a path inside the project; a link must land inside it too") };
-    return { ok: true, value: { path: path.value, exists: found.value.exists } };
+    return { ok: true, value: { path: path.value.value, exists: found.value.exists } };
   };
 
-  const effects: Wire<Effect>[] = [];
+  const effects: EffectJSON[] = [];
   for (const effect of call.effects) {
     if (effect.kind === "read" || effect.kind === "write" || effect.kind === "list") {
       const found = resolve(effect.kind === "list" ? effect.root : effect.path);

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import type { Event as EventType } from "../events/event.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import { SessionStart as SessionStartFactory } from "../events/session-start.ts";
@@ -57,7 +58,7 @@ describe("dispatch — the verdict", () => {
     const started = SessionStartFactory.parse({ role: null });
     if (!started.ok) throw new Error(started.error);
     const start = started.value;
-    const parsedStart = dispatch([(event: SessionStart) => Verdict.refuse(`No session without a role (${String(event.role)})`, "Start the session as a role")], start);
+    const parsedStart = dispatch([(event: SessionStart) => Verdict.refuse(`No session without a role (${event.role === null ? "null" : event.role.value})`, "Start the session as a role")], start);
     expect<unknown>(parsedStart).toEqual({ kind: "refuse", reason: "No session without a role (null)", redirect: "Start the session as a role" });
   });
 });
@@ -73,16 +74,16 @@ describe("dispatch — guards see only the checked event", () => {
 
   test("a guard receives normalised paths, so it cannot be dodged by spelling a path differently", () => {
     const noGenerated: Guard<ToolUseType> = (event) =>
-      event.effects.some((effect) => effect.kind === "write" && effect.path.startsWith("generated/")) ? Verdict.refuse("Generated file", "Change the generator's input instead") : Verdict.allow;
+      event.effects.some((effect) => effect.kind === "write" && effect.path.value.startsWith("generated/")) ? Verdict.refuse("Generated file", "Change the generator's input instead") : Verdict.allow;
     const event = raw({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "./generated//api.ts", change: "modify" }] });
     expect(dispatch([noGenerated], event).kind).toBe("refuse");
-    expect<unknown>(seenBy(event)[0]).toEqual({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "generated/api.ts", change: "modify" }] });
+    expect(wireOf(seenBy(event)[0])).toEqual({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "generated/api.ts", change: "modify" }] });
   });
 
   test("extra fields never reach a guard, and missing optional ones arrive as null", () => {
     const [seen] = seenBy(raw({ kind: "tool-use", role: null, tool: "search", effects: [{ kind: "list", root: "src" }], content: "secret" }));
     expect(seen !== undefined && Object.hasOwn(seen, "content")).toBe(false);
-    expect<unknown>(seen?.kind === "tool-use" && seen.effects).toEqual([{ kind: "list", root: "src", filter: null }]);
+    expect(wireOf(seen?.kind === "tool-use" && seen.effects)).toEqual([{ kind: "list", root: "src", filter: null }]);
   });
 
   test("a guard sees a frozen copy: one that tries to change it affects neither later guards nor the caller", () => {
@@ -114,7 +115,7 @@ describe("dispatch — guards see only the checked event", () => {
     });
     const seen = seenBy(event);
     expect(reads).toBe(1);
-    expect<unknown>(seen[0]?.kind === "tool-use" && seen[0].effects).toEqual([{ kind: "write", path: "generated/a.ts", change: "modify" }]);
+    expect(wireOf(seen[0]?.kind === "tool-use" && seen[0].effects)).toEqual([{ kind: "write", path: "generated/a.ts", change: "modify" }]);
   });
 });
 

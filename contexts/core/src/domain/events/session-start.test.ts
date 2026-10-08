@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
+import { valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
 import { SessionStart } from "./session-start.ts";
 
 valueObjectLaws("SessionStart", SessionStart, [{ role: "planner" }, { role: null }], [{}, { role: "" }, { role: 1 }, { kind: "tool-use", role: null }]);
 
 describe("SessionStart — boundaries", () => {
   test("a session start names the role it starts, or null", () => {
-    expect<unknown>(SessionStart.parse({ role: "planner" })).toEqual({ ok: true, value: { kind: "session-start", role: "planner" } });
-    expect<unknown>(SessionStart.parse({ role: null })).toEqual({ ok: true, value: { kind: "session-start", role: null } });
+    expect(wireOf(SessionStart.parse({ role: "planner" }))).toEqual({ ok: true, value: { kind: "session-start", role: "planner" } });
+    expect(wireOf(SessionStart.parse({ role: null }))).toEqual({ ok: true, value: { kind: "session-start", role: null } });
   });
 
   test("refuses an invalid or missing role with an actionable reason", () => {

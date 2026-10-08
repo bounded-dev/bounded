@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict, watchedPathsOf } from "bounded/domain";
-import { pathGate, type ProtectedPath } from "bounded/path-gate";
+import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
 
 const packId = packIdsFor("test-packs");
 const { protectedPaths } = pathGate.points;
 
 /** A pack, test-packs/a or test-packs/b, that contributes `given` to the path gate's point. */
-function rules(local: "a" | "b", ...given: ProtectedPath[]): AnyPack {
+function rules(local: "a" | "b", ...given: ProtectedPathJSON[]): AnyPack {
   const contributes = [contribution(protectedPaths, given)];
   return local === "a" ? definePack({ id: packId("a"), dependsOn: [pathGate], contributes }) : definePack({ id: packId("b"), dependsOn: [pathGate], contributes });
 }
@@ -25,11 +25,11 @@ const write = (path: string, change: "create" | "modify" | "delete") => ({ kind:
 const list = (root: string, filter: string | null = null) => ({ kind: "list", root, filter });
 const reason = (verdict: Verdict): string => (verdict.kind === "refuse" ? verdict.reason : "allowed");
 
-const db: ProtectedPath = { match: "packages/db/**", deny: ["create", "modify", "delete"], redirect: "Change the schema and run the generator" };
+const db: ProtectedPathJSON = { match: "packages/db/**", deny: ["create", "modify", "delete"], redirect: "Change the schema and run the generator" };
 
 describe("the path gate is an ordinary pack", () => {
   test("bounded/path-gate depends on the core pack and declares protectedPaths", () => {
-    expect(pathGate.id).toBe(packIdsFor("bounded")("path-gate"));
+    expect(pathGate.id.equals(packIdsFor("bounded")("path-gate"))).toBe(true);
     expect(pathGate.dependsOn).toEqual([corePack]);
     expect(protectedPaths.id).toBe("bounded/path-gate.protectedPaths");
   });
@@ -44,7 +44,7 @@ describe("the path gate is an ordinary pack", () => {
   });
 
   test("a rule built from untyped data is refused at composition, naming the pack, the point and the fix", () => {
-    const untyped = { match: "a/**", deny: ["write"], redirect: "x" } as unknown as ProtectedPath;
+    const untyped = { match: "a/**", deny: ["write"], redirect: "x" } as unknown as ProtectedPathJSON;
     const pack = definePack({ id: packId("a"), dependsOn: [pathGate], contributes: [contribution(protectedPaths, [untyped])] });
     expect(Composition.compose([corePack, pathGate, pack], [corePack, pathGate, pack])).toEqual({
       ok: false,
@@ -125,7 +125,7 @@ describe("the path gate — names and directories", () => {
 });
 
 describe("the path gate — except carves paths out of its own rule only", () => {
-  const generated: ProtectedPath = { ...db, except: ["packages/db/src/schema/**"] };
+  const generated: ProtectedPathJSON = { ...db, except: ["packages/db/src/schema/**"] };
 
   test("a path in the rule's except is not denied by that rule", () => {
     expect(decide([rules("a", generated)], [write("packages/db/src/schema/users.ts", "modify")])).toBe(Verdict.allow);
@@ -133,7 +133,7 @@ describe("the path gate — except carves paths out of its own rule only", () =>
   });
 
   test("an exception never reaches another rule, from the same pack or another", () => {
-    const schemaKept: ProtectedPath = { match: "**/schema/**", deny: ["delete"], redirect: "Deprecate the table instead" };
+    const schemaKept: ProtectedPathJSON = { match: "**/schema/**", deny: ["delete"], redirect: "Deprecate the table instead" };
     expect(decide([rules("a", generated, schemaKept)], [write("packages/db/src/schema/users.ts", "modify")])).toBe(Verdict.allow);
     expect(reason(decide([rules("a", generated, schemaKept)], [write("packages/db/src/schema/users.ts", "delete")]))).toContain("the rule '**/schema/**' from test-packs/a");
     expect(reason(decide([rules("a", generated), rules("b", schemaKept)], [write("packages/db/src/schema/users.ts", "delete")]))).toContain(
@@ -247,7 +247,7 @@ describe("the path gate — listing is judged conservatively", () => {
 });
 
 describe("the path gate — rules that name files only", () => {
-  const env = (match: string, deny: ProtectedPath["deny"] = ["read", "list"]) => rules("a", { match, deny, redirect: "Ask for the values you need", file: true });
+  const env = (match: string, deny: ProtectedPathJSON["deny"] = ["read", "list"]) => rules("a", { match, deny, redirect: "Ask for the values you need", file: true });
 
   test("a file rule covers exactly the paths it matches, not what is under them", () => {
     expect(decide([env(".env")], [read(".env")]).kind).toBe("refuse");
@@ -329,7 +329,7 @@ describe("the path gate — built-in protection of its own configuration", () =>
     const composed = Composition.compose([corePack, pathGate], [corePack, pathGate]);
     if (!composed.ok) throw new Error(composed.error);
     const entries = composed.value.entries(protectedPaths);
-    expect(entries.ok && entries.value.map(({ from, value }) => [from, value.match, value.deny])).toEqual([
+    expect(entries.ok && entries.value.map(({ from, value }) => [from.value, value.match, value.deny])).toEqual([
       ["bounded/path-gate", "**/bounded.config.*", ["create", "modify", "delete"]],
       ["bounded/path-gate", ".bounded/**", ["create", "modify", "delete"]],
     ]);

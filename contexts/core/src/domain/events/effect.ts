@@ -1,7 +1,13 @@
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
+import { sameWire, wireFormOf } from "../shared/wire.ts";
+import { AgentName } from "./agent-name.ts";
+import { Command } from "./command.ts";
 import type * as Contract from "./effect.contract.ts";
+import { NamePattern } from "./name-pattern.ts";
 import { ProjectPath } from "./project-path.ts";
+import { ToolName } from "./tool-name.ts";
+import { Url } from "./url.ts";
 
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
 const KINDS = "An effect has kind read, list, write, execute, fetch, delegate or invoke";
@@ -17,10 +23,239 @@ const SHAPES = {
   invoke: { fields: ["name"], optional: [], form: "An invoke effect is { kind, name }" },
 } as const satisfies Record<Contract.EffectKind, { fields: readonly string[]; optional: readonly string[]; form: string }>;
 
-const control = (text: string, allowed = ""): boolean => [...text].some((c) => (c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f) && !allowed.includes(c));
 const isKind = (raw: unknown): raw is Contract.EffectKind => typeof raw === "string" && Object.hasOwn(SHAPES, raw);
 
+// One class per kind. Each `parse` is given an object of its kind's shape
+// (Effect.parse checks the keys) and reads each field once, own fields only.
+
+class ReadEffectImpl implements Contract.ReadEffect {
+  declare readonly __brand: "Effect";
+  readonly #made = true;
+  readonly kind = "read" as const;
+
+  private constructor(readonly path: ProjectPath) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is ReadEffectImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: object): Result<Contract.ReadEffect> {
+    const path = ProjectPath.parse(own(raw, "path"));
+    return path.ok ? { ok: true, value: new ReadEffectImpl(path.value) } : path;
+  }
+
+  equals(other: Contract.Effect): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.ReadEffectJSON {
+    return { kind: this.kind, path: this.path.value };
+  }
+}
+
+class ListEffectImpl implements Contract.ListEffect {
+  declare readonly __brand: "Effect";
+  readonly #made = true;
+  readonly kind = "list" as const;
+
+  private constructor(
+    readonly root: ProjectPath,
+    readonly filter: NamePattern | null,
+  ) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is ListEffectImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: object): Result<Contract.ListEffect> {
+    const root = ProjectPath.parse(own(raw, "root"));
+    if (!root.ok) return root;
+    const rawFilter = own(raw, "filter") ?? null;
+    if (rawFilter === null) return { ok: true, value: new ListEffectImpl(root.value, null) };
+    const filter = NamePattern.parse(rawFilter);
+    return filter.ok ? { ok: true, value: new ListEffectImpl(root.value, filter.value) } : filter;
+  }
+
+  equals(other: Contract.Effect): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.ListEffectJSON {
+    return { kind: this.kind, root: this.root.value, filter: this.filter === null ? null : this.filter.value };
+  }
+}
+
+class WriteEffectImpl implements Contract.WriteEffect {
+  declare readonly __brand: "Effect";
+  readonly #made = true;
+  readonly kind = "write" as const;
+
+  private constructor(
+    readonly path: ProjectPath,
+    readonly change: Contract.Change,
+  ) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is WriteEffectImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: object): Result<Contract.WriteEffect> {
+    const path = ProjectPath.parse(own(raw, "path"));
+    if (!path.ok) return path;
+    const change = CHANGES.find((c) => c === own(raw, "change"));
+    if (change === undefined) return refuse(`A write's change is create, modify or delete, not '${show(own(raw, "change"))}'`);
+    return { ok: true, value: new WriteEffectImpl(path.value, change) };
+  }
+
+  equals(other: Contract.Effect): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.WriteEffectJSON {
+    return { kind: this.kind, path: this.path.value, change: this.change };
+  }
+}
+
+class ExecuteEffectImpl implements Contract.ExecuteEffect {
+  declare readonly __brand: "Effect";
+  readonly #made = true;
+  readonly kind = "execute" as const;
+
+  private constructor(
+    readonly command: Command,
+    readonly cwd: ProjectPath | null,
+  ) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is ExecuteEffectImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: object): Result<Contract.ExecuteEffect> {
+    const command = Command.parse(own(raw, "command"));
+    if (!command.ok) return command;
+    const rawCwd = own(raw, "cwd") ?? null;
+    if (rawCwd === null) return { ok: true, value: new ExecuteEffectImpl(command.value, null) };
+    const cwd = ProjectPath.parse(rawCwd);
+    return cwd.ok ? { ok: true, value: new ExecuteEffectImpl(command.value, cwd.value) } : cwd;
+  }
+
+  equals(other: Contract.Effect): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.ExecuteEffectJSON {
+    return { kind: this.kind, command: this.command.value, cwd: this.cwd === null ? null : this.cwd.value };
+  }
+}
+
+class FetchEffectImpl implements Contract.FetchEffect {
+  declare readonly __brand: "Effect";
+  readonly #made = true;
+  readonly kind = "fetch" as const;
+
+  private constructor(readonly url: Url) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is FetchEffectImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: object): Result<Contract.FetchEffect> {
+    const url = Url.parse(own(raw, "url"));
+    return url.ok ? { ok: true, value: new FetchEffectImpl(url.value) } : url;
+  }
+
+  equals(other: Contract.Effect): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.FetchEffectJSON {
+    return { kind: this.kind, url: this.url.value };
+  }
+}
+
+class DelegateEffectImpl implements Contract.DelegateEffect {
+  declare readonly __brand: "Effect";
+  readonly #made = true;
+  readonly kind = "delegate" as const;
+
+  private constructor(readonly agent: AgentName) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is DelegateEffectImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: object): Result<Contract.DelegateEffect> {
+    const agent = AgentName.parse(own(raw, "agent"));
+    return agent.ok ? { ok: true, value: new DelegateEffectImpl(agent.value) } : agent;
+  }
+
+  equals(other: Contract.Effect): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.DelegateEffectJSON {
+    return { kind: this.kind, agent: this.agent.value };
+  }
+}
+
+class InvokeEffectImpl implements Contract.InvokeEffect {
+  declare readonly __brand: "Effect";
+  readonly #made = true;
+  readonly kind = "invoke" as const;
+
+  private constructor(readonly name: ToolName) {
+    Object.freeze(this);
+  }
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is InvokeEffectImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: object): Result<Contract.InvokeEffect> {
+    const name = ToolName.parse(own(raw, "name"));
+    return name.ok ? { ok: true, value: new InvokeEffectImpl(name.value) } : name;
+  }
+
+  equals(other: Contract.Effect): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.InvokeEffectJSON {
+    return { kind: this.kind, name: this.name.value };
+  }
+}
+
+const CLASSES = {
+  read: ReadEffectImpl,
+  list: ListEffectImpl,
+  write: WriteEffectImpl,
+  execute: ExecuteEffectImpl,
+  fetch: FetchEffectImpl,
+  delegate: DelegateEffectImpl,
+  invoke: InvokeEffectImpl,
+} as const satisfies Record<Contract.EffectKind, { made(raw: unknown): boolean; parse(raw: object): Result<Contract.Effect> }>;
+
 function check(raw: unknown): Result<Contract.Effect> {
+  for (const type of Object.values(CLASSES)) if (type.made(raw)) return check(wireFormOf(raw));
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return refuse(KINDS);
   const kind = own(raw, "kind");
   if (!isKind(kind)) return refuse(KINDS);
@@ -28,78 +263,26 @@ function check(raw: unknown): Result<Contract.Effect> {
   const keys = Object.keys(raw).filter((key) => key !== "kind");
   const allowed = [...shape.fields, ...shape.optional];
   if (keys.some((key) => !allowed.includes(key)) || shape.fields.some((field) => !keys.includes(field))) return refuse(shape.form);
-  switch (kind) {
-    case "read": {
-      const path = ProjectPath.parse(own(raw, "path"));
-      return path.ok ? made({ kind, path: path.value }) : path;
-    }
-    case "list": {
-      const root = ProjectPath.parse(own(raw, "root"));
-      if (!root.ok) return root;
-      const filter = own(raw, "filter") ?? null;
-      if (filter !== null && (typeof filter !== "string" || filter.trim() === "")) return refuse("A list's filter is a non-empty file-name pattern, or null");
-      return made({ kind, root: root.value, filter });
-    }
-    case "write": {
-      const path = ProjectPath.parse(own(raw, "path"));
-      if (!path.ok) return path;
-      const change = own(raw, "change");
-      if (!CHANGES.some((c) => c === change)) return refuse(`A write's change is create, modify or delete, not '${show(change)}'`);
-      return made({ kind, path: path.value, change: change as Contract.Change });
-    }
-    case "execute": {
-      const command = own(raw, "command");
-      if (typeof command !== "string" || command.trim() === "") return refuse("An execute effect must name the command it runs");
-      if (command.includes("\0")) return refuse("A command must not contain a NUL character");
-      if (control(command, "\t\n\r")) return refuse("A command must not contain control characters other than tab and line breaks");
-      const rawCwd = own(raw, "cwd") ?? null;
-      if (rawCwd === null) return made({ kind, command, cwd: null });
-      const cwd = ProjectPath.parse(rawCwd);
-      return cwd.ok ? made({ kind, command, cwd: cwd.value }) : cwd;
-    }
-    case "fetch": {
-      const url = own(raw, "url");
-      if (typeof url !== "string" || !/^[A-Za-z][A-Za-z0-9+.-]*:\S+$/.test(url) || control(url)) {
-        return refuse(`Fetch URL '${show(url)}' must be an absolute URL with a scheme, without spaces or control characters`);
-      }
-      return made({ kind, url });
-    }
-    case "delegate": {
-      const agent = own(raw, "agent");
-      if (typeof agent !== "string" || agent.trim() === "") return refuse("A delegate effect must name the agent it delegates to");
-      if (control(agent)) return refuse("An agent's name must not contain control characters");
-      return made({ kind, agent });
-    }
-    case "invoke": {
-      const name = own(raw, "name");
-      if (typeof name !== "string" || name.trim() === "") return refuse("An invoke effect must name the tool it invokes");
-      if (control(name)) return refuse("A tool name must not contain NUL or control characters");
-      return made({ kind, name });
-    }
-  }
-}
-
-function made(effect: Contract.Effect): Result<Contract.Effect> {
-  return { ok: true, value: Object.freeze(effect) };
+  return CLASSES[kind].parse(raw);
 }
 
 /** How messages name an effect: its kind and what it touches. */
 export function describeEffect(effect: Contract.Effect): string {
   switch (effect.kind) {
     case "read":
-      return `read ${effect.path}`;
+      return `read ${effect.path.value}`;
     case "list":
-      return effect.filter === null ? `list ${effect.root}` : `list ${effect.root} (${effect.filter})`;
+      return effect.filter === null ? `list ${effect.root.value}` : `list ${effect.root.value} (${effect.filter.value})`;
     case "write":
-      return `write (${effect.change}) ${effect.path}`;
+      return `write (${effect.change}) ${effect.path.value}`;
     case "execute":
-      return effect.cwd === null ? `execute \`${effect.command}\`` : `execute \`${effect.command}\` in ${effect.cwd}`;
+      return effect.cwd === null ? `execute \`${effect.command.value}\`` : `execute \`${effect.command.value}\` in ${effect.cwd.value}`;
     case "fetch":
-      return `fetch ${effect.url}`;
+      return `fetch ${effect.url.value}`;
     case "delegate":
-      return `delegate to ${effect.agent}`;
+      return `delegate to ${effect.agent.value}`;
     case "invoke":
-      return `invoke ${effect.name}`;
+      return `invoke ${effect.name.value}`;
   }
 }
 

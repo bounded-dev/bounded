@@ -13,7 +13,7 @@ export default defineConfig({
   // The project's own contributions, to points of the packs it selects.
   contributes: [
     contribution(corePack.points.writeGuards, [
-      (effect: WriteEffect) => (effect.path.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow),
+      (effect: WriteEffect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow),
     ]),
   ],
 });

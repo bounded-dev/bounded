@@ -1,5 +1,6 @@
 import { own, readSafely } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
+import { sameWire, wireFormOf } from "../shared/wire.ts";
 import type * as Contract from "./watched-path.contract.ts";
 
 const SAYS = "A watched path says why its files are watched and what to do instead: why and redirect are non-empty text";
@@ -13,21 +14,51 @@ function globProblem(raw: unknown): string | undefined {
 
 const text = (raw: unknown): raw is string => typeof raw === "string" && raw.trim() !== "";
 
-function check(raw: unknown): Result<WatchedPath> {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "A watched path is { match, except?, why, redirect }" };
-  const [match, except, why, redirect] = [own(raw, "match"), own(raw, "except") ?? [], own(raw, "why"), own(raw, "redirect")];
-  if (!text(why) || !text(redirect)) return { ok: false, error: SAYS };
-  const matchProblem = globProblem(match);
-  if (matchProblem !== undefined) return { ok: false, error: matchProblem };
-  if (!Array.isArray(except)) return { ok: false, error: "A watched path's except is a list of project-relative globs" };
-  for (const glob of except) {
-    const problem = globProblem(glob);
-    if (problem !== undefined) return { ok: false, error: problem };
+class WatchedPathImpl implements Contract.WatchedPath {
+  declare readonly __brand: "WatchedPath";
+  readonly #made = true;
+
+  private constructor(
+    readonly match: string,
+    readonly except: readonly string[],
+    readonly why: string,
+    readonly redirect: string,
+  ) {
+    Object.freeze(this);
   }
-  return { ok: true, value: Object.freeze({ match: String(match), except: Object.freeze(except.map(String)), why: why.trim(), redirect: redirect.trim() }) };
+
+  /** Whether `raw` was made by this class (not merely an object that inherits from one): parse checks its wire form again, since a constructor can be called at run time. */
+  static made(raw: unknown): raw is WatchedPathImpl {
+    return typeof raw === "object" && raw !== null && #made in raw;
+  }
+
+  static parse(raw: unknown): Result<WatchedPath> {
+    return readSafely("A watched path", () => WatchedPathImpl.check(raw));
+  }
+
+  private static check(raw: unknown): Result<WatchedPath> {
+    if (WatchedPathImpl.made(raw)) return WatchedPathImpl.parse(wireFormOf(raw));
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "A watched path is { match, except?, why, redirect }" };
+    const [match, except, why, redirect] = [own(raw, "match"), own(raw, "except") ?? [], own(raw, "why"), own(raw, "redirect")];
+    if (!text(why) || !text(redirect)) return { ok: false, error: SAYS };
+    const matchProblem = globProblem(match);
+    if (matchProblem !== undefined) return { ok: false, error: matchProblem };
+    if (!Array.isArray(except)) return { ok: false, error: "A watched path's except is a list of project-relative globs" };
+    for (const glob of except) {
+      const problem = globProblem(glob);
+      if (problem !== undefined) return { ok: false, error: problem };
+    }
+    return { ok: true, value: new WatchedPathImpl(String(match), Object.freeze(except.map(String)), why.trim(), redirect.trim()) };
+  }
+
+  equals(other: WatchedPath): boolean {
+    return sameWire(this, other);
+  }
+
+  toJSON(): Contract.WatchedPathJSON {
+    return { match: this.match, except: this.except, why: this.why, redirect: this.redirect };
+  }
 }
 
-const parse = (raw: unknown): Result<WatchedPath> => readSafely("A watched path", () => check(raw));
-
 export type WatchedPath = Contract.WatchedPath;
-export const WatchedPath: Contract.WatchedPathFactory = Object.freeze({ parse });
+export const WatchedPath: Contract.WatchedPathFactory = WatchedPathImpl;

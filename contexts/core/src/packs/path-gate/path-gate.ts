@@ -10,11 +10,12 @@ import {
   point,
   type ReadEffect,
   Verdict,
-  type WatchedPath,
+  type WatchedPathJSON,
   type WatchedPathSource,
   type WriteEffect,
 } from "bounded/domain";
 import { contains, filterable, matches, reaches, unavoidable } from "./matching.ts";
+import type { ProtectedPathJSON } from "./protected-path.contract.ts";
 import { ProtectedPath, WRITES } from "./protected-path.ts";
 import { describeShellCommand } from "./shell-command.ts";
 import { shellQuoteParser } from "./shell-parser.shell-quote.ts";
@@ -26,7 +27,7 @@ import { shellQuoteParser } from "./shell-parser.shell-quote.ts";
  * file is protected, not the modules it imports (ADR 2026-009). Adapters write the guard log in `.bounded/`
  * directly, not through guards, so this does not stop them.
  */
-const OWN_RULES: readonly ProtectedPath[] = [
+const OWN_RULES: readonly ProtectedPathJSON[] = [
   {
     match: "**/bounded.config.*",
     deny: [...WRITES],
@@ -52,13 +53,13 @@ type Denial = { readonly what: string; readonly redirect?: string } | undefined;
 function firstDenial(composition: Composition, denies: (rule: ProtectedPath) => Denial): Verdict {
   const rules = composition.entries(pathGate.points.protectedPaths);
   if (!rules.ok) {
-    return Verdict.refuse(`The protected paths cannot be read: ${rules.error}`, `Select ${pathGate.id} with the packs that contribute rules`);
+    return Verdict.refuse(`The protected paths cannot be read: ${rules.error}`, `Select ${pathGate.id.value} with the packs that contribute rules`);
   }
   for (const { from, value: rule } of rules.value) {
     const denial = denies(rule);
     if (denial === undefined) continue;
     const why = rule.why === undefined ? "" : ` (${rule.why})`;
-    return Verdict.refuse(`the rule '${rule.match}' from ${from} ${denial.what}${why}`, denial.redirect ?? rule.redirect);
+    return Verdict.refuse(`the rule '${rule.match}' from ${from.value} ${denial.what}${why}`, denial.redirect ?? rule.redirect);
   }
   return Verdict.allow;
 }
@@ -104,25 +105,28 @@ function writeDenial(rule: ProtectedPath, path: string, change: WriteEffect["cha
  * read any file the listing reaches, so it is judged as reaching them.
  */
 const onRead: EffectGuard<ReadEffect, Composition> = (effect, composition, call) => {
-  const path = effect.path.toLowerCase();
-  const searches = call.effects.filter((other): other is ListEffect => other.kind === "list" && other.root.toLowerCase() === path);
+  const path = effect.path.value;
+  const searches = call.effects.filter((other): other is ListEffect => other.kind === "list" && other.root.value.toLowerCase() === path.toLowerCase());
   return firstDenial(composition, (rule) => {
-    const direct = readDenial(rule, effect.path);
+    const direct = readDenial(rule, path);
     if (direct !== undefined || !rule.deny.includes("read")) return direct;
-    const search = searches.find((list) => reaches(rule, list.root, list.filter));
+    const search = searches.find((list) => reaches(rule, list.root.value, filterOf(list)));
     if (search === undefined) return undefined;
-    return { what: `denies read, and searching '${search.root}' could read a path it matches`, redirect: elsewhere("Search", rule, search.root) };
+    return { what: `denies read, and searching '${search.root.value}' could read a path it matches`, redirect: elsewhere("Search", rule, search.root.value) };
   });
 };
 
+/** A listing's file-name filter as text, or null when it has none. */
+const filterOf = (list: ListEffect): string | null => (list.filter === null ? null : list.filter.value);
+
 const onList: EffectGuard<ListEffect, Composition> = (effect, composition) =>
   firstDenial(composition, (rule) =>
-    rule.deny.includes("list") && reaches(rule, effect.root, effect.filter)
-      ? { what: `denies list, and listing '${effect.root}' could reveal a path it matches`, redirect: elsewhere("List", rule, effect.root) }
+    rule.deny.includes("list") && reaches(rule, effect.root.value, filterOf(effect))
+      ? { what: `denies list, and listing '${effect.root.value}' could reveal a path it matches`, redirect: elsewhere("List", rule, effect.root.value) }
       : undefined,
   );
 
-const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path, effect.change));
+const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
 
 /**
  * A shell command is translated (shell-command.ts) into the paths it reads
@@ -135,9 +139,9 @@ const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => 
  * watched files.
  */
 const onExecute: EffectGuard<ExecuteEffect, Composition> = (effect, composition) => {
-  const parsed = shellQuoteParser(effect.command);
+  const parsed = shellQuoteParser(effect.command.value);
   if (!parsed.ok) return Verdict.allow;
-  const { reads, writes } = describeShellCommand(parsed.value, effect.cwd);
+  const { reads, writes } = describeShellCommand(parsed.value, effect.cwd === null ? null : effect.cwd.value);
   const judged = (verb: "reads" | "writes", path: string, verdict: Verdict): Verdict | undefined =>
     verdict.kind === "refuse" ? Verdict.refuse(`this command ${verb} '${path}' — ${verdict.reason}`, verdict.redirect) : undefined;
   for (const path of reads) {
@@ -165,9 +169,9 @@ const endsInName = (match: string): boolean => !/[*?[\]{}]/.test(match.split("/"
 const watchedFromRules: WatchedPathSource = (composition) => {
   const rules = composition.entries(pathGate.points.protectedPaths);
   if (!rules.ok) throw new Error(rules.error);
-  return rules.value.flatMap(({ value: rule }): WatchedPath[] => {
+  return rules.value.flatMap(({ value: rule }): WatchedPathJSON[] => {
     if (!WRITES.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) return [];
-    const watched = { except: rule.except ?? [], why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
+    const watched = { except: rule.except, why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
     return endsInName(rule.match) && rule.file !== true ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
   });
 };

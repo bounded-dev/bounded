@@ -2,7 +2,7 @@
 import { composeProject } from "./composition-root.ts";
 import { type ExtensionOptions, type Pi, piExtension } from "./extension.ts";
 
-export type { Effect, ToolUse } from "./event.ts";
+export type { Effect, EffectJSON, ToolUse } from "./event.ts";
 export type { AdapterRefusal, Decide, ExtensionOptions, Load, Pi, PiBlock, PiHandler, PiResultPatch } from "./extension.ts";
 export { piExtension } from "./extension.ts";
 export { type ProjectFile, piLoader } from "./install.ts";

@@ -1,5 +1,6 @@
 import { type Composition, Decision, type ExecuteEffect, type PackId, type Result, type ToolResult, type ToolUse, Verdict, type WatchedPath, watchedPathsOf } from "bounded/domain";
 import type { Clock, DecisionIds, DecisionLog } from "../../judging/judge-event/judge-event.contract.ts";
+import { nextDecisionId } from "../../judging/judge-event/judge-event.handler.ts";
 import type { Change, DriftCheck, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, WatchedFiles, WatchedHashes, WatchShell } from "./watch-shell.contract.ts";
 
 const NOTHING: DriftCheck = Object.freeze({ changed: Object.freeze([]), restored: true, message: null });
@@ -83,7 +84,7 @@ export class WatchShellHandler implements WatchShell {
       }
       const captured = await this.capture(rules);
       if (!captured.ok) return Verdict.refuse(`Protected files could not be checked before this command: ${captured.error}`, UNREADABLE_REDIRECT);
-      await this.snapshots.save(call.callId, captured.value);
+      await this.snapshots.save(call.callId.value, captured.value);
       return Verdict.allow;
     } catch (thrown) {
       return Verdict.refuse(`The state of protected files could not be saved before this command: ${text(thrown)}`, UNREADABLE_REDIRECT);
@@ -98,7 +99,7 @@ export class WatchShellHandler implements WatchShell {
       let stored: unknown;
       let problem: string | undefined;
       try {
-        stored = result.callId === undefined ? undefined : await this.snapshots.take(result.callId);
+        stored = result.callId === undefined ? undefined : await this.snapshots.take(result.callId.value);
       } catch (thrown) {
         problem = `it could not be read: ${text(thrown)}`;
       }
@@ -293,7 +294,7 @@ export class WatchShellHandler implements WatchShell {
     const verdict = Verdict.refuse(message, rule?.rule.redirect ?? CHECK_REDIRECT);
     try {
       const judgement = { verdict, refusedBy: rule === undefined ? null : { pack: rule.from, effect } };
-      await this.log.record(Decision.of(this.ids.next(), this.clock.now(), result, judgement, note));
+      await this.log.record(Decision.of(nextDecisionId(this.ids), this.clock.now(), result, judgement, note));
     } catch {
       // The message already says what happened; a log that cannot record it changes nothing more.
     }

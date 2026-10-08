@@ -2,9 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Decision, SessionStart, Verdict } from "bounded/domain";
+import { Decision, DecisionId, SessionStart, Verdict } from "bounded/domain";
 import { decisionLogConformance } from "../../../../application/judging/judge-event/judge-event.decision-log.test-support.ts";
 import { FileSystemDecisionLog } from "./decision-log.ts";
+
+/** A decision id from known-good text. */
+function decisionId(text: string): DecisionId {
+  const parsed = DecisionId.parse(text);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+}
 
 const lines = (file: string): unknown[] => {
   try {
@@ -21,7 +28,7 @@ decisionLogConformance("FileSystemDecisionLog", async () => {
 
 const started = SessionStart.parse({ role: null });
 if (!started.ok) throw new Error(started.error);
-const decision = Decision.of("d-1", "2026-10-07T12:00:00.000Z", started.value, { verdict: Verdict.allow, refusedBy: null });
+const decision = Decision.of(decisionId("d-1"), "2026-10-07T12:00:00.000Z", started.value, { verdict: Verdict.allow, refusedBy: null });
 
 describe("FileSystemDecisionLog", () => {
   test("creates the folders on the way to its file", async () => {

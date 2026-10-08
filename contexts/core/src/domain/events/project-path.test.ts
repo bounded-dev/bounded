@@ -1,15 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
+import { textValueLaws, valueObjectLaws } from "../shared/value-object.laws.test-support.ts";
 import { ProjectPath } from "./project-path.ts";
 
 valueObjectLaws("ProjectPath", ProjectPath, ["src/a.ts", "."], ["", "/etc/passwd", "../x", "a/../../x", "C:/x", "a\\b", "~/x"]);
+textValueLaws("ProjectPath", ProjectPath, [["src/a.ts", "src/a.ts"], ["./src//a.ts", "src/a.ts"], ["src/..", "."]]);
 
 const normalised = (raw: string): unknown => {
   const result = ProjectPath.parse(raw);
-  return result.ok ? result.value : result.error;
+  return result.ok ? result.value.value : result.error;
 };
 
 describe("ProjectPath — boundaries", () => {
+  test("a path built with the class's own constructor is checked again: one outside the project is refused", () => {
+    const valid = ProjectPath.parse("src/a.ts");
+    if (!valid.ok) throw new Error(valid.error);
+    const forged = Reflect.construct(Object.getPrototypeOf(valid.value).constructor, ["../x"]);
+    expect(ProjectPath.parse(forged).ok).toBe(false);
+  });
+
   test("keeps a plain project-relative path as it is", () => {
     expect(normalised("src/domain/a.ts")).toBe("src/domain/a.ts");
     expect(normalised(".git/config")).toBe(".git/config");

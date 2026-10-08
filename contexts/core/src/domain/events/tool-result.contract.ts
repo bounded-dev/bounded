@@ -1,10 +1,25 @@
 import type { Result } from "../shared/result.ts";
-import type { ToolUse } from "./tool-use.contract.ts";
+import type { CallId } from "./call-id.contract.ts";
+import type { Effect } from "./effect.contract.ts";
+import type { Role } from "./role.contract.ts";
+import type { ToolKind, ToolUseJSON } from "./tool-use.contract.ts";
 
 /** A tool call that has run: the tool use, whether it succeeded, and its call id when the host gives one. */
-export interface ToolResult extends Omit<ToolUse, "__brand" | "kind"> {
+export interface ToolResult {
   readonly __brand: "ToolResult";
   readonly kind: "tool-result";
+  readonly role: Role | null;
+  readonly tool: ToolKind;
+  readonly effects: readonly [Effect, ...Effect[]];
+  readonly callId?: CallId;
+  readonly ok: boolean;
+  equals(other: ToolResult): boolean;
+  toJSON(): ToolResultJSON;
+}
+
+/** A tool result's wire form: a tool use's, with kind "tool-result" and whether it succeeded. */
+export interface ToolResultJSON extends Omit<ToolUseJSON, "kind"> {
+  readonly kind?: "tool-result";
   readonly ok: boolean;
 }
 

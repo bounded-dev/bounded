@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { type AnyPack, Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
-import { pathGate, type ProtectedPath } from "bounded/path-gate";
+import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
 
 // The path gate's best-effort guard on shell commands that name read-protected paths.
 const packId = packIdsFor("test-packs");
 
 /** A pack, test-packs/a, that contributes `given` to the path gate's point. */
-const rules = (_local: "a", ...given: ProtectedPath[]): AnyPack => definePack({ id: packId("a"), dependsOn: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, given)] });
+const rules = (_local: "a", ...given: ProtectedPathJSON[]): AnyPack => definePack({ id: packId("a"), dependsOn: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, given)] });
 
 /** Dispatch one tool call, its effects in wire form, over the core, the path gate and `packs`. */
 function decide(packs: readonly AnyPack[], effects: object[], tool = "shell"): Verdict {

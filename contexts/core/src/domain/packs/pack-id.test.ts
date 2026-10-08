@@ -1,17 +1,27 @@
 import { describe, expect, test } from "bun:test";
+import { textValueLaws, valueObjectLaws, wireOf } from "../shared/value-object.laws.test-support.ts";
 import { PackId, packIdsFor } from "./pack-id.ts";
 
 const FORM = "must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'";
 
+valueObjectLaws("PackId", PackId, ["bounded/core", "@acme/rules/web-2"], ["core", "bounded/", "Bounded/core", "bounded/a--b"]);
+textValueLaws("PackId", PackId, [["bounded/path-gate", "bounded/path-gate"], ["my.pkg/a", "my.pkg/a"]]);
+
 describe("PackId — boundaries", () => {
   test("an id is the npm package name and the pack's local id", () => {
-    expect<string>(packIdsFor("bounded")("path-gate")).toBe("bounded/path-gate");
-    expect<string>(packIdsFor("@acme/rules")("web-2")).toBe("@acme/rules/web-2");
+    const pathGate: "bounded/path-gate" = packIdsFor("bounded")("path-gate").value;
+    expect(pathGate).toBe("bounded/path-gate");
+    expect(packIdsFor("@acme/rules")("web-2").value).toBe("@acme/rules/web-2");
+  });
+
+  test("two ids made apart are equal by their text", () => {
+    expect(packIdsFor("bounded")("core").equals(packIdsFor("bounded")("core"))).toBe(true);
+    expect(packIdsFor("bounded")("core").equals(packIdsFor("bounded")("path-gate"))).toBe(false);
   });
 
   test("parse accepts an unscoped or scoped package with a lowercase-hyphen local id", () => {
     for (const raw of ["bounded/core", "bounded/path-gate", "@acme/rules/web-2", "my.pkg/a"]) {
-      expect<unknown>(PackId.parse(raw)).toEqual({ ok: true, value: raw });
+      expect(wireOf(PackId.parse(raw))).toEqual({ ok: true, value: raw });
     }
   });
 
@@ -23,7 +33,7 @@ describe("PackId — boundaries", () => {
   });
 
   test("an id built from an invalid package or local part is refused by parse, never thrown", () => {
-    const loose = packIdsFor as unknown as (pkg: string) => (local: string) => string;
+    const loose = packIdsFor as unknown as (pkg: string) => (local: string) => PackId;
     expect(PackId.parse(loose("Bounded")("core")).ok).toBe(false);
     expect(PackId.parse(loose("bounded")("a/b")).ok).toBe(false);
   });

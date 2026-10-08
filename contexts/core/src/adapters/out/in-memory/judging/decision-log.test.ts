@@ -3,5 +3,5 @@ import { InMemoryDecisionLog } from "./decision-log.ts";
 
 decisionLogConformance("InMemoryDecisionLog", async () => {
   const log = new InMemoryDecisionLog();
-  return { log, recorded: async () => log.decisions() };
+  return { log, recorded: async () => log.decisions().map((decision) => JSON.parse(JSON.stringify(decision))) };
 });

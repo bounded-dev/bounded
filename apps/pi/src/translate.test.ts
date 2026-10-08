@@ -13,10 +13,10 @@ const fake: Locate = (raw, base) => {
   const absolute = resolve(base, raw);
   const path = ProjectPath.parse(relative(ROOT, absolute) || ".");
   if (!path.ok) return { ok: false, error: `Path '${raw}' is outside the project` };
-  return { ok: true, value: { path: path.value, absolute, exists: EXISTING.has(path.value) } };
+  return { ok: true, value: { path: path.value, absolute, exists: EXISTING.has(path.value.value) } };
 };
-// Results are compared with plain objects, so they are typed as unknown values.
-const pi = (toolName: string, input: unknown, cwd = ROOT): Result<unknown> => translate({ toolName, input }, cwd, fake);
+// Results are compared with plain objects, in their wire form, so they are typed as unknown values.
+const pi = (toolName: string, input: unknown, cwd = ROOT): Result<unknown> => JSON.parse(JSON.stringify(translate({ toolName, input }, cwd, fake)));
 const use = (tool: string, ...effects: unknown[]) => ({ ok: true as const, value: { kind: "tool-use", role: null, tool, effects } });
 const refusal = (result: ReturnType<typeof pi>): string => (result.ok ? "allowed" : result.error);
 
@@ -130,12 +130,12 @@ describe("translate — with the real locator", () => {
   const real = locator(project, "/home/agent");
 
   test("a subagent's cwd is located before its output path, which starts there", () => {
-    const result = translate({ toolName: "subagent", input: { agent: "scout", cwd: "pkg", output: "src/a.ts" } }, project, real);
+    const result = JSON.parse(JSON.stringify(translate({ toolName: "subagent", input: { agent: "scout", cwd: "pkg", output: "src/a.ts" } }, project, real)));
     expect<unknown>(result).toEqual(use("subagent", { kind: "delegate", agent: "scout" }, { kind: "write", path: "pkg/src/a.ts", change: "modify" }));
   });
 
   test("a write's change comes from whether the file really exists", () => {
-    const write = (path: string): Result<unknown> => translate({ toolName: "write", input: { path } }, project, real);
+    const write = (path: string): Result<unknown> => JSON.parse(JSON.stringify(translate({ toolName: "write", input: { path } }, project, real)));
     expect(write("pkg/src/a.ts")).toEqual(use("write", { kind: "write", path: "pkg/src/a.ts", change: "modify" }));
     expect(write("pkg/src/b.ts")).toEqual(use("write", { kind: "write", path: "pkg/src/b.ts", change: "create" }));
   });

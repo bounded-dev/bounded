@@ -1,7 +1,7 @@
 // A pi tool call as a host-neutral tool use. Pure, given the locator: all
 // file-system knowledge (rewriting, links, existence) comes through `locate`.
 import type { Result } from "bounded/domain";
-import { type Effect, type ToolKind, type ToolUse, toolUse } from "./event.ts";
+import { type EffectJSON, type ToolKind, type ToolUse, toolUse } from "./event.ts";
 import type { Locate, Located } from "./pi-path.ts";
 import { subagentEffects } from "./subagent.ts";
 
@@ -12,9 +12,9 @@ export interface PiToolCall {
 }
 
 type Input = Readonly<Record<string, unknown>>;
-type Translation = Result<{ tool: ToolKind; effects: Effect[] }>;
+type Translation = Result<{ tool: ToolKind; effects: EffectJSON[] }>;
 
-const done = (tool: ToolKind, ...effects: Effect[]): Translation => ({ ok: true, value: { tool, effects } });
+const done = (tool: ToolKind, ...effects: EffectJSON[]): Translation => ({ ok: true, value: { tool, effects } });
 
 /**
  * pi's built-in tools and the web tools. Their paths start at the session's
@@ -37,28 +37,28 @@ function builtIn(toolName: string, input: Input, cwd: string, locate: Locate): T
     return path.ok ? locate(path.value, cwd, use) : path;
   };
   /** The directory a search tool lists, the session's when it names none, with its file-name filter. */
-  const listing = (filterField?: string): Result<{ root: Located; effect: Effect }> => {
+  const listing = (filterField?: string): Result<{ root: Located; effect: EffectJSON }> => {
     const path = text("path");
     if (!path.ok) return path;
     const root = locate(path.value ?? ".", cwd);
     if (!root.ok) return root;
     const filter = filterField === undefined ? undefined : text(filterField);
     if (filter !== undefined && !filter.ok) return filter;
-    const effect: Effect = { kind: "list", root: root.value.path, filter: filter?.value?.trim() ? filter.value : null };
+    const effect: EffectJSON = { kind: "list", root: root.value.path.value, filter: filter?.value?.trim() ? filter.value : null };
     return { ok: true, value: { root: root.value, effect } };
   };
 
   switch (toolName) {
     case "read": {
       const path = file("read");
-      return path.ok ? done("read", { kind: "read", path: path.value.path }) : path;
+      return path.ok ? done("read", { kind: "read", path: path.value.path.value }) : path;
     }
     case "write":
     case "edit": {
       const path = file();
       if (!path.ok) return path;
       const change = toolName === "write" && !path.value.exists ? "create" : "modify";
-      return done(toolName, { kind: "write", path: path.value.path, change });
+      return done(toolName, { kind: "write", path: path.value.path.value, change });
     }
     case "ls":
     case "find": {
@@ -68,14 +68,14 @@ function builtIn(toolName: string, input: Input, cwd: string, locate: Locate): T
     case "grep": {
       // grep lists its root and reads what it finds there; its content pattern is not judged.
       const listed = listing("glob");
-      return listed.ok ? done("search", listed.value.effect, { kind: "read", path: listed.value.root.path }) : listed;
+      return listed.ok ? done("search", listed.value.effect, { kind: "read", path: listed.value.root.path.value }) : listed;
     }
     case "bash":
     case "powershell": {
       const command = named("command");
       if (!command.ok) return command;
       const directory = locate(".", cwd);
-      return directory.ok ? done("shell", { kind: "execute", command: command.value, cwd: directory.value.path }) : directory;
+      return directory.ok ? done("shell", { kind: "execute", command: command.value, cwd: directory.value.path.value }) : directory;
     }
     case "web_fetch": {
       const url = named("url");
