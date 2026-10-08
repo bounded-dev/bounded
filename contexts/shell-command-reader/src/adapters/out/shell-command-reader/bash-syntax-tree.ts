@@ -91,7 +91,10 @@ function substituted(node: Node): ShellNode[] {
   return deeper(() => (SUBSTITUTIONS.has(node.type) ? [{ kind: "subshell" as const, body: statements(node) }] : named(node).flatMap(substituted)), []);
 }
 
-const unresolved = (node: Node): ShellWord => ({ kind: "unresolved", text: node.text, commands: substituted(node) });
+/** How a token tree-sitter inserted to recover from an error (of no text) is named: a reading names every part, and the shell would refuse the command. */
+export const INSERTED_TOKEN = "(a token the parser inserted to recover)";
+
+const unresolved = (node: Node): ShellWord => ({ kind: "unresolved", text: node.isMissing ? INSERTED_TOKEN : node.text, commands: substituted(node) });
 const withoutEscapes = (text: string): string => text.replace(/\\(.)/gs, "$1");
 
 /** Quoted text in a brace-expansion template: every character that could expand escaped. */
@@ -144,6 +147,8 @@ function template(node: Node): string | undefined {
 
 /** The words a word becomes: its brace expansion, each literal; one unresolved word when the shell alone can say. */
 function words(node: Node): ShellWord[] {
+  // A token the parser inserted is no word written: never a literal (such as an empty command name).
+  if (node.isMissing) return [unresolved(node)];
   const text = template(node);
   // Quoted and escaped braces arrive escaped in the template, so only text that can expand costs expansion work.
   const expanded = text === undefined ? undefined : expandBraces(text, chargeBraces);

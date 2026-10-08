@@ -26,8 +26,8 @@ const OUT_OF_TIME = "the command is too complex to read within the time bounded 
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 const sameAt = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.join("/") === b.join("/");
 const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path.value.split("/"));
-/** What carrying where a scope runs costs (it is copied, joined and compared): a step per 8 of its directories. */
-const depthCost = (scope: Scope): number => (scope.at === null ? 0 : scope.at.length >> 3);
+/** What carrying where a scope runs costs (it is copied, joined and compared): a step per 8 characters of its joined path, so one long directory name costs as many directories do. */
+const joinedPathCost = (scope: Scope): number => (scope.at === null ? 0 : Math.floor(scope.at.reduce((characters, directory) => characters + directory.length + 1, 0) / 8));
 
 /**
  * The roles xargs's input would have for the command `name` run with
@@ -120,7 +120,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   /** A word as a project path; recorded as unresolved, with the role it would have had, when it cannot be one. */
   const resolve = (word: ShellWord, scope: Scope, role: UnresolvedWord["role"]): ProjectPath | undefined => {
     // Resolving costs a step and one more per 64 characters; once the budget is spent nothing more is kept.
-    if (!spend(budget, 1 + (word.text.length >> 6) + depthCost(scope))) return undefined;
+    if (!spend(budget, 1 + (word.text.length >> 6) + joinedPathCost(scope))) return undefined;
     const path = word.kind === "literal" ? pathOf(word.text, scope) : undefined;
     if (path === undefined) unresolved.push({ text: word.text, role });
     return path;
@@ -172,7 +172,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * substitution adds a report, never replaces the check).
    */
   const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
-    if (name === null || !spend(budget, 1 + args.length + depthCost(scope))) return;
+    if (name === null || !spend(budget, 1 + args.length + joinedPathCost(scope))) return;
     if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
     if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT], budget)) unresolved.push({ text: XARGS_INPUT.text, role });
     if (how.replace !== undefined && spend(budget, 1 + args.length + textCost(args))) {
@@ -248,7 +248,7 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
   };
 
   const walk = (node: ShellNode, scope: Scope): void => {
-    if (!spend(budget, 1 + depthCost(scope))) return;
+    if (!spend(budget, 1 + joinedPathCost(scope))) return;
     switch (node.kind) {
       case "command": {
         for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, scope);

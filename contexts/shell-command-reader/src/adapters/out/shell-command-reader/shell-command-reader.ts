@@ -19,8 +19,8 @@ export interface TreeSitterShellCommandReaderOptions {
 const MAX_COMMAND_CHARACTERS = 65_536;
 /** How long reading one command may take, on a monotonic clock, nested shells' code included; past it, the command is unread as too complex. */
 const READ_DEADLINE_MS = 1000;
-/** How an unresolved part with no text (a token the parser inserted to recover from an error) is named: a reading names every part. */
-const EMPTY_PART = "(nothing the parser could read)";
+/** How an unresolved part of no text that is no inserted token (bash-syntax-tree names those) is named, should the parser give one: a reading names every part. */
+const PART_OF_NO_TEXT = "(a part of no text)";
 
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 const wordOf = ({ kind, text }: ShellWord): ShellCommandWordJSON => ({ kind, text });
@@ -81,8 +81,8 @@ export class TreeSitterShellCommandReader implements ShellCommandReader {
         // Whether a written file exists could not be told: it is given as both a create and a modify, each marked.
         ...described.writes.map(({ path, change, undetermined }) => ({ effect: { kind: "write" as const, path: path.value, change }, ...(undetermined === true ? { existenceUnknown: true } : {}) })),
       ],
-      // A part the parser found nothing in (a token it inserted to recover, of no text) is still reported, by a name, never dropped.
-      unresolved: described.unresolved.map(({ text, role }) => ({ text: text === "" ? EMPTY_PART : text, role })),
+      // A part of no text is still reported, by a name, never dropped.
+      unresolved: described.unresolved.map(({ text, role }) => ({ text: text === "" ? PART_OF_NO_TEXT : text, role })),
     };
   }
 

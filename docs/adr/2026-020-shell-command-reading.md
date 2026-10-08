@@ -47,6 +47,10 @@ names no tool or language (AGENTS.md). It can own the shape.
     `node -e`/`--eval`/`-p`/`--print`, `perl -e`/`-E`, `ruby -e`, awk's
     program without `-f`; short options cluster as getopt reads them, as in
     `perl -ne` or `python3 -Bc`, a value-taking letter ending the cluster).
+    A token tree-sitter inserted to recover from an error (the missing
+    command after `cat a |`) is never a literal word: it is an unresolved
+    word named `(a token the parser inserted to recover)`, and any other
+    part of no text `(a part of no text)`, since a reading names every part.
   - **xargs.** Its own options are walked once, as getopt walks them, both
     to find its command and to find a replace string: in a cluster a
     value-taking letter (`I J L n P d E s a R S`) ends it and takes the rest
@@ -75,6 +79,21 @@ names no tool or language (AGENTS.md). It can own the shape.
     and, for a resolvable word, as the command; the words after it are also
     read as operands. Nothing is ever dropped from judgement because it
     became unresolved.
+  - **Brace expansion is read every way a shell running the command could
+    expand it**, so every path either shell could touch is judged. Comma
+    lists (`{a,b}`) and ranges expand, nested, left to right; quoted and
+    escaped braces never do; a group that is no range (`{1..a}`,
+    `secret{1..2..3..4}`) stays as written and the next group still
+    expands, as in bash. Bash 3.2 (macOS's `/bin/bash`) neither pads nor
+    steps a range; bash 4 and later, and zsh, do. So a zero-padded range
+    gives both shells' words (`rm key{01..02}.pem`: `key01.pem`,
+    `key02.pem`, `key1.pem`, `key2.pem`), and a stepped one gives its
+    stepped words and the word as written, which bash 3.2 keeps literal
+    (`rm f{1..5..2}`: `f1`, `f3`, `f5`, `f{1..5..2}`). Letter ranges step
+    too (`{a..e..2}`). Unresolved, because the shells disagree: a step of
+    zero or below, and a zero-padded range with a negative end; also a
+    range past the integers held exactly, and any word that would expand
+    to more than 256 words.
   - **Reading is bounded in time, because the reader is synchronous:** the
     judge's `readWithinMs` cannot stop it, and a hook that ran out of time
     would let the call through. Each bound below makes the command **unread**
@@ -103,10 +122,14 @@ names no tool or language (AGENTS.md). It can own the shape.
       pass finds every group with one stack scan, then looks at each group in
       constant time: a comma list (which ends the pass) is sliced, and a
       group is sliced and tested as a range only when it is at most 48
-      characters long (a range is short), with anchored patterns that cannot
-      backtrack; a longer group of digits and dots (a range too long to spell
-      out) is found by a scan that stops at the first other character, so
-      nested groups cost constant time each. Each pass is charged its length,
+      characters long, or holds nothing but digits, dots and minus signs,
+      found by a scan that stops at the first other character (so nested
+      groups, which start with one, cost constant time each, and the groups
+      it lets be sliced never overlap). The range patterns are anchored and
+      have no nested quantifiers, so they backtrack at most linearly; a long
+      group of digits and dots that is no range stays a literal word, as in
+      bash, and a long one that is a range is spelt out or, past 256 words,
+      unresolved. Each pass is charged its length,
       and a command may spend 1,000,000 characters of passes ("expanding its
       braces would take more work than bounded allows"); text with no brace
       is not charged. The number of passes is bounded by that charge, not by
@@ -124,9 +147,10 @@ names no tool or language (AGENTS.md). It can own the shape.
       path, and, for a nested shell's code, one per 16 characters each time
       it is parsed; a short option cluster, read for every value it could
       carry, costs its suffixes' total length (a step per 64 characters,
-      counted without integer overflow), and carrying where a deep `cd` took
-      later commands costs a step per 8 of its directories wherever it is
-      copied or compared; a cost that is not a count of steps spends the
+      counted without integer overflow), and carrying where a `cd` took
+      later commands costs a step per 8 characters of its joined path
+      wherever it is copied, joined or compared (so one long directory name
+      costs what as many short ones do); a cost that is not a count of steps spends the
       whole budget. Readings, nested runs and the reports of xargs's input
       all share it, and nothing is kept past it. Why: "the command is too
       complex to read within bounded's work budget (200000 steps): its words
@@ -141,9 +165,13 @@ names no tool or language (AGENTS.md). It can own the shape.
       24` with 5,000 words in 9 ms, `"xargs --b " × 14` over a 4 KB `sh -c`
       script in 8 ms, `{a,b}` × 10,000 in 45 ms, `"(" × 30,000 + ")" ×
       30,000` in 15 ms, `grep -` + 65,000 letters in 2 ms, a 16,000-level
-      `cd` before 1,400 `if`s in 39 ms. A fuzz test of 300 random strings of
-      shell metacharacters and words, up to 65,536 characters, reads each in
-      at most 47 ms, never throwing.
+      `cd` before 1,400 `if`s in 67 ms, a 30,000-character directory before
+      15,000 words in 94 ms. A test pins each of these outcomes, none of them
+      for want of time. Two seeded fuzz tests, each read under 250 ms, never
+      throwing and never unread for want of time: 300 random strings of
+      shell metacharacters and words, up to 65,536 characters (slowest
+      53 ms), and 120 balanced nests of brace groups, command substitutions,
+      ifs and cases, up to 1,100 deep and 65,536 characters (slowest 46 ms).
   - **The cause.** An unread reading carries `cause: "too-complex"` only
     when the command itself is to blame. The parser returning no tree is a
     failure of the parser, not of the command, so it carries no cause, as

@@ -29,11 +29,6 @@ function operands(args: readonly ShellWord[]): ShellWord[] {
   return out;
 }
 
-/**
- * The values a short option word could carry attached, not knowing which of
- * its letters takes one: the rest of the word after each leading letter, as
- * getopt reads a cluster (-rf.env is -r -f .env, or -r with f.env): f.env, .env.
- */
 /** What handling `words`' text costs beyond a step each: a step per 64 characters. */
 export const textCost = (words: readonly ShellWord[]): number => words.reduce((steps, word) => steps + (word.text.length >> 6), 0);
 
@@ -52,6 +47,11 @@ function clusterCost(word: ShellWord): number {
   return Math.floor(((run - 1) * text.length) / 64);
 }
 
+/**
+ * The values a short option word could carry attached, not knowing which of
+ * its letters takes one: the rest of the word after each leading letter, as
+ * getopt reads a cluster (-rf.env is -r -f .env, or -r with f.env): f.env, .env.
+ */
 function attachedValues(text: string): ShellWord[] {
   const out: ShellWord[] = [];
   for (let index = 2; index < text.length && /[A-Za-z0-9]/.test(text.charAt(index - 1)); index++) out.push(literalWord(text.slice(index)));

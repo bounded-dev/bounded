@@ -246,7 +246,7 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect(reading.toJSON()).toEqual({ outcome: "unread", why: "the command is too complex to read within the time bounded allows for one command (parsing it)", cause: "too-complex" });
     // A clock that never moves never runs out.
     expect((await timed("cat a.txt", new TreeSitterShellCommandReader({ pathKindOf: () => "absent", clock: () => 0 }))).reading.outcome).toBe("read");
-    // The domain's own check: a clock that runs out only once the parse is done stops the reading of what the command does.
+    // The deadline is measured on the reader's clock, not the wall's: on one that never moves, even a 1 ms deadline never runs out. (Each check site, the domain's included, is tested in shell-command-effects.test.ts.)
     const quiet = new TreeSitterShellCommandReader({ pathKindOf: () => "absent", clock: () => 0, readDeadlineMs: 1 });
     expect((await timed("cat a.txt", quiet)).reading.outcome).toBe("read");
   });
@@ -273,24 +273,19 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     }
   }, 30_000);
 
-  test("fuzz: a few hundred random commands of shell metacharacters and words, up to 65,536 characters, each read in under 1.5 s, never throwing", async () => {
-    // mulberry32, a fixed seed: the same strings every run.
-    let seed = 0x2026_0020;
-    const random = (): number => {
-      seed = (seed + 0x6d2b79f5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-    const pieces = ["{", "}", "(", ")", "$", "`", "'", '"', "\\", ".", ",", ";", "&", "|", "<", ">", "*", "?", "[", "]", " ", "\n", "xargs", "sh -c", "cat", "rm", "cd", "-", "--b", "..", "a", "1", "{a,b}", "$(", "<<EOF\n", "EOF\n"];
+  /** mulberry32 from a fixed seed: the same numbers in [0, 1) every run. */
+  const seededRandom = (seed: number) => (): number => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  /** Reads every command in `commands` with one reader: each must give a usable reading, never throw, never be unread for time; gives the slowest read in ms. */
+  async function slowestRead(commands: readonly string[]): Promise<number> {
     const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
     let worst = 0;
-    for (let case_ = 0; case_ < 300; case_++) {
-      // Most short, some long, a few at the limit.
-      const length = case_ % 10 === 0 ? 65_536 : case_ % 3 === 0 ? Math.floor(random() * 20_000) : Math.floor(random() * 400) + 1;
-      let text = "";
-      while (text.length < length) text += pieces[Math.floor(random() * pieces.length)];
-      text = text.slice(0, length).replace(/\0/g, "");
+    for (const [case_, text] of commands.entries()) {
       const command = Command.parse(text.trim() === "" ? "x" : text);
       if (!command.ok) continue;
       const started = performance.now();
@@ -298,10 +293,124 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
       const elapsed = performance.now() - started;
       worst = Math.max(worst, elapsed);
       const parsed = ShellCommandReading.parse(answer);
-      expect({ case_, fast: elapsed < 1500, parses: parsed.ok ? "ok" : `${parsed.error} in ${JSON.stringify(text.slice(0, 200))}` }).toEqual({ case_, fast: true, parses: "ok" });
+      const unreadForTime = parsed.ok && parsed.value.outcome === "unread" && parsed.value.why.includes("within the time");
+      expect({ case_, fast: elapsed < 1500, unreadForTime, parses: parsed.ok ? "ok" : `${parsed.error} in ${JSON.stringify(text.slice(0, 200))}` }).toEqual({ case_, fast: true, unreadForTime: false, parses: "ok" });
     }
-    expect(worst).toBeLessThan(1500);
+    console.log(`slowest of ${commands.length} reads: ${worst.toFixed(1)} ms`);
+    return worst;
+  }
+
+  test("fuzz: a few hundred random commands of shell metacharacters and words, up to 65,536 characters, each read in under 250 ms, never throwing, never unread for time", async () => {
+    const random = seededRandom(0x2026_0020);
+    const pieces = ["{", "}", "(", ")", "$", "`", "'", '"', "\\", ".", ",", ";", "&", "|", "<", ">", "*", "?", "[", "]", " ", "\n", "xargs", "sh -c", "cat", "rm", "cd", "-", "--b", "..", "a", "1", "{a,b}", "$(", "<<EOF\n", "EOF\n"];
+    const commands = Array.from({ length: 300 }, (_, case_) => {
+      // Most short, some long, a few at the limit.
+      const length = case_ % 10 === 0 ? 65_536 : case_ % 3 === 0 ? Math.floor(random() * 20_000) : Math.floor(random() * 400) + 1;
+      let text = "";
+      while (text.length < length) text += pieces[Math.floor(random() * pieces.length)];
+      return text.slice(0, length);
+    });
+    expect(await slowestRead(commands)).toBeLessThan(250);
   }, 600_000);
+
+  test("fuzz: balanced nests (brace groups, command substitutions, ifs and cases), seeded, up to 65,536 characters, each read in under 250 ms, never unread for time", async () => {
+    const random = seededRandom(0x2026_0021);
+    const pick = <T>(choices: readonly T[]): T => choices[Math.floor(random() * choices.length)] as T;
+    /** A balanced nest `depth` deep, of one kind or mixed, around a leaf. */
+    const nest = (depth: number, kind: string): string => {
+      if (depth === 0) return pick(["cat a.txt", "rm b", "echo {a,b}", "x", "cat {1..3}.log"]);
+      const inner = nest(depth - 1, kind === "mixed" ? pick(["brace", "substitution", "if", "case"]) : kind);
+      switch (kind) {
+        case "brace":
+          return `echo {${inner.replace(/ /g, "_")},b}`;
+        case "substitution":
+          return `echo $( ${inner} )`;
+        case "if":
+          return `if ${pick(["true", "a"])}; then ${inner}; fi`;
+        default:
+          return `case x in a) ${inner};; esac`;
+      }
+    };
+    const commands: string[] = [];
+    for (let case_ = 0; case_ < 120; case_++) {
+      const kind = pick(["brace", "substitution", "if", "case", "mixed"]);
+      const depth = case_ % 6 === 0 ? 900 + Math.floor(random() * 200) : Math.floor(random() * 120) + 1;
+      const once = nest(depth, kind);
+      // Some repeated side by side, up to the length limit.
+      const copies = case_ % 4 === 0 ? Math.max(1, Math.floor(65_536 / (once.length + 2))) : 1;
+      commands.push(Array.from({ length: copies }, () => once).join("; ").slice(0, 65_536));
+    }
+    expect(await slowestRead(commands)).toBeLessThan(250);
+  }, 600_000);
+
+  test("the outcomes ADR 2026-020 quotes: each as stated, in under 1.5 s, none for want of time", async () => {
+    const json = JSON.stringify(Object.fromEntries(Array.from({ length: 120 }, (_, index) => [`key${index}`, { name: `value ${index}`, tags: ["a", "b"] }])));
+    const cases: readonly (readonly [string, "read" | "unread"])[] = [
+      [await Bun.file(INSTALL_SCRIPT).text(), "read"],
+      [`cat > notes.txt <<'EOF'\n${"a line of the heredoc body\n".repeat(2300)}EOF`, "read"],
+      [`cat ${"w ".repeat(5000)}`, "read"],
+      [`echo ${"a ".repeat(25_000)}`, "read"],
+      [`curl -X POST -d '${json}' https://example.com/api`, "read"],
+      [`echo ${"{".repeat(32_765)}${"}".repeat(32_765)}`, "read"],
+      [`echo {${".".repeat(65_000)}\\x}`, "read"],
+      [`echo ${"{".repeat(2000)}${".".repeat(60_000)}\\x${"}".repeat(2000)}`, "read"],
+      [`echo ${"{".repeat(60_000)}`, "read"],
+      [`${"xargs $A ".repeat(24)}true ${"w ".repeat(5000)}`, "unread"],
+      [`${"xargs --b ".repeat(14)}sh -c '${"cat a.txt; ".repeat(370)}'`, "unread"],
+      [`cat ${"{a,b}".repeat(10_000)}`, "unread"],
+      [`${"(".repeat(30_000)}${")".repeat(30_000)}`, "unread"],
+      [`grep -${"a".repeat(65_000)}`, "unread"],
+      [`cd ${"a/".repeat(16_000)} && ${"if a; then cat b; fi; ".repeat(1400)}`, "unread"],
+      // One long directory costs as many short ones do: carrying it is charged per character.
+      [`cd ${"a".repeat(30_000)} && cat ${"b ".repeat(15_000)}`, "unread"],
+      [`cd ${"a".repeat(30_000)} && ${"if a; then cat b; fi; ".repeat(1400)}`, "unread"],
+    ];
+    for (const [command, outcome] of cases) {
+      const { elapsed, reading } = await timed(command);
+      const forTime = reading.outcome === "unread" && reading.why.includes("within the time");
+      expect({ command: command.slice(0, 30), fast: elapsed < 1500, outcome: reading.outcome, forTime }).toEqual({ command: command.slice(0, 30), fast: true, outcome, forTime: false });
+    }
+  }, 60_000);
+
+  test("a long group of digits and dots that is no range stays a literal word, as in bash", async () => {
+    const word = `secret{${Array.from({ length: 17 }, (_, index) => index + 1).join("..")}}`;
+    expect(word.length).toBeGreaterThan(48);
+    expect((await read(`cat ${word}`)).fileEffects).toEqual([{ effect: { kind: "read", path: word } }]);
+    // A group that is no range leaves the next one to expand, as in bash.
+    expect((await read("cat a{1..a}{x,y}")).fileEffects).toEqual([{ effect: { kind: "read", path: "a{1..a}x" } }, { effect: { kind: "read", path: "a{1..a}y" } }]);
+    // A long numeric range is sliced too: padded, it is spelt out both ways; past the word cap, unresolved.
+    expect((await read(`cat {${"0".repeat(30)}1..${"0".repeat(30)}2}`)).fileEffects).toHaveLength(4);
+    expect((await read(`cat {${"0".repeat(30)}1..${"0".repeat(30)}999}`)).unresolved).toEqual([{ text: `{${"0".repeat(30)}1..${"0".repeat(30)}999}`, role: "read" }]);
+  });
+
+  test("zero-padded ranges give both shells' words: padded (bash 4, zsh) and not (bash 3.2)", async () => {
+    const deleted = async (command: string) => (await read(command)).fileEffects.map(({ effect }) => (effect.kind === "write" ? effect.path : effect.kind));
+    expect(await deleted("rm key{01..02}.pem")).toEqual(["key1.pem", "key01.pem", "key2.pem", "key02.pem"]);
+    expect(await deleted("rm f{08..10}")).toEqual(["f8", "f08", "f9", "f09", "f10"]);
+    expect(await deleted("rm f{1..010}")).toEqual(Array.from({ length: 10 }, (_, index) => [`f${index + 1}`, `f${String(index + 1).padStart(3, "0")}`]).flat());
+    // A negative padded end: the shells disagree on its width, so it is unresolved.
+    expect((await read("rm f{-01..1}")).unresolved).toEqual([{ text: "f{-01..1}", role: "write" }]);
+  });
+
+  test("stepped ranges give bash 4's and zsh's words, and the word as written, which bash 3.2 keeps literal", async () => {
+    const deleted = async (command: string) => (await read(command)).fileEffects.map(({ effect }) => (effect.kind === "write" ? effect.path : effect.kind));
+    expect(await deleted("rm f{1..5..2}")).toEqual(["f1", "f3", "f5", "f{1..5..2}"]);
+    expect(await deleted("rm f{5..1..2}")).toEqual(["f5", "f3", "f1", "f{5..1..2}"]);
+    expect(await deleted("rm f{a..e..2}")).toEqual(["fa", "fc", "fe", "f{a..e..2}"]);
+    expect(await deleted("rm f{01..05..2}")).toEqual(["f1", "f01", "f3", "f03", "f5", "f05", "f{01..05..2}"]);
+    // A step of zero or below: the shells disagree on its words, so it is unresolved.
+    for (const command of ["rm f{1..5..0}", "rm f{1..5..-2}"]) expect((await read(command)).unresolved).toEqual([{ text: command.slice(3), role: "write" }]);
+    // Within the word cap a stepped range expands; past it, the word is unresolved as before.
+    expect((await read("rm f{0..1000..4}")).fileEffects).toHaveLength(252);
+    expect((await read("rm f{0..1000..2}")).unresolved).toEqual([{ text: "f{0..1000..2}", role: "write" }]);
+  });
+
+  test("a token the parser inserted to recover is named for what it is, never an empty word; a quoted empty word stays one", async () => {
+    const recovered = await read("cat a |");
+    expect(recovered.programs.map((program) => program.name)).toEqual([{ kind: "literal", text: "cat" }, { kind: "unresolved", text: "(a token the parser inserted to recover)" }]);
+    expect((await read("a && ")).programs.at(-1)?.name).toEqual({ kind: "unresolved", text: "(a token the parser inserted to recover)" });
+    expect((await read('"" a')).programs.map((program) => program.name)).toEqual([{ kind: "literal", text: "" }]);
+  });
 
   test("a realistic install script of about 500 lines is read, programs and all, well within the budget", async () => {
     const script = await Bun.file(INSTALL_SCRIPT).text();
