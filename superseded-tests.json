@@ -2890,18 +2890,18 @@
     "case": "upgradeCommands: the package manager commands that upgrade the bounded packages > adds dependencies and devDependencies each where they were",
     "successor": {
       "file": "apps/cli/src/package-upgrade.test.ts",
-      "case": "bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages > adds dependencies and devDependencies each where they were"
+      "case": "bounded-cli — installCommand: every package manager installs from the rewritten manifest > runs each manager's own plain install"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; then every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone"
   },
   {
     "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
     "case": "upgradeCommands: the package manager commands that upgrade the bounded packages > runs no command for a group with no package",
     "successor": {
       "file": "apps/cli/src/package-upgrade.test.ts",
-      "case": "bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages > runs no command for a group with no package"
+      "case": "bounded-cli — installCommand: every package manager installs from the rewritten manifest > runs each manager's own plain install"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; then every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone"
   },
   {
     "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
@@ -3010,5 +3010,23 @@
       "case": "the Claude Code host installer, in a project that moved or shares its settings > settings copied from another project (a teammate's checkout, or a move) already fit: one project-relative hook per event, nothing to change"
     },
     "reason": "with a project-relative hook command, settings copied from another checkout already point at this project, so there is nothing to replace"
+  },
+  {
+    "file": "apps/cli/src/package-upgrade.test.ts",
+    "case": "bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages > adds dependencies and devDependencies each where they were",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — installCommand: every package manager installs from the rewritten manifest > runs each manager's own plain install"
+    },
+    "reason": "every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone"
+  },
+  {
+    "file": "apps/cli/src/package-upgrade.test.ts",
+    "case": "bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages > runs no command for a group with no package",
+    "successor": {
+      "file": "apps/cli/src/package-upgrade.test.ts",
+      "case": "bounded-cli — installCommand: every package manager installs from the rewritten manifest > runs each manager's own plain install"
+    },
+    "reason": "every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone"
   }
 ]

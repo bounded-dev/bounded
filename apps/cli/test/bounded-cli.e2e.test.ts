@@ -118,4 +118,45 @@ describe("bounded-cli end to end, from packed tarballs", () => {
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsText);
   }, 300_000);
+
+  test.skipIf(Bun.which("npm") === null)("under npm (skipped when npm is not installed): npx bounded-cli init --from, then npx bounded update --from to a later release", () => {
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cli-e2e-npm-")));
+    const first = join(scratch, "release-1");
+    const second = join(scratch, "release-2");
+    const version = json<{ version: string }>(join(REPO, "apps/cli/package.json")).version;
+    packWorkspace(first);
+    packRelease("99.0.0", join(scratch, "copies"), second);
+
+    // A fresh repository as `npm init -y` leaves it, using Claude Code: no lockfile, no packageManager field, so npx's npm is used.
+    const project = join(scratch, "project");
+    mkdirSync(join(project, ".claude"), { recursive: true });
+    mustRun(["git", "init", "--quiet"], project);
+    mustRun(["npm", "init", "-y"], project);
+
+    const init = run(["npx", "--yes", "-p", tarball(first, "bounded", version), "-p", tarball(first, "bounded-cli", version), "bounded", "init", "--from", first], project);
+    expect(init.stderr).toBe("");
+    expect(init.exitCode).toBe(0);
+    expect(init.stdout).toContain("with npm");
+    const manifest = json<{ devDependencies: Record<string, string>; overrides: Record<string, string> }>(join(project, "package.json"));
+    expect(Object.keys(manifest.devDependencies).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-cli"]);
+    expect(manifest.overrides.bounded).toBe("$bounded");
+    expect(existsSync(join(project, "package-lock.json"))).toBe(true);
+    const config = readFileSync(join(project, "bounded.config.ts"), "utf8");
+    const settingsText = readFileSync(join(project, ".claude", "settings.json"), "utf8");
+    expect(settingsText).toContain(JSON.stringify(HOOK).slice(1, -1));
+
+    const update = run(["npx", "--no-install", "bounded", "update", "--from", second], project);
+    expect(update.stderr).toBe("");
+    expect(update.exitCode).toBe(0);
+    expect(update.stdout).toContain("with npm");
+    expect(update.stdout).toContain("bounded 99.0.0");
+    for (const name of ["bounded", "bounded-cli", "bounded-claude-code"]) expect(versionOf(project, name)).toBe("99.0.0");
+    expect(json<{ overrides: Record<string, string> }>(join(project, "package.json")).overrides.bounded).toBe("$bounded");
+    expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
+    expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsText);
+
+    const refresh = run(["npx", "--no-install", "bounded", "update", "--no-upgrade"], project);
+    expect(refresh.exitCode).toBe(0);
+    expect(refresh.stdout).toContain("up to date");
+  }, 300_000);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { packageManagerFor, packageManagerOf, tarballFor, upgradeCommands, withUpgradedSpecs } from "./package-upgrade.ts";
+import { installCommand, packageManagerFor, packageManagerOf, tarballFor, withBoundedOverride, withUpgradedSpecs } from "./package-upgrade.ts";
 
 describe("bounded-cli — packageManagerOf: the lockfile first, then package.json's packageManager, then the running npx or bunx, then npm", () => {
   test("prefers each source in turn", () => {
@@ -38,27 +38,33 @@ describe("bounded-cli — tarballFor: the packed tarball of a package in an upgr
   });
 });
 
-describe("bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages", () => {
-  const packages = [
-    { name: "bounded", dev: false, spec: "bounded@latest" },
-    { name: "bounded-claude-code", dev: true, spec: "/t/bounded-claude-code-0.2.0.tgz" },
-  ];
+describe("bounded-cli — installCommand: every package manager installs from the rewritten manifest", () => {
+  // The specs and the override are written into package.json first (withUpgradedSpecs, withBoundedOverride):
+  // an `add` would meet npm's override check before the direct dependency it refers to exists (EOVERRIDE).
+  test("runs each manager's own plain install", () => {
+    expect(installCommand("bun")).toEqual(["bun", "install"]);
+    expect(installCommand("npm")).toEqual(["npm", "install"]);
+    expect(installCommand("pnpm")).toEqual(["pnpm", "install"]);
+    expect(installCommand("yarn")).toEqual(["yarn", "install"]);
+  });
+});
 
-  test("adds dependencies and devDependencies each where they were", () => {
-    expect(upgradeCommands("bun", packages)).toEqual([
-      ["bun", "add", "bounded@latest"],
-      ["bun", "add", "--dev", "/t/bounded-claude-code-0.2.0.tgz"],
-    ]);
-    expect(upgradeCommands("npm", packages)).toEqual([
-      ["npm", "install", "bounded@latest"],
-      ["npm", "install", "--save-dev", "/t/bounded-claude-code-0.2.0.tgz"],
-    ]);
-    expect(upgradeCommands("pnpm", packages)[1]).toEqual(["pnpm", "add", "--save-dev", "/t/bounded-claude-code-0.2.0.tgz"]);
-    expect(upgradeCommands("yarn", packages)[1]).toEqual(["yarn", "add", "--dev", "/t/bounded-claude-code-0.2.0.tgz"]);
+describe("bounded-cli — withBoundedOverride: each package manager's own override of bounded, while npm's bounded is the legacy 2.x", () => {
+  const manifest = { name: "demo", devDependencies: { bounded: "/t/bounded-0.2.0.tgz" }, overrides: { other: "1" }, resolutions: { other: "1" }, pnpm: { overrides: { other: "1" } } };
+
+  test("npm and pnpm refer to the direct dependency's own spec ($bounded), which they require to match", () => {
+    expect(withBoundedOverride(manifest, "npm", "/t/bounded-0.2.0.tgz").overrides).toEqual({ other: "1", bounded: "$bounded" });
+    expect(withBoundedOverride(manifest, "pnpm", "/t/bounded-0.2.0.tgz").pnpm).toEqual({ overrides: { other: "1", bounded: "$bounded" } });
   });
 
-  test("runs no command for a group with no package", () => {
-    expect(upgradeCommands("bun", [packages[0] ?? { name: "", dev: false, spec: "" }])).toEqual([["bun", "add", "bounded@latest"]]);
+  test("bun overrides with the tarball, yarn resolves to it; nothing else changes", () => {
+    const bun = withBoundedOverride(manifest, "bun", "/t/bounded-0.2.0.tgz");
+    expect(bun.overrides).toEqual({ other: "1", bounded: "file:/t/bounded-0.2.0.tgz" });
+    expect(bun.resolutions).toEqual({ other: "1" });
+    const yarn = withBoundedOverride(manifest, "yarn", "/t/bounded-0.2.0.tgz");
+    expect(yarn.resolutions).toEqual({ other: "1", bounded: "file:/t/bounded-0.2.0.tgz" });
+    expect(yarn.overrides).toEqual({ other: "1" });
+    expect(manifest.overrides).toEqual({ other: "1" });
   });
 });
 

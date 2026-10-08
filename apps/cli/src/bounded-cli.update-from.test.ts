@@ -121,6 +121,7 @@ describe("bounded-cli — bounded update --from", () => {
   test("refuses when the installed version is not the tarball's, restoring package.json", async () => {
     const root = project();
     const before = manifestOf(root);
+    const lockfileBefore = readFileSync(join(root, "bun.lock"), "utf8");
     const dir = join(scratch, "release-mislabelled");
     const packed = pack(dir, "bounded", "1.5.0");
     renameSync(packed, join(dir, "bounded-2.0.0.tgz"));
@@ -130,6 +131,9 @@ describe("bounded-cli — bounded update --from", () => {
     expect(ran.exitCode).toBe(1);
     expect(ran.stderr).toContain("bounded is version 1.5.0, not 2.0.0");
     expect(manifestOf(root)).toBe(before);
+    // The install succeeded and rewrote the lockfile: it is put back with package.json.
+    expect(readFileSync(join(root, "bun.lock"), "utf8")).toBe(lockfileBefore);
+    expect(ran.stderr).toContain("bun.lock");
   });
 
   test("when the new bounded-cli cannot be run, the upgrade stands and the message says to refresh the hooks", async () => {

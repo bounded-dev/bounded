@@ -56,6 +56,21 @@ describe("bounded-cli — bounded init --from", () => {
     expect(manifest.overrides?.bounded).toBe(`file:${boundedTarball}`);
   });
 
+  test.skipIf(Bun.which("npm") === null)("under npm (skipped when npm is not installed), overrides bounded with $bounded, the reference npm accepts beside a direct dependency, and installs", async () => {
+    const root = mkdtempSync(join(scratch, "project-npm-"));
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", private: true, packageManager: "npm@11.0.0" }, null, 2));
+    mkdirSync(join(root, ".claude"));
+    const ran = await runBoundedCli(["init", "--from", releaseDir], root);
+    expect(ran.stderr).toBe("");
+    expect(ran.exitCode).toBe(0);
+    expect(ran.stdout).toContain("with npm");
+    expect(ran.stdout).toContain("handed over to bounded-cli 1.0.0: init");
+    const manifest = manifestOf(root);
+    expect(Object.keys(manifest.devDependencies ?? {}).sort()).toEqual(["bounded", "bounded-claude-code", "bounded-cli"]);
+    expect(manifest.overrides?.bounded).toBe("$bounded");
+    expect(readFileSync(join(root, "package-lock.json"), "utf8")).toContain("bounded-cli");
+  });
+
   test("adds every detected host's adapter: .claude/ and .pi/", async () => {
     const root = project([".claude", ".pi"]);
     expect((await runBoundedCli(["init", "--from", releaseDir], root)).exitCode).toBe(0);

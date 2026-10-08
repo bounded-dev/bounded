@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { hostInstallerConformance, snapshotFiles } from "bounded/application/host-installer-conformance";
+import { hostInstallerConformance, snapshotFiles } from "bounded/testing/host-installer-conformance";
 import { hostInstaller } from "./host-installer.ts";
 import { piLoader } from "./install.ts";
 
