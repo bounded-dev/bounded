@@ -193,7 +193,9 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
       expect(reasonOf(secret.stdout)).toContain("the rule 'secrets/**' from bounded/project denies modify of 'secrets/x' (secrets are kept by people)");
       expect(reasonOf(edit("bounded.config.ts").stdout)).toContain("the rule '**/bounded.config.*' from bounded/project");
       // init's default rules also keep agents off the hook's own settings.
-      expect(reasonOf(edit(".claude/settings.json").stdout)).toContain("the rule '.claude/settings.json' from bounded/project");
+      expect(reasonOf(edit(".claude/settings.json").stdout)).toContain("the rule '.claude/settings*.json' from bounded/project");
+      // A local settings file could disable every hook: creating one is refused too.
+      expect(reasonOf(hook("Write", { file_path: join(project, ".claude", "settings.local.json"), content: "{\"disableAllHooks\": true}" }).stdout)).toContain("the rule '.claude/settings*.json' from bounded/project");
       expect(reasonOf(edit("src/a.ts").stdout)).toBe("allowed");
       const shell = hook("Bash", { command: "echo hi > secrets/x" });
       expect(reasonOf(shell.stdout)).toContain("secrets/**");
@@ -245,6 +247,13 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
       const denied = JSON.parse(broken.stdout) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
       expect(denied.hookSpecificOutput.permissionDecision).toBe("deny");
       expect(denied.hookSpecificOutput.permissionDecisionReason).toContain("picomatch");
+
+      // Settings that cannot be read are not skipped by a refresh: the update refuses, saying what is wrong.
+      writeFileSync(join(project, ".claude", "settings.json"), "{ broken");
+      const broken2 = run(["npx", "--no-install", "bounded", "update", "--no-upgrade"], project, { bun: false });
+      expect(broken2.exitCode).toBe(1);
+      expect(broken2.stderr).toContain(".claude/settings.json is not valid JSON");
+      expect(broken2.stderr).not.toContain("No package");
     },
     300_000,
   );

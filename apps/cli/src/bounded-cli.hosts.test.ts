@@ -91,6 +91,19 @@ export const hostInstaller = {
     expect(existsSync(join(root, "third.installed"))).toBe(true);
   });
 
+  test("when bounded is installed for no host, update says so and how to add one, not that no package offers an installer", async () => {
+    const notInstalled = (host: string) =>
+      `export const hostInstaller = { host: "${host}", isInstalled: async () => false, install: async () => ({ ok: true, value: { host: "${host}", changedPaths: [], skippedBecause: null } }) };\n`;
+    const root = project([".claude"], { "bounded.config.ts": "// mine\n" });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", devDependencies: { bounded: "3.0.0" } }));
+    writeFileSync(join(root, "node_modules", "bounded", "claude-code.js"), notInstalled("claude-code"));
+    writeFileSync(join(root, "node_modules", "bounded", "pi.js"), notInstalled("pi"));
+    const done = await runBoundedCli(["update", "--no-upgrade"], root);
+    expect(done.exitCode).toBe(1);
+    expect(done.stderr).toContain("bounded init --no-install --host");
+    expect(done.stderr).not.toContain("No package");
+  });
+
   test("refuses a host name that is not one", async () => {
     const root = project([]);
     const done = await runBoundedCli(["init", "--no-install", "--host", "../evil"], root);

@@ -49,19 +49,22 @@ describe("bounded init's configuration", () => {
     expect((await judge(edit("src/index.ts"))).kind).toBe("allow");
   });
 
-  test("also keeps agents off Claude Code's settings, pi's loader and bounded's installed code, saying why", async () => {
-    expect(INITIAL_CONFIG).toContain('match: ".claude/settings.json"');
+  test("also keeps agents off every Claude Code settings file (settings.local.json can disable all hooks), pi's loader and bounded's installed code, saying why", async () => {
+    expect(INITIAL_CONFIG).toContain('match: ".claude/settings*.json"');
     expect(INITIAL_CONFIG).toContain("Claude Code's settings hold Bounded's hook");
     expect(INITIAL_CONFIG).toContain("Ask a person to change Claude Code's settings");
     expect(INITIAL_CONFIG).toContain('match: ".pi/extensions/bounded/**"');
     expect(INITIAL_CONFIG).toContain('match: "node_modules/bounded/**"');
     const { judge } = await openProject(project(), { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
-    for (const path of [".claude/settings.json", ".pi/extensions/bounded/index.ts", "node_modules/bounded/dist/hosts/claude-code/hook.js"]) {
+    for (const path of [".claude/settings.json", ".claude/settings.local.json", ".pi/extensions/bounded/index.ts", "node_modules/bounded/dist/hosts/claude-code/hook.js"]) {
       for (const change of ["create", "modify", "delete"] as const) {
         expect((await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change }] })).kind).toBe("refuse");
       }
     }
     expect((await judge(edit(".claude/commands/review.md"))).kind).toBe("allow");
+    // Agents may write the rest of .claude/: their agents and skills.
+    expect((await judge(edit(".claude/agents/reviewer.md"))).kind).toBe("allow");
+    expect((await judge(edit(".claude/skills/release/SKILL.md"))).kind).toBe("allow");
     expect((await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: ".claude/settings.json" }] })).kind).toBe("allow");
   });
 });

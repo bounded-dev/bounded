@@ -3775,5 +3775,14 @@
       "case": "bounded, the one published package > every library export runs from dist/ under node, with declarations for types and its TypeScript source for bun, bun first"
     },
     "reason": "the types condition names the generated declarations (dist/types), not the sources; bun comes first, so the workspace tsc (customConditions: bun) and bun read the sources"
+  },
+  {
+    "file": "apps/cli/src/initial-config.test.ts",
+    "case": "bounded init's configuration > also keeps agents off Claude Code's settings, pi's loader and bounded's installed code, saying why",
+    "successor": {
+      "file": "apps/cli/src/initial-config.test.ts",
+      "case": "bounded init's configuration > also keeps agents off every Claude Code settings file (settings.local.json can disable all hooks), pi's loader and bounded's installed code, saying why"
+    },
+    "reason": "the default rule matches .claude/settings*.json, not only .claude/settings.json: .claude/settings.local.json can set disableAllHooks (final review)"
   }
 ]

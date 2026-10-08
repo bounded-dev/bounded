@@ -57,10 +57,18 @@ export function hostInstallerConformance(name: string, installer: HostInstaller,
 
     test("when it says whether it is installed: not before installing, yes after", async () => {
       const project = await fixture("fresh");
-      if (installer.isInstalled === undefined) return;
-      expect(await installer.isInstalled(project.root)).toBe(false);
+      // Every installer this suite runs on says it (the bundled ones must): a refresh relies on it.
+      expect(typeof installer.isInstalled).toBe("function");
+      expect(await installer.isInstalled?.(project.root)).toBe(false);
       await installer.install(project.root);
-      expect(await installer.isInstalled(project.root)).toBe(true);
+      expect(await installer.isInstalled?.(project.root)).toBe(true);
+    });
+
+    test("says it is installed when what it would read exists but cannot be read, so a refresh runs it and it refuses", async () => {
+      const project = await fixture("unreadable");
+      expect(await installer.isInstalled?.(project.root)).toBe(true);
+      const refreshed = await installer.install(project.root);
+      expect(refreshed.ok).toBe(false);
     });
 
     test("refuses when what it must read cannot be read, and changes nothing", async () => {
