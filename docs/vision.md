@@ -1,603 +1,701 @@
-# Bounded: the vision
+# Bounded
 
-> **Say the rule once.** Bounded turns each rule into four things for the
-> agent: an instruction it reads before it starts, a check on every action,
-> a redirect when it goes wrong, and a record afterwards. This works for any
-> agent host, with rules that come in packs you can compose, type-check and
-> share.
+**The rules of engineering, for every coding agent.**
 
-This document describes where Bounded is going. It is a vision, not a
-commitment: what exists today is in [flight-state.md](flight-state.md), what
-is required is in [spec.md](spec.md), and each item here becomes real only
-through an ADR and the [development lifecycle](development-workflow.md).
-Code marked *proposed* shows the intended shape, not a published API.
+> This document is written as if Bounded were finished: it describes where
+> we are going, in the present tense. What exists today is in
+> [flight-state.md](flight-state.md); each piece becomes real through an ADR
+> and the [development lifecycle](development-workflow.md).
 
 ---
 
-## 1. The problem
+## A morning with Bounded
 
-Coding agents are fast, tireless and literal. They also:
+You open a Python service in your editor and give the agent a ticket: *add
+rate limiting to the public API*. You work with Claude Code; your
+colleague uses Copilot on the same repository; CI runs Codex at night. All
+three are guarded by the same `bounded.config.ts`.
 
-- edit the generated file instead of the generator's input;
-- run `npx jest` in a project that uses `bun test`;
-- "fix" a failing test by deleting its assertion;
-- report that the tests pass when they last ran three edits ago;
-- try the same failing command forty times;
-- push, deploy or `rm -rf` when you meant them to ask first.
+The agent starts by reading `AGENTS.md`. Most of that file is generated
+from the packs the project selects, so its "Rules you will be held to"
+section lists exactly what will be enforced. Nothing in it is wishful.
 
-The usual answers to this don't hold up well:
+It writes a test first. It tries to run `pytest` directly:
 
-- **Prose instructions** (`AGENTS.md`, `CLAUDE.md`, rules files) are
-  suggestions. The agent reads them once and forgets them under pressure.
-- **Deny-lists in host settings** are per-host, per-tool and silent about
-  what to do instead: "permission denied" teaches nothing, so the agent
-  tries a different route to the same mistake.
-- **Hand-written hook scripts** work, but they don't compose. Every team
-  rewrites the same twenty checks, for each host it uses, with no types,
-  tests or way to share them.
+```
+✗ Refused by @bounded/python-uv (execute)
+  Tests run through the project's environment.
+  → Run `uv run pytest tests/test_rate_limit.py` instead.
+```
 
-What is missing is a **platform for engineering rules**, the equivalent of
-a linter's plugin ecosystem, aimed at agents' actions rather than at code.
+It reruns as told. The new test fails, as it should: the `red-first` pack
+records which tests failed and why. It moves on to the implementation and
+reaches for a `requests` call to look something up online:
 
-## 2. What Bounded is
+```
+✗ Refused by @bounded/egress (fetch)
+  pypi.org and docs.python.org are the only allowed origins in this project.
+  → Use the docs at docs.python.org, or ask for the origin to be added.
+```
 
-Bounded is a small, pure core, plus **packs**: selectable bundles of
-behaviour that extend each other through typed extension points. A project
-picks its packs in one file, `bounded.config.ts`. A thin **host adapter**
-for each agent host (Claude Code, pi, Codex, Copilot, Cursor, Grok and
-others) turns the host's hooks into Bounded's host-neutral events and its
-verdicts back into the host's answers.
+Halfway through, it notices that a neighbouring test is in the way and
+loosens one of its assertions. The `judge` pack reads the diff and scores it
+against the rule *"this change does not weaken any existing test"*:
 
-Every rule in Bounded does four jobs:
+```
+✗ Refused by @bounded/judge (write tests/test_auth.py), confidence 0.97
+  The assertion on line 42 changed from `== 429` to `>= 400`, which accepts
+  failures the test used to reject.
+  → Restore the assertion, or ask the reviewer to approve weakening it.
+```
 
-| When | What the rule does | How |
+It restores the assertion and fixes the real cause. The tests pass, and the
+`receipts` pack issues a receipt bound to the exact tree they passed on. The
+agent tries to finish, and the `exit-gate` pack checks the definition of
+done:
+
+```
+✗ Not done yet (@bounded/exit-gate)
+  · co-change: src/api/routes.py changed, but openapi.yaml did not.
+  → Update openapi.yaml, then run `uv run bounded-check` again.
+```
+
+It updates the spec, the checks pass again on the new tree, and the work is
+done. Later you run `bounded explain`. Every decision of the session is
+there: what was allowed, what was refused, which pack decided, and what the
+agent did next. Nobody repeated an instruction, nobody approved a stream of
+permission prompts, and the result is reviewable.
+
+That is Bounded: **a typed, composable layer of engineering rules that sits
+between any agent and your project**, so the agent knows the rules,
+follows them, recovers when it breaks one, and leaves evidence.
+
+## Say the rule once
+
+Every rule in Bounded lives in one place, a pack, and does four jobs:
+
+| When | The rule… | How |
 |---|---|---|
-| **Before** | It tells the agent the rule exists, in the role's brief and the project's instructions | Packs contribute instructions, skills and agent briefs (section 6) |
-| **During** | It checks every action | Guards judge each effect of each tool call |
-| **At refusal** | It names the next permitted step | Every refusal carries a *redirect*, not just a "no" |
-| **After** | It leaves evidence | Every decision is recorded, and a decision that cannot be recorded is refused |
+| **Before** | is in the agent's instructions and its role's brief | Packs contribute instructions, skills and agents, rendered for each host |
+| **During** | checks every action | Guards judge each effect of each tool call |
+| **At refusal** | names the next permitted step | Every refusal carries a *redirect*, never a bare "no" |
+| **After** | leaves evidence | Every decision is recorded; one that cannot be recorded is refused |
 
-A rule written once in a pack shows up in all four places, so the agent's
-instructions and the enforcement can never drift apart.
+Instructions and enforcement come from the same source, so they cannot drift
+apart. An agent is never told one thing and held to another.
 
-## 3. The core ideas
+## How it works
 
-### Effects: what an agent is actually doing
+### Effects: one vocabulary for every agent
 
-Hosts name their tools differently (`Edit`, `apply_patch`, `write_file`,
-`str_replace`), and the same tool can do several things at once. Bounded
-does not reason about tool names. It reasons about **effects**:
+Hosts call their tools different things (`Edit`, `apply_patch`,
+`write_file`, `str_replace_editor`), and one tool can do several things at
+once. Bounded never reasons about tool names. Each host adapter turns a
+tool call into a list of **effects**:
 
 | Effect | Meaning |
 |---|---|
 | `read` | reads a file's contents |
 | `list` | lists names under a directory |
-| `write` | creates, modifies or deletes a file |
+| `write` | creates, modifies or deletes a file (with its new content, where the host provides it) |
 | `execute` | runs a shell command |
 | `fetch` | reaches the network |
 | `delegate` | hands work to another agent |
-| `invoke` | calls a tool the host cannot describe (an MCP tool, a skill) |
+| `invoke` | calls a tool the host cannot describe: an MCP tool, a skill |
 
-A tool call is a **list of effects**. A guard is written once, for one
-effect kind, and it works on every host and for every tool that has that
-effect, including tools that don't exist yet.
+A guard is written once, for one kind of effect, and works on every host and
+every tool that has that effect, including tools that don't exist yet.
 
 ### Packs and extension points
 
-A **pack** has an id rooted at its npm package, the packs it depends on, the
-**extension points** it declares, and its **contributions** to the points
-of the packs it depends on. Here is the path gate, the first shipped pack,
-in full:
+A **pack** is an npm package that declares the packs it depends on, the
+**extension points** it offers, and its **contributions** to the points of
+the packs it depends on. The project selects packs in one file:
 
 ```ts
-export const pathGate: PathGate = definePack({
-  id: pathGateId,
-  dependsOn: [corePack],
-  points: { protectedPaths: protectedPathsPoint },
+// bounded.config.ts
+import { contribution, corePack, defineConfig } from "bounded/domain";
+import { pythonService } from "@bounded/recipe-python-service";
+import { egress } from "@bounded/egress";
+
+export default defineConfig({
+  packs: [corePack, pythonService, egress, ...pythonService.requires],
   contributes: [
-    contribution(corePack.points.effectGuards.read, [judgeRead]),
-    contribution(corePack.points.effectGuards.write, [judgeWrite]),
-    contribution(corePack.points.effectGuards.execute, [judgeExecute]),
-    contribution(corePack.points.beforeTool, [snapshotBeforeShell]),
-    contribution(corePack.points.afterTool, [restoreWatched]),
+    contribution(egress.points.allowedOrigins, ["https://pypi.org", "https://docs.python.org"]),
   ],
-  ports: { watchedFiles: watchedFilesPort, shellSnapshots: shellSnapshotsPort /* … */ },
 });
-```
-
-The path gate offers one point, `protectedPaths`. Any pack that depends on
-it, and the project itself, can contribute rules there:
-
-```ts
-contribution(pathGate.points.protectedPaths, [
-  {
-    match: "generated/**",
-    deny: ["create", "modify", "delete"],
-    why: "generated/ is written by the generator",
-    redirect: "Change the generator's input instead",
-  },
-]);
 ```
 
 The typing is strict, and that is the design:
 
-- **A contribution across an undeclared dependency does not compile.** A
-  pack can only contribute to the points of packs it lists in `dependsOn`.
-  Imports *are* the dependency graph.
-- **Values are exactly the point's type.** A rule with a typo in a key is a
-  compile error, and also a run-time refusal if it arrives as untyped data.
-- **Composition is per project.** A pack that is not selected leaves no
-  trace, and the result never depends on the order packs were listed in.
-- **Every composition failure names the pack, the point and the fix.**
+- **Imports are the dependency graph.** A pack can contribute only to the
+  points of packs it depends on. Anything else does not compile, and if it
+  arrives as untyped data, composition refuses it.
+- **Contributions are exactly the point's type.** A typo in a rule is a
+  compile error, not a rule that silently does nothing.
+- **Composition is per project.** An unselected pack leaves no trace, and
+  the result never depends on the order packs are listed in.
+- **Every failure names the pack, the point and the fix.**
+- **The project is a pack too.** Its contributions follow exactly the same
+  rules. There is one mechanism and no special cases.
 
-### Verdicts with redirects
+### Verdicts
 
-A guard returns **allow**, or **refuse with a reason and a redirect**. The
-redirect is required: it is the next permitted step, such as "change the
-generator's input instead", "run `bun test`, not `npx jest`" or "write
-the follow-up in `follow-ups.md`; this file is outside your task".
-Refusals become teaching moments, and agents recover instead of looping.
+A guard answers with one of five verdicts:
 
-### Fail closed, record everything
+| Verdict | Meaning |
+|---|---|
+| **allow** | Go ahead |
+| **advise** | Go ahead, and here is something you need to know (a brief, a warning) |
+| **ask** | A human decides |
+| **refuse** | No, with the reason and the **redirect**: the next permitted step |
+| **pending** | A long check is running; ask again shortly |
 
-A missing, unreadable or malformed input is a refusal with an actionable
-message, never "contributes nothing". A configuration that cannot be used
-refuses every event. Every decision is written to the guard log, and a
-decision that cannot be recorded within its time bound is refused.
+The first refusal wins and names its pack. A guard that throws is a
+refusal. Some packs may also **rewrite** an input in the open (a worker's
+model tier, a test run's environment), and the rewrite is shown to the agent
+and recorded.
 
-### The project is a pack too
+### Lifecycle and state
 
-`defineConfig` turns the project's own contributions into the pack
-`bounded/project`, which depends on every selected pack. Projects follow
-exactly the same rules as any pack. There is one mechanism, and no special
-cases.
+Packs see more than single calls:
 
-## 4. How a tool call is judged
+- **Session start and end.** Packs brief the agent at the start, and
+  exit-gate holds the end until the work is really done.
+- **Before and after every tool call.** Snapshots, counters, receipts and
+  restoring protected files changed by a shell command.
+- **Delegation starting and stopping.** So gates can wait until workers
+  are idle.
+- **Durable state with explicit lifetimes:** per call, per session, per
+  task and per tree.
+
+Packs that need the outside world (the file system, git, a model, an issue
+tracker) declare **ports**, and the host provides them. The packs' own logic
+does no I/O, so every rule is tested in memory and behaves identically on
+every host.
+
+### One tool call, end to end
 
 ```mermaid
 sequenceDiagram
     participant A as Agent
     participant H as Host adapter
-    participant J as Bounded judge
+    participant J as Bounded
     participant G as Guards (from packs)
     participant L as Guard log
-    A->>H: tool call (e.g. Bash "sed -i … config.ts")
-    H->>J: ToolUse { role, effects: [execute, write…] }
-    J->>G: beforeTool lifecycle (snapshots, budgets…)
+    A->>H: tool call
+    H->>J: effects [write tests/test_auth.py, …] + seat
+    J->>G: before-tool lifecycle (snapshot, count…)
     loop each effect
-        J->>G: effect guards for that kind, in pack order
-        G-->>J: allow, or refuse + reason + redirect
+        J->>G: guards for that effect kind
+        G-->>J: allow · advise · ask · refuse + redirect · pending
     end
-    J->>L: record the decision (or refuse if it cannot)
+    J->>L: record (or refuse if it cannot)
     J-->>H: verdict
-    H-->>A: allowed, or refused with the redirect
-    Note over A,H: the tool runs
-    H->>J: ToolResult { ok }
-    J->>G: afterTool lifecycle (restore drift, count, issue receipts…)
+    H-->>A: result, or the redirect
+    H->>J: tool result (exit code, per-test outcomes…)
+    J->>G: after-tool lifecycle (restore, receipts, phases…)
 ```
 
-The first refusal wins and names the pack and the effect. A guard that
-throws counts as a refusal. With no guards, the call is allowed.
+### Fail closed
 
-## 5. Hosts: write once, guard every agent
+A missing, unreadable or malformed input is a refusal with an actionable
+message, never "contributes nothing". A broken configuration refuses every
+event and says why. A model that can't be reached, a port that isn't
+provided, a tool that isn't installed: each is a refusal with the fix.
 
-Most agent hosts now let a hook run before a tool call and block it, and
-that is all an adapter needs. Bounded's adapters are deliberately thin:
-they translate, and decide nothing.
+## Every host
 
-| Host | Status |
+Bounded's host adapters are thin. They translate a host's hooks into
+effects, and verdicts back into the host's answers; they decide nothing.
+
+| Host | Effects judged | Ask | Rewrite | After-tool | Guidance rendered to |
+|---|---|---|---|---|---|
+| Claude Code | all | ✓ | ✓ | ✓ | `CLAUDE.md`, `.claude/skills`, `.claude/agents` |
+| pi | all | ✓ | ✓ | ✓ | pi extension config, `AGENTS.md` |
+| GitHub Copilot | all | ✓ (CLI) | ✓ | ✓ | `.github/copilot-instructions.md`, `.github/agents`, skills |
+| Codex CLI | all the host hooks | ✓ | partial | ✓ | `AGENTS.md`, Codex skills |
+| Grok Build | all the host hooks | ✓ | ✓ | ✓ | `AGENTS.md`, skills |
+| Cursor | deny on all hooked tools | — | — | partial | `.cursor/rules` |
+| Gemini CLI, Kiro, Windsurf, Cline, OpenCode, Amp | per host | per host | per host | per host | each host's instruction files |
+
+The real matrix is generated from the adapters and published with every
+release. `bounded doctor` prints it for your project: which of *your* rules
+each host can enforce, and what is lost where. When a host cannot enforce a
+rule, the guard log says so. Nothing pretends otherwise.
+
+**Bounded is a guardrail, not a security boundary.** An agent running as your
+user can always get round a hook. Bounded informs, redirects and records,
+and for real isolation `bounded sandbox` generates an operating-system
+sandbox profile from the same rules.
+
+## What the agent knows: guidance
+
+Enforcement is half the story; the other half is what the agent *knows*
+before it acts. Every host keeps that in its own files: instruction files,
+skill folders, agent definitions. People usually write them by hand, and
+they slowly drift away from what the project actually enforces.
+
+In Bounded, they are contributions. The **guidance** pack declares three
+points:
+
+| Point | A contribution is |
 |---|---|
-| Claude Code | Built (PreToolUse, PostToolUse, PostToolUseFailure) |
-| pi | Built (in-process extension) |
-| GitHub Copilot | Next. Its hooks read Claude Code's hook format, so the adapter is close to free |
-| Grok Build CLI | Next. It reports compatibility with existing hook configs |
-| Codex CLI | Planned. It has a pre-tool hook, and its gaps need tracking |
-| Cursor, Gemini CLI, Kiro, Windsurf, Cline, OpenCode, Amp | Planned |
+| `instructions` | A titled section of project guidance, ordered by pack dependency |
+| `skills` | A skill: name, description, body, resources, and the roles that may use it |
+| `agents` | An agent (role): purpose, brief, tools, skills, model tier and the seat it binds |
 
-Hosts differ in what they can enforce. Some can't hook reads; some treat
-errors as "allow"; some ignore anything but deny. Bounded will publish an
-**honest coverage matrix**, generated from the adapters: which effects,
-verdicts and lifecycle steps each host supports, and what a pack loses
-there. Where a host cannot enforce a rule, the guard log says so, and
-nothing pretends otherwise.
+`bounded update` renders them into each host's own files, marks them as
+generated, protects them from the agent and checks them for drift. Your own
+hand-written guidance lives in a project-owned file that is included in the
+output; nothing a person wrote is ever overwritten.
 
-**Bounded is a guardrail, not a security boundary.** An agent running as
-your user can always get round a hook. Bounded discourages, redirects and
-records, and it pairs naturally with an operating-system sandbox, which can
-eventually be generated from the same rules.
+Three things follow from this:
 
-## 6. Say it once: instructions, skills and agents
+- **Packs ship know-how together with enforcement.** The migrations pack
+  ships the migration runbook skill *and* the guards that enforce it,
+  versioned as one.
+- **Agents are composed.** One pack declares the `builder` agent. Every pack
+  that depends on it can add to its brief. `python-strict` adds "no `Any`,
+  no `# type: ignore`", and the project adds its own conventions. The same
+  typed rules apply: you extend only agents of packs you depend on.
+- **`AGENTS.md` describes what is enforced.** Every enforced rule carries an
+  id and a description, and the instructions are generated from them:
 
-So far this document has covered enforcement. The other half of guiding an
-agent is what it *knows* before it acts: the project's instructions, the
-skills it can call on, and the agents (roles) a session is divided into.
-Today every host keeps these in its own files (`AGENTS.md`, `CLAUDE.md`,
-`.claude/skills/`, `.claude/agents/`, `.github/agents/`, `.cursor/rules/`),
-written by hand and drifting away from what is actually enforced.
+```markdown
+## Rules you will be held to (generated by Bounded; do not edit)
 
-Bounded makes them pack contributions, through a **guidance** pack
-(*proposed*, `bounded/guidance`) that declares three points:
+### Everyone
+- **python-uv/run-through-uv**: Run tools with `uv run`; add packages with `uv add`.
+- **egress/origins**: Only pypi.org and docs.python.org are reachable.
+- **exit-gate/done**: You are done when the check passes on the current tree and
+  `openapi.yaml` moved with any route change.
 
-| Point | A contribution is | Rendered by host adapters as |
-|---|---|---|
-| `instructions` | A titled section of project guidance, ordered by pack dependency | `AGENTS.md`, `CLAUDE.md`, Copilot instructions, Cursor rules… |
-| `skills` | A skill: name, description, body and resources, plus which roles may use it | `.claude/skills/<name>/SKILL.md` and each host's equivalent |
-| `agents` | An agent (role): purpose, brief, tools, model tier and the seat it binds | `.claude/agents/<name>.md`, `.github/agents/…`, pi role configs |
+### builder
+- **blindness/tests**: You cannot read test files; failing test names and diffs
+  are shown to you instead.
+- **judge/tests-not-weakened**: No change may weaken an existing test.
+```
 
-Packs written in this way are a central idea of the vision:
+A conformance test fails if any enforced rule is missing from the brief of
+the role it binds.
 
-- **Skill packs.** A pack can ship skills the same way it ships guards. A
-  `grill-me` pack contributes a design-interrogation skill; a
-  `postgres-migrations` pack contributes the migration runbook skill *and*
-  the guards that enforce it. Install the pack and the agent gets the
-  know-how and the guardrails together, versioned as one.
-- **Contributions to agents.** An agent is declared by one pack, and its
-  brief is *composed* from contributions by others. A `workflow` pack
-  declares `builder`; a `typescript-strict` pack, which depends on it, adds
-  "no `any`, no `as`, no `!`" to the builder's brief; the project adds its
-  own conventions. The same typed rules apply: you can only extend the
-  agents of packs you depend on.
-- **AGENTS.md generated from what is enforced.** Every rule a selected pack
-  enforces carries an id and a one-line description. The guidance pack
-  renders a section called "Rules you will be held to" from them, grouped by
-  role, so the instructions describe the enforcement because they are
-  generated from it. A test can check that no enforced rule is missing from
-  the brief of the role it binds.
-- **Written at install, then protected.** `bounded update` renders the files
-  for each host the project uses, marks them as generated, protects them
-  from the agent and checks them for drift. Hand-written sections are kept
-  in a project-owned file that the guidance pack includes, so nothing a
-  person wrote is ever overwritten.
+## What's in the box
 
-Tool-gate closes the loop: the skills and subagents an agent may invoke are
-exactly the ones the guidance pack declared for its role.
+`bounded` ships the core, the host adapters, the CLI, and a first-party
+collection of packs, skills, agents and recipes under `@bounded/*`. Here are
+the key packs.
 
-## 7. The pack catalogue
+### selectors: the shared vocabulary
 
-Each pack below is small: one rule shape, a few lines of configuration, and
-many uses. They all build on one shared foundation, **selectors**.
-
-### Foundations
-
-| Pack | What it gives you |
-|---|---|
-| **selectors** | Named effect patterns the whole project shares: `tests = write("**/*.test.ts")`, `commit = run("git commit *")`, `checkPassed = run("bun run check").succeeded()`. Every other pack refers to them by name, so each pack is just "selector → rule → redirect" |
-| **seats** | Roles bound from *outside* the session, so an agent cannot choose its own. Unbound subagents get the least-privilege seat, and any rule in any pack can carry `when: seat` |
-| **guidance** | Instructions, skills and agents as contributions (section 6) |
-| **path-gate** | *Built.* Deny-only protected paths with honest redirects; restores protected files after shell commands change them |
-
-### Gates: where and what
-
-| Pack | What it gives you |
-|---|---|
-| **command-gate** | Refuse or redirect shell commands: "`bun test`, not `npx jest`", "never `git push --force`" |
-| **egress** | Network allowlist by origin; offline mode in one line |
-| **tool-gate** | Allowlist MCP tools, skills and subagents, per seat |
-| **zones** | Allow-only territory per seat: "the architect writes only contracts" |
-| **blindness** | Information barriers: the test-writer can't read the implementation, and test output is cleaned of test source before the builder sees it |
-| **content-gate** | Rules on *what* is written: no secrets, no `.only`, no `any`, no `console.log` in `src` |
-| **supply-chain** | New dependencies: registry allowlist, minimum version age, no install scripts, licence allowlist, a reason for each |
-| **generated** | Files that belong to a generator: never hand-edited, never stale, synced without overwriting real work |
-
-### Workflow: when
-
-| Pack | What it gives you |
-|---|---|
-| **phases** | A tiny state machine; transitions fire on selectors (`red → green` once a tests-only commit succeeds) |
-| **obligations** | Ordering and freshness: "after the schema changes, codegen must succeed before tests run" |
-| **red-first** | New tests must fail, for the expected reason, before implementation exists, and are never weakened afterwards |
-| **co-change** | Files that move together: routes with the API spec, env vars with `.env.example` |
-| **declarations** | Some actions need a short written statement first: a rollback plan before a migration |
-| **exit-gate** | A definition of done: the agent cannot stop while checks are red or obligations are still open |
-| **calendar** | Time windows any rule can use: freezes, no Friday deploys, read-only during an incident |
-
-### Evidence: proof, not claims
-
-| Pack | What it gives you |
-|---|---|
-| **receipts** | A passing check issues a receipt bound to the exact tree hash; commit, merge or "done" requires one for the *current* tree |
-| **ratchet** | Numbers that only move one way: test count, coverage, warnings, bundle size |
-| **surface-lock** | The public surface (exported types, routes, schema, CLI flags) changes only with a version bump, changelog entry or ADR |
-| **jobs** | Long checks run detached and answer RUNNING; the same check never runs twice at once |
-
-### Control and recovery
-
-| Pack | What it gives you |
-|---|---|
-| **budgets** | Counters with limits: "3 identical failures, then stop and summarise" |
-| **churn** | Spots an agent going round in circles and asks for a new approach |
-| **escalation** | A defined path when stuck: stronger model, then reviewer, then human |
-| **checkpoints** | A shadow commit before selected calls; undo any agent turn |
-| **reversibility** | Rates effects by how easily they can be undone; "irreversible → checkpoint or ask" in one line |
-| **rewrite** | Canonical inputs: the model tier per role, foreground workers, a fixed test environment (visible and logged) |
-
-### Collaboration
-
-| Pack | What it gives you |
-|---|---|
-| **scope** | A task's territory, plus path leases so parallel agents never edit the same file |
-| **two-key** | A second signature, from a reviewer agent or a human, for selected actions |
-| **separation-of-duties** | Whoever wrote the change cannot approve it; whoever wrote the tests cannot weaken them |
-| **mirror** | Gate results posted to your issue tracker; gates wait while an update is pending |
-
-### Defence
-
-| Pack | What it gives you |
-|---|---|
-| **canaries** | Honeypot files and fake keys; touching one locks the session down |
-| **taint** | After reading untrusted content, egress, push and secrets need a human |
-| **footprint** | Leave no trace outside the project: no global installs, stray containers or background processes |
-
-### Meta: packs about rules
-
-| Pack | What it gives you |
-|---|---|
-| **briefs** | Context at the moment of need: the first read under `packages/db/` brings in that folder's conventions |
-| **rehearsal** | Observe mode ("would have refused") and replay of past guard logs against a new configuration: CI for your rules |
-| **rule-miner** | Learns from your corrections and proposes new rules as a diff to `bounded.config.ts`; never applies them itself |
-| **judge** | Rules in plain language, checked by a model: "test descriptions say what behaviour is expected", "this diff does not weaken any test", "names say exactly what they hold". Each rule sets the minimum confidence needed to pass (see below) |
-| **chaos** | Evaluation-only fault injection: do agents recover, and do the redirects lead them to the right place? |
-
-### The judge: rules too subtle for patterns
-
-Some of the most valuable rules can't be written as a glob or a regex:
-
-- every test's description says what behaviour it expects;
-- this change does not weaken a test (no loosened assertion, no deleted
-  edge case, no `expect(true)`);
-- a name says exactly what it holds;
-- the spec describes *what*, not *how*;
-- an adapter contains no business rules.
-
-The judge pack checks rules like these with a model, under the same
-contract as every other guard:
+Every pack refers to effects by *name*, and the project defines the names
+once:
 
 ```ts
-// proposed
+contribution(selectors.points.named, {
+  tests:       write("tests/**/test_*.py"),
+  source:      write("src/**"),
+  commit:      run("git commit *"),
+  checkPassed: run("uv run bounded-check").succeeded(),
+  deploy:      run("fly deploy *"),
+});
+```
+
+From then on every pack is a sentence: *refuse `deploy` during `freeze`*;
+*after `source` changes, `checkPassed` before `commit`*. Language packs
+contribute sensible defaults, so most projects never write a selector.
+
+### seats: who is acting
+
+Every event carries the **seat** of the agent acting: `architect`,
+`test-writer`, `builder`, `reviewer`, `scout`, or any role you define. Seats
+are bound from outside the session, by the host adapter at launch, so an
+agent cannot promote itself. A subagent with no seat gets the
+least-privilege seat. Any rule in any pack can carry `when: { seat }`.
+
+### path-gate, zones and blindness: who may touch what
+
+- **path-gate** protects paths with deny-only rules and honest redirects,
+  and puts back protected files that a shell command changed, moving
+  anything new aside rather than deleting it.
+- **zones** gives each seat an allow-only territory: the architect writes
+  contracts and design notes, the test-writer writes tests, the builder
+  writes everything else.
+- **blindness** is an information barrier. The builder cannot read tests,
+  and searches must provably exclude them. Test output is shown to the
+  builder with test source, stack frames and paths stripped, so the builder
+  makes the behaviour pass, not the test text.
+
+### command-gate, egress and tool-gate: what may run
+
+- **command-gate** parses shell commands with tree-sitter and refuses or
+  redirects by pattern: "`bun test`, not `npx jest`", "no `git push
+  --force`", "git is read-only for the reviewer".
+- **egress** is a network allowlist by origin, over fetch effects and the
+  network commands it recognises.
+- **tool-gate** allowlists MCP tools, skills and subagents per seat, so the
+  agents and skills a seat may invoke are exactly those guidance declares
+  for it.
+
+### phases and obligations: the shape of the work
+
+**phases** is a small state machine; transitions fire on selectors. Any rule
+can carry `when: { phase }`.
+
+```ts
+contribution(phases.points.machine, {
+  start: "design",
+  states: {
+    design: { on: { freeze: "red" } },
+    red:    { on: { redProven: "green" } },
+    green:  { on: { checkPassed: "deliver" } },
+  },
+});
+```
+
+**obligations** handles ordering and freshness: *after `schema` changes,
+`codegen` must succeed before `tests` run*; *`checkPassed` before
+`commit`*; *read a file before rewriting it*. Debts are recorded after each
+call, and the redirect lists exactly what is owed.
+
+### receipts, red-first and exit-gate: proof, not claims
+
+- **receipts**: a passing check issues a receipt bound to the hash of the
+  exact tree it ran on. Commit, merge and "done" each require a receipt
+  for the *current* tree, so "the tests pass" is a fact, not a memory.
+- **red-first**: new tests must fail, for the expected reason, before the
+  implementation exists. Per-test outcomes come from the test runner's
+  report, so skipped and to-do tests never count as failing. Later, no test
+  may be deleted, skipped or stripped of assertions.
+- **exit-gate**: the definition of done. The session cannot end while a
+  receipt is missing, an obligation is open, a co-change is unmet or a
+  ratchet slipped.
+
+### judge: rules in plain language
+
+Some of the most valuable rules can't be written as patterns: *each test
+says what behaviour it expects*, *no change weakens a test*, *names say
+exactly what they hold*, *the spec says what, not how*, *adapters contain no
+business rules*. The judge checks them with a model:
+
+```ts
 contribution(judge.points.rules, [
   {
     id: "tests-not-weakened",
     rule: "The change does not weaken any existing test: no removed or loosened assertion, no deleted case, no skip.",
-    when: "tests",                 // a selector
-    evidence: "diff",              // what the model sees: the diff, the written file, the test output…
-    minimumToPass: 0.9,            // below this, refuse
+    when: "tests",
+    evidence: "diff",
+    minimumToPass: 0.9,
     examples: { pass: ["…"], fail: ["…"] },
     redirect: "Restore the assertion, or ask the reviewer to approve weakening it",
   },
 ]);
 ```
 
-- **A threshold the project chooses.** Each rule sets the minimum
-  confidence needed to pass. Below it, the call is refused with the model's
-  reason added to the redirect. An optional middle band asks a human
-  instead of refusing.
-- **Measured confidence, not stated confidence.** A model's own "I'm 92%
-  sure" is poorly calibrated. The judge can sample the classification
-  several times and use the share of passing answers, or a model's token
-  probabilities where the provider exposes them.
-- **Calibrated in CI.** Each rule's pass and fail examples form an
-  evaluation set. The catalog's conformance run reports each rule's
-  precision and recall, so a threshold is a measured choice. Rehearsal mode
-  tunes thresholds on real guard logs before a rule is enforced.
-- **Repeatable and recorded.** Verdicts are cached by a hash of the rule,
-  the model and the evidence, so the same change always gets the same
-  answer. The guard log records the model, the score and the reasoning.
-- **At the right moments.** A model call takes time and money, so judge
-  rules run on selected effects (writes to tests, commits, the end of a
-  session), not on every read. Slow checks return a pending verdict.
-- **Fail closed.** If the model can't be reached, the rule refuses (or asks,
-  if the project chooses). It never assumes a pass. The model itself is a
-  port the project provides: a hosted API or a local model.
+- **Confidence is measured, not stated.** The judge samples the
+  classification several times and uses the share of passing answers, or
+  token probabilities where the provider exposes them.
+- **Thresholds are calibrated.** Each rule's examples are an evaluation set;
+  `bounded eval` reports precision and recall, and rehearsal tunes the
+  threshold on real sessions before the rule is enforced.
+- **Verdicts are repeatable and recorded.** They are cached by a hash of the
+  rule, the model and the evidence, and the guard log records the score and
+  the reasoning.
+- **It fails closed.** No model, no pass. Below the threshold it refuses;
+  an optional middle band asks a human.
 
-### Content packs, for any language
+The model is a port you provide: a hosted API or a local model.
 
-Language and framework knowledge lives in **content packs** that sit on top
-of the generic ones. For example, `typescript-strict` contributes AST lint
-rules to receipts, banned escape hatches to content-gate and brief lines to
-the builder. `hexagonal` contributes layer rules; `postgres-migrations`
-contributes obligations, declarations and a skill. The core never learns a
-language's name; packs do.
+### budgets, churn and escalation: no more loops
 
-Bounded therefore guards projects in **any language**. Effects are paths,
-commands and URLs, not TypeScript. A Python project selects Python packs,
-which are ordinary npm packages like any other:
+- **budgets** counts selected effects in a window: *three identical failed
+  runs, then stop and summarise what you tried*.
+- **churn** spots an agent going round in circles (the same lines edited
+  back and forth, its own change undone) without a passing check in
+  between.
+- **escalation** turns being stuck into a process: after N failures,
+  delegate to a stronger model; after M, the reviewer; then the human. Each
+  step's redirect names the next one.
 
-| Pack | Contributes |
+### scope, two-key and separation-of-duties: working in teams
+
+- **scope** limits a task to its territory, taken from the plan or the
+  branch, and gives path leases to parallel agents so two workers never
+  edit the same file. Writing outside the territory is refused with a
+  redirect: "log it in `follow-ups.md`".
+- **two-key** requires a second signature, from a reviewer agent or a
+  human, before selected actions such as deploys, migrations and branch
+  deletions.
+- **separation-of-duties**: the seat that wrote a change cannot approve it,
+  and the seat that wrote the tests cannot weaken them.
+
+### checkpoints, reversibility, canaries and taint: safety nets
+
+- **checkpoints** takes a shadow commit before selected calls; `bounded
+  undo 3` takes back the agent's last three turns.
+- **reversibility** rates each effect by how easily it can be undone, so
+  "irreversible → checkpoint first, then ask" is one line.
+- **canaries** plants fake keys and honeypot files. Touching one means the
+  agent was probably misled, so the session locks down until a human
+  clears it.
+- **taint** tracks untrusted input. After reading a web page, an issue body
+  or a downloaded file, egress, push and secrets need a human. This breaks
+  the "private data + untrusted content + a way out" chain that prompt
+  injections rely on.
+
+## Bundled skills
+
+Skills ship inside packs, beside the guards that enforce them, and only the
+seats that guidance names can invoke them.
+
+| Skill | Ships in | Used by | What it does |
+|---|---|---|---|
+| `grill-me` | `@bounded/design` | architect | Interrogates a request until the design questions are answered, before any file is written |
+| `intake` | `@bounded/design` | architect | Turns a request into a spec of *what*, moving every *how* into a separate Intake section |
+| `domain-modelling` | `@bounded/design` | architect | Names concepts, value objects and their rules |
+| `write-red-tests` | `@bounded/red-first` | test-writer | Writes tests that describe behaviour and fail for the right reason |
+| `make-it-green` | `@bounded/red-first` | builder | Works from failing test names and diffs, never test source |
+| `review` | `@bounded/review` | reviewer | Ranked findings with repros and a verdict, recorded as a signed review |
+| `debug-loop` | `@bounded/budgets` | everyone | The checklist briefs brings in on the second identical failure |
+| `migration-runbook` | `@bounded/postgres-migrations`, `@bounded/django-migrations` | builder | Plan, rollback, checkpoint, apply, verify |
+| `release` | `@bounded/surface-lock` | lead | Version bump, changelog, surface fingerprint |
+| `issue-tracking` | `@bounded/mirror` | lead | Moves work through the board as gates pass |
+| `write-a-pack` | `@bounded/pack-kit` | anyone | Scaffolds a pack, its tests and its conformance suite |
+
+## Bundled agents
+
+The `@bounded/workflow` pack declares six agents. Each brief is composed
+from every selected pack that contributes to it.
+
+| Agent | Writes | Reads | Can invoke |
+|---|---|---|---|
+| **lead** | nothing in the product; runs lead commands | everything | the other agents, issue tracking |
+| **architect** | contracts, specs, design notes | everything | grill-me, intake, domain-modelling, scout |
+| **test-writer** | tests | contracts and tests; never implementation | write-red-tests |
+| **builder** | implementation | contracts and implementation; never tests | make-it-green, debug-loop |
+| **reviewer** | review records | everything | review |
+| **scout** | nothing | everything | nothing |
+
+The guards make those columns true on every host, and `AGENTS.md` says so
+in the agents' own briefs.
+
+## The full catalogue
+
+| Family | Packs |
 |---|---|
-| `python-uv` | Selectors (`tests = write("**/test_*.py")`, `install = run("pip install *")`); command-gate redirects ("`uv add`, not `pip install`"; "`uv run pytest`, not bare `pytest`"); supply-chain rules using PyPI metadata |
-| `python-strict` | Receipts for `ruff check` and `pyright --strict`; content-gate bans on `# type: ignore`, `Any` and bare `except:`; matching lines in the builder's brief |
-| `pytest` | Per-test outcomes read from JUnit XML, so red-first, ratchet and receipts know exactly which tests failed, passed or were skipped |
-| `python-layers` | Architecture rules through `import-linter` contracts, run as a receipt |
-| `django-migrations` | Obligations (`makemigrations --check` after a model change), a rollback declaration, a migration skill |
-| `notebooks` | No committed output cells; notebooks paired with scripts through co-change |
+| **Foundations** | selectors · seats · guidance · conditions |
+| **Who may touch what** | path-gate · zones · blindness · generated |
+| **What may run** | command-gate · egress · tool-gate · supply-chain · footprint |
+| **What is written** | content-gate · judge · co-change |
+| **The shape of the work** | phases · obligations · declarations · calendar · exit-gate |
+| **Proof** | receipts · red-first · ratchet · surface-lock · jobs |
+| **Loops and recovery** | budgets · churn · escalation · checkpoints · reversibility · rewrite |
+| **Teams** | scope · two-key · separation-of-duties · mirror |
+| **Defence** | canaries · taint |
+| **Teaching** | briefs |
+| **Rules about rules** | rehearsal · rule-miner · chaos |
 
-Each pack is built the same way:
+A few that the sections above don't cover:
 
-- **TypeScript for the wiring, any language for the checks.** A pack's
-  overview (its points, contributions and dependencies) is TypeScript, so
-  composition stays typed. Its checks can be anything that runs: a Python
-  script shipped in the package, a linter, a test runner. They report back
-  through a port in a small JSON format that is parsed at the boundary, and
-  anything unreadable is a refusal.
-- **Python dependencies are pinned and fail closed.** npm does not install
-  Python packages, so a Python pack ships a lockfile with hashes and runs
-  its tools through `uv`. When the project opens, a missing `uv` or a tool
-  that cannot be resolved refuses the pack's guards with the fix ("install
-  uv: …"), never a silent skip.
-- **Fast checks stay fast.** Guards that run before every call parse in
-  process (tree-sitter has grammars for most languages). Slow checks, such
-  as type-checking a whole project, belong to receipts, exit-gate and jobs,
-  not to each call.
+- **generated:** files that belong to a generator are never hand-edited,
+  never stale, and synced without overwriting real work.
+- **supply-chain:** registry allowlists, a minimum version age, no install
+  scripts, a licence allowlist, and a reason for every new dependency. It
+  governs Bounded packs themselves too.
+- **footprint:** nothing is left outside the project: no global installs,
+  stray containers or forgotten background processes.
+- **content-gate:** fast in-process checks on written content, such as
+  secrets, `.only`, banned escape hatches and required headers.
+- **co-change:** files that move together: routes with the API spec,
+  env vars with `.env.example`, models with migrations.
+- **declarations:** some actions need a short written statement first,
+  with required fields, such as a rollback plan or an intent line.
+- **ratchet:** numbers that only move one way: test count, coverage,
+  mutation score, warnings, bundle size.
+- **surface-lock:** the public surface changes only with a version bump, a
+  changelog entry or an ADR.
+- **jobs:** long checks run detached, answer `pending`, and never run twice
+  at once.
+- **rewrite:** open, recorded input rewrites, such as a role's model tier or
+  a fixed test environment.
+- **mirror:** gate results flow to your issue tracker; gates wait while an
+  update is pending.
+- **briefs:** context at the moment it is needed: the first read under
+  `packages/db/` brings in that folder's conventions.
+- **rehearsal:** observe mode ("would have refused") and `bounded replay`
+  of past sessions against a new configuration, so rule changes have CI.
+- **rule-miner:** learns from your corrections and proposes new rules as a
+  diff; it never applies them itself.
+- **chaos:** evaluation-only fault injection that tests whether agents
+  recover and whether the redirects lead them somewhere useful.
 
-The same pattern serves Go, Rust, Java or anything else: generic packs
-provide the mechanism, and a language's packs provide selectors, commands,
-checks and brief lines.
+## Any language
 
-## 8. Recipes
+The core never names a language, and effects are paths, commands and URLs.
+Language knowledge lives in **content packs**, which are npm packages like
+any other, whatever language they serve.
+
+| Ecosystem | Packs |
+|---|---|
+| **TypeScript** | `typescript-strict` · `bun` · `pnpm` · `vitest` · `hexagonal` · `drizzle` · `trpc` · `react-app` |
+| **Python** | `python-uv` · `python-strict` (ruff, pyright) · `pytest` · `python-layers` (import-linter) · `django` · `django-migrations` · `fastapi` · `notebooks` |
+| **Go** | `go-modules` · `go-vet` · `go-test` |
+| **Rust** | `cargo` · `clippy-strict` · `cargo-test` |
+| **Infrastructure** | `terraform` · `kubernetes` · `docker` · `github-actions` |
+
+Each contributes selectors, command redirects, receipts for its checkers,
+per-test outcomes from its test runner, brief lines and skills.
+
+The pattern is the same everywhere:
+
+- **TypeScript for the wiring, any language for the checks.** The pack's
+  overview is TypeScript, so composition is typed. Its checks are whatever
+  runs best, such as a Python script, a Go binary or the ecosystem's own
+  linter. They report through a port in a small JSON format, and anything
+  unreadable is a refusal.
+- **Tools are pinned and fail closed.** A Python pack ships a hashed
+  lockfile and runs through `uv`; a missing tool refuses the pack's guards
+  with the install command, never a silent skip.
+- **Fast things are in process; slow things are receipts.** Per-call guards
+  parse with tree-sitter grammars. Whole-project type checks run as
+  receipts, at exit or as jobs.
+
+## Recipes
 
 A **recipe** is a pack with almost no code of its own: it depends on a set
-of packs and configures them to work together. Selecting a recipe is one
-line, and a project can still override any of it, through the same typed
+of packs and configures them to work together. Selecting one is a single
+line, and the project can override any part of it through the same typed
 points.
-
-```ts
-// bounded.config.ts (proposed)
-import { contribution, corePack, defineConfig } from "bounded/domain";
-import { selectors, write } from "@bounded/selectors";
-import { strictTdd } from "@bounded/recipe-strict-tdd";
-
-export default defineConfig({
-  packs: [corePack, strictTdd, ...strictTdd.requires],
-  contributes: [
-    contribution(selectors.points.named, { tests: write("src/**/*.test.ts") }),
-  ],
-});
-```
 
 | Recipe | Packs | What you get |
 |---|---|---|
-| **Strict TDD** | phases, zones, content-gate, ratchet, red-first, separation-of-duties | Only tests are writable in `red`; every new test fails first; no `.skip`; the test count never drops; nobody weakens their own tests |
-| **Test quality** | judge, ratchet, red-first, receipts | Every test describes the behaviour it expects; no change weakens a test, judged on the diff; mutation score never drops |
-| **Honest done** | receipts, exit-gate, co-change | "Done" means the checks passed on this exact tree and the docs moved with the code |
-| **The agent pipeline** | seats, zones, blindness, guidance, phases, receipts, red-first, two-key, escalation | Architect, test-writer, builder and reviewer agents, blind to each other's side, through design → red → green → deliver. This reproduces the original Bounded harness as configuration |
-| **Database migrations** | obligations, briefs, declarations, reversibility, checkpoints, two-key | Codegen after schema changes, a rollback plan, a checkpoint and a second key before `migrate` |
-| **Production safety** | command-gate, egress, tool-gate, calendar, two-key | No prod hosts or tools, no deploys in freeze windows, two keys for anything live |
-| **Prompt-injection defence** | canaries, taint, egress, supply-chain | Tripwires, untrusted-content tracking and a closed network |
-| **Library maintainer** | surface-lock, ratchet, co-change, supply-chain | No accidental breaking changes; changelog with every API change |
+| **Starter** | selectors, path-gate, command-gate, egress, budgets, receipts, exit-gate, guidance | Sensible defaults for any repository, in one line |
+| **Strict TDD** | phases, zones, red-first, content-gate, ratchet, separation-of-duties | Only tests are writable in `red`; every new test fails first; the test count never drops |
+| **Test quality** | judge, red-first, ratchet, receipts | Tests describe behaviour; no change weakens a test; mutation score never drops |
+| **Honest done** | receipts, exit-gate, co-change | Done means the checks passed on this exact tree and the docs moved with the code |
+| **The agent pipeline** | seats, zones, blindness, guidance, workflow, phases, receipts, red-first, judge, two-key, escalation | Lead, architect, test-writer, builder and reviewer agents, blind to each other's side, through design → red → green → deliver. The original Bounded harness, as configuration |
+| **Python service** | python-uv, python-strict, pytest, co-change, Honest done | A typed, tested Python service from day one |
+| **Database migrations** | obligations, declarations, reversibility, checkpoints, two-key, briefs | Codegen after schema changes, a rollback plan, a checkpoint and a second key before `migrate` |
+| **Production safety** | command-gate, egress, tool-gate, calendar, two-key | No production hosts or tools, no deploys in freeze windows, two keys for anything live |
+| **Injection defence** | canaries, taint, egress, supply-chain | Tripwires, untrusted-input tracking and a closed network |
+| **Library maintainer** | surface-lock, ratchet, co-change, supply-chain | No accidental breaking changes; a changelog with every API change |
 | **Parallel workers** | scope, budgets, obligations, exit-gate, footprint | Leased territory, per-worker limits, checks before commit, a clean machine |
-| **Loop control** | budgets, churn, escalation, briefs | Three identical failures bring in the debugging checklist; a fourth escalates |
-| **Safe rule rollout** | rehearsal, chaos, rule-miner | Observe, test the redirects, then enforce, and let real corrections propose the next rule |
+| **Rule rollout** | rehearsal, chaos, rule-miner | Observe, test the redirects, enforce, then let real corrections propose the next rule |
 
-## 9. The registry: git first
+## The catalog: git first
 
-There is no separate package server. A pack is an npm package (its id is
-already rooted at its package name), so **npm is the distribution** and a
-git URL (`github:org/repo#tag`) works as well.
+There is no separate package server. **Packs are npm packages**, and a git
+URL (`github:org/repo#tag`) works too.
 
-- **Provenance.** Packs run inside the agent's hooks, so trust matters.
-  Published packs carry npm provenance, which links each tarball to the
-  commit and CI run that built it. The supply-chain pack governs pack
-  installs like any other dependency.
-- **Compatibility.** Each pack declares `bounded` as a peer dependency, and
-  composition refuses an incompatible core with a fix message.
-- **Discovery.** A catalog is *generated from git*. An index repository
-  holds one small entry per pack, and listing a pack is a pull request.
-  CI installs each pack, loads its `definePack` object and builds a static
-  site. Packs tagged `bounded-pack` on npm can be picked up automatically.
+```
+$ bounded add @bounded/judge
+  + @bounded/judge 2.4.0   ✓ verified · provenance: github.com/bounded-dev/packs @ 9f1c2e0
+  depends on: @bounded/selectors, @bounded/guidance
+  adds points: rules
+  ships skills: none · agents: none
+  hosts: full on Claude Code, pi, Copilot, Grok · partial on Codex · deny-only on Cursor
+```
 
-**Docs are generated from code.** A pack's overview is pure data with no
-logic, so its docs can be generated rather than written:
+- **The catalog is generated from git.** An index repository lists every
+  pack, and listing one is a pull request. CI installs each pack, loads its
+  definition and builds the catalog site. Packs tagged `bounded-pack` on npm
+  are picked up automatically.
+- **Docs come from code.** A pack's overview is pure data, so its page is
+  generated: the points it offers with their types and descriptions, what
+  it contributes and where, its dependency graph, the ports a host must
+  provide, the skills and agents it ships, compiled config examples and
+  per-host support. No pack page is written by hand, so none goes stale.
+- **Verified means tested.** The catalog's CI runs the conformance suite on
+  every pack and release: it composes cleanly, fails closed on bad
+  configuration, describes every point and contribution, gives a redirect
+  with every refusal, compiles its examples, and passes the judge's
+  calibration sets. The badge is a property of the code, not of a
+  reputation.
+- **Provenance and pinning.** Published packs carry npm provenance linking
+  each tarball to the commit and CI run that built it, and supply-chain
+  governs packs like any other dependency.
 
-| Catalog page shows | Generated from |
-|---|---|
-| Points offered, with types and descriptions | `points` and each point's schema |
-| What it contributes, and where | `contributes` |
-| The dependency graph | `dependsOn` (pack objects, so it is exact) |
-| Ports a host must provide | `ports` |
-| Skills, agents and instructions it ships | its guidance contributions |
-| Config examples | typed example files, compiled in CI so they cannot go stale |
-| Host support | adapter capability declarations, joined with the effects it guards |
+## Writing a pack
 
-The same generator powers `bounded explain`, which shows the composed rules
-of *your* project: who contributed what, where, and why.
+```
+$ bounded pack new deploy-window
+```
 
-**Conformance as the quality badge.** The catalog's CI runs a standard
-suite against every pack:
-
-- it composes cleanly;
-- it fails closed on bad configuration;
-- every point and contribution is described;
-- every refusal carries a redirect;
-- every example compiles.
-
-Packs that pass get a badge, so "verified" is a property of the code, not a
-reputation.
-
-## 10. Writing a pack
-
-A pack is ordinary TypeScript, in the same layout as the core. Here is a
-sketch of command-gate (*proposed*):
+This scaffolds the pack, its contract, its tests, its conformance suite and
+a catalog entry. A pack's overview is a few lines of typed wiring:
 
 ```ts
-export const commandGate: CommandGate = definePack({
-  id: commandGateId,                      // packIdsFor("@bounded/command-gate")("command-gate")
-  dependsOn: [corePack, selectors],
-  points: { commandRules: commandRulesPoint }, // { match, why, redirect }[], parsed and checked
+export const deployWindow: DeployWindow = definePack({
+  id: deployWindowId,
+  dependsOn: [corePack, selectors, calendar, guidance],
+  points: { windows: windowsPoint },
   contributes: [
-    contribution(corePack.points.effectGuards.execute, [judgeCommand]),
-    contribution(guidance.points.instructions, [commandRulesSection]),
+    contribution(corePack.points.effectGuards.execute, [judgeDeploy]),
+    contribution(guidance.points.instructions, [deployWindowSection]),
+    contribution(guidance.points.skills, [requestDeployExceptionSkill]),
   ],
-  ports: { shellParser: shellParserPort },
 });
 ```
 
-The domain and application layers do no I/O; adapters live behind ports
-the host provides; every value object parses its own shape; every port has
-a conformance suite. The rules that keep the core clean are enforced by
-tests, and they apply to your pack too.
+The rules that keep the core clean (no I/O in the logic, a port for every
+outside dependency, a conformance suite for every port, value objects that
+parse their own shape) are enforced by tests, and they apply to your pack
+too. That is why a pack written by a stranger can be trusted to compose
+with yours.
 
-## 11. What the core grows into
+## Seeing what happened
 
-The core stays small: mechanism, never content. The catalogue above needs a
-handful of new mechanisms. Each needs its own ADR, and some challenge
-current decisions:
+- **`bounded explain`** shows the composed rules of your project: every
+  point, every contribution, which pack it came from and why.
+- **`bounded log`** shows the guard log as a timeline: each decision, the
+  verdict, the pack, the redirect, and what the agent did next.
+- **`bounded replay`** runs past sessions against a changed configuration
+  and shows what would have changed.
+- **`bounded eval`** runs the judge's calibration sets and the chaos
+  scenarios, and reports precision, recall and recovery rates.
+- **`bounded doctor`** checks the installation and prints the host coverage
+  for your rules.
+- **rule-miner** turns the log and your corrections into suggested rules.
 
-| Mechanism | Needed by |
-|---|---|
-| **Seat identity** on every event, bound outside the session, least privilege by default | seats, zones, blindness, separation-of-duties and most recipes |
-| **Advisory and ask verdicts**: allow with a note; escalate to a human | briefs, escalation, reversibility, taint, two-key |
-| **Durable session state**, with distinct lifetimes for run state and tree state | phases, budgets, obligations, churn, co-change |
-| **Richer results**: exit codes and per-test outcomes, not only `ok` | budgets, red-first, receipts, ratchet |
-| **Session-end and delegate lifecycle events** | exit-gate, footprint, jobs |
-| **Write content** on write effects ("unknown" when the host cannot say) | content-gate |
-| **Output transforms** after a tool runs | blindness |
-| **Input rewrites**, visible and logged. Today's spec says a refusal is never a rewrite, so this needs a decision | rewrite |
-| **Pending verdicts** for long checks | jobs |
-| **Observe mode** | rehearsal, chaos |
-| **Conditions**: one pack supplies `when:` facts other packs' rules can use | phases, calendar, seats |
-| **Fingerprint ports**: tree hash, file-set hash, measurements | receipts, surface-lock, ratchet, churn |
-| **Projections**: rendering guidance contributions into each host's files | guidance |
+The log is the quickest way to improve your agents. Every refusal followed
+by a quick recovery means a rule taught well. Every refusal followed by a
+loop means a redirect to improve.
 
-## 12. Where Bounded fits
+## Where Bounded fits
 
-There are good tools nearby, and Bounded should work with them rather than
-replace them:
-
-- **Host-native policy** (permission settings, exec policies, organisation
-  hooks) covers simple allow and deny per host. Bounded adds composition,
-  redirects, workflow and portability across hosts.
-- **Policy engines** (Rego- or CEL-based hook layers) are strong at flat
-  security rules. Bounded's distinguishing idea is the typed pack graph with
-  workflow as a first-class concern. An adapter pack that runs existing
-  Rego policies as guards would let teams bring what they have.
+- **Host permission settings** cover simple allow and deny for one host.
+  Bounded adds composition, redirects, workflow, evidence and one
+  configuration for every host.
+- **Policy engines** are strong at flat security rules. Bounded's
+  difference is the typed pack graph, with workflow as first-class as
+  security. The `rego` pack runs existing Rego policies as guards, so teams
+  keep what they have.
 - **Single-purpose process tools** (TDD guards, definition-of-done hooks)
-  show the demand. In Bounded each is one pack among many, composed in one
-  configuration.
-- **Sandboxes** are the security boundary; Bounded is the guidance layer
-  that sits on top.
+  each become one pack among many in Bounded, composed in one place.
+- **Sandboxes** are the security boundary. Bounded is the guidance layer on
+  top, and generates a sandbox profile from its rules.
 
-What no nearby tool combines is the set of ideas in this document: one
-effect vocabulary for every host; typed packs whose undeclared wiring does
-not compile; a redirect on every refusal; drift restore; a decision that
-is refused if it cannot be recorded; and workflow rules as first-class as
-security rules, all from one configuration.
+## Principles
 
-## 13. The road from here
+1. **Say the rule once.** Instructions, enforcement, redirects and records
+   come from one definition.
+2. **Every "no" names the next "yes".** A refusal without a redirect is a
+   bug.
+3. **Fail closed.** Missing, unreadable or unknown means refuse, with the
+   fix.
+4. **The core owns mechanism, never content.** It knows no language, tool,
+   framework or host. Packs do.
+5. **What isn't declared doesn't compile.** Packs extend only what they
+   depend on, with values of exactly the right type.
+6. **Proof, not claims.** Receipts bound to trees, outcomes from runners,
+   judgements with scores.
+7. **Honest about limits.** A guardrail, not a sandbox; a coverage matrix,
+   not a promise.
+8. **Generated, not hand-written.** Instructions, briefs, docs and catalog
+   pages come from code, so they cannot go stale.
 
-1. **Foundations:** selectors, then command-gate and tool-gate. They need
-   no core change and close known gaps.
-2. **Roles and memory:** seat identity and session state, then seats, zones,
-   budgets, obligations and phases.
-3. **Guidance:** the guidance pack and projections. Skills, agents and
-   generated `AGENTS.md` make every rule visible before it is enforced.
-4. **Evidence:** fingerprint ports and richer results, then receipts,
-   ratchet, red-first and exit-gate.
-5. **More hosts:** Copilot and Grok, then Codex and the rest, with the
-   coverage matrix published.
-6. **The ecosystem:** the generated catalog, conformance badges,
-   `bounded explain` and the first recipes, including the agent pipeline
-   that reproduces the original harness as configuration.
+---
 
-Pack ideas, the legacy mapping and the competitive landscape are
-discussed in the issue tracker; this document is the summary. If an idea
-here excites you, the best way in is to pick a pack and write its plan.
+Bounded is open source. Start with the
+[configuration guide](configuration.md) and [the path gate](slice-3.md), or
+pick a pack from the catalogue and write its plan.
