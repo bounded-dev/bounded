@@ -185,11 +185,14 @@ export function piExtension({ projectRoot, load, home, deadlineMs = 3000, compos
         const [toolName, cwd] = [field(event, "toolName"), field(context, "cwd")];
         if (typeof toolName !== "string" || toolName === "") throw new Error("pi's tool result names no tool");
         const use = typeof cwd === "string" && isAbsolute(cwd) ? translate({ toolName, input: field(event, "input") }, cwd, locate) : undefined;
+        // A synchronous subagent call returns when its agents have finished; an asynchronous one at launch, so none has.
+        const delegations = use?.ok ? use.value.effects.filter((effect) => effect.kind === "delegate") : [];
         const result = ToolResult.parse({
           ...(use?.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
           kind: "tool-result",
           ok: field(event, "isError") !== true,
           ...callIdOf(event),
+          ...(delegations.length === 0 ? {} : { delegatedAgentRuns: delegations.map((effect) => ({ finished: effect.finishUnreported !== true })) }),
         });
         if (!result.ok) throw new Error(result.error);
         told = (await within(() => afterTool(result.value), deadlineMs, `no answer within ${deadlineMs} ms`)).message;

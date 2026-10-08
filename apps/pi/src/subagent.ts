@@ -106,5 +106,9 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
       }
     }
   }
-  return effects.some((effect) => effect.kind === "delegate") ? { ok: true, value: effects } : refuse("names no agent");
+  if (!effects.some((effect) => effect.kind === "delegate")) return refuse("names no agent");
+  // An asynchronous run returns at launch: pi does not report when its agents finish (ADR 2026-019).
+  const runsAsync = own(input, "async");
+  if (runsAsync !== undefined && typeof runsAsync !== "boolean") return refuse("has an 'async' that is not true or false");
+  return { ok: true, value: runsAsync === true ? effects.map((effect) => (effect.kind === "delegate" ? { ...effect, finishUnreported: true } : effect)) : effects };
 }

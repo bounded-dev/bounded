@@ -19,13 +19,15 @@ class ToolResultImpl implements Contract.ToolResult {
   readonly effects: readonly [Effect, ...Effect[]];
   readonly ok: boolean;
   declare readonly callId?: CallId;
+  declare readonly delegatedAgentRuns?: readonly Contract.DelegatedAgentRun[];
 
-  private constructor(call: Call, ok: boolean) {
+  private constructor(call: Call, ok: boolean, delegatedAgentRuns: readonly Contract.DelegatedAgentRun[] | undefined) {
     this.role = call.role;
     this.toolKind = call.tool;
     this.effects = call.effects;
     this.ok = ok;
     if (call.callId !== undefined) this.callId = call.callId;
+    if (delegatedAgentRuns !== undefined) this.delegatedAgentRuns = delegatedAgentRuns;
     Object.freeze(this);
   }
 
@@ -44,7 +46,9 @@ class ToolResultImpl implements Contract.ToolResult {
       if (typeof ok !== "boolean") return { ok: false, error: "A tool result says whether the tool succeeded: ok is true or false" };
       // The rest is a tool use's, checked the same way.
       const call = callOf(raw, "A tool use");
-      return call.ok ? { ok: true, value: new ToolResultImpl(call.value, ok) } : call;
+      if (!call.ok) return call;
+      const runs = delegatedAgentRunsOf(own(raw, "delegatedAgentRuns"), call.value.effects.filter((effect) => effect.kind === "delegate").length);
+      return runs.ok ? { ok: true, value: new ToolResultImpl(call.value, ok, runs.value) } : runs;
     });
   }
 
@@ -54,8 +58,34 @@ class ToolResultImpl implements Contract.ToolResult {
 
   toJSON(): Contract.ToolResultJSON {
     const json = { kind: this.kind, role: this.role === null ? null : this.role.value, tool: this.toolKind, effects: this.effects.map((effect) => effect.toJSON()), ok: this.ok };
-    return this.callId === undefined ? json : { ...json, callId: this.callId.value };
+    return {
+      ...json,
+      ...(this.callId === undefined ? {} : { callId: this.callId.value }),
+      ...(this.delegatedAgentRuns === undefined ? {} : { delegatedAgentRuns: this.delegatedAgentRuns.map(({ finished }) => ({ finished })) }),
+    };
   }
+}
+
+const RUNS = "A tool result's delegatedAgentRuns is a list of { finished } entries, one per delegate effect";
+const RUN = "A tool result's delegatedAgentRuns entry is { finished }, with finished true or false";
+const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+
+/** What the host says of each delegated run, checked against the number of delegate effects; undefined when it says nothing. */
+function delegatedAgentRunsOf(raw: unknown, delegates: number): Result<readonly Contract.DelegatedAgentRun[] | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (delegates === 0) return { ok: false, error: "A tool result without a delegate effect has no delegatedAgentRuns" };
+  if (!Array.isArray(raw)) return { ok: false, error: RUNS };
+  const runs: Contract.DelegatedAgentRun[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry) || Object.keys(entry).length !== 1) return { ok: false, error: RUN };
+    const finished = own(entry, "finished");
+    if (typeof finished !== "boolean") return { ok: false, error: RUN };
+    runs.push(Object.freeze({ finished }));
+  }
+  if (runs.length !== delegates) {
+    return { ok: false, error: `A tool result's delegatedAgentRuns has one entry per delegate effect: ${counted(delegates, "effect", "effects")}, ${counted(runs.length, "entry", "entries")}` };
+  }
+  return { ok: true, value: Object.freeze(runs) };
 }
 
 export type ToolResult = Contract.ToolResult;

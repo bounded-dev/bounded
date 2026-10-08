@@ -7,7 +7,7 @@
 import { type Refuse, type Result, ToolResult, Verdict } from "bounded/domain";
 import { type PathResolver, type ToolUse, toToolUse } from "./event.ts";
 import { isRecord } from "./json.ts";
-import { type Payload, readPayload, translate } from "./translate.ts";
+import { agentRunFinished, type Payload, readPayload, translate } from "./translate.ts";
 
 /** The project a decision is for. */
 export interface Project {
@@ -106,11 +106,15 @@ async function afterToolUse(stdin: string, hook: Hook, event: "PostToolUse" | "P
     if (!payload.ok) throw new Error(payload.error.reason);
     const use = toolUseOf(payload.value, hook);
     const response = peek(stdin, "tool_response");
+    // An Agent call's run finished only when its response says so; a failure never says so.
+    const delegates = use.ok ? use.value.effects.filter((effect) => effect.kind === "delegate").length : 0;
+    const finished = event === "PostToolUse" && agentRunFinished(response);
     const result = ToolResult.parse({
       ...(use.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: payload.value.tool_name }] }),
       kind: "tool-result",
       ok: event === "PostToolUse" && !(isRecord(response) && response.success === false),
       ...(payload.value.callId === undefined ? {} : { callId: payload.value.callId }),
+      ...(delegates === 0 ? {} : { delegatedAgentRuns: Array.from({ length: delegates }, () => ({ finished })) }),
     });
     if (!result.ok) throw new Error(result.error);
     const late = new Promise<never>((_, reject) => {

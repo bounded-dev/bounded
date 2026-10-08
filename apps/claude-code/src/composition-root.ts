@@ -7,11 +7,12 @@
 import { Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
 import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { type AfterTool, type Decide, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
 
-/** Opens a project with the adapters this host provides: the path gate's, on disk, and its shell parser. */
-const open = (projectRoot: string) => openProject(projectRoot, { ports: pathGatePortProvisions() });
+/** Opens a project with the adapters this host provides: the path gate's, on disk, and its shell parser, and the prerequisites pack's. */
+const open = (projectRoot: string) => openProject(projectRoot, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()] });
 
 /**
  * How long bounded may take to decide, then how long work still pending after

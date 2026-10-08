@@ -75,7 +75,7 @@ export type {
 } from "./events/effect.contract.ts";
 export { describeEffect, Effect } from "./events/effect.ts";
 export { ToolUse } from "./events/tool-use.ts";
-export type { ToolResultFactory, ToolResultJSON } from "./events/tool-result.contract.ts";
+export type { DelegatedAgentRun, ToolResultFactory, ToolResultJSON } from "./events/tool-result.contract.ts";
 export { ToolResult } from "./events/tool-result.ts";
 export type { Dispatch, EffectGuard, Guard } from "./guards/dispatch.contract.ts";
 export type { DecideEvent, DispatchEvent, Judgement } from "./guards/dispatch-event.contract.ts";

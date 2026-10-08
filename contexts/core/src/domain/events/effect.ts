@@ -20,7 +20,7 @@ const SHAPES = {
   write: { fields: ["path", "change"], optional: [], form: "A write effect is { kind, path, change }" },
   execute: { fields: ["command"], optional: ["cwd"], form: "An execute effect is { kind, command, cwd? }" },
   fetch: { fields: ["url"], optional: [], form: "A fetch effect is { kind, url }" },
-  delegate: { fields: ["agent"], optional: [], form: "A delegate effect is { kind, agent }" },
+  delegate: { fields: ["agent"], optional: ["isolated", "finishUnreported"], form: "A delegate effect is { kind, agent, isolated?, finishUnreported? }" },
   invoke: { fields: ["name"], optional: [], form: "An invoke effect is { kind, name }" },
 } as const satisfies Record<Contract.EffectKind, { fields: readonly string[]; optional: readonly string[]; form: string }>;
 
@@ -200,7 +200,15 @@ class DelegateEffectImpl implements Contract.DelegateEffect {
   readonly #made = true;
   readonly kind = "delegate" as const;
 
-  private constructor(readonly agent: AgentName) {
+  declare readonly isolated?: true;
+  declare readonly finishUnreported?: true;
+
+  private constructor(
+    readonly agent: AgentName,
+    flags: { readonly isolated: boolean; readonly finishUnreported: boolean },
+  ) {
+    if (flags.isolated) this.isolated = true;
+    if (flags.finishUnreported) this.finishUnreported = true;
     Object.freeze(this);
   }
 
@@ -211,15 +219,23 @@ class DelegateEffectImpl implements Contract.DelegateEffect {
 
   static parse(raw: object): Result<Contract.DelegateEffect> {
     const agent = AgentName.parse(own(raw, "agent"));
-    return agent.ok ? { ok: true, value: new DelegateEffectImpl(agent.value) } : agent;
+    if (!agent.ok) return agent;
+    const flags = { isolated: false, finishUnreported: false };
+    for (const field of ["isolated", "finishUnreported"] as const) {
+      const given = own(raw, field) ?? false;
+      if (typeof given !== "boolean") return refuse(`A delegate effect's ${field} must be true or false`);
+      flags[field] = given;
+    }
+    return { ok: true, value: new DelegateEffectImpl(agent.value, flags) };
   }
 
   equals(other: Contract.Effect): boolean {
     return sameWire(this, other);
   }
 
+  /** The agent and, only when true, each flag: data stored before the flags existed keeps its shape. */
   toJSON(): Contract.DelegateEffectJSON {
-    return { kind: this.kind, agent: this.agent.value };
+    return { kind: this.kind, agent: this.agent.value, ...(this.isolated === true ? { isolated: true } : {}), ...(this.finishUnreported === true ? { finishUnreported: true } : {}) };
   }
 }
 

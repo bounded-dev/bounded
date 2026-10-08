@@ -67,6 +67,16 @@
       "types": "./dist/types/packs/path-gate/adapters/out/index.d.ts",
       "default": "./dist/packs/path-gate/adapters/out/index.js"
     },
+    "./prereqs": {
+      "bun": "./src/packs/prereqs/index.ts",
+      "types": "./dist/types/packs/prereqs/index.d.ts",
+      "default": "./dist/packs/prereqs/index.js"
+    },
+    "./prereqs/adapters": {
+      "bun": "./src/packs/prereqs/adapters/out/index.ts",
+      "types": "./dist/types/packs/prereqs/adapters/out/index.d.ts",
+      "default": "./dist/packs/prereqs/adapters/out/index.js"
+    },
     "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",
     "./hosts/pi": "./dist/hosts/pi/index.js",
     "./hosts/pi/host-installer": "./dist/hosts/pi/host-installer.js"
