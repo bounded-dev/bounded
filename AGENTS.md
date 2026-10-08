@@ -87,10 +87,16 @@ src/
     <area>/<feature>/<feature>.contract.ts   wire Input, Command, in port, out ports
     <area>/<feature>/<feature>.command.ts    Input -> Command through value objects
     <area>/<feature>/<feature>.handler.ts    the in port's implementation
-    <area>/<feature>/<feature>.<port>.test-support.ts  the port's conformance suite
+    <area>/<feature>/<feature>.<port>.test-support.ts  the port's conformance suite (the port's
+                                   kebab-case name without a leading <feature>-)
+    <area>/<feature>/<feature>.in-memory-<port>.test-support.ts  an in-memory test double of the
+                                   port, for tests only, run through its suite (ADR 2026-017)
     index.ts              the application barrel
   adapters/in/<tech>/     driving adapters: depend on in ports, never handlers
-  adapters/out/<tech>/    driven adapters: implement out ports; each runs its port's conformance suite
+  adapters/out/<port>/    driven adapters, one folder per out port (its name in kebab case): <port>.ts
+                          when the port has one production adapter, else one file per adapter named
+                          for its class; each runs its port's conformance suite in a test beside it
+  adapters/out/index.ts   the out adapters' barrel, the package's `adapters` export path (ADR 2026-017)
   composition-root/       the context's composition root: openProject, which host adapters call (ADR 2026-010)
   packs/<name>/           a pack shipped in the context's package, such as path-gate/ (ADR 2026-009)
 ```
@@ -99,7 +105,8 @@ Rules, enforced by `architecture.test.ts` unless stated:
 
 - **Dependencies point inwards:** domain <- application <- adapters <- composition-root;
   a shipped pack (`packs/<name>/`) depends on the domain only.
-  Adapters never import other adapters' technologies.
+  An adapter imports its own context's (or pack's) domain, application and
+  out adapters; never another pack's.
 - **Domain and application do no I/O** and import no library but zod.
 - **Within a context, layers import each other through the package's own
   export paths** (`bounded/domain`), domain files by relative path.
@@ -125,12 +132,26 @@ Rules, enforced by `architecture.test.ts` unless stated:
   symbol` in its contract, `readonly [<name>Brand]: true` on the interface
   and `declare readonly [<name>Brand]: true` on the class), never exported
   from a barrel, so even a complete look-alike does not type-check.
-- **Every out port has a conformance suite** (`*.test-support.ts`) run by a
-  test beside every adapter that implements it.
-- **Contracts everywhere (ADR 2026-013).** R1: every out adapter is a class
-  implementing a port an application contract declares, in a file that
-  exports nothing else. R2: every port tagged `@implementedBy` has an
-  adapter per technology named and a conformance suite each runs. R3: every
+- **Every out port has a conformance suite**
+  (`<feature>.<port>.test-support.ts` beside its contract) run by a test
+  beside every adapter that implements it, and by a test beside each
+  in-memory double of it.
+- **Contracts everywhere (ADRs 2026-013, 2026-017).** R1: every out adapter
+  is a class implementing a port an application contract declares, in a
+  file that exports nothing else, in `adapters/out/<port>/` (the port's name
+  in kebab case), in `<port>.ts` when it is the only adapter there and in a
+  file named for its class (kebab case) when the port has several. R2: every
+  port tagged `@implementedBy` names its adapter classes, each under
+  `adapters/out/<port>/`; every adapter class implementing a port is named
+  in that port's tag; the port's suite is exactly
+  `<feature>.<port>.test-support.ts` and a test beside each named class runs
+  it. An in-memory test double is
+  `<feature>.in-memory-<port>.test-support.ts` in its port's feature
+  directory, run through the port's suite by a test beside it. No
+  production file (under `contexts/*/src` or `apps/*/src`, not a test, test
+  support or fixture) imports a `*.test-support.ts`, by relative path or
+  through an export path, with no exemption: test support published for
+  others goes through `exports`, which the ban does not touch. R3: every
   domain concept (in `domain/`, and a pack's `domain/`) is
   `<name>.contract.ts`, `<name>.ts` and `<name>.test.ts`, plus
   `<name>.laws.test.ts` for a value object; a pack is `<name>.pack.ts`,
