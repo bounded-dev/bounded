@@ -55,6 +55,14 @@ export function hostInstallerConformance(name: string, installer: HostInstaller,
       expect(project.snapshot()).toEqual(before);
     });
 
+    test("when it says whether it is installed: not before installing, yes after", async () => {
+      const project = await fixture("fresh");
+      if (installer.isInstalled === undefined) return;
+      expect(await installer.isInstalled(project.root)).toBe(false);
+      await installer.install(project.root);
+      expect(await installer.isInstalled(project.root)).toBe(true);
+    });
+
     test("refuses when what it must read cannot be read, and changes nothing", async () => {
       const project = await fixture("unreadable");
       const before = project.snapshot();

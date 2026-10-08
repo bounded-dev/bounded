@@ -40,4 +40,12 @@ describe("the pi host installer", () => {
     expect(await hostInstaller.install(root)).toEqual({ ok: true, value: { host: "pi", changedPaths: [LOADER.path], skippedBecause: null } });
     expect(readFileSync(join(root, LOADER.path), "utf8")).toBe(LOADER.content);
   });
+
+  test("says whether bounded is installed for pi: its loader exists", async () => {
+    const root = project(true);
+    expect(await hostInstaller.isInstalled?.(root)).toBe(false);
+    await hostInstaller.install(root);
+    expect(await hostInstaller.isInstalled?.(root)).toBe(true);
+    expect(await hostInstaller.isInstalled?.(project(false))).toBe(false);
+  });
 });

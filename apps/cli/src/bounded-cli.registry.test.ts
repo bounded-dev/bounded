@@ -4,7 +4,7 @@
 // the network. One package is installed, `bounded`: it carries the CLI (its
 // bin, dist/cli.js) and the host adapters, bundled at pack time.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type CommandRun, runBoundedCli } from "./bounded-cli.ts";
@@ -206,6 +206,44 @@ describe("bounded update from the registry: the one bounded package", () => {
     expect(ran.stderr).toContain("older than 3.0.0");
     expect(readFileSync(join(root, "yarn.lock"), "utf8")).toBe("lock before\n");
     expect(runner.commands).toHaveLength(1);
+  });
+
+  test("a failed update leaves a binary lockfile byte for byte, and rewrites no file whose bytes did not change", async () => {
+    const root = initialised("bun");
+    rmSync(join(root, "bun.lock"));
+    const binary = Buffer.from([0x23, 0xff, 0xfe, 0x00, 0x80]);
+    writeFileSync(join(root, "bun.lockb"), binary);
+    const manifestModified = statSync(join(root, "package.json")).mtimeMs;
+    const runner = stub(root, () => {}, 1);
+    const ran = await runBoundedCli(["update"], root, runner.run);
+    expect(ran.exitCode).toBe(1);
+    expect(Buffer.compare(readFileSync(join(root, "bun.lockb")), binary)).toBe(0);
+    expect(statSync(join(root, "package.json")).mtimeMs).toBe(manifestModified);
+  });
+
+  test("drops an override of bounded a --from install left, so the registry's latest is installed; refuses a bounded older than the version the package manager resolved", async () => {
+    const pinned = initialised("bun");
+    const manifestPath = join(pinned, "package.json");
+    writeFileSync(manifestPath, `${JSON.stringify({ ...json<object>(manifestPath), overrides: { bounded: "file:/old/bounded-3.0.0.tgz" } }, null, 2)}\n`);
+    const before = readFileSync(manifestPath, "utf8");
+    const overridesAtInstall: unknown[] = [];
+    // The manager resolves the latest, 3.2.0, into package.json, but installs 3.0.0, as a pin would.
+    const resolvesLatest = (version: string) => () => {
+      const manifest = json<Record<string, unknown> & { devDependencies: Record<string, string> }>(manifestPath);
+      overridesAtInstall.push(manifest.overrides);
+      writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, devDependencies: { ...manifest.devDependencies, bounded: "^3.2.0" } }, null, 2)}\n`);
+      installed(pinned, "bounded", version);
+    };
+    const refused = await runBoundedCli(["update"], pinned, stub(pinned, resolvesLatest("3.0.0")).run);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain("3.2.0");
+    expect(readFileSync(manifestPath, "utf8")).toBe(before);
+    expect(overridesAtInstall).toEqual([{}]);
+
+    const upgraded = await runBoundedCli(["update"], pinned, stub(pinned, resolvesLatest("3.2.0")).run);
+    expect(upgraded.stderr).toBe("");
+    expect(upgraded.exitCode).toBe(0);
+    expect(json<{ overrides?: Record<string, string> }>(manifestPath).overrides?.bounded).toBeUndefined();
   });
 
   test("refuses a project that was never initialised, running nothing", async () => {

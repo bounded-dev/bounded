@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostInstallerSourceConformance } from "../../../../application/project-setup/init-project/init-project.host-installer-source.test-support.ts";
@@ -76,6 +76,21 @@ describe("NodeModulesHostInstallerSource", () => {
     installPackage(root, "bundle", { "./hosts/zed/host-installer": "./zed.js" }, { "zed.js": "export const hostInstaller = 42;\n" });
     const loaded = await new NodeModulesHostInstallerSource().load(root);
     expect(!loaded.ok && loaded.error.includes("bundle") && loaded.error.includes("./hosts/zed/host-installer")).toBe(true);
+  });
+
+  test("passes an installer's isInstalled through, answering only true or false, and refuses one that is not a function", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "bounded-installers-")));
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", dependencies: { aware: "1", odd: "1" } }));
+    const aware = `export const hostInstaller = { host: "aware", isInstalled: async (root) => root.length > 0, install: async () => ({ ok: true, value: { host: "aware", changedPaths: [], skippedBecause: null } }) };\n`;
+    installPackage(root, "aware", { "./host-installer": "./host-installer.js" }, { "host-installer.js": aware });
+    installPackage(root, "odd", { "./host-installer": "./host-installer.js" }, { "host-installer.js": aware.replace('"aware"', '"odd"').replace("isInstalled: async (root) => root.length > 0", "isInstalled: 42") });
+    const loaded = await new NodeModulesHostInstallerSource().load(root);
+    expect(!loaded.ok && loaded.error.includes("odd")).toBe(true);
+    rmSync(join(root, "node_modules", "odd"), { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "demo", dependencies: { aware: "1" } }));
+    const only = await new NodeModulesHostInstallerSource().load(root);
+    if (!only.ok) throw new Error(only.error);
+    expect(await only.value[0]?.isInstalled?.(root)).toBe(true);
   });
 
   test("refuses a dependency that is declared but not installed, saying to install it", async () => {

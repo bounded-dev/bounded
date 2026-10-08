@@ -10,7 +10,7 @@
 // Claude Code runs it, judges calls with the path gate.
 // The registry path is unit-tested with a stub runner (bounded-cli.registry.test.ts).
 import { describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -188,6 +188,8 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
       expect(secret.exitCode).toBe(0);
       expect(reasonOf(secret.stdout)).toContain("the rule 'secrets/**' from bounded/project denies modify of 'secrets/x' (secrets are kept by people)");
       expect(reasonOf(edit("bounded.config.ts").stdout)).toContain("the rule '**/bounded.config.*' from bounded/project");
+      // init's default rules also keep agents off the hook's own settings.
+      expect(reasonOf(edit(".claude/settings.json").stdout)).toContain("the rule '.claude/settings.json' from bounded/project");
       expect(reasonOf(edit("src/a.ts").stdout)).toBe("allowed");
       const shell = hook("Bash", { command: "echo hi > secrets/x" });
       expect(reasonOf(shell.stdout)).toContain("secrets/**");
@@ -204,6 +206,41 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
       const refresh = run(["npx", "--no-install", "bounded", "update", "--no-upgrade"], project, { bun: false });
       expect(refresh.exitCode).toBe(0);
       expect(refresh.stdout).toContain("up to date");
+
+      // The installed tarball's bin, run by node itself (npx above ran it too).
+      const usage = run(["node", join(project, "node_modules", "bounded", "dist", "cli.js")], project, { bun: false });
+      expect(usage.exitCode).toBe(2);
+      expect(usage.stderr).toContain("bounded init");
+
+      // Drift through the bundled hook: a command the shell guard cannot see into changes a protected file; after it ran, the file is put back.
+      writeFileSync(join(project, ".gitignore"), "node_modules/\n.bounded/\n");
+      const git = (...args: string[]) => mustRun(["git", "-c", "user.name=test", "-c", "user.email=test@example.com", ...args], project, { bun: false });
+      git("add", "-A");
+      git("commit", "--quiet", "-m", "base");
+      const call = { tool_name: "Bash", tool_input: { command: "./regenerate.sh" }, tool_use_id: "toolu_drift", cwd: project, session_id: "s" };
+      const beforeCall = run(["sh", "-c", command], project, { bun: false, env: { CLAUDE_PROJECT_DIR: project }, stdin: JSON.stringify({ hook_event_name: "PreToolUse", ...call }) });
+      expect(beforeCall.stdout).toBe("");
+      writeFileSync(join(project, "secrets", "x"), "changed\n");
+      const settingsBefore = readFileSync(join(project, ".claude", "settings.json"), "utf8");
+      writeFileSync(join(project, ".claude", "settings.json"), "{}\n");
+      const afterCall = run(["sh", "-c", command], project, {
+        bun: false,
+        env: { CLAUDE_PROJECT_DIR: project },
+        stdin: JSON.stringify({ hook_event_name: "PostToolUse", ...call, tool_response: { stdout: "", stderr: "", interrupted: false } }),
+      });
+      expect(afterCall.exitCode).toBe(0);
+      expect((JSON.parse(afterCall.stdout) as { decision: string; reason: string }).reason).toContain("secrets/x");
+      expect(readFileSync(join(project, "secrets", "x"), "utf8")).toBe("s\n");
+      // The settings holding the hook, protected by init's default rule, are put back too.
+      expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsBefore);
+
+      // With a dependency gone, the hook still answers: a deny with the reason, exit 0, not a crash.
+      rmSync(join(project, "node_modules", "picomatch"), { recursive: true, force: true });
+      const broken = edit("src/a.ts");
+      expect(broken.exitCode).toBe(0);
+      const denied = JSON.parse(broken.stdout) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+      expect(denied.hookSpecificOutput.permissionDecision).toBe("deny");
+      expect(denied.hookSpecificOutput.permissionDecisionReason).toContain("picomatch");
     },
     300_000,
   );

@@ -68,4 +68,15 @@ describe("the Claude Code host installer", () => {
     const done = await hostInstaller.install(root);
     expect(!done.ok && done.error.includes("npx bounded init")).toBe(true);
   });
+
+  test("says whether bounded is installed for Claude Code: a bounded hook in .claude/settings.json, in any form an install wrote", async () => {
+    const root = project();
+    expect(await hostInstaller.isInstalled?.(root)).toBe(false);
+    await hostInstaller.install(root);
+    expect(await hostInstaller.isInstalled?.(root)).toBe(true);
+    const earlier = project(JSON.stringify({ hooks: { PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: 'bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"' }] }] } }));
+    expect(await hostInstaller.isInstalled?.(earlier)).toBe(true);
+    const unrelated = project(JSON.stringify({ hooks: { PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: "lint" }] }] } }));
+    expect(await hostInstaller.isInstalled?.(unrelated)).toBe(false);
+  });
 });

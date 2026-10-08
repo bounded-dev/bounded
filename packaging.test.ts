@@ -5,7 +5,7 @@
 // TypeScript sources (for types and for bun), without tests, test support
 // (but the exported conformance suite) or fixtures.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -129,6 +129,45 @@ describe("bounded, the one published package", () => {
     const loaded = Bun.spawnSync(["node", "--input-type=module", "-e", 'const d = await import("bounded/domain"); const g = await import("bounded/path-gate"); console.log(typeof d.defineConfig, g.pathGate.id.value)'], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
     expect(loaded.stderr.toString()).toBe("");
     expect(loaded.stdout.toString().trim()).toBe("function bounded/path-gate");
+  });
+
+  test("the built Claude Code hook keeps its crash-safe bootstrap: nothing is imported before its try, so a missing module is a deny", () => {
+    const hook = readFileSync(join(CORE, "dist/hosts/claude-code/hook.js"), "utf8");
+    const beforeTry = hook.slice(0, hook.search(/^try \{/m));
+    expect(hook.search(/^try \{/m)).toBeGreaterThan(0);
+    expect(beforeTry.match(/^(?:import|export)\b.*$/gm) ?? []).toEqual([]);
+    expect(hook).toMatch(/await import\(/);
+  });
+
+  test("ships a README saying what Bounded is, how to start, and a path gate rule, linking to the repository's docs", () => {
+    expect(manifestOf("contexts/core").files).toContain("README.md");
+    expect(packed).toContain("README.md");
+    const readme = readFileSync(join(CORE, "README.md"), "utf8");
+    expect(readme).toContain("npx bounded init");
+    expect(readme).toContain("pathGate.points.protectedPaths");
+    expect(readme).toContain("https://github.com/bounded-dev/the-bounded-harness");
+  });
+
+  test("a consumer's tsc reads the shipped TypeScript sources with allowImportingTsExtensions, under bundler and nodenext resolution; without it they do not compile (no .d.ts yet)", () => {
+    const consumer = mkdtempSync(join(tmpdir(), "bounded-consumer-"));
+    const into = join(consumer, "release");
+    expect(Bun.spawnSync(["bun", "pm", "pack", "--destination", into, "--quiet"], { cwd: CORE }).exitCode).toBe(0);
+    mkdirSync(join(consumer, "node_modules", "bounded"), { recursive: true });
+    expect(Bun.spawnSync(["tar", "-xzf", join(into, `bounded-${VERSION}.tgz`), "-C", join(consumer, "node_modules", "bounded"), "--strip-components=1"]).exitCode).toBe(0);
+    for (const dependency of ["zod", "picomatch", "@vscode"]) symlinkSync(join(ROOT, "node_modules", dependency), join(consumer, "node_modules", dependency));
+    writeFileSync(join(consumer, "a.ts"), 'import { corePack, defineConfig } from "bounded/domain";\nexport default defineConfig({ packs: [corePack] });\n');
+    writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "consumer", type: "module" }));
+    /** The consumer's tsc, with a typical strict tsconfig and `options`. */
+    const tsc = (options: Record<string, unknown>) => {
+      writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, skipLibCheck: true, noEmit: true, target: "es2022", ...options }, files: ["a.ts"] }));
+      return Bun.spawnSync([join(ROOT, "node_modules", ".bin", "tsc"), "-p", "."], { cwd: consumer, stdout: "pipe", stderr: "pipe" });
+    };
+    for (const resolution of [{ module: "preserve", moduleResolution: "bundler" }, { module: "nodenext", moduleResolution: "nodenext" }]) {
+      expect(tsc({ ...resolution, allowImportingTsExtensions: true }).exitCode).toBe(0);
+      const without = tsc(resolution);
+      expect(without.exitCode).not.toBe(0);
+      expect(without.stdout.toString()).toContain("TS5097");
+    }
   });
 
   test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {

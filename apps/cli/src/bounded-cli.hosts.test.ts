@@ -4,7 +4,7 @@
 // package offers at ./host-installer always runs, since installing that
 // package chose it.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBoundedCli } from "./bounded-cli.ts";
@@ -65,6 +65,30 @@ describe("bounded's bundled host installers: only the hosts named or found", () 
     const done = await runBoundedCli(["update", "--no-upgrade"], root);
     expect(done.exitCode).toBe(0);
     expect(ran(root)).toEqual(["pi", "third"]);
+  });
+
+  test("update --no-upgrade refreshes only the bundled hosts already installed, never adding one init did not install", async () => {
+    // Installers that count their runs, and say they are installed once they have run.
+    const counting = (host: string) => `import { appendFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+export const hostInstaller = {
+  host: "${host}",
+  isInstalled: async (root) => existsSync(join(root, "${host}.runs")),
+  install: async (root) => {
+    appendFileSync(join(root, "${host}.runs"), "run\\n");
+    return { ok: true, value: { host: "${host}", changedPaths: ["${host}.runs"], skippedBecause: null } };
+  },
+};
+`;
+    const root = project([".claude", ".pi"]);
+    writeFileSync(join(root, "node_modules", "bounded", "claude-code.js"), counting("claude-code"));
+    writeFileSync(join(root, "node_modules", "bounded", "pi.js"), counting("pi"));
+    expect((await runBoundedCli(["init", "--no-install", "--host", "pi"], root)).exitCode).toBe(0);
+    expect((await runBoundedCli(["update", "--no-upgrade"], root)).exitCode).toBe(0);
+    const runsOf = (host: string): number => (existsSync(join(root, `${host}.runs`)) ? readFileSync(join(root, `${host}.runs`), "utf8").split("\n").filter(Boolean).length : 0);
+    expect(runsOf("pi")).toBe(2);
+    expect(runsOf("claude-code")).toBe(0);
+    expect(existsSync(join(root, "third.installed"))).toBe(true);
   });
 
   test("refuses a host name that is not one", async () => {

@@ -2889,10 +2889,10 @@
     "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
     "case": "upgradeCommands: the package manager commands that upgrade the bounded packages > adds dependencies and devDependencies each where they were",
     "successor": {
-      "file": "apps/cli/src/package-upgrade.test.ts",
-      "case": "bounded-cli — installCommand: every package manager installs from the rewritten manifest > runs each manager's own plain install"
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: the one bounded package > with each of bun, npm, pnpm and yarn: upgrades bounded alone to its latest, leaving other packages, checks it, and hands over"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; then every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; then every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone; the add commands it checked, each manager's with the group's flag, live on in the registry update's (corrected in the final review: installCommand is not one)"
   },
   {
     "file": "contexts/core/src/composition-root/package-upgrade.test.ts",
@@ -3015,10 +3015,10 @@
     "file": "apps/cli/src/package-upgrade.test.ts",
     "case": "bounded-cli — upgradeCommands: the package manager commands that upgrade the bounded packages > adds dependencies and devDependencies each where they were",
     "successor": {
-      "file": "apps/cli/src/package-upgrade.test.ts",
-      "case": "bounded-cli — installCommand: every package manager installs from the rewritten manifest > runs each manager's own plain install"
+      "file": "apps/cli/src/bounded-cli.registry.test.ts",
+      "case": "bounded update from the registry: the one bounded package > with each of bun, npm, pnpm and yarn: upgrades bounded alone to its latest, leaving other packages, checks it, and hands over"
     },
-    "reason": "every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone"
+    "reason": "every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone; the add commands it checked, each manager's with the group's flag, live on in the registry update's (corrected in the final review: installCommand is not one)"
   },
   {
     "file": "apps/cli/src/package-upgrade.test.ts",
@@ -3748,5 +3748,14 @@
       "case": "bounded, the one published package > has a publishable manifest: not private, the version, the repository's licence and directory, a description, node as its engine, and its prepack build"
     },
     "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/file-system/project-config/load-failure.test.ts",
+    "case": "loadFailure: why a project's configuration file could not be loaded > a TypeScript configuration a Node without type stripping cannot load is refused, saying to upgrade Node or write it in JavaScript",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/file-system/project-config/load-failure.test.ts",
+      "case": "loadFailure: why a project's configuration file could not be loaded > a TypeScript configuration a Node without type stripping cannot load is refused, saying to upgrade Node or write it as bounded.config.mjs, a module in any project"
+    },
+    "reason": "the advice names bounded.config.mjs only: a .js configuration fails in a CommonJS project (npm init -y writes \"type\": \"commonjs\"), so advising it would mislead (final review)"
   }
 ]

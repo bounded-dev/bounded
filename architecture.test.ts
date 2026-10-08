@@ -450,6 +450,15 @@ describe("architecture", () => {
     expect(byName.get("bounded")?.exports["./path-gate"]).toBe("./src/packs/path-gate/index.ts");
   });
 
+  test("an app never imports an app, nor the host adapters' code bundled into bounded (bounded/hosts/*)", () => {
+    expect(appImportViolations("apps/cli/src/x.ts", 'import "bounded/hosts/pi";\n')).toEqual([
+      'apps/cli/src/x.ts:1 imports "bounded/hosts/pi" — an app never imports an app: bounded/hosts/* is the host adapters\' code, bundled into bounded',
+    ]);
+    expect(appImportViolations("apps/cli/src/x.ts", 'import { hostInstaller } from "bounded/hosts/claude-code/host-installer";\n')).toHaveLength(1);
+    expect(appImportViolations("apps/cli/src/x.ts", 'import { corePack } from "bounded/domain";\n')).toEqual([]);
+    expect(appImportViolations("apps/cli/src/x.ts", 'import { piLoader } from "bounded-pi";\n')).toEqual(['apps/cli/src/x.ts:1 imports "bounded-pi" — an app never imports an app']);
+  });
+
   test("the shipped-pack rule: only a pack's own directory imports it, and it depends only on the core's public exports", () => {
     const core = byName.get("bounded");
     if (core === undefined) throw new Error("no core context");
