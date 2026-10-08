@@ -189,16 +189,18 @@ installed version, which refreshes the hooks. If the upgrade fails,
 refreshes the hooks from the installed version only. Neither touches
 `bounded.config.ts`.
 
-Each says which sessions must restart, per host, or prints
-`No need to restart existing sessions: bounded <version> is live on the next tool call.`
+Each says, per host, whether its sessions must restart:
 - Claude Code runs the hook in a new node process on every tool call, so a
-  new `bounded` is live at once. Its sessions restart only when `.claude/settings.json`
-  changed: `Restart Claude Code sessions in this project so they load the new hooks.`
-- pi loads `bounded` into its process at session start, so its sessions
-  restart when the loader changed or the version did:
-  `Restart pi sessions in this project to load bounded <version>.` Run by
-  hand, `update --no-upgrade` does not know the version it replaced, so it
-  says this for pi with `(the version it replaced is not known)`.
+  new `bounded` is live at once. Its sessions restart only when
+  `.claude/settings.json` changed:
+  `Restart Claude Code sessions in this project so they load the new hooks.`
+  Otherwise:
+  `No need to restart Claude Code sessions: bounded <version> is live on their next tool call.`
+- pi loads `bounded` into its process at session start, and the CLI cannot
+  know which version a running session loaded, so after every update:
+  `Restart pi sessions in this project to load bounded <version>.`
+- A host another package installs is told to restart after every update
+  too, as it may hold `bounded` in its process.
 
 ### From a checkout (local development)
 

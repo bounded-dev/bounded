@@ -67,16 +67,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
     for (never adding one), and any third-party installer. It is
     idempotent and never writes the configuration. Any failed install
     restores `package.json` and the lockfiles.
-  - Both end with a restart notice per host (3.1.1): Claude Code restarts
-    only when its settings changed; pi when its loader or `bounded`'s
-    version changed, or the version it replaced is not known; a
-    third-party host when its installer changed a file, or the version
-    changed or is not known. Otherwise one line says no restart is needed.
+  - Both end with a restart notice per host (3.1.1), none for a host
+    skipped. Claude Code's sessions restart only when init set it up or its
+    settings changed; otherwise a line says the new `bounded` is live on
+    their next tool call. pi's sessions, and a third-party host's, are told
+    to restart every time: the CLI cannot know which `bounded` a running
+    session loaded.
   - The hand-offs are the contract between versions: every version must
     keep accepting `bounded init --no-install [--host <host>]...` and
-    `bounded update --no-upgrade`; from 3.1.1 also
-    `--previous-version <version>`, handed only to a `bounded` at 3.1.1 or
-    later ([ADR 2026-016](adr/2026-016-cli-app.md)).
+    `bounded update --no-upgrade`.
   - `--from <dir>` installs or upgrades from `bounded`'s packed tarball, for
     local development (README, "From a checkout").
   - The Claude Code hook runs
@@ -192,8 +191,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
     the adapters grouped by port
     ([ADR 2026-017](adr/2026-017-adapters-by-port.md)):
     `npx bounded init` in a fresh project installs it from the registry,
-    with no `--from`. Not on npm yet: 3.1.1's per-host restart notice and
-    its `--previous-version` hand-off. `--from <dir>` stays only for installing a
+    with no `--from`. Not on npm yet: 3.1.1's per-host restart notice.
+    `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
