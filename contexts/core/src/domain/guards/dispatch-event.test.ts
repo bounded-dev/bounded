@@ -339,7 +339,7 @@ describe("corePack — watched paths", () => {
 describe("corePack", () => {
   test("is the pack bounded/core, declaring a guards point per event kind and per effect kind", () => {
     expect(corePack.id.value).toBe("bounded/core");
-    expect(Object.keys(corePack.points).sort()).toEqual(["effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards", "watchedPaths"]);
+    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards", "watchedPaths"]);
     expect(Object.keys(corePack.points.effectGuards).sort()).toEqual(["delegate", "execute", "fetch", "invoke", "list", "read", "write"]);
     expect(corePack.dependsOn).toEqual([]);
   });

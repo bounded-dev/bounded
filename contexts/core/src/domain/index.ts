@@ -20,6 +20,7 @@ export type {
   PointDeclaration,
   PointGroup,
   PointGroupDeclaration,
+  PortSection,
   StrictMembers,
   StrictSpec,
   WireOf,
@@ -86,7 +87,13 @@ export type { Dispatch, EffectGuard, Guard } from "./guards/dispatch.contract.ts
 export type { DecideEvent, DispatchEvent, Judgement } from "./guards/dispatch-event.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
 export { corePack } from "./guards/core-pack.ts";
-export type { CoreId, CorePack, CorePackPoints, EffectGuardPoints, OpenedProject, PathKind, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
+export type { AfterTool, BeforeTool, CoreId, CorePack, CorePackPoints, EffectGuardPoints, LifecycleContext, OpenedProject, PathKind, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
+export type { BasePortKey, PortKeyFactory } from "./lifecycle/port-key.contract.ts";
+export { PortKey, portKeysFor } from "./lifecycle/port-key.ts";
+export type { PortProvision, PortsFactory } from "./lifecycle/ports.contract.ts";
+export { Ports } from "./lifecycle/ports.ts";
+export type { AfterToolReportFactory } from "./lifecycle/after-tool-report.contract.ts";
+export { AfterToolReport } from "./lifecycle/after-tool-report.ts";
 export { decideEvent, dispatchEvent } from "./guards/dispatch-event.ts";
 export type { DecisionEvent, DecisionFactory, DecisionJSON, RecordedVerdict } from "./decisions/decision.contract.ts";
 export type { AdapterRefusalFactory, AdapterRefusalJSON } from "./decisions/adapter-refusal.contract.ts";

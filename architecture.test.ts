@@ -221,7 +221,7 @@ function valueObjectClassViolations(path: string, text: string, isValueObject: (
  * definePack, point and contribution (ADR 2026-003), and a configuration is
  * made by defineConfig (ADR 2026-010).
  */
-const IDENTITY_OBJECTS = new Set(["BaseDeclaration", "PointDeclaration", "PointGroupDeclaration", "BasePack", "Pack", "BasePoint", "ExtensionPoint", "Contribution", "Config"]);
+const IDENTITY_OBJECTS = new Set(["BaseDeclaration", "PointDeclaration", "PointGroupDeclaration", "BasePack", "BasePortKey", "Pack", "BasePoint", "ExtensionPoint", "Contribution", "Config"]);
 
 /** The branded interfaces a contract exports: each declares `__brand`, or extends one of the file's interfaces that does. */
 function brandedContracts(path: string, text: string): string[] {

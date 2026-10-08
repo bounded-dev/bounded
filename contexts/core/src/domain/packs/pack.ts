@@ -1,6 +1,7 @@
 import type { contributionBrand, extensionPointBrand, packBrand, pointDeclarationBrand, pointGroupDeclarationBrand } from "./pack.contract.ts";
 import type { Result } from "../shared/result.ts";
 import type * as Contract from "./pack.contract.ts";
+import { isPortKey } from "../lifecycle/port-key.ts";
 import { PackId, packIdText } from "./pack-id.ts";
 
 // Packs, points, declarations and contributions are frozen instances of the
@@ -151,6 +152,7 @@ class ContributionImpl<Owner extends Contract.BasePack["id"]> implements Contrac
 
 interface UntypedSpec {
   readonly id: unknown;
+  readonly ports?: unknown;
   readonly dependsOn?: unknown;
   readonly points?: unknown;
   readonly contributes?: unknown;
@@ -163,6 +165,7 @@ class PackImpl implements Contract.BasePack {
   readonly dependsOn: readonly Contract.BasePack[];
   readonly points: Readonly<Record<string, Contract.BasePoint | Contract.PointGroup>>;
   readonly contributes: readonly Contract.Contribution<PackId>[];
+  readonly ports: Contract.PortSection;
   readonly problem: string | undefined;
 
   // Built from untyped data as well as typed: whatever does not fit is kept
@@ -174,6 +177,8 @@ class PackImpl implements Contract.BasePack {
     this.id = parsed.ok ? parsed.value : (spec.id as PackId);
     this.dependsOn = list(spec.dependsOn as readonly Contract.BasePack[] | undefined);
     this.contributes = list(spec.contributes as readonly Contract.Contribution<PackId>[] | undefined);
+    // Kept as given, in a frozen record without a prototype; `problem` names what is not a port of this pack.
+    this.ports = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(entriesOf(spec.ports))));
     // No prototype, so a key such as "__proto__" is an ordinary key.
     const points: Record<string, unknown> = Object.create(null);
     for (const [key, raw] of entriesOf(spec.points)) {
@@ -209,6 +214,11 @@ class PackImpl implements Contract.BasePack {
       if (problem !== undefined) return problem;
     }
     if (!Array.isArray(contributes) || !contributes.every(ContributionImpl.genuine)) return `its contributes must be a list of contributions made with contribution(...) ${COPY}`;
+    for (const [key, port] of Object.entries(this.ports)) {
+      if (!CAMEL_CASE.test(key)) return `its port key '${key}' must be a camelCase word, such as 'watchedFiles'`;
+      if (!isPortKey(port)) return `its port '${key}' must be declared with portKeysFor(...) ${COPY}`;
+      if (port.owner.value !== packIdText(this.id)) return `its port '${key}' belongs to ${port.owner.value}: a pack declares only its own ports`;
+    }
     return undefined;
   }
 }

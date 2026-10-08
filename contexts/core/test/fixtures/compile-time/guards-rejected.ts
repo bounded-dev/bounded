@@ -1,6 +1,6 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
-import { type CorePackPoints, contribution, corePack, decideEvent, definePack, type Guard, type KindsMatch, type ReadEffect, type SessionStart, type ToolUse, Verdict, type WriteEffect } from "bounded/domain";
+import { type CorePackPoints, type PortKey, portKeysFor, Ports, contribution, corePack, decideEvent, definePack, type Guard, type KindsMatch, type ReadEffect, type SessionStart, type ToolUse, Verdict, type WriteEffect } from "bounded/domain";
 import { packId } from "./packs.ts";
 
 const guards = corePack.points;
@@ -30,4 +30,21 @@ export type Mislabelled = KindsMatch<{ read: WriteEffect }>; // rejected: does n
 // Dispatch takes a composition Composition.compose made, never a look-alike.
 declare const someCall: ToolUse;
 export const forged = decideEvent({ __brand: "Composition", packs: [corePack] }, someCall); // rejected: is missing the following properties from type 'Composition': read, entries
-export const complete = decideEvent({ __brand: "Composition", packs: [corePack], read: () => ({ ok: true, value: [] }), entries: () => ({ ok: true, value: [] }) }, someCall); // rejected: Property '[compositionBrand]' is missing
+export const complete = decideEvent({ __brand: "Composition", packs: [corePack], read: () => ({ ok: true, value: [] }), entries: () => ({ ok: true, value: [] }), requiredPorts: () => [] }, someCall); // rejected: Property '[compositionBrand]' is missing
+// Lifecycle checks are asynchronous and answer in kind; a port's adapter is exactly its type.
+export const syncBefore = contribution(guards.beforeTool, [() => Verdict.allow]); // rejected: from type 'Promise<Verdict>'
+export const bareAfter = contribution(guards.afterTool, [async () => "done"]); // rejected: is not assignable to type 'AfterToolReport'
+interface Files {
+  read(path: string): string;
+}
+interface Snapshots {
+  take(id: string): unknown;
+}
+const lockPorts = portKeysFor(packId("lock"));
+const filesPort = lockPorts<Files>("files");
+const snapshotsPort = lockPorts<Snapshots>("snapshots");
+declare const snapshotsAdapter: Snapshots;
+declare function needsSnapshots(key: PortKey<Snapshots>): void;
+export const wrongAdapter = Ports.provide(filesPort, () => snapshotsAdapter); // rejected: required in type 'Files'
+export const wrongKey = needsSnapshots(filesPort); // rejected: is not assignable to parameter of type 'PortKey<Snapshots
+export const _snapshots = snapshotsPort;

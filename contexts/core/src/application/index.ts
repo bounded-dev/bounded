@@ -17,6 +17,8 @@ export type { FileChange, DriftCheck, Kept, RestoreFrom, ShellSnapshots, Snapsho
 export { WatchShellHandler } from "./drift/watch-shell/watch-shell.handler.ts";
 export { OpenProjectCommand } from "./project-config/open-project/open-project.command.ts";
 export { OpenProjectHandler } from "./project-config/open-project/open-project.handler.ts";
+export type { AfterToolOutcome, ProjectLifecycle, ProjectLifecycleOptions } from "./lifecycle/project-lifecycle/project-lifecycle.contract.ts";
+export { ProjectLifecycleHandler } from "./lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

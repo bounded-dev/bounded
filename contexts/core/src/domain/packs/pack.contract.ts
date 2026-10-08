@@ -1,3 +1,4 @@
+import type { BasePortKey } from "../lifecycle/port-key.contract.ts";
 import type { Result } from "../shared/result.ts";
 import type { IsExact, PackId, Refused } from "./pack-id.contract.ts";
 
@@ -57,6 +58,9 @@ type ValueOf<D> = D extends PointDeclaration<infer Value> ? Value : never;
 /** A declaration's point, or a group's record of member points. */
 type PointsOf<D, Id extends PackId> = D extends PointGroupDeclaration<infer Members> ? { readonly [J in keyof Members]: ExtensionPoint<ValueOf<Members[J]>, Id> } : ExtensionPoint<ValueOf<D>, Id>;
 
+/** A pack's ports section: the port keys it needs, by camelCase name. */
+export type PortSection = Readonly<Record<string, BasePortKey>>;
+
 /** A group's member points, keyed by member: a frozen record without a prototype. */
 export type PointGroup = Readonly<Record<string, BasePoint>>;
 
@@ -68,6 +72,8 @@ export interface BasePack {
   readonly dependsOn: readonly BasePack[];
   readonly points: Readonly<Record<string, BasePoint | PointGroup>>;
   readonly contributes: readonly Contribution<PackId>[];
+  /** The adapters a host must provide through openProject({ ports }) when the pack is selected. */
+  readonly ports: PortSection;
   /**
    * What is wrong with the pack's shape, when it was built from untyped data
    * (a dependency that is not a pack, a point key that is not camelCase, a
@@ -100,9 +106,10 @@ export interface ExtensionPoint<Value, Owner extends PackId> extends BasePoint {
 }
 
 /** A pack, typed by its exact id and its points' declarations. */
-export interface Pack<Id extends PackId, Points extends Declarations> extends BasePack {
+export interface Pack<Id extends PackId, Points extends Declarations, Ports extends PortSection = Record<never, never>> extends BasePack {
   readonly id: Id;
   readonly points: { readonly [K in keyof Points]: PointsOf<Points[K], Id> };
+  readonly ports: Ports;
 }
 
 /** Values one pack contributes to a point of the pack with id `Owner`. */
@@ -113,12 +120,16 @@ export interface Contribution<Owner extends PackId> {
   readonly values: readonly unknown[];
 }
 
-export interface PackSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[]> {
+/** A pack's definition, its sections always in this order. */
+export interface PackSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[], Ports extends PortSection = Record<never, never>> {
   readonly id: Id;
   readonly dependsOn?: Dependencies;
+  /** What other packs contribute to. */
   readonly points?: Points;
-  /** Contributions to points of the packs in dependsOn, and no others. */
+  /** What this pack contributes to its dependencies' points, and no others: guards, and the core's lifecycle checks. */
   readonly contributes?: readonly Contribution<NoInfer<Dependencies[number]["id"]>>[];
+  /** Adapters a host must supply through openProject({ ports }) when the pack is selected. */
+  readonly ports?: Ports;
 }
 
 type ExactId<Id> = [Id] extends [{ readonly value: infer Text extends string }] ? IsExact<Text> : false;
@@ -134,10 +145,17 @@ export type StrictMembers<Members> = {
 type Repeats<List extends readonly unknown[]> = List extends readonly [infer Head, ...infer Tail] ? ([Head] extends [Tail[number]] ? true : Repeats<Tail>) : false;
 
 /** What the compiler refuses beyond plain assignability. */
-export type StrictSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[]> = ([ExactId<Id>] extends [true]
+export type StrictSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[], Ports extends PortSection = Record<never, never>> = ([ExactId<Id>] extends [true]
   ? unknown
   : { readonly id: Refused<"give the pack an exact id from packIdsFor(...)(...)"> }) & {
   readonly points?: { readonly [K in keyof Points]: CamelCase<K> extends true ? unknown : Refused<"point keys are camelCase words, such as protectedPaths"> };
+  readonly ports?: {
+    readonly [K in keyof Ports]: CamelCase<K> extends true
+      ? [Ports[K]["owner"]] extends [Id]
+        ? unknown
+        : Refused<"a pack declares only its own ports">
+      : Refused<"port keys are camelCase words, such as watchedFiles">;
+  };
 } & (Dependencies extends readonly []
     ? unknown
     : { readonly dependsOn: PackListRules<Dependencies, "list dependsOn as a tuple of packs, such as [core, pathGate]", "list each dependency once", "each dependency is a pack with an exact id"> });
@@ -221,9 +239,9 @@ type StructureContainsAny<T, Depth extends readonly unknown[]> = T extends Promi
 
 export interface PackFactory {
   /** Define a pack: its id, the packs it depends on, the points it declares and what it contributes. */
-  definePack<const Id extends PackId, const Points extends Declarations = Record<never, never>, const Dependencies extends readonly BasePack[] = []>(
-    spec: PackSpec<Id, Points, Dependencies> & StrictSpec<Id, Points, Dependencies>,
-  ): Pack<Id, Points>;
+  definePack<const Id extends PackId, const Points extends Declarations = Record<never, never>, const Dependencies extends readonly BasePack[] = [], const Ports extends PortSection = Record<never, never>>(
+    spec: PackSpec<Id, Points, Dependencies, Ports> & StrictSpec<Id, Points, Dependencies, Ports>,
+  ): Pack<Id, Points, Ports>;
   /**
    * Declare an extension point inside a pack definition; its value type is
    * what `check` returns. `unknown` is allowed (readers must narrow); `any`, anywhere

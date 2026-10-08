@@ -1,7 +1,7 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
 // compile-time.test.ts runs the TypeScript compiler on this file and checks both.
-import { type BasePack, type Composition, type CorePack, contribution, definePack, type PackId, packIdsFor, point, pointGroup, type Result } from "bounded/domain";
+import { type BasePack, type Composition, type CorePack, contribution, definePack, type PackId, packIdsFor, point, pointGroup, portKeysFor, type Result } from "bounded/domain";
 import { base, ext, packId, tags, text } from "./packs.ts";
 
 declare const somePacks: BasePack[];
@@ -71,4 +71,6 @@ export function read(composition: Composition): readonly number[] {
 // A pack the package ships is typed by its contract: a definition missing a contracted point does not compile.
 export const missingPoint: CorePack = definePack({ id: packIdsFor("bounded")("core"), points: { toolUseGuards: point({ description: "x", check: (raw: unknown) => ({ ok: false as const, error: String(raw) }) }) } }); // rejected: is not assignable to type 'CorePack'
 // A pack is made by definePack: even a complete look-alike lacks the brand only the class carries.
-export const lookAlikePack: BasePack = { __brand: "Pack", id: packId("look-alike"), dependsOn: [], points: {}, contributes: [], problem: undefined }; // rejected: Property '[packBrand]' is missing
+export const lookAlikePack: BasePack = { __brand: "Pack", id: packId("look-alike"), dependsOn: [], points: {}, contributes: [], ports: {}, problem: undefined }; // rejected: Property '[packBrand]' is missing
+// A pack declares only its own ports.
+export const borrowsPorts = definePack({ id: packId("borrower"), ports: { files: portKeysFor(packId("lender"))("files") } }); // rejected: a pack declares only its own ports

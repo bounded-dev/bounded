@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type BasePack, contribution, definePack, point, pointGroup } from "../packs/pack.ts";
+import { portKeysFor } from "../lifecycle/port-key.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import type { Composition as CompositionContract } from "./composition.contract.ts";
@@ -41,6 +42,17 @@ function wordsPack(local: string, more: readonly BasePack[], values: string[]): 
 }
 
 const ids = (packs: readonly BasePack[]): string[] => packs.map((pack) => pack.id.value);
+
+describe("Composition — the ports its packs need", () => {
+  test("lists the selected packs' ports in composition order; an unselected pack leaves no trace", () => {
+    const [aFiles, bFiles] = [portKeysFor(packId("a"))("files"), portKeysFor(packId("b"))("files")];
+    const a = definePack({ id: packId("a"), ports: { files: aFiles } });
+    const b = definePack({ id: packId("b"), dependsOn: [a], ports: { files: bFiles } });
+    const c = definePack({ id: packId("c"), ports: { files: portKeysFor(packId("c"))("files") } });
+    expect(composed([b, a, c], [b, a]).requiredPorts()).toEqual([aFiles, bFiles]);
+    expect(composed([base], [base]).requiredPorts()).toEqual([]);
+  });
+});
 
 describe("Composition — reading an extension point", () => {
   test("returns every value, typed and as its check stored it, dependencies' before dependents'", () => {

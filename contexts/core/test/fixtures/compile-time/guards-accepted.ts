@@ -1,5 +1,5 @@
 // The legitimate forms of guard contributions. Compiles without errors.
-import { contribution, corePack, definePack, type Effect, type Event, type ExecuteEffect, type Guard, type ReadEffect, type SessionStart, type ToolUse, Verdict, type WriteEffect } from "bounded/domain";
+import { type AfterToolReport, contribution, corePack, definePack, portKeysFor, Ports, type Effect, type Event, type ExecuteEffect, type Guard, type ReadEffect, type SessionStart, type ToolUse, Verdict, type WriteEffect } from "bounded/domain";
 import { base, packId } from "./packs.ts";
 
 const guards = corePack.points;
@@ -29,3 +29,21 @@ export const gate = definePack({
     ]),
   ],
 });
+
+// Lifecycle checks: async, given the call or result and the context (composition and ports); a pack declares the ports it reads.
+interface Files {
+  read(path: string): string;
+}
+const lockId = packId("lock");
+const files = portKeysFor(lockId)<Files>("files");
+const nothing: AfterToolReport = { message: null, record: null };
+export const lock = definePack({
+  id: lockId,
+  dependsOn: [corePack],
+  contributes: [
+    contribution(corePack.points.beforeTool, [async (call, context) => (context.ports.get(files).ok && call.role !== null ? Verdict.allow : Verdict.refuse("No files", "Provide them"))]),
+    contribution(corePack.points.afterTool, [async () => nothing]),
+  ],
+  ports: { files },
+});
+export const provided = Ports.provide(files, (root) => ({ read: (path: string) => `${root}/${path}` }));

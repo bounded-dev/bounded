@@ -1,6 +1,10 @@
 import type { Composition } from "../composition/composition.contract.ts";
 import type { WatchedPath, WatchedPathSource } from "../drift/watched-path.contract.ts";
 import type { EffectByKind, EffectKind } from "../events/effect.contract.ts";
+import type { ToolResult } from "../events/tool-result.contract.ts";
+import type { AfterToolReport } from "../lifecycle/after-tool-report.contract.ts";
+import type { Ports } from "../lifecycle/ports.contract.ts";
+import type { Verdict } from "../verdicts/verdict.contract.ts";
 import type { ProjectPath } from "../events/project-path.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
@@ -33,6 +37,18 @@ export interface OpenedProject {
  */
 export type ProjectOpenHandler = (project: OpenedProject, composition: Composition) => Promise<void>;
 
+/** What a lifecycle check is given besides the call or result: the composition, and the adapters the host provides for the project. */
+export interface LifecycleContext {
+  readonly composition: Composition;
+  readonly ports: Ports;
+}
+
+/** After the guards allow a tool use, before it is recorded and runs: a refusal replaces the allow. */
+export type BeforeTool = (call: ToolUse, context: LifecycleContext) => Promise<Verdict>;
+
+/** After a tool ran: check what it did. Every after-tool check runs; what each reports is recorded and told to the agent. */
+export type AfterTool = (result: ToolResult, context: LifecycleContext) => Promise<AfterToolReport>;
+
 /** The core pack's id. */
 export type CoreId = PackId<"bounded/core">;
 
@@ -51,6 +67,10 @@ export type CorePackPoints = {
    * `.execute`, `.fetch`, `.delegate`, `.invoke`).
    */
   readonly effectGuards: EffectGuardPoints;
+  /** After the guards allow a tool call, before it runs: asynchronous checks; a refusal replaces the allow. */
+  readonly beforeTool: ExtensionPoint<BeforeTool, CoreId>;
+  /** After a tool call ran: asynchronous checks; what they report is recorded and told to the agent. */
+  readonly afterTool: ExtensionPoint<AfterTool, CoreId>;
   /** Once, when a project opens: prepare what guards need. */
   readonly onProjectOpen: ExtensionPoint<ProjectOpenHandler, CoreId>;
   /** Around each shell command: files it must not change, or sources that work them out; a change is undone. */
