@@ -176,10 +176,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
     new version. Measured: the rule adds no time to a Bash Pre and Post
     round through the bundled hook (median 318 ms with and without; mostly
     two Node starts).
-  - Not yet published. npm's `bounded` is the legacy 2.x until 3.0.0 is
-    published ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)).
-    Until then, installs need `--from` and npx needs the tarball. A
-    `--from` install overrides `bounded` in `package.json`, each package
+  - `bounded@3.0.0` is on npm as `latest`, the new major above the legacy
+    2.x ([ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)):
+    `npx bounded init` in a fresh project installs it from the registry,
+    with no `--from`. Not on npm yet: 3.1.0's changes (the adapters grouped
+    by port, [ADR 2026-017](adr/2026-017-adapters-by-port.md)) and the
+    discourage-defaults rules. `--from <dir>` stays only for installing a
+    local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
     (`resolutions`).

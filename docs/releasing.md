@@ -14,7 +14,10 @@ an outward action (AGENTS.md).
    `apps/claude-code` and `apps/pi` carry the same version. The CLI reports
    its version from the package it runs in, and `bounded init` installs
    exactly that version. `packaging.test.ts` pins the version, so update its
-   `VERSION` too. Then run `bun install`, so `bun.lock` records it.
+   `VERSION` too. `bun install` does not rewrite the workspaces' versions in
+   `bun.lock`, so set the four `"version"` lines under `workspaces` in
+   `bun.lock` by hand, then run `bun install --frozen-lockfile` to check the
+   lockfile still matches.
 2. **Check.** Run `bun run check`. It builds `dist/`, then runs every test,
    including the packaging test (the tarball's contents) and the end-to-end
    test (`npx bounded init` and `npx bounded update --from` from the
