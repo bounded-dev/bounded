@@ -83,7 +83,11 @@ written as object literals (its wire form).
     (its literal arguments), `find -exec`, and the wrappers `sudo`, `doas`,
     `env`, `timeout`, `nice`, `nohup`, `stdbuf` and `ionice` (their options,
     option values, assignments and timeout's duration skipped) are looked
-    past: the rest is translated as a command. A shell given
+    past: the rest is translated as a command. A wrapper that sets where its
+    command runs (`env -C dir`, `sudo -D dir`, and their `--chdir=` forms)
+    runs it from that directory, or from nowhere known when the directory
+    cannot be resolved; `env -S` (`-S'…'`, `--split-string=`) runs its string
+    as a nested command line, as `sh -c` does. A shell given
     code with `-c` (`sh`, `bash`, `zsh`, `dash`, `ksh`) has that code parsed
     and walked as a nested command line, in a shell of its own.
   - Words: brace expansion of literals (`{a,b}`, `{1..3}`, `{a..e}`,

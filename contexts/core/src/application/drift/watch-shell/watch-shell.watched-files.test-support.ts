@@ -98,6 +98,14 @@ export function watchedFilesConformance(name: string, fixture: (committed: Reado
       expect((await files.copy("generated/missing.ts")).ok).toBe(false);
     });
 
+    test("says which rules watch a path, whether or not a file is there", async () => {
+      const { files } = await fixture(committed);
+      const rules = [rule("src/**"), rule("generated/**"), rule("generated/a.ts"), rule("**/*.ts", ["src/**"])];
+      expect(files.rulesWatching(rules, "generated/a.ts")).toEqual([1, 2, 3]);
+      expect(files.rulesWatching(rules, "generated/gone.ts")).toEqual([1, 3]);
+      expect(files.rulesWatching(rules, "docs/x.md")).toEqual([]);
+    });
+
     test("names every rule that watches a file, the first as its rule, when more than one does", async () => {
       const { files } = await fixture(committed);
       const hashed = await files.hash([rule("src/**"), rule("generated/**"), rule("generated/a.ts"), rule("**/*.ts", ["src/**"])]);

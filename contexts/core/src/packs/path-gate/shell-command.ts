@@ -131,7 +131,14 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       }
     }
     for (const word of meaning.unresolved) unresolved.push(word.text);
-    for (const ran of meaning.runs) command(ran.name, ran.args, scope);
+    for (const ran of meaning.runs) {
+      if (ran.directory === undefined) command(ran.name, ran.args, scope);
+      else {
+        // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.
+        const from = ran.directory === null ? undefined : resolve(ran.directory, scope);
+        command(ran.name, ran.args, { at: from === undefined ? null : partsOf(from) });
+      }
+    }
     if (meaning.location !== undefined) {
       const to = meaning.location.to === null ? undefined : resolve(meaning.location.to, scope);
       scope.at = to === undefined ? null : partsOf(to);

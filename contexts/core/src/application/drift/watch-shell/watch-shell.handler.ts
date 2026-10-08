@@ -115,6 +115,12 @@ export class WatchShellHandler implements WatchShell {
     }
   }
 
+  /** Which of `rules` watch a path, worked out now from the composed rules, never from what a snapshot stored. */
+  private watching(rules: readonly Rule[]): Watching {
+    const paths = rules.map(({ rule }) => rule);
+    return (path) => this.files.rulesWatching(paths, path);
+  }
+
   /** The composed watched paths, with the pack each came from. */
   private rules(): readonly Rule[] {
     const watched = watchedPathsOf(this.composition);
@@ -200,7 +206,7 @@ export class WatchShellHandler implements WatchShell {
       await this.record(result, message, rules[0], "could not be checked after a shell command");
       return { changed: [], restored: false, message };
     }
-    const changed = forbidden(changes(before.files, after.value), before.files, after.value, rules);
+    const changed = forbidden(changes(before.files, after.value), this.watching(rules), rules);
     if (changed.length === 0) return NOTHING;
     const failures = new Set<string>();
     const restored: string[] = [];
@@ -233,12 +239,12 @@ export class WatchShellHandler implements WatchShell {
         if (different.length > 0) failures.add(`after restoring, ${different.map(shown).join(", ")} still ${different.length === 1 ? "differs" : "differ"} from before the command`);
       }
     }
-    const groups = describe(changed, before.files, after.value, rules) + (movedTo === undefined ? "" : ` What it created was moved, not deleted, to ${movedTo}.`);
+    const groups = describe(changed, this.watching(rules), rules) + (movedTo === undefined ? "" : ` What it created was moved, not deleted, to ${movedTo}.`);
     const message =
       failures.size === 0
         ? `This command changed protected files, and they were restored: ${groups}`
         : `This command changed protected files, and restoring them FAILED (${shown([...failures].join("; "))}); restore them by hand: ${groups}`;
-    const first = rules[Math.min(...changed.map((change) => ruleOf(change, before.files, after.value, rules)))];
+    const first = rules[Math.min(...changed.map((change) => ruleOf(change, this.watching(rules), rules)))];
     await this.record(result, message, first, failures.size === 0 ? "changed by a shell command; restored" : "changed by a shell command; restore failed");
     return { changed, restored: failures.size === 0, message };
   }
@@ -279,10 +285,10 @@ export class WatchShellHandler implements WatchShell {
       if (!committed.ok) found = `Protected files could not be compared with the last commit: ${committed.error}.`;
       else if (!now.ok) found = `Protected files could not be read: ${now.error}.`;
       else {
-        changed = forbidden(changes(committed.value, now.value), committed.value, now.value, rules);
+        changed = forbidden(changes(committed.value, now.value), this.watching(rules), rules);
         if (changed.length === 0 && !altered) return NOTHING;
-        if (changed.length > 0) first = rules[Math.min(...changed.map((change) => ruleOf(change, committed.value, now.value, rules)))];
-        found = changed.length === 0 ? "Protected files match the last commit." : `Protected files that differ from the last commit: ${describe(changed, committed.value, now.value, rules)}`;
+        if (changed.length > 0) first = rules[Math.min(...changed.map((change) => ruleOf(change, this.watching(rules), rules)))];
+        found = changed.length === 0 ? "Protected files match the last commit." : `Protected files that differ from the last commit: ${describe(changed, this.watching(rules), rules)}`;
       }
     }
     const message = `The snapshot for this command was missing or altered (${why}), so its changes cannot be told from earlier work and nothing was restored. ${found} Check them against version control.`;
@@ -326,28 +332,29 @@ function changes(before: WatchedHashes, after: WatchedHashes): FileChange[] {
 /** What each kind of change is, in a watched path's terms. */
 const KIND: Readonly<Record<FileChange["change"], WatchedChange>> = { created: "create", modified: "modify", deleted: "delete" };
 
+/** Which watched paths watch a path, by index into the rules, in order. */
+type Watching = (path: string) => readonly number[];
+
 /** The rules watching a changed file that forbid its change, in order: any one forbidding it is enough. */
-function forbiddingRules(change: FileChange, before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): number[] {
-  const file = before[change.path] ?? after[change.path];
-  const watching = file === undefined ? [] : (file.rules ?? [file.rule]);
-  return watching.filter((index) => rules[index]?.rule.changes.includes(KIND[change.change]) === true);
+function forbiddingRules(change: FileChange, watching: Watching, rules: readonly Rule[]): number[] {
+  return watching(change.path).filter((index) => rules[index]?.rule.changes.includes(KIND[change.change]) === true);
 }
 
 /** The changes some path watching each file forbids; any other change is the command's to make. */
-function forbidden(changed: readonly FileChange[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): FileChange[] {
-  return changed.filter((change) => forbiddingRules(change, before, after, rules).length > 0);
+function forbidden(changed: readonly FileChange[], watching: Watching, rules: readonly Rule[]): FileChange[] {
+  return changed.filter((change) => forbiddingRules(change, watching, rules).length > 0);
 }
 
 /** The rule a change is reported under: the first that forbids it, else the first that watches the file. */
-function ruleOf(change: FileChange, before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): number {
-  return forbiddingRules(change, before, after, rules)[0] ?? (before[change.path] ?? after[change.path])?.rule ?? 0;
+function ruleOf(change: FileChange, watching: Watching, rules: readonly Rule[]): number {
+  return forbiddingRules(change, watching, rules)[0] ?? watching(change.path)[0] ?? 0;
 }
 
 /** For each rule, in rule order: "<its files and what they became> — protected because <why>. <what to do instead>." */
-function describe(changed: readonly FileChange[], before: WatchedHashes, after: WatchedHashes, rules: readonly Rule[]): string {
+function describe(changed: readonly FileChange[], watching: Watching, rules: readonly Rule[]): string {
   const groups = new Map<number, FileChange[]>();
   for (const change of changed) {
-    const index = ruleOf(change, before, after, rules);
+    const index = ruleOf(change, watching, rules);
     groups.set(index, [...(groups.get(index) ?? []), change]);
   }
   return [...groups.entries()]

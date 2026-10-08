@@ -70,6 +70,8 @@ export interface WatchShell {
 export interface WatchedFiles {
   /** The watched files now; never inside node_modules or .git at any depth, nor .bounded, and never through a linked directory. */
   hash(rules: readonly WatchedPath[]): Promise<Result<WatchedHashes>>;
+  /** The indexes of every rule that watches `path`, in order, whether or not a file is there. */
+  rulesWatching(rules: readonly WatchedPath[], path: string): readonly number[];
   /** The commit checked out; null when the project is not a git repository with a commit. */
   head(): Promise<Result<string | null>>;
   /** The watched files as `commit` holds them. */
