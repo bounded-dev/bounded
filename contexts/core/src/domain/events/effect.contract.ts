@@ -55,9 +55,22 @@ export interface InvokeEffect extends EffectOf<"invoke", InvokeEffectJSON> {
   readonly name: ToolName;
 }
 
+/** Refuses a map whose entry's `kind` differs from its key. */
+export type KindsMatch<T extends { readonly [K in keyof T]: { readonly kind: K } }> = T;
+
+/** Each effect by its kind: the one place an effect kind meets its type, so guard points and dispatch are derived from it. */
+export type EffectByKind = KindsMatch<{
+  read: ReadEffect;
+  list: ListEffect;
+  write: WriteEffect;
+  execute: ExecuteEffect;
+  fetch: FetchEffect;
+  delegate: DelegateEffect;
+  invoke: InvokeEffect;
+}>;
+export type EffectKind = keyof EffectByKind;
 /** One precise thing a tool call does. A call has one or more. */
-export type Effect = ReadEffect | ListEffect | WriteEffect | ExecuteEffect | FetchEffect | DelegateEffect | InvokeEffect;
-export type EffectKind = Effect["kind"];
+export type Effect = EffectByKind[EffectKind];
 
 // Wire forms: what each effect's toJSON gives and Effect.parse takes. Host
 // adapters build these; a list's filter and an execute's cwd may be left out.

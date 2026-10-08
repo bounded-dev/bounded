@@ -14,10 +14,13 @@ export type {
   PackListRules,
   PackSpec,
   PointDeclaration,
+  PointGroup,
+  PointGroupDeclaration,
+  StrictMembers,
   StrictSpec,
   WireOf,
 } from "./packs/pack.contract.ts";
-export { contribution, definePack, point } from "./packs/pack.ts";
+export { contribution, definePack, point, pointGroup } from "./packs/pack.ts";
 export type { IsExact, PackIdFactory, Refused } from "./packs/pack-id.contract.ts";
 export { PackId, packIdsFor } from "./packs/pack-id.ts";
 
@@ -47,6 +50,7 @@ export type {
   Change,
   DelegateEffect,
   DelegateEffectJSON,
+  EffectByKind,
   EffectFactory,
   EffectJSON,
   EffectKind,
@@ -56,6 +60,7 @@ export type {
   FetchEffectJSON,
   InvokeEffect,
   InvokeEffectJSON,
+  KindsMatch,
   ListEffect,
   ListEffectJSON,
   ReadEffect,
@@ -75,7 +80,7 @@ export type { Dispatch, EffectGuard, Guard } from "./guards/dispatch.contract.ts
 export type { DecideEvent, DispatchEvent, Judgement } from "./guards/dispatch-event.contract.ts";
 export { dispatch } from "./guards/dispatch.ts";
 export { corePack } from "./guards/core-pack.ts";
-export type { CoreId, CorePack, CorePackPoints, OpenedProject, PathKind, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
+export type { CoreId, CorePack, CorePackPoints, EffectGuardPoints, OpenedProject, PathKind, ProjectOpenHandler } from "./guards/core-pack.contract.ts";
 export { decideEvent, dispatchEvent } from "./guards/dispatch-event.ts";
 export type { AdapterRefusal, DecisionEvent, DecisionFactory, DecisionJSON, RecordedVerdict } from "./decisions/decision.contract.ts";
 export { Decision } from "./decisions/decision.ts";

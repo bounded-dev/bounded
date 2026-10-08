@@ -1,4 +1,4 @@
-import { checkValue, declarationOf, isGenuine } from "../packs/pack.ts";
+import { checkValue, declarationOf, isGenuine, isPointGroup, pointsOf } from "../packs/pack.ts";
 import type { BasePack, BasePoint, ExtensionPoint } from "../packs/pack.contract.ts";
 import type { PackId as PackIdType } from "../packs/pack-id.contract.ts";
 import { PackId, packIdText } from "../packs/pack-id.ts";
@@ -59,7 +59,7 @@ class CompositionImpl implements Contract.Composition {
     const order = dependencyOrder(chosen);
     const slots = new Map<BasePoint, Contract.Entry<unknown>[]>();
     for (const pack of order) {
-      for (const point of Object.values(pack.points)) {
+      for (const point of pointsOf(pack)) {
         slots.set(point, []);
         const placed = place(pack, point, declarationOf(point)?.values ?? [], slots);
         if (placed !== undefined) return refuse(placed);
@@ -126,15 +126,37 @@ function shapeProblem(pack: BasePack): string | undefined {
   if (!Array.isArray(dependsOn) || !dependsOn.every((dependency) => isGenuine(dependency, "Pack"))) return `its dependsOn must be a list of packs made with definePack(...) ${COPY}`;
   const twice = dependsOn.find((dependency, i) => dependsOn.indexOf(dependency) !== i);
   if (twice !== undefined) return `it lists '${packIdText(twice.id)}' twice in dependsOn`;
-  for (const [key, point] of Object.entries(points)) {
-    if (!/^[a-z][a-zA-Z0-9]*$/.test(key)) return `its point key '${key}' must be a camelCase word, such as 'protectedPaths'`;
-    if (!isGenuine(point, "ExtensionPoint") || point.owner !== pack) return `its points must each be declared with point(...) ${COPY}`;
-    const declaration = declarationOf(point);
-    if (typeof declaration?.check !== "function") return `its point '${key}' has no check: every point parses the values it accepts`;
-    if (!Array.isArray(declaration.values)) return `the own values of its point '${key}' must be a list`;
+  for (const [key, entry] of Object.entries(points)) {
+    if (!CAMEL_CASE.test(key)) return keyProblem(key);
+    const problem = isPointGroup(entry) ? groupProblem(pack, key, entry) : pointProblem(pack, key, entry);
+    if (problem !== undefined) return problem;
   }
   const genuineContribution = (c: unknown) => isGenuine(c, "Contribution") && isGenuine(c.point, "ExtensionPoint") && Array.isArray(c.values);
   if (!Array.isArray(contributes) || !contributes.every(genuineContribution)) return `its contributes must be a list of contributions made with contribution(...) ${COPY}`;
+  return undefined;
+}
+
+const CAMEL_CASE = /^[a-z][a-zA-Z0-9]*$/;
+const keyProblem = (key: string): string => `its point key '${key}' must be a camelCase word, such as 'protectedPaths'`;
+
+/** What is wrong with one point of a pack, keyed `key`, if anything. */
+function pointProblem(pack: BasePack, key: string, point: unknown): string | undefined {
+  if (!isGenuine(point, "ExtensionPoint") || point.owner !== pack) return `its points must each be declared with point(...) ${COPY}`;
+  const declaration = declarationOf(point);
+  if (typeof declaration?.check !== "function") return `its point '${key}' has no check: every point parses the values it accepts`;
+  if (!Array.isArray(declaration.values)) return `the own values of its point '${key}' must be a list`;
+  return undefined;
+}
+
+/** What is wrong with a group of points, one level deep, if anything. */
+function groupProblem(pack: BasePack, key: string, group: Readonly<Record<string, unknown>>): string | undefined {
+  for (const [member, entry] of Object.entries(group)) {
+    const path = `${key}.${member}`;
+    if (!CAMEL_CASE.test(member)) return keyProblem(path);
+    if (isGenuine(entry, "PointGroupDeclaration")) return `its point '${path}' is a group inside a group: groups of points are one level deep`;
+    const problem = pointProblem(pack, path, entry);
+    if (problem !== undefined) return problem;
+  }
   return undefined;
 }
 

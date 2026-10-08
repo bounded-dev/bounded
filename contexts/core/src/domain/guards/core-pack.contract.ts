@@ -1,6 +1,6 @@
 import type { Composition } from "../composition/composition.contract.ts";
 import type { WatchedPath, WatchedPathSource } from "../drift/watched-path.contract.ts";
-import type { DelegateEffect, ExecuteEffect, FetchEffect, InvokeEffect, ListEffect, ReadEffect, WriteEffect } from "../events/effect.contract.ts";
+import type { EffectByKind, EffectKind } from "../events/effect.contract.ts";
 import type { ProjectPath } from "../events/project-path.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
@@ -36,26 +36,21 @@ export type ProjectOpenHandler = (project: OpenedProject, composition: Compositi
 /** The core pack's id. */
 export type CoreId = PackId<"bounded/core">;
 
+/** One guard point per effect kind, typed from EffectByKind: the only place effect kinds meet points. */
+export type EffectGuardPoints = { readonly [K in EffectKind]: ExtensionPoint<EffectGuard<EffectByKind[K], Composition>, CoreId> };
+
 /** The core pack's points, each with the values it takes and when they run (a type, not an interface, so it is a record of points as composition reads packs). */
 export type CorePackPoints = {
   /** Before a tool call runs: decide the whole call (an allowlist of tools, a role's rights). The first refusal wins. */
   readonly toolUseGuards: ExtensionPoint<Guard<ToolUse, Composition>, CoreId>;
   /** When a session starts: decide whether it may. */
   readonly sessionStartGuards: ExtensionPoint<Guard<SessionStart, Composition>, CoreId>;
-  /** Before a tool call runs: decide each read effect. */
-  readonly readGuards: ExtensionPoint<EffectGuard<ReadEffect, Composition>, CoreId>;
-  /** Before a tool call runs: decide each listing. */
-  readonly listGuards: ExtensionPoint<EffectGuard<ListEffect, Composition>, CoreId>;
-  /** Before a tool call runs: decide each write (create, modify, delete). */
-  readonly writeGuards: ExtensionPoint<EffectGuard<WriteEffect, Composition>, CoreId>;
-  /** Before a tool call runs: decide each shell command. */
-  readonly executeGuards: ExtensionPoint<EffectGuard<ExecuteEffect, Composition>, CoreId>;
-  /** Before a tool call runs: decide each request to the network. */
-  readonly fetchGuards: ExtensionPoint<EffectGuard<FetchEffect, Composition>, CoreId>;
-  /** Before a tool call runs: decide each hand-over to another agent. */
-  readonly delegateGuards: ExtensionPoint<EffectGuard<DelegateEffect, Composition>, CoreId>;
-  /** Before a tool call runs: decide each tool invoked by name, whose effects the host cannot describe. */
-  readonly invokeGuards: ExtensionPoint<EffectGuard<InvokeEffect, Composition>, CoreId>;
+  /**
+   * Before a tool call runs, after the whole-call guards: decide each effect
+   * of the call, one point per kind (`effectGuards.read`, `.list`, `.write`,
+   * `.execute`, `.fetch`, `.delegate`, `.invoke`).
+   */
+  readonly effectGuards: EffectGuardPoints;
   /** Once, when a project opens: prepare what guards need. */
   readonly onProjectOpen: ExtensionPoint<ProjectOpenHandler, CoreId>;
   /** Around each shell command: files it must not change, or sources that work them out; a change is undone. */

@@ -1,8 +1,8 @@
 # 2026-013: The restructure: names that say what they hold, contracts everywhere, and rules that keep them
 
 **Status:** accepted. Built in steps: A (renames), B (contracts and their
-rules), B2 and B3 (effect guards and shape validation, recorded below when
-they land), C (the tool lifecycle, recorded below when it lands).
+rules), B2 (effect guards), B3 (shape validation, recorded below when it
+lands), C (the tool lifecycle, recorded below when it lands).
 
 ## Decision
 
@@ -63,6 +63,36 @@ they land), C (the tool lifecycle, recorded below when it lands).
   copy of the wire helpers is gone too: `sameWire` and `wireFormOf` are
   exported from `bounded/domain`.
 
+### B2. Effect guards: one point group, routed by lookup
+
+- **The kind-to-type map exists once**: `EffectByKind` in
+  `effect.contract.ts` maps each effect kind to its type, and `KindsMatch`
+  refuses an entry whose `kind` differs from its key. `EffectKind` and
+  `Effect` are derived from it.
+- **A pack may group points, one level deep**: `pointGroup({ … })` declares
+  member points under one key; a member's id is
+  `<pack id>.<group key>.<member key>` and its owner is the pack, so the
+  ownership rules are unchanged. A group is not a point: contributing to it
+  does not compile. Composition walks groups one level and refuses, for
+  untyped data, a group in a group, a member key that is not camelCase and a
+  member that is not a genuine declaration.
+- **The core's seven effect points are one group**, `effectGuards`, typed by
+  `EffectGuardPoints` (one point per `EffectKind`): `readGuards` became
+  `effectGuards.read`, and so on; point ids changed with them
+  (`bounded/core.effectGuards.read`), which composition refusals show.
+  Amends ADR 2026-007.
+- **Dispatch finds an effect's guards by its kind**:
+  `corePack.points.effectGuards[kind]` with a generic kind gives that kind's
+  point, so each guard is called with the effect at its kind's type, without
+  a switch. A labelled guard is a thunk (`run`), so neither an untyped guard
+  nor an argument list remains.
+- **R5**: `dispatch.ts`, `dispatch-event.ts` and `effect.contract.ts` contain
+  no type assertion (`as`, `<T>x`, `!`); `core-pack.ts` contains exactly one,
+  in `functionOf`, because a contributed function's signature cannot be
+  checked at run time (dispatch re-checks every verdict, ADR 2026-007).
+  `define` in `pack.ts` keeps its documented `as never`: it builds the mapped
+  pack type from run-time keys.
+
 ### The rules, in `architecture.test.ts` (each tested on small fixtures)
 
 - **R1** an out adapter implements a port an application contract declares,
@@ -76,6 +106,7 @@ they land), C (the tool lifecycle, recorded below when it lands).
 - **R3b** a pack the package ships is typed by the contract beside it.
 - **R4** every feature has a contract, and its handler implements the in
   port from it.
+- **R5** the routing files assert no types (above).
 - **Exemptions, each named in the test with its reason:** the shared kernel
   (`domain/shared/{result,read,text,wire}.ts`) and barrels; `ProjectDrift`'s
   missing conformance suite and `domain/drift/watched-paths.ts`, both

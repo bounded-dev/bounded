@@ -8,6 +8,8 @@ import { PackId, packIdText } from "./pack-id.ts";
 const genuine = new WeakSet<object>();
 /** Each declaration, and each point made from one, to the declaration (its check and own values). */
 const declarations = new WeakMap<object, Contract.PointDeclaration<unknown>>();
+/** The groups of member points definePack made. */
+const groups = new WeakSet<object>();
 
 function made<T extends object>(value: T): T {
   genuine.add(Object.freeze(value));
@@ -27,6 +29,12 @@ function declarePoint<Value>(spec: {
   const declaration = made({ __brand: "PointDeclaration" as const, description: spec.description, check: spec.check, values: list(spec.values) });
   declarations.set(declaration, declaration);
   return declaration;
+}
+
+function declareGroup<const Members extends Readonly<Record<string, Contract.BaseDeclaration | Contract.PointGroupDeclaration<Readonly<Record<string, unknown>>>>>>(
+  members: Members & Contract.StrictMembers<Members>,
+): Contract.PointGroupDeclaration<Members> {
+  return made({ __brand: "PointGroupDeclaration" as const, members: typeof members === "object" && members !== null ? Object.freeze({ ...members }) : members });
 }
 
 function contribute<Value, Owner extends Contract.BasePack["id"]>(
@@ -51,18 +59,25 @@ function define(spec: UntypedSpec): never {
   const parsed = PackId.parse(spec.id);
   const id = parsed.ok ? parsed.value : spec.id;
   const pack = { __brand: "Pack" as const, id, dependsOn: list(spec.dependsOn), points, contributes: list(spec.contributes) };
-  const given = spec.points ?? {};
-  for (const [key, raw] of typeof given === "object" && given !== null ? Object.entries(given) : []) {
-    // A point is made from a genuine declaration only; anything else is kept
-    // as given, and composition refuses it.
+  // A point is made from a genuine declaration only, and a group's member
+  // points from a genuine group's declarations; anything else is kept as
+  // given, and composition refuses it.
+  const pointFrom = (raw: unknown, key: string): unknown => {
     const declaration = isGenuine(raw, "PointDeclaration") ? declarations.get(raw) : undefined;
-    if (declaration === undefined) {
-      points[key] = raw;
-      continue;
-    }
+    if (declaration === undefined) return raw;
     const point = made({ __brand: "ExtensionPoint" as const, owner: pack, id: `${packIdText(id)}.${key}`, description: String(declaration.description) });
     declarations.set(point, declaration);
-    points[key] = point;
+    return point;
+  };
+  for (const [key, raw] of entriesOf(spec.points)) {
+    if (!isGenuine(raw, "PointGroupDeclaration")) {
+      points[key] = pointFrom(raw, key);
+      continue;
+    }
+    const members: Record<string, unknown> = Object.create(null);
+    for (const [member, declaration] of entriesOf(raw.members)) members[member] = pointFrom(declaration, `${key}.${member}`);
+    groups.add(Object.freeze(members));
+    points[key] = members;
   }
   Object.freeze(points);
   // The object just built is the typed Pack<Id, Points> the signature
@@ -70,8 +85,23 @@ function define(spec: UntypedSpec): never {
   return made(pack) as never;
 }
 
-const factory: Contract.PackFactory = { definePack: define, point: declarePoint, contribution: contribute };
-export const { definePack, point, contribution } = factory;
+/** The entries of an object given as untyped data; none for anything else. */
+function entriesOf(raw: unknown): [string, unknown][] {
+  return typeof raw === "object" && raw !== null ? Object.entries(raw) : [];
+}
+
+const factory: Contract.PackFactory = { definePack: define, point: declarePoint, pointGroup: declareGroup, contribution: contribute };
+export const { definePack, point, pointGroup, contribution } = factory;
+
+/** Whether `x` is a group of member points definePack made. */
+export function isPointGroup(x: unknown): x is Contract.PointGroup {
+  return typeof x === "object" && x !== null && groups.has(x);
+}
+
+/** A pack's points, each group's members in its place. */
+export function pointsOf(pack: Contract.BasePack): Contract.BasePoint[] {
+  return Object.values(pack.points).flatMap((entry) => (isPointGroup(entry) ? Object.values(entry) : [entry]));
+}
 
 /** Whether `x` was made by this module with the given brand. */
 export function isGenuine<Brand extends string>(x: unknown, brand: Brand): x is { readonly __brand: Brand } & Record<string, unknown> {
@@ -79,7 +109,7 @@ export function isGenuine<Brand extends string>(x: unknown, brand: Brand): x is 
 }
 
 /** The declaration a point was made from: its check and the owner's own values. */
-export function declarationOf(point: Contract.BasePoint): Contract.PointDeclaration<unknown> | undefined {
+export function declarationOf(point: object): Contract.PointDeclaration<unknown> | undefined {
   return declarations.get(point);
 }
 
@@ -97,4 +127,4 @@ export function checkValue(point: Contract.BasePoint, raw: unknown): Result<unkn
   }
 }
 
-export type { BasePack, BasePoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, WireOf } from "./pack.contract.ts";
+export type { BasePack, BasePoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, PointGroup, PointGroupDeclaration, WireOf } from "./pack.contract.ts";

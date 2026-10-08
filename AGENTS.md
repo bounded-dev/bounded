@@ -121,7 +121,10 @@ Rules, enforced by `architecture.test.ts` unless stated:
   `<name>.laws.test.ts` for a value object. R3b: every pack a package ships
   is typed by the contract beside it. R4: every feature has
   `<feature>.contract.ts`, naming every port it uses, and its handler
-  implements the in port from it. Exempt, each named in the test with its
+  implements the in port from it. R5: the files that route events
+  (`dispatch.ts`, `dispatch-event.ts`, `effect.contract.ts`) assert no types
+  (`as`, `<T>x`, `!`), and `core-pack.ts` has exactly one, in `functionOf`.
+  Exempt, each named in the test with its
   reason: barrels, the shared kernel (`domain/shared/{result,read,text,wire}.ts`)
   and, until step C, `ProjectDrift` and `domain/drift/watched-paths.ts`.
 - **A shipped pack is an ordinary pack** (ADR 2026-009): its code under
@@ -143,7 +146,8 @@ Rules, enforced by `architecture.test.ts` unless stated:
   and dispatch. It holds no opinion about any application and names no
   programming language, framework, tool or agent host. The core's own pack,
   `bounded/core`, is the only place it declares extension points: one guards
-  point per event kind and per effect kind (ADR 2026-007). Gates contribute
+  point per event kind, and a group with one point per effect kind (ADR
+  2026-007, ADR 2026-013). Gates contribute
   guards there and never handle one effect versus many.
 - **Packs own content.** A pack declares its own extension points and
   gives values to its own points and contributes to points of packs it lists

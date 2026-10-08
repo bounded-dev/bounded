@@ -7,18 +7,16 @@ import type { LabelledGuard } from "./dispatch.contract.ts";
 const FIX = "Fix the guard so it returns Verdict.allow or Verdict.refuse(reason, redirect), or remove it. Until then the action is refused";
 const UNFINISHED = "Report this to the maintainers of bounded; the action is refused meanwhile";
 
-
-function decide({ guard, label, refusedBy }: LabelledGuard, args: readonly unknown[]): Verdict | undefined {
-  if (typeof guard !== "function") return Verdict.refuse(`${label} is not a function`, FIX);
+function decide({ run, label, refusedBy }: LabelledGuard): Verdict | undefined {
   let result: unknown;
   try {
-    result = guard(...args);
+    result = run();
   } catch (thrown) {
     return Verdict.refuse(`${label} threw: ${show(thrown)}`, FIX);
   }
   try {
     // A thenable is read like a promise: reading `then` may itself throw.
-    if (typeof result === "object" && result !== null && typeof (result as { then?: unknown }).then === "function") return Verdict.refuse(`${label} returned a promise. Guards are synchronous and return a verdict`, FIX);
+    if (typeof result === "object" && result !== null && typeof Reflect.get(result, "then") === "function") return Verdict.refuse(`${label} returned a promise. Guards are synchronous and return a verdict`, FIX);
     const verdict = Verdict.parse(result);
     if (!verdict.ok) return Verdict.refuse(`${label} returned something that is not a verdict: ${verdict.error}`, FIX);
     if (verdict.value.kind !== "refuse") return undefined;
@@ -29,13 +27,13 @@ function decide({ guard, label, refusedBy }: LabelledGuard, args: readonly unkno
 }
 
 /**
- * Runs guards in order with the same arguments; the first refusal wins, with
- * the guard that made it, or undefined when none refuses. Never throws.
+ * Runs guards in order; the first refusal wins, with the guard that made it,
+ * or undefined when none refuses. Never throws.
  */
-export function firstRefusal(guards: readonly LabelledGuard[], args: readonly unknown[]): { readonly verdict: Verdict; readonly by?: LabelledGuard } | undefined {
+export function firstRefusal(guards: readonly LabelledGuard[]): { readonly verdict: Verdict; readonly by?: LabelledGuard } | undefined {
   try {
     for (const guard of guards) {
-      const refusal = decide(guard, args);
+      const refusal = decide(guard);
       if (refusal !== undefined) return { verdict: refusal, by: guard };
     }
     return undefined;
@@ -75,14 +73,18 @@ export function invalidEvent(error: string): Verdict {
 export const dispatch: Contract.Dispatch = (guards, event, ...context) => outermost(() => run(guards, event, context[0]), (verdict) => verdict);
 
 function run(guards: unknown, event: unknown, context: unknown): Verdict {
+  // Guards here come from a caller, unchecked: one that is not a function refuses when its turn comes.
   try {
     if (!Array.isArray(guards)) return Verdict.refuse("Dispatch was given guards that are not a list", "Pass the guards for this event as a list; with no guards, pass []");
     const checked = Event.parse(event);
     if (!checked.ok) return invalidEvent(checked.error);
     // Named by position: function names do not survive every bundler. Every
     // guard gets the checked event: frozen, normalised, vocabulary fields only.
-    const labelled = guards.map((guard, i) => ({ guard, label: `Guard ${i + 1} of ${guards.length}` }));
-    return firstRefusal(labelled, [checked.value, context])?.verdict ?? Verdict.allow;
+    const labelled = guards.map((guard: unknown, i): LabelledGuard => {
+      const label = `Guard ${i + 1} of ${guards.length}`;
+      return { run: () => (typeof guard === "function" ? guard(checked.value, context) : Verdict.refuse(`${label} is not a function`, FIX)), label };
+    });
+    return firstRefusal(labelled)?.verdict ?? Verdict.allow;
   } catch (thrown) {
     return unfinished(thrown);
   }
