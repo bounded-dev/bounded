@@ -97,21 +97,30 @@ about every event:
 import { openProject } from "bounded/open-project";
 import { pathGatePortProvisions } from "bounded/path-gate/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
+import { TreeSitterShellCommandReader } from "bounded/shell-command-reader";
 
-// The ports the selected packs declare: here every port of the path gate (its files and snapshots on disk, its shell parser)
-// and of the prerequisites pack (its fingerprints of the project's files, its records).
-const project = await openProject("/absolute/path/to/project", { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()] });
+// The ports the selected packs declare: here every port of the path gate (its files and snapshots on disk)
+// and of the prerequisites pack (its fingerprints of the project's files, its records); and the reader of shell commands.
+const shellCommandReader = new TreeSitterShellCommandReader();
+const project = await openProject("/absolute/path/to/project", { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
 if (project.problem !== null) console.error(project.problem);
 const verdict = await project.judge(eventFromTheHost);
 ```
 
 Before judging anything, `openProject` runs what each selected pack
 contributes to the core's `onProjectOpen` point, given the project's root,
-its composition and the ports the host provides (the path gate prepares its
-shell parser there, and asks its `pathKinds` port what is at a path). A pack
-whose preparation fails does not stop the project opening: its own guards
-refuse what they cannot check. Every port a selected pack declares must be
+its composition and the ports the host provides, and prepares the shell
+command reader alongside (it loads its grammar). A pack, or a reader, whose
+preparation fails does not stop the project opening: its own guards refuse
+what they cannot check. Every port a selected pack declares must be
 provided, or every event is refused, naming the pack, the port and the fix.
+
+The judge reads every shell command first: an execute effect carries the
+reading, the programs it runs, the files it reads, lists and writes, and
+what only the shell could resolve (ADR 2026-020); a reading the host sent is
+replaced. A command that could not be read carries why, and the path gate
+refuses it. `shellCommandReader` is required; bounded's own is
+`bounded/shell-command-reader`.
 
 The judge decides each event with the composed packs and records the decision
 in `<root>/.bounded/guard-log.jsonl` (see [the guard log](guard-log.md)).

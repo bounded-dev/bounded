@@ -35,9 +35,15 @@ hosts:
 - **The guard log**: every decision, and every refusal a host adapter
   makes itself, recorded in `.bounded/guard-log.jsonl`
   ([docs/guard-log.md](docs/guard-log.md)).
-- **Configuration**: `bounded.config.ts` selects packs; `openProject(root)`
-  gives the judge hosts ask, and refuses everything when the configuration
-  is broken ([docs/configuration.md](docs/configuration.md)).
+- **Configuration**: `bounded.config.ts` selects packs; `openProject(root,
+  { ports, shellCommandReader })` gives the judge hosts ask, and refuses
+  everything when the configuration is broken
+  ([docs/configuration.md](docs/configuration.md)).
+- **Shell commands read once, for every pack**: the judge reads each shell
+  command (the programs it runs, the files it reads, lists and writes, and
+  what only the shell could resolve) and the execute effect carries that
+  reading; bounded's reader is published as `bounded/shell-command-reader`
+  ([ADR 2026-020](docs/adr/2026-020-shell-command-reading.md)).
 - **Drift**: what a shell command changes in protected files is put back, or
   moved aside, reported and recorded; tampered snapshots are detected
   ([docs/drift.md](docs/drift.md)).
@@ -76,9 +82,20 @@ hosts:
   ([docs/guard-log.md](docs/guard-log.md), ADR 2026-008).
 
 - **Configuration.** A project selects its packs in `bounded.config.ts` with
-  `defineConfig`; host adapters call `openProject(root)` and ask its judge
-  about every event. A broken configuration refuses everything
+  `defineConfig`; host adapters call `openProject(root, { ports:
+  [...pathGatePortProvisions(), ...prereqsPortProvisions()],
+  shellCommandReader })` and ask its judge about every event. A broken
+  configuration refuses everything
   ([docs/configuration.md](docs/configuration.md), ADR 2026-010).
+
+- **Shell commands are read by the judge.** Before any guard runs, the judge
+  reads every execute effect's command through the host's
+  `ShellCommandReader` and the effect carries the reading; the path gate
+  judges from it, and a command that could not be read is refused. The
+  reader, tree-sitter's bash grammar and the table of what commands do with
+  their words live in a private context, `bounded-shell-command-reader`,
+  published as `bounded/shell-command-reader`, so the core names no shell
+  ([ADR 2026-020](docs/adr/2026-020-shell-command-reading.md)).
 
 - **Drift.** What the path gate protects from writes is snapshotted before
   every allowed shell command and put back after it if it changed them, with

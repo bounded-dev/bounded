@@ -3,7 +3,10 @@
 One package is published: `bounded` (`contexts/core`). It carries the CLI and
 the Claude Code and pi adapters, built from the private apps `apps/cli`,
 `apps/claude-code` and `apps/pi` by its prepack
-([ADR 2026-016](adr/2026-016-cli-app.md)). The apps are never published.
+([ADR 2026-016](adr/2026-016-cli-app.md)), and the shell command reader,
+built from the private context `contexts/shell-command-reader` as
+`bounded/shell-command-reader` ([ADR 2026-020](adr/2026-020-shell-command-reading.md)).
+The apps and the reader's package are never published.
 
 Only a maintainer publishes, and only when asked: pushing a release to npm is
 an outward action (AGENTS.md).
@@ -11,12 +14,13 @@ an outward action (AGENTS.md).
 ## Steps
 
 1. **Bump every version in lockstep.** `contexts/core`, `apps/cli`,
-   `apps/claude-code` and `apps/pi` carry the same version. The CLI reports
+   `apps/claude-code`, `apps/pi` and `contexts/shell-command-reader` carry
+   the same version. The CLI reports
    its version from the package it runs in, and `bounded init` installs
    exactly that version. `packaging.test.ts` pins the version, so update its
    `VERSION` too. No `bun install` (plain, `--force` or `--lockfile-only`,
    bun 1.3.14) rewrites the workspaces' versions in `bun.lock`, and
-   `--frozen-lockfile` does not notice them stale, so set the four
+   `--frozen-lockfile` does not notice them stale, so set the five
    `"version"` lines under `workspaces` in `bun.lock` by hand.
 2. **Check.** Run `bun run check`. It builds `dist/`, then runs every test,
    including the packaging test (the tarball's contents) and the end-to-end

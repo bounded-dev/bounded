@@ -132,7 +132,7 @@ composes.
 ## Ports
 
 A host provides both, through `openProject(root, { ports:
-[...pathGatePortProvisions(), ...prereqsPortProvisions()] })`; the hooks for
+[...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader })`; the hooks for
 Claude Code and pi that `bounded` carries do.
 
 - `fileSetFingerprints` (`FileSetFingerprints`): the fingerprint of the

@@ -5,7 +5,11 @@ adapter-naming plan and the final review), shipped in `bounded` 3.1.0 as a
 deliberate breaking change in a minor release (see "Release"). Supersedes in part ADR 2026-013 (its R2 wording, and
 the path gate's export paths in its drift and path-kinds bullets) and ADR
 2026-012 (the bullet "Ports keep text where it is the store's key", as it
-applies to `DecisionIds`).
+applies to `DecisionIds`). Amended by
+[ADR 2026-020](2026-020-shell-command-reading.md): `pathGatePortProvisions()`
+gives two provisions (watched files, shell snapshots); `TreeSitterShellParser`
+and `FileSystemPathKinds` are gone, the shell reading now
+`TreeSitterShellCommandReader` in `bounded-shell-command-reader`.
 
 ## Decision
 

@@ -7,6 +7,11 @@ tool lifecycle, recorded below when it lands). Amended by
 `Config.selectedPacks` is `Config.listedPacks` and compose-packs'
 `selectedPackIds` is `listedPackIds`; among composition's combination rules,
 every selected pack (listed or brought in) is available and has no problem.
+Amended by [ADR 2026-020](2026-020-shell-command-reading.md): the path
+gate's ports are watched files and shell snapshots (path kinds and the shell
+parser are gone, its shell check with them); R2 lets an adapter in another
+context implement an untagged port when a test beside it runs the port's
+suite through the declaring package's export path.
 
 ## Decision
 

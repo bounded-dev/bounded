@@ -59,12 +59,14 @@ contexts/
   core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
     src/packs/path-gate/              the path gate (slice 3): a pack shipped in bounded, exported as bounded/path-gate
     src/packs/prereqs/                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
+  shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands: implements the core's ShellCommandReader;
+                                     published as bounded/shell-command-reader (private: built into bounded's dist/; ADR 2026-020)
 apps/
   claude-code/   bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
   pi/            bounded-pi          the pi host adapter (docs/adapter-pi.md)
   cli/           bounded-cli         the `bounded` command: init and update
                                      (all three private: bounded's prepack bundles them into bounded's dist/; ADR 2026-016)
-contexts/core/build-dist.ts          bounded's build for Node: the library, the CLI and the host adapters (ADR 2026-016)
+contexts/core/build-dist.ts          bounded's build for Node: the library, the CLI, the host adapters and the shell command reader (ADRs 2026-016, 2026-020)
 architecture.test.ts                 the layer and dependency rules, as a test
 compile-time.test.ts                 proves an undeclared contribution does not compile
 docs/adr/                            decisions, including every deviation from the layout below
@@ -110,7 +112,9 @@ Rules, enforced by `architecture.test.ts` unless stated:
   out adapters; never another pack's.
 - **Domain and application do no I/O** and import no library but zod.
 - **Within a context, layers import each other through the package's own
-  export paths** (`bounded/domain`), domain files by relative path.
+  export paths** (`bounded/domain`), domain files by relative path. A layer
+  the package exports no path for (bounded-shell-command-reader's domain,
+  ADR 2026-020) is imported by relative path.
 - **Apps** (`apps/<name>/src`) are programs built on the contexts, such as
   host adapters. They may do I/O and use libraries, reach a context only
   through its export paths and declared dependencies, and never import
@@ -121,6 +125,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **Apps** (`apps/*`) host contexts: no layers, no rules of their own. An app
   imports its own files by relative path, a context only through its export
   paths and only when its `package.json` declares it, and never another app.
+  An app's tests may import its devDependencies; its other files may not.
 - **Value objects are classes, as in the worked example (ADR 2026-012).**
   The contract declares a branded interface (`readonly __brand`, the value,
   `equals`, `toJSON`) and a factory (`parse(raw: unknown): Result<X>`); the
@@ -146,7 +151,10 @@ Rules, enforced by `architecture.test.ts` unless stated:
   `adapters/out/<port>/`; every adapter class implementing a port is named
   in that port's tag; the port's suite is exactly
   `<feature>.<port>.test-support.ts` and a test beside each named class runs
-  it. An in-memory test double is
+  it. An untagged port (`HostInstaller`, `ShellCommandReader`) may be
+  implemented by an adapter in another context only when a test beside it
+  runs the port's suite through the declaring package's export path (ADR
+  2026-020). An in-memory test double is
   `<feature>.in-memory-<port>.test-support.ts` in its port's feature
   directory, run through the port's suite by a test beside it. No
   production file (under `contexts/*/src` or `apps/*/src`, not a test, test
@@ -239,8 +247,13 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **The core runs packs' asynchronous lifecycle checks around tool calls;
   packs get adapters through ports the host provides (ADR 2026-013).** Hosts
   call `judge` before a tool call and `afterTool` after it, passing the call
-  id, and pass the shipped packs' ports to `openProject` (the path gate's
-  undo what shell commands change in the files it protects, ADR 2026-011).
+  id, and pass the shipped packs' ports and the shell command reader to
+  `openProject` (the path gate's ports undo what shell commands change in
+  the files it protects, ADR 2026-011).
+- **An execute effect carries the core's reading of its command (ADR
+  2026-020)**: the programs it runs, the files it reads, lists and writes,
+  and what could not be resolved, made by `bounded-shell-command-reader`
+  through the core's `ShellCommandReader` port, so packs never parse shell.
 - If a change needs the core to learn a technology's name or an opinion, it is
   in the wrong place: put it in a pack and give the core a mechanism.
 

@@ -117,7 +117,8 @@ is test support and not published (ADR 2026-017).
 import { FileSystemGuardLog, SystemClock } from "bounded/adapters";
 import { JudgeEventCommand, JudgeEventHandler } from "bounded/application";
 
-const judge = new JudgeEventHandler(composition, new FileSystemGuardLog(`${project}/.bounded/guard-log.jsonl`), new SystemClock());
+// The judge reads each shell command with the host's reader (ADR 2026-020), such as bounded/shell-command-reader's.
+const judge = new JudgeEventHandler(composition, new FileSystemGuardLog(`${project}/.bounded/guard-log.jsonl`), new SystemClock(), { shellCommandReader, projectRoot: project });
 const command = JudgeEventCommand.parse(hookEvent);
 const verdict = command.ok ? await judge.execute(command.value) : { kind: "refuse", reason: command.error, redirect: "Report this to the host adapter's maintainers" };
 ```
