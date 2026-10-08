@@ -13,6 +13,13 @@ function globProblem(raw: unknown): string | undefined {
 }
 
 const text = (raw: unknown): raw is string => typeof raw === "string" && raw.trim() !== "";
+const CHANGES: readonly Contract.WatchedChange[] = ["create", "modify", "delete"];
+
+/** The changes named, in their fixed order without repeats; undefined when they are not a non-empty list of them. */
+function changesOf(raw: unknown): readonly Contract.WatchedChange[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.some((change) => !CHANGES.includes(change))) return undefined;
+  return Object.freeze(CHANGES.filter((change) => raw.includes(change)));
+}
 
 class WatchedPathImpl implements Contract.WatchedPath {
   declare readonly __brand: "WatchedPath";
@@ -21,6 +28,7 @@ class WatchedPathImpl implements Contract.WatchedPath {
   private constructor(
     readonly match: string,
     readonly except: readonly string[],
+    readonly changes: readonly Contract.WatchedChange[],
     readonly why: string,
     readonly redirect: string,
   ) {
@@ -40,6 +48,8 @@ class WatchedPathImpl implements Contract.WatchedPath {
     if (WatchedPathImpl.made(raw)) return WatchedPathImpl.parse(wireFormOf(raw));
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "A watched path is { match, except?, why, redirect }" };
     const [match, except, why, redirect] = [own(raw, "match"), own(raw, "except") ?? [], own(raw, "why"), own(raw, "redirect")];
+    const changes = changesOf(own(raw, "changes") ?? CHANGES);
+    if (changes === undefined) return { ok: false, error: "A watched path's changes name at least one of create, modify and delete" };
     if (!text(why) || !text(redirect)) return { ok: false, error: SAYS };
     const matchProblem = globProblem(match);
     if (matchProblem !== undefined) return { ok: false, error: matchProblem };
@@ -48,7 +58,7 @@ class WatchedPathImpl implements Contract.WatchedPath {
       const problem = globProblem(glob);
       if (problem !== undefined) return { ok: false, error: problem };
     }
-    return { ok: true, value: new WatchedPathImpl(String(match), Object.freeze(except.map(String)), why.trim(), redirect.trim()) };
+    return { ok: true, value: new WatchedPathImpl(String(match), Object.freeze(except.map(String)), changes, why.trim(), redirect.trim()) };
   }
 
   equals(other: WatchedPath): boolean {
@@ -56,7 +66,7 @@ class WatchedPathImpl implements Contract.WatchedPath {
   }
 
   toJSON(): Contract.WatchedPathJSON {
-    return { match: this.match, except: this.except, why: this.why, redirect: this.redirect };
+    return { match: this.match, except: this.except, changes: this.changes, why: this.why, redirect: this.redirect };
   }
 }
 

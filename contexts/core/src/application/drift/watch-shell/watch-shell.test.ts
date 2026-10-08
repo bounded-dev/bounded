@@ -408,3 +408,70 @@ describe("WatchShellHandler — a snapshot that is missing or altered", () => {
     expect(log.decisions).toEqual([]);
   });
 });
+
+describe("WatchShellHandler — only the changes a watched path forbids are undone", () => {
+  const migrations = definePack({
+    id: packIdsFor("test-packs")("migrations"),
+    dependsOn: [corePack],
+    contributes: [
+      contribution(corePack.points.watchedPaths, [
+        { match: "migrations/**", changes: ["modify", "delete"], why: "applied migrations are history", redirect: "Add a new migration instead" },
+        { match: "generated/**", why: "generated/ is written by the generator", redirect: RULES_REDIRECT },
+      ]),
+    ],
+  });
+  function migrationsSetup() {
+    const all = [migrations, corePack];
+    const composed = Composition.compose(all, all);
+    if (!composed.ok) throw new Error(composed.error);
+    const files = new FakeFiles({ "migrations/0001_init.sql": "create table a;", "generated/a.ts": "a" });
+    const log = new FakeLog();
+    return { files, log, watch: new WatchShellHandler(composed.value, files, new FakeSnapshots(), log, clock) };
+  }
+
+  test("a file created where only modify and delete are forbidden is left in place, with nothing to say and nothing recorded", async () => {
+    const { watch, files, log } = migrationsSetup();
+    await watch.snapshot(use(shell));
+    files.working.set("migrations/0002_add.sql", "create table b;");
+    expect(await watch.verify(result())).toEqual({ changed: [], restored: true, message: null });
+    expect(files.working.get("migrations/0002_add.sql")).toBe("create table b;");
+    expect(files.quarantined.size).toBe(0);
+    expect(log.decisions).toEqual([]);
+  });
+
+  test("a forbidden modify or delete is still put back and reported, an allowed create beside it left alone", async () => {
+    const { watch, files, log } = migrationsSetup();
+    await watch.snapshot(use(shell));
+    files.working.set("migrations/0001_init.sql", "drop table a;");
+    files.working.set("migrations/0002_add.sql", "create table b;");
+    const modified = await watch.verify(result());
+    expect(modified.changed).toEqual([{ path: "migrations/0001_init.sql", change: "modified" }]);
+    expect(files.working.get("migrations/0001_init.sql")).toBe("create table a;");
+    expect(files.working.get("migrations/0002_add.sql")).toBe("create table b;");
+    expect(modified.message).toBe("This command changed protected files, and they were restored: migrations/0001_init.sql was modified — protected because applied migrations are history. Add a new migration instead.");
+    await watch.snapshot(use({ ...shell, callId: "c2" }));
+    files.working.delete("migrations/0001_init.sql");
+    const deleted = await watch.verify(result({ callId: "c2" }));
+    expect(deleted.changed).toEqual([{ path: "migrations/0001_init.sql", change: "deleted" }]);
+    expect(files.working.get("migrations/0001_init.sql")).toBe("create table a;");
+    expect(log.decisions.length).toBe(2);
+  });
+
+  test("a path that forbids every change still moves what a command created aside", async () => {
+    const { watch, files } = migrationsSetup();
+    await watch.snapshot(use(shell));
+    files.working.set("generated/new.ts", "created");
+    const check = await watch.verify(result());
+    expect(check.changed).toEqual([{ path: "generated/new.ts", change: "created" }]);
+    expect(files.quarantined.get("generated/new.ts")).toBe("created");
+  });
+
+  test("with no snapshot to trust, only forbidden changes are reported against the commit", async () => {
+    const { watch, files } = migrationsSetup();
+    files.working.set("migrations/0002_add.sql", "create table b;");
+    expect(await watch.verify(result({ callId: "never-seen" }))).toEqual({ changed: [], restored: true, message: null });
+    files.working.set("migrations/0001_init.sql", "drop table a;");
+    const check = await watch.verify(result({ callId: "never-seen" }));
+    expect(check.changed).toEqual([{ path: "migrations/0001_init.sql", change: "modified" }]);
+  });
+});

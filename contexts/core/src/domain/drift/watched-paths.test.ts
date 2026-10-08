@@ -25,8 +25,8 @@ describe("watchedPathsOf", () => {
     expect(wireOf(watched)).toEqual({
       ok: true,
       value: [
-        { rule: { match: "build/**", except: [], why: "built", redirect: "Rebuild" }, from: "test-packs/derived" },
-        { rule: { ...rule, except: [] }, from: "test-packs/fixed" },
+        { rule: { match: "build/**", except: [], changes: ["create", "modify", "delete"], why: "built", redirect: "Rebuild" }, from: "test-packs/derived" },
+        { rule: { ...rule, except: [], changes: ["create", "modify", "delete"] }, from: "test-packs/fixed" },
       ],
     });
   });
