@@ -111,7 +111,7 @@ session. pi gets `undefined` to run the call, or
 deep-frozen before it is translated, so nothing can change what is judged:
 a later handler or tool that tries throws, and pi blocks the call.
 
-`composeProject` opens the project with the core's `openProject(root, { ports: pathGateFileSystem() })` (the path gate's file-system ports);
+`composeProject` opens the project with the core's `openProject(root, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] })` (the path gate's file-system ports and shell parser);
 `decide` is its judge, which decides each tool use with the composed packs
 and records the decision in `<root>/.bounded/guard-log.jsonl`. A
 configuration that cannot be used gives a judge that refuses every event, so

@@ -4,7 +4,6 @@ import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { AfterToolReport } from "../lifecycle/after-tool-report.contract.ts";
 import type { Ports } from "../lifecycle/ports.contract.ts";
 import type { Verdict } from "../verdicts/verdict.contract.ts";
-import type { ProjectPath } from "../events/project-path.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
 import type { BasePack, ExtensionPoint } from "../packs/pack.contract.ts";
@@ -14,27 +13,19 @@ import type { EffectGuard, Guard } from "./dispatch.contract.ts";
 // The core pack, `bounded/core`: in one place, every way a pack plugs into
 // the core. corePack is typed by this contract, so its definition must match.
 
-/** What is at a project path: a file, a directory, something else (such as a link, never followed), or nothing. */
-export type PathKind = "file" | "directory" | "other" | "absent";
-
-/**
- * A project as it opens, for the packs that prepare for it: its root (an
- * absolute path) and a way to ask what is at a project-relative path, which
- * answers undefined when it cannot tell.
- */
+/** A project as it opens, for the packs that prepare for it: its root, an absolute path. */
 export interface OpenedProject {
   readonly root: string;
-  kindOfPath(path: ProjectPath): PathKind | undefined;
 }
 
 /**
  * What a pack does once when a project opens, before any event is judged,
- * such as loading what its guards need. Given the project and the
- * composition its guards will be called with. If it fails, or runs out of
- * time, the project still opens: the pack's own guards answer for it,
- * refusing what they cannot check.
+ * such as loading what its guards need. Given the project and the lifecycle
+ * context: the composition its guards will be called with, and the ports the
+ * host provides. If it fails, or runs out of time, the project still opens:
+ * the pack's own guards answer for it, refusing what they cannot check.
  */
-export type ProjectOpenHandler = (project: OpenedProject, composition: Composition) => Promise<void>;
+export type ProjectOpenHandler = (project: OpenedProject, context: LifecycleContext) => Promise<void>;
 
 /** What a lifecycle check is given besides the call or result: the composition, and the adapters the host provides for the project. */
 export interface LifecycleContext {

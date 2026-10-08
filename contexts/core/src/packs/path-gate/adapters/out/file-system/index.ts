@@ -1,4 +1,5 @@
 // bounded/path-gate/adapters/file-system: the path gate's adapters on disk, for hosts' composition roots.
+export { FileSystemPathKinds } from "./path-kinds.ts";
 export { pathGateFileSystem } from "./provisions.ts";
 export { FileSystemShellSnapshots } from "./snapshots.ts";
 export { stateDirFor, stateHomeFor } from "./state-home.ts";

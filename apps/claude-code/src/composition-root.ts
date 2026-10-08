@@ -7,11 +7,12 @@
 import { Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
 import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
+import { pathGateTreeSitter } from "bounded/path-gate/adapters/tree-sitter";
 import { type AfterTool, type Decide, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
 
-/** Opens a project with the adapters this host provides: the path gate's, on disk. */
-const open = (projectRoot: string) => openProject(projectRoot, { ports: pathGateFileSystem() });
+/** Opens a project with the adapters this host provides: the path gate's, on disk, and its shell parser. */
+const open = (projectRoot: string) => openProject(projectRoot, { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
 
 /**
  * How long bounded may take to decide, then how long work still pending after

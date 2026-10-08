@@ -1,4 +1,5 @@
 // bounded/path-gate/adapters/in-memory: the path gate's adapters in memory, for tests and single-process hosts.
+export { InMemoryPathKinds } from "./path-kinds.ts";
 export { pathGateInMemory } from "./provisions.ts";
 export { InMemoryShellSnapshots } from "./snapshots.ts";
 export { InMemoryWatchedFiles } from "./watched-files.ts";

@@ -58,18 +58,22 @@ about every event:
 
 ```ts
 import { openProject } from "bounded/open-project";
+import { pathGateFileSystem } from "bounded/path-gate/adapters/file-system";
+import { pathGateTreeSitter } from "bounded/path-gate/adapters/tree-sitter";
 
-const project = await openProject("/absolute/path/to/project");
+// The ports the selected packs declare: here the path gate's, on disk, and its shell parser.
+const project = await openProject("/absolute/path/to/project", { ports: [...pathGateFileSystem(), ...pathGateTreeSitter()] });
 if (project.problem !== null) console.error(project.problem);
 const verdict = await project.judge(eventFromTheHost);
 ```
 
 Before judging anything, `openProject` runs what each selected pack
-contributes to the core's `onProjectOpen` point, given the project's root and
-a way to ask what is at a project path (the path gate loads its shell parser
-there). A pack whose preparation fails does not stop the project opening: its
-own guards refuse what they cannot check. A host may pass its own
-`pathKinds`.
+contributes to the core's `onProjectOpen` point, given the project's root,
+its composition and the ports the host provides (the path gate prepares its
+shell parser there, and asks its `pathKinds` port what is at a path). A pack
+whose preparation fails does not stop the project opening: its own guards
+refuse what they cannot check. Every port a selected pack declares must be
+provided, or every event is refused, naming the pack, the port and the fix.
 
 The judge decides each event with the composed packs and records the decision
 in `<root>/.bounded/guard-log.jsonl` (see [the guard log](guard-log.md)).

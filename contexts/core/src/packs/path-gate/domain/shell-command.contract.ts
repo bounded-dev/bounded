@@ -1,7 +1,7 @@
-import type { Command, PathKind, ProjectPath, Result } from "bounded/domain";
+import type { ProjectPath, Result } from "bounded/domain";
 
-// What the path gate needs from a shell parser, and what it makes of a
-// command: a syntax tree, then a translation into the paths the command
+// What the path gate makes of a shell command (its parser is a port of the
+// judge-calls feature): a syntax tree, then a translation into the paths the command
 // reads, lists and writes. Neither decides anything; the guards judge.
 
 /** A word of a command: literal text (quotes and escapes removed), or text only the shell can resolve, with the commands it runs (substitutions). */
@@ -36,15 +36,8 @@ export type ShellNode =
   /** Text the parser could not read: nothing in it is resolved. */
   | { readonly kind: "unparsed"; readonly text: string };
 
-/**
- * The port to a shell parser. `prepare` loads it, once, when the project
- * opens; then `parse` is synchronous, as guards are. Before it is prepared,
- * or if it cannot load, `parse` fails.
- */
-export interface ShellParser {
-  prepare(): Promise<void>;
-  parse(command: Command): Result<readonly ShellNode[]>;
-}
+/** What is at a project path: a file, a directory, something else (such as a link, never followed), or nothing. */
+export type PathKind = "file" | "directory" | "other" | "absent";
 
 /** Where a command runs: its directory (null for the project root), the project root (absolute), what is at a path, and how to parse code given to a nested shell. */
 export interface ShellPlace {

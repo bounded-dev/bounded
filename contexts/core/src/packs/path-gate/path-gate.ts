@@ -21,8 +21,8 @@ import { shellSnapshotsPort, watchedFilesPort } from "./application/watch-shell/
 import { pathGateId } from "./domain/path-gate-id.ts";
 import type { ProtectedPathJSON } from "./domain/protected-path.contract.ts";
 import { ProtectedPath, WRITES } from "./domain/protected-path.ts";
-import { type ShellCheck, startShellCheck } from "./shell-check.ts";
-import { treeSitterShellParser } from "./shell-parser.tree-sitter.ts";
+import { pathKindsPort, type ShellCheck, shellParserPort } from "./application/judge-calls/judge-calls.contract.ts";
+import { startShellCheck } from "./application/judge-calls/shell-check.ts";
 
 /**
  * The path gate's own rules: an agent can never edit its own guardrails.
@@ -134,13 +134,23 @@ const onList: EffectGuard<ListEffect, Composition> = (effect, composition) => fi
 
 const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
 
-/** One parser for the pack, loaded once per process; each opened project gets its own check. */
-const shellParser = treeSitterShellParser();
+/**
+ * Each opened project's shell check, by its composition: set when the
+ * project opens, read by the synchronous execute guard (a guard cannot await
+ * a port).
+ */
 const shellChecks = new WeakMap<Composition, ShellCheck>();
 
-/** When a project opens: load the shell parser, and keep the project's root and what is at its paths for its check. */
-const prepareShell: ProjectOpenHandler = async (project, composition) => {
-  const { check, ready } = startShellCheck(shellParser, project);
+/** When a project opens: prepare its shell parser, and keep the project's root and what is at its paths for its check. */
+const prepareShell: ProjectOpenHandler = async (project, { composition, ports }) => {
+  const parser = ports.get(shellParserPort);
+  const pathKinds = ports.get(pathKindsPort);
+  if (!parser.ok || !pathKinds.ok) {
+    const why = parser.ok ? (pathKinds.ok ? "" : pathKinds.error) : parser.error;
+    shellChecks.set(composition, { describe: () => ({ ok: false, error: `bounded's shell parser could not load (${why})` }) });
+    return;
+  }
+  const { check, ready } = startShellCheck(parser.value, project.root, pathKinds.value);
   shellChecks.set(composition, check);
   await ready;
 };
@@ -219,5 +229,5 @@ export const pathGate: PathGate = definePack({
     contribution(corePack.points.beforeTool, [beforeShell]),
     contribution(corePack.points.afterTool, [afterShell]),
   ],
-  ports: { watchedFiles: watchedFilesPort, shellSnapshots: shellSnapshotsPort },
+  ports: { watchedFiles: watchedFilesPort, shellSnapshots: shellSnapshotsPort, pathKinds: pathKindsPort, shellParser: shellParserPort },
 });

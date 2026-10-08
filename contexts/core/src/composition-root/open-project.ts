@@ -1,6 +1,6 @@
-import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge, type ProjectPathKinds } from "bounded/application";
+import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge } from "bounded/application";
 import type { Clock } from "bounded/application";
-import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs, FileSystemProjectPathKinds } from "bounded/adapters/file-system";
+import { FileSystemProjectConfigSource, FileSystemProjectGuardLogs } from "bounded/adapters/file-system";
 import { CheckedProjectConfigSource, SystemClock } from "bounded/adapters/system";
 import { AdapterRefusal, type PortProvision, Verdict } from "bounded/domain";
 
@@ -11,8 +11,6 @@ export interface OpenProjectOptions {
   readonly guardLog?: GuardLog;
   readonly clock?: Clock;
   readonly recordWithinMs?: number;
-  /** What is at a project path, for the packs that prepare when the project opens; by default the project's disk. */
-  readonly pathKinds?: ProjectPathKinds;
   /** How long each pack's work on opening may take before the project opens without it; 5 seconds by default. */
   readonly prepareWithinMs?: number;
   /** Adapters for the ports the selected packs declare (a pack's adapter package makes them); none by default: the core cannot import a pack. */
@@ -33,7 +31,6 @@ export async function openProject(projectRoot: string, options: OpenProjectOptio
     const guardLogs = guardLog === undefined ? new FileSystemProjectGuardLogs() : { forProject: () => guardLog };
     const handler = new OpenProjectHandler(new CheckedProjectConfigSource(options.configSource ?? new FileSystemProjectConfigSource()), guardLogs, options.clock ?? new SystemClock(), {
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
-      pathKinds: options.pathKinds ?? new FileSystemProjectPathKinds(),
       ...(options.prepareWithinMs === undefined ? {} : { prepareWithinMs: options.prepareWithinMs }),
       ...(options.ports === undefined ? {} : { ports: options.ports }),
     });

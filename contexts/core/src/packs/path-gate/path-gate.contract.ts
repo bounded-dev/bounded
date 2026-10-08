@@ -1,4 +1,5 @@
 import type { BasePack, ExtensionPoint, PortKey } from "bounded/domain";
+import type { PathKinds, ShellParser } from "./application/judge-calls/judge-calls.contract.ts";
 import type { ShellSnapshots, WatchedFiles } from "./application/watch-shell/watch-shell.contract.ts";
 import type { PathGateId } from "./domain/path-gate-id.contract.ts";
 import type { ProtectedPath } from "./domain/protected-path.contract.ts";
@@ -19,6 +20,8 @@ export type PathGatePoints = {
 export type PathGatePorts = {
   readonly watchedFiles: PortKey<WatchedFiles, PathGateId>;
   readonly shellSnapshots: PortKey<ShellSnapshots, PathGateId>;
+  readonly pathKinds: PortKey<PathKinds, PathGateId>;
+  readonly shellParser: PortKey<ShellParser, PathGateId>;
 };
 
 /** The path gate pack: its id, its points and its ports. */
