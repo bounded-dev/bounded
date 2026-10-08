@@ -194,7 +194,7 @@ export function piExtension({ projectRoot, load, home, deadlineMs = 3000, compos
           kind: "tool-result",
           ok: field(event, "isError") !== true,
           ...callIdOf(event),
-          ...(delegations.length === 0 ? {} : { delegatedAgentRuns: delegations.map(() => ({ finished: false })) }),
+          ...(delegations.length === 0 ? {} : { delegatedAgentRuns: delegations.map(() => ({ finished: false, finishNeverReported: true })) }),
         });
         if (!result.ok) throw new Error(result.error);
         told = (await within(() => afterTool(result.value), deadlineMs, `no answer within ${deadlineMs} ms`)).message;

@@ -157,17 +157,17 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
       effects: [{ kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }],
       ok: true,
       callId: "1",
-      delegatedAgentRuns: [{ finished: false }, { finished: false }],
+      delegatedAgentRuns: [{ finished: false, finishNeverReported: true }, { finished: false, finishNeverReported: true }],
     });
     // Without async: false the call runs in the background by default, so its delegations' finishes go unreported.
     const unsaid = await resultOf({ agent: "a", task: "x" });
-    expect(unsaid?.delegatedAgentRuns).toEqual([{ finished: false }]);
+    expect(unsaid?.delegatedAgentRuns).toEqual([{ finished: false, finishNeverReported: true }]);
     expect(unsaid?.effects.every((effect) => effect.kind === "delegate" && effect.finishUnreported === true)).toBe(true);
   });
 
-  test("an async subagent's tool_result says none did", async () => {
+  test("an async subagent's tool_result says none did, as this host never reports their finish", async () => {
     const result = await resultOf({ tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }], async: true });
-    expect(result?.delegatedAgentRuns).toEqual([{ finished: false }, { finished: false }]);
+    expect(result?.delegatedAgentRuns).toEqual([{ finished: false, finishNeverReported: true }, { finished: false, finishNeverReported: true }]);
     expect(result?.effects.every((effect) => effect.kind === "delegate" && effect.finishUnreported === true)).toBe(true);
   });
 

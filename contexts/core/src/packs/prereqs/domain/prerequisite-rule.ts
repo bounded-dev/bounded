@@ -13,8 +13,14 @@ const FILES = "A rule's unchangedSince is a non-empty list of file patterns";
 const MAX_REDIRECT = 1000;
 const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error });
 const hasControl = (text: string): boolean => [...text].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f);
-/** Agent names match exactly, case-sensitively: hosts find agents by their exact names. */
+/** A requirement's agent matches exactly, case-sensitively: a run recorded under another spelling does not count (fail closed). */
 const sameAgent = (a: AgentName, b: AgentName): boolean => a.value === b.value;
+/**
+ * A before rule's agent matches ignoring case and surrounding spaces: a host
+ * may resolve another spelling to the same agent (Claude Code 2.1.294 runs
+ * plan-reviewer for "Plan-Reviewer"), so the rule catches every one (fail closed).
+ */
+const anySpelling = (a: AgentName, b: AgentName): boolean => a.value.trim().toLowerCase() === b.value.trim().toLowerCase();
 
 /** A rule's fields once checked and tidied. */
 interface Fields {
@@ -68,7 +74,7 @@ function check(raw: unknown): Result<Fields> {
   if (!before.ok) return before;
   const requirement = requireOf(own(raw, "require"));
   if (!requirement.ok) return requirement;
-  if (before.value.delegate !== undefined && sameAgent(before.value.delegate, requirement.value.delegate)) {
+  if (before.value.delegate !== undefined && anySpelling(before.value.delegate, requirement.value.delegate)) {
     return refuse(`A rule cannot require the action it comes before: delegating to ${before.value.delegate.value}`);
   }
   const unchangedSince = patternsOf(own(raw, "unchangedSince"));
@@ -108,7 +114,7 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
   }
 
   comesBefore(effect: Effect): boolean {
-    if (this.before.delegate !== undefined) return effect.kind === "delegate" && sameAgent(effect.agent, this.before.delegate);
+    if (this.before.delegate !== undefined) return effect.kind === "delegate" && anySpelling(effect.agent, this.before.delegate);
     return effect.kind === "write" && pathMatcherOf(this.before.write)(effect.path.value);
   }
 

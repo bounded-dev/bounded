@@ -53,6 +53,28 @@ describe("FileSystemFileSetFingerprints — the project's files on disk", () => 
     expect((await fingerprints.fingerprint(["docs/**"])).ok).toBe(false);
   });
 
+  test("a link to a file is ignored unless its own path matches the patterns", async () => {
+    // The final review's repro: a script alias must not stop a fingerprint of the project's Markdown.
+    const root = projectWith({ "README.md": "readme\n", "docs/a.md": "a\n", "tools/run.sh": "echo run\n" });
+    symlinkSync("run.sh", join(root, "tools", "alias.sh"));
+    const fingerprints = new FileSystemFileSetFingerprints(root);
+    expect(await fingerprints.fingerprint(["**/*.md"])).toMatchObject({ ok: true, value: { fileCount: 2 } });
+    // A link whose own path matches still refuses, naming it.
+    symlinkSync("../README.md", join(root, "docs", "readme-alias.md"));
+    const matching = await fingerprints.fingerprint(["**/*.md"]);
+    expect(!matching.ok && matching.error).toContain("docs/readme-alias.md is a symbolic link");
+  });
+
+  test("an entry the patterns match that is neither a file, a directory nor a link refuses; one they do not match is ignored", async () => {
+    const root = projectWith({ "docs/a.md": "a\n" });
+    expect(spawnSync("mkfifo", [join(root, "docs", "pipe")]).status).toBe(0);
+    const fingerprints = new FileSystemFileSetFingerprints(root);
+    expect(await fingerprints.fingerprint(["docs/*.md"])).toMatchObject({ ok: true, value: { fileCount: 1 } });
+    const named = await fingerprints.fingerprint(["docs/**"]);
+    expect(named.ok).toBe(false);
+    expect(!named.ok && named.error).toContain("docs/pipe is neither a file, a directory nor a link");
+  });
+
   test("a pattern that is not one is refused, naming it", async () => {
     const fingerprint = await new FileSystemFileSetFingerprints(projectWith({})).fingerprint(["../outside/**"]);
     expect(fingerprint.ok).toBe(false);

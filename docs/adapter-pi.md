@@ -141,7 +141,7 @@ The decide also carries the project's `afterTool` and `refuse`:
   shell command changed in watched files (see [drift.md](drift.md)). A
   subagent call's result says, per delegate effect, that its run is not
   known to have finished (`delegatedAgentRuns`, every entry `finished:
-  false`; ADR 2026-019), even with `async: false`: pi-subagents'
+  false, finishNeverReported: true`; ADR 2026-019), even with `async: false`: pi-subagents'
   `forceTopLevelAsync` can still run it in the background
   (`src/runs/background/top-level-async.ts:7-14`), and a timed-out child may
   leave `isError` unset (`src/runs/foreground/subagent-executor.ts:3544`).

@@ -30,10 +30,12 @@ export default defineConfig({
 ```
 
 - `before` is one action: `{ delegate: <agent> }` (a delegation to that
-  agent, by its exact name: agent names match case-sensitively) or `{ write: <pattern> }` (a file tool's write to a
-  path the pattern matches).
-- `require` is a delegation to an agent that succeeded. A rule cannot
-  require the action it comes before.
+  agent in any spelling: ignoring case and surrounding spaces, since a host
+  may resolve another spelling to the same agent) or `{ write: <pattern> }`
+  (a file tool's write to a path the pattern matches).
+- `require` is a delegation to an agent, by its exact name, that succeeded:
+  a run under another spelling does not count. A rule cannot require the
+  action it comes before, in any spelling.
 - `unchangedSince` names the files the run must have seen as they are now.
   Patterns are checked as the path gate's, and matched as its `match`:
   ignoring case, seeing dotfiles; a pattern without a glob covers everything
@@ -79,7 +81,8 @@ even then its `forceTopLevelAsync` setting can run it in the background
 (`src/runs/background/top-level-async.ts:7-14`), and a timed-out child may
 leave `isError` unset (`src/runs/foreground/subagent-executor.ts:3544`). So
 a delegation without `async: false` is refused, and no pi result is counted
-as finished, until the pack observes pi-subagents' completion (ADR 2026-019,
+as finished: the agent is told that the host does not report when the agent
+finishes, so it cannot meet the requirement yet. This holds until the pack observes pi-subagents' completion (ADR 2026-019,
 "Future work").
 
 ## What it cannot see
@@ -91,9 +94,14 @@ as finished, until the pack observes pi-subagents' completion (ADR 2026-019,
   command writing under `src/` is not matched.
 - **Patterns that match no file:** such a requirement can never be met, and
   says so.
-- **Symbolic links:** a link the patterns match, or a linked directory they
-  could reach into, is never followed, and the rule refuses, naming the
-  link. Replace it with the files, or leave it out of the patterns.
+- **Symbolic links:** a link is never followed. A link to a directory the
+  patterns could reach into, or a link whose own path the patterns match (to
+  a file, or dangling), makes the rule refuse, naming the link; replace it
+  with the files, or leave it out of the patterns. Any other link is
+  ignored.
+- **Special files:** a FIFO, socket or device the patterns match makes the
+  rule refuse, naming it (failing closed); one they do not match is
+  ignored.
 - **ABA:** files edited and put back between the delegation and its result
   compare equal, so the run counts.
 

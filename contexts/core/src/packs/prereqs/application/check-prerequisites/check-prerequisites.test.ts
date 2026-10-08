@@ -82,6 +82,20 @@ describe("CheckPrerequisites — an action needs a delegation to have succeeded 
     }
   });
 
+  test("a result from a host that never reports a run's finish says so plainly, without asking for a re-run, and records nothing", async () => {
+    // As pi gives it: no subagent run is ever reported finished.
+    const { handler, records } = setup();
+    const call = delegation("plan-reviewer");
+    expect((await handler.before(call)).kind).toBe("allow");
+    const parsed = ToolResult.parse({ ...call.toJSON(), kind: "tool-result", ok: true, delegatedAgentRuns: [{ finished: false, finishNeverReported: true }] });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const report = await handler.after(parsed.value);
+    expect(report.message).toBe("bounded/prereqs.rules: this host does not report when plan-reviewer finishes, so plan-reviewer's run cannot meet this requirement yet; nothing is recorded");
+    expect(report.message).not.toContain("run plan-reviewer");
+    expect(records.records).toEqual([]);
+    expect((await handler.before(writeTo("src/a.ts"))).kind).toBe("refuse");
+  });
+
   test("a failed delegation records nothing", async () => {
     const { handler, records } = setup();
     const report = await run(handler, "plan-reviewer", "c1", false, [true]);

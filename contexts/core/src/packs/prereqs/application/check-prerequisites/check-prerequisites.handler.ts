@@ -145,7 +145,10 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
       for (const { effect, index } of required) {
         const agent = effect.agent.value;
         const finished = result.delegatedAgentRuns?.[index]?.finished === true && effect.isolated !== true && effect.finishUnreported !== true;
-        if (!result.ok) outcomes.push(told(`${PREFIX} ${agent}'s run did not succeed, so it is not recorded`));
+        if (result.delegatedAgentRuns?.[index]?.finishNeverReported === true) {
+          // No re-run can help: say so plainly instead of asking for one.
+          outcomes.push(told(`${PREFIX} this host does not report when ${agent} finishes, so ${agent}'s run cannot meet this requirement yet; nothing is recorded`));
+        } else if (!result.ok) outcomes.push(told(`${PREFIX} ${agent}'s run did not succeed, so it is not recorded`));
         else if (!finished) outcomes.push(told(`${PREFIX} ${agent}'s run was not seen to finish (it may still be running in the background), so it is not recorded; run ${agent} so that the host reports its finish`));
         else if (starts === undefined) outcomes.push(told(`${PREFIX} no start was kept for ${agent}'s run (the call was not seen before it ran, or its start expired), so it is not recorded; run ${agent} again`));
         else outcomes.push(...(await this.recordRun(rules.value, effect, starts.value, callId)));

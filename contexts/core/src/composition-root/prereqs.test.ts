@@ -104,6 +104,19 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
     expect((await judge(review("c1"))).kind).toBe("refuse");
   });
 
+  test("a symbolic link created during the run is refused after it: nothing is recorded", async () => {
+    const root = project(PREREQS);
+    const { judge, afterTool } = await openProject(root, { ports: prereqsPortProvisions() });
+    expect((await judge(review("c1"))).kind).toBe("allow");
+    mkdirSync(join(root, ".agent-state", "linked"));
+    symlinkSync("../item/plan.md", join(root, ".agent-state", "linked", "plan.md"));
+    const told = await afterTool(reviewed("c1", true));
+    expect(told.message).toContain(".agent-state/linked/plan.md is a symbolic link");
+    expect(existsSync(join(root, ".bounded", "prereqs", "records.jsonl"))).toBe(false);
+    expect(log(root).at(-1)?.verdict.kind).toBe("refuse");
+    expect((await judge(writeSrc)).kind).toBe("refuse");
+  });
+
   test("records are per project root", async () => {
     const [first, second] = [project(PREREQS), project(PREREQS)];
     const one = await openProject(first, { ports: prereqsPortProvisions() });

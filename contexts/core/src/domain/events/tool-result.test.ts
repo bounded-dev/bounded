@@ -56,6 +56,16 @@ describe("ToolResult", () => {
     expect(ToolResult.parse({ ...two, delegatedAgentRuns: { finished: true } })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns is a list of { finished } entries, one per delegate effect" });
   });
 
+  test("an entry may say the host never reports when that agent's runs finish, only for a run not finished", () => {
+    const one = { kind: "tool-result", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "a" }], ok: true };
+    const parsed = ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, finishNeverReported: true }] });
+    expect(parsed.ok && parsed.value.delegatedAgentRuns).toEqual([{ finished: false, finishNeverReported: true }]);
+    expect(wireOf(parsed)).toEqual({ ok: true, value: { ...one, delegatedAgentRuns: [{ finished: false, finishNeverReported: true }] } });
+    const never = "A tool result's delegatedAgentRuns entry may say finishNeverReported: true, and only when finished is false";
+    expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: true, finishNeverReported: true }] })).toEqual({ ok: false, error: never });
+    expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, finishNeverReported: false }] })).toEqual({ ok: false, error: never });
+  });
+
   test("is frozen", () => {
     const parsed = ToolResult.parse(done);
     expect(parsed.ok && Object.isFrozen(parsed.value) && Object.isFrozen(parsed.value.effects)).toBe(true);

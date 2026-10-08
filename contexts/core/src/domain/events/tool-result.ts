@@ -61,13 +61,14 @@ class ToolResultImpl implements Contract.ToolResult {
     return {
       ...json,
       ...(this.callId === undefined ? {} : { callId: this.callId.value }),
-      ...(this.delegatedAgentRuns === undefined ? {} : { delegatedAgentRuns: this.delegatedAgentRuns.map(({ finished }) => ({ finished })) }),
+      ...(this.delegatedAgentRuns === undefined ? {} : { delegatedAgentRuns: this.delegatedAgentRuns.map(({ finished, finishNeverReported }) => (finishNeverReported === true ? { finished, finishNeverReported } : { finished })) }),
     };
   }
 }
 
 const RUNS = "A tool result's delegatedAgentRuns is a list of { finished } entries, one per delegate effect";
 const RUN = "A tool result's delegatedAgentRuns entry is { finished }, with finished true or false";
+const NEVER = "A tool result's delegatedAgentRuns entry may say finishNeverReported: true, and only when finished is false";
 const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
 
 /** What the host says of each delegated run, checked against the number of delegate effects; undefined when it says nothing. */
@@ -77,10 +78,13 @@ function delegatedAgentRunsOf(raw: unknown, delegates: number): Result<readonly 
   if (!Array.isArray(raw)) return { ok: false, error: RUNS };
   const runs: Contract.DelegatedAgentRun[] = [];
   for (const entry of raw) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry) || Object.keys(entry).length !== 1) return { ok: false, error: RUN };
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return { ok: false, error: RUN };
+    const keys = Object.keys(entry);
     const finished = own(entry, "finished");
-    if (typeof finished !== "boolean") return { ok: false, error: RUN };
-    runs.push(Object.freeze({ finished }));
+    const never = own(entry, "finishNeverReported");
+    if (keys.some((key) => key !== "finished" && key !== "finishNeverReported") || typeof finished !== "boolean") return { ok: false, error: RUN };
+    if (keys.includes("finishNeverReported") && (never !== true || finished)) return { ok: false, error: NEVER };
+    runs.push(Object.freeze(never === true ? { finished, finishNeverReported: true as const } : { finished }));
   }
   if (runs.length !== delegates) {
     return { ok: false, error: `A tool result's delegatedAgentRuns has one entry per delegate effect: ${counted(delegates, "effect", "effects")}, ${counted(runs.length, "entry", "entries")}` };

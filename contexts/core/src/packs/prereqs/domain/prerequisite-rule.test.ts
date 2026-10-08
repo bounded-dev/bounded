@@ -77,10 +77,9 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(error({ ...beforeSrc, require: { delegate: "", succeeded: true } })).toStartWith("A rule's require names no agent: ");
   });
 
-  test("a rule cannot require the action it comes before: the same agent, by its exact name", () => {
+  test("a rule cannot require the action it comes before", () => {
     expect(error({ ...beforeBuilder, before: { delegate: "plan-reviewer" } })).toBe("A rule cannot require the action it comes before: delegating to plan-reviewer");
-    // Agent names match exactly: Plan-Reviewer is another agent.
-    expect(error({ ...beforeBuilder, before: { delegate: "Plan-Reviewer" } })).toBe("accepted");
+    expect(error({ ...beforeBuilder, before: { delegate: "Plan-Reviewer" } })).toBe("A rule cannot require the action it comes before: delegating to Plan-Reviewer");
   });
 
   test("a rule names the files that must not change", () => {
@@ -98,9 +97,9 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(error({ ...beforeSrc, redirect: "x".repeat(1000) })).toBe("accepted");
   });
 
-  test("a rule comes before a delegation to its agent by its exact name, or a write its pattern matches ignoring case", () => {
+  test("a rule comes before a delegation to its agent, or a write its pattern matches, ignoring case", () => {
     expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "builder" }))).toBe(true);
-    expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "Builder" }))).toBe(false);
+    expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "Builder" }))).toBe(true);
     expect(rule(beforeBuilder).comesBefore(effect({ kind: "delegate", agent: "builder-2" }))).toBe(false);
     expect(rule(beforeBuilder).comesBefore(effect({ kind: "write", path: "builder", change: "create" }))).toBe(false);
     expect(rule(beforeSrc).comesBefore(effect({ kind: "write", path: "src/a.ts", change: "modify" }))).toBe(true);
@@ -130,10 +129,14 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(rule(beforeSrc).requirementKey()).not.toBe(rule(beforeTests).requirementKey());
   });
 
-  test("agent names match exactly, case-sensitively, while paths still match ignoring case", () => {
+  test("before.delegate folds case and surrounding spaces, so it catches every spelling a host may resolve; require matches exactly", () => {
+    // Claude Code 2.1.294 runs plan-reviewer for subagent_type "Plan-Reviewer": a before rule must not be dodged by spelling.
     const builder = rule(beforeBuilder);
-    for (const name of ["Builder", "BUILDER", "builder "]) expect(builder.comesBefore(effect({ kind: "delegate", agent: name }))).toBe(false);
-    expect(builder.comesBefore(effect({ kind: "delegate", agent: "builder" }))).toBe(true);
+    for (const name of ["builder", "Builder", "BUILDER", " builder "]) expect(builder.comesBefore(effect({ kind: "delegate", agent: name }))).toBe(true);
+    expect(builder.comesBefore(effect({ kind: "delegate", agent: "builders" }))).toBe(false);
+    expect(rule({ ...beforeBuilder, before: { delegate: " Builder " } }).comesBefore(effect({ kind: "delegate", agent: "builder" }))).toBe(true);
+    // A rule whose before folds to its required agent requires the action it comes before.
+    expect(error({ ...beforeBuilder, before: { delegate: " PLAN-reviewer " } })).toContain("A rule cannot require the action it comes before");
     expect(builder.requiresDelegationTo(agent("plan-reviewer"))).toBe(true);
     expect(builder.requiresDelegationTo(agent("Plan-reviewer"))).toBe(false);
     expect(rule({ ...beforeBuilder, require: { delegate: "Plan-Reviewer", succeeded: true } }).requirementKey()).not.toBe(builder.requirementKey());

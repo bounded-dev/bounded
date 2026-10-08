@@ -37,7 +37,7 @@ export interface PrerequisiteRule {
   readonly require: { readonly delegate: AgentName; readonly succeeded: true };
   readonly unchangedSince: readonly [string, ...string[]];
   readonly redirect: string;
-  /** Whether the rule comes before `effect`: a delegation to its agent (the exact name, case-sensitively), or a write to a path its pattern matches (ignoring case, as the path gate). */
+  /** Whether the rule comes before `effect`: a delegation to its agent (in any case, ignoring surrounding spaces: every spelling a host may resolve to it), or a write to a path its pattern matches (ignoring case, as the path gate). */
   comesBefore(effect: Effect): boolean;
   /** The agent whose delegation the rule requires. */
   requiredAgent(): AgentName;

@@ -158,9 +158,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
     (`src/runs/foreground/subagent-executor.ts:3544`). So a pi delegation
     without `async: false` is refused, and no pi result is counted as
     finished, until item 1c (`prereqs-pi-async`).
-  - A symbolic link a rule's `unchangedSince` patterns match, or a linked
-    directory they could reach into, makes the rule refuse, naming the link:
-    a link's target is never fingerprinted.
+  - A link is never followed: a link to a directory a rule's
+    `unchangedSince` patterns could reach into, or a link whose own path
+    they match, makes the rule refuse, naming the link; so does a FIFO,
+    socket or device they match. Other links are ignored.
+  - `before.delegate` folds case and spaces (Claude Code resolves agent
+    names case-insensitively, seen on 2.1.294); `require` is exact.
   - Records are never compacted.
   - `beforeTool` refusals are recorded with `refusedBy: null`, naming no
     pack in the guard log (the reason names it).

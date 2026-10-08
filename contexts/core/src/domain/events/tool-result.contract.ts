@@ -15,6 +15,12 @@ export declare const toolResultBrand: unique symbol;
  */
 export interface DelegatedAgentRun {
   readonly finished: boolean;
+  /**
+   * The host never reports when this agent's runs finish (pi with
+   * pi-subagents, ADR 2026-019), so no run of it can be seen to finish: only
+   * with `finished: false`; present only when true.
+   */
+  readonly finishNeverReported?: true;
 }
 
 /** A tool call that has run: the tool use, whether it succeeded, and its call id when the host gives one. */

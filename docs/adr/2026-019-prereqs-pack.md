@@ -54,11 +54,21 @@ its delegate effects started.
 
 - **Before a call.** For each effect a rule comes before, in contribution
   order, the rule's files are fingerprinted and compared with the records of
-  its requirement (the agent by its exact name, case-sensitively, as hosts find agents; patterns in any order): equal to
+  its requirement (the required agent by its exact name; patterns in any order): equal to
   one, it holds; records only over other fingerprints, it is stale; none, it
   is missing. Files that match nothing make a requirement unsatisfiable. The
   first rule that does not hold refuses, beginning `bounded/prereqs.rules:`,
   naming the contributing pack and the rule, with the rule's redirect.
+- **Agent names: `before` folds, `require` is exact, deliberately.** A
+  rule's `before.delegate` matches a delegation ignoring case and
+  surrounding spaces: Claude Code resolves agent names case-insensitively
+  (observed by the orchestrator on 2.1.294: an Agent call with
+  `subagent_type` "Plan-Reviewer" ran plan-reviewer, and SubagentStart and
+  `tool_response.agentType` said "plan-reviewer"), so an exact match would
+  let "Builder" past a rule before "builder". `require` stays exact: a run
+  recorded under another spelling does not count. Both fail closed. A rule
+  whose `before` folds to its required agent is refused as requiring the
+  action it comes before.
 - **A delegation some rule requires** is refused at the call when it is
   isolated ("Run <agent> without isolation, on the project's own files": a
   worktree branches from the default branch, so the agent would review other
@@ -89,7 +99,12 @@ its delegate effects started.
   wire, refused when not boolean, and written by `toJSON` only when true, so
   stored data keeps its shape.
 - **The result side is on `ToolResult`:** `delegatedAgentRuns?: { finished:
-  boolean }[]`, one entry per delegate effect in the effects' order.
+  boolean, finishNeverReported?: true }[]`, one entry per delegate effect in
+  the effects' order. `finishNeverReported` (only with `finished: false`)
+  says the host never reports when that agent's runs finish, so the pack
+  tells the agent "this host does not report when <agent> finishes, so
+  <agent>'s run cannot meet this requirement yet" instead of asking for a
+  re-run.
   `ToolResult.parse` refuses a list whose length differs from the number of
   delegate effects ("…: 2 effects, 1 entry"), and a list on a result with no
   delegate effect. Absent means no run is said to have finished; `toJSON`
@@ -174,11 +189,15 @@ pi-subagents' project agent directory), which give role identity.
   be met only with background subagents disabled
   (`CLAUDE_CODE_FORK_SUBAGENT=0` or `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`).
 - **On pi, no requirement can be met until item 1c:** no pi run is marked
-  finished (see "The hosts' mappings").
-- **A symbolic link the patterns match, or a linked directory they could
-  reach into, makes the fingerprint fail**, naming the link: a link's
-  target is never fingerprinted, so the rule refuses until the link is
-  replaced by files or left out of the patterns.
+  finished; every entry says `finishNeverReported` (see "The hosts'
+  mappings").
+- **Links and special files make the fingerprint fail, naming them.** A
+  link is never followed. One to a directory the patterns could reach into
+  (classified by `stat`), or one whose own path the patterns match (to a
+  file, or dangling), refuses until it is replaced by files or left out of
+  the patterns, including one created during a run; any other link is
+  ignored. A FIFO, socket or device the patterns match refuses too (fail
+  closed); one they do not match is ignored.
 - `before.write` matches file tools' writes only, not writes a shell command
   makes.
 - **ABA:** files edited and restored between the delegation and its result
