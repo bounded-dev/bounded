@@ -3,6 +3,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
+import { openComposition } from "./application/judge-calls/shell.test-support.ts";
 
 const rocketflare = definePack({
   id: packIdsFor("rocketflare")("rules"),
@@ -28,9 +29,7 @@ const composed = Composition.compose(selected, selected);
 // Opened as openProject opens a project, so its shell commands can be checked.
 beforeAll(async () => {
   if (!composed.ok) throw new Error(composed.error);
-  const openings = composed.value.read(corePack.points.onProjectOpen);
-  if (!openings.ok) throw new Error(openings.error);
-  for (const open of openings.value) await open({ root: "/work/rocketflare", kindOfPath: () => undefined }, composed.value);
+  await openComposition(composed.value, "/work/rocketflare", { kindOf: () => undefined });
 });
 
 function judge(tool: string, effects: object[]): Verdict {

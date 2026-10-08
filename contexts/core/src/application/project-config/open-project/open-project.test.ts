@@ -1,16 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, portKeysFor, Ports, ProjectPath, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
+import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
-import type { ProjectConfigSource, ProjectGuardLogs, ProjectPathKinds } from "./open-project.contract.ts";
+import type { ProjectConfigSource, ProjectGuardLogs } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
-/** A project path, as the core makes them. */
-const pathOf = (raw: string): ProjectPath => {
-  const path = ProjectPath.parse(raw);
-  if (!path.ok) throw new Error(path.error);
-  return path.value;
-};
 const clock: Clock = { now: () => "2026-10-07T12:00:00.000Z" };
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
@@ -102,16 +96,20 @@ describe("OpenProjectHandler", () => {
     expect(verdict.kind === "refuse" && verdict.reason).toBe("The guards allowed this, but the decision could not be recorded: read-only file system");
   });
 
-  test("what packs do when a project opens runs before it is judged, given the project's root and what is at a path", async () => {
-    const seen: { root: string; kind: unknown; composed: boolean }[] = [];
-    const opening: ProjectOpenHandler = async (project, composition) => {
-      seen.push({ root: project.root, kind: project.kindOfPath(pathOf("src/a.ts")), composed: composition.read(corePack.points.onProjectOpen).ok });
+  test("what packs do when a project opens runs before it is judged, given the project's root, its composition and the host's ports", async () => {
+    const seen: { root: string; port: unknown; composed: boolean }[] = [];
+    const gateId = packIdsFor("test-packs")("gate");
+    const files = portKeysFor(gateId)<{ read(): string }>("files");
+    const opening: ProjectOpenHandler = async (project, context) => {
+      const port = context.ports.get(files);
+      seen.push({ root: project.root, port: port.ok && port.value.read(), composed: context.composition.read(corePack.points.onProjectOpen).ok });
     };
-    const preparing = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.onProjectOpen, [opening])] });
-    const pathKinds: ProjectPathKinds = { forProject: (projectRoot) => (path) => (projectRoot === "/work/project" && path.value === "src/a.ts" ? "file" : "absent") };
-    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: preparing })), new Logs(), clock, { pathKinds }).execute(command);
+    const gate = definePack({ id: gateId, dependsOn: [corePack], contributes: [contribution(corePack.points.onProjectOpen, [opening])], ports: { files } });
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: defineConfig({ packs: [corePack, gate] }) })), new Logs(), clock, {
+      ports: [Ports.provide(files, (root) => ({ read: () => `files of ${root}` }))],
+    }).execute(command);
     expect(project.problem).toBeNull();
-    expect(seen).toEqual([{ root: "/work/project", kind: "file", composed: true }]);
+    expect(seen).toEqual([{ root: "/work/project", port: "files of /work/project", composed: true }]);
   });
 
   test("a pack whose work on opening fails does not stop the project opening: its own guards answer for it", async () => {
@@ -122,16 +120,6 @@ describe("OpenProjectHandler", () => {
     const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: preparing })), new Logs(), clock).execute(command);
     expect(project.problem).toBeNull();
     expect(await project.judge(write("src/a.ts"))).toBe(Verdict.allow);
-  });
-
-  test("without a way to ask what is at a path, a pack is told it cannot know", async () => {
-    let kind: unknown = "unset";
-    const opening: ProjectOpenHandler = async (project) => {
-      kind = project.kindOfPath(pathOf("src/a.ts"));
-    };
-    const preparing = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.onProjectOpen, [opening])] });
-    await new OpenProjectHandler(source(async () => ({ ok: true, value: preparing })), new Logs(), clock).execute(command);
-    expect(kind).toBeUndefined();
   });
 
   test("a pack's work on opening that never finishes is cut off, so the project still opens", async () => {
