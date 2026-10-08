@@ -2,13 +2,6 @@
 
 **The rules of engineering, for every coding agent.**
 
-> This document is written as if Bounded were finished: it describes where
-> we are going, in the present tense. What exists today is in
-> [flight-state.md](flight-state.md); each piece becomes real through an ADR
-> and the [development lifecycle](development-workflow.md).
-
----
-
 ## A morning with Bounded
 
 You open a Python service in your editor and give the agent a ticket: *add
@@ -696,6 +689,4 @@ loop means a redirect to improve.
 
 ---
 
-Bounded is open source. Start with the
-[configuration guide](configuration.md) and [the path gate](slice-3.md), or
-pick a pack from the catalogue and write its plan.
+Bounded is open source. Pick a pack, write its plan, and say the rule once.
