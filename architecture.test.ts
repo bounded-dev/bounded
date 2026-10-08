@@ -6,6 +6,7 @@ import { Glob } from "bun";
 import * as ts from "typescript";
 import {
   adapterContractViolations,
+  assertionViolations,
   barrelContracts,
   conceptTripletViolations,
   featureContractViolations,
@@ -218,7 +219,7 @@ function valueObjectClassViolations(path: string, text: string, isValueObject: (
  * definePack, point and contribution (ADR 2026-003), and a configuration is
  * made by defineConfig (ADR 2026-010).
  */
-const IDENTITY_OBJECTS = new Set(["BaseDeclaration", "PointDeclaration", "BasePack", "Pack", "BasePoint", "ExtensionPoint", "Contribution", "Config"]);
+const IDENTITY_OBJECTS = new Set(["BaseDeclaration", "PointDeclaration", "PointGroupDeclaration", "BasePack", "Pack", "BasePoint", "ExtensionPoint", "Contribution", "Config"]);
 
 /** The branded interfaces a contract exports: each declares `__brand`, or extends one of the file's interfaces that does. */
 function brandedContracts(path: string, text: string): string[] {
@@ -338,7 +339,7 @@ for (const path of appFiles) {
   }
 }
 
-// The contract rules R1–R4 (architecture.rules.test-support.ts): every file of every context, tests included.
+// The contract rules R1–R5 (architecture.rules.test-support.ts): every file of every context, tests included.
 const contextSources: SourceFile[] = await Promise.all(files.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));
 const barrels = new Map<string, ReadonlyMap<string, string>>();
 for (const context of contexts) {
@@ -355,6 +356,14 @@ const NOT_CONCEPTS = new Map([
   ["contexts/core/src/domain/shared/wire.ts", "the shared kernel: wire forms of value objects"],
   ["contexts/core/src/domain/drift/watched-paths.ts", "removed by step C of the restructure: the path gate's watched-rules concept replaces it"],
 ]);
+/** R5: the files that route events, each with the type assertions it may have. */
+const ASSERTIONS = new Map([
+  ["contexts/core/src/domain/guards/dispatch.ts", 0],
+  ["contexts/core/src/domain/guards/dispatch-event.ts", 0],
+  ["contexts/core/src/domain/events/effect.contract.ts", 0],
+  // functionOf: a contributed function's signature cannot be checked at run time (ADR 2026-007).
+  ["contexts/core/src/domain/guards/core-pack.ts", 1],
+]);
 const texts = new Map(contextSources.map(({ path, text }) => [path, text]));
 violations.push(
   ...adapterContractViolations(contextSources, barrels),
@@ -362,6 +371,7 @@ violations.push(
   ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
   ...packContractViolations(contextSources),
   ...featureContractViolations(files, texts),
+  ...assertionViolations(contextSources, ASSERTIONS),
 );
 
 describe("architecture", () => {
@@ -519,6 +529,15 @@ describe("architecture", () => {
     expect(featureContractViolations(paths, new Map([[`${dir}/feature.handler.ts`, handler]]))).toEqual([]);
     expect(featureContractViolations([`${dir}/feature.handler.ts`], new Map([[`${dir}/feature.handler.ts`, handler]]))).toEqual([`${dir} — a feature declares its ports in feature.contract.ts`]);
     expect(featureContractViolations(paths, new Map([[`${dir}/feature.handler.ts`, "export class FeatureHandler {}\n"]]))).toEqual([`${dir}/feature.handler.ts — the handler implements its feature's in port from feature.contract.ts`]);
+  });
+
+  test("R5: a routing file has exactly the type assertions it is allowed", () => {
+    const file = { path: "contexts/x/src/domain/guards/route.ts", text: "const a = b as C;\nconst d = <E>f;\nconst g = h!;\nconst k = [1] as const;\n" };
+    const clean = { path: "contexts/x/src/domain/guards/clean.ts", text: "const k = [1] as const;\nconst a: C = b;\n" };
+    expect(assertionViolations([file, clean], new Map([[clean.path, 0]]))).toEqual([]);
+    expect(assertionViolations([file], new Map([[file.path, 3]]))).toEqual([]);
+    expect(assertionViolations([file], new Map([[file.path, 0]]))).toEqual([`${file.path} — 3 type assertions (as, <T>x, !) at line 1, 2, 3; it may have 0`]);
+    expect(assertionViolations([], new Map([[file.path, 0]]))).toEqual([`${file.path} — named by the assertion rule but missing`]);
   });
 
   test("layers, dependencies and I/O follow the rules", () => {

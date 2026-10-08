@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { Composition } from "../composition/composition.ts";
 import type { Composition as CompositionType } from "../composition/composition.contract.ts";
-import type { Effect, ReadEffect, WriteEffect } from "../events/effect.contract.ts";
+import type { Effect, EffectByKind, EffectKind, ReadEffect, WriteEffect } from "../events/effect.contract.ts";
 import { SessionStart } from "../events/session-start.ts";
 import type { SessionStart as SessionStartType } from "../events/session-start.contract.ts";
 import { ToolUse } from "../events/tool-use.ts";
@@ -59,12 +59,12 @@ describe("dispatchEvent — whole calls, then each effect", () => {
     const a = definePack({
       id: packId("a"),
       dependsOn: [corePack],
-      contributes: [contribution(guards.writeGuards, [recording(calls, "a write")]), contribution(guards.readGuards, [recording(calls, "a read")])],
+      contributes: [contribution(guards.effectGuards.write, [recording(calls, "a write")]), contribution(guards.effectGuards.read, [recording(calls, "a read")])],
     });
     const b = definePack({
       id: packId("b"),
       dependsOn: [corePack],
-      contributes: [contribution(guards.readGuards, [recording(calls, "b read")]), contribution(guards.toolUseGuards, [recording(calls, "b call")])],
+      contributes: [contribution(guards.effectGuards.read, [recording(calls, "b read")]), contribution(guards.toolUseGuards, [recording(calls, "b call")])],
     });
     const rename = call([{ kind: "read", path: "a.ts" }, { kind: "write", path: "a.ts", change: "delete" }, { kind: "write", path: "b.ts", change: "create" }]);
     expect(dispatchEvent(composed([b, a, corePack]), rename)).toBe(Verdict.allow);
@@ -81,13 +81,13 @@ describe("dispatchEvent — whole calls, then each effect", () => {
       id: packId("all"),
       dependsOn: [corePack],
       contributes: [
-        contribution(guards.readGuards, [note("read")]),
-        contribution(guards.listGuards, [note("list")]),
-        contribution(guards.writeGuards, [note("write")]),
-        contribution(guards.executeGuards, [note("execute")]),
-        contribution(guards.fetchGuards, [note("fetch")]),
-        contribution(guards.delegateGuards, [note("delegate")]),
-        contribution(guards.invokeGuards, [note("invoke")]),
+        contribution(guards.effectGuards.read, [note("read")]),
+        contribution(guards.effectGuards.list, [note("list")]),
+        contribution(guards.effectGuards.write, [note("write")]),
+        contribution(guards.effectGuards.execute, [note("execute")]),
+        contribution(guards.effectGuards.fetch, [note("fetch")]),
+        contribution(guards.effectGuards.delegate, [note("delegate")]),
+        contribution(guards.effectGuards.invoke, [note("invoke")]),
       ],
     });
     const everything = call([
@@ -103,8 +103,32 @@ describe("dispatchEvent — whole calls, then each effect", () => {
     expect(seen).toEqual(["invoke:invoke", "delegate:delegate", "fetch:fetch", "execute:execute", "write:write", "list:list", "read:read"]);
   });
 
+  const everyKind = call([
+    { kind: "invoke", name: "mcp__docs__search" },
+    { kind: "delegate", agent: "explore" },
+    { kind: "fetch", url: "https://example.com" },
+    { kind: "execute", command: "make" },
+    { kind: "write", path: "a.ts", change: "create" },
+    { kind: "list", root: "." },
+    { kind: "read", path: "a.ts" },
+  ]);
+  /** A contribution of `guard` to the point for `kind`. */
+  const guarding = <K extends EffectKind>(kind: K, guard: EffectGuard<EffectByKind[K]>) => contribution(guards.effectGuards[kind], [guard]);
+  for (const kind of ["read", "list", "write", "execute", "fetch", "delegate", "invoke"] as const) {
+    test(`a guard contributed to effectGuards.${kind} sees only ${kind} effects`, () => {
+      const seen: string[] = [];
+      const guard = (effect: Effect) => {
+        seen.push(effect.kind);
+        return Verdict.allow;
+      };
+      const one = definePack({ id: packId("one"), dependsOn: [corePack], contributes: [guarding(kind, guard)] });
+      expect(dispatchEvent(composed([one, corePack]), everyKind)).toBe(Verdict.allow);
+      expect(seen).toEqual([kind]);
+    });
+  }
+
   test("an effect kind with no guards is allowed", () => {
-    const onlyWrites = definePack({ id: packId("writes"), dependsOn: [corePack], contributes: [contribution(guards.writeGuards, [() => Verdict.refuse("No writes", "Ask")])] });
+    const onlyWrites = definePack({ id: packId("writes"), dependsOn: [corePack], contributes: [contribution(guards.effectGuards.write, [() => Verdict.refuse("No writes", "Ask")])] });
     expect(dispatchEvent(composed([onlyWrites, corePack]), call([{ kind: "read", path: "a.ts" }, { kind: "execute", command: "ls" }]))).toBe(Verdict.allow);
   });
 
@@ -114,7 +138,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
       id: packId("gate"),
       dependsOn: [corePack],
       contributes: [
-        contribution(guards.writeGuards, [
+        contribution(guards.effectGuards.write, [
           (effect: WriteEffect) => {
             calls.push(effect.path.value);
             return effect.path.value.startsWith("generated/") ? Verdict.refuse("generated/ belongs to the generator", "Change the generator's input instead") : Verdict.allow;
@@ -143,7 +167,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
       id: packId("gate"),
       dependsOn: [corePack, rules],
       contributes: [
-        contribution(guards.readGuards, [
+        contribution(guards.effectGuards.read, [
           (effect: ReadEffect, composition, whole) => {
             const prefixes = composition.read(rules.points.protectedPaths);
             if (!prefixes.ok) return Verdict.refuse(prefixes.error, "Select the rules pack");
@@ -162,7 +186,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
       id: packId("broken"),
       dependsOn: [corePack],
       contributes: [
-        contribution(guards.readGuards, [
+        contribution(guards.effectGuards.read, [
           () => {
             throw new Error("rules file vanished");
           },
@@ -184,7 +208,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
 
   test("a pack that is not selected leaves its guards out", () => {
     const calls: string[] = [];
-    const refusing = definePack({ id: packId("refusing"), dependsOn: [corePack], contributes: [contribution(guards.writeGuards, [recording(calls, "never", Verdict.refuse("no", "no"))])] });
+    const refusing = definePack({ id: packId("refusing"), dependsOn: [corePack], contributes: [contribution(guards.effectGuards.write, [recording(calls, "never", Verdict.refuse("no", "no"))])] });
     expect(dispatchEvent(composed([refusing, corePack], [corePack]), write)).toBe(Verdict.allow);
     expect(calls).toEqual([]);
   });
@@ -198,7 +222,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
     const pack = definePack({
       id: packId("sessions"),
       dependsOn: [corePack],
-      contributes: [contribution(guards.sessionStartGuards, [onStart]), contribution(guards.toolUseGuards, [recording(calls, "tool")]), contribution(guards.writeGuards, [recording(calls, "write")])],
+      contributes: [contribution(guards.sessionStartGuards, [onStart]), contribution(guards.toolUseGuards, [recording(calls, "tool")]), contribution(guards.effectGuards.write, [recording(calls, "write")])],
     });
     const started = SessionStart.parse({ role: null });
     if (!started.ok) throw new Error(started.error);
@@ -238,11 +262,11 @@ describe("dispatchEvent — fails closed", () => {
     const bad = (definePack as unknown as (spec: object) => BasePack)({
       id: "test-packs/bad",
       dependsOn: [corePack],
-      contributes: [contribution(guards.writeGuards, ["not a guard" as unknown as EffectGuard<WriteEffect>])],
+      contributes: [contribution(guards.effectGuards.write, ["not a guard" as unknown as EffectGuard<WriteEffect>])],
     });
     expect(Composition.compose([bad, corePack], [bad, corePack])).toEqual({
       ok: false,
-      error: "Pack 'test-packs/bad' contributes an invalid value to extension point 'bounded/core.writeGuards': a guard is a function. Fix the value, or remove the contribution",
+      error: "Pack 'test-packs/bad' contributes an invalid value to extension point 'bounded/core.effectGuards.write': a guard is a function. Fix the value, or remove the contribution",
     });
   });
 });
@@ -286,7 +310,7 @@ describe("decideEvent — the verdict and who refused", () => {
     const gate = definePack({
       id: packId("gate"),
       dependsOn: [corePack],
-      contributes: [contribution(guards.writeGuards, [() => Verdict.refuse("No writes", "Ask")]), contribution(guards.toolUseGuards, [(use) => (use.toolKind === "shell" ? Verdict.refuse("No shell", "Ask") : Verdict.allow)])],
+      contributes: [contribution(guards.effectGuards.write, [() => Verdict.refuse("No writes", "Ask")]), contribution(guards.toolUseGuards, [(use) => (use.toolKind === "shell" ? Verdict.refuse("No shell", "Ask") : Verdict.allow)])],
     });
     const composition = composed([gate, corePack]);
     const refused = decideEvent(composition, call([{ kind: "read", path: "a.ts" }, { kind: "write", path: "b.ts", change: "create" }]));
@@ -301,7 +325,7 @@ describe("decideEvent — the verdict and who refused", () => {
   });
 
   test("a failing guard is attributed to its pack", () => {
-    const broken = definePack({ id: packId("broken"), dependsOn: [corePack], contributes: [contribution(guards.readGuards, [() => { throw new Error("x"); }])] });
+    const broken = definePack({ id: packId("broken"), dependsOn: [corePack], contributes: [contribution(guards.effectGuards.read, [() => { throw new Error("x"); }])] });
     const judged = decideEvent(composed([broken, corePack]), call([{ kind: "read", path: "a.ts" }]));
     expect(wireOf(judged.refusedBy)).toEqual({ packId: "test-packs/broken", effect: { kind: "read", path: "a.ts" } });
   });
@@ -320,19 +344,8 @@ describe("corePack — watched paths", () => {
 describe("corePack", () => {
   test("is the pack bounded/core, declaring a guards point per event kind and per effect kind", () => {
     expect(corePack.id.value).toBe("bounded/core");
-    expect(Object.keys(corePack.points).sort()).toEqual([
-      "delegateGuards",
-      "executeGuards",
-      "fetchGuards",
-      "invokeGuards",
-      "listGuards",
-      "onProjectOpen",
-      "readGuards",
-      "sessionStartGuards",
-      "toolUseGuards",
-      "watchedPaths",
-      "writeGuards",
-    ]);
+    expect(Object.keys(corePack.points).sort()).toEqual(["effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards", "watchedPaths"]);
+    expect(Object.keys(corePack.points.effectGuards).sort()).toEqual(["delegate", "execute", "fetch", "invoke", "list", "read", "write"]);
     expect(corePack.dependsOn).toEqual([]);
   });
 });

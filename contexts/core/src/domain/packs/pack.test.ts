@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Composition } from "../composition/composition.ts";
 import type { Result } from "../shared/result.ts";
-import { contribution, definePack, point } from "./pack.ts";
+import { contribution, definePack, point, pointGroup } from "./pack.ts";
 import { packIdsFor } from "./pack-id.ts";
 
 const packId = packIdsFor("test-packs");
@@ -35,5 +35,22 @@ describe("definePack, point and contribution — packs as the core makes them", 
     const composed = Composition.compose([copy as typeof words], [copy as typeof words]);
     expect(composed.ok).toBe(false);
     expect(!composed.ok && composed.error).toContain("was not built with definePack(...), or was built by a different copy of bounded");
+  });
+
+  test("a group's member points have the ids <pack>.<group>.<member>, are owned by the pack and frozen, and are read like any point", () => {
+    const words = definePack({
+      id: packId("words"),
+      points: { byLanguage: pointGroup({ english: point({ description: "English words", check: text, values: ["alpha"] }), french: point({ description: "French words", check: text }) }) },
+    });
+    const { english, french } = words.points.byLanguage;
+    expect(Object.isFrozen(words.points.byLanguage)).toBe(true);
+    expect(Object.getPrototypeOf(words.points.byLanguage)).toBe(null);
+    expect([english.id, french.id]).toEqual(["test-packs/words.byLanguage.english", "test-packs/words.byLanguage.french"]);
+    expect(english.owner).toBe(words);
+    expect(Object.isFrozen(english)).toBe(true);
+    const user = definePack({ id: packId("user"), dependsOn: [words], contributes: [contribution(french, ["bonjour"])] });
+    const composed = Composition.compose([words, user], [words, user]);
+    expect(composed.ok && composed.value.read(english)).toEqual({ ok: true, value: ["alpha"] });
+    expect(composed.ok && composed.value.read(french)).toEqual({ ok: true, value: ["bonjour"] });
   });
 });

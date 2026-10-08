@@ -33,7 +33,7 @@ const command = root.value;
 const write = (path: string) => ({ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
 
 const noGenerated = (effect: WriteEffect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow);
-const config = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.writeGuards, [noGenerated])] });
+const config = defineConfig({ packs: [corePack], contributes: [contribution(corePack.points.effectGuards.write, [noGenerated])] });
 
 describe("OpenProjectHandler", () => {
   test("opens a project whose configuration loads: its judge decides with the composed packs and records in the project's log", async () => {

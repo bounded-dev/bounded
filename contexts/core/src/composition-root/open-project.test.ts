@@ -12,7 +12,7 @@ process.env.XDG_STATE_HOME = mkdtempSync(join(tmpdir(), "bounded-state-"));
 const CONFIG = `import { contribution, corePack, defineConfig, Verdict } from "bounded/domain";
 export default defineConfig({
   packs: [corePack],
-  contributes: [contribution(corePack.points.writeGuards, [(effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow)])],
+  contributes: [contribution(corePack.points.effectGuards.write, [(effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow)])],
 });
 `;
 
@@ -80,7 +80,7 @@ try { (Composition as unknown as { compose: unknown }).compose = () => ({ ok: fa
 export const attempt = patched;
 export default defineConfig({
   packs: [corePack],
-  contributes: [contribution(corePack.points.writeGuards, [() => Verdict.refuse("No writes", "Ask")])],
+  contributes: [contribution(corePack.points.effectGuards.write, [() => Verdict.refuse("No writes", "Ask")])],
 });
 `;
     const root = project({ "bounded.config.ts": tampering });

@@ -88,7 +88,7 @@ const noGenerated = definePack({
   id: packIdsFor("test-packs")("no-generated"),
   dependsOn: [corePack],
   contributes: [
-    contribution(corePack.points.writeGuards, [
+    contribution(corePack.points.effectGuards.write, [
       (effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow),
     ]),
   ],

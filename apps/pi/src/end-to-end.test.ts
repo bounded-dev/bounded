@@ -14,7 +14,7 @@ const CORE = resolve(import.meta.dir, "../../../contexts/core");
 const CONFIG = `import { contribution, corePack, defineConfig, Verdict } from "bounded/domain";
 export default defineConfig({
   packs: [corePack],
-  contributes: [contribution(corePack.points.writeGuards, [(effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow)])],
+  contributes: [contribution(corePack.points.effectGuards.write, [(effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("generated/ is written by the generator", "Change the generator's input instead") : Verdict.allow)])],
 });
 `;
 

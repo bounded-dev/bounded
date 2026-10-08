@@ -1,10 +1,11 @@
 // The contract rules (AGENTS.md "Layout", ADR 2026-013): adapters implement
 // contract ports (R1), every @implementedBy is true (R2), every domain concept
 // is a triplet, four files for a value object (R3), every pack a package ships
-// has a contract (R3b), and every feature has a contract its handler
-// implements (R4). Each rule reads source text with the TypeScript parser and
-// is a pure function of the files it is given, so it can be tested on small
-// fixtures as well as run on the repository.
+// has a contract (R3b), every feature has a contract its handler implements
+// (R4), and the files that route events assert no types (R5). Each rule reads
+// source text with the TypeScript parser and is a pure function of the files
+// it is given, so it can be tested on small fixtures as well as run on the
+// repository.
 import * as ts from "typescript";
 
 /** A source file: its path from the repository root, and its text. */
@@ -239,6 +240,32 @@ export function featureContractViolations(paths: readonly string[], texts: Reado
     const classes = source.statements.filter((statement): statement is ts.ClassDeclaration => ts.isClassDeclaration(statement));
     const fromContract = classes.some((node) => implemented(source, node).some(({ from }) => from !== undefined && resolve(handler, from) === contract));
     if (!fromContract) out.push(`${handler} — the handler implements its feature's in port from ${feature}.contract.ts`);
+  }
+  return out;
+}
+
+/**
+ * R5: each file named in `allowed` contains exactly that many type assertions
+ * (`x as T`, `<T>x`, `x!`), so routing is typed by the compiler, not claimed.
+ */
+export function assertionViolations(files: readonly SourceFile[], allowed: ReadonlyMap<string, number>): string[] {
+  const out: string[] = [];
+  for (const [path, limit] of allowed) {
+    const file = files.find((candidate) => candidate.path === path);
+    if (file === undefined) {
+      out.push(`${path} — named by the assertion rule but missing`);
+      continue;
+    }
+    const lines: number[] = [];
+    const source = parse(file);
+    const visit = (node: ts.Node): void => {
+      if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isNonNullExpression(node)) {
+        if (!(ts.isAsExpression(node) && ts.isTypeReferenceNode(node.type) && node.type.getText(source) === "const")) lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    if (lines.length !== limit) out.push(`${path} — ${lines.length} type assertions (as, <T>x, !) at line ${lines.join(", ") || "none"}; it may have ${limit}`);
   }
   return out;
 }
