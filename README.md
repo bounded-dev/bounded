@@ -87,9 +87,9 @@ hosts:
   glob, its own exceptions, what it denies, a redirect); its guards refuse
   reads, listings and writes a rule denies, naming the rule and the pack
   that contributed it. A denial always wins. The pack ships no rules of its
-  own: the configuration `bounded init` writes contributes five defaults that
-  protect the project's Bounded configuration, `.bounded/` and the files that
-  run Bounded (ADR 2026-009).
+  own: the configuration `bounded init` writes contributes seven defaults that
+  protect the project's Bounded configuration, `.bounded/`, the files that
+  run Bounded and git's hooks and config (ADR 2026-009).
 
 The code lives in `contexts/core` (the `bounded` package), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
@@ -115,7 +115,7 @@ does two things.
 - **It writes `bounded.config.ts`**, selecting the core and the path gate.
   The path gate ships no rules of its own
   ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)). The configuration
-  `init` writes contributes five default rules. Agents may not change:
+  `init` writes contributes seven default rules. Agents may not change:
   - `bounded.config.*`;
   - Bounded's own state in `.bounded/`;
   - Claude Code's project settings files (`.claude/settings*.json`): they
@@ -124,9 +124,29 @@ does two things.
     user-level `~/.claude/settings.json` is outside the project and not
     covered;
   - pi's loader (`.pi/extensions/bounded/**`);
-  - Bounded's installed code (`node_modules/bounded/**`).
+  - Bounded's installed code (`node_modules/bounded/**`);
+  - git's hooks (`.git/hooks/**`), which git runs later, outside Bounded's
+    view, and git's config (`.git/config`), which can point `core.hooksPath`
+    at other hooks.
 
   Keep, change or remove them.
+
+  **Bounded discourages agents and keeps a record; it is not a security
+  boundary.** An agent running as your user can always get round it. For
+  enforcement, pair it with your host's operating-system sandbox, such as
+  Claude Code's sandbox mode. Known ways round it:
+  - drift does not watch `node_modules` or `.git`, so what a command changes
+    there is not put back;
+  - commands the path gate does not recognise as writing, such as
+    `sed -i`, `perl -i`, `node -e` and `python -c`;
+  - `git config …` and `git -c core.hooksPath=…`, which the path gate sees
+    as reads, so they get past the rules on git's hooks and config;
+  - paths the path gate cannot resolve (variables, globs), which it allows;
+  - user-level settings outside the project, such as
+    `~/.claude/settings.json`;
+  - writes delayed into the background, after the tool call is judged;
+  - drift's snapshots, kept in a state directory the user (and so the
+    agent) can write.
 - **It installs the hooks of your agent hosts.** These are the hosts whose
   directory the project has (`.claude/`, `.pi/`), or those named with
   `--host claude-code` or `--host pi`.
@@ -150,7 +170,7 @@ export default defineConfig({
   packs: [corePack, pathGate],
   contributes: [
     contribution(pathGate.points.protectedPaths, [
-      // ...init's five default rules...
+      // ...init's seven default rules...
       { match: "secrets/**", deny: ["read", "create", "modify", "delete"], why: "secrets are kept by people", redirect: "Ask a maintainer for the value you need" },
     ]),
   ],
