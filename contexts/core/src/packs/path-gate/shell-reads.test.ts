@@ -311,3 +311,20 @@ describe("the path gate — commands that run another command", () => {
     for (const command of ["sudo -v", "env", "timeout 5", "nice", "env FOO=.env true"]) expect([command, shell(command).kind]).toEqual([command, "allow"]);
   });
 });
+
+describe("the path gate — wrappers that set where or what their command runs", () => {
+  test("env -S runs its string as a nested command line", async () => {
+    const shell = await shellWith([env]);
+    for (const command of ["env -S 'cat .env'", "env -S'cat .env'", "env --split-string='cat .env'"]) expect([command, shell(command).kind]).toEqual([command, "refuse"]);
+    expect(shell("env -S 'echo .env'")).toBe(Verdict.allow);
+  });
+
+  test("env -C and sudo -D run their command from that directory", async () => {
+    const shell = await shellWith([env], { sub: "directory" });
+    for (const command of ["env -C sub cat ../.env", "env --chdir=sub cat ../.env", "sudo -D sub cat ../.env", "sudo --chdir=sub cat ../.env"]) {
+      expect([command, shell(command).kind]).toEqual([command, "refuse"]);
+    }
+    expect(shell("env -C sub cat .env")).toBe(Verdict.allow);
+    expect(shell("env -C $DIR cat .env")).toBe(Verdict.allow);
+  });
+});

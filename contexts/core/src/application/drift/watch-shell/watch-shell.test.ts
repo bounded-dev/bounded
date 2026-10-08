@@ -38,6 +38,11 @@ class FakeFiles implements WatchedFiles {
     return out;
   }
 
+  rulesWatching(rules: readonly WatchedPath[], path: string): readonly number[] {
+    const every = rules.flatMap((r, index) => (new Bun.Glob(r.match).match(path) && !(r.except ?? []).some((e) => new Bun.Glob(e).match(path)) ? [index] : []));
+    return this.allRules ? every : every.slice(0, 1);
+  }
+
   async hash(rules: readonly WatchedPath[]): Promise<Result<WatchedHashes>> {
     if (this.hashFailure !== undefined) return { ok: false, error: this.hashFailure };
     return { ok: true, value: this.hashes(this.working, rules) };
@@ -507,5 +512,36 @@ describe("WatchShellHandler — every watched path that matches a file counts", 
     expect(files.working.get("generated/b.ts")).toBe("changed, which is allowed");
     expect(check.message).toBe("This command changed protected files, and they were restored: generated/a.ts was modified — protected because a.ts is pinned. Ask the owner of a.ts.");
     expect(log.decisions[0]?.verdict).toMatchObject({ redirect: "Ask the owner of a.ts" });
+  });
+});
+
+describe("WatchShellHandler — which paths watch a file is worked out again after the command", () => {
+  test("a snapshot whose stored rules were loosened still has every forbidden change undone", async () => {
+    const layered = definePack({
+      id: packIdsFor("test-packs")("layered"),
+      dependsOn: [corePack],
+      contributes: [
+        contribution(corePack.points.watchedPaths, [
+          { match: "generated/**", changes: ["create"], why: "nothing new goes into generated/", redirect: "Change the generator's input" },
+          { match: "generated/a.ts", changes: ["modify"], why: "a.ts is pinned", redirect: "Ask the owner of a.ts" },
+        ]),
+      ],
+    });
+    const all = [layered, corePack];
+    const composed = Composition.compose(all, all);
+    if (!composed.ok) throw new Error(composed.error);
+    const files = new FakeFiles({ "generated/a.ts": "a" });
+    files.allRules = true;
+    const snapshots = new FakeSnapshots();
+    const watch = new WatchShellHandler(composed.value, files, snapshots, new FakeLog(), clock);
+    await watch.snapshot(use(shell));
+    const saved = snapshots.kept.get("c1") as { files: Record<string, { rule: number; rules?: number[] }> };
+    const entry = saved.files["generated/a.ts"] as { rule: number; rules?: number[] };
+    entry.rule = 0;
+    delete entry.rules;
+    files.working.set("generated/a.ts", "tampered");
+    const check = await watch.verify(result());
+    expect(check.changed).toEqual([{ path: "generated/a.ts", change: "modified" }]);
+    expect(files.working.get("generated/a.ts")).toBe("a");
   });
 });
