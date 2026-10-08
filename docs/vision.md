@@ -335,10 +335,61 @@ many uses. They all build on one shared foundation, **selectors**.
 | **briefs** | Context at the moment of need: the first read under `packages/db/` brings in that folder's conventions |
 | **rehearsal** | Observe mode ("would have refused") and replay of past guard logs against a new configuration: CI for your rules |
 | **rule-miner** | Learns from your corrections and proposes new rules as a diff to `bounded.config.ts`; never applies them itself |
-| **oracle** | For rules too fuzzy for patterns, a model or reviewer agent decides; when unsure it refuses or asks, never guesses allow |
+| **judge** | Rules in plain language, checked by a model: "test descriptions say what behaviour is expected", "this diff does not weaken any test", "names say exactly what they hold". Each rule sets the minimum confidence needed to pass (see below) |
 | **chaos** | Evaluation-only fault injection: do agents recover, and do the redirects lead them to the right place? |
 
-### Content packs
+### The judge: rules too subtle for patterns
+
+Some of the most valuable rules can't be written as a glob or a regex:
+
+- every test's description says what behaviour it expects;
+- this change does not weaken a test (no loosened assertion, no deleted
+  edge case, no `expect(true)`);
+- a name says exactly what it holds;
+- the spec describes *what*, not *how*;
+- an adapter contains no business rules.
+
+The judge pack checks rules like these with a model, under the same
+contract as every other guard:
+
+```ts
+// proposed
+contribution(judge.points.rules, [
+  {
+    id: "tests-not-weakened",
+    rule: "The change does not weaken any existing test: no removed or loosened assertion, no deleted case, no skip.",
+    when: "tests",                 // a selector
+    evidence: "diff",              // what the model sees: the diff, the written file, the test output…
+    minimumToPass: 0.9,            // below this, refuse
+    examples: { pass: ["…"], fail: ["…"] },
+    redirect: "Restore the assertion, or ask the reviewer to approve weakening it",
+  },
+]);
+```
+
+- **A threshold the project chooses.** Each rule sets the minimum
+  confidence needed to pass. Below it, the call is refused with the model's
+  reason added to the redirect. An optional middle band asks a human
+  instead of refusing.
+- **Measured confidence, not stated confidence.** A model's own "I'm 92%
+  sure" is poorly calibrated. The judge can sample the classification
+  several times and use the share of passing answers, or a model's token
+  probabilities where the provider exposes them.
+- **Calibrated in CI.** Each rule's pass and fail examples form an
+  evaluation set. The catalog's conformance run reports each rule's
+  precision and recall, so a threshold is a measured choice. Rehearsal mode
+  tunes thresholds on real guard logs before a rule is enforced.
+- **Repeatable and recorded.** Verdicts are cached by a hash of the rule,
+  the model and the evidence, so the same change always gets the same
+  answer. The guard log records the model, the score and the reasoning.
+- **At the right moments.** A model call takes time and money, so judge
+  rules run on selected effects (writes to tests, commits, the end of a
+  session), not on every read. Slow checks return a pending verdict.
+- **Fail closed.** If the model can't be reached, the rule refuses (or asks,
+  if the project chooses). It never assumes a pass. The model itself is a
+  port the project provides: a hosted API or a local model.
+
+### Content packs, for any language
 
 Language and framework knowledge lives in **content packs** that sit on top
 of the generic ones. For example, `typescript-strict` contributes AST lint
@@ -346,6 +397,41 @@ rules to receipts, banned escape hatches to content-gate and brief lines to
 the builder. `hexagonal` contributes layer rules; `postgres-migrations`
 contributes obligations, declarations and a skill. The core never learns a
 language's name; packs do.
+
+Bounded therefore guards projects in **any language**. Effects are paths,
+commands and URLs, not TypeScript. A Python project selects Python packs,
+which are ordinary npm packages like any other:
+
+| Pack | Contributes |
+|---|---|
+| `python-uv` | Selectors (`tests = write("**/test_*.py")`, `install = run("pip install *")`); command-gate redirects ("`uv add`, not `pip install`"; "`uv run pytest`, not bare `pytest`"); supply-chain rules using PyPI metadata |
+| `python-strict` | Receipts for `ruff check` and `pyright --strict`; content-gate bans on `# type: ignore`, `Any` and bare `except:`; matching lines in the builder's brief |
+| `pytest` | Per-test outcomes read from JUnit XML, so red-first, ratchet and receipts know exactly which tests failed, passed or were skipped |
+| `python-layers` | Architecture rules through `import-linter` contracts, run as a receipt |
+| `django-migrations` | Obligations (`makemigrations --check` after a model change), a rollback declaration, a migration skill |
+| `notebooks` | No committed output cells; notebooks paired with scripts through co-change |
+
+Each pack is built the same way:
+
+- **TypeScript for the wiring, any language for the checks.** A pack's
+  overview (its points, contributions and dependencies) is TypeScript, so
+  composition stays typed. Its checks can be anything that runs: a Python
+  script shipped in the package, a linter, a test runner. They report back
+  through a port in a small JSON format that is parsed at the boundary, and
+  anything unreadable is a refusal.
+- **Python dependencies are pinned and fail closed.** npm does not install
+  Python packages, so a Python pack ships a lockfile with hashes and runs
+  its tools through `uv`. When the project opens, a missing `uv` or a tool
+  that cannot be resolved refuses the pack's guards with the fix ("install
+  uv: …"), never a silent skip.
+- **Fast checks stay fast.** Guards that run before every call parse in
+  process (tree-sitter has grammars for most languages). Slow checks, such
+  as type-checking a whole project, belong to receipts, exit-gate and jobs,
+  not to each call.
+
+The same pattern serves Go, Rust, Java or anything else: generic packs
+provide the mechanism, and a language's packs provide selectors, commands,
+checks and brief lines.
 
 ## 8. Recipes
 
@@ -371,6 +457,7 @@ export default defineConfig({
 | Recipe | Packs | What you get |
 |---|---|---|
 | **Strict TDD** | phases, zones, content-gate, ratchet, red-first, separation-of-duties | Only tests are writable in `red`; every new test fails first; no `.skip`; the test count never drops; nobody weakens their own tests |
+| **Test quality** | judge, ratchet, red-first, receipts | Every test describes the behaviour it expects; no change weakens a test, judged on the diff; mutation score never drops |
 | **Honest done** | receipts, exit-gate, co-change | "Done" means the checks passed on this exact tree and the docs moved with the code |
 | **The agent pipeline** | seats, zones, blindness, guidance, phases, receipts, red-first, two-key, escalation | Architect, test-writer, builder and reviewer agents, blind to each other's side, through design → red → green → deliver. This reproduces the original Bounded harness as configuration |
 | **Database migrations** | obligations, briefs, declarations, reversibility, checkpoints, two-key | Codegen after schema changes, a rollback plan, a checkpoint and a second key before `migrate` |
