@@ -32,9 +32,9 @@ function project(files: Record<string, string> = {}): string {
 }
 
 describe("bounded-cli: the bounded command, in its own app", () => {
-  test("init in a fresh project writes the configuration, runs the host installers and says to restart the host session", async () => {
+  test("init --no-install in a fresh project writes the configuration, runs the host installers and says to restart the host session", async () => {
     const root = project();
-    const ran = await runBoundedCli(["init"], root);
+    const ran = await runBoundedCli(["init", "--no-install"], root);
     expect(ran.exitCode).toBe(0);
     expect(readFileSync(join(root, "bounded.config.ts"), "utf8")).toBe(INITIAL_CONFIG);
     expect(existsSync(join(root, "fake-hook.json"))).toBe(true);

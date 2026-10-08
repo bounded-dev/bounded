@@ -2818,9 +2818,9 @@
     "case": "the bounded CLI > init in a fresh project writes the configuration, runs the host installers and says to restart the host session",
     "successor": {
       "file": "apps/cli/src/bounded-cli.test.ts",
-      "case": "bounded-cli: the bounded command, in its own app > init in a fresh project writes the configuration, runs the host installers and says to restart the host session"
+      "case": "bounded-cli: the bounded command, in its own app > init --no-install in a fresh project writes the configuration, runs the host installers and says to restart the host session"
     },
-    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title"
+    "reason": "the CLI moved out of the core into its own app, apps/cli (bounded-cli), by the maintainer's decision (ADR 2026-016); the case moved with it under the app's own title; then plain `bounded init` now installs bounded, bounded-cli and the hosts' adapters from the npm registry, then hands over to the installed `bounded init --no-install`, which sets the project up: the case runs that form"
   },
   {
     "file": "contexts/core/src/composition-root/bounded-cli.test.ts",
@@ -3028,5 +3028,14 @@
       "case": "bounded-cli — installCommand: every package manager installs from the rewritten manifest > runs each manager's own plain install"
     },
     "reason": "every package manager now installs from the rewritten package.json with its plain install: npm refuses an `add` whose override ($bounded) refers to a direct dependency that does not exist yet (EOVERRIDE), so upgradeCommands is gone"
+  },
+  {
+    "file": "apps/cli/src/bounded-cli.test.ts",
+    "case": "bounded-cli: the bounded command, in its own app > init in a fresh project writes the configuration, runs the host installers and says to restart the host session",
+    "successor": {
+      "file": "apps/cli/src/bounded-cli.test.ts",
+      "case": "bounded-cli: the bounded command, in its own app > init --no-install in a fresh project writes the configuration, runs the host installers and says to restart the host session"
+    },
+    "reason": "plain `bounded init` now installs bounded, bounded-cli and the hosts' adapters from the npm registry, then hands over to the installed `bounded init --no-install`, which sets the project up: the case runs that form"
   }
 ]
