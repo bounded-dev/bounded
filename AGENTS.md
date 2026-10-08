@@ -120,18 +120,27 @@ Rules, enforced by `architecture.test.ts` unless stated:
   implementing a port an application contract declares, in a file that
   exports nothing else. R2: every port tagged `@implementedBy` has an
   adapter per technology named and a conformance suite each runs. R3: every
-  domain concept (in `domain/`, and a pack's `domain/` and `pack/`) is
+  domain concept (in `domain/`, and a pack's `domain/`) is
   `<name>.contract.ts`, `<name>.ts` and `<name>.test.ts`, plus
-  `<name>.laws.test.ts` for a value object. R3b: every pack a package ships
-  is typed by the contract beside it. R4: every feature has
+  `<name>.laws.test.ts` for a value object; a pack is `<name>.pack.ts`,
+  `<name>.contract.ts` and `<name>.pack.test.ts`. R4: every feature has
   `<feature>.contract.ts`, naming every port it uses, and its handler
   implements the in port from it. R5: the files that route events
   (`dispatch.ts`, `dispatch-event.ts`, `effect.contract.ts`) assert no types
-  (`as`, `<T>x`, `!`), and `core-pack.ts` has exactly one, in `functionOf`.
+  (`as`, `<T>x`, `!`, silencing directives), and the core pack's
+  `guard-points.ts` has exactly one, in `functionOf`.
   R6: in domain and application code, a shape check (`Array.isArray`,
   `typeof … === "object"`, `instanceof`) appears only in a file that owns a
   shape (a class with a static `parse` or a private constructor, a `parse`
-  function, a command), or is named in the test with its reason.
+  function, a command), or is named in the test with its reason. R7: a
+  shipped pack's directory holds exactly `<name>.pack.ts` (its overview),
+  `<name>.contract.ts`, `index.ts`, the overview's test and an optional
+  README, and only the folders `domain/`, `application/` and `adapters/`;
+  a pack is defined only in an overview, which binds imported names in
+  definePack's sections (id, dependsOn, points, contributes, ports, in that
+  order), typed by its contract, with no logic, and imports only its own
+  domain/ and application/ (never an adapter). The core's `core.pack.ts`
+  follows the same order and no-logic rules.
   Exempt, each named in the test with its
   reason: barrels and the shared kernel (`domain/shared/{result,read,text,wire}.ts`).
 - **Shape checks live in the class that owns the shape (ADR 2026-013).**

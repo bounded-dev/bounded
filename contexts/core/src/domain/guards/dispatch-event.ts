@@ -9,7 +9,7 @@ import { Verdict } from "../verdicts/verdict.ts";
 import type * as Contract from "./dispatch-event.contract.ts";
 import type { Judgement } from "./dispatch-event.contract.ts";
 import type { LabelledGuard } from "./dispatch.contract.ts";
-import { corePack } from "./core-pack.ts";
+import { corePack } from "../core-pack/core.pack.ts";
 import { firstRefusal, outermost, unfinished } from "./dispatch.ts";
 
 const CORE = corePack.id.value;

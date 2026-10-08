@@ -206,6 +206,22 @@ tool lifecycle, recorded below when it lands).
   `[...pathGateFileSystem(), ...pathGateTreeSitter()]`. The grammar still
   loads once per process; the shell checks stay keyed by composition, since
   a synchronous guard cannot await a port.
+- **One overview file per pack.** A pack is defined in `<name>.pack.ts`,
+  which binds imported names in definePack's sections, always in the order
+  `id`, `dependsOn`, `points` (what other packs contribute to),
+  `contributes` (what it contributes to its dependencies' points: guards,
+  and the core's `onProjectOpen`, `beforeTool` and `afterTool`) and `ports`
+  (what a host supplies), typed by `<name>.contract.ts`, with no logic.
+  The path gate's root holds only `path-gate.pack.ts`, `path-gate.contract.ts`,
+  `index.ts` and the overview's test; its guards are
+  `application/judge-calls/`, its point declaration and own rules are in
+  `domain/protected-path.ts`. Its own code finds its point through
+  `composition.pointDeclaredBy(protectedPathsPoint)`, so nothing imports the
+  overview. The core pack follows the convention: `domain/core-pack/core.pack.ts`
+  (sections `id` and `points`), `core.contract.ts`, the declarations and
+  `functionOf` in `guard-points.ts`.
+- **R7** checks both: a shipped pack's layout, and every overview's sections,
+  order, types, imports and lack of logic.
 - Inside a shipped pack (architecture test): `domain/` imports only itself,
   `application/` its domain and application, the root files their domain,
   application and root, and only `adapters/out/<tech>/` may do I/O.
@@ -220,7 +236,8 @@ tool lifecycle, recorded below when it lands).
 - **R3** in the domain (and a pack's `domain/` and `pack/`), every concept
   is a contract, an implementation and a test, plus a laws test for a value
   object; every contract has its implementation.
-- **R3b** a pack the package ships is typed by the contract beside it.
+- **R3b** a pack the package ships is typed by the contract beside it
+  (folded into R7 by step C).
 - **R4** every feature has a contract, and its handler implements the in
   port from it.
 - **R5** the routing files assert no types (above).
@@ -228,9 +245,9 @@ tool lifecycle, recorded below when it lands).
 - **Brands** stay in their contracts: no barrel exports one, or re-exports a
   contract wholesale.
 - **These rules guard against mistakes; they do not prove the property.**
-  Each is a syntax check over one file at a time: R3b sees a pack defined
-  by calling `definePack` in an exported const, not one built through a
-  helper or re-exported from elsewhere; R5 counts assertions and silencing
+  Each is a syntax check over one file at a time: R7 sees a pack defined by
+  calling `definePack` by that name, not one built through a renamed import
+  or a helper; R5 counts assertions and silencing
   directives in the routing files themselves, not in helpers they import;
   R6 sees `Array.isArray`, `typeof … === "object"` and `instanceof`, not
   checks written through helpers (`isRecord`, `own`, `Object.hasOwn`, `in`,

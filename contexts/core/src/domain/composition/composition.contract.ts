@@ -1,4 +1,4 @@
-import type { BasePack, ExtensionPoint } from "../packs/pack.contract.ts";
+import type { BasePack, ExtensionPoint, PointDeclaration } from "../packs/pack.contract.ts";
 import type { PackId } from "../packs/pack-id.contract.ts";
 import type { BasePortKey } from "../lifecycle/port-key.contract.ts";
 import type { Result } from "../shared/result.ts";
@@ -30,6 +30,11 @@ export interface Composition {
   read<Value>(point: ExtensionPoint<Value, PackId>): Result<readonly Value[]>;
   /** As `read`, with the id of the pack that contributed each value. */
   entries<Value>(point: ExtensionPoint<Value, PackId>): Result<readonly Entry<Value>[]>;
+  /**
+   * The point a selected pack made from `declaration`, or undefined: how a
+   * pack's own code finds its points without importing the pack itself.
+   */
+  pointDeclaredBy<Value>(declaration: PointDeclaration<Value>): ExtensionPoint<Value, PackId> | undefined;
   /** The ports the selected packs need a host to provide, in composition order. */
   requiredPorts(): readonly BasePortKey[];
 }

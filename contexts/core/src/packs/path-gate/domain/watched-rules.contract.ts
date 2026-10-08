@@ -17,4 +17,4 @@ export interface Watched {
  * nothing; rules that cannot be read make the watched rules unreadable, so
  * callers fail closed.
  */
-export type WatchedRulesOf = (composition: Composition, protectedPaths: ExtensionPoint<ProtectedPath, PackId<"bounded/path-gate">>) => Result<readonly Watched[]>;
+export type WatchedRulesOf = (composition: Composition, protectedPaths: ExtensionPoint<ProtectedPath, PackId>) => Result<readonly Watched[]>;
