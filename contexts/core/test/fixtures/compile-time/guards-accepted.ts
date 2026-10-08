@@ -19,9 +19,9 @@ export const gate = definePack({
   contributes: [
     contribution(guards.toolUseGuards, [noEditTools, needsRole]),
     contribution(guards.sessionStartGuards, [onStart, needsRole]),
-    contribution(guards.writeGuards, [noGenerated, anyEffect]),
-    contribution(guards.executeGuards, [noForce]),
-    contribution(guards.readGuards, [
+    contribution(guards.effectGuards.write, [noGenerated, anyEffect]),
+    contribution(guards.effectGuards.execute, [noForce]),
+    contribution(guards.effectGuards.read, [
       (effect: ReadEffect, composition, call) => {
         const words = composition.read(base.points.words);
         return call.role !== null && words.ok && words.value.includes(effect.path.value) ? Verdict.refuse("A word", "Read another file") : Verdict.allow;

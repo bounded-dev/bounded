@@ -1,7 +1,7 @@
 // Every line of code marked `// rejected: <reason>` must fail to compile with
 // an error whose message contains <reason>, and no other line may fail.
 // compile-time.test.ts runs the TypeScript compiler on this file and checks both.
-import { type BasePack, type Composition, type CorePack, contribution, definePack, type PackId, packIdsFor, point, type Result } from "bounded/domain";
+import { type BasePack, type Composition, type CorePack, contribution, definePack, type PackId, packIdsFor, point, pointGroup, type Result } from "bounded/domain";
 import { base, ext, packId, tags, text } from "./packs.ts";
 
 declare const somePacks: BasePack[];
@@ -42,10 +42,12 @@ export const castDep = definePack({ id: packId("cast"), dependsOn: [tags as Base
 export const twice = definePack({ id: packId("twice"), dependsOn: [base, base] }); // rejected: list each dependency once
 export const typeArgs = definePack<PackId<"test-packs/args">, Record<never, never>, [typeof base]>({ id: packId("args"), contributes: [contribution(base.points.words, ["x"])] }); // rejected: Property 'dependsOn' is missing
 // 4. Points are declared only inside their own pack, under camelCase keys, each with a check.
-export const thief = definePack({ id: packId("thief"), points: { stolen: base.points.words } }); // rejected: is not assignable to type 'BaseDeclaration'
+export const thief = definePack({ id: packId("thief"), points: { stolen: base.points.words } }); // rejected: is not assignable to type '(BaseDeclaration | PointGroupDeclaration
 export const dotted = definePack({ id: packId("dotted"), points: { "a.b": point({ description: "Dotted", check: text }) } }); // rejected: point keys are camelCase words
 export const proto = definePack({ id: packId("proto"), points: { ["__proto__"]: point({ description: "Prototype", check: text }) } }); // rejected: point keys are camelCase words
 export const capital = definePack({ id: packId("capital"), points: { Words: point({ description: "Capital", check: text }) } }); // rejected: point keys are camelCase words
+export const dottedMember = definePack({ id: packId("dotted-member"), points: { group: pointGroup({ "a.b": point({ description: "Dotted", check: text }) }) } }); // rejected: point keys are camelCase words
+export const nestedGroup = definePack({ id: packId("nested-group"), points: { outer: pointGroup({ inner: pointGroup({ deep: point({ description: "Deep", check: text }) }) }) } }); // rejected: groups of points are one level deep
 export const unchecked = point({ description: "No check" }); // rejected: Property 'check' is missing
 // 5. Ids: exact, branded, from one factory per npm package.
 export const widenedId = definePack({ id: anyId }); // rejected: give the pack an exact id from packIdsFor

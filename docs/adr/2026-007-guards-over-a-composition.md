@@ -1,15 +1,16 @@
 # 2026-007: Guards over a composition: the core pack and per-effect dispatch
 
-**Status:** accepted.
+**Status:** accepted; amended by ADR 2026-013 (the effect guard points are
+one group, `effectGuards`).
 
 ## Decision
 
 - **The core pack.** `corePack` has the id `bounded/core` and is the one place
   the core declares extension points: `toolUseGuards` (whole calls, for
   example a tool allowlist), `sessionStartGuards`, and one point per effect
-  kind: `readGuards`, `listGuards`, `writeGuards`, `executeGuards`,
-  `fetchGuards`, `delegateGuards`, `invokeGuards`. Point keys are camelCase
-  (ADR 2026-004), so `guards.read` is written `readGuards`. Each point's check
+  kind, grouped under `effectGuards`: `effectGuards.read`, `.list`, `.write`,
+  `.execute`, `.fetch`, `.delegate`, `.invoke` (point ids
+  `bounded/core.effectGuards.read` and so on). Each point's check
   refuses a contributed value that is not a function.
 - **Typed by kind.** A whole-call guard is a `Guard<ToolUse>` (or
   `Guard<Event>`); an effect guard is an `EffectGuard<ReadEffect>` and so on:
@@ -23,7 +24,7 @@
   effect in order through the guards for its kind. Gates never handle one
   effect versus many. An effect kind with no guards is allowed. That includes
   `invoke`: a tool the host cannot describe passes unless a selected pack
-  contributes `invokeGuards`. Adapter authors should map tools to precise
+  contributes to `effectGuards.invoke`. Adapter authors should map tools to precise
   effects wherever they can, and a pack that wants unknown tools refused
   must guard `invoke` explicitly. Guards run in
   pack composition order (dependencies first), then contribution order; the

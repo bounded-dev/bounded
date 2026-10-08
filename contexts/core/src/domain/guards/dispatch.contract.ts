@@ -32,11 +32,12 @@ export type Dispatch = <E extends Event, Context = unknown>(guards: readonly Gua
 type ContextArgument<Context> = unknown extends Context ? [context?: Context] : [context: Context];
 
 /**
- * A guard to run: the label its failures are named by, and, when it came
- * from a pack, the words its refusals start with ("bounded/x refused read a.ts").
+ * A guard to run, with its arguments already given (`run`): the label its
+ * failures are named by, and, when it came from a pack, the words its
+ * refusals start with ("bounded/x refused read a.ts").
  */
 export interface LabelledGuard {
-  readonly guard: unknown;
+  readonly run: () => unknown;
   readonly label: string;
   readonly refusedBy?: string;
   readonly from?: PackId;

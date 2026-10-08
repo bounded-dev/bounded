@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type BasePack, contribution, definePack, point } from "../packs/pack.ts";
+import { type BasePack, contribution, definePack, point, pointGroup } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import type { Composition as CompositionContract } from "./composition.contract.ts";
@@ -132,6 +132,15 @@ describe("Composition — every refusal names the pack, the extension point and 
       malformed(`its points must each be declared with point(...) ${COPY}`)],
     ["a point declared without a check", [untypedPack({ id: "test-packs/bad", points: { loose: point({ description: "No check" } as never) } })], [],
       malformed("its point 'loose' has no check: every point parses the values it accepts")],
+    ["a point group inside a point group",
+      [untypedPack({ id: "test-packs/bad", points: { outer: pointGroup({ inner: pointGroup({ deep: point({ description: "Deep", check: anything }) }) } as never) } })], [],
+      malformed("its point 'outer.inner' is a group inside a group: groups of points are one level deep")],
+    ["a group member whose key is not camelCase",
+      [untypedPack({ id: "test-packs/bad", points: { outer: pointGroup({ "a.b": point({ description: "Dotted", check: anything }) } as never) } })], [],
+      malformed("its point key 'outer.a.b' must be a camelCase word, such as 'protectedPaths'")],
+    ["a group member that is not a genuine point declaration",
+      [untypedPack({ id: "test-packs/bad", points: { outer: pointGroup({ forged: { __brand: "PointDeclaration", description: "Forged", check: anything } } as never) } })], [],
+      malformed(`its points must each be declared with point(...) ${COPY}`)],
     ["a contribution across an undeclared dependency that reaches composition anyway",
       [base, untypedPack({ id: "test-packs/rogue", contributes: [contribution(words, ["x"])] })], [],
       "Pack 'test-packs/rogue' contributes to extension point 'test-packs/base.words', owned by pack 'test-packs/base', but does not depend on it. Add 'test-packs/base' to its dependencies, or remove the contribution"],

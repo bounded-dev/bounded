@@ -21,7 +21,7 @@ class FakeLog implements GuardLog {
 const gate = definePack({
   id: packIdsFor("test-packs")("gate"),
   dependsOn: [corePack],
-  contributes: [contribution(corePack.points.writeGuards, [(effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow)])],
+  contributes: [contribution(corePack.points.effectGuards.write, [(effect) => (effect.path.value.startsWith("generated/") ? Verdict.refuse("Generated", "Change the generator's input") : Verdict.allow)])],
 });
 const composed = Composition.compose([gate, corePack], [gate, corePack]);
 if (!composed.ok) throw new Error(composed.error);

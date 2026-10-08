@@ -33,15 +33,25 @@ export interface PointDeclaration<Value> {
 export interface BaseDeclaration {
   readonly __brand: "PointDeclaration";
 }
-export type Declarations = Readonly<Record<string, BaseDeclaration>>;
+/** Points declared together under one key, such as one per effect kind; one level deep. */
+export interface PointGroupDeclaration<Members extends Readonly<Record<string, unknown>>> {
+  readonly __brand: "PointGroupDeclaration";
+  readonly members: Members;
+}
+export type Declarations = Readonly<Record<string, BaseDeclaration | PointGroupDeclaration<Readonly<Record<string, BaseDeclaration>>>>>;
 type ValueOf<D> = D extends PointDeclaration<infer Value> ? Value : never;
+/** A declaration's point, or a group's record of member points. */
+type PointsOf<D, Id extends PackId> = D extends PointGroupDeclaration<infer Members> ? { readonly [J in keyof Members]: ExtensionPoint<ValueOf<Members[J]>, Id> } : ExtensionPoint<ValueOf<D>, Id>;
+
+/** A group's member points, keyed by member: a frozen record without a prototype. */
+export type PointGroup = Readonly<Record<string, BasePoint>>;
 
 /** A pack with its id and points forgotten: the common base shape composition works with; the precise generic types (`Pack<Id, Points>`) are for writing packs, and this base exists because points are invariant in their value type, so a precise pack is not assignable to the wide generic. */
 export interface BasePack {
   readonly __brand: "Pack";
   readonly id: PackId;
   readonly dependsOn: readonly BasePack[];
-  readonly points: Readonly<Record<string, BasePoint>>;
+  readonly points: Readonly<Record<string, BasePoint | PointGroup>>;
   readonly contributes: readonly Contribution<PackId>[];
 }
 
@@ -49,7 +59,7 @@ export interface BasePack {
 export interface BasePoint {
   readonly __brand: "ExtensionPoint";
   readonly owner: BasePack;
-  /** `<pack id>.<key>`, for messages. */
+  /** `<pack id>.<key>`, or `<pack id>.<group key>.<member key>`, for messages. */
   readonly id: string;
   readonly description: string;
 }
@@ -64,7 +74,7 @@ export interface ExtensionPoint<Value, Owner extends PackId> extends BasePoint {
 /** A pack, typed by its exact id and its points' declarations. */
 export interface Pack<Id extends PackId, Points extends Declarations> extends BasePack {
   readonly id: Id;
-  readonly points: { readonly [K in keyof Points]: ExtensionPoint<ValueOf<Points[K]>, Id> };
+  readonly points: { readonly [K in keyof Points]: PointsOf<Points[K], Id> };
 }
 
 /** Values one pack contributes to a point of the pack with id `Owner`. */
@@ -84,6 +94,14 @@ export interface PackSpec<Id extends PackId, Points extends Declarations, Depend
 
 type ExactId<Id> = [Id] extends [{ readonly value: infer Text extends string }] ? IsExact<Text> : false;
 type CamelCase<K> = K extends string ? (K extends "" | `${string}${"." | "-" | "_" | "/" | " " | "$"}${string}` ? false : K extends Uncapitalize<K> ? true : false) : false;
+/** A group's members: camelCase keys, each a point declaration, never a group. */
+export type StrictMembers<Members> = {
+  readonly [K in keyof Members]: CamelCase<K> extends true
+    ? Members[K] extends PointGroupDeclaration<Readonly<Record<string, unknown>>>
+      ? Refused<"groups of points are one level deep">
+      : unknown
+    : Refused<"point keys are camelCase words, such as protectedPaths">;
+};
 type Repeats<List extends readonly unknown[]> = List extends readonly [infer Head, ...infer Tail] ? ([Head] extends [Tail[number]] ? true : Repeats<Tail>) : false;
 
 /** What the compiler refuses beyond plain assignability. */
@@ -187,6 +205,11 @@ export interface PackFactory {
       ? { readonly check: Refused<"a point's check must return a precise type, not any"> }
       : unknown),
   ): PointDeclaration<Value>;
+  /**
+   * Declare points together under one key, each member a point with the id
+   * `<pack id>.<key>.<member>`; contribute to a member, never to the group.
+   */
+  pointGroup<const Members extends Readonly<Record<string, BaseDeclaration | PointGroupDeclaration<Readonly<Record<string, unknown>>>>>>(members: Members & StrictMembers<Members>): PointGroupDeclaration<Members>;
   /** Contribute values of exactly the point's type (or a value object's wire form) to a point of a pack you depend on. */
   contribution<Value, Owner extends PackId>(point: ExtensionPoint<Value, Owner>, values: readonly NoInfer<Contributed<Value>>[]): Contribution<Owner>;
 }

@@ -58,10 +58,12 @@ if (event.ok) console.log(dispatch([noGenerated], event.value));
 ## Integration: guards as pack contributions
 
 The core pack, `corePack` (`bounded/core`), declares the guard points: one
-for whole calls (`toolUseGuards`), one for session starts, and one per effect
-kind (`readGuards`, `listGuards`, `writeGuards`, `executeGuards`,
-`fetchGuards`, `delegateGuards`, `invokeGuards`). A pack contributes guards by
-depending on `corePack`. `dispatchEvent(composition, event)` runs the
+for whole calls (`toolUseGuards`), one for session starts, and a group with one
+point per effect kind (`effectGuards.read`, `.list`, `.write`, `.execute`,
+`.fetch`, `.delegate`, `.invoke`), typed from `EffectByKind`, the one map from
+an effect kind to its type; dispatch finds an effect's point by its kind,
+without a switch or a type assertion (ADR 2026-013). A pack contributes guards
+by depending on `corePack`. `dispatchEvent(composition, event)` runs the
 whole-call guards, then each effect through the guards for its kind, in pack
 order; the first refusal wins and names the pack and the effect. Without the
 core pack selected, every event is refused (ADR 2026-007).
@@ -82,7 +84,7 @@ export const gate = definePack({
   id: packId("gate"),
   dependsOn: [corePack, rules],
   contributes: [
-    contribution(corePack.points.writeGuards, [
+    contribution(corePack.points.effectGuards.write, [
       (effect: WriteEffect, composition) => {
         const generated = composition.read(rules.points.generated);
         return generated.ok && generated.value.some((p) => effect.path.value.startsWith(p)) ? Verdict.refuse("it is generated", "Change the generator's input instead") : Verdict.allow;
@@ -97,5 +99,6 @@ if (composed.ok && call.ok) console.log(dispatchEvent(composed.value, call.value
 // { kind: "refuse", reason: "my-rules/gate refused write (modify) generated/api.ts: it is generated", redirect: "Change the generator's input instead" }
 ```
 
-A guard written for a read does not compile on `writeGuards`, and a pack
+A guard written for a read does not compile on `effectGuards.write`, a
+contribution to the group itself does not compile, and a pack
 contributing guards without `corePack` in `dependsOn` does not compile.

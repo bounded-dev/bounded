@@ -1,10 +1,10 @@
-import type { Composition } from "../composition/composition.contract.ts";
-import type { Effect } from "../events/effect.contract.ts";
+import type { Composition, Entry } from "../composition/composition.contract.ts";
+import type { Effect, EffectByKind, EffectKind } from "../events/effect.contract.ts";
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
 import { isComposition } from "../composition/composition.ts";
 import { Event as EventFactory } from "../events/event.ts";
-import type { PackId } from "../packs/pack-id.contract.ts";
+import type { ToolUse } from "../events/tool-use.contract.ts";
 import type { Result } from "../shared/result.ts";
 import { Verdict } from "../verdicts/verdict.ts";
 import type * as Contract from "./dispatch-event.contract.ts";
@@ -16,34 +16,24 @@ import { firstRefusal, invalidEvent, outermost, unfinished } from "./dispatch.ts
 const CORE = corePack.id.value;
 const { points } = corePack;
 
-/** The guards contributed to `point`, labelled by the pack each came from. */
-function labelled<V>(entries: Result<readonly { readonly fromPackId: PackId; readonly value: V }[]>, about: string): Result<LabelledGuard[]> {
+/** Guards contributed to a point, labelled by the pack each came from, each run by `run` with its arguments. */
+function labelled<G>(entries: Result<readonly Entry<G>[]>, about: string, run: (guard: G) => unknown): Result<LabelledGuard[]> {
   if (!entries.ok) return entries;
   const suffix = about === "" ? "" : ` ${about}`;
   return {
     ok: true,
-    value: entries.value.map(({ fromPackId, value }) => ({ guard: value, label: `A guard from ${fromPackId.value}${about === "" ? "" : ` for ${about}`}`, refusedBy: `${fromPackId.value} refused${suffix}`, from: fromPackId })),
+    value: entries.value.map(({ fromPackId, value }) => ({
+      run: () => run(value),
+      label: `A guard from ${fromPackId.value}${about === "" ? "" : ` for ${about}`}`,
+      refusedBy: `${fromPackId.value} refused${suffix}`,
+      from: fromPackId,
+    })),
   };
 }
 
-function effectGuards(composition: Composition, effect: Effect): Result<LabelledGuard[]> {
-  const about = describeEffect(effect);
-  switch (effect.kind) {
-    case "read":
-      return labelled(composition.entries(points.readGuards), about);
-    case "list":
-      return labelled(composition.entries(points.listGuards), about);
-    case "write":
-      return labelled(composition.entries(points.writeGuards), about);
-    case "execute":
-      return labelled(composition.entries(points.executeGuards), about);
-    case "fetch":
-      return labelled(composition.entries(points.fetchGuards), about);
-    case "delegate":
-      return labelled(composition.entries(points.delegateGuards), about);
-    case "invoke":
-      return labelled(composition.entries(points.invokeGuards), about);
-  }
+/** The guards for one effect: the point for its kind, found by lookup, each guard called with the effect at its kind's type. */
+function effectGuards<K extends EffectKind>(composition: Composition, kind: K, effect: EffectByKind[K], call: ToolUse): Result<LabelledGuard[]> {
+  return labelled(composition.entries(points.effectGuards[kind]), describeEffect(effect), (guard) => guard(effect, composition, call));
 }
 
 function unreadable(error: string): Verdict {
@@ -89,18 +79,18 @@ function decide(composition: Composition | null, event: Event): Judgement {
     }
     const call = checked.value;
     if (call.kind === "session-start") {
-      const starts = labelled(composition.entries(points.sessionStartGuards), "");
+      const starts = labelled(composition.entries(points.sessionStartGuards), "", (guard) => guard(call, composition));
       if (!starts.ok) return plain(unreadable(starts.error));
-      return judged(firstRefusal(starts.value, [call, composition]), null) ?? plain(Verdict.allow);
+      return judged(firstRefusal(starts.value), null) ?? plain(Verdict.allow);
     }
-    const whole = labelled(composition.entries(points.toolUseGuards), "");
+    const whole = labelled(composition.entries(points.toolUseGuards), "", (guard) => guard(call, composition));
     if (!whole.ok) return plain(unreadable(whole.error));
-    const refusal = judged(firstRefusal(whole.value, [call, composition]), null);
+    const refusal = judged(firstRefusal(whole.value), null);
     if (refusal !== undefined) return refusal;
     for (const effect of call.effects) {
-      const guards = effectGuards(composition, effect);
+      const guards = effectGuards(composition, effect.kind, effect, call);
       if (!guards.ok) return plain(unreadable(guards.error));
-      const refused = judged(firstRefusal(guards.value, [effect, composition, call]), effect);
+      const refused = judged(firstRefusal(guards.value), effect);
       if (refused !== undefined) return refused;
     }
     return plain(Verdict.allow);
