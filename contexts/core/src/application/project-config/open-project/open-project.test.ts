@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, ProjectPath, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
+import { type Config, contribution, corePack, type Decision, defineConfig, definePack, packIdsFor, portKeysFor, Ports, ProjectPath, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { WatchedFiles } from "../../drift/watch-shell/watch-shell.contract.ts";
 import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
@@ -174,5 +174,40 @@ describe("OpenProjectHandler", () => {
     expect(performance.now() - started).toBeLessThan(2000);
     expect(project.problem).toBeNull();
     expect(await project.judge(write("src/a.ts"))).toBe(Verdict.allow);
+  });
+
+  test("a selected pack's port that the host does not provide makes the judge refuse every event, saying what to pass", async () => {
+    const gateId = packIdsFor("test-packs")("gate");
+    const gate = definePack({ id: gateId, dependsOn: [corePack], ports: { files: portKeysFor(gateId)<{ read(): string }>("files") } });
+    const logs = new Logs();
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: defineConfig({ packs: [corePack, gate] }) })), logs, clock).execute(command);
+    expect(project.problem).toBe("test-packs/gate needs the port 'files', which this host does not provide: pass it to openProject({ ports })");
+    expect((await project.judge(write("src/a.ts"))).kind).toBe("refuse");
+    expect(logs.decisions.length).toBe(1);
+  });
+
+  test("before- and after-tool checks run with the ports the host provides: a refusal before replaces the allow, a message after reaches the host", async () => {
+    const gateId = packIdsFor("test-packs")("gate");
+    const files = portKeysFor(gateId)<{ read(): string }>("files");
+    const gate = definePack({
+      id: gateId,
+      dependsOn: [corePack],
+      contributes: [
+        contribution(corePack.points.beforeTool, [async (call, context) => {
+          const port = context.ports.get(files);
+          return port.ok && port.value.read() === "locked" && call.effects.some((effect) => effect.kind === "execute") ? Verdict.refuse("Locked", "Wait") : Verdict.allow;
+        }]),
+        contribution(corePack.points.afterTool, [async () => ({ message: "Checked after", record: null })]),
+      ],
+      ports: { files },
+    });
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: defineConfig({ packs: [corePack, gate] }) })), new Logs(), clock, {
+      ports: [Ports.provide(files, () => ({ read: () => "locked" }))],
+    }).execute(command);
+    expect(project.problem).toBeNull();
+    const shell = { kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "make" }], callId: "c1" };
+    expect<unknown>(await project.judge(shell)).toEqual({ kind: "refuse", reason: "Locked", redirect: "Wait" });
+    expect(await project.judge(write("src/a.ts"))).toBe(Verdict.allow);
+    expect((await project.afterTool({ ...shell, kind: "tool-result", ok: true })).message).toBe("Checked after");
   });
 });

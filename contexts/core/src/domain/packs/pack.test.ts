@@ -3,6 +3,7 @@ import { Composition } from "../composition/composition.ts";
 import type { Result } from "../shared/result.ts";
 import type { BasePack } from "./pack.contract.ts";
 import { contribution, definePack, parsePack, point, pointGroup } from "./pack.ts";
+import { portKeysFor } from "../lifecycle/port-key.ts";
 import { packIdsFor } from "./pack-id.ts";
 
 const packId = packIdsFor("test-packs");
@@ -112,5 +113,25 @@ describe("Pack — its shape, checked when it is made", () => {
     expect(base.points.words.parseValue(5)).toEqual({ ok: false, error: "not text" });
     expect(odd.points.throws.parseValue("x")).toEqual({ ok: false, error: "its check failed (boom)" });
     expect(odd.points.empty.parseValue("x")).toEqual({ ok: false, error: "its check returned no result" });
+  });
+});
+
+describe("Pack — the ports it needs a host to provide", () => {
+  const untypedPack = (spec: object): BasePack => (definePack as unknown as (spec: object) => BasePack)(spec);
+  const gateId = packId("gate");
+  const files = portKeysFor(gateId)<{ read(): string }>("files");
+
+  test("its ports section is stored on the pack, frozen; a pack without one has none", () => {
+    const gate = definePack({ id: gateId, ports: { files } });
+    expect(gate.ports.files).toBe(files);
+    expect(Object.isFrozen(gate.ports)).toBe(true);
+    expect(gate.problem).toBeUndefined();
+    expect(definePack({ id: packId("plain") }).ports).toEqual({});
+  });
+
+  test("names its problem: a port that is not a port key, one another pack owns, or a key that is not camelCase", () => {
+    expect(untypedPack({ id: "test-packs/gate", ports: { files: { owner: gateId, name: "files" } } }).problem).toBe("its port 'files' must be declared with portKeysFor(...) by this copy of bounded");
+    expect(untypedPack({ id: "test-packs/other", ports: { files } }).problem).toBe("its port 'files' belongs to test-packs/gate: a pack declares only its own ports");
+    expect(untypedPack({ id: "test-packs/gate", ports: { "a.b": files } }).problem).toBe("its port key 'a.b' must be a camelCase word, such as 'watchedFiles'");
   });
 });
