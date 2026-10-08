@@ -49,7 +49,7 @@ describe("errorsImportsOf (AST, not grep)", () => {
   });
 });
 
-// ADR 2026-056/060: in the monorepo a domain skeleton imports
+// ADR LEG-2026-056/060: in the monorepo a domain skeleton imports
 // NotImplementedError from its context's `domain/shared/errors.ts`, and the
 // scan walks every source root.
 describe("findSkeletonImports over source roots", () => {

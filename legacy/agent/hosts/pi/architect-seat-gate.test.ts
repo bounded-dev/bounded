@@ -7,7 +7,7 @@ import {
 } from "../../src/architect-seat.ts";
 import { afterLeadArchitectCall, leadArchitectCall, recordArchitectSeatLife } from "./extensions/lib/architect-seat-gate.ts";
 
-// pi's architect seat (ADR 2026-066): the lead's async child in the ticket
+// pi's architect seat (ADR LEG-2026-066): the lead's async child in the ticket
 // worktree, started and continued only as the lead's commands prepared.
 
 let main = "";

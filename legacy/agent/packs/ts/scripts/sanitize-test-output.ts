@@ -1,4 +1,4 @@
-// run_tests output sanitizer (TN-26-001, §"Custom tools"; ADR 2026-062).
+// run_tests output sanitizer (TN-26-001, §"Custom tools"; ADR LEG-2026-062).
 //
 // The builder is blind to test SOURCE but must see failure output to debug.
 // So run_tests may surface ONLY: the test's name, its status, and a failure
@@ -362,7 +362,7 @@ export interface StderrReport {
  * ordinary text inside a window, and every window starts after bun's own
  * caret. The runner also silences console output in the test process
  * (bun-test-preload.ts), so imitating a marker takes a deliberate raw write
- * to the process's error stream (ADR 2026-062, known limits).
+ * to the process's error stream (ADR LEG-2026-062, known limits).
  */
 export function readStderrReport(
   stderr: string,

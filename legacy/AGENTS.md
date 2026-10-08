@@ -23,10 +23,10 @@ rules, not just today's dozens.
   dependencies belong in that project's `.pi/settings.json`.
 - **Root stays language-agnostic.** Language-specific capability lives in
   `packs/<lang>/` as on-demand skills and scaffolders — never in
-  `extensions/` or this file (ADR 2026-007).
+  `extensions/` or this file (ADR LEG-2026-007).
 - **Packages via `pi install npm:<pkg>@<version>`** (or `git:`) — pinned,
   recorded in `settings.json`. Don't hand-edit the `packages` list or touch
-  `npm/`/`git/` (ADR 2026-006).
+  `npm/`/`git/` (ADR LEG-2026-006).
 - **Never commit secrets or state.** `auth.json`, `sessions/`,
   `web-search.json` are gitignored — keep them that way.
 - **Determinism over minimalism.** The harness is deliberately built so
@@ -41,19 +41,19 @@ rules, not just today's dozens.
   auto-load on pi session start. Run `npm run check` after editing them.
   `extensions/` at the root is the tool-managed drop zone: untracked runtime
   state installed by external tools — never hand-edit, never commit
-  (ADR 2026-006).
+  (ADR LEG-2026-006).
 - **Canonical project commands.** Projects declare `check` / `test` /
-  `build` / `lint`; look for these first in any project (ADR 2026-007).
+  `build` / `lint`; look for these first in any project (ADR LEG-2026-007).
 - **Local CLI publish.** When asked to "publish local", run
   `npm run publish:local` from this worktree's `agent/` directory. This builds
   and installs a snapshot through npm, then checks that `bounded` on PATH is
   that build. Report the `bounded --version` commit and dirty marker. For an
   agent session in another project, check `bounded --version` in that session
   too because its PATH may differ. This does not publish to a registry or
-  update projects that already contain a local harness (ADR 2026-041).
+  update projects that already contain a local harness (ADR LEG-2026-041).
 - **Repo experiments stay in repo scripts.** Dogfood reset, archive and model
   probes live under `scripts/dogfood/` and are not `bounded` CLI commands or
-  part of its npm package (ADR 2026-042). Development-workflow checks live
+  part of its npm package (ADR LEG-2026-042). Development-workflow checks live
   under `scripts/workflow/` on the same terms.
 - **A project's user never runs harness steps.** The people using a
   harnessed project describe what they want and answer product questions;
@@ -70,9 +70,9 @@ rules, not just today's dozens.
   `docs/dogfood/README.md` (enforced by `agent/test/dogfood-prompts.test.ts`).
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
   (write-capable worker), `product-expert` — "the PM" (read-only + web,
-  product judgment). Don't add roles ad hoc (ADR 2026-003). The four
+  product judgment). Don't add roles ad hoc (ADR LEG-2026-003). The four
   `harness-*` agents in `.claude/agents/` are not part of this roster: they
-  are Claude Code tooling for developing this repository (ADR 2026-068).
+  are Claude Code tooling for developing this repository (ADR LEG-2026-068).
 
 ## The extension model — binding for ALL harness work
 
@@ -136,7 +136,7 @@ keeps ticket design with each architect and tracks reviewed design handoffs.
 - **One lifecycle per issue.** Every non-trivial harness change follows
   [the development lifecycle](docs/harness-workflow.md): plan, plan review,
   red commit, build, final review, report. Subagents do the work; the driving
-  session only orchestrates and writes no code (ADR 2026-068).
+  session only orchestrates and writes no code (ADR LEG-2026-068).
 - **Red first, never weakened.** The builder commits the failing tests alone
   before implementing. Before final review, run
   `node scripts/workflow/red-first-check.ts <red-commit> <branch>`: the red
@@ -149,7 +149,7 @@ keeps ticket design with each architect and tracks reviewed design handoffs.
   final diff before merge, with ranked findings, repros and a verdict. The
   builder fixes until the verdict is merge; a later change needs a fresh
   review. Merge with `--no-ff` so the red commit stays in history. This is a
-  working agreement, not an automated merge gate (ADR 2026-038, 2026-068).
+  working agreement, not an automated merge gate (ADR LEG-2026-038, LEG-2026-068).
 
 - Work happens in worktrees, each on a local branch (created automatically).
 - Local branches always track `main`; **"push" means push to remote `main`**

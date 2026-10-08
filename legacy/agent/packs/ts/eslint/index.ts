@@ -12,12 +12,12 @@ import { valueObjectDocumented } from "./rules/value-object-documented.ts";
 import { valueObjectShape } from "./rules/value-object-shape.ts";
 import { zodBackedParse } from "./rules/zod-backed-parse.ts";
 
-// bounded-ts ESLint plugin (TN-26-001 zone lint rules, ADR 2026-007).
+// bounded-ts ESLint plugin (TN-26-001 zone lint rules, ADR LEG-2026-007).
 // Loaded programmatically by the gate scripts — target projects never
 // hand-wire it. The contract-purity gate owns the contract flat config
 // (`*.contract.ts`); the src gate owns the implementation config.
 //
-// Contract model (ADR 2026-059): value-object-shape, entity-shape,
+// Contract model (ADR LEG-2026-059): value-object-shape, entity-shape,
 // value-object-documented and contract-imports-contracts-only hold the
 // interface + factory form; impl-tail holds the implementation file's hidden
 // `<Name>Impl` and its two generated exports. Retired with the `declare

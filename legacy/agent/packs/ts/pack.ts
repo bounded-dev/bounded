@@ -9,23 +9,23 @@
 //
 // CODE SOCKETS — two for the gates that lint, one for the delivery pass, one
 // for the artifact-generation gate, and three for the design, red and green
-// gates (the contract-support-file socket of ADR 2026-046 is retired):
+// gates (the contract-support-file socket of ADR LEG-2026-046 is retired):
 //
 //   lintSrcRules             extra rules for the src gate (implementation code)
 //   contractPurityOverrides  extra flat-config blocks for the contract gate
 //   deliverChecks            read-only checks run at the end of delivery
-//                            (ADR 2026-033)
+//                            (ADR LEG-2026-033)
 //   artifactGenerators       deterministic generators the architect's
-//                            generate_artifacts gate runs (ADR 2026-055)
+//                            generate_artifacts gate runs (ADR LEG-2026-055)
 //   skeletonEmitters         files derived from the design contracts, as
-//                            skeletons or generated files (ADR 2026-060)
+//                            skeletons or generated files (ADR LEG-2026-060)
 //   phaseTestPolicies        per-phase rules for tests that need the machine
-//                            (a container runtime; ADR 2026-064)
-//   testObligations          per-level test files and reach (ADR 2026-063)
+//                            (a container runtime; ADR LEG-2026-064)
+//   testObligations          per-level test files and reach (ADR LEG-2026-063)
 //
 // Two DATA sockets are owned here too, read from contrib.json by the readers
 // at the end of this file: `adapterTechnologies` and `workspaceTemplates`
-// (ADR 2026-061). They are data because the workspace generator must read
+// (ADR LEG-2026-061). They are data because the workspace generator must read
 // them without executing pack code, exactly like `pins`.
 //
 // The ts pack's OWN rules are not contributions. `SRC_RULE_IDS` and
@@ -56,7 +56,7 @@ const tsSockets = socketsOwnedBy(TS_PACK);
 /**
  * Which role's brief must name a contributed rule.
  *
- * ADR 2026-018 (guards and briefs are bidirectional): everything a guard
+ * ADR LEG-2026-018 (guards and briefs are bidirectional): everything a guard
  * enforces on a role must also be TOLD to that role, or the agent learns the
  * rule from a block and every run pays the bounce. A contributed rule is
  * enforced exactly like a built-in, so it carries the same obligation — and
@@ -100,7 +100,7 @@ export const lintSrcRules = tsSockets.define<LintSrcRuleContribution>({
   description:
     "Extra ESLint rules for the lint-src gate, contributed by packs that depend on ts. " +
     "Each names the role brief that must mention it, so a contributed rule carries the same " +
-    "bidirectional obligation as a built-in one (ADR 2026-018).",
+    "bidirectional obligation as a built-in one (ADR LEG-2026-018).",
   // Refuse at the seam. A malformed contribution reaching the gate would
   // surface as an ESLint config crash with no pack name in it — one layer down
   // from where the mistake was made, and three words shorter than useless.
@@ -140,7 +140,7 @@ export interface ContractPurityOverride {
   /**
    * OPTIONAL: the contributing pack's own rules, registered under its own
    * flat-config namespace (never `bounded-ts`) so `rules` can name them. This is
-   * how a pack adds a contract rule the ts pack does not ship (ADR 2026-046).
+   * how a pack adds a contract rule the ts pack does not ship (ADR LEG-2026-046).
    */
   readonly plugin?: {
     readonly namespace: string;
@@ -174,7 +174,7 @@ export const contractPurityOverrides = tsSockets.define<ContractPurityOverride>(
   },
 });
 
-// --- deliverChecks (ADR 2026-033) --------------------------------------------
+// --- deliverChecks (ADR LEG-2026-033) --------------------------------------------
 //
 // The third socket, and the first one that is not about lint. `deliver` is the
 // ts pack's script and the last thing that runs on a finished run — the one
@@ -280,7 +280,7 @@ export const deliverChecks = tsSockets.define<DeliverCheck>({
   },
 });
 
-// --- artifactGenerators (ADR 2026-055) --------------------------------------
+// --- artifactGenerators (ADR LEG-2026-055) --------------------------------------
 //
 // Born with its consumer, the `generate_artifacts` gate
 // (scripts/generate-artifacts.ts). Some project files are derived from files a
@@ -310,7 +310,7 @@ export const artifactGenerators = tsSockets.define<ArtifactGenerator>({
       ? undefined : `${contributor} supplied an invalid artifact generator`,
 });
 
-// --- skeletonEmitters (ADR 2026-060) ------------------------------------------
+// --- skeletonEmitters (ADR LEG-2026-060) ------------------------------------------
 //
 // Everything mechanical is generated from the frozen design (TN-26-012). An
 // emitter is a pure function from the project's facts to the files it
@@ -351,7 +351,7 @@ export interface ContractSource {
 }
 
 /** One workspace of the project: a context derived from contract paths, or
- *  an app declared in a TN's `workspaces:` map (ADR 2026-061). */
+ *  an app declared in a TN's `workspaces:` map (ADR LEG-2026-061). */
 export interface WorkspaceFacts {
   /** e.g. `contexts/project-management`, `apps/web`. */
   readonly dir: string;
@@ -431,7 +431,7 @@ export function emittedFileProblem(file: EmittedFile, emitter: string): string |
   return undefined;
 }
 
-// --- phaseTestPolicies (ADR 2026-064) -----------------------------------------
+// --- phaseTestPolicies (ADR LEG-2026-064) -----------------------------------------
 //
 // Some test levels need something from the machine that the others do not:
 // store tests need a container runtime. The rule for WHEN such tests may be
@@ -512,10 +512,10 @@ export type PhaseTestDecision =
   /** Green only: do not run; block with `reason`. With `route: "user"`
    *  the cause is the user's machine (the container engine), which only the
    *  user can start or restart: when every refusal says so the gate routes to
-   *  the user, in product terms, never to a role (ADR 2026-072). */
+   *  the user, in product terms, never to a role (ADR LEG-2026-072). */
   | { readonly action: "refuse"; readonly reason: string; readonly unsetEnv: readonly string[]; readonly route?: typeof USER_ROUTE };
 
-/** The route of a refusal only the user can clear (ADR 2026-072). A
+/** The route of a refusal only the user can clear (ADR LEG-2026-072). A
  *  `prepare` that rejects with an error whose `route` is this blocks the
  *  gate routed to the user too; any other rejection keeps the gate's own
  *  route. */
@@ -554,7 +554,7 @@ export const phaseTestPolicies = tsSockets.define<PhaseTestPolicy>({
   },
 });
 
-// --- testObligations (ADR 2026-063) --------------------------------------------
+// --- testObligations (ADR LEG-2026-063) --------------------------------------------
 //
 // What a suite owes, per test level, beyond going red for the right reason:
 // the files each level needs and the members its tests must reach. The level
@@ -617,7 +617,7 @@ export const testObligations = tsSockets.define<TestObligation>({
   },
 });
 
-// --- data sockets: adapterTechnologies, workspaceTemplates (ADR 2026-061) -----
+// --- data sockets: adapterTechnologies, workspaceTemplates (ADR LEG-2026-061) -----
 
 function defaultPacksDir(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -638,7 +638,7 @@ export interface Pins {
   readonly devDependencies: Readonly<Record<string, string>>;
 }
 
-/** One adapter technology a pack makes available (ADR 2026-061). */
+/** One adapter technology a pack makes available (ADR LEG-2026-061). */
 export interface AdapterTechnology {
   /** The contributing pack. */
   readonly pack: string;
@@ -664,7 +664,7 @@ export interface AdapterTechnology {
   /** Pins every app workspace takes, keyed by the app template's `runtime`,
    *  when any context's design uses this technology: what a composition root
    *  needs to construct the technology for that runtime (a database driver).
-   *  Present only when the contrib entry declares it (ADR 2026-061). */
+   *  Present only when the contrib entry declares it (ADR LEG-2026-061). */
   readonly appPins?: Readonly<Record<string, Pins>>;
   /** Scripts a context workspace's manifest takes when its tree has this
    *  technology's folder (`db:generate` → `drizzle-kit generate`), keys
@@ -672,7 +672,7 @@ export interface AdapterTechnology {
    *  belongs to one technology across the composition. */
   readonly workspaceScripts?: Readonly<Record<string, string>>;
   /** Storage technologies only: how a generated composition root connects
-   *  to the technology's database (ADR 2026-067). `env` names the variable
+   *  to the technology's database (ADR LEG-2026-067). `env` names the variable
    *  the connection URL is read from, once per compose function; each app
    *  runtime names a function and the module it is imported from, called
    *  with that URL, whose result every store of the technology receives
@@ -683,7 +683,7 @@ export interface AdapterTechnology {
   readonly description: string;
 }
 
-/** A storage technology's connection, per app runtime (ADR 2026-067). */
+/** A storage technology's connection, per app runtime (ADR LEG-2026-067). */
 export interface AppConnection {
   readonly env: string;
   readonly runtimes: Readonly<Record<string, { readonly function: string; readonly from: string }>>;
@@ -849,7 +849,7 @@ export function adapterTechnologies(packs: readonly string[], packsDir = default
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** One file a workspace template seeds (ADR 2026-061). */
+/** One file a workspace template seeds (ADR LEG-2026-061). */
 export interface WorkspaceTemplateFile {
   /** Workspace-relative target, e.g. `src/server/main.ts`. */
   readonly path: string;
@@ -858,7 +858,7 @@ export interface WorkspaceTemplateFile {
   readonly mode: EmitMode;
 }
 
-/** How one kind of workspace is laid out and what it seeds (ADR 2026-061). */
+/** How one kind of workspace is laid out and what it seeds (ADR LEG-2026-061). */
 export interface WorkspaceTemplate {
   readonly pack: string;
   /** Kebab-case; the value in a TN's `workspaces:` map, or `context`. */
@@ -874,7 +874,7 @@ export interface WorkspaceTemplate {
   /** Workspace-relative path of the app's generated composition root, e.g.
    *  `src/server/composition-root.ts`. A pack whose generated support sits
    *  beside it (ts-drizzle-postgres: each app's smoke-test database, ADR
-   *  2026-072) reads it here; the context template declares none. */
+   *  LEG-2026-072) reads it here; the context template declares none. */
   readonly compositionRoot?: string;
   /** Sorted by path. */
   readonly files: readonly WorkspaceTemplateFile[];

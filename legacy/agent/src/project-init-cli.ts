@@ -67,7 +67,7 @@ async function main(args: string[]): Promise<void> {
   }
   if (!host) throw new Error("Supply --host (and optionally --pack), or run bare bounded init for choices");
   // The product surfaces decide the selection from the packs' own data (ADR
-  // 2026-065); any surface still open stops here with its question.
+  // LEG-2026-065); any surface still open stops here with its question.
   let report: readonly SurfaceReport[] | undefined;
   if (bySurface) {
     const selection = surfaceSelection({ needed: surfaces, declined: without }, packs);
@@ -86,7 +86,7 @@ async function main(args: string[]): Promise<void> {
   }
   // No --pack selects every installed capability: the whole stack.
   if (!packs.length) packs.push(...defaultSelection());
-  // GitHub is the required tracker (ADR 2026-066): planning needs nothing
+  // GitHub is the required tracker (ADR LEG-2026-066): planning needs nothing
   // from it, but nothing is applied without an authenticated gh, a GitHub
   // repository here and a board with the statuses.
   const plan = digest

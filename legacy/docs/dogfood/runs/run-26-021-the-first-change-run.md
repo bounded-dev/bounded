@@ -1,5 +1,5 @@
 # Run 21 — the first change run: a delivered tree, evolved through the same gates
-r21 is the change cycle's first live outing (ADR 2026-028, TN-26-003, issue
+r21 is the change cycle's first live outing (ADR LEG-2026-028, TN-26-003, issue
 #14), kimi-only (k3 design / k2.7 workers), both halves headless. First a
 fresh **baseline**: the cockpit prompt, prompt-to-deliver in one session. Then
 the tree was committed, the driver opened the run boundary (`bounded change-run`
@@ -25,7 +25,7 @@ a fresh review: the change architect's first gated calls were purity on the
 *changed* contracts and a reviewer commission — no inherited review, no
 inherited red. The re-freeze took the manifest-present path, and the scaffold
 step logged `kept src/… (implemented)` for both existing modules: the
-non-clobber rule (ADR 2026-023) carrying the old implementation across the
+non-clobber rule (ADR LEG-2026-023) carrying the old implementation across the
 revision. green-requires-red held with no special casing: the standing red
 was measured over the revised 133-test tree in the shadow, old tests failing
 NotImplemented beside the new ones.

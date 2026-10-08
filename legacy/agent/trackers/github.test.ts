@@ -6,7 +6,7 @@ import { BOARD_STATUSES, TrackerError } from "../src/tracker.ts";
 import { ghCommandLine, ghExecutable, gitHubSettings, gitHubTracker, parseProjectRef, resolveGitHubAtInit, type GhRun } from "./github.ts";
 import { openTracker, trackerConfigAtInit } from "./index.ts";
 
-// The GitHub adapter (ADR 2026-066), driven through a fake `gh` command line:
+// The GitHub adapter (ADR LEG-2026-066), driven through a fake `gh` command line:
 // the same spawn path as production, never the network.
 
 const FAKE_GH = join(import.meta.dirname, "..", "test", "support", "fake-gh.mjs");

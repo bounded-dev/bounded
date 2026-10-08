@@ -1,10 +1,10 @@
 // Read-only project check, shipped into the project as scripts/check-db.ts
-// and run by its `check:db` script (ADR 2026-058, ADR 2026-063). For every
+// and run by its `check:db` script (ADR LEG-2026-058, ADR LEG-2026-063). For every
 // context with Drizzle persistence, Drizzle Kit generates into a throwaway
 // copy of the context, which must produce no new migration, and then checks
 // the committed history for consistency. Applying the history to a real
 // Postgres is the store tests' job: their generated test support migrates a
-// fresh container before the first store test (ADR 2026-064).
+// fresh container before the first store test (ADR LEG-2026-064).
 //
 //   bun scripts/check-db.ts [projectRoot]
 //
@@ -27,7 +27,7 @@ export const CONFIG_FILE = "drizzle.config.ts";
 export const DRIZZLE_DIR = "src/adapters/out/drizzle";
 /** The folder Drizzle Kit reads the schema from. */
 export const SCHEMA_DIR = `${DRIZZLE_DIR}/schema`;
-/** The committed migration history: generated, never hand-edited (ADR 2026-058). */
+/** The committed migration history: generated, never hand-edited (ADR LEG-2026-058). */
 export const MIGRATIONS_DIR = `${DRIZZLE_DIR}/migrations`;
 export const KIT_TIMEOUT_MS = 60_000;
 

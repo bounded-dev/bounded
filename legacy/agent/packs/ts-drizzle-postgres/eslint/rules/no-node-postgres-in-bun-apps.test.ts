@@ -10,7 +10,7 @@ import { noNodePostgresInBunApps } from "./no-node-postgres-in-bun-apps.ts";
 
 // Final review of #52, minor 9. Every app pins `pg` as a dev dependency so
 // the generated smoke-test database support can migrate with node-postgres
-// (ADR 2026-072). That trade makes `pg` resolvable from a Bun app's own
+// (ADR LEG-2026-072). That trade makes `pg` resolvable from a Bun app's own
 // code, where it would ship a second driver beside `drizzle-orm/bun-sql`;
 // this rule keeps a Bun app's production source off it. Node apps (bundled
 // with `--target node`) and test-side files are out of scope.

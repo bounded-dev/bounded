@@ -1,4 +1,4 @@
-// The generate_artifacts gate (ADR 2026-055): config drift first, then a
+// The generate_artifacts gate (ADR LEG-2026-055): config drift first, then a
 // frozen design, then every composed generator; the architect's tool alone.
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

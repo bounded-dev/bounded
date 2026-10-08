@@ -3,14 +3,14 @@ name: ts-api-service
 description: Design a TypeScript API the reference way — expose a context's features to callers over the network with typed access for a frontend, an agent (MCP) or a scheduled job (Lambda). Use whenever a ticket asks to expose data or operations to callers, add an API, HTTP, RPC or MCP endpoint, give a frontend access, or make a feature callable from outside the process. Covers the @exposedVia tag, what is generated, and what the gates enforce.
 ---
 
-# Exposing features (ADR 2026-060, ADR 2026-063, TN-26-012 §4 and §6)
+# Exposing features (ADR LEG-2026-060, ADR LEG-2026-063, TN-26-012 §4 and §6)
 
 A ticket that says "expose this to the frontend" — in any words, naming any
 technology or none — lands here. **The stack is harness policy, not ticket
-content** (ADR 2026-029): tRPC for the frontend (`ts-trpc`), the MCP SDK for
+content** (ADR LEG-2026-029): tRPC for the frontend (`ts-trpc`), the MCP SDK for
 agents (`ts-mcp`), AWS Lambda for scheduled or event work (`ts-lambda`). A
 ticket naming a different stack is the intake rule's constraint case (ADR
-2026-032).
+LEG-2026-032).
 
 ## The architect's whole job: one tag
 
@@ -50,7 +50,7 @@ and what comes back is plain `toJSON` data. Nobody writes tests under
 ## What the builder writes
 
 Not the composition roots: each app's (`composeApp()`, or one
-`compose<Feature>()` per Lambda) is generated too (ADR 2026-067). It builds
+`compose<Feature>()` per Lambda) is generated too (ADR LEG-2026-067). It builds
 every handler with its stores and passes them to the generated factory,
 grouped by area as the router nests them:
 `createProjectManagementRouter({ notes: { create, list }, projects: { … } })`.

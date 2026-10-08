@@ -62,7 +62,7 @@ function tsOnly(): string {
 
 const paths = (project: string, harness: string): string[] => configDrift(project, harness).map((d) => d.path);
 
-describe("the generated monorepo config (ADR 2026-054, ADR 2026-061)", () => {
+describe("the generated monorepo config (ADR LEG-2026-054, ADR LEG-2026-061)", () => {
   test("a synced project matches, file for file: every manifest, both tsconfigs, the shipped checker", () => {
     const f = fixture();
     const project = synced(f);
@@ -338,7 +338,7 @@ describe("every tool that spawns the test runner or type-checker refuses drifted
   });
 });
 
-describe("deliver on a generated project (ADR 2026-054, ADR 2026-062)", () => {
+describe("deliver on a generated project (ADR LEG-2026-054, ADR LEG-2026-062)", () => {
   test("finds the Bun wiring already generated, rewrites no config, and runs the check with bun", async () => {
     const project = tsOnly();
     mkdirSync(join(project, "node_modules", "ts-morph"), { recursive: true });

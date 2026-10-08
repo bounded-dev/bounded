@@ -19,7 +19,7 @@ fire when it is composed**, checked at deliver, through the same
 socket/contribution model everything else rides (TN-26-005). A composed pack
 that did not produce its required, wired artifacts blocks delivery. The
 mechanism already has its first instance — the deliver build-check added
-after Run 29 (ADR 2026-033) — and this generalises it. **UI and service are
+after Run 29 (ADR LEG-2026-033) — and this generalises it. **UI and service are
 kept as two separate obligations**, so a legitimate local web app is not
 forced to grow a backend; the one policy call left open is whether composing
 the web pack should *pull in* the service capability by default.
@@ -61,7 +61,7 @@ Obligations ride the existing socket/contribution model (TN-26-005), never a
 core special-case. The core owns the *mechanism* (a socket the completeness
 gate consumes) and names no technology; each pack owns the *content* (its
 obligation checks). The first instance already exists: the deliver-check
-socket's `checkScript` (ADR 2026-033, added post-Run-29) lets the `ts` pack
+socket's `checkScript` (ADR LEG-2026-033, added post-Run-29) lets the `ts` pack
 fold a pack-supplied build command into the project's `check` while the word
 `vite` lives only in `ts-web`. This note promotes that single hook into a
 first-class **obligations** contribution covering existence, wiring and build.
@@ -79,7 +79,7 @@ distinct capabilities with distinct obligations.
 - **The service capability (tRPC) obligates:** a `ServiceRouter` re-export
   exists and a typed client consumes it. Its *content already exists as
   gates* — `no-erased-router`, `router-type-reexported` (the r23
-  silent-forfeit fix, ADR 2026-030), `client-one-door`. Today those
+  silent-forfeit fix, ADR LEG-2026-030), `client-one-door`. Today those
   validate a service *if present*; the obligation turns them into
   *must-be-present-and-typed* when the service capability is composed.
 
@@ -135,7 +135,7 @@ stops there. Judgment about quality stays with the reviewer and the human.
   being unconsumed), so it belongs to the pair. Today's gates get part way
   (one door exists; the router is typed) but nothing checks the door points
   at the composed router — that check is the new work this obligation adds.
-  A single-arm example of exactly this silent forfeit is r23 (ADR 2026-030),
+  A single-arm example of exactly this silent forfeit is r23 (ADR LEG-2026-030),
   at the service-to-service seam; the UI-to-service seam is the same shape.
 
 ## Open questions
@@ -153,8 +153,8 @@ stops there. Judgment about quality stays with the reviewer and the human.
 - **Evidence:** dogfood Run 29 (both arms; the DeepSeek orphan-kit and the
   opus honest-local-app, `docs/dogfood/runs/run-26-029-*`).
 - **Seed already shipped:** the deliver build-check + `checkScript` socket
-  (ADR 2026-033 amendment) — instance #1 of a pack obligating its build.
-- **Reused content:** the router gates (ADR 2026-030); the pack
+  (ADR LEG-2026-033 amendment) — instance #1 of a pack obligating its build.
+- **Reused content:** the router gates (ADR LEG-2026-030); the pack
   socket/contribution model (TN-26-005); the reference-component TN (26-008),
   which this complements — 26-008 shows the shape to copy, 26-009 forces the
   shape to be delivered.

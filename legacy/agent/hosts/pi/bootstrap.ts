@@ -1,4 +1,4 @@
-// Dependency-free pi project entry (ADR 2026-048, ADR 2026-051). The
+// Dependency-free pi project entry (ADR LEG-2026-048, ADR LEG-2026-051). The
 // generated project loader imports this file; at runtime it and everything it
 // imports use Node builtins only (the pi and schema imports are type-only), so
 // a fresh clone can load it before setup installs any package.

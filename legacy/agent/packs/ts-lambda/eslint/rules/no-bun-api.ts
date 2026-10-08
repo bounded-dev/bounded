@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
-// Code bundled for Node must not use Bun's runtime APIs (ADR 2026-062).
+// Code bundled for Node must not use Bun's runtime APIs (ADR LEG-2026-062).
 //
 // The project is a Bun monorepo: Bun installs, tests, serves and bundles. But
 // a Lambda app is bundled with `bun build --target node` because the Lambda

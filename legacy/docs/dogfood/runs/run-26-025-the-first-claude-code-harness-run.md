@@ -46,5 +46,5 @@ down rather than decorate it.
 Host honesty worked as designed: ambient (architect) guard lines declare
 `tool-strip` unenforced; bound-subagent lines declare it enforced.
 
-Note: this run predates the `.bounded/` state move (ADR 2026-035) — its
+Note: this run predates the `.bounded/` state move (ADR LEG-2026-035) — its
 state directory is `.pi/`.

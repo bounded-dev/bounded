@@ -50,7 +50,7 @@ describe("the desktop app of the worked example", () => {
       expect(example, line).toContain(line);
       expect(main, line).toContain(line);
     }
-    // The generated composition root, the example's grouped by area (ADR 2026-067).
+    // The generated composition root, the example's grouped by area (ADR LEG-2026-067).
     expect(content("main/composition-root.ts")).toBe(readExample(`${APP}/main/composition-root.ts`));
     expect(content("main/composition-root.ts")).toContain("export function composeApp(): ProjectManagementRouter {");
   });

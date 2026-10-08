@@ -1,5 +1,5 @@
 // What each host does to a path argument before it touches the filesystem
-// (ADR 2026-057). The path policy judges a project-relative spelling; a host
+// (ADR LEG-2026-057). The path policy judges a project-relative spelling; a host
 // that rewrites the argument first — strips a prefix, expands `~`, decodes a
 // URL — would otherwise open a file the gate never judged. So the gate
 // applies exactly the host's own rewriting first, and refuses a form it

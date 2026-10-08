@@ -3,7 +3,7 @@
 //
 //   node mutation-score.ts [targetDir] [--max-mutants N] [--timeout-ms N]
 //
-// Crash safety, the sample and the time budget are ADR 2026-070 (issue #48).
+// Crash safety, the sample and the time budget are ADR LEG-2026-070 (issue #48).
 //
 // THIS IS A MEASUREMENT, NOT A GATE. It always exits 0 when the measurement
 // ran, whatever the score — nothing here blocks a phase transition. A
@@ -71,12 +71,12 @@
 //
 // --- what is mutated ------------------------------------------------------------
 //
-// Every `.ts` file under the composed source roots (ADR 2026-056), minus:
+// Every `.ts` file under the composed source roots (ADR LEG-2026-056), minus:
 //   - `*.contract.ts`         — declaration-only by lint; nothing to mutate,
 //                               and the checksum gate owns them anyway.
 //   - test-side files         — the suite is the thing being measured
-//                               (`testFileSuffixes`, ADR 2026-057).
-//   - generated files         — `generatedFileGlobs` (ADR 2026-058): barrels,
+//                               (`testFileSuffixes`, ADR LEG-2026-057).
+//   - generated files         — `generatedFileGlobs` (ADR LEG-2026-058): barrels,
 //                               commands, in-adapters, migrations. Mutating
 //                               them measures the generator, not the builder.
 //   - `**/index.ts`           — re-export hubs; no logic.
@@ -143,8 +143,8 @@
 //
 // The suite runner is injectable (`options.runSuite`), which is how the tests
 // exercise the whole loop without spawning bun 40 times. The real one is the
-// run_tests runner (bun test, JUnit, ADR 2026-062) under the composed phase
-// test policies at `green` (ADR 2026-064): store tests are never skipped, and
+// run_tests runner (bun test, JUnit, ADR LEG-2026-062) under the composed phase
+// test policies at `green` (ADR LEG-2026-064): store tests are never skipped, and
 // with no container runtime to run them the measurement refuses.
 
 import { createHash } from "node:crypto";
@@ -324,7 +324,7 @@ export function mutantSites(source: string, fileRel: string): MutantSite[] {
 }
 
 /** Is this the rejection a parse returns: `undefined`, or a failed Result
- *  (an object literal with `ok: false`, ADR 2026-059)? */
+ *  (an object literal with `ok: false`, ADR LEG-2026-059)? */
 function isRejection(expression: Node): boolean {
   if (expression.getText() === "undefined") return true;
   if (!Node.isObjectLiteralExpression(expression)) return false;
@@ -374,9 +374,9 @@ function toPosix(p: string): string {
 
 /** What decides a file is not the builder's logic. */
 export interface MutableLayout {
-  /** Composed test-side suffixes (ADR 2026-057). */
+  /** Composed test-side suffixes (ADR LEG-2026-057). */
   readonly testSuffixes: readonly string[];
-  /** Is a project path generated (ADR 2026-058)? */
+  /** Is a project path generated (ADR LEG-2026-058)? */
   readonly isGenerated: (path: string) => boolean;
 }
 
@@ -698,7 +698,7 @@ export async function runMutationScore(
     if (leftover.status === "refused") return stopped(1, leftover.reason, [`mutation-score: BLOCK — ${leftover.reason}`]);
     if (leftover.status === "restored") head.push(`mutation-score: ${leftover.line}`);
     // Every mutant runs the suite, which loads the project's config as code: it
-    // must be what the composed packs generate (ADR 2026-054). Checked before
+    // must be what the composed packs generate (ADR LEG-2026-054). Checked before
     // anything else is read, any source mutated or any suite spawned.
     const configBlock = configDriftBlock(GUARD, cwd);
     if (configBlock !== undefined) return stopped(1, configBlock.summary, configBlock.lines);

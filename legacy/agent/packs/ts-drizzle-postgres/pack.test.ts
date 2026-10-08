@@ -36,7 +36,7 @@ describe("the drizzle adapter technology", () => {
       dependencies: { "drizzle-orm": "0.45.3", pg: "8.23.1" },
       devDependencies: { "@testcontainers/postgresql": "12.2.0", "@types/pg": "8.23.1", "drizzle-kit": "0.31.11", testcontainers: "12.2.0" },
     });
-    // Project lockfiles are derived from the harness's own (ADR 2026-054), and
+    // Project lockfiles are derived from the harness's own (ADR LEG-2026-054), and
     // the pack's tests run against these very versions.
     const harness = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as { devDependencies: Record<string, string> };
     for (const [name, version] of Object.entries({ ...drizzle!.pins.dependencies, ...drizzle!.pins.devDependencies })) {
@@ -45,7 +45,7 @@ describe("the drizzle adapter technology", () => {
   });
 });
 
-describe("generated files (ADR 2026-058)", () => {
+describe("generated files (ADR LEG-2026-058)", () => {
   test("the globs are valid and cover TN-26-012's drizzle rows plus the per-context config", () => {
     const hexagonal = new Set(generatedFileGlobsFor(["ts", "ts-hexagonal"], packsDir));
     expect(generatedFileGlobsFor(PACKS, packsDir).filter((g) => !hexagonal.has(g))).toEqual([

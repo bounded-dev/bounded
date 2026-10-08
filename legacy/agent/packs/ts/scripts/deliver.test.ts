@@ -300,7 +300,7 @@ describe("runDeliver: generated files and skeletons", () => {
     expect(blockEvent(dir)).toMatchObject({ step: "generated", route: "orchestrator" });
   });
 
-  test("BLOCK when an app's generated composition root is edited (ADR 2026-067)", async () => {
+  test("BLOCK when an app's generated composition root is edited (ADR LEG-2026-067)", async () => {
     const root = "apps/web/src/server/composition-root.ts";
     const dir = proj({ packs: ["ts", "ts-hexagonal", "ts-trpc", "ts-web"] });
     // Declare the fixture's web app, then emit again as the design gate would.

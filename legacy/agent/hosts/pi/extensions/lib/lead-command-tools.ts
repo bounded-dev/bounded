@@ -1,4 +1,4 @@
-// pi's tools for the team lead's commands (src/lead-commands.ts, ADR 2026-066).
+// pi's tools for the team lead's commands (src/lead-commands.ts, ADR LEG-2026-066).
 // Each tool turns its parameters into the shell form's arguments and goes
 // through the same parser, so a tool accepts exactly what `bounded lead`
 // accepts, then runs the command in-process against the project's tracker.
@@ -73,7 +73,7 @@ export function registerLeadCommandTools(pi: ExtensionAPI, leadSession: (cwd: st
         const parsed = parseLeadArgs(shape.argv(params as Params));
         if (!parsed.ok) return reply(`team-lead: ${parsed.reason}`, false);
         const outcome = await runLeadCommand(ctx.cwd, parsed.request, leadDeps(openTracker, "pi"));
-        // A merge whose check still runs in the background (ADR 2026-073).
+        // A merge whose check still runs in the background (ADR LEG-2026-073).
         return reply(outcome.text, outcome.ok, outcome.running);
       },
     });

@@ -60,7 +60,7 @@ describe("every enforced rule is named in the brief of the role it binds", () =>
   // A rule a PACK contributed through the ts pack's `lintSrcRules` socket
   // (TN-26-005) is enforced by exactly the same gate, in exactly the same flat
   // config, at exactly the same severity as a built-in one — so it carries
-  // exactly the same obligation (ADR 2026-018). The contribution names the
+  // exactly the same obligation (ADR LEG-2026-018). The contribution names the
   // brief itself, so this check needs no list of packs and no list of rules:
   // composing a new pack that contributes a rule its brief does not mention
   // turns this test red on the spot.
@@ -82,7 +82,7 @@ describe("every enforced rule is named in the brief of the role it binds", () =>
   });
 });
 
-// A re-plan replaces the project's installation (ADR 2026-065). The guard
+// A re-plan replaces the project's installation (ADR LEG-2026-065). The guard
 // admits it before the first ticket; the user's go-ahead is the lead's own
 // obligation, so the lead's brief must say so for each host's spelling.
 describe("the team lead is told to get the user's go-ahead before applying a re-plan", () => {
@@ -129,7 +129,7 @@ describe("a contract another ticket owns is changed by a change run on that tick
   test("the architect is told the change waits for the active ticket's delivery", () => {
     expect(architectText).toContain("after the active ticket is delivered");
   });
-  // ADR 2026-071: an abandoned ticket stays a claimant of what its freeze
+  // ADR LEG-2026-071: an abandoned ticket stays a claimant of what its freeze
   // holds and cannot be taken from, so the lead needs the way out.
   test("the lead knows how to settle a contract an abandoned ticket still claims", () => {
     expect(lead).toContain(
@@ -179,7 +179,7 @@ describe("the gate roster and the brief that drives it agree", () => {
   });
 
   // `scaffold` and `freeze_contracts` are steps of `design_gate` (ADR
-  // 2026-019), not tools. The prose may still name the STEPS — it has to, since
+  // LEG-2026-019), not tools. The prose may still name the STEPS — it has to, since
   // the gate reports them — so the check is on the backticked tool-call form.
   test("no retired tool is still offered as a call", () => {
     for (const retired of ["scaffold", "freeze_contracts"]) {
@@ -197,7 +197,7 @@ describe("the gate roster and the brief that drives it agree", () => {
     expect(missing).toEqual([]);
   });
 
-  // ADR 2026-014: structure, not persona. The brief earns its place by being a
+  // ADR LEG-2026-014: structure, not persona. The brief earns its place by being a
   // checklist with greppable lead phrases and an explicit stop — the two things
   // measurably reproduced in output — so pin the fingerprint, not the wording.
   test("the reviewer's brief is a checklist with the severities it must choose between", () => {
@@ -238,7 +238,7 @@ describe("the gate roster and the brief that drives it agree", () => {
     }
   });
 
-  // Findings are advisory (ADR 2026-020): a brief that let the architect read a
+  // Findings are advisory (ADR LEG-2026-020): a brief that let the architect read a
   // blocker as a verdict would have re-invented the reviewer as a second
   // architect, which is exactly what the role must not become.
   test("both briefs say the findings are the architect's to settle", () => {
@@ -248,7 +248,7 @@ describe("the gate roster and the brief that drives it agree", () => {
 });
 
 // The layout and toolchain the briefs describe must be the ones the gates
-// enforce (ADRs 2026-056 to 2026-064). A brief that still says `tests/**`, or
+// enforce (ADRs LEG-2026-056 to LEG-2026-064). A brief that still says `tests/**`, or
 // tells a builder to run Vitest, teaches a world the path gate refuses: every
 // sentence of it is a bounce waiting to happen.
 describe("the role docs describe the monorepo the gates enforce", () => {
@@ -406,7 +406,7 @@ describe("the role docs describe the monorepo the gates enforce", () => {
   test("the lead is told what red and green run, the Docker refusal and the design gate's registry need", () => {
     expect(developerStage).toMatch(/Red runs \*\*only the contexts' tests\*\*/);
     expect(developerStage).toMatch(/`architecture\.test\.ts` run at green only/);
-    // The engine refusal is the user's, in product terms (ADR 2026-072).
+    // The engine refusal is the user's, in product terms (ADR LEG-2026-072).
     expect(developerStage).toMatch(/That refusal is routed to the user/);
     expect(developerStage).toMatch(/package registry or bun's cache/);
     expect(developerStage).toContain("`run_tests` is `bun test`");
@@ -426,7 +426,7 @@ describe("the role docs describe the monorepo the gates enforce", () => {
 });
 
 // A long gate may answer RUNNING on a host with a command time limit (ADR
-// 2026-073). Every role that runs one must know what to do with it.
+// LEG-2026-073). Every role that runs one must know what to do with it.
 describe("RUNNING is told to every role that can meet it", () => {
   const root = join(import.meta.dirname, "..", "..");
   const teamLead = readFileSync(join(import.meta.dirname, "..", "skills", "team-lead", "SKILL.md"), "utf8");

@@ -1,4 +1,4 @@
-// Where each ticket's work lives (ADR 2026-066). The lead stays in the main
+// Where each ticket's work lives (ADR LEG-2026-066). The lead stays in the main
 // worktree; `bounded lead start` gives every ticket its own git worktree and
 // branch, nested under the main worktree's ignored `.bounded/` so that each
 // host's project trust and every hidden-directory rule already cover it. The
@@ -57,7 +57,7 @@ export function writeTicketMarker(worktree: string, marker: TicketMarker): void 
   writeFileSync(join(worktree, TICKET_MARKER_RELATIVE), JSON.stringify(marker, null, 2) + "\n");
 }
 
-/** A merge recorded before `git merge` runs (ADR 2026-073), so a merge whose
+/** A merge recorded before `git merge` runs (ADR LEG-2026-073), so a merge whose
  *  call ended is adopted, collected, undone or refused, never repeated. */
 export interface MergeRecord {
   /** Local main before the merge (after the fast-forward): what an undo returns to. */

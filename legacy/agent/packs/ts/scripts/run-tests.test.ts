@@ -76,7 +76,7 @@ function projectWith(run: { sources: Record<string, string> }): string {
     .map(([file, text]) => [`contexts/pm/src/domain/${file}`, text])));
 }
 
-describe("the suite invocation (ADR 2026-062)", () => {
+describe("the suite invocation (ADR LEG-2026-062)", () => {
   test("bun's runner, its JUnit reporter into the given file, harness state ignored", () => {
     expect(testCommand("/tmp/r/report.xml")).toEqual({
       command: "bun",
@@ -526,7 +526,7 @@ describe("the suite's environment", () => {
   });
 });
 
-// --- the gate (ADR 2026-034) ----------------------------------------------------
+// --- the gate (ADR LEG-2026-034) ----------------------------------------------------
 
 describe("runTestsGate", () => {
   test("passing suite: PASS, counts in the detail, one pass event with no names", async () => {
@@ -641,7 +641,7 @@ describe("runTestsGate under a build policy", () => {
     expect(calls).toEqual([]);
   });
 
-  // Issue #52 (ADR 2026-072): what only the user can clear says so.
+  // Issue #52 (ADR LEG-2026-072): what only the user can clear says so.
   test("a service that cannot start for the user's machine routes run_tests to the user", async () => {
     const dir = twoTests();
     const calls: Recorded[] = [];

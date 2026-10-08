@@ -1,5 +1,5 @@
 // The detector behind "a project's user never runs harness steps" (AGENTS.md;
-// ADR 2026-072), shared by the drift test over role briefs and skills
+// ADR LEG-2026-072), shared by the drift test over role briefs and skills
 // (src/user-steps-drift.test.ts) and the refusal test over the harness's own
 // source strings (src/user-refusals.test.ts).
 //

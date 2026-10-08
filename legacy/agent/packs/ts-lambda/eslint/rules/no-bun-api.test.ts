@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it, test } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { appDirOf, buildsForNode, noBunApi } from "./no-bun-api.ts";
 
-// ADR 2026-062: an app bundled with `bun build --target node` runs on Node
+// ADR LEG-2026-062: an app bundled with `bun build --target node` runs on Node
 // (the Lambda runtime), so a Bun API in it throws only in production. The
 // scope is read from the app's own manifest, so the fixtures are real trees.
 

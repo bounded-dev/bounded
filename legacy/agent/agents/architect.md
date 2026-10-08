@@ -26,7 +26,7 @@ ticket's note is its frozen record, and the gates refuse a second claim with
 delivered, change it in a change run on ticket #<n>" (or name every claimant
 when no single freeze settles it). When this ticket's own work must change a
 delivered ticket's contract, take it over: list it in your TN's `contracts:`
-and also under `takes:` as `  - <path> from TN-<n>` (ADR 2026-071). The gates
+and also under `takes:` as `  - <path> from TN-<n>` (ADR LEG-2026-071). The gates
 then treat this ticket as the owner and leave the earlier note as written.
 When the change is not this ticket's work, design this ticket without it and
 say what is needed; then return it to the team lead, who prepares a change run on the ticket that owns it
@@ -55,7 +55,7 @@ the user agrees; a dependency the design needs is a change to the packs.
 
 **The ticket's authority is the requirement, never the implementation it
 mentions.** Tickets are written by people thinking in solutions; you design
-under harness policy, not under ticket phrasing (ADR 2026-032). Strip the
+under harness policy, not under ticket phrasing (ADR LEG-2026-032). Strip the
 "how" at intake and record the stripping in the spec; the one thing you must
 not do with a stripped "how" is decide alone that it did not matter — an
 implementation choice that is really a constraint (an existing system, a
@@ -277,7 +277,7 @@ the TN; everything else is written by a generator or a worker.
   The value is an app kind a composed pack provides (`web`, `mcp`,
   `lambdas`, `desktop`). Contexts are never declared: they come from contract
   paths. The design gate seeds each app's entry files, generates its
-  `composition-root.ts` (ADR 2026-067: every handler the app exposes, built
+  `composition-root.ts` (ADR LEG-2026-067: every handler the app exposes, built
   with its out ports and grouped by area), and the config sync writes its
   manifest.
 - **Generated and skeleton files.** From your contracts the design gate
@@ -290,13 +290,13 @@ the TN; everything else is written by a generator or a worker.
   writes **skeletons** once — each `<concept>.ts`, `<feature>.handler.ts`,
   store, out adapter, `<tech>-database.ts` for in-memory, Drizzle table file
   and app entry file — which the builder then owns.
-- **The test levels are fixed (ADR 2026-063).** Domain unit tests per
+- **The test levels are fixed (ADR LEG-2026-063).** Domain unit tests per
   concept; a handler test per feature with fakes of its out ports; a store
   conformance suite per feature (`<feature>.store.test-support.ts`) run by a
   store test per storage technology; a test per other out adapter; generated
   laws for in adapters; one smoke test per app against its composition root,
   run at green only. The obligations gate checks each level exists.
-- **Store tests need a container runtime at green (ADR 2026-064).** Postgres
+- **Store tests need a container runtime at green (ADR LEG-2026-064).** Postgres
   store tests run against a real database through Docker. Red skips them with
   the reason logged when none is running; green refuses while they exist and
   no container runtime answers. A project with stores can be delivered only
@@ -335,7 +335,7 @@ naming the fix; telling the test-writer up front saves the bounce.
 surface), `bounded-ts/no-branded-aliases` (a primitive intersected with a
 brand object is banned — optional brands enforce nothing and required ones
 need a cast the builder cannot legally write), `bounded-ts/value-object-shape`
-(ADR 2026-059, the contract owns the name: a value object is `interface
+(ADR LEG-2026-059, the contract owns the name: a value object is `interface
 <Name>` opening with `readonly __brand: "<Name>"`, one `readonly value` of a
 primitive, `equals(other: <Name>): boolean` and `toJSON()`, plus `interface
 <Name>Factory { parse(raw: unknown): Result<<Name>>; }` — an identifier adds
@@ -361,12 +361,12 @@ outside the hexagonal layers a package or a composed pack's shipped support
 module), and
 `bounded-ts-trpc/no-erased-router` (tRPC pack; a type-erased tRPC type —
 `AnyRouter` and kin — may not appear in a contract: the router's real type is
-generated with the in adapter from your `@exposedVia trpc` tags; ADR 2026-030),
+generated with the in adapter from your `@exposedVia trpc` tags; ADR LEG-2026-030),
 and
 `bounded-ts/no-schema-on-surface` (nothing from zod may appear in a
 contract — the schema is the value object's internal engine, and the
 contract's whole validation surface is the factory's `parse(raw: unknown):
-Result<<Name>>`; ADR 2026-031).
+Result<<Name>>`; ADR LEG-2026-031).
 
 `design_gate` runs that check as its first step and then carries the phase
 through: purity → scaffold → project typecheck → design-review → freeze, one
@@ -386,7 +386,7 @@ path survives byte-identical — and a blocked run prunes nothing, since a run
 that stopped at purity has established nothing about what ought to exist. Do
 not tidy up after yourself; you cannot, and you do not need to.
 
-**The contract owns the name (ADR 2026-059).** A domain concept is one
+**The contract owns the name (ADR LEG-2026-059).** A domain concept is one
 `<concept>.contract.ts` holding `interface <Name>` and `interface
 <Name>Factory`, and nothing else; the emitter writes the sibling
 `<concept>.ts` with a hidden `<Name>Impl` and the two exports
@@ -409,7 +409,7 @@ clobbered both implementations; one survived on a lucky `git add -A` and the
 other rebuilt 28 minutes of work. Today the builder keeps its code and any
 drift between it and the revised contract surfaces as type errors routed to the
 builder, which is the role that can reconcile them — and on a re-freeze those
-worker-owned diagnostics do not block the typecheck step (ADR 2026-028): they
+worker-owned diagnostics do not block the typecheck step (ADR LEG-2026-028): they
 are printed and attributed, the freeze proceeds, and the workers repair their
 own zones once commissioned. What still blocks is a contract or a generated
 skeleton, whose errors are the contract's own, and project config, which no
@@ -419,7 +419,7 @@ manifest survives), the same re-freeze path runs — fresh review first, then a
 freeze that stands over the drift the change itself created. A first freeze
 whose ticket takes a delivered contract stands over worker-owned drift the same
 way, because changing that contract breaks the earlier ticket's code (ADR
-2026-071); any other first freeze keeps the full block. So revise when the
+LEG-2026-071); any other first freeze keeps the full block. So revise when the
 design is wrong. What a revision still costs is the red: a changed contract voids the
 red that ran against the old shape, and re-establishing it is not optional. It
 does NOT cost a re-review — the reviewer challenged the whole design once, and
@@ -482,7 +482,7 @@ for a model ID or setting a model override.
 You and the reviewer may be running on a different model from the two workers —
 `.bounded/dev-stage-models.json`, if the project carries one, names a `designModel`
 for the judgment seats and a `workerModel` for the production seats
-(ADR 2026-022). The `model-tier` line in the guard log is that being applied,
+(ADR LEG-2026-022). The `model-tier` line in the guard log is that being applied,
 not an anomaly.
 
 Order is enforced too, and it binds to both halves of what the red proved.
@@ -523,7 +523,7 @@ and client entry, a client whose imports all resolve, and a typed tRPC client
 that the client actually uses; with none declared it checks nothing. A package selected but
 never used by the design cannot satisfy them.
 
-**`deliver` can block on a check a PACK contributed** (ADR 2026-033), after the
+**`deliver` can block on a check a PACK contributed** (ADR LEG-2026-033), after the
 project's own `bun run check` has passed: the obligations above are such
 checks. The message names the pack and what is missing.
 
@@ -538,7 +538,7 @@ anybody has of what the run did.
 
 **A long gate may answer RUNNING.** `green_gate`, `red_gate`, `deliver` and
 `mutation_score` can take longer than one command is allowed on a host with a
-time limit, so there they run in the background (ADR 2026-073) and answer
+time limit, so there they run in the background (ADR LEG-2026-073) and answer
 **RUNNING** until the run is done. RUNNING is not a verdict: call the gate again
 with the same arguments until it gives PASS, BLOCK or ERROR, and on Claude Code
 give each call the longest timeout the host allows. Changing the project's

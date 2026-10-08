@@ -109,7 +109,7 @@ describe("architect tool registration matches the path policy", () => {
   });
 
   // Tools that were RETIRED must not linger. `scaffold` and `freeze_contracts`
-  // became steps of `design_gate` (ADR 2026-019), and a step that is still
+  // became steps of `design_gate` (ADR LEG-2026-019), and a step that is still
   // separately callable is a step that can still be called out of order — which
   // is the whole thing the composite removes. The exact-equality test above
   // would catch a stray registration; this one says why it is wrong.

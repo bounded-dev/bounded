@@ -11,7 +11,7 @@ export interface RouteTarget {
   /** It has a frozen design, so the lead will prepare a change run on it. */
   readonly frozen: boolean;
   /** Its last run was abandoned, so no ticket may take a contract from it
-   *  (ADR 2026-071). */
+   *  (ADR LEG-2026-071). */
   readonly abandoned?: boolean;
 }
 
@@ -27,7 +27,7 @@ export function changeRunRoute(target: RouteTarget, active: string | undefined):
 
 /** The refusal for a contract another ticket owns. When the owner has a
  *  frozen design, was not abandoned, and a ticket is active, that ticket may
- *  instead take the contract over in its own note (ADR 2026-071). */
+ *  instead take the contract over in its own note (ADR LEG-2026-071). */
 export function foreignContractRefusal(path: string, owner: RouteTarget, active: string | undefined): string {
   const route = `contract ${path} belongs to ticket #${owner.ticket}: ${changeRunRoute(owner, active)}`;
   const takeable = owner.frozen && owner.abandoned !== true && active !== undefined;

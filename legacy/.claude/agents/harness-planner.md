@@ -1,6 +1,6 @@
 ---
 name: harness-planner
-description: "Development lifecycle, stage 1 (docs/harness-workflow.md, ADR 2026-068). Plans one GitHub issue on THIS repository: a grilling pass over the decisions that shape the longer-term architecture, its own picks where the answer is obvious, genuine open questions returned to the orchestrator, and the plan written to .agent-state/<issue>/plan.md. Writes nothing else. Use for harness development, not for target projects."
+description: "Development lifecycle, stage 1 (docs/harness-workflow.md, ADR LEG-2026-068). Plans one GitHub issue on THIS repository: a grilling pass over the decisions that shape the longer-term architecture, its own picks where the answer is obvious, genuine open questions returned to the orchestrator, and the plan written to .agent-state/<issue>/plan.md. Writes nothing else. Use for harness development, not for target projects."
 tools: Read, Grep, Glob, Bash, Write
 model: opus
 hooks:

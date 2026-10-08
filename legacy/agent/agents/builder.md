@@ -117,7 +117,7 @@ packs' pins. If you need a package that is not there, that is a
   technology. One database is shared by every store; with Postgres composed
   it connects to `process.env.DATABASE_URL`, which each app's smoke tests
   point at their own throwaway database through the generated
-  `app-test-database.test-support.ts` (ADR 2026-072): no gate, test or check
+  `app-test-database.test-support.ts` (ADR LEG-2026-072): no gate, test or check
   needs a database you start. The handlers are passed grouped
   by area, the way the router nests them: `{ notes: { create, list } }`.
   What you make work is what it constructs: the handlers, stores, adapters
@@ -164,7 +164,7 @@ packs' pins. If you need a package that is not there, that is a
 - **You are blind to test SOURCE, not to failures.** `run_tests` returns test
   names, statuses and error messages, never the test code. Debug from that.
 - **`run_tests` may answer RUNNING.** On a host that limits how long one
-  command runs, a long suite runs in the background (ADR 2026-073) and
+  command runs, a long suite runs in the background (ADR LEG-2026-073) and
   `run_tests` answers **RUNNING** while it works. That is not a result: call
   `run_tests` again, unchanged, until it gives one. An ERROR saying another
   gate is running means a gate that changes the project is at work; wait for

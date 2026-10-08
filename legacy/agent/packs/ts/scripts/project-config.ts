@@ -1,5 +1,5 @@
 // Project configuration is generated from the composed packs and the design,
-// never written by a role (ADR 2026-054, ADR 2026-061, ADR 2026-062).
+// never written by a role (ADR LEG-2026-054, ADR LEG-2026-061, ADR LEG-2026-062).
 //
 // In a project-local installation (`bounded init`), every package manifest
 // (the root's and each workspace's), `bun.lock`, `tsconfig.json`, the
@@ -32,7 +32,7 @@
 //   function, derives the lockfile when the old one no longer verifies, then
 //   reinstalls through the composed packs' setup commands when anything
 //   changed. The team lead runs it, as `bounded lead sync-config <issue>`, in
-//   a ticket's worktree once the user agrees (ADR 2026-072): a project's user
+//   a ticket's worktree once the user agrees (ADR LEG-2026-072): a project's user
 //   never runs a harness step.
 //
 // A project that was not initialized by `bounded init` (an adopted repository,
@@ -81,7 +81,7 @@ import {
 
 export { LOCKFILE, MANIFEST };
 /** Who restores drifted config, said the same way by every refusal: the team
- *  lead, in the ticket's own worktree, once the user agrees (ADR 2026-072). */
+ *  lead, in the ticket's own worktree, once the user agrees (ADR LEG-2026-072). */
 export const TEAM_LEAD_RESTORES =
   "escalate to the team lead: with the user's agreement it restores the generated config in this ticket's worktree";
 
@@ -280,7 +280,7 @@ export function configDriftBlock(
     lines: [
       `${gate}: BLOCK — ${summary}`,
       ...drift.map((d) => `  ${d.path}: ${d.problem}`),
-      "  No role may edit project config (ADR 2026-054): it is generated from the composed packs and the design.",
+      "  No role may edit project config (ADR LEG-2026-054): it is generated from the composed packs and the design.",
       `  To restore it, ${TEAM_LEAD_RESTORES}. A dependency or setting the project needs belongs in a pack.`,
       `${gate}: route → orchestrator`,
     ],
@@ -309,7 +309,7 @@ export interface SyncOptions {
  * every config file and misplaced dependency directory no pack generates.
  * Everything is computed before anything is written, so a refusal leaves the
  * project untouched. The design gate calls this too, when the design adds a
- * workspace (ADR 2026-061).
+ * workspace (ADR LEG-2026-061).
  */
 export function syncProjectConfig(project: string, harnessRoot = harnessRootOf(), options: SyncOptions = {}): SyncResult {
   if (!configIsGenerated(project)) {
@@ -361,12 +361,12 @@ const execSetup: SetupRun = (command, args, cwd) => {
 
 /**
  * `sync-config`: the sync, then the composed packs' own project setup
- * commands (ADR 2026-051) whenever the sync changed anything or a project
+ * commands (ADR LEG-2026-051) whenever the sync changed anything or a project
  * dependency tree is missing, so restoring is one command. The commands are
  * the same pack data the lead's first setup runs: they install only from the
  * committed lockfile and never run the project's lifecycle scripts. This is
  * the one reinstall after the first run; the team lead reaches it, in a
- * ticket's worktree, only after the user agrees (ADR 2026-072).
+ * ticket's worktree, only after the user agrees (ADR LEG-2026-072).
  */
 export function syncConfigCommand(
   project: string,
@@ -409,7 +409,7 @@ export function syncConfigCommand(
   return { code: 0, lines, changed: sync.changed };
 }
 
-// --- the design's own config (ADR 2026-061) -----------------------------------------
+// --- the design's own config (ADR LEG-2026-061) -----------------------------------------
 
 /** The directories workspaces sit in (`contexts`, `apps`): the root
  *  manifest's `workspaces` globs, each `<root>/*`. */
@@ -427,7 +427,7 @@ function workspaceRootsOf(generated: GeneratedConfig): Set<string> {
  * refuses: a workspace manifest the design adds, changes or drops
  * (`<root>/<name>/package.json`, for a workspace root the composition
  * declares) and the lockfile that follows from the manifests. Contracts and
- * TNs decide these files (ADR 2026-061), and only the architect writes
+ * TNs decide these files (ADR LEG-2026-061), and only the architect writes
  * those; no role can write a manifest. Every other drift is someone's edit,
  * and blocks.
  */
@@ -461,7 +461,7 @@ export interface DesignConfigSync {
 
 /**
  * Bring the project's config in line with a design that adds, changes or
- * drops a workspace (ADR 2026-061): the manifests and lockfile are rewritten
+ * drops a workspace (ADR LEG-2026-061): the manifests and lockfile are rewritten
  * (sync-config's own function), then the composed setup commands install
  * from the new lockfile, so the next step's type check sees every workspace
  * linked. Runs only when every drifted file is design-derived; any other

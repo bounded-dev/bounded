@@ -43,7 +43,7 @@ in the brief of the role it binds.)
 
 The model is a rented component — and so is the agent framework that drives
 it. The harness is therefore **agent-agnostic by construction**
-([TN-26-007](tn/TN-26-007-agent-agnostic-harness.md), ADR 2026-034).
+([TN-26-007](tn/TN-26-007-agent-agnostic-harness.md), ADR LEG-2026-034).
 Everything that judges the tree is one deterministic CLI, `bounded gates` —
 the same verdict from CI, a bare shell, or any agent. Everything that shapes
 what a role *can do* — tools stripped from the toolset, writes blocked by a

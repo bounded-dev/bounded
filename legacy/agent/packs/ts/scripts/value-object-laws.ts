@@ -1,4 +1,4 @@
-// Domain-concept law generator (ADR 2026-059, TN-26-012 §7): one domain
+// Domain-concept law generator (ADR LEG-2026-059, TN-26-012 §7): one domain
 // concept contract → its colocated `<concept>.laws.test.ts`, run by `bun test`.
 //
 //   contexts/pm/src/domain/notes/note-text.contract.ts
@@ -24,7 +24,7 @@
 // emit a weaker suite.
 //
 // Forced by the red gate, which accepts only NotImplementedError failures
-// (ADR 2026-024): `parse()` is never wrapped in try/catch, and no law runs
+// (ADR LEG-2026-024): `parse()` is never wrapped in try/catch, and no law runs
 // concept code at module load — against the throwing skeleton the
 // NotImplementedError must reach the runner inside a test.
 //

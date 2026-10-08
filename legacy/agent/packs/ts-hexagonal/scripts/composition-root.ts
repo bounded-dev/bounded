@@ -1,4 +1,4 @@
-// The generated composition root (ADR 2026-067, TN-26-012 §11).
+// The generated composition root (ADR LEG-2026-067, TN-26-012 §11).
 //
 // Every app pack (web, MCP, Lambda, desktop) emits its app's
 // `composition-root.ts` through `compositionRoot` here, because what goes
@@ -53,7 +53,7 @@ export interface CompositionRootSpec {
 }
 
 const HEADER = [
-  "// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.",
+  "// Generated from the design (ADR LEG-2026-067); do not edit: the design gate regenerates it.",
   "// The one place that decides which adapter backs which port.",
 ];
 

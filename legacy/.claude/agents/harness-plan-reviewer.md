@@ -1,6 +1,6 @@
 ---
 name: harness-plan-reviewer
-description: "Development lifecycle, stage 2 (docs/harness-workflow.md, ADR 2026-068). A read-only architect who checks a harness plan (.agent-state/<issue>/plan.md) against AGENTS.md, the core/pack split, the ADRs and the repository's existing patterns, before any test is written. Returns findings; changes nothing. Use for harness development, not for target projects."
+description: "Development lifecycle, stage 2 (docs/harness-workflow.md, ADR LEG-2026-068). A read-only architect who checks a harness plan (.agent-state/<issue>/plan.md) against AGENTS.md, the core/pack split, the ADRs and the repository's existing patterns, before any test is written. Returns findings; changes nothing. Use for harness development, not for target projects."
 tools: Read, Grep, Glob
 model: opus
 ---

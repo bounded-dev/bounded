@@ -18,7 +18,7 @@ import { CLAUDE_CONDITIONAL_TOOLS, CLAUDE_PROVIDED_TOOLS } from "./tool-map.ts";
 import { SCOUT_CLAUDE_TOOLS } from "./project-install.ts";
 import { SEARCH_USAGE } from "./search.ts";
 
-// ADR 2026-034: "Drift tests extend to the rendered Claude Code agent
+// ADR LEG-2026-034: "Drift tests extend to the rendered Claude Code agent
 // definitions: `tools:` allowlists are pinned to ROLE_TOOLS." This is
 // agent-config-drift.test.ts for the second host — the same pins, through the
 // one mapping, so the two hosts cannot grant a role two different toolsets.

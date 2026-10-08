@@ -1,4 +1,4 @@
-// The ts-lambda pack (ADR 2026-063): AWS Lambda handlers as an in adapter,
+// The ts-lambda pack (ADR LEG-2026-063): AWS Lambda handlers as an in adapter,
 // and the Lambda app.
 //
 //   * the `lambda-in-adapter` emitter: every context's adapters/in/lambda/**,

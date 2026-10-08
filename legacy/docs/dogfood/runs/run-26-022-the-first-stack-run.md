@@ -6,7 +6,7 @@ the run's one sanctioned dependency (`@trpc/server` 11.18.0, exact-pinned),
 opened the run boundary, and fed `heating-cockpit-trpc-prompt.md` — add a
 tRPC service layer as a **second component** consuming the core only through
 its public surface, validation reusing the core's parse-based value objects
-(no zod: a second schema would be a second identity, ADR 2026-023), errors
+(no zod: a second schema would be a second identity, ADR LEG-2026-023), errors
 mapped totally onto tRPC codes, tested through `createCaller` with no socket.
 
 | | change run 2 (tRPC service) |
@@ -46,7 +46,7 @@ implementation, and the contract discipline forced the architect to choose
 between hand-declaring the procedure surface (drift-prone) and erasing it
 (`AnyRouter`). The pack needs a sanctioned pattern here — the contract
 re-exporting the implementation router's inferred type is legal under ADR
-2026-026's import-from-implementation rule and was simply not reached for.
+LEG-2026-026's import-from-implementation rule and was simply not reached for.
 That, plus a wire-boundary convention (raw-JSON shape ↔ value-object parse ↔
 error code), is `packs/ts`'s tRPC layer, and this run is its requirements
 document.

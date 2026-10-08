@@ -39,7 +39,7 @@ afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true }
 function repo(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "pi-design-review-"));
   tmpDirs.push(dir);
-  // Contracts are found under the composed source roots (ADR 2026-056).
+  // Contracts are found under the composed source roots (ADR LEG-2026-056).
   writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   for (const [rel, content] of Object.entries(files)) {
     const path = join(dir, rel);

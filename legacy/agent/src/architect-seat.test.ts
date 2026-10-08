@@ -13,7 +13,7 @@ import type { ProcessProbe } from "./process-lock.ts";
 import { CLAUDE_ARCHITECT_HOST, claudeGateProblem } from "../hosts/claude-code/architect-seat.ts";
 import { ARCHITECT_LOADER_RELATIVE, PI_ARCHITECT_HOST, piGateProblem } from "../hosts/pi/architect-seat.ts";
 
-// The architect seat is the host's own subagent (ADR 2026-066): the core
+// The architect seat is the host's own subagent (ADR LEG-2026-066): the core
 // keeps the pending launch and the seat's life; the adapters bind and record.
 
 let main = "";

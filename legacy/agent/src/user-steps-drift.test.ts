@@ -6,7 +6,7 @@ import {
 } from "../test/fixtures/user-steps.ts";
 import { USER_RECOVERY_COMMANDS } from "./lead-policy.ts";
 
-// "A project's user never runs harness steps" (AGENTS.md; ADR 2026-072), held
+// "A project's user never runs harness steps" (AGENTS.md; ADR LEG-2026-072), held
 // over everything a harnessed project's seats load: no role brief or skill
 // tells the user to run a command, except the reserved recovery commands and
 // two named, temporary exceptions, each a known harness gap that says so:

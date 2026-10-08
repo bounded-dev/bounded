@@ -41,7 +41,7 @@ should not be the first thing in the pipeline to look.
 **2. The mutation-score loop ran for the first time, and it worked.** The kimi
 arm measured 88%, added tests for the survivors, re-established red, and re-green
 to **100%** — `mutation_score` invoked live twice, the advisory tool used as the
-loop ADR 2026-023's neighbours imagined. The anthropic arm did *not* loop: it
+loop ADR LEG-2026-023's neighbours imagined. The anthropic arm did *not* loop: it
 measured 83% and carried its seven survivors into the sign-off findings instead.
 Both are legitimate uses of an advisory measure; the contrast is worth keeping.
 
@@ -112,7 +112,7 @@ Analysis of that 43-minute design phase showed roughly 20 minutes were the
 reviewer *polish loop*: cycles past a zero-blocker review that added a regression
 and then removed it (cycle 2 found 0 blockers; cycle 3 reintroduced one via the
 architect's own edit). That is the finding that motivated the **one-round-trip
-review reframe** — ADR 2026-020 amended so review is a single fresh-eyes
+review reframe** — ADR LEG-2026-020 amended so review is a single fresh-eyes
 *challenge*, not a byte gate: across r15–r18 no second-or-later cycle ever caught
 a defect the first pass missed, and byte-freshness mis-scoped the trust boundary
 (it policed the *trusted* architect's edits). Freshness was relaxed from
@@ -128,7 +128,7 @@ of a private property `__brand`"). Fixed by narrowing the annotation to
 `Pick<…>` of exactly the exports the object carries (commit `b684e17`). As in
 r17, the mid-run pack fix could not reach the running process (module cache); the
 arm needed a restart and then **stalled** — kimi r18 recorded no clean green.
-This same single-file-mega-contract shape is what later motivated ADR 2026-026
+This same single-file-mega-contract shape is what later motivated ADR LEG-2026-026
 (value objects live in their own contract file), enforced by the
 `bounded-ts/value-objects-own-contract` lint rule, so decomposition is now a
 contract-shape rule the architect meets up front rather than a scaffold-time
@@ -137,7 +137,7 @@ surprise.
 ### Run 19 — the capstone: both arms headless, zero intervention
 
 The first run with both the one-round-trip review *and* the decomposition rule
-(ADR 2026-026) live. Both arms were launched **headless** — `pi -p`, no
+(ADR LEG-2026-026) live. Both arms were launched **headless** — `pi -p`, no
 interactive session — and both delivered with **zero human intervention, zero
 escalations, zero restarts**, each passing its own `npm run check`. Archive
 branches `r19-anthropic-harness`, `r19-kimi-harness`; the live guard logs

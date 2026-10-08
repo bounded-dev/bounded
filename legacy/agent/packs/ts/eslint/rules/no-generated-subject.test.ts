@@ -96,7 +96,7 @@ test("lists", async () => {
     expect(found).toHaveLength(1);
   });
 
-  // The composition root is generated too (ADR 2026-067), but composeApp
+  // The composition root is generated too (ADR LEG-2026-067), but composeApp
   // constructs the builder's handlers and stores, so the smoke test reaches them.
   test("allows the app smoke test: composeApp builds authored handlers and stores", async () => {
     expect(await problems("apps/web/src/server/smoke.test.ts", `import { expect, test } from "bun:test";

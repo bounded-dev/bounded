@@ -220,7 +220,7 @@ describe("once dependencies are ready", () => {
   });
 });
 
-// ADR 2026-066: a call made in a ticket worktree under this project is judged
+// ADR LEG-2026-066: a call made in a ticket worktree under this project is judged
 // by that worktree's own harness, with the worktree as the project.
 describe("routing a ticket worktree's calls", () => {
   const STUB = (who: string): string =>

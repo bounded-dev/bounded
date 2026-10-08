@@ -1,4 +1,4 @@
-// The delivery obligation of a project that composed ts-trpc (ADR 2026-036):
+// The delivery obligation of a project that composed ts-trpc (ADR LEG-2026-036):
 // at least one context exposes a feature through tRPC, so its generated
 // adapter exists. Composing the pack and exposing nothing is a design that
 // asked for an API and never declared one. Read-only, keyed on the tree.

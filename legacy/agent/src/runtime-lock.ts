@@ -1,4 +1,4 @@
-// The harness's own runtime package and its lockfile (ADR 2026-051).
+// The harness's own runtime package and its lockfile (ADR LEG-2026-051).
 //
 // The harness is itself a Node program, so the core may name the tools that
 // run the harness — never the tools that build the project. This module is

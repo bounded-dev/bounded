@@ -225,7 +225,7 @@ describe("Claude Code: a bounce continues the worker that already ran", () => {
   });
 
   // A ticket worktree's architect is a top-level session: the next turn
-  // continues the same session, so it carries the same caller (ADR 2026-066).
+  // continues the same session, so it carries the same caller (ADR LEG-2026-066).
   test("the same session, continued after its turn ended, may relaunch the worker the dead turn left", () => {
     const dir = readyProject();
     const session = { session_id: "s-architect" };

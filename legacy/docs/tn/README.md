@@ -10,7 +10,7 @@ note, born from a GitHub issue.
 - Front matter: `number`, `title`, `kind` (`design` | `process` | `research`),
   `status` (`draft` | `active` | `ratified` | `superseded`), `issue` (GitHub
   issue number).
-- Written once, as synthesis — never accumulated as transcript (ADR 2026-009).
+- Written once, as synthesis — never accumulated as transcript (ADR LEG-2026-009).
 - Terms resolved in a TN land in the root `CONTEXT.md`; hard-to-reverse
   decisions may be promoted to ADRs.
 

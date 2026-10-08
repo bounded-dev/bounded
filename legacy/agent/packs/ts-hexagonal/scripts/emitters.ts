@@ -1,4 +1,4 @@
-// The ts-hexagonal pack's skeleton emitters (ADR 2026-060, TN-26-012 §5-§7).
+// The ts-hexagonal pack's skeleton emitters (ADR LEG-2026-060, TN-26-012 §5-§7).
 //
 // Each is a pure function of the project's facts: no clock, no environment,
 // stable ordering, and one fixed layout (print.ts). `generated` files match

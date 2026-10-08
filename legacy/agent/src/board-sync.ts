@@ -1,4 +1,4 @@
-// The board follows the gates (ADR 2026-066). In a ticket worktree every gate
+// The board follows the gates (ADR LEG-2026-066). In a ticket worktree every gate
 // run is mirrored on the ticket's issue: its one-line summary as a comment; a
 // refusal as a `blocked: <route>` label naming the role the work went back to,
 // cleared by that gate's next pass; and a pass that reaches a milestone as the
@@ -223,7 +223,7 @@ export function routeOf(result: GateResult): string | undefined {
 }
 
 /** The updates one gate result calls for, and the blocked labels after it.
- *  A RUNNING result (ADR 2026-073) posts one comment when its run starts or
+ *  A RUNNING result (ADR LEG-2026-073) posts one comment when its run starts or
  *  restarts and nothing while it is polled; it never moves a label or status. */
 export function boardOpsFor(
   issue: number,
@@ -292,7 +292,7 @@ export async function runGateWithBoard(
   const marker = readTicketMarker(cwd);
   if (marker === undefined) return run();
   // A worker resumed in the background may still be writing: no gate judges
-  // or freezes a tree that is still changing (ADR 2026-066).
+  // or freezes a tree that is still changing (ADR LEG-2026-066).
   const busy = backgroundWorkers(readGuardLog(cwd)).map((w) => w.worker);
   if (busy.length > 0) {
     return {

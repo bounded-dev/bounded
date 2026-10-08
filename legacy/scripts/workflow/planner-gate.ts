@@ -3,7 +3,7 @@
 //   (Claude Code runs it from .claude/agents/harness-planner.md's frontmatter
 //   with the tool call's JSON on stdin.)
 //
-// The planner (docs/harness-workflow.md, ADR 2026-068) writes one file, its
+// The planner (docs/harness-workflow.md, ADR LEG-2026-068) writes one file, its
 // plan under .agent-state/, and reads everything else. Its prompt says so;
 // this gate enforces it:
 //

@@ -1,7 +1,7 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
 // A tRPC client is typed by the router type the context's generated adapter
-// RE-EXPORTS (ADR 2026-030, TN-26-012 §6), and by nothing else.
+// RE-EXPORTS (ADR LEG-2026-030, TN-26-012 §6), and by nothing else.
 //
 // The generated `adapters/in/trpc/index.ts` of every context ends in
 // `export { create<Context>Router, type <Context>Router } from "./router.ts"`,

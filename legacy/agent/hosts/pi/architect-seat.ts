@@ -1,5 +1,5 @@
 // pi's half of a ticket's architect seat (src/architect-seat.ts, ADR
-// 2026-066). The architect is the lead's own pi-subagents child, started
+// LEG-2026-066). The architect is the lead's own pi-subagents child, started
 // asynchronously with the ticket worktree as its `cwd`:
 //
 //   · pi-subagents discovers the agent definition from that `cwd`, so the

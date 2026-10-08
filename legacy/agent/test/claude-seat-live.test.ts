@@ -1,5 +1,5 @@
 // Opt-in, live: ticket architects as the lead's background Claude Code
-// subagents (ADR 2026-066), through this checkout's real hook entry. Skipped
+// subagents (ADR LEG-2026-066), through this checkout's real hook entry. Skipped
 // unless BOUNDED_CLAUDE_LIVE=1 and BOUNDED_LIVE_REPO is set (it costs a few
 // short model calls).
 //

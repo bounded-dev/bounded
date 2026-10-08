@@ -1,4 +1,4 @@
-// Fixtures for the team lead's run boundary (ADR 2026-048): a throwaway
+// Fixtures for the team lead's run boundary (ADR LEG-2026-048): a throwaway
 // project-local installation and the guard-log lines its tests need.
 
 import { makeTempProject, type TempProject } from "./temp-project.ts";

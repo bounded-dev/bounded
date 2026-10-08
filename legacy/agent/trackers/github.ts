@@ -1,4 +1,4 @@
-// The GitHub adapter for the tracker port (src/tracker.ts, ADR 2026-066).
+// The GitHub adapter for the tracker port (src/tracker.ts, ADR LEG-2026-066).
 // Everything GitHub-specific lives here: the `gh` command line, issue and
 // label vocabulary, and the Projects board whose single-select Status field
 // carries the harness's board statuses. The core never names any of it.
@@ -71,7 +71,7 @@ const PROJECT_SCOPE = "the GitHub sign-in needs project access: granting it is t
   "because it changes what their own GitHub credentials allow, which the harness never holds";
 
 /**
- * A failed `gh` call as a TrackerError in product terms (ADR 2026-072): the
+ * A failed `gh` call as a TrackerError in product terms (ADR LEG-2026-072): the
  * known failures by what they mean for the user, never `gh`'s own text,
  * which can name commands; that raw text is kept in `raw` for the guard log.
  */
@@ -211,7 +211,7 @@ const SET_STATUSES = [
 /**
  * GitHub access is missing: the GitHub command-line tool is not installed or
  * not signed in. Signing in is the one GitHub step reserved for the user
- * (USER_RECOVERY_COMMANDS, ADR 2026-072): it needs the user's own
+ * (USER_RECOVERY_COMMANDS, ADR LEG-2026-072): it needs the user's own
  * credentials, which the harness never holds.
  */
 export function gitHubSignInError(): TrackerError {

@@ -1,5 +1,5 @@
 // Generates a project's package manifests, its tsconfig.json and its
-// bun.lock (ADR 2026-051, ADR 2026-054, ADR 2026-061, ADR 2026-062).
+// bun.lock (ADR LEG-2026-051, ADR LEG-2026-054, ADR LEG-2026-061, ADR LEG-2026-062).
 //
 // The project initializer runs this through the ts pack's
 // `projectManifestScripts` contribution, as
@@ -174,7 +174,7 @@ export function packageFor(
     }
   }
   // A pack may fold one of the scripts into the project's own `check`, in
-  // composition order, the way deliver folds its checks (ADR 2026-054): the
+  // composition order, the way deliver folds its checks (ADR LEG-2026-054): the
   // generated manifest is then already the delivered one.
   for (const { pack, value } of contributionsByPack("projectCheckScripts", packs, packsDir)) {
     if (!Array.isArray(value) || value.some((name) => typeof name !== "string" || !Object.hasOwn(scripts, name))) {
@@ -245,7 +245,7 @@ export const scopeOf = (name: string): string => `@${name}`;
 
 // --- workspaces ------------------------------------------------------------------
 
-/** One workspace of the project (ADR 2026-061). */
+/** One workspace of the project (ADR LEG-2026-061). */
 export interface ProjectWorkspace {
   /** e.g. `contexts/project-management`, `apps/web`. */
   readonly dir: string;
@@ -391,7 +391,7 @@ export function layoutFor(packs: readonly string[], packsDir: string): Layout {
 
 /**
  * The project's workspaces, sorted by directory: contexts from contract paths
- * and apps from the TNs (ADR 2026-061). Throws, naming the file and the fix,
+ * and apps from the TNs (ADR LEG-2026-061). Throws, naming the file and the fix,
  * for a contract outside every workspace a template can hold, a declared kind
  * the composition lacks, a declaration outside its template's root, or two
  * workspaces with one package name.
@@ -500,7 +500,7 @@ export function contractFiles(project: string, dir: string, suffixes: readonly s
 }
 
 /**
- * The adapter technologies a context's DESIGN uses (ADR 2026-061,
+ * The adapter technologies a context's DESIGN uses (ADR LEG-2026-061,
  * TN-26-012 §4), read from its application contracts, never from folders
  * on disk, so no role can change a manifest by creating a directory:
  *
@@ -768,7 +768,7 @@ export interface ShippedFile {
 }
 
 /**
- * The composed packs' `projectShippedFiles` (ADR 2026-054): project-relative
+ * The composed packs' `projectShippedFiles` (ADR LEG-2026-054): project-relative
  * path → pack-relative source, copied byte for byte. The ts pack ships the
  * surface checker its generated `check:surface` script runs.
  */
@@ -1050,9 +1050,9 @@ export function installedBunVersion(): string | null {
  */
 export function bunVersionProblem(actual: string | null = installedBunVersion(), pinned: string = pinnedBunVersion()): string | undefined {
   const want = pinned.split(".").slice(0, 2).join(".");
-  if (actual === null) return `bun is not on PATH: this project's toolchain is bun ${want}.x (ADR 2026-062); install it and retry`;
+  if (actual === null) return `bun is not on PATH: this project's toolchain is bun ${want}.x (ADR LEG-2026-062); install it and retry`;
   const have = actual.split(".").slice(0, 2).join(".");
-  if (have !== want) return `bun ${actual} is on PATH, but this project's toolchain is pinned to bun ${want}.x (ADR 2026-062); install bun ${pinned} and retry`;
+  if (have !== want) return `bun ${actual} is on PATH, but this project's toolchain is pinned to bun ${want}.x (ADR LEG-2026-062); install bun ${pinned} and retry`;
   return undefined;
 }
 

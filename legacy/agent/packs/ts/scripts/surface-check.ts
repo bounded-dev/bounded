@@ -1,4 +1,4 @@
-// surface-check (TN-26-001, ADR 2026-059): keeps a delivered project's public
+// surface-check (TN-26-001, ADR LEG-2026-059): keeps a delivered project's public
 // surface exactly what its contracts declare, long after the harness is gone.
 //
 //   bun scripts/surface-check.ts [projectRoot [sourceRoot…]]
@@ -54,7 +54,7 @@ export interface SurfaceViolation {
 
 const DISPUTE = "a contract change is the architect's, through CONTRACT-DISPUTE";
 
-// --- concepts (ADR 2026-059) -------------------------------------------------------
+// --- concepts (ADR LEG-2026-059) -------------------------------------------------------
 
 /** The concept a contract declares, or undefined. */
 export function conceptNameOf(contract: SourceFile): string | undefined {
@@ -75,7 +75,7 @@ function conceptViolations(name: string, contractFileName: string, impl: SourceF
       file: implFileName,
       exportName: name,
       kind: "concept-tail",
-      message: `${name}: ${implFileName} must end with exactly the two generated exports, which make ${contractFileName}'s interface the one type named ${name} and check ${name}Impl against ${name}Factory (ADR 2026-059):\n${tail.join("\n")}`,
+      message: `${name}: ${implFileName} must end with exactly the two generated exports, which make ${contractFileName}'s interface the one type named ${name} and check ${name}Impl against ${name}Factory (ADR LEG-2026-059):\n${tail.join("\n")}`,
     });
   }
   for (const [exported, declarations] of impl.getExportedDeclarations()) {

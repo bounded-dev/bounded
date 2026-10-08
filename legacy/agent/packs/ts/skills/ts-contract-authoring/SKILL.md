@@ -1,6 +1,6 @@
 ---
 name: ts-contract-authoring
-description: Author TypeScript design contracts (`*.contract.ts`) for the developer-stage pipeline — the contract-owns-the-name form of ADR 2026-059 for domain concepts (value objects, identifiers, entities), declaration-only and value objects over primitives, then gate and emit. Use when writing or revising a contract, or when acting as the architect role.
+description: Author TypeScript design contracts (`*.contract.ts`) for the developer-stage pipeline — the contract-owns-the-name form of ADR LEG-2026-059 for domain concepts (value objects, identifiers, entities), declaration-only and value objects over primitives, then gate and emit. Use when writing or revising a contract, or when acting as the architect role.
 ---
 
 # TS contract authoring
@@ -33,7 +33,7 @@ harness's own suite (TN-26-008). Copy the *shape*, not the domain.
   validity rules, ordering, identity, invariants. Its front matter lists the
   contracts the ticket owns.
 
-## The contract owns the name (ADR 2026-059)
+## The contract owns the name (ADR LEG-2026-059)
 
 Every domain concept is a pair of interfaces: the instance side, named after
 the concept with no suffix, and the static side, `<Name>Factory`. The
@@ -158,7 +158,7 @@ enumerations), `import type …`. Legacy non-hexagonal contracts may still use
 
 Refused, each with a message that says where the code belongs: function
 bodies, value bindings, runtime classes, **`declare class`** (the retired
-ADR 2026-015 contract form — the message prints the interface + factory pair
+ADR LEG-2026-015 contract form — the message prints the interface + factory pair
 to write instead), enums, runtime namespaces, value imports, `export =`,
 default-exported values.
 
@@ -184,7 +184,7 @@ Declare the concept pair instead.
 `readonly [AuthorName, ...AuthorName[]]`, not `AuthorName[]`.
 
 Nothing from zod may appear in a contract (`no-schema-on-surface`): the schema
-is the engine inside `<Name>Impl` (ADR 2026-031), and the contract's whole
+is the engine inside `<Name>Impl` (ADR LEG-2026-031), and the contract's whole
 validation surface is the factory's `parse`.
 
 ## The generated laws, and what they need from you

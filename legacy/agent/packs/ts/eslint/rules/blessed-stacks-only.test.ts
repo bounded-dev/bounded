@@ -2,7 +2,7 @@ import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { blessedStacksOnly } from "./blessed-stacks-only.ts";
 
-// ADR 2026-029: the stack is harness policy. Imports of known non-blessed API
+// ADR LEG-2026-029: the stack is harness policy. Imports of known non-blessed API
 // frameworks and schema engines are refused in the worker zones — the
 // mechanical layer of the binding, holding even when no skill loaded and no
 // dependency rule stopped the install.

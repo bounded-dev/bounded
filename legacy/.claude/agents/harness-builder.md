@@ -1,6 +1,6 @@
 ---
 name: harness-builder
-description: "Development lifecycle, stages 3-5 (docs/harness-workflow.md, ADR 2026-068). Builds one reviewed harness plan in its own worktree: commits the failing tests alone as the red commit, then implements until `npm run check` in agent/ is green and scripts/workflow/red-first-check.ts passes, without weakening those tests. Resumed to fix final-review findings. Use for harness development, not for target projects."
+description: "Development lifecycle, stages 3-5 (docs/harness-workflow.md, ADR LEG-2026-068). Builds one reviewed harness plan in its own worktree: commits the failing tests alone as the red commit, then implements until `npm run check` in agent/ is green and scripts/workflow/red-first-check.ts passes, without weakening those tests. Resumed to fix final-review findings. Use for harness development, not for target projects."
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: opus
 isolation: worktree

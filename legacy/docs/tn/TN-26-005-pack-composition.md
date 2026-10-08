@@ -36,7 +36,7 @@ core code naming graphql and fastify. It moves to a **pack contribution
 file** (`packs/<pack>/contrib.json`), and the core merges the contributions
 of installed packs at evidence-gathering time. A project composed without
 the ts pack gets no TS-flavoured nouns; the mechanism (Intake section +
-nouns-outside-Intake refusal, ADR 2026-032) stays core and content-free.
+nouns-outside-Intake refusal, ADR LEG-2026-032) stays core and content-free.
 
 ## Rules going forward
 
@@ -109,7 +109,7 @@ edge; edges are NOT transitive, which the suite pins in both directions. ts-web
 defines nothing — the closed-vocabulary policy above, pinned by a test over the
 installed list rather than left to review.
 `guard-doc-drift.test.ts` holds a contributed rule to the same brief obligation
-as a built-in (ADR 2026-018), reading the target brief out of the contribution
+as a built-in (ADR LEG-2026-018), reading the target brief out of the contribution
 itself.
 
 Deliberately NOT adopted: VS Code's process isolation and API brokering —

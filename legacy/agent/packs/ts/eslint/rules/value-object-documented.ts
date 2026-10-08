@@ -2,7 +2,7 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 import { conceptPairs, inDomainLayer, memberName, PRIMITIVE_KEYWORDS, textOf } from "./concept-pairs.ts";
 import { distinctExamples } from "../../scripts/value-object-laws.ts";
 
-// ADR 2026-059 contract rule: every value object states two valid examples,
+// ADR LEG-2026-059 contract rule: every value object states two valid examples,
 // and a concept's doc comment, when present, says something usable.
 //
 //   /**

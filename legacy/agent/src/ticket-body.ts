@@ -1,4 +1,4 @@
-// The body every ticket the lead creates carries (ADR 2026-066). The command
+// The body every ticket the lead creates carries (ADR LEG-2026-066). The command
 // writes it from fixed sections, and every later command reads it back from
 // the tracker, so a ticket edited by hand into another shape is refused rather
 // than guessed at.

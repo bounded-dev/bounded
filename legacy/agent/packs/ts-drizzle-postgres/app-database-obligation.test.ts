@@ -1,4 +1,4 @@
-// Issue #52 (ADR 2026-072): an app smoke test in a persisting project starts
+// Issue #52 (ADR LEG-2026-072): an app smoke test in a persisting project starts
 // its own migrated Postgres through the generated support, so the project's
 // own check needs nothing but a container engine. The obligation is static,
 // modelled on ts-hexagonal's smokeTestProblem: a top-level `useAppDatabase()`

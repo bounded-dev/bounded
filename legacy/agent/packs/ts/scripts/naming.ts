@@ -69,7 +69,7 @@ export function routeKey(area: string, feature: string): string {
   return camelCase(feature);
 }
 
-/** One area of the grouped dependency shape (ADR 2026-067). */
+/** One area of the grouped dependency shape (ADR LEG-2026-067). */
 export interface DependencyGroup<T> {
   /** `camel(area)`: the router namespace, e.g. `taggingSchemes`. */
   readonly key: string;
@@ -80,7 +80,7 @@ export interface DependencyGroup<T> {
 
 /**
  * The grouped dependency shape every in-adapter factory takes and every
- * composition root builds (ADR 2026-067): `{ <camel(area)>: { <routeKey>:
+ * composition root builds (ADR LEG-2026-067): `{ <camel(area)>: { <routeKey>:
  * <in port>, … }, … }`, the namespaces of the generated router
  * (`members.add`). Areas sorted, features in the order given. Two features
  * with one route key in an area are refused, naming both.

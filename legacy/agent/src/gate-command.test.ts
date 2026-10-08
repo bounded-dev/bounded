@@ -11,7 +11,7 @@ import {
   type FlagSpec,
 } from "./gate-command.ts";
 
-// The flag grammar every pack's gates are invoked through (ADR 2026-029). It
+// The flag grammar every pack's gates are invoked through (ADR LEG-2026-029). It
 // is strict on purpose: the CLI turns any error into usage (exit 64) rather
 // than guessing what a mistyped flag meant.
 

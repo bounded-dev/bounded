@@ -11,7 +11,7 @@ import { makeTempProject as makeProject, type TempProject } from "../../test/sup
 
 const C = "contexts/m/src";
 
-// ADR 2026-034: the adapter is verified by fixture until the first live run.
+// ADR LEG-2026-034: the adapter is verified by fixture until the first live run.
 // Each case spawns the hook exactly as Claude Code would — a fresh process,
 // the call as JSON on stdin — in a temp project, and asserts the decision it
 // prints and the guard-log lines it leaves.
@@ -21,7 +21,7 @@ const HOOK = join(dirname(fileURLToPath(import.meta.url)), "path-gate-hook.ts");
 const projects: TempProject[] = [];
 function makeTempProject(
   files: Readonly<Record<string, string>>,
-  // The hexagonal layout pack contributes the source roots (ADR 2026-056).
+  // The hexagonal layout pack contributes the source roots (ADR LEG-2026-056).
   packs: readonly string[] = ["ts", "ts-hexagonal"],
 ): string {
   const project = makeProject(files, { prefix: "cc-hook-", packs });
@@ -120,7 +120,7 @@ const prefix = (role: string, timeoutMs = 120_000): string =>
   `${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=${role} BOUNDED_COMMAND_TIMEOUT_MS=${timeoutMs}`;
 
 /** The log minus the host declaration the hook writes as the role binds
- *  (ADR 2026-034) — these tests are about the gate's own lines. */
+ *  (ADR LEG-2026-034) — these tests are about the gate's own lines. */
 function gateEvents(dir: string) {
   return readGuardLog(dir).filter((e) => e.guard !== "host");
 }
@@ -603,7 +603,7 @@ describe("path-gate-hook — run start", () => {
   });
 });
 
-describe("host declaration (ADR 2026-034)", () => {
+describe("host declaration (ADR LEG-2026-034)", () => {
   test("a bound role declares claude-code with every constraint — the definition's tools: is the strip", () => {
     const dir = makeTempProject({});
     run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);
@@ -635,7 +635,7 @@ describe("host declaration (ADR 2026-034)", () => {
   });
 });
 
-describe("path-gate-hook — the model tier on Agent (ADR 2026-022)", () => {
+describe("path-gate-hook — the model tier on Agent (ADR LEG-2026-022)", () => {
   // The reviewer is freely commissionable (it reads the design before the
   // freeze), so these fixtures need no contracts or spec to reach the tier.
   const MODELS = ".bounded/dev-stage-models.json";
@@ -647,7 +647,7 @@ describe("path-gate-hook — the model tier on Agent (ADR 2026-022)", () => {
     });
     const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "read it" }));
     expect(r.decision).toBe("allow");
-    // Every worker also runs in the foreground (ADR 2026-066).
+    // Every worker also runs in the foreground (ADR LEG-2026-066).
     expect(r.updatedInput).toEqual({ subagent_type: "reviewer", prompt: "read it", model: "opus", run_in_background: false });
     const event = gateEvents(dir).find((e) => e.guard === "model-tier");
     expect(event).toMatchObject({ verdict: "pass", detail: { kind: "tier-injected", key: "designModel", hostModel: "opus" } });

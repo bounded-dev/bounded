@@ -1,5 +1,5 @@
 // Opt-in: the GitHub tracker adapter against a real scratch repository
-// (ADR 2026-066). Skipped unless BOUNDED_GITHUB_IT_REPO names a scratch
+// (ADR LEG-2026-066). Skipped unless BOUNDED_GITHUB_IT_REPO names a scratch
 // repository (owner/name) the authenticated `gh` may write to, and
 // BOUNDED_GITHUB_IT_PROJECT names its Projects board (owner/number) whose
 // Status field has exactly the harness's six statuses. It creates one issue,

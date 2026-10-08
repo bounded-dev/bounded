@@ -10,7 +10,7 @@ import { SUBAGENT_STOPPED, WORKER_RESUMED } from "./lead-state.ts";
 import { TICKET_MARKER_RELATIVE } from "./ticket-worktree.ts";
 import { FakeTracker } from "../test/support/fake-tracker.ts";
 
-// The board follows the gates in a ticket worktree (ADR 2026-066).
+// The board follows the gates in a ticket worktree (ADR LEG-2026-066).
 
 const pass = (summary = "ok", detail: Readonly<Record<string, unknown>> = {}): GateResult =>
   ({ code: 0, verdict: "pass", summary, lines: [summary], detail });
@@ -163,7 +163,7 @@ describe("runGateWithBoard", () => {
   });
 });
 
-// A RUNNING result (ADR 2026-073): the board hears of a background run once,
+// A RUNNING result (ADR LEG-2026-073): the board hears of a background run once,
 // when it starts or restarts, never on each poll; it keeps every label.
 describe("RUNNING on the board", () => {
   const deliverGate = { name: "deliver", milestone: "delivered" as const };

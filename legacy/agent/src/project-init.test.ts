@@ -211,7 +211,7 @@ describe("project-local initialization", () => {
     expect(existsSync(join(target, ".bounded"))).toBe(false);
     const plan = await planInit(target, host, ["ts-web", "ts-trpc"]);
     expect(plan.packs).toEqual(["ts", "ts-hexagonal", "ts-trpc", "ts-web"]);
-    // Apps come from the design (ADR 2026-061); init seeds only the note saying so.
+    // Apps come from the design (ADR LEG-2026-061); init seeds only the note saying so.
     expect(plan.createdFiles["apps/README.md"]).toBeDefined();
     await applyInit(target, host, ["ts-web", "ts-trpc"], plan.digest);
     const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { scripts: Record<string, string>; dependencies: Record<string, string> };

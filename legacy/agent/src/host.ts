@@ -1,5 +1,5 @@
 // Host declaration — which capability constraints the running host enforces
-// (ADR 2026-034).
+// (ADR LEG-2026-034).
 //
 // Artifact gates answer the same whatever runs them; capability constraints
 // (the tool strip, the path gate, the phase gate on spawns, the role-scoped
@@ -68,7 +68,7 @@ export function commandTimeoutMs(env: Readonly<Record<string, string | undefined
 
 /** The share of a host's command deadline one call may spend on its own work,
  *  leaving the larger of 15% and 15 s to release what it started and report
- *  (ADR 2026-070, ADR 2026-072). Undefined when the host gives no deadline. */
+ *  (ADR LEG-2026-070, ADR LEG-2026-072). Undefined when the host gives no deadline. */
 export function callBudgetMs(deadlineMs: number | undefined): number | undefined {
   if (deadlineMs === undefined) return undefined;
   return Math.max(0, deadlineMs - Math.max(Math.ceil(deadlineMs * 0.15), 15_000));

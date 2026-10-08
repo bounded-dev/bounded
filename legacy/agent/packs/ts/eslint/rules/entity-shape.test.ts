@@ -3,7 +3,7 @@ import { RuleTester } from "@typescript-eslint/rule-tester";
 import { entityShape } from "./entity-shape.ts";
 import { EXAMPLE_CONCEPTS } from "../../scripts/testdata/example-domain.ts";
 
-// ADR 2026-059: an entity's contract is `interface <Name>` + a factory whose
+// ADR LEG-2026-059: an entity's contract is `interface <Name>` + a factory whose
 // only member is `new (…fields): <Name>`. Both example entities pass; each
 // near miss fails with the fix.
 

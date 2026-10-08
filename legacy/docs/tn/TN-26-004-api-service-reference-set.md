@@ -38,7 +38,7 @@ binding stick:
    is present in the tree, not conditional on anyone having read anything.
 
 **Intake strips the "how" before anything else reads the ticket.** This is
-a general rule of the whole developer stage, ratified as ADR 2026-032 —
+a general rule of the whole developer stage, ratified as ADR LEG-2026-032 —
 API services are merely where it first bit: every spec arriving from a user
 or a parent agent is reworked into pure requirement language — *what* must
 be possible, for *whom*, under *what* rules — and any embedded
@@ -70,9 +70,9 @@ object; every query takes exactly one query value object.** No positional
 scalars, no anonymous option bags.
 
 - Commands and queries are value objects like any other — nominal classes,
-  private constructor, `static parse` (ADR 2026-015) — named
+  private constructor, `static parse` (ADR LEG-2026-015) — named
   `<Verb><Noun>Command` / `<Noun>Query`, declared in their own contract file
-  (`src/api/commands.contract.ts`, ADR 2026-026 applies unchanged).
+  (`src/api/commands.contract.ts`, ADR LEG-2026-026 applies unchanged).
 - **Their fields reuse the domain's existing value objects.** A command is
   composition, not re-declaration: `IngestReportCommand` holds a
   `BuildingId`, a `Period`, an `Availability` — never a second definition of
@@ -97,7 +97,7 @@ validator.
 ## Zod is the engine inside every value object — never a second identity
 
 Refinement of the r22-era stance. Run 22 banned zod because a standalone
-schema beside a value object is a dual identity (ADR 2026-023). The precise
+schema beside a value object is a dual identity (ADR LEG-2026-023). The precise
 rule is narrower: **the value object remains the single public identity; zod
 is its internal parsing engine.**
 
@@ -160,7 +160,7 @@ enforcement, not advice:
 
 | gate | layer | refuses |
 |---|---|---|
-| `no-erased-router` | purity lint | `AnyRouter`-style type erasure on a contract surface; message names the re-export-inferred-type pattern (ADR 2026-026 route) |
+| `no-erased-router` | purity lint | `AnyRouter`-style type erasure on a contract surface; message names the re-export-inferred-type pattern (ADR LEG-2026-026 route) |
 | `command-query-payloads` | purity lint | an api procedure whose input is not exactly one `*Command` (mutation) / `*Query` (query) value object |
 | `no-naked-primitives` (existing) | purity lint | primitive fields inside commands, queries, read models |
 | `zod-backed-parse` | zone lint on VO implementations | a value object `parse` with hand-rolled structural validation instead of a zod schema |
@@ -184,7 +184,7 @@ reviewer reads it in one fixed vocabulary.
 
 Grill follow-up (2026-09-13): the set as first drafted still leaned on
 guidance in four places. Determinism over minimalism applies; each gets a
-mechanical form, and skills demote to explanation (ADR 2026-018's
+mechanical form, and skills demote to explanation (ADR LEG-2026-018's
 bidirectional briefs), never enforcement:
 
 1. **Intake becomes an information-flow boundary, not an instruction.** The

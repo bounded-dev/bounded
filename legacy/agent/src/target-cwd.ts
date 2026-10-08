@@ -1,4 +1,4 @@
-// Target cwd — where a gate runs (ADR 2026-029).
+// Target cwd — where a gate runs (ADR LEG-2026-029).
 //
 // Every gate takes an optional project directory, absolute or relative to
 // wherever the caller is: a pi tool resolves it against the session cwd, the

@@ -40,7 +40,7 @@ type errors in its regenerated shadow project.
    ran. This was a write through Git into a path the role could not edit
    directly; the path gate did not log the rewrite as a block. The source
    harness now emits an executable launcher and applies a read-only Git
-   policy to developer-stage roles (ADR 2026-045). This initialized project
+   policy to developer-stage roles (ADR LEG-2026-045). This initialized project
    carries its earlier copy and has not received those fixes.
 
 ## What the run taught us
@@ -60,7 +60,7 @@ type errors in its regenerated shadow project.
   workers had produced nothing and handed back. Both had written substantial
   work. The parent session inspected the tree and resumed the architect;
   the architect acknowledged its earlier conclusion was wrong. Future
-  Claude Code inits disable background tasks under ADR 2026-045. This run
+  Claude Code inits disable background tasks under ADR LEG-2026-045. This run
   remains evidence that an unobserved child is not a failed child.
 - **Reviewer discovery lost coverage.** The reviewers recorded 22 findings
   with two blockers and 19 findings with one blocker. They repeatedly tried
@@ -73,7 +73,7 @@ type errors in its regenerated shadow project.
   (`overdue`, `due today`, `scheduled`, `none`) was classified in a UI slice
   even though it is a business reading of a date. This was spotted by human
   inspection, not by a gate. The source architect/reviewer guidance now asks
-  where each rule and finite vocabulary belongs (ADR 2026-049); this
+  where each rule and finite vocabulary belongs (ADR LEG-2026-049); this
   project's copied guidance predates that change.
 - **The test writer had to discover routine safe patterns.** It rewrote
   fixtures to unwrap parsed values and array members without casts, kept
@@ -132,7 +132,7 @@ harness rules: the web pack's client import rule also matched generated
 server imports, and the surface checker rejected an exported router value
 that the service pack requires and the contract names through an exported
 `typeof` alias. [Issue #27](https://github.com/bounded-dev/the-bounded-harness/issues/27)
-and ADR 2026-047 record the source repairs. The repaired harness files were
+and ADR LEG-2026-047 record the source repairs. The repaired harness files were
 copied into this project without changing product files or gate evidence.
 At this cutoff, green has not been rerun against that revision; mutation,
 sign-off and delivery remain unverified.

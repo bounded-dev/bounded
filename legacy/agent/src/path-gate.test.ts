@@ -228,7 +228,7 @@ describe("commissioning a worker", () => {
     ]);
   });
 
-  test("contracts are found under the source roots only (ADR 2026-056)", () => {
+  test("contracts are found under the source roots only (ADR LEG-2026-056)", () => {
     const cwd = readyProject();
     rmSync(join(cwd, C), { recursive: true, force: true });
     mkdirSync(join(cwd, "lib"), { recursive: true });

@@ -88,9 +88,9 @@ describe("lintContractSource", () => {
   });
 });
 
-// --- the contract-owns-the-name model (ADR 2026-059) -------------------------
+// --- the contract-owns-the-name model (ADR LEG-2026-059) -------------------------
 
-describe("the ADR 2026-059 contract model", () => {
+describe("the ADR LEG-2026-059 contract model", () => {
   test.each(EXAMPLE_CONCEPTS.map((c) => [c.contractPath, c.contract] as const))(
     "the worked example's %s is clean",
     async (path, source) => {
@@ -147,7 +147,7 @@ export interface CreateNoteStore {
       "contexts/shop/src/domain/money/currency.contract.ts",
     );
     const retired = problems.find((p) => p.ruleId === "bounded-ts/declaration-only")!;
-    expect(retired.message).toMatch(/retired contract form \(ADR 2026-059/);
+    expect(retired.message).toMatch(/retired contract form \(ADR LEG-2026-059/);
     expect(retired.message).toContain("export interface Currency {");
     expect(retired.message).toContain("export interface CurrencyFactory {");
     expect(retired.message).toContain("parse(raw: unknown): Result<Currency>;");
@@ -322,7 +322,7 @@ describe("formatProblems (one greppable line per problem)", () => {
 // --- CLI (the gate as a command) ------------------------------------------------
 
 const SCRIPT = join(import.meta.dirname, "contract-purity.ts");
-// A value object in the ADR 2026-059 form, in a file named after it.
+// A value object in the ADR LEG-2026-059 form, in a file named after it.
 const GOOD_CONTRACT =
   'import type { Result } from "./shared/result.ts";\n\n/**\n * Px: a whole number of pixels, zero or more.\n * @accepts 0\n * @accepts 12\n */\nexport interface Px {\n  readonly __brand: "Px";\n  readonly value: number;\n  equals(other: Px): boolean;\n  toJSON(): number;\n}\n\nexport interface PxFactory {\n  parse(raw: unknown): Result<Px>;\n}\n';
 const tmpDirs: string[] = [];
@@ -390,7 +390,7 @@ describe("contract-purity CLI", () => {
     expect(readGuardLog(dir)[0]).toMatchObject({ guard: "contract-purity", verdict: "error" });
   });
 
-  // One glob per composed source root (ADR 2026-056): a root with no files yet
+  // One glob per composed source root (ADR LEG-2026-056): a root with no files yet
   // (no apps/ before the first app) must not sink the roots that have some.
   test("a source root with no contracts yet does not stop the others being linted", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-roots-"));

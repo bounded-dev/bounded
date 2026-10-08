@@ -218,7 +218,7 @@ describe("mutantSites", () => {
     expect(mutantSites(source, "contexts/pm/src/x.ts").filter((s) => s.operator === "guard-fall-through")).toEqual([]);
   });
 
-  test("a failed Result is a rejection guard too (ADR 2026-059)", () => {
+  test("a failed Result is a rejection guard too (ADR LEG-2026-059)", () => {
     const source = `export function parseName(raw: unknown): Result<string> {
   if (typeof raw !== "string") return { ok: false, error: "not a string" };
   return { ok: true, value: raw };

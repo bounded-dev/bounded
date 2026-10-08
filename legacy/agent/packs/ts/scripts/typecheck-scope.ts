@@ -21,7 +21,7 @@
 // path gate enforces (decide). Diagnostics in the caller's own zone, in the
 // shared interface (the contracts and spec.md, architect-owned by the path policy), and
 // in files the caller could legally read (project config included: no role
-// owns it, ADR 2026-054) are shown in full. Everything else collapses to a
+// owns it, ADR LEG-2026-054) are shown in full. Everything else collapses to a
 // COUNT plus the owning role: no path, no line number, no message, no symbol
 // name. A symbol name
 // was the exact leak vector, so the shown lines are additionally scrubbed of
@@ -59,7 +59,7 @@ const VISIBLE: Visibility = { visible: true };
  *
  * Ownership first (the routing rule the gates already use), then the path
  * gate's own read decision for files no pipeline role owns — so a generated
- * file (no role may write it, every role may read it, ADR 2026-058) is shown,
+ * file (no role may write it, every role may read it, ADR LEG-2026-058) is shown,
  * and a file the layout cannot place (an unreadable composition) is not.
  */
 export function visibilityOf(
@@ -76,7 +76,7 @@ export function visibilityOf(
   // The shared interface: contracts and spec.md, which the architect owns.
   // Declaration-only by construction, and every role works against them —
   // this is where the blindness is NOT. Project config has no owner (no role
-  // may write it, ADR 2026-054) and is judged by the read arm below.
+  // may write it, ADR LEG-2026-054) and is judged by the read arm below.
   if (owner === "architect") return VISIBLE;
   if (owner !== null) return { visible: false, owner };
   // Unowned. Visible only if the path gate would let this role read the file,

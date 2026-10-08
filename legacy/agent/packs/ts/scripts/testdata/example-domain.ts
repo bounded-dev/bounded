@@ -1,4 +1,4 @@
-// The worked example's domain, copied inline (ADR 2026-059, TN-26-012). The
+// The worked example's domain, copied inline (ADR LEG-2026-059, TN-26-012). The
 // fixtures for the contract lint rules, the domain parser and the domain
 // emitter: every contract here must pass contract-purity, parse, and emit a
 // skeleton whose tail is byte-identical to the implementation beside it.
@@ -308,7 +308,7 @@ export function exampleConcept(stem: string): ExampleConcept {
 
 /** The reference's doc comments: each value object's and identifier's
  *  validity rule and its two `@accepts` examples, which `value-object-documented` requires and
- *  the worked example itself does not carry (ADR 2026-059). */
+ *  the worked example itself does not carry (ADR LEG-2026-059). */
 const DOCS: Readonly<Record<string, string>> = {
   NoteId: `/**
  * A note's identity: a UUID.

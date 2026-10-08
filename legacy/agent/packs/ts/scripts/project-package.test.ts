@@ -77,7 +77,7 @@ function modPinsAndScope(manifest: Manifest, scope: string): Manifest {
   return out;
 }
 
-describe("the root manifest (ADR 2026-051, ADR 2026-062)", () => {
+describe("the root manifest (ADR LEG-2026-051, ADR LEG-2026-062)", () => {
   test("capability scripts and pins cannot silently replace earlier values", () => {
     const fields = { check: "tsc" };
     mergeProjectFields(fields, { check: "tsc" }, "Project script", "same");
@@ -114,7 +114,7 @@ describe("the root manifest (ADR 2026-051, ADR 2026-062)", () => {
   });
 });
 
-describe("the pinned bun release is a precondition (ADR 2026-062)", () => {
+describe("the pinned bun release is a precondition (ADR LEG-2026-062)", () => {
   test("pinned by the ts pack's @types/bun; major and minor must match, the patch may differ", () => {
     expect(pinnedBunVersion()).toBe("1.3.14");
     expect(bunVersionProblem("1.3.14", "1.3.14")).toBeUndefined();
@@ -183,7 +183,7 @@ describe("TN workspaces: front matter (TN-26-012 §9)", () => {
   });
 });
 
-describe("workspaces from the design (ADR 2026-061)", () => {
+describe("workspaces from the design (ADR LEG-2026-061)", () => {
   test("contexts from contract paths, apps from the TN, sorted by directory", () => {
     const f = fixture();
     const project = example(f);
@@ -236,7 +236,7 @@ describe("workspaces from the design (ADR 2026-061)", () => {
   });
 });
 
-describe("appPins: what each app's runtime needs to construct a technology (ADR 2026-061)", () => {
+describe("appPins: what each app's runtime needs to construct a technology (ADR LEG-2026-061)", () => {
   const DRIVERS = {
     bun: { dependencies: { "drizzle-orm": "0.45.3" }, devDependencies: {} },
     node: { dependencies: { "drizzle-orm": "0.45.3", pg: "8.23.1" }, devDependencies: { "@types/pg": "8.23.1" } },
@@ -501,7 +501,7 @@ describe("root config files take {{project}} (TN-26-012 §10)", () => {
   });
 });
 
-describe("shipped files (ADR 2026-054)", () => {
+describe("shipped files (ADR LEG-2026-054)", () => {
   function packsWith(shipped: Record<string, Record<string, string>>): string {
     const dir = mkdtempSync(join(tmpdir(), "shipped-"));
     for (const [pack, files] of Object.entries(shipped)) {
@@ -570,7 +570,7 @@ describe("manifest refusals", () => {
   });
 });
 
-describe("bun.lock verification, without the network (ADR 2026-062)", () => {
+describe("bun.lock verification, without the network (ADR LEG-2026-062)", () => {
   const PROBE = readFileSync(join(import.meta.dirname, "testdata", "bun-lock", "probe.lock.txt"), "utf8");
   const probeManifests = new Map<string, Manifest>([
     ["", { name: "probe", private: true, workspaces: ["contexts/*", "apps/*"], devDependencies: { typescript: "5.9.3" } }],

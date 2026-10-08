@@ -118,7 +118,7 @@ describe("data socket validation", () => {
     expect(() => projectConfigSources(["a", "b"], dir)).toThrow(/collision/);
   });
 
-  test("no pack contributes an architect write zone any more (ADR 2026-054)", () => {
+  test("no pack contributes an architect write zone any more (ADR LEG-2026-054)", () => {
     expect(mergedContribution("architectWriteFiles", ["ts", "ts-hexagonal", "ts-trpc", "ts-web"])).toEqual([]);
   });
 });
@@ -136,7 +136,7 @@ describe("launcher commands and protected names come from the selected packs", (
     expect(() => projectCommandNames(["b"], ["gates"], dir)).toThrow(/no core subcommand/);
     expect(() => projectCommandNames(["a", "c"], [], dir)).toThrow(/unique/);
   });
-  // Issue #52 (ADR 2026-072): the lead restores generated config in a ticket's
+  // Issue #52 (ADR LEG-2026-072): the lead restores generated config in a ticket's
   // worktree through the one project command a composed pack names for it.
   test("projectConfigSyncCommand is a declared data socket", () => {
     expect(projectConfigSyncCommand(["ts"])).toEqual({ pack: "ts", command: "sync-config" });
@@ -165,7 +165,7 @@ describe("launcher commands and protected names come from the selected packs", (
   });
 });
 
-describe("layout sockets (ADRs 2026-056, 2026-057, 2026-058)", () => {
+describe("layout sockets (ADRs LEG-2026-056, LEG-2026-057, LEG-2026-058)", () => {
   const field = (key: string, values: unknown[], extra: Record<string, unknown> = {}) =>
     packsDir({ p: JSON.stringify({ [key]: values, ...extra }) });
 

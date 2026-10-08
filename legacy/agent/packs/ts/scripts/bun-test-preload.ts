@@ -1,4 +1,4 @@
-// Preloaded into every `bun test` run_tests starts (ADR 2026-062).
+// Preloaded into every `bun test` run_tests starts (ADR LEG-2026-062).
 //
 // bun prints its console report (the failure markers and error text the
 // sanitizer reads) on the same stream a test's own console output goes to.
@@ -11,7 +11,7 @@
 //
 // A test that writes to file descriptor 2 by some other route (a child
 // process, a native call) is not stopped here; the sanitizer's JUnit-backed
-// marker check and forbidden-line filter still apply (ADR 2026-062, known
+// marker check and forbidden-line filter still apply (ADR LEG-2026-062, known
 // limits).
 const silent = (): void => {};
 for (const method of ["log", "info", "warn", "error", "debug", "trace", "dir", "dirxml", "table", "group", "groupCollapsed", "time", "timeEnd", "timeLog", "count", "assert"] as const) {

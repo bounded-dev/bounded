@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
-// A Bun app's production code never reaches for node-postgres (ADR 2026-072).
+// A Bun app's production code never reaches for node-postgres (ADR LEG-2026-072).
 //
 // Every app of a persisting project pins `pg` (and Testcontainers) as dev
 // dependencies, because its generated smoke-test database support migrates

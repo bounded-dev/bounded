@@ -1,4 +1,4 @@
-// Test obligations (ADR 2026-063, TN-26-012 §8): did the suite discharge what
+// Test obligations (ADR LEG-2026-063, TN-26-012 §8): did the suite discharge what
 // it owes at every level of the design, or merely go red?
 //
 // The red gate proves the suite fails for the right REASON. It says nothing

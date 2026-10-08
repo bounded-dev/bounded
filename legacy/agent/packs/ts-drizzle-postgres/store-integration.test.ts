@@ -1,7 +1,7 @@
 // End to end, under `bun test`: a context with the generated Drizzle files, a
 // migration from the generator, builder-written stores and a mapper, and a
 // test-writer's store test running a shared conformance suite through the
-// generated test support (ADR 2026-064).
+// generated test support (ADR LEG-2026-064).
 //
 //   · red's skip path runs everywhere Bun is installed: no container runtime
 //     is needed, and the skip is logged with its reason;

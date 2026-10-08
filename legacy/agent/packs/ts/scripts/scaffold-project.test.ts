@@ -1,5 +1,5 @@
-// The design gate's scaffold step on the hexagonal monorepo (ADRs 2026-060,
-// 2026-061): the composed emitters write the mechanical files, the project's
+// The design gate's scaffold step on the hexagonal monorepo (ADRs LEG-2026-060,
+// LEG-2026-061): the composed emitters write the mechanical files, the project's
 // config follows the design's workspaces, and nothing a role wrote is lost.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -167,7 +167,7 @@ describe("untouchedSkeletons: what the builder has not written yet", () => {
   });
 });
 
-// --- the design's own config (ADR 2026-061) ---------------------------------------
+// --- the design's own config (ADR LEG-2026-061) ---------------------------------------
 
 describe("isDesignDerivedDrift", () => {
   const roots = new Set(["contexts", "apps"]);

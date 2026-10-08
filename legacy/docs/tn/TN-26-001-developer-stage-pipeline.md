@@ -61,7 +61,7 @@ ARCHITECT (a pi session bound to the role at launch, via bounded ticket)
                 design-review → freeze, one call, one verdict
   2. WORK     test-writer and builder commissioned together and running in
               PARALLEL over disjoint write zones (tests/, src/); no ordering
-              between them, each gated as it returns (ADR 2026-021)
+              between them, each gated as it returns (ADR LEG-2026-021)
               · gate: red_gate, run in a shadow project rebuilt from the
                 contracts and the tests — so a valid red is establishable at
                 any moment, whatever src/ currently holds
@@ -168,8 +168,8 @@ voice, not a pen:
 
 - **Harness (global, language-agnostic):** the three agent definitions, the
   `developer-stage` orchestration skill, the path-gate extension, the dispute
-  protocol. Skills compose; they do not hard-code phase gates (ADR 2026-009).
-- **`packs/ts` (per ADR 2026-007):** the vitest `run_tests` tool, the
+  protocol. Skills compose; they do not hard-code phase gates (ADR LEG-2026-009).
+- **`packs/ts` (per ADR LEG-2026-007):** the vitest `run_tests` tool, the
   declaration-only lint rule, the scaffolder, red/green scripts keyed to the
   consuming project's canonical `test` command.
 
@@ -177,15 +177,15 @@ voice, not a pen:
 
 In: three agents, one skill, path-gate extension, scaffolder, declaration-only
 lint rule, red/green gates, dispute protocol, hardcoded zone globs,
-interactive mode only, all agents inherit the parent model (ADR 2026-003).
+interactive mode only, all agents inherit the parent model (ADR LEG-2026-003).
 
 Out (v2+, parked): autonomous team-lead mode, mutation floor (Stryker),
 property-based tests (fast-check) from spec correctness properties,
 integration-test role, harness-dictated directory structure. Two items have
 since landed and left this list: the phase gate, which checks the spawn itself
-and its form (ADR 2026-021), and per-role model tiering — two tiers,
+and its form (ADR LEG-2026-021), and per-role model tiering — two tiers,
 `designModel` for the judgment seats and `workerModel` for the production
-seats (ADR 2026-022).
+seats (ADR LEG-2026-022).
 
 ## Decisions
 

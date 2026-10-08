@@ -1,7 +1,7 @@
 // A change run may rotate the guard log only after the previous delivery
 // finished. Delivery records intermediate steps, so an arbitrary deliver/pass
 // event is not evidence of completion. A `running` event (a background run
-// started or restarted, ADR 2026-073) is a verdict like any other: a latest
+// started or restarted, ADR LEG-2026-073) is a verdict like any other: a latest
 // deliver event that is running is not a delivery.
 
 import { readFileSync } from "node:fs";
@@ -45,7 +45,7 @@ export function deliveryState(raw: string): DeliveryState {
  * The ticket a run worked on: the latest event whose `detail.ticket` is a
  * ticket number (`run-prepared`, `design-gate`). Undefined when the log names
  * none. `bounded change-run --force` marks this ticket abandoned (ADR
- * 2026-071); a log that names no ticket marks none.
+ * LEG-2026-071); a log that names no ticket marks none.
  */
 export function runTicket(raw: string): string | undefined {
   let ticket: string | undefined;

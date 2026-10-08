@@ -8,7 +8,7 @@
  * here, or it cannot do its job.
  *
  * The gate tools are not written here. They come from the gate registry
- * (`packs/ts/gates.ts`, ADR 2026-034) through `lib/gate-tools.ts`: one entry
+ * (`packs/ts/gates.ts`, ADR LEG-2026-034) through `lib/gate-tools.ts`: one entry
  * per gate carries the name, description, flags and prompt guidance, and this
  * extension only says WHICH entries the architect holds — `GATE_TOOLS` from
  * the path policy, plus `mutation_score`. `bounded gates` reads the same entries
@@ -31,7 +31,7 @@
  * The roster is deliberately not one tool per gate script. Where several gates
  * have exactly one legal order, they are one tool: `design_gate` is
  * purity → scaffold → typecheck → design-review → freeze in a single call with
- * a single verdict (ADR 2026-019, ADR 2026-020), because the order used to live
+ * a single verdict (ADR LEG-2026-019, ADR LEG-2026-020), because the order used to live
  * in prose and prose executes unreliably. `contract_purity` survives alongside it as the cheap
  * single check while a contract is still being iterated on.
  *

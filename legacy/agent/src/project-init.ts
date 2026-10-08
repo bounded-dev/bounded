@@ -34,7 +34,7 @@ export interface InitPlan {
   /** Installer-owned files only. Product files can change after init. */
   readonly files: Readonly<Record<string, string>>;
   /** The digest of the untouched installation this plan replaces, when it
-   *  re-plans one before the first ticket (ADR 2026-065). */
+   *  re-plans one before the first ticket (ADR LEG-2026-065). */
   readonly replaces?: string;
   /** What that re-plan deletes and keeps besides the installation itself. */
   readonly replacement?: Replacement;
@@ -51,7 +51,7 @@ function sha(bytes: Buffer | string): string {
 }
 
 /** Where a re-plan keeps the replaced installation until the new one is
- *  written (ADR 2026-065). Inside the project, so an interrupted re-plan
+ *  written (ADR LEG-2026-065). Inside the project, so an interrupted re-plan
  *  leaves it where the next init finds it. */
 export const REPLAN_BACKUP = ".bounded-replan-backup";
 
@@ -176,8 +176,8 @@ function packScriptEntry(pack: string, script: string): string {
 
 /** The TN README's example `contracts:` entry: the paths the composed packs
  *  name for it (`tnExampleContracts`, in their own layout, placeholders in
- *  angle brackets). Each must lie under a composed source root (ADR 2026-056)
- *  and end with a composed contract suffix (ADR 2026-052), or init refuses.
+ *  angle brackets). Each must lie under a composed source root (ADR LEG-2026-056)
+ *  and end with a composed contract suffix (ADR LEG-2026-052), or init refuses.
  *  The core invents none: with no path named, the list is empty. */
 export function exampleContracts(packs: readonly string[]): string[] {
   const packsDir = join(agentRoot, "packs");
@@ -262,7 +262,7 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((name) => b.includes(name));
 
 /** The selection for the product surfaces the spec and the user decided
- *  (ADR 2026-065), from the installed packs' `productSurfaces` data. */
+ *  (ADR LEG-2026-065), from the installed packs' `productSurfaces` data. */
 export function surfaceSelection(decisions: SurfaceDecisions, explicitPacks: readonly string[] = []): SurfaceSelection {
   return selectForSurfaces(decisions, availablePacks(), canonicalClosure, explicitPacks);
 }
@@ -912,7 +912,7 @@ function scaffolderAvailable(pack: string): boolean {
 /** What applying adds besides the reviewed plan. */
 export interface InitOptions {
   /** The tracker config the command resolved and checked when applying (ADR
-   *  2026-066), committed at TRACKER_CONFIG_RELATIVE so every worktree has it.
+   *  LEG-2026-066), committed at TRACKER_CONFIG_RELATIVE so every worktree has it.
    *  It is not part of the reviewed plan: planning needs no tracker. */
   readonly trackerConfig?: string;
 }

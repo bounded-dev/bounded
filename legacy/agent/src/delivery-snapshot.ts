@@ -1,4 +1,4 @@
-// What a ticket worktree held when its deliver gate passed (ADR 2026-066).
+// What a ticket worktree held when its deliver gate passed (ADR LEG-2026-066).
 // The deliver gate's pass is evidence about one tree; `bounded lead merge`
 // may merge only that tree. The snapshot is two git object hashes: the tree
 // the whole worktree would commit as (tracked and untracked files, ignore

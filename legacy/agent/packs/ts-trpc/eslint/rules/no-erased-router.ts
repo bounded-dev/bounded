@@ -1,6 +1,6 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
-// A type-ERASED tRPC type is never the right type (ADR 2026-030, TN-26-012).
+// A type-ERASED tRPC type is never the right type (ADR LEG-2026-030, TN-26-012).
 // The reproduce case is dogfood Run 22: `ServiceRouter = AnyRouter` shipped a
 // typed client whose inputs are `unknown`, flagged by the reviewer, refused by
 // nothing. In the hexagonal layout the router's real type is generated with

@@ -1,4 +1,4 @@
-// Bash policy for the Claude Code host (ADR 2026-034).
+// Bash policy for the Claude Code host (ADR LEG-2026-034).
 //
 // In pi no role holds a shell: the gates, git and sleep are NAMED tools, and
 // `bash` is in every role's FORBIDDEN_TOOLS. Claude Code has no way to add a
@@ -391,7 +391,7 @@ function decideRm(role: Role, argv: readonly string[], shown: string, ctx: Ctx):
 
 /** `ls` / `find` — names only (listing.ts), judged as pi's own `ls` / `find`
  *  calls by the same decide(), so a blind role may list the other side's
- *  names and never its contents (ADR 2026-057). */
+ *  names and never its contents (ADR LEG-2026-057). */
 function decideListing(role: Role, argv: readonly string[], shown: string, ctx: Ctx): BashDecision {
   const listing = listingCall(argv);
   if (!listing.ok) return block(`path-gate: ${role} may not run '${shown}': ${listing.reason}`);
@@ -416,7 +416,7 @@ function decideListing(role: Role, argv: readonly string[], shown: string, ctx: 
 /** `grep` — the read-only grammar in search.ts, judged as pi's own `grep`
  *  (path plus file glob) by the same decide(): a file as a read, a directory
  *  only over a complete, link-free tree and, for a blind role, with a glob
- *  that provably keeps it off the other side (ADR 2026-057). */
+ *  that provably keeps it off the other side (ADR LEG-2026-057). */
 function decideSearch(role: Role, argv: readonly string[], shown: string, ctx: Ctx): BashDecision {
   const search = searchCall(argv);
   if (!search.ok) return block(`path-gate: ${role} may not run '${shown}': ${search.reason}`);

@@ -1,4 +1,4 @@
-// Project setup state shared by every host entry (ADR 2026-048, ADR 2026-051).
+// Project setup state shared by every host entry (ADR LEG-2026-048, ADR LEG-2026-051).
 //
 // A fresh clone runs this before any package is installed, so it and every
 // module it imports use Node builtins only. Both host entries (the Claude Code
@@ -98,7 +98,7 @@ export function beforeFirstRun(project: string): boolean {
   try {
     const state = join(project, ".bounded");
     if (existsSync(join(state, "active-ticket")) || existsSync(join(state, "contract-checksums.json"))) return false;
-    // A ticket the lead started in its own worktree (ADR 2026-066).
+    // A ticket the lead started in its own worktree (ADR LEG-2026-066).
     const started = join(state, "lead", "tickets");
     if (existsSync(started) && readdirSync(started).some((name) => name.endsWith(".json"))) return false;
     const tickets = join(state, "tickets");
@@ -134,10 +134,10 @@ export function repairNeeded(project: string): boolean {
 /**
  * Setup may run in an installed project before its first run, or afterwards
  * only to repair a completed setup whose dependency trees are missing. No role
- * may write the package manifest (ADR 2026-054), but re-running an installer
+ * may write the package manifest (ADR LEG-2026-054), but re-running an installer
  * on demand would still run whatever it now says, so an intact setup is never
- * re-run (ADR 2026-051): reinstalling after a config sync is the user's
- * `bounded sync-config`, which runs the same composed commands (ADR 2026-054).
+ * re-run (ADR LEG-2026-051): reinstalling after a config sync is the user's
+ * `bounded sync-config`, which runs the same composed commands (ADR LEG-2026-054).
  */
 export function setupPermitted(project: string): boolean {
   if (!existsSync(join(project, INSTALLATION_RELATIVE))) return false;
@@ -147,7 +147,7 @@ export function setupPermitted(project: string): boolean {
 /**
  * The lead may re-plan the installation (run `bounded init` with another
  * selection) only while no ticket has been prepared, designed or run (ADR
- * 2026-065). Init itself then checks that the installation is untouched.
+ * LEG-2026-065). Init itself then checks that the installation is untouched.
  */
 export function replanPermitted(project: string): boolean {
   return existsSync(join(project, INSTALLATION_RELATIVE)) && beforeFirstRun(project);
@@ -246,7 +246,7 @@ const touchesGit = (path: string): boolean => path.split(/[\\/]/).some((part) =>
  * writing through it would land wherever it points. The existing part is
  * spelled as the filesystem spells it (`realpathSync.native`), so a case- or
  * Unicode-folded argument (`contextſ/` on APFS) comes back as the real name
- * and is judged as that (ADR 2026-057).
+ * and is judged as that (ADR LEG-2026-057).
  */
 export function resolvedProjectPath(project: string, path: string): string | undefined {
   try {

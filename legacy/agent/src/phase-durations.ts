@@ -38,7 +38,7 @@
 // spans can touch but never overlap, and the parallel-workers row below could
 // not fire on any log this analysis produced. That is a measurement lost to an
 // artefact of the boundary, not to the run: the test-writer and the builder
-// are commissioned in parallel (ADR 2026-021), and "tests 8m37s then build
+// are commissioned in parallel (ADR LEG-2026-021), and "tests 8m37s then build
 // 5m42s" reads as 14m19s of sequence when the wall clock was 12m19s.
 //
 // So each worker phase opens at the first event ATTRIBUTABLE TO THAT WORKER.
@@ -77,7 +77,7 @@
 // of the log).
 //
 // "The freeze" is a `checksum-gate` pass whose summary says it wrote the
-// manifest, or a `design-gate` pass (ADR 2026-019's composite, whose final
+// manifest, or a `design-gate` pass (ADR LEG-2026-019's composite, whose final
 // step IS that write). Both fire on a composite run, milliseconds apart; taking
 // the LAST freeze collapses them to one boundary. A `checksum-gate` pass that
 // merely VERIFIED ("no drift") is not a freeze and must not be mistaken for
@@ -94,7 +94,7 @@
 //   phase carries `incomplete`, naming the earliest marker that is missing, so
 //   the report says which step never happened rather than just "unknown".
 //
-// * MULTIPLE FREEZES (contract revised mid-loop, re-frozen, ADR 2026-019's
+// * MULTIPLE FREEZES (contract revised mid-loop, re-frozen, ADR LEG-2026-019's
 //   re-run path): DESIGN extends to the LAST freeze that precedes the first
 //   `red-gate` pass. A revision means the design was not finished at the first
 //   freeze — the minutes spent revising are design minutes, and the freeze the
@@ -341,7 +341,7 @@ function summaryOf(e: LoggedGuardEvent): string {
  *
  * Same test green-gate's `redPassStandsForCurrentContracts` uses for the
  * checksum half — a manifest WRITE, not a drift verification — plus the
- * composite `design-gate` pass whose final step is that write (ADR 2026-019).
+ * composite `design-gate` pass whose final step is that write (ADR LEG-2026-019).
  */
 function isFreeze(e: LoggedGuardEvent): boolean {
   if (e.verdict !== "pass") return false;

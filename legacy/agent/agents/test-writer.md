@@ -53,7 +53,7 @@ repeat what they cover (wrong-type input, the parse/`toJSON` round trip). Do
 not test a command or an in adapter at all (see "Never test generated code"
 below).
 
-### The test levels (ADR 2026-063)
+### The test levels (ADR LEG-2026-063)
 
 | Level | File, next to what it tests |
 |---|---|
@@ -127,7 +127,7 @@ name and by call site; a missing one blocks the red and names itself.
   block: a command's wire checks, field order and error messages are the
   laws' job. A handler test may still build its input with the command, as
   the reference's `command()` helper does; what it tests is the handler.
-- **Store tests need a container runtime (ADR 2026-064).** Postgres store
+- **Store tests need a container runtime (ADR LEG-2026-064).** Postgres store
   tests start a real Postgres through Docker. At the red gate, without one,
   they are skipped and the reason is logged; at the green gate they must run,
   and green refuses while they exist and no container runtime answers. Write
@@ -148,7 +148,7 @@ name and by call site; a missing one blocks the red and names itself.
   bound to a name, or passed around. Of the app's own code, import only the
   support and `./composition-root.ts` (no other relative or workspace
   import); third-party packages such as an MCP client, and types, are fine. Green and
-  deliver check both before anything runs (ADR 2026-072). The smoke test
+  deliver check both before anything runs (ADR LEG-2026-072). The smoke test
   reaches the database, whose `DATABASE_URL` the support sets,
   **through the composition root**: never set, read or
   construct a database URL in the test, and never assume an empty database

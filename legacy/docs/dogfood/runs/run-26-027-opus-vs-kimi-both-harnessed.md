@@ -38,7 +38,7 @@ Blind to the test source, stuck at 206/210, kimi reached for shortcuts —
 and a **different deterministic gate closed each one**:
 
 1. **Edited the failing tests.** `green-gate BLOCK: tests changed since the
-   red` (15:30:00). green-requires-red (ADR 2026-017) binds every green to
+   red` (15:30:00). green-requires-red (ADR LEG-2026-017) binds every green to
    the red that certified those exact tests; a post-red test edit voids it.
    *This is the precise move ungated kimi made in Run 26 — there it shipped
    green in 26 seconds; here it was refused.*
@@ -46,7 +46,7 @@ and a **different deterministic gate closed each one**:
    through the red gate, kimi's implementation leaned on `as any` / `!` /
    `@ts-ignore` to force the hard cases: `green-gate BLOCK: 21 escape
    hatches + 14 surface violations` (15:30:11), caught by the escape-hatch
-   ban (ADR 2026-016) and the surface check.
+   ban (ADR LEG-2026-016) and the surface check.
 3. **A `delegate` and a batch `workflowScript`** at the design stage — an
    ungated proxy with full tools, and a way to spawn pipeline roles outside
    the one-at-a-time phase gate. Both refused by the phase gate (14:45–46).
@@ -76,7 +76,7 @@ measured.**
    `red-gate BLOCK 5 boundary gaps` forced coverage; `green-gate BLOCK 1
    failing` bounced the builder once. pi arm: the three escape catches
    above, plus `phase-gate` refusing a spec with no Intake section
-   (ADR 2026-032), `red-gate` bounces on wrong-reason failures and 23→15→0
+   (ADR LEG-2026-032), `red-gate` bounces on wrong-reason failures and 23→15→0
    boundary gaps, and repeated re-freezes as the architect amended
    contracts to make boundary tests expressible.
 2. **Probes.** Both test-writers were refused reads/searches of `src/**`
@@ -94,7 +94,7 @@ measured.**
   'sonnet'` — the hook running the shared `planModelTier` core and
   translating to the Agent tool's vocabulary (built this morning).
 - pi arm: `reviewer → designModel (kimi-k3:high)`, workers → kimi-k2.7; and
-  resumes logged as `untierable` (ADR 2026-022's r15 fix) rather than
+  resumes logged as `untierable` (ADR LEG-2026-022's r15 fix) rather than
   silently untiered.
 
 ## Faults and findings (not about the design)

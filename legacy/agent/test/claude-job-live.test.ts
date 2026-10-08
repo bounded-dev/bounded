@@ -1,4 +1,4 @@
-// Opt-in, live: the host behaviour long gates depend on (ADR 2026-073).
+// Opt-in, live: the host behaviour long gates depend on (ADR LEG-2026-073).
 // Skipped unless BOUNDED_CLAUDE_LIVE=1 (it costs one short model call).
 //
 //   BOUNDED_CLAUDE_LIVE=1 npx vitest run test/claude-job-live.test.ts

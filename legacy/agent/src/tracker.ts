@@ -1,4 +1,4 @@
-// The tracker port (ADR 2026-066): what the team lead's commands and the gates
+// The tracker port (ADR LEG-2026-066): what the team lead's commands and the gates
 // need from an issue tracker, in the harness's own words. The core names no
 // tracker: an adapter under trackers/ translates these calls to one, and the
 // installation's committed `.bounded/tracker.json` says which adapter and
@@ -58,7 +58,7 @@ export interface Tracker {
 }
 
 /** The tracker could not be reached, or refused the call. Its message is in
- *  product terms, because it is routed to the user (ADR 2026-072); the
+ *  product terms, because it is routed to the user (ADR LEG-2026-072); the
  *  tracker's own raw output, when there is one, is kept apart in `raw`, for
  *  the guard log only. */
 export class TrackerError extends Error {

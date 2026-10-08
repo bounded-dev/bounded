@@ -1,7 +1,7 @@
 // pi discovers global extensions by scanning ~/.pi/agent/extensions/ — direct
 // files, or one level of subdirectory carrying a package.json that declares
 // `pi.extensions`. It does NOT read the agent dir's own package.json. The
-// adapter lives in hosts/pi/extensions/ (ADR 2026-035), so the drop zone
+// adapter lives in hosts/pi/extensions/ (ADR LEG-2026-035), so the drop zone
 // carries one loader shim (extensions/bounded/package.json) whose manifest is
 // the only way any of it loads.
 //
@@ -25,7 +25,7 @@ function shimEntries(): readonly string[] {
   return manifest.pi?.extensions ?? [];
 }
 
-describe("the pi adapter is discoverable the way pi actually discovers (ADR 2026-035)", () => {
+describe("the pi adapter is discoverable the way pi actually discovers (ADR LEG-2026-035)", () => {
   test("the loader shim exists where pi's global scan looks", () => {
     expect(existsSync(SHIM)).toBe(true);
   });

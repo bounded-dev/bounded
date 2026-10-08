@@ -6,7 +6,7 @@ import type { CommandRunner } from "./typecheck.ts";
 
 // The boundary that joins typecheck.ts (runs tsc) and typecheck-scope.ts
 // (narrows by role) and writes the guard event — the semantics the
-// `typecheck` worker tool had, now reachable by any host (ADR 2026-029).
+// `typecheck` worker tool had, now reachable by any host (ADR LEG-2026-029).
 
 const projects: TempProject[] = [];
 afterAll(() => projects.forEach((p) => p.cleanup()));

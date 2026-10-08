@@ -1,5 +1,5 @@
 // Path policy for the developer-stage pipeline (TN-26-001; the sides are
-// source roots and file-name suffixes, ADRs 2026-056…058).
+// source roots and file-name suffixes, ADRs LEG-2026-056…058).
 //
 // Pure core: no pi imports, no fs — what the filesystem says reaches it only
 // as data the host passes (Ctx.pathFacts). The tool_call path-gate extension
@@ -33,7 +33,7 @@ export interface Ctx {
   readonly ticketScope?: TicketWriteScope;
   /**
    * Globs of the project's contract files (`<root>/**\/*<suffix>` for each
-   * composed source root and contract suffix, ADRs 2026-052 and 2026-056).
+   * composed source root and contract suffix, ADRs LEG-2026-052 and LEG-2026-056).
    * They become the architect's extra write zone, the test-writer's read
    * exception and the builder's write deny. `"unreadable"` means the
    * composition could not be read: no file is known to be a contract, so the
@@ -42,19 +42,19 @@ export interface Ctx {
    */
   readonly contractGlobs?: readonly string[] | "unreadable";
   /**
-   * The composed `sourceRoots` (ADR 2026-056): the directories roles author
+   * The composed `sourceRoots` (ADR LEG-2026-056): the directories roles author
    * source under. Absent or `"unreadable"` fails closed: every path that could
    * lie under some root is the OTHER side for both blind roles.
    */
   readonly sourceRoots?: readonly string[] | "unreadable";
   /**
-   * The composed `testFileSuffixes` (ADR 2026-057): a file inside a source
+   * The composed `testFileSuffixes` (ADR LEG-2026-057): a file inside a source
    * root whose name ends with one is test-side. Absent or `"unreadable"`
    * treats every file under a root as the other side for both blind roles.
    */
   readonly testSuffixes?: readonly string[] | "unreadable";
   /**
-   * The composed `generatedFileGlobs` (ADR 2026-058): write-denied for every
+   * The composed `generatedFileGlobs` (ADR LEG-2026-058): write-denied for every
    * role, readable by every role. Absent or `"unreadable"` refuses every
    * write, because which files are generated is unknown.
    */
@@ -66,7 +66,7 @@ export interface Ctx {
    */
   readonly pathFacts?: PathFacts;
   /**
-   * Names the composed packs protect at ANY depth (ADR 2026-054): their
+   * Names the composed packs protect at ANY depth (ADR LEG-2026-054): their
    * dependency directory names and their nested config file names. A nested
    * dependency directory or package manifest inside a role's zone is resolved
    * by the stack's tools before the project root's, so a role that could
@@ -77,7 +77,7 @@ export interface Ctx {
    */
   readonly writeProtection?: WriteProtection | "unreadable";
   /**
-   * In a ticket's own worktree (ADR 2026-066): the ticket's number, the paths
+   * In a ticket's own worktree (ADR LEG-2026-066): the ticket's number, the paths
    * it alone may change, and whether the filesystem folds case. Every role
    * there writes only under those paths (test-side and generated files
    * included only there), and the architect its own TN and scratch. Absent
@@ -88,7 +88,7 @@ export interface Ctx {
 
 /** Why a write in a ticket worktree falls outside the ticket's owned paths,
  *  or null when it does not. Case is ignored only where the filesystem
- *  ignores it (ADR 2026-057): elsewhere `Contexts/` is another directory. */
+ *  ignores it (ADR LEG-2026-057): elsewhere `Contexts/` is another directory. */
 export function ownedPathRefusal(role: Role, path: string, owned: NonNullable<Ctx["ownedPaths"]>): string | null {
   const fold = (text: string): string => (owned.caseInsensitive === true ? text.toLowerCase() : text);
   const target = fold(path);
@@ -137,7 +137,7 @@ export interface PathTree {
 }
 
 /**
- * The layout data that decides who owns a file (ADRs 2026-056…058): the
+ * The layout data that decides who owns a file (ADRs LEG-2026-056…058): the
  * source roots, the contract globs, the test-side suffixes and the generated
  * globs. Each field is the composed value or `"unreadable"`.
  */
@@ -361,7 +361,7 @@ export const GATE_TOOLS: readonly string[] = [
   // ready to advance.
   "contract_purity",
   // The whole DESIGN phase in one call: purity → scaffold → typecheck →
-  // design-review-freshness → freeze (ADRs 2026-019/020). The steps had a
+  // design-review-freshness → freeze (ADRs LEG-2026-019/020). The steps had a
   // mandatory order that lived in prose,
   // and prose executes unreliably: separate `scaffold` and `freeze_contracts`
   // tools cost 3–6 minutes of round-trips per ticket and produced ordering
@@ -382,7 +382,7 @@ export const GATE_TOOLS: readonly string[] = [
 ];
 
 /**
- * Every pi tool that is an ARTIFACT GATE (ADR 2026-034): the architect's
+ * Every pi tool that is an ARTIFACT GATE (ADR LEG-2026-034): the architect's
  * gates above plus the measurement and the worker gates. This is the set the
  * gate registry exposes as tools and a second host reaches through
  * `bounded gates`; "which tools are not gates" is derived from it, never listed
@@ -425,7 +425,7 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
 const ALWAYS_DENY = [".git", ".git/**"] as const;
 
 // Denied for every role, both directions: a background job's files (ADR
-// 2026-073). Its raw output (the suite's, test source and paths included,
+// LEG-2026-073). Its raw output (the suite's, test source and paths included,
 // which `run_tests` sanitizes only in its result) is kept outside the project
 // altogether; what stays here is the job's bookkeeping, which no role reads.
 const JOBS_DENY = [".bounded/jobs", ".bounded/jobs/**"] as const;
@@ -438,7 +438,7 @@ const JOBS_DENY = [".bounded/jobs", ".bounded/jobs/**"] as const;
 // `fs`, which never passes through the tool hook, so they are unaffected.
 const ALWAYS_WRITE_DENY = [".bounded", ".bounded/**"] as const;
 
-// Generated files (ADR 2026-058) are denied for every role on WRITE, the
+// Generated files (ADR LEG-2026-058) are denied for every role on WRITE, the
 // test-writer included — a generated law suite is test-side by name, and the
 // test-writer is exactly the role that would otherwise be let in. Nobody
 // hand-writes one for the same reason nobody hand-writes a skeleton: an edit to
@@ -482,7 +482,7 @@ function alwaysWriteDenied(
   const glob = generated.find((g) => pathGlobMatcher([g])(path));
   if (glob !== undefined) {
     return {
-      reason: `it is a generated file (matches '${glob}', ADR 2026-058) — a generator writes it from the design and a hand edit is discarded; read it freely, and report what should change to the orchestrator`,
+      reason: `it is a generated file (matches '${glob}', ADR LEG-2026-058) — a generator writes it from the design and a hand edit is discarded; read it freely, and report what should change to the orchestrator`,
     };
   }
   const segments = path.split("/");
@@ -503,14 +503,14 @@ function alwaysWriteDenied(
   const dir = lower.findIndex((segment) => dirs.has(segment));
   if (dir !== -1) {
     return {
-      reason: `'${segments[dir]}' is a dependency directory at any depth (ADR 2026-054): the stack's tools resolve a nested one before the project's installed dependencies — no role writes one; a dependency the project needs is a pack pin`,
+      reason: `'${segments[dir]}' is a dependency directory at any depth (ADR LEG-2026-054): the stack's tools resolve a nested one before the project's installed dependencies — no role writes one; a dependency the project needs is a pack pin`,
     };
   }
   const name = segments[segments.length - 1]!;
   const config = protection.fileNames.find((pattern) => nameGlob(pattern).test(name));
   if (config !== undefined) {
     return {
-      reason: `'${name}' is project config at any depth (ADR 2026-054, matches '${config}'): the stack's tools read the nearest one per directory — no role writes it; report what needs changing to the orchestrator`,
+      reason: `'${name}' is project config at any depth (ADR LEG-2026-054, matches '${config}'): the stack's tools read the nearest one per directory — no role writes it; report what needs changing to the orchestrator`,
     };
   }
   return null;
@@ -536,7 +536,7 @@ export interface Zone {
 //     artifact          architect   test-writer   builder
 //     contract          write       read          read     ← shared
 //     spec / TN         write       read          read     ← shared
-//     generated         read        read          read     ← shared (ADR 2026-058)
+//     generated         read        read          read     ← shared (ADR LEG-2026-058)
 //     implementation    read        –             write
 //     tests             read        write         –        ← the real blindness
 //
@@ -552,7 +552,7 @@ export interface Zone {
 // So: deny an agent the OTHER SIDE's work product. Never deny it the interface
 // it is working against.
 //
-// WHERE THE SIDES ARE (ADRs 2026-056, 2026-057). Tests sit next to the code
+// WHERE THE SIDES ARE (ADRs LEG-2026-056, LEG-2026-057). Tests sit next to the code
 // they test, so the sides are told apart by FILE NAME, not by directory. Inside
 // a composed source root, a file whose name ends with a composed test suffix is
 // test-side, a contract is shared, a generated file is shared, and every other
@@ -576,11 +576,11 @@ export const ZONES: Record<Role, Zone> = {
   // wants result filtering rather than a wider zone.
   architect: {
     // Contract files are NOT listed here: the composed packs contribute their
-    // roots and suffixes, and decide() adds Ctx.contractGlobs (ADRs 2026-052,
-    // 2026-056), so the core names no technology and no layout.
+    // roots and suffixes, and decide() adds Ctx.contractGlobs (ADRs LEG-2026-052,
+    // LEG-2026-056), so the core names no technology and no layout.
     //
     // No project configuration file is writable by the architect or any other
-    // role (ADR 2026-054). The stack's compiler, package and test-runner
+    // role (ADR LEG-2026-054). The stack's compiler, package and test-runner
     // config is generated from the composed packs' reference files and pins,
     // and some of it is loaded as code by the gates — so a role that could
     // edit it could change what a gate runs. A config diagnostic routes to
@@ -674,7 +674,7 @@ function overlaps(a: string, b: string): boolean {
   return x === y || x.startsWith(y + "/") || y.startsWith(x + "/");
 }
 
-// --- Sides (ADR 2026-057) -----------------------------------------------------
+// --- Sides (ADR LEG-2026-057) -----------------------------------------------------
 //
 // Each question below answers true, false, or undefined for "cannot tell" (the
 // data it needs is unreadable). Every rule that uses one opens access only on
@@ -932,7 +932,7 @@ function isPathLayout(value: PathLayout | readonly string[]): value is PathLayou
   return !Array.isArray(value);
 }
 
-// --- Content search (ADR 2026-057) ----------------------------------------------
+// --- Content search (ADR LEG-2026-057) ----------------------------------------------
 //
 // A content search reads every file it reaches. A blind role may search a
 // directory only when the search provably cannot reach the other side: the
@@ -964,7 +964,7 @@ function isPathLayout(value: PathLayout | readonly string[]): value is PathLayou
 
 const GLOB_SPECIAL = /[{}[\]?!\\]/;
 
-/** Any character outside ASCII (ADR 2026-057: the filesystem may fold it). */
+/** Any character outside ASCII (ADR LEG-2026-057: the filesystem may fold it). */
 const NON_ASCII = /[^\x00-\x7F]/;
 
 /** The literal ending every name matched by an inclusion glob must have. */
@@ -1217,7 +1217,7 @@ export function decide(
         return block("path-gate: ticket-numbered projects write their ticket TN, not root spec.md");
       }
       // Which files are contracts is the composed packs' contribution
-      // (ADR 2026-052). When the suffixes could not be read at all, every
+      // (ADR LEG-2026-052). When the suffixes could not be read at all, every
       // write that could be under a source root waits.
       const suffixes = scope.contractSuffixes;
       const lower = t.toLowerCase();
@@ -1226,7 +1226,7 @@ export function decide(
         if (scope.error) return block(`path-gate: ${scope.error}`);
         const taker = scope.released !== undefined && Object.hasOwn(scope.released, t) ? scope.released[t] : undefined;
         if (taker !== undefined) {
-          // A later ticket took it (ADR 2026-071); listing it again would not help.
+          // A later ticket took it (ADR LEG-2026-071); listing it again would not help.
           return block(`path-gate: contract '${t}' is not owned by ticket #${scope.ticket}: ${taker} took it`);
         }
         if (!scope.contracts.includes(t)) {
@@ -1252,7 +1252,7 @@ export function decide(
 
   if (tool === "ls" || tool === "find") {
     // Names only: a blind role may list and find the other side's file NAMES
-    // (ADR 2026-057). A find pattern must stay inside the searched directory.
+    // (ADR LEG-2026-057). A find pattern must stay inside the searched directory.
     if (tool === "find" && !patternContained(input["pattern"])) {
       return block(`path-gate: ${role} may not search '${t}': a find pattern must be relative and stay inside the searched directory (no leading '/', no '..')`);
     }

@@ -1,4 +1,4 @@
-// The delivery obligation of a project that composed ts-web (ADR 2026-036),
+// The delivery obligation of a project that composed ts-web (ADR LEG-2026-036),
 // scoped to the web apps the design declares (TN `workspaces:` maps, the same
 // reader the shipped check:build uses). With none declared it passes and says
 // it checked nothing. For each declared web app, read-only and static:

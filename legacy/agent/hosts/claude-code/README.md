@@ -1,6 +1,6 @@
 # Claude Code host adapter
 
-The developer stage's **capability constraints** (ADR 2026-034, Tier B) for
+The developer stage's **capability constraints** (ADR LEG-2026-034, Tier B) for
 Claude Code: the path gate and the phase gate as a `PreToolUse` hook, the tool
 strip as generated `.claude/agents/*.md` `tools:` allowlists, and the role
 binding through each agent definition's own `hooks:`. The **artifact gates**
@@ -35,7 +35,7 @@ capabilities and still needs a live run before its behavior can be claimed.
 | `tool-map.ts` | Claude Code tool call → pi tool call(s): `Read {file_path}` → `read {path}`, `Agent {subagent_type}` → `subagent {agent}`, and so on. |
 | `bash-policy.ts` | What a role may put through Bash: `bounded gates <gate>` for the gates in its `ROLE_TOOLS`, plus `git`, `sleep`, `rm <path>`, `ls` and `find` where the role holds the pi tool. Everything else refused. |
 | `listing.ts` | The names-only `ls` / `find` grammar every role, the lead and the scout list files with. |
-| `spill-read.ts` | Whether a `Read` of a Claude Code saved tool output is the caller's own, proven from the caller's own transcript (ADR 2026-069). |
+| `spill-read.ts` | Whether a `Read` of a Claude Code saved tool output is the caller's own, proven from the caller's own transcript (ADR LEG-2026-069). |
 | `continuation.ts` | How a finished worker is continued here: `SendMessage` to a recorded worker, and the records that license a relaunch. |
 | `render-agents.ts` | Generates `.claude/agents/<role>.md` from `agents/<role>.md`: `tools:` from `ROLE_TOOLS`, `hooks:` binding the role, the pi brief verbatim under a host preamble. |
 | `project-install.ts` | Adds the read-only scout, team-lead skill, and main-session lead instructions to an initialized project. |
@@ -48,18 +48,18 @@ capabilities and still needs a live run before its behavior can be claimed.
   `decide()` against the role's zones. A blind role cannot read the other
   side's work product; every role's writes are confined to its zone; `.git`
   and `.bounded` are protected as in pi.
-- **A seat's own saved output** (ADR 2026-069). When a tool result is too
+- **A seat's own saved output** (ADR LEG-2026-069). When a tool result is too
   large, Claude Code saves it under `<session>/tool-results/` and the caller
   reads it from there. Any seat may `Read` such a file only when its own
   transcript records that its own call produced it. Every subagent shares
   that directory, so a blind role still cannot read the other side's output.
   `Grep`, `Glob` and Bash over it stay refused.
-- **Session tools** (ADR 2026-069). `SubagentHandback` (a report to the
+- **Session tools** (ADR LEG-2026-069). `SubagentHandback` (a report to the
   commissioning seat) and `ToolSearch` (loading a deferred tool's schema)
   touch only the conversation. The lead may use both, the scout only the
   handback, and every ticket seat both. A read-only seat's `SendMessage` is
   refused with the way forward.
-- **Model tiers** (ADR 2026-022), planned by the same core as pi's
+- **Model tiers** (ADR LEG-2026-022), planned by the same core as pi's
   (`planModelTier` over `.bounded/dev-stage-models.json`): an allowed spawn of a
   pipeline role is rewritten to the seat's tier, translated into the Agent
   tool's vocabulary (`anthropic/claude-opus-5:high` → `opus`), and a
@@ -94,7 +94,7 @@ capabilities and still needs a live run before its behavior can be claimed.
   recorded outcome made before an architect turn whose end the seat's
   SubagentStop hook recorded in the ticket worktree's guard log (a different agent id alone is
   never evidence). No architect may commission another, and each ticket
-  worktree runs one architect turn at a time (ADR 2026-066). A
+  worktree runs one architect turn at a time (ADR LEG-2026-066). A
   launch still running — including a background one, recorded from its
   `async_launched` id — licenses nothing. The architect's Agent calls are held
   to the lead's field allowlist, so `run_in_background`, `isolation` and
@@ -112,7 +112,7 @@ capabilities and still needs a live run before its behavior can be claimed.
   `find` by `decide()`. Content search is `grep` through Bash (`search.ts`):
   one pattern, one path, an optional `--include` glob, judged as pi's own
   `grep` — a blind role's directory search needs a glob that provably keeps
-  it off the other side (ADR 2026-057). The grammar refuses every option the
+  it off the other side (ADR LEG-2026-057). The grammar refuses every option the
   bundled grep would hand to the system grep, so an allowed search always runs
   on Claude Code's bundled ugrep.
 - **Bash narrowed to the carriers.** The command is read the way a POSIX
@@ -148,10 +148,10 @@ capabilities and still needs a live run before its behavior can be claimed.
   maximum: 2 and 10 minutes, or `BASH_DEFAULT_TIMEOUT_MS` and
   `BASH_MAX_TIMEOUT_MS` when Claude Code's environment sets them): Claude Code kills the command past it, so a gate
   that can split its work across calls (`mutation-score`) stops before it
-  (ADR 2026-070). The deadline also decides when a long gate (`deliver`,
+  (ADR LEG-2026-070). The deadline also decides when a long gate (`deliver`,
   `green-gate`, `red-gate`, `run-tests`, `mutation-score`) runs as a
   background job: the call waits out its budget and answers RUNNING (exit 3),
-  and the next call with the same arguments collects it (ADR 2026-073).
+  and the next call with the same arguments collects it (ADR LEG-2026-073).
   Claude Code returns from a Bash call when its command exits, and a child
   started in its own session with its output in files outlives the call
   (`test/claude-job-live.test.ts`, opt-in). `sessionRole()`
@@ -286,7 +286,7 @@ Initialized projects open the main Claude Code session, in the main
 worktree, as a read-only team lead. The installer gives it the team-lead
 skill and a read-only scout definition. The user states the outcome without
 naming roles. The lead inspects the project, runs exact dependency setup
-before the first ticket, and works through its commands (ADR 2026-066):
+before the first ticket, and works through its commands (ADR LEG-2026-066):
 `bounded lead ticket create ...` creates a GitHub issue with its sections,
 `bounded lead queue <issue>` queues it, and `bounded lead start <issue>`
 gives it its own worktree under `.bounded/worktrees/<issue>` and branch
@@ -298,7 +298,7 @@ project's check, pushes and closes it. The lead hook prefixes `bounded lead
 merge`, and no other lead command, with the call's deadline
 (`BOUNDED_COMMAND_TIMEOUT_MS=<ms>`): a check that outlasts it runs in the
 background and the merge answers RUNNING until a later merge collects it
-(ADR 2026-073). The lead does not edit product files.
+(ADR LEG-2026-073). The lead does not edit product files.
 
 The architect is the lead session's own background subagent
 (`architect-seat.ts`, `seat-hooks.ts`). After `start`, the lead calls the
@@ -342,7 +342,7 @@ the user's own
 `bounded init --host <host> --surface <id>... [--without <id>...] [--pack <name>...] [--apply <digest>]`
 (with `--host claude-code`) as one plain command, unrewritten, so the lead
 can re-plan a capability selection the spec showed was wrong. Init replaces
-the installation only while it is untouched (ADR 2026-065); setup then runs
+the installation only while it is untouched (ADR LEG-2026-065); setup then runs
 again.
 It refuses arbitrary Bash and file edits even when an old
 `.bounded/dev-stage-role` names an architect, and it refuses every architect

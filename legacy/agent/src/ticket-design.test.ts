@@ -17,7 +17,7 @@ import { evaluatePathGate } from "./path-gate.ts";
 import { PI_COMMISSIONS } from "../hosts/pi/extensions/lib/commissions.ts";
 
 // No installed pack contributes source roots yet (the hexagonal layout pack
-// does, ADR 2026-063), so this suite gives the composed ts project the
+// does, ADR LEG-2026-063), so this suite gives the composed ts project the
 // hexagonal context roots. The real reader still runs first, so an unreadable
 // composition still throws exactly as it would.
 vi.mock("./pack-contrib.ts", async (importOriginal) => {
@@ -135,7 +135,7 @@ describe("ticket-numbered design", () => {
 // not settle it, the refusal names every claimant. It never suggests editing
 // a design note: a delivered ticket's note is its frozen record.
 describe("a contract another ticket owns names its owner and the change run", () => {
-  // A delivered (frozen) owner may instead be taken from (ADR 2026-071).
+  // A delivered (frozen) owner may instead be taken from (ADR LEG-2026-071).
   const route = (path: string, owner: string, run = "change run", active = true): string =>
     `contract ${path} belongs to ticket #${owner}: ${active ? "after the active ticket is delivered, " : ""}` +
     `change it in a ${run} on ticket #${owner}; never edit another ticket's design note` +
@@ -433,7 +433,7 @@ describe("contract recognition is a composed pack's contribution", () => {
   });
 });
 
-describe("a contract path must lie under a composed source root (ADR 2026-056)", () => {
+describe("a contract path must lie under a composed source root (ADR LEG-2026-056)", () => {
   const note = (contracts: string[], extra = ""): string =>
     `---\nissue: 24\nstatus: draft\ncontracts:\n${contracts.map((c) => `  - ${c}\n`).join("")}${extra}---\n`;
 

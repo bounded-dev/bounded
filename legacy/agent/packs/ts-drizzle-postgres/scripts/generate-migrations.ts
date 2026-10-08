@@ -1,5 +1,5 @@
 // The ts-drizzle-postgres contribution to the artifactGenerators socket
-// (ADR 2026-058): derive each context's next versioned SQL migration and
+// (ADR LEG-2026-058): derive each context's next versioned SQL migration and
 // Drizzle Kit's meta/ snapshot from its schema folder. Only the architect's
 // generate_artifacts gate calls this; every role is write-denied the
 // migrations folder.

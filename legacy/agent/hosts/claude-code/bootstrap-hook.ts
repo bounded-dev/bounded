@@ -1,4 +1,4 @@
-// Dependency-free project hook entry (ADR 2026-048, ADR 2026-051). A fresh
+// Dependency-free project hook entry (ADR LEG-2026-048, ADR LEG-2026-051). A fresh
 // clone has no harness packages, so importing path-gate-hook.ts before setup
 // would fail. This entry and everything it imports use Node builtins only.
 //
@@ -82,7 +82,7 @@ function bootstrapDecision(): void {
 
 /** The ticket worktree under this project that `cwd` lies in, if any: the
  *  nearest directory upward with a ticket marker, inside
- *  `.bounded/worktrees/` of this project (ADR 2026-066). */
+ *  `.bounded/worktrees/` of this project (ADR LEG-2026-066). */
 function ticketWorktreeOf(cwd: unknown): string | undefined {
   if (typeof cwd !== "string") return undefined;
   let dir: string;
@@ -142,7 +142,7 @@ function main(): void {
       projectContext(payload?.["cwd"], true) !== undefined && setupPermitted(projectRoot)) {
     return; // Claude Code's own permission decision applies to this exact command.
   }
-  // Re-planning the installation before the first ticket (ADR 2026-065) runs
+  // Re-planning the installation before the first ticket (ADR LEG-2026-065) runs
   // the user's own `bounded init`, which needs no project dependency.
   if (lead && tool === "Bash" && parseReplanCommand(input["command"], "claude-code")?.ok === true &&
       projectContext(payload?.["cwd"], true) !== undefined && replanPermitted(projectRoot)) {

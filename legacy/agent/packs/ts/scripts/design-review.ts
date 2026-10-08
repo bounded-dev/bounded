@@ -23,7 +23,7 @@
 // design once; the architect, who owns the spec and the contracts, then revises
 // them in answer to what it raised — which is the point of hearing it, and does
 // not un-review the design. So an edit to a file the review already saw is not
-// what stales it; only a contract file added or removed since is (ADR 2026-020).
+// what stales it; only a contract file added or removed since is (ADR LEG-2026-020).
 // The event still carries a sha256 per file — computed exactly as checksum-gate
 // computes them — as provenance in the log; the freshness decision reads only
 // the keys.

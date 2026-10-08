@@ -1,4 +1,4 @@
-// The app-database obligation (issue #52, ADR 2026-072), contributed to the ts
+// The app-database obligation (issue #52, ADR LEG-2026-072), contributed to the ts
 // pack's `testObligations` socket at green. In a project that persists
 // through Drizzle, every app smoke test (ts-hexagonal's
 // `composition-root.test.ts`) must start its own migrated Postgres through the

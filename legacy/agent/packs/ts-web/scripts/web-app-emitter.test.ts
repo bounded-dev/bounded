@@ -81,7 +81,7 @@ describe("the web app of the worked example", () => {
 
   test("the composition root is composeApp(), typed by the hosted router, its handlers grouped by area", () => {
     // The reference copy's composition root is the generated one: the
-    // example's, with the router's namespaces as its shape (ADR 2026-067).
+    // example's, with the router's namespaces as its shape (ADR LEG-2026-067).
     expect(content("server/composition-root.ts")).toBe(readExample(`${APP}/server/composition-root.ts`));
     expect(content("server/composition-root.ts")).toContain([
       "export function composeApp(): ProjectManagementRouter {",

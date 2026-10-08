@@ -62,7 +62,7 @@ scripts/dogfood/reset --design-model <pattern> --worker-model <pattern>
 
 The two model flags set the harnessed arm's tiers — the judgment seats
 (architect, reviewer) and the production seats (test-writer, builder) — by
-writing `.bounded/dev-stage-models.json` (ADR 2026-022). Both are printed on every
+writing `.bounded/dev-stage-models.json` (ADR LEG-2026-022). Both are printed on every
 reset, set or not, so a run's models are never a guess afterwards.
 
 **Validate a model is DEPLOYABLE before setting a run on it — not just that
@@ -120,7 +120,7 @@ between arms, the one naming what the environment offers.
 ### A run from `bounded init`, measured against a worked example
 
 The flat arm above (`src/`, `tests/`, npm, Vitest) predates the hexagonal
-monorepo (ADRs 2026-056 to 2026-064). A run of the current stack starts the
+monorepo (ADRs LEG-2026-056 to LEG-2026-064). A run of the current stack starts the
 way a real project does:
 
 ```bash

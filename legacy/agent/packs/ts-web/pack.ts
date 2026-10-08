@@ -1,4 +1,4 @@
-// The ts-web pack (ADR 2026-063): the web app of the hexagonal monorepo.
+// The ts-web pack (ADR LEG-2026-063): the web app of the hexagonal monorepo.
 //
 // A web app is one workspace (`apps/<name>`, declared in a TN's workspaces
 // map as kind `web`) that Bun both serves and bundles: `src/server/main.ts`
@@ -6,7 +6,7 @@
 // HTML import at `/`, and `src/client/main.tsx` talks to that router through a
 // client typed by the router type the adapter re-exports. No Vite, no FSD
 // layers, no theme machinery: the worked example's `apps/web` is the whole
-// shape (ADR 2026-062).
+// shape (ADR LEG-2026-062).
 //
 // It depends on ts-trpc because the app hosts a tRPC router: the names it
 // seeds (`<Context>Router`, `./adapters/trpc`) are ts-trpc's derivations,

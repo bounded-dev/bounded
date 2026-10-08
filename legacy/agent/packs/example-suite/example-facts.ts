@@ -5,7 +5,7 @@
 // four apps, with the TN-26-012 §4 tags added to the feature contracts, and
 // with its dependencies grouped by area in the routers, the MCP server, the
 // Lambda factory and the generated composition roots: the deliberate
-// departure of ADR 2026-067) as the `ProjectFacts` a gate would hand the
+// departure of ADR LEG-2026-067) as the `ProjectFacts` a gate would hand the
 // emitters. reference/net-worth holds the 2026-10-03 dogfood's contracts and
 // golden composition roots (composition-roots.test.ts).
 //
@@ -80,7 +80,7 @@ interface Manifest {
 
 /**
  * A workspace template manifest against the example app's `package.json`,
- * the way TN-26-012 §10 and ADR 2026-061 relate them: the generator adds
+ * the way TN-26-012 §10 and ADR LEG-2026-061 relate them: the generator adds
  * `name` and `private`, and the `workspace:*` dependencies from the
  * composition root's imports; the template pins exactly where the example
  * writes a range. Returns the differences, one line each.

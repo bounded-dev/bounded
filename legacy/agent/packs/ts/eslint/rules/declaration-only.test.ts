@@ -20,7 +20,7 @@ ruleTester.run("declaration-only", declarationOnly, {
     "type Internal = string;", // unexported types are fine
     "export declare function createOrder(input: NewOrder): Order;",
     "export declare const DEFAULT_CURRENCY: string;",
-    // the contract-owns-the-name pair (ADR 2026-059)
+    // the contract-owns-the-name pair (ADR LEG-2026-059)
     'import type { Result } from "../shared/result.ts";\nexport interface OrderId { readonly __brand: "OrderId"; readonly value: string; }\nexport interface OrderIdFactory { parse(raw: unknown): Result<OrderId>; }',
     // overloads: every signature needs its own `declare`, same as a single one
     "export declare function find(id: string): Order | undefined;\nexport declare function find(id: number): Order | undefined;",
@@ -41,7 +41,7 @@ ruleTester.run("declaration-only", declarationOnly, {
   ],
 
   invalid: [
-    // --- the retired declare-class contract form (ADR 2026-059) ---
+    // --- the retired declare-class contract form (ADR LEG-2026-059) ---
     {
       code: "export declare class OrderId { readonly value: string; }",
       errors: [{ messageId: "retiredDeclareClass", data: { name: "OrderId" } }],

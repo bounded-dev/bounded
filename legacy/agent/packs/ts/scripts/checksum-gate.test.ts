@@ -47,7 +47,7 @@ describe("diffManifests", () => {
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-/** A hexagonal project (ADR 2026-056): contracts live under a context's
+/** A hexagonal project (ADR LEG-2026-056): contracts live under a context's
  *  source root, `contexts/<context>/src`; `S` below is that root. */
 function project(files: Record<string, string>, packs: readonly string[] | null = ["ts", "ts-hexagonal"]): string {
   const dir = mkdtempSync(join(tmpdir(), "checksum-"));
@@ -67,7 +67,7 @@ describe("findContractFiles", () => {
       [`${S}/orders/orders.contract.ts`]: "export interface O {}",
       [`${S}/pay/pay.contract.ts`]: "export interface P {}",
       [`${S}/orders/orders.ts`]: "// impl, not a contract",
-      // Outside every source root: not a contract (ADR 2026-056).
+      // Outside every source root: not a contract (ADR LEG-2026-056).
       "src/stray.contract.ts": "export interface Stray {}",
       "contexts/shop/other/x.contract.ts": "export interface Outside {}",
       [`${S}/node_modules/pkg/y.contract.ts`]: "export interface Ignored {}",

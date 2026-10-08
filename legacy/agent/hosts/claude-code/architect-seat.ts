@@ -1,5 +1,5 @@
 // Claude Code's half of a ticket's architect seat (src/architect-seat.ts,
-// ADR 2026-066). The architect is the lead session's own background subagent,
+// ADR LEG-2026-066). The architect is the lead session's own background subagent,
 // placed in the ticket worktree by Claude Code's worktree isolation:
 //
 //   · the lead calls the Agent tool with subagent_type "architect"; the lead

@@ -11,7 +11,7 @@ import { FakeTracker } from "../test/support/fake-tracker.ts";
 import { writeFakeJobPack } from "../test/fixtures/fake-job-pack.ts";
 import { userCommandViolations } from "../test/fixtures/user-steps.ts";
 
-// Long gates run as detached, resumable jobs (ADR 2026-073). Under a host
+// Long gates run as detached, resumable jobs (ADR LEG-2026-073). Under a host
 // deadline (BOUNDED_COMMAND_TIMEOUT_MS) a long gate starts its run in the
 // background and answers RUNNING once the call's budget is spent; the next
 // call with the same arguments waits again, or collects the verdict. Without a
@@ -367,7 +367,7 @@ describe("a long gate under a host deadline", () => {
 
 // Final review of #53. The ruling on the slot: never two runs of one gate,
 // inline or job; a gate that changes the tree (`writes-tree`) runs alone;
-// gates that only read it may run alongside each other (ADR 2026-021).
+// gates that only read it may run alongside each other (ADR LEG-2026-021).
 describe("which long runs may overlap", () => {
   // Review M1: an in-call run was invisible to a deadline call of the same gate.
   test("a deadline call never starts a second run of a gate running now in another call", async () => {

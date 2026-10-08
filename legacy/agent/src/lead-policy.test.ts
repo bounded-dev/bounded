@@ -48,7 +48,7 @@ describe("decideLead — the lead's decision table", () => {
     }
   });
 
-  test("an architect is never commissioned by the lead, even with a prepared run (ADR 2026-066)", () => {
+  test("an architect is never commissioned by the lead, even with a prepared run (ADR LEG-2026-066)", () => {
     const dir = project({ ".bounded/active-ticket": "3\n", [LOG]: logLines(prepared("3")) });
     expect(decideLead(commission("architect"), dir).allow).toBe(false);
     writeFileSync(join(dir, LOG), logLines(prepared("3"), runStart, delivered));

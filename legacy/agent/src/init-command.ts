@@ -1,5 +1,5 @@
 // The one `bounded init` shape a project-local lead may run: re-planning the
-// installation before the first ticket (ADR 2026-065). Both hosts' entries
+// installation before the first ticket (ADR LEG-2026-065). Both hosts' entries
 // judge the same shape with this parser, including the dependency-free
 // bootstrap entries, so it imports nothing.
 

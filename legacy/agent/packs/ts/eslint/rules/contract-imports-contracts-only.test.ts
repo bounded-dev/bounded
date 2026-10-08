@@ -3,7 +3,7 @@ import { RuleTester } from "@typescript-eslint/rule-tester";
 import { contractImportsContractsOnly } from "./contract-imports-contracts-only.ts";
 import { EXAMPLE_CONCEPTS } from "../../scripts/testdata/example-domain.ts";
 
-// ADR 2026-059: a contract imports only contracts and the shared Result, as
+// ADR LEG-2026-059: a contract imports only contracts and the shared Result, as
 // types; an application contract may also import its context's generated
 // domain barrel (lead decision Q3). It inverts the retired
 // no-cross-contract-type-import.

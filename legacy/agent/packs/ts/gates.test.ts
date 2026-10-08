@@ -12,7 +12,7 @@ import { deadlineForBudgetMs, gates, mutationBudgetMs } from "./gates.ts";
 import { writeJournal } from "./scripts/mutation-journal.ts";
 import { parseFindings } from "./scripts/sign-off.ts";
 
-// The registry is the one place a gate's public face lives (ADR 2026-034):
+// The registry is the one place a gate's public face lives (ADR LEG-2026-034):
 // `bounded gates` reads it for its command line and the pi extensions read it for
 // their tool roster. The agreement tests below are therefore tautological by
 // construction — and kept, because they are what fails the day someone
@@ -108,7 +108,7 @@ describe("the registry is well-formed", () => {
 });
 
 // mutation-score's budget is the host's command deadline less a margin for
-// releasing what it started (ADR 2026-070): the larger of 15% and 15 s.
+// releasing what it started (ADR LEG-2026-070): the larger of 15% and 15 s.
 describe("mutation-score's time budget", () => {
   test("is the host's deadline less the larger of 15% and 15 s, and none without a deadline", () => {
     expect(mutationBudgetMs(undefined)).toBeUndefined();
@@ -145,7 +145,7 @@ describe("what the command line takes and a tool does not", () => {
     }
   });
 
-  // Freezing is design_gate's step (ADR 2026-019). A `--write` here would be a
+  // Freezing is design_gate's step (ADR LEG-2026-019). A `--write` here would be a
   // second way to freeze, and a registry entry is exactly "what a role may
   // run" — so check-drift verifies and nothing else, from a shell too.
   test("check-drift has no flags: it verifies, it never freezes", () => {
@@ -156,14 +156,14 @@ describe("what the command line takes and a tool does not", () => {
 
 describe("the registry and the path policy agree", () => {
   // ARTIFACT_GATE_TOOLS is the path policy's list of every pi tool that is an
-  // artifact gate (ADR 2026-034); `sleep` is a WAIT, not a gate, and is not in
+  // artifact gate (ADR LEG-2026-034); `sleep` is a WAIT, not a gate, and is not in
   // it. The registry's tool-bearing entries must be that list exactly.
   test("the tool-bearing entries are exactly ARTIFACT_GATE_TOOLS", () => {
     const tools = gates.flatMap((g) => (g.tool === undefined ? [] : [g.tool])).sort();
     expect(tools).toEqual([...ARTIFACT_GATE_TOOLS].sort());
   });
 
-  // A step of design_gate (ADR 2026-019) and the check the delivered project
+  // A step of design_gate (ADR LEG-2026-019) and the check the delivered project
   // runs on its own: reachable from a shell, never offered to a role.
   test("the CLI-only entries are handoff-publish, scaffold and surface-check", () => {
     const cliOnly = gates.filter((g) => g.tool === undefined).map((g) => g.name).sort();
@@ -185,7 +185,7 @@ describe("the registry and the extensions say the same thing", () => {
   });
 });
 
-// The host supplies the role (ADR 2026-034). The typecheck entry used to
+// The host supplies the role (ADR LEG-2026-034). The typecheck entry used to
 // resolve it itself with `sessionRole(cwd)` — against the TARGET, so a
 // `typecheck src` in a bound session found no role file and answered
 // unscoped (Run 15). It now reads `args.role` and nothing else.
@@ -223,8 +223,8 @@ describe("typecheck takes its role from the host", () => {
   });
 });
 
-// The leftover-restore wrapper (ADR 2026-070) keeps every field of the gate it
-// wraps: the board moves on the milestones (ADR 2026-066).
+// The leftover-restore wrapper (ADR LEG-2026-070) keeps every field of the gate it
+// wraps: the board moves on the milestones (ADR LEG-2026-066).
 describe("the wrapped gates keep their board milestones", () => {
   test("design-gate, handoff-publish and deliver", () => {
     const milestones = Object.fromEntries(gates.filter((g) => g.milestone !== undefined).map((g) => [g.name, g.milestone]));
@@ -233,7 +233,7 @@ describe("the wrapped gates keep their board milestones", () => {
 });
 
 // Long gates run as background jobs on a host with a command time limit
-// (ADR 2026-073): the registry says which, and how each one is prepared.
+// (ADR LEG-2026-073): the registry says which, and how each one is prepared.
 describe("background jobs", () => {
   const projects: TempProject[] = [];
   const children: ChildProcess[] = [];

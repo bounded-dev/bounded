@@ -1,4 +1,4 @@
-// Issue #52 (ADR 2026-072): the app-database obligation is checked before the
+// Issue #52 (ADR LEG-2026-072): the app-database obligation is checked before the
 // suite runs, at green and at deliver, and routes to the test-writer. A smoke
 // test that would reach for a database it did not start never runs at all.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

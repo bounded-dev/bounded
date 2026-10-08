@@ -1,4 +1,4 @@
-// Symlink-safe "am I the entry point" (ADR 2026-029 gave the harness three
+// Symlink-safe "am I the entry point" (ADR LEG-2026-029 gave the harness three
 // more CLI entry points and each copied the same eight lines).
 //
 // The harness is invoked through the `~/.pi/agent` symlink, so `process.argv[1]`

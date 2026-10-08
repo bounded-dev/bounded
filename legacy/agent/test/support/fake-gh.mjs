@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A stand-in for the `gh` command line, for tests that spawn a harness command
-// (ADR 2026-066). Point BOUNDED_GH at this file and FAKE_GH_STATE at a JSON
+// (ADR LEG-2026-066). Point BOUNDED_GH at this file and FAKE_GH_STATE at a JSON
 // file; the fake answers from that file, applies every change to it, and
 // appends each call's argv to its `calls`. Set `offline: true` in the state to
 // make every call fail as an unreachable network would.

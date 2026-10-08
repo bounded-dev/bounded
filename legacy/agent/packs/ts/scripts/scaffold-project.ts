@@ -1,10 +1,10 @@
-// The design gate's scaffold step on the hexagonal monorepo (ADRs 2026-060,
-// 2026-061): the composed emitters, run over the design, write everything
+// The design gate's scaffold step on the hexagonal monorepo (ADRs LEG-2026-060,
+// LEG-2026-061): the composed emitters, run over the design, write everything
 // mechanical into the live tree, and the project's config follows the
 // design's workspaces.
 //
 //   generated   written whenever it differs: no role may write it (ADR
-//               2026-058), so the emitter's bytes are the only right ones.
+//               LEG-2026-058), so the emitter's bytes are the only right ones.
 //   skeleton    written only where no file exists; once written it is the
 //               builder's, and a re-run never overwrites real work.
 //

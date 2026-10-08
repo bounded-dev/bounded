@@ -50,7 +50,7 @@ describe("combining the composed phase test policies", () => {
   });
 });
 
-describe("the store-test policy (ts-drizzle-postgres, ADR 2026-064)", () => {
+describe("the store-test policy (ts-drizzle-postgres, ADR LEG-2026-064)", () => {
   const absent = () => ({ available: false as const, reason: "no container runtime found" });
   const present = () => ({ available: true as const, endpoint: "unix:///var/run/docker.sock" });
 

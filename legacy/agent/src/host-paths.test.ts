@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { claudeCodePathArgument, hostPathArgument, piPathArgument, piReadVariant } from "./host-paths.ts";
 
-// The gate must judge the path a host will really open (ADR 2026-057). These
+// The gate must judge the path a host will really open (ADR LEG-2026-057). These
 // pin the mirror of pi's path rewriting against pi's own source, so a pi
 // upgrade that changes it fails here before it can open a gap.
 

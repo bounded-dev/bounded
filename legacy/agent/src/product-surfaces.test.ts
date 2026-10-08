@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 import { PRODUCT_SURFACES, selectForSurfaces, type SurfacePack } from "./product-surfaces.ts";
 import { defaultSelection, describeInit, surfaceSelection } from "./project-init.ts";
 
-// Issue #38, ADR 2026-065: init reads the product spec first. The agent maps
+// Issue #38, ADR LEG-2026-065: init reads the product spec first. The agent maps
 // the spec to product surfaces; init turns those decisions into a selection
 // from the packs' own data and asks about every surface the spec left open.
 

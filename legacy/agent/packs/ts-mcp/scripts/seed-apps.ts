@@ -2,7 +2,7 @@
 //
 // In the hexagonal monorepo nothing app-shaped exists before the design: a TN
 // declares each app (`workspaces:`), the design gate seeds its files from the
-// contracts, and the config sync writes its manifest (ADR 2026-061). So init
+// contracts, and the config sync writes its manifest (ADR LEG-2026-061). So init
 // seeds one file, `apps/README.md`, which says exactly that to the next reader.
 //
 // The same text is seeded by ts-trpc, ts-mcp and ts-lambda (byte-identical

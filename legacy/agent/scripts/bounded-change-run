@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bounded change-run — open the run boundary for a CHANGE run on a delivered tree
-# (ADR 2026-028).
+# (ADR LEG-2026-028).
 #
 #   bounded change-run [targetDir]
 #   bounded change-run --force [targetDir]     boundary even though the last run
@@ -35,7 +35,7 @@
 # boundary — that path needs the log intact. `--force` overrides when a run is
 # abandoned, and marks the ticket the abandoned log names with
 # `.bounded/tickets/<n>/abandoned`, so no later ticket takes a contract from it
-# (ADR 2026-071). A delivered boundary clears the marker of the ticket its log
+# (ADR LEG-2026-071). A delivered boundary clears the marker of the ticket its log
 # names, and none when it names no ticket.
 set -euo pipefail
 
@@ -84,7 +84,7 @@ if [ -f "$LOG" ]; then
   if ! DELIVERY_STATE="$(node "$STATUS_SCRIPT" "$LOG")"; then
     exit 1
   fi
-  # The ticket the run worked on, as its log records it (ADR 2026-071).
+  # The ticket the run worked on, as its log records it (ADR LEG-2026-071).
   if ! RUN_TICKET="$(node "$STATUS_SCRIPT" --ticket "$LOG")"; then
     exit 1
   fi
@@ -122,7 +122,7 @@ if [ -f "$LOG" ]; then
   echo "bounded change-run: archived the run log to .bounded/guard-log-archive/guard-log-$STAMP.jsonl"
   if [ "$DELIVERY_STATE" = "undelivered" ]; then
     # Mark the abandoned run's ticket so no later ticket takes a contract from
-    # it (ADR 2026-071). Never fall back to the selected ticket: it may be the
+    # it (ADR LEG-2026-071). Never fall back to the selected ticket: it may be the
     # next ticket, not the abandoned one.
     if [ -n "$RUN_TICKET" ]; then
       mkdir -p "$TARGET/.bounded/tickets/$RUN_TICKET"

@@ -1,11 +1,11 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
-// ADR 2026-029 zone rule, src/** and tests/**: the stack that satisfies a
+// ADR LEG-2026-029 zone rule, src/** and tests/**: the stack that satisfies a
 // capability is harness policy — one blessed choice per capability — so the
 // known members of the two governed categories (API frameworks, schema
 // engines) other than the blessed ones may not be imported at all. tRPC is
 // the RPC stack; zod is the schema engine; everything on the list below is a
-// competitor whose presence means a "how" leaked past intake (ADR 2026-032)
+// competitor whose presence means a "how" leaked past intake (ADR LEG-2026-032)
 // or a worker reached for a familiar tool against policy.
 //
 // This is the mechanical backstop of a three-layer binding: guidance (the
@@ -67,9 +67,9 @@ export function bannedStack(source: string): string | undefined {
 }
 
 const MESSAGE =
-  '"{{source}}" is {{banned}} — a non-blessed stack (ADR 2026-029). The harness binds capabilities to ' +
+  '"{{source}}" is {{banned}} — a non-blessed stack (ADR LEG-2026-029). The harness binds capabilities to ' +
   "stacks as policy: tRPC (@trpc/server) is the RPC stack, zod the schema engine. If the requirement " +
-  "genuinely depends on this framework, that is a product decision for the user (ADR 2026-032) — raise it; " +
+  "genuinely depends on this framework, that is a product decision for the user (ADR LEG-2026-032) — raise it; " +
   "do not import it.";
 
 export const blessedStacksOnly = createRule<[], "bannedImport">({

@@ -1,7 +1,7 @@
 {
   "name": "bounded-pi-adapter-loader",
   "private": true,
-  "description": "Loader shim: pi discovers extensions ONLY by scanning ~/.pi/agent/extensions/ (direct files, or a subdirectory whose package.json declares 'pi.extensions'). The adapter itself lives in hosts/pi/extensions/ (ADR 2026-035); this manifest is the one pointer the scan finds, and each path resolves to the adapter's real files so imports stay rooted there. A drift test (hosts/pi/discovery.test.ts) pins this list to the directory's contents.",
+  "description": "Loader shim: pi discovers extensions ONLY by scanning ~/.pi/agent/extensions/ (direct files, or a subdirectory whose package.json declares 'pi.extensions'). The adapter itself lives in hosts/pi/extensions/ (ADR LEG-2026-035); this manifest is the one pointer the scan finds, and each path resolves to the adapter's real files so imports stay rooted there. A drift test (hosts/pi/discovery.test.ts) pins this list to the directory's contents.",
   "pi": {
     "extensions": [
       "../../hosts/pi/extensions/architect-tools.ts",

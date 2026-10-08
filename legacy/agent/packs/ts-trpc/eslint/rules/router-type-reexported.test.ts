@@ -2,7 +2,7 @@ import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { routerTypeReexported } from "./router-type-reexported.ts";
 
-// ADR 2026-030, TN-26-012 §6: a tRPC client is typed by the router type the
+// ADR LEG-2026-030, TN-26-012 §6: a tRPC client is typed by the router type the
 // context's generated adapter re-exports. The reproduce case for the absence
 // half is dogfood Run 23 — a client with no router type, green and untyped.
 //

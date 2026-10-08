@@ -211,7 +211,7 @@ describe("registerGateTools", () => {
   });
 });
 
-// The host supplies the role (ADR 2026-029): a gate with a cliOnly `role`
+// The host supplies the role (ADR LEG-2026-029): a gate with a cliOnly `role`
 // flag is handed the SESSION's binding — the one the path gate acts on — and
 // resolved from the session cwd. Run 15's hole was resolving it from the
 // TARGET: `typecheck({cwd: "src"})` found no role file under `src/` and
@@ -264,7 +264,7 @@ describe("the session role is the host's to supply", () => {
   });
 });
 
-// Long gates run as background jobs under a host deadline (ADR 2026-073). pi
+// Long gates run as background jobs under a host deadline (ADR LEG-2026-073). pi
 // gives no deadline, so its call runs a long gate in the call, after first
 // collecting any job a deadline-bound call (Claude Code, a shell) started.
 describe("background jobs through the pi tools", () => {

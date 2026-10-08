@@ -3,7 +3,7 @@
 //   node green-gate.ts [targetDir]
 //
 // Runs the target project's suite with `bun test` (via the shared run_tests
-// runner, ADR 2026-062) AND `bunx tsc`, and asserts GREEN from the
+// runner, ADR LEG-2026-062) AND `bunx tsc`, and asserts GREEN from the
 // ORCHESTRATOR's own run — never the builder's say-so (TN-26-001 §"Roles and
 // flow": "green is asserted from the orchestrator's own run"). The suite must
 // run and every test must pass; any failure fails the gate, naming each
@@ -19,12 +19,12 @@
 // failure only in test-side files bounces to the test-writer.
 //
 // A SKIPPED TEST IS NOT A PASS. Green refuses any skipped or todo result, and
-// the phase test policies (ADR 2026-064) refuse before the suite runs when
+// the phase test policies (ADR LEG-2026-064) refuse before the suite runs when
 // store tests exist and no container runtime answers; the variables that
 // would let a store test skip itself are removed from the test process.
 // Green also checks the green-only test obligations (an app's smoke test),
 // before anything runs (issue #52). What only the user can clear (the
-// container engine) routes to the user in product terms (ADR 2026-072).
+// container engine) routes to the user in product terms (ADR LEG-2026-072).
 //
 // GREEN IS BOUND TO A RED. Before running anything, the gate requires a
 // red-gate pass that is still standing: recorded after the last contract
@@ -451,7 +451,7 @@ export interface GreenGateOptions {
 
 export async function runGreenGate(cwd: string, options: GreenGateOptions = {}): Promise<GateResult> {
   // The suite and typecheck load the project's config: it must be what the
-  // composed packs generate (ADR 2026-054).
+  // composed packs generate (ADR LEG-2026-054).
   const configBlock = configDriftBlock(GUARD, cwd);
   if (configBlock !== undefined) return configBlock;
   let hash: string;
@@ -473,7 +473,7 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
   const obligations = greenObligations(cwd);
   if (obligations !== undefined) return blockAndLog(cwd, obligations);
 
-  // Store tests need a container runtime at green (ADR 2026-064): refuse
+  // Store tests need a container runtime at green (ADR LEG-2026-064): refuse
   // rather than run a suite whose store tests cannot start.
   const policy = options.policy ?? phaseRun(cwd, "green");
   if (policy.refusals.length > 0) {
@@ -517,7 +517,7 @@ export async function runGreenGate(cwd: string, options: GreenGateOptions = {}):
   // Failures a policy recognises as the machine's (a container start that
   // could not pull, authenticate or reach the runtime). Only when EVERY
   // failure is the machine's does the run go to the user, whose machine it
-  // is (ADR 2026-072): one such
+  // is (ADR LEG-2026-072): one such
   // failure must never hide a real one, so on a mix the verdict stays the
   // code's and the machine's causes ride along as a note.
   const infrastructure = policy.infrastructure([
@@ -587,8 +587,8 @@ function withInfrastructureNote(base: GateResult, causes: readonly string[]): Ga
   return { ...base, lines, detail: { ...(base.detail as Record<string, unknown>), suspectedInfrastructure: causes } };
 }
 
-/** The green-only test obligations (an app's smoke test, ADR 2026-063; its
- *  own database, ADR 2026-072): a block before anything runs, or undefined. */
+/** The green-only test obligations (an app's smoke test, ADR LEG-2026-063; its
+ *  own database, ADR LEG-2026-072): a block before anything runs, or undefined. */
 export function greenObligations(cwd: string, guard = GUARD): GateResult | undefined {
   let gaps;
   try {

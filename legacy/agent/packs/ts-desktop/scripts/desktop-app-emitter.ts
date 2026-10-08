@@ -1,6 +1,6 @@
-// The desktop app's seed files (ADR 2026-061, TN-26-012 §1), emitted for
+// The desktop app's seed files (ADR LEG-2026-061, TN-26-012 §1), emitted for
 // every workspace a TN declares with kind `desktop`. The composition root is
-// generated (ADR 2026-067); the rest are skeletons: written once, then the
+// generated (ADR LEG-2026-067); the rest are skeletons: written once, then the
 // builder's.
 //
 //   src/main/composition-root.ts   composeApp(): <Context>Router, generated

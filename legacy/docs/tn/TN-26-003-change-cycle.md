@@ -26,20 +26,20 @@ hit this constantly.
 
 ## What already supports change (built, for free)
 
-- **Non-destructive scaffold (ADR 2026-023).** A changed contract over an
+- **Non-destructive scaffold (ADR LEG-2026-023).** A changed contract over an
   existing implementation *keeps* the implementation and surfaces the mismatch
   as type errors routed to the builder. This is the core change primitive:
   revise the contract, bring the implementation along.
 - **Shadow red.** Red is proven in a freshly regenerated shadow project,
   independent of live `src/` state, so re-establishing red after a change is
   one gate call, not a builder wipe.
-- **One round-trip review (ADR 2026-020, amended).** The reviewer challenges
+- **One round-trip review (ADR LEG-2026-020, amended).** The reviewer challenges
   the design once and holds no authority; the **contract diff** is the natural
   unit to challenge, and the same artifact a human reviews.
 - **Green bound to contract + tests hashes.** A changed contract or suite
   re-binds cleanly; a stale red is refused.
 
-> **Partially landed (2026-09-12).** ADR 2026-028 built the entry point: a
+> **Partially landed (2026-09-12).** ADR LEG-2026-028 built the entry point: a
 > change run is a new run on the same tree, entered by the driver opening the
 > **run boundary** (`bounded change-run` archives the guard log; the manifest, role
 > and tiers survive), and `design_gate`'s typecheck step now stands over

@@ -1,7 +1,7 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
 // TN-26-001 architect zone rule: branded TYPE ALIASES are banned in contracts —
-// the interface + factory pair of ADR 2026-059 (whose implementation class has
+// the interface + factory pair of ADR LEG-2026-059 (whose implementation class has
 // a private constructor) is the only value-object form the system can keep
 // honest. (Written against the retired `declare class` form; the reasoning
 // below is unchanged, only the prescribed shape moved.)
@@ -40,7 +40,7 @@ export const noBrandedAliases = ESLintUtils.RuleCreator.withoutDocs({
     messages: {
       brandedAlias:
         "'{{name}}' is a branded type alias — a primitive intersected with a brand object. " +
-        "{{teeth}} Write the value object as the contract-owns-the-name pair instead (ADR 2026-059, ts-contract-authoring), " +
+        "{{teeth}} Write the value object as the contract-owns-the-name pair instead (ADR LEG-2026-059, ts-contract-authoring), " +
         "in its own '<concept>.contract.ts':\n" +
         "  import type { Result } from \"../shared/result.ts\";\n" +
         "  export interface {{name}} {\n" +

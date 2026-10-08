@@ -53,7 +53,7 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     // --- the public boundary only ---
     "interface Internal { isbn: string }", // unexported: not the boundary
     "type Raw = string;", // unexported alias: not the boundary
-    // a concept's own wire form (ADR 2026-059): `value` and `toJSON()` ARE
+    // a concept's own wire form (ADR LEG-2026-059): `value` and `toJSON()` ARE
     // the primitive the brand wraps
     'export interface Money { readonly __brand: "Money"; readonly value: number; equals(other: Money): boolean; toJSON(): number; }',
     // an entity's toJSON is its wire shape
@@ -86,7 +86,7 @@ export interface CreateNoteCommand { readonly __brand: "CreateNoteCommand"; read
     "export default interface Config { level: LogLevel }",
 
     // --- built-in object types: only the ALIAS position is the defect ---
-    // The canonical value object (ADR 2026-059) — the fix a flagged alias is
+    // The canonical value object (ADR LEG-2026-059) — the fix a flagged alias is
     // pointed at, so it must never be flagged itself.
     `export interface CalendarDate {
       readonly __brand: "CalendarDate";
@@ -118,7 +118,7 @@ export interface CreateNoteCommand { readonly __brand: "CreateNoteCommand"; read
   ],
 
   invalid: [
-    // --- the concept exemptions are exact (ADR 2026-059) ---
+    // --- the concept exemptions are exact (ADR LEG-2026-059) ---
     // a branded interface's OTHER members are still walked
     {
       code: 'export interface Money { readonly __brand: "Money"; readonly value: number; readonly currency: string; toJSON(): number; }',

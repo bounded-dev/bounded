@@ -14,7 +14,7 @@ export function openTracker(cwd: string): Tracker {
 }
 
 /** The tracker config init writes, after checking the required tracker is
- *  reachable and set up. The harness requires GitHub (ADR 2026-066). */
+ *  reachable and set up. The harness requires GitHub (ADR LEG-2026-066). */
 export function trackerConfigAtInit(target: string, options: { readonly project?: string; readonly createStatuses?: boolean } = {}): string {
   const config = resolveGitHubAtInit(target, options.project ?? recordedProject(target), ghCommandLine(),
     options.createStatuses === true ? { createStatuses: true } : {});

@@ -1,10 +1,10 @@
-// The generate_artifacts gate (ADR 2026-055): run the deterministic
+// The generate_artifacts gate (ADR LEG-2026-055): run the deterministic
 // generators the project's composed packs contribute through the
 // artifactGenerators socket. It names no technology; a project that composes
 // no generator runs none.
 //
 // Preconditions, in order, each a logged BLOCK:
-//   · the project config is what the composed packs generate (ADR 2026-054):
+//   · the project config is what the composed packs generate (ADR LEG-2026-054):
 //     generators execute project config (a Drizzle config, say), so they must
 //     never run over config a role or a hand edit changed;
 //   · the design is frozen: generators derive files from what the builder

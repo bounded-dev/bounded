@@ -15,7 +15,7 @@ import {
   EXAMPLE_ROOT,
 } from "./testdata/example-domain.ts";
 
-// The domain emitter (ADR 2026-059/060): each domain concept contract → its
+// The domain emitter (ADR LEG-2026-059/060): each domain concept contract → its
 // `<Name>Impl` skeleton and its colocated laws. The skeleton is the worked
 // example's implementation with every body replaced by a throw, and its tail
 // is the example's, byte for byte.

@@ -4,7 +4,7 @@
 
 The harness builds TypeScript projects in the shape of a worked example: a Bun
 monorepo of bounded contexts and apps, hexagonal layers inside each context,
-tests beside the code (ADRs 2026-056 to 2026-064, TN-26-012). What the runs
+tests beside the code (ADRs LEG-2026-056 to LEG-2026-064, TN-26-012). What the runs
 below proved still holds and is what the rework keeps:
 
 - **Blindness between tests and implementation** — now by file name rather

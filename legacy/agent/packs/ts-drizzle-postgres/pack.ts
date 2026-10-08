@@ -1,4 +1,4 @@
-// The ts-drizzle-postgres pack (ADR 2026-063): Postgres persistence through
+// The ts-drizzle-postgres pack (ADR LEG-2026-063): Postgres persistence through
 // Drizzle, one Postgres schema per context. Its data half (the `drizzle`
 // adapter technology and its pins, generated-file globs, root config, shipped
 // scripts) is contrib.json beside this file. Its code half:
@@ -7,11 +7,11 @@
 //                        drizzle-stores (store and area-schema skeletons)
 //   artifactGenerators   database-migration: each context's next migration
 //
-//   phaseTestPolicies    store-tests-need-a-container-runtime: ADR 2026-064's
+//   phaseTestPolicies    store-tests-need-a-container-runtime: ADR LEG-2026-064's
 //                        rule (scripts/container-runtime.ts), which the red
 //                        and green gates apply to the test process
 //   testObligations      drizzle-app-database: each persisting app's smoke
-//                        test starts its own database (ADR 2026-072)
+//                        test starts its own database (ADR LEG-2026-072)
 //   lintSrcRules         no-node-postgres-in-bun-apps: a Bun app's source
 //                        never imports the driver only its test support needs
 import { contribute, definePack } from "../../src/socket-registry.ts";

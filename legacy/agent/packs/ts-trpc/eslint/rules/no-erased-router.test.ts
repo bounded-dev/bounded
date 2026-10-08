@@ -2,7 +2,7 @@ import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { noErasedRouter } from "./no-erased-router.ts";
 
-// ADR 2026-030: nothing may be typed with a type-erased tRPC type. The
+// ADR LEG-2026-030: nothing may be typed with a type-erased tRPC type. The
 // reproduce case is dogfood Run 22 — `export type ServiceRouter = AnyRouter`
 // shipped a typed client whose inputs are `unknown`, flagged by the
 // reviewer, refused by nothing.

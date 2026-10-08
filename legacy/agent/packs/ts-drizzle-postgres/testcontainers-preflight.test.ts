@@ -1,5 +1,5 @@
 // Green's Testcontainers preflight and the infrastructure-failure classifier
-// (ADR 2026-064, amended), without a container runtime: the cause
+// (ADR LEG-2026-064, amended), without a container runtime: the cause
 // classification and remedies, secret cleaning, the preflight's sequencing
 // against a scripted child, the policy decision, and the green gate's
 // routing of both to the orchestrator. The real-container cases live in
@@ -721,7 +721,7 @@ describe("the decision: the preflight runs before anything else at green, and on
     const red = storeTestPhaseDecision({ phase: "red", storeTests: [STORE], probe: up, persists: true, preflight, infrastructureFailure: () => () => "x" });
     expect(red.action).toBe("skip");
     const noTests = storeTestPhaseDecision({ phase: "green", storeTests: [], probe: up, persists: true, preflight, infrastructureFailure: () => () => "x" });
-    // A persisting tree never passes an inherited DATABASE_URL on (ADR 2026-072).
+    // A persisting tree never passes an inherited DATABASE_URL on (ADR LEG-2026-072).
     expect(noTests).toEqual({ action: "run", unsetEnv: ["BOUNDED_STORE_TESTS_SKIP", "BOUNDED_STORE_TESTS_PHASE", "DATABASE_URL"] });
     expect(preflights).toBe(0);
   });

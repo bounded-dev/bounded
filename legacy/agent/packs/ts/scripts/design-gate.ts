@@ -14,7 +14,7 @@
 // #13 §2). The reviewer's findings are advisory — the architect, the trusted
 // author of the spec and contracts, weighs them and decides — so this gate
 // never judges one. What it enforces is only that a review EXISTS and that it
-// covered the current SET of contract files (ADR 2026-020): a review challenges
+// covered the current SET of contract files (ADR LEG-2026-020): a review challenges
 // the whole design once, so editing a file it already saw does not un-review
 // it — only adding or removing a contract file, which is surface the fresh mind
 // never read.
@@ -172,7 +172,7 @@ export interface TypecheckDrift {
  * The project typecheck, run exactly as the red and green gates run it — same
  * runner, same env seam, same routing renderer.
  *
- * ON A RE-FREEZE, WORKER-OWNED DRIFT DOES NOT BLOCK (ADR 2026-028). A change
+ * ON A RE-FREEZE, WORKER-OWNED DRIFT DOES NOT BLOCK (ADR LEG-2026-028). A change
  * run revises the contract over a tree that already implements the old one, so
  * the tree failing to compile IS the change: the existing implementation and
  * tests no longer match the revised design, and repairing them is exactly what
@@ -180,13 +180,13 @@ export interface TypecheckDrift {
  * freeze this step was blocking. So diagnostics owned entirely by the workers
  * are printed, attributed and let through; nothing is hidden, and green_gate
  * still requires a fully compiling project, so the false-green invariant
- * (ADR 2026-017) is untouched.
+ * (ADR LEG-2026-017) is untouched.
  *
  * What still blocks a re-freeze: a diagnostic in design-owned surface — a
  * contract file, project config (`orchestrator`), or a GENERATED skeleton,
  * whose errors are the contract's own defects wearing the builder's path. A
  * FIRST freeze keeps the full block unless the ticket takes a delivered
- * contract (ADR 2026-071). Without a take, worker-owned diagnostics on a first
+ * contract (ADR LEG-2026-071). Without a take, worker-owned diagnostics on a first
  * freeze have no such cause, so every diagnostic is the design's. A ticket
  * that takes a delivered contract changes what the earlier ticket's workers
  * built, so on its first freeze that drift is the change, as on a re-freeze.
@@ -341,7 +341,7 @@ function reviewCounts(event: LoggedGuardEvent): {
  * What the review never saw is a contract file added since (new surface) or the
  * hole left by one removed (the shape it read is gone), so only add/remove
  * stales it. The recorded hashes are ignored here; they stay in the log as
- * provenance (ADR 2026-020, amending 2026-020's original byte lock).
+ * provenance (ADR LEG-2026-020, amending LEG-2026-020's original byte lock).
  *
  * `verdict: "error"` events are misuse — no spec, no contracts, a malformed
  * payload — and are not reviews. So is a pass carrying no file record: it
@@ -518,7 +518,7 @@ function finishDesignGate(
  * of the transcript anyone reads twice.
  */
 /** The composed contract globs (one per source root and contract suffix, ADR
- *  2026-056), or undefined — the purity gate's own default — when the
+ *  LEG-2026-056), or undefined — the purity gate's own default — when the
  *  composition declares none. An unreadable composition throws: the design
  *  gate must not guess which files are contracts. */
 function composedContractPatterns(cwd: string): readonly string[] | undefined {
@@ -548,15 +548,15 @@ export async function runDesignGate(
   let drift: TypecheckDrift | undefined;
 
   // Project config the composed packs did not generate is refused before any
-  // step runs: the typecheck step loads it (ADR 2026-054).
+  // step runs: the typecheck step loads it (ADR LEG-2026-054).
   // Drift the design itself causes (a workspace it adds, changes or drops,
   // and the lockfile that follows) is not refused here: the scaffold step
-  // brings the config in line with the design (ADR 2026-061).
+  // brings the config in line with the design (ADR LEG-2026-061).
   const configBlock = configDriftBlock(GUARD, cwd, undefined, { tolerateDesignDrift: true });
   if (configBlock !== undefined) return { ...configBlock, steps: [] };
 
   const reFreeze = hasManifest(cwd);
-  // A ticket that takes a delivered contract (ADR 2026-071), with the take
+  // A ticket that takes a delivered contract (ADR LEG-2026-071), with the take
   // valid: only then does a first freeze stand over worker-owned drift. A
   // design that cannot resolve takes nothing here; the freeze step says why.
   const takes = takenContracts(cwd);

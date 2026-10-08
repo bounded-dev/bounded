@@ -90,8 +90,8 @@ export function findFilesUnder(root: string, match: (name: string) => boolean): 
 
 /**
  * Every contract file of the project, sorted by project-relative posix path:
- * the files under the composed source roots (ADR 2026-056) whose names carry
- * a composed contract suffix (ADR 2026-052). Nothing outside a source root is
+ * the files under the composed source roots (ADR LEG-2026-056) whose names carry
+ * a composed contract suffix (ADR LEG-2026-052). Nothing outside a source root is
  * a contract, so a stray `*.contract.ts` anywhere else (a scratch probe, a
  * copy in a dependency) is never frozen, scaffolded or shipped. An unreadable
  * composition throws: a gate must not guess which files are the design.

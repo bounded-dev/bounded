@@ -16,7 +16,7 @@ own, and it must therefore outlive any single runtime.
 
 This note states the current picture. It is an iteration: the harness began
 life as config for one runtime (pi), and the host-portability work
-(ADR 2026-034, issue #16) turned the enforcement layer into something no
+(ADR LEG-2026-034, issue #16) turned the enforcement layer into something no
 runtime owns.
 
 ## The shape
@@ -28,7 +28,7 @@ Two tiers, cleanly split:
   the test run — is one command, `bounded gates <gate> [dir] [--json]`, over
   one result contract (exit `0` PASS, `1` BLOCK, `2` ERROR, and `3` RUNNING
   when a long gate's run outlasts a host's command limit and goes on in the
-  background until the next call collects it, ADR 2026-073). No agent
+  background until the next call collects it, ADR LEG-2026-073). No agent
   framework in the loop: CI, a shell, or any agent gets the same verdict from
   the same tree. This tier is 100% deterministic by construction.
 - **Capability constraints are host adapters.** Everything that shapes what
@@ -70,7 +70,7 @@ Each adapter is one directory — `hosts/pi/`, `hosts/claude-code/` — and
 carries its own adapter for its framework's wiring. In developer mode,
 `agent/scripts/bounded-init` runs the machine-level install scripts. Project-local
 `bounded init` selects one host and copies only its adapter. Shared run state
-lives in the project's `.bounded/` directory, owned by no host (ADR 2026-035).
+lives in the project's `.bounded/` directory, owned by no host (ADR LEG-2026-035).
 
 Next: adapters for other hook-capable frameworks (Codex among the
 candidates), each added the same way — a thin directory over the existing

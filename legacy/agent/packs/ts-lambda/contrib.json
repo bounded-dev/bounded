@@ -1,6 +1,6 @@
 {
-  "//": "The ts-lambda pack (ADR 2026-063): AWS Lambda handlers as an in adapter, and the Lambda app template. adapterTechnologies declares the `lambda` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/lambda/, the package export ./adapters/lambda and the feature role `lambda`. generatedFileGlobs write-protects that folder, every file of which is emitted from the feature contracts (TN-26-012 §6). workspaceTemplates.lambdas is the app a TN declares as `apps/<name>: lambdas`: one entry file per Lambda, bundled for Node with `bun build {{entries}} --target node` (the design's Lambda entries, TN-26-012 §10), because the Lambda runtime is Node (hence the no-bun-api lint).",
-  "//productSurfaces": "What this pack lets the product be used from (ADR 2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
+  "//": "The ts-lambda pack (ADR LEG-2026-063): AWS Lambda handlers as an in adapter, and the Lambda app template. adapterTechnologies declares the `lambda` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/lambda/, the package export ./adapters/lambda and the feature role `lambda`. generatedFileGlobs write-protects that folder, every file of which is emitted from the feature contracts (TN-26-012 §6). workspaceTemplates.lambdas is the app a TN declares as `apps/<name>: lambdas`: one entry file per Lambda, bundled for Node with `bun build {{entries}} --target node` (the design's Lambda entries, TN-26-012 §10), because the Lambda runtime is Node (hence the no-bun-api lint).",
+  "//productSurfaces": "What this pack lets the product be used from (ADR LEG-2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
   "productSurfaces": ["scheduled-jobs"],
   "dependsOnPacks": [
     "ts",
@@ -14,7 +14,7 @@
       "description": "One Lambda handler factory per feature tagged @exposedVia lambda, bundled for the Node runtime by the lambdas app"
     }
   ],
-  "//generatedFileGlobs": "The Lambda in adapter, and the Lambda app's composition root (ADR 2026-067), are generated from the design.",
+  "//generatedFileGlobs": "The Lambda in adapter, and the Lambda app's composition root (ADR LEG-2026-067), are generated from the design.",
   "generatedFileGlobs": [
     "apps/*/src/composition-root.ts",
     "contexts/*/src/adapters/in/lambda/**"

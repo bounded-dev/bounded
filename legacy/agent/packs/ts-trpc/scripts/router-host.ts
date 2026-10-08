@@ -46,7 +46,7 @@ export const MOUNT: readonly string[] = [
 
 /**
  * `composeApp(): <Router>` — the router-hosting app's generated composition
- * root (ADR 2026-067): every feature the context exposes via tRPC, its
+ * root (ADR LEG-2026-067): every feature the context exposes via tRPC, its
  * handler built with its out ports, passed to `create<Context>Router` in the
  * grouped shape.
  */

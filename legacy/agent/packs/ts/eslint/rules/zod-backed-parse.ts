@@ -1,6 +1,6 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
-// ADR 2026-031 zone rule, src/**: a value object's `static parse` is
+// ADR LEG-2026-031 zone rule, src/**: a value object's `static parse` is
 // implemented over a zod schema — hand-rolled structural validation is the
 // defect, not the schema library. Every builder hand-rolls differently;
 // schemas compose (a command's schema is built from its field values'
@@ -8,7 +8,7 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // judgment far better than they interrogate an ad-hoc `typeof` chain.
 //
 // WHAT COUNTS AS A VALUE OBJECT here: a class declaring a `__brand`
-// property — `<Name>Impl`'s `declare readonly __brand` (ADR 2026-059). An
+// property — `<Name>Impl`'s `declare readonly __brand` (ADR LEG-2026-059). An
 // entity's Impl has no static parse, so it is never checked. WHAT COUNTS AS ZOD-BACKED: the
 // static parse's body references a binding imported from `zod` (usually
 // `z`), or calls `.safeParse(…)` — the schema may live module-level and be
@@ -79,7 +79,7 @@ export const zodBackedParse = createRule<[], "handRolled">({
     messages: {
       handRolled:
         "{{className}}.parse validates by hand — a value object's parse is implemented over a zod schema " +
-        "(ADR 2026-031): declare the schema module-level (const schema = z.…), delegate with schema.safeParse(raw), " +
+        "(ADR LEG-2026-031): declare the schema module-level (const schema = z.…), delegate with schema.safeParse(raw), " +
         "and compose field values' schemas rather than re-checking them. Hand-rolled typeof-chains drift apart " +
         "across builders and evade the generated hostile-input laws' leverage.",
     },

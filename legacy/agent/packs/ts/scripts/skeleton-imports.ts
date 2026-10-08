@@ -72,7 +72,7 @@ export function refersToErrors(fromRel: string, specifier: string, errorsModules
 }
 
 /**
- * The red-phase errors modules of a monorepo's source roots (ADR 2026-056):
+ * The red-phase errors modules of a monorepo's source roots (ADR LEG-2026-056):
  * each root's `domain/shared/errors.ts` (TN-26-012 §5, where skeletons import
  * NotImplementedError from). Project-relative; whether they exist is not
  * asked — an import of a deleted one is still a skeleton import.
@@ -103,7 +103,7 @@ export function errorsImportsOf(source: string, fileRel: string, errorsModules: 
 }
 
 /**
- * The scan over a monorepo's source roots (ADR 2026-056): every
+ * The scan over a monorepo's source roots (ADR LEG-2026-056): every
  * non-contract file under them that still imports a red-phase errors module
  * (`errorsModulesFor`) — an unimplemented skeleton that reached this stage.
  * The errors modules themselves are excluded; they are the definition.

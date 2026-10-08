@@ -1,4 +1,4 @@
-// The workspace generator (ADR 2026-061, TN-26-012 §1, §9, §10): which
+// The workspace generator (ADR LEG-2026-061, TN-26-012 §1, §9, §10): which
 // workspaces a design has, derived rather than written.
 //
 //   contexts   every `contexts/<name>/src` that holds a contract file

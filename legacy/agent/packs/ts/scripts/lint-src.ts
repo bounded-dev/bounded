@@ -97,7 +97,7 @@ export interface LintScope {
 export const FLAT_SCOPE: LintScope = { src: DEFAULT_PATTERNS, tests: TEST_PATTERNS, srcIgnores: [], testIgnores: [] };
 
 /**
- * The lint scope a composition declares (ADRs 2026-056 to 2026-058). With
+ * The lint scope a composition declares (ADRs LEG-2026-056 to LEG-2026-058). With
  * source roots, the src run walks every `.ts`/`.tsx` under each root except
  * the test-side and generated files; the tests run walks every test-side
  * file under each root except the generated ones (the generator answers for
@@ -181,7 +181,7 @@ export function contributedSrcRules(cwd?: string): readonly LintSrcRuleContribut
 
 /** Their ids (`<plugin>/<name>`), paired with the brief that must name each —
  *  read by guard-doc-drift.test.ts, which holds a contributed rule to exactly
- *  the same bidirectional obligation as a built-in one (ADR 2026-018). */
+ *  the same bidirectional obligation as a built-in one (ADR LEG-2026-018). */
 export function contributedSrcRuleIds(): readonly { id: string; namedIn: string }[] {
   return contributedSrcRules().map((c) => ({ id: lintSrcRuleId(c), namedIn: c.namedIn }));
 }
@@ -304,18 +304,18 @@ export function createSrcLinter(cwd?: string, ignores: readonly string[] = []): 
               "ts-check": false,
             },
           ],
-          // --- The blessed-stack binding (ADR 2026-029) --------------------
+          // --- The blessed-stack binding (ADR LEG-2026-029) --------------------
           // Known non-blessed API frameworks and schema engines may not be
           // imported: the stack is harness policy, and this is the layer of
           // the binding that holds when no skill loaded and no dependency
           // rule intervened. tRPC and zod are the blessed members.
           "bounded-ts/blessed-stacks-only": "error",
-          // --- zod inside every value object (ADR 2026-031) ----------------
+          // --- zod inside every value object (ADR LEG-2026-031) ----------------
           // A branded class's static parse must delegate to a zod schema;
           // hand-rolled typeof-chains drift across builders and blunt the
           // generated hostile laws. src/** only (see TEST_RULE_IDS).
           "bounded-ts/zod-backed-parse": "error",
-          // --- The hidden implementation (ADR 2026-059) --------------------
+          // --- The hidden implementation (ADR LEG-2026-059) --------------------
           // A concept's implementation hides <Name>Impl and ends with exactly
           // the two exports the emitter generated. src/** only.
           "bounded-ts/impl-tail": "error",

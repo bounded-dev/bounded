@@ -1,6 +1,6 @@
-// A ticket's run boundary (ADR 2026-048): select one ticket for a worktree and
+// A ticket's run boundary (ADR LEG-2026-048): select one ticket for a worktree and
 // open, resume or change its run. `bounded lead start` prepares each ticket's
-// run in that ticket's own worktree (ADR 2026-066).
+// run in that ticket's own worktree (ADR LEG-2026-066).
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";

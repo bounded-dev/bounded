@@ -3,7 +3,7 @@ import { RuleTester } from "@typescript-eslint/rule-tester";
 import { valueObjectDocumented } from "./value-object-documented.ts";
 import { DOCUMENTED_CONCEPTS, documentedConcept, exampleConcept } from "../../scripts/testdata/example-domain.ts";
 
-// ADR 2026-059: every value object carries two different `@accepts` examples
+// ADR LEG-2026-059: every value object carries two different `@accepts` examples
 // (the generated laws' samples, so no law is ever skipped), each a literal of
 // the value's own type; an identifier needs them too (its only valid literal
 // the blind test-writer can see); a doc comment is never empty; an entity

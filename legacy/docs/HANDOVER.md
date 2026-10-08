@@ -1,6 +1,6 @@
 # Handover — the Bounded Harness developer stage
 
-2026-10-01 addendum (the hexagonal monorepo rework, ADRs 2026-056 to 2026-064,
+2026-10-01 addendum (the hexagonal monorepo rework, ADRs LEG-2026-056 to LEG-2026-064,
 TN-26-012 — read this one first): a TypeScript project is now built in the
 shape of a worked example: a Bun monorepo of bounded contexts
 (`contexts/<context>/src/{domain,application,adapters}`) and apps
@@ -20,13 +20,13 @@ shape of a worked example: a Bun monorepo of bounded contexts
 - **Everything mechanical is generated** from contracts and two JSDoc tags
   (`@exposedVia` on the in port, `@implementedBy` on non-store out ports):
   barrels, command files, every in adapter (tRPC, MCP, Lambda), Drizzle
-  config, law suites and app composition roots (ADR 2026-067). Handlers, stores and out adapters
+  config, law suites and app composition roots (ADR LEG-2026-067). Handlers, stores and out adapters
   are skeletons the builder fills. Apps are declared in the ticket TN's
   `workspaces:` map.
 - **Bun is the project toolchain** (`bun install`, `bun test`,
   `bunx tsc -p tsconfig.json`); npm, Vitest, Vite and SQLite are retired for
   projects. The harness itself stays on Node and npm.
-- **Store tests need Docker at green** (ADR 2026-064); red skips them with a
+- **Store tests need Docker at green** (ADR LEG-2026-064); red skips them with a
   logged reason.
 - **`bounded init`** with no `--pack` composes every installed capability
   (`ts`, `ts-hexagonal`, `ts-trpc`, `ts-mcp`, `ts-lambda`, `ts-web`,
@@ -57,7 +57,7 @@ the example's Bun guidance.
 
 ---
 
-2026-09-18 addendum (#16, ADR 2026-034 — read after the 09-11 one): enforcement
+2026-09-18 addendum (#16, ADR LEG-2026-034 — read after the 09-11 one): enforcement
 is now host-portable. Every artifact gate is one CLI, `bounded gates <gate>`
 (`agent/src/gates-cli.ts` over the registry `agent/packs/ts/gates.ts`), and the
 pi tools read the same registry; capability constraints live per host —
@@ -106,7 +106,7 @@ convergence** is the result to carry forward.
    accept them. First bug found by a *real* application slice (the PKE
    heating-cockpit). The architect refused to bend `parse` to a wrong test and
    escalated, because the fix was in the pack.
-4. **One-round-trip review** (r18, commit `0d1bdab`, amends ADR 2026-020).
+4. **One-round-trip review** (r18, commit `0d1bdab`, amends ADR LEG-2026-020).
    Review is a single fresh-eyes challenge, not a byte gate: across r15–r18 no
    later review cycle caught a defect the first pass missed, and byte-freshness
    policed the *trusted* architect's own edits. Freshness relaxed to the file
@@ -114,7 +114,7 @@ convergence** is the result to carry forward.
    ran one cycle and design halved.
 5. **`__conformance` is `Pick<…>` of the exports it carries** (r18, commit
    `b684e17`), and **value objects live in their own contract file** (ADR
-   2026-026, lint `bounded-ts/value-objects-own-contract`). A single-file
+   LEG-2026-026, lint `bounded-ts/value-objects-own-contract`). A single-file
    contract mixing value-object classes with functions scaffolded to
    non-compiling code (`__brand` clash); decomposition is now enforced as a
    contract-shape rule the architect meets up front. r18's kimi arm hit this and
@@ -131,7 +131,7 @@ re-green) ran clean and headless to 100% on r19 kimi.
   shipped green; r19 has had no equivalent. Green + high mutation is not proof of
   domain correctness. This is the highest-value next check.
 - **The post-red suite adversary** (issue #13) — a reviewer over the tests once
-  the red stands — remains unbuilt; ADR 2026-020 leaves it open.
+  the red stands — remains unbuilt; ADR LEG-2026-020 leaves it open.
 - **Integration.** Still one component, one worktree, one language. Several
   components / architects / a merge is untested.
 - **Timing hygiene.** r16 per-phase splits are unreliable (subagent-bound
@@ -145,7 +145,7 @@ run-15 pair and the fix wave it produced. Run 15 is written up in
 [dogfooding.md](dogfooding.md); the twelve numbered findings there are what
 each of these closes.
 
-1. **One class identity per value object** (ADR 2026-023). A contract imports
+1. **One class identity per value object** (ADR LEG-2026-023). A contract imports
    cross-component types from the implementation module (`../values/values.js`),
    never from another `*.contract.ts`; the scaffolder refuses the
    contract-to-contract form at scaffold time and names the replacement import.
@@ -204,7 +204,7 @@ changes landed, all with tests, all motivated by a numbered finding in
 2. **Green is bound to the red in both directions.** The standing red must be
    after the last freeze AND carry a `tests/` tree hash equal to the current
    one; a test edited after a red voids it, and that route is `→ test-writer`.
-3. **The workers are parallel** (ADR 2026-021). No ordering between
+3. **The workers are parallel** (ADR LEG-2026-021). No ordering between
    test-writer and builder; the phase gate refuses multi-spawn forms
    (`workflowScript`, `chain`, `parallel`) naming a pipeline role, and refuses
    `delegate` inside a pipeline session, so every spawn stays one readable
@@ -214,7 +214,7 @@ changes landed, all with tests, all motivated by a numbered finding in
    `bounded ticket` also excludes them at launch.
 5. **Two model tiers.** `.bounded/dev-stage-models.json` names `designModel`
    (architect, reviewer) and `workerModel` (test-writer, builder), injected at
-   spawn time, logged as `model-tier`, never fatal (ADR 2026-022).
+   spawn time, logged as `model-tier`, never fatal (ADR LEG-2026-022).
 6. **Scaffolder syncs, re-freezes fail fast, friction is printed.** Deleting a
    contract deletes what it generated (marker-gated; a blocked run prunes
    nothing); a re-freeze checks review freshness before spending a pass; every
@@ -264,7 +264,7 @@ voided attempts were both harness bugs of ours, not model failures.
 - **Newly measured:** the spec's unique contribution is **execution order**.
   83 tests written with no spec still covered replay and arithmetic well and
   contained *zero* precondition-ordering tests.
-- **Still unproven:** the architect as a source of design quality. ADR 2026-014
+- **Still unproven:** the architect as a source of design quality. ADR LEG-2026-014
   stands — taste did not survive a model change, procedure did.
 
 Do not overstate the case for the harness in future write-ups. The most useful
@@ -285,7 +285,7 @@ you catch yourself writing "the skill should tell it to…", ask what would
 refuse it instead.
 
 **3. Guidance, when unavoidable, is a checklist anchored to a gate call.** Per
-ADR 2026-014: give it a trigger ("before you run `design_gate`…"), a stop
+ADR LEG-2026-014: give it a trigger ("before you run `design_gate`…"), a stop
 condition, and greppable phrases so its fingerprint can be looked for in the
 output later.
 

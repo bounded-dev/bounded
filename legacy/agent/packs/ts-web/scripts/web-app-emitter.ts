@@ -1,6 +1,6 @@
-// The web app's seed files (ADR 2026-061, TN-26-012 §1), emitted for every
+// The web app's seed files (ADR LEG-2026-061, TN-26-012 §1), emitted for every
 // workspace a TN declares with kind `web`. The composition root is generated
-// (ADR 2026-067); the rest are skeletons: written once, then the builder's.
+// (ADR LEG-2026-067); the rest are skeletons: written once, then the builder's.
 //
 //   src/server/composition-root.ts   composeApp(): <Context>Router — generated: every handler and adapter, wired
 //   src/server/main.ts               Bun.serve: the client's HTML import at "/", the router at "/trpc/*"

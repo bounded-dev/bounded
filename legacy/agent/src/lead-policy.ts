@@ -1,5 +1,5 @@
 // The project-local entry seats coordinate a run without editing product files
-// (ADR 2026-048). Each host adapter translates its own tool calls into the
+// (ADR LEG-2026-048). Each host adapter translates its own tool calls into the
 // neutral actions below; this policy judges only those actions, so it names no
 // host tool, field or command.
 
@@ -33,7 +33,7 @@ export const LEAD_COMMAND_TOOLS: Readonly<Record<string, string>> = {
 
 /**
  * The only commands the harness ever asks a project's user to run (AGENTS.md,
- * "A project's user never runs harness steps"; ADR 2026-072), each because
+ * "A project's user never runs harness steps"; ADR LEG-2026-072), each because
  * only the user can do it, and every message naming one says why:
  *
  *   bounded lead release  clears seat state the harness cannot prove is gone
@@ -68,7 +68,7 @@ export type SeatAction =
   | { readonly kind: "lead-command"; readonly command: string }
   /** Install the project's pinned dependencies. */
   | { readonly kind: "setup" }
-  /** Re-plan the installation's capability selection before the first ticket (ADR 2026-065). */
+  /** Re-plan the installation's capability selection before the first ticket (ADR LEG-2026-065). */
   | { readonly kind: "replan" }
   /** A call whose shape the host adapter already found unacceptable. */
   | { readonly kind: "refused"; readonly reason: string }
@@ -86,7 +86,7 @@ const COMMISSIONABLE: ReadonlySet<unknown> = new Set([SCOUT_SEAT]);
 /**
  * Project reads are held to the architect's read zone, for every read-only
  * seat, judged on the path as written and again on the path its links resolve
- * to: a link out of the project, or into .git, is refused (ADR 2026-048).
+ * to: a link out of the project, or into .git, is refused (ADR LEG-2026-048).
  */
 function judgeRead(seat: string, action: Extract<SeatAction, { kind: "read" }>, cwd: string): SeatDecision {
   const result = decide(BORROWED_ZONE, action.tool, action.input, { cwd });
@@ -115,7 +115,7 @@ function ownWords(reason: string): string {
  *  scout, or answer a commissioned seat that asks it for a decision —
  *  otherwise a seat that escalates to the lead waits for an answer that
  *  cannot come. An architect starts only through `bounded lead start`, in
- *  its ticket's own worktree (ADR 2026-066). */
+ *  its ticket's own worktree (ADR LEG-2026-066). */
 export function decideLead(action: SeatAction, cwd: string): SeatDecision {
   switch (action.kind) {
     case "read":
@@ -171,7 +171,7 @@ export function seatMayHold(seat: "lead" | "scout", action: SeatAction, cwd: str
   return action.kind !== "refused" && action.kind !== "other";
 }
 
-/** Install the composed, lockfile-pinned dependency trees (ADR 2026-051).
+/** Install the composed, lockfile-pinned dependency trees (ADR LEG-2026-051).
  *  The shared setup checks permission itself and logs every outcome. */
 export async function setupLeadProject(
   cwd: string,

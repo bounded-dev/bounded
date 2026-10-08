@@ -1,4 +1,4 @@
-// Install the Claude Code host adapter into a project (ADR 2026-034).
+// Install the Claude Code host adapter into a project (ADR LEG-2026-034).
 //
 //   node install.ts <targetDir> [--harness-root <dir>]
 //
@@ -64,7 +64,7 @@ export type Merge =
 
 /**
  * Add the ambient hook. Background tasks stay available: the lead runs each
- * ticket's architect as a background subagent (ADR 2026-066); the hook keeps
+ * ticket's architect as a background subagent (ADR LEG-2026-066); the hook keeps
  * every worker commission in the foreground itself, so an architect still
  * awaits its reviewer. A setting that disables background tasks is refused,
  * since it would serialize the architects. Preserve unrelated settings. Keep

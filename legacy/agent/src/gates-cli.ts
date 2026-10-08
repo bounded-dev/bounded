@@ -1,4 +1,4 @@
-// bounded gates — every artifact gate, from any shell (ADR 2026-034).
+// bounded gates — every artifact gate, from any shell (ADR LEG-2026-034).
 //
 //   bounded gates <gate> [cwd] [--json] [flags]
 //   bounded gates <gate> --help
@@ -15,7 +15,7 @@
 // stdout on a pass and stderr otherwise — the pack CLIs' convention, so a
 // person's eye and a CI log filter both keep working. A long gate under a
 // host deadline may instead answer `<gate>: RUNNING (…)`, on stdout: its run
-// goes on in the background and the next call collects it (ADR 2026-073).
+// goes on in the background and the next call collects it (ADR LEG-2026-073).
 // `--json` prints the envelope from src/gate-result.ts instead, always to
 // stdout. Exit codes are the contract's: 0 PASS · 1 BLOCK · 2 ERROR (the gate
 // could not run) · 3 RUNNING · 64 usage (this program was misused, no gate
@@ -188,7 +188,7 @@ export async function main(
   packs?: string,
   open: (cwd: string) => Tracker = openTracker,
 ): Promise<number> {
-  // A long gate's wait counts from here (ADR 2026-073).
+  // A long gate's wait counts from here (ADR LEG-2026-073).
   const startedAt = Date.now();
   const all = gates ?? (await discoverGates(packs));
 
@@ -248,15 +248,15 @@ export async function main(
   const cwd = targetCwd(sessionCwd, parsed.positionals[0]);
 
   // A bare shell enforces no capability constraint, and the log must say so
-  // (ADR 2026-034) — unless a host adapter NAMED itself to this process, in
+  // (ADR LEG-2026-034) — unless a host adapter NAMED itself to this process, in
   // which case it declared itself before the call reached here. A role alone
   // is not a host: a person exports BOUNDED_DEV_STAGE_ROLE to see a role's view.
   if (hostFromEnv(process.env[HOST_ENV]) === undefined) recordHostDeclaration(cwd, NO_HOST);
 
   let result: GateResult;
   try {
-    // In a ticket worktree the board follows the gate (ADR 2026-066); a long
-    // gate under a host deadline runs in the background (ADR 2026-073).
+    // In a ticket worktree the board follows the gate (ADR LEG-2026-066); a long
+    // gate under a host deadline runs in the background (ADR LEG-2026-073).
     const role = process.env["BOUNDED_DEV_STAGE_ROLE"];
     result = await runGate(cwd, gate, envArgs(gate, parsed.args, process.env), {
       open, startedAt, ...(packs !== undefined ? { packsDir: packs } : {}),

@@ -1,6 +1,6 @@
 # Run 20 — re-confirmation, and a resume under an external limit
 r20 re-ran the cockpit pair on the tree after the layer-move batch (ADR
-2026-027 moved the cross-contract dual-identity refusal to a contract-purity
+LEG-2026-027 moved the cross-contract dual-identity refusal to a contract-purity
 lint rule). The only functional change since r19 was that one rule, so the run
 was a re-confirmation — does the clean r19 result hold, and does anything
 regress — plus a chance to see the new rule in the wild.

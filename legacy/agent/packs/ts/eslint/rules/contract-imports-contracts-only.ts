@@ -1,6 +1,6 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
-// ADR 2026-059 contract rule (it replaces, and inverts, the retired
+// ADR LEG-2026-059 contract rule (it replaces, and inverts, the retired
 // `no-cross-contract-type-import`): a contract imports only other contracts
 // and the shared result type, and only as types.
 //
@@ -34,7 +34,7 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 //                  (`@<scope>/<pkg>/application`, `…/domain/notes`), which is.
 //
 // Relative non-contract modules are refused everywhere. (The shipped
-// contract-support modules of ADR 2026-046 were retired with the declare-class
+// contract-support modules of ADR LEG-2026-046 were retired with the declare-class
 // model; no pack ships one.)
 //
 // Form: the whole declaration is `import type { … } from "…"`. An inline
@@ -56,7 +56,7 @@ type MessageId =
   | "jsSpecifier"
   | "importType";
 
-const RULE = "A contract imports only other contracts and the shared Result type, as types (ADR 2026-059):";
+const RULE = "A contract imports only other contracts and the shared Result type, as types (ADR LEG-2026-059):";
 
 const CONTRACT = /^\.\.?\/(?:[^/]+\/)*[a-z0-9][a-z0-9-]*\.contract\.ts$/;
 const RESULT = /^\.\.?\/(?:[^/]+\/)*shared\/result\.ts$/;
@@ -140,7 +140,7 @@ export const contractImportsContractsOnly = createRule<[], MessageId>({
       inlineType: `${RULE} 'import { type … } from "{{source}}"' leaves an empty runtime import behind under verbatimModuleSyntax — move 'type' to the declaration: 'import type { … } from "{{source}}";'.`,
       shape: `${RULE} import the names from '{{source}}' as a plain list, 'import type { A, B } from "{{source}}";' — no default, namespace or renamed ('as') imports.`,
       sideEffect: `${RULE} 'import "{{source}}"' runs code at import time — a contract has none. Delete it.`,
-      reexport: `A contract declares its own names and re-exports nothing (ADR 2026-059: '<Name>' means exactly one type everywhere). Delete this re-export from '{{source}}' and import the names where they are used; the generated barrel re-exports every concept.`,
+      reexport: `A contract declares its own names and re-exports nothing (ADR LEG-2026-059: '<Name>' means exactly one type everywhere). Delete this re-export from '{{source}}' and import the names where they are used; the generated barrel re-exports every concept.`,
       importType: `${RULE} 'import("{{source}}")' in a type position is an import no import declaration shows, so it would let a contract depend on any file. Declare it at the top instead: 'import type { … } from "./<concept>.contract.ts";'.`,
       jsSpecifier: `${RULE} '{{source}}' uses a '.js' specifier — the monorepo imports TypeScript files by their real name (allowImportingTsExtensions): write '{{fixed}}'.`,
     },

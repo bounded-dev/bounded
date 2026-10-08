@@ -1,4 +1,4 @@
-// pi side of the read-only seats (ADR 2026-048): one pi tool call as the
+// pi side of the read-only seats (ADR LEG-2026-048): one pi tool call as the
 // host-neutral action src/lead-policy.ts judges. pi-subagents' `subagent`
 // tool carries several shapes in one tool; only a plain launch of one seat
 // on one task is a commission the lead may make.

@@ -72,7 +72,7 @@ export function pipelineProject(stages: readonly PipelineStage[] = ["design"], p
   return { dir, scope: "@demo", cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-/** The workspace manifests the design derives (ADR 2026-061), as the design
+/** The workspace manifests the design derives (ADR LEG-2026-061), as the design
  *  gate's config sync would write them: the layout lint rules read each
  *  workspace's package name from them. The root manifest is left as is. */
 export function writeWorkspaceManifests(dir: string, packs: readonly string[] = PIPELINE_PACKS): void {

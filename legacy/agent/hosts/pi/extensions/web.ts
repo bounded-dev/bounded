@@ -11,7 +11,7 @@
  *   1. BRAVE_API_KEY in the process env (shell override).
  *   2. ../web-search.json relative to this file — gitignored, lives in the
  *      harness root: {"BRAVE_API_KEY": "..."}. This is the reliable path for
- *      GUI-launched sessions, which don't inherit shell env (ADR 2026-002).
+ *      GUI-launched sessions, which don't inherit shell env (ADR LEG-2026-002).
  *
  * Free tier: https://brave.com/search/api/ — 2,000 queries/month.
  */

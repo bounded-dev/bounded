@@ -1,4 +1,4 @@
-// The value-object boundaries obligation (TN-26-001 Run 7; ADR 2026-059 form).
+// The value-object boundaries obligation (TN-26-001 Run 7; ADR LEG-2026-059 form).
 //
 // A value object's `parse` is the only door in from raw input. The generated
 // laws cover what is true of EVERY value object: parse refuses `null`, `[]`,
@@ -11,7 +11,7 @@
 //
 // with at least one ACCEPTED literal and at least TWO DISTINCT REJECTED
 // literals of the value object's own base type, asserted on the `Result`
-// that `parse` returns (ADR 2026-059):
+// that `parse` returns (ADR LEG-2026-059):
 //
 //   accepted   expect(Name.parse(<lit>).ok).toBe(true)
 //              expect(Name.parse(<lit>)).toEqual({ ok: true, … })     (also toStrictEqual, toMatchObject)

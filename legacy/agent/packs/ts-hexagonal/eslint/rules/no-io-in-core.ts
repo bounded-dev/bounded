@@ -1,6 +1,6 @@
 // Domain and application code does no I/O (docs/architecture/
-// layers-and-dependencies.md; ADR 2026-062). It is also the defence ADR
-// 2026-062 names against a builder whose implementation reads a test file at
+// layers-and-dependencies.md; ADR LEG-2026-062). It is also the defence ADR
+// LEG-2026-062 names against a builder whose implementation reads a test file at
 // run time and smuggles it out through an error message: code that cannot
 // open a file, spawn a process, open a socket or read the environment cannot
 // do that. `layer-dependency` already refuses every library but zod here; this

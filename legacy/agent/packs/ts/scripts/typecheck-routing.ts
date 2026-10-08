@@ -77,7 +77,7 @@ export type OwnerOf = (path: string) => Role | null;
 /**
  * The owner function for a project: the path policy's own write rule
  * (`ownerOfPath`) over the composed layout — source roots, test-side
- * suffixes, contract and generated globs (ADRs 2026-056 to 2026-058). An
+ * suffixes, contract and generated globs (ADRs LEG-2026-056 to LEG-2026-058). An
  * unreadable composition yields an unreadable layout, under which no source
  * file has an owner and every diagnostic routes to the orchestrator rather
  * than guess.

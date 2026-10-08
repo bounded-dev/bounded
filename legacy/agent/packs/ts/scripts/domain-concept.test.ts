@@ -12,7 +12,7 @@ import {
 import { EXAMPLE_CONCEPTS, exampleConcept } from "./testdata/example-domain.ts";
 import { DOMAIN_REFUSALS, REFUSAL_PATH as PATH, vo, VO_MEMBERS } from "./testdata/domain-refusals.ts";
 
-// The domain-concept parser (ADR 2026-059, TN-26-012 §3): the worked
+// The domain-concept parser (ADR LEG-2026-059, TN-26-012 §3): the worked
 // example's six contracts parse to the model every emitter codes against, and
 // every shape outside the grammar is refused with the contract path and a fix.
 

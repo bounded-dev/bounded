@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { acquireLock, ownerState, systemProcesses, type ProcessProbe } from "./process-lock.ts";
 
 // A lock owned by pid and start time, taken over only atomically and only on
-// evidence (ADR 2026-066).
+// evidence (ADR LEG-2026-066).
 
 let dir = "";
 let path = "";

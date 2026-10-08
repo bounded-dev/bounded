@@ -35,18 +35,18 @@ describe("the harness's own composition", () => {
   test("the ts pack owns every socket, and nothing else defines one", () => {
     const sockets = installedPacks().sockets;
     expect(sockets.map((s) => s.id)).toEqual([
-      // ADR 2026-055: born with its consumer, the generate_artifacts gate.
+      // ADR LEG-2026-055: born with its consumer, the generate_artifacts gate.
       "artifactGenerators",
       "contractPurityOverrides",
-      // ADR 2026-033: born with its consumer, deliver's last step.
+      // ADR LEG-2026-033: born with its consumer, deliver's last step.
       "deliverChecks",
       "lintSrcRules",
-      // ADR 2026-064: born with its consumers, the red and green gates.
+      // ADR LEG-2026-064: born with its consumers, the red and green gates.
       "phaseTestPolicies",
-      // ADR 2026-060: born with its consumers, the design gate's scaffold
+      // ADR LEG-2026-060: born with its consumers, the design gate's scaffold
       // step, the red gate's shadow and delivery's leftover check.
       "skeletonEmitters",
-      // ADR 2026-063: born with its consumers, the red and green gates.
+      // ADR LEG-2026-063: born with its consumers, the red and green gates.
       "testObligations",
     ]);
     expect(sockets.every((s) => s.owner === TS_PACK)).toBe(true);
@@ -113,7 +113,7 @@ describe("composition-at-initiation is a parameter, not a rewrite", () => {
     expect(() => composePacks(INSTALLED_PACKS, [TS_PACK, "ts-mcp"])).toThrow(/depends on pack 'ts-hexagonal'/);
   });
 
-  test("the adapter and app packs each contribute their emitters (ADR 2026-063)", () => {
+  test("the adapter and app packs each contribute their emitters (ADR LEG-2026-063)", () => {
     const base = [TS_PACK, "ts-hexagonal"];
     const baseNames = new Set(composePacks(INSTALLED_PACKS, base).read(skeletonEmitters).map((e) => e.name));
     const emitters = (packs: readonly string[]) =>

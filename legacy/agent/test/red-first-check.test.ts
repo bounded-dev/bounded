@@ -1,5 +1,5 @@
 // The red-first check lives with the repository's workflow tools in
-// scripts/workflow/ (ADR 2026-068); its tests run here so `npm run check`
+// scripts/workflow/ (ADR LEG-2026-068); its tests run here so `npm run check`
 // covers it. The end-to-end cases build throwaway git repositories in a
 // temporary directory, link this package's installed dependencies into them,
 // and run the real check, which runs the real test command at the red commit.

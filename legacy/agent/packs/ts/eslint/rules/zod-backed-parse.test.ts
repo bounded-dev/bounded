@@ -2,7 +2,7 @@ import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { zodBackedParse } from "./zod-backed-parse.ts";
 
-// ADR 2026-031: a value object's `static parse` delegates to a zod schema.
+// ADR LEG-2026-031: a value object's `static parse` delegates to a zod schema.
 // Hand-rolled typeof-chains are the defect; the rule checks the delegation
 // exists, and the generated hostile laws check the schema's judgment.
 

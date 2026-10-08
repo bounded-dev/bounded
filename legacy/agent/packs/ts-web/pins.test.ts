@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-// The web app's stack is exact-pinned by its workspace template (ADR 2026-029).
+// The web app's stack is exact-pinned by its workspace template (ADR LEG-2026-029).
 // There are two places a version can be written down: the harness's own
 // package.json, which is what the harness's suites compile emitted code
 // against, and the template manifest a generated web app is born with. Two

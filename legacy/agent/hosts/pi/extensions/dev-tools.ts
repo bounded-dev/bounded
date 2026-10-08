@@ -26,7 +26,7 @@
  *
  * Only `remove` is written here: it is a host tool (the path gate vets it),
  * not an artifact gate. The other three are gate-registry entries
- * (`packs/ts/gates.ts`, ADR 2026-034) registered through `lib/gate-tools.ts`,
+ * (`packs/ts/gates.ts`, ADR LEG-2026-034) registered through `lib/gate-tools.ts`,
  * so their names, descriptions, parameters, guard events and verdict lines are
  * the same ones `bounded gates` serves from a shell — this file says only which
  * entries the worker roles hold. A normal session holds none of these agents'

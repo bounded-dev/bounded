@@ -150,7 +150,7 @@ describe("the obligations on the notebook pipeline", () => {
     ]));
   });
 
-  test("the generated composition root still owes, and is satisfied by, the app's smoke test (ADR 2026-067)", () => {
+  test("the generated composition root still owes, and is satisfied by, the app's smoke test (ADR LEG-2026-067)", () => {
     const f = scaffolded();
     const root = readFileSync(join(f.dir, "apps/web/src/server/composition-root.ts"), "utf8");
     expect(root.split("\n")[0]).toMatch(/^\/\/ Generated from the design/);
@@ -189,7 +189,7 @@ describe("the obligations on the notebook pipeline", () => {
   });
 });
 
-// --- boundaries (ADR 2026-059 form: parse returns Result) ----------------------------
+// --- boundaries (ADR LEG-2026-059 form: parse returns Result) ----------------------------
 
 const TARGET: BoundaryTarget = { name: "Currency", base: "string", contractFile: "contexts/shop/src/domain/money/currency.contract.ts" };
 const t = (source: string): ObligationSource[] => [{ path: "contexts/shop/src/domain/money/currency.test.ts", source }];

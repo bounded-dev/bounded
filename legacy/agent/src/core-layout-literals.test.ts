@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
-// ADR 2026-056: the core names no project layout. Where source lives is the
+// ADR LEG-2026-056: the core names no project layout. Where source lives is the
 // composed packs' `sourceRoots`, which files are test-side their
 // `testFileSuffixes`, which are generated their `generatedFileGlobs`. A core
 // literal `src/` or `tests/` used as policy is the layout creeping back in —
@@ -102,7 +102,7 @@ function layoutLiterals(file: string): Hit[] {
  */
 const NOT_LAYOUT: ReadonlyArray<{ readonly file: string; readonly text: string; readonly why: string }> = [];
 
-describe("no core file uses a project layout literal (ADR 2026-056)", () => {
+describe("no core file uses a project layout literal (ADR LEG-2026-056)", () => {
   test("the scan covers the path policy, the gate, ticket design, the socket readers and the host adapters", () => {
     const files = coreFiles().map((file) => relative(AGENT, file));
     for (const owned of [

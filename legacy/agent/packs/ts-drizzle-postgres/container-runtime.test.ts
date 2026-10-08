@@ -1,4 +1,4 @@
-// ADR 2026-064's probe and decision, against fake Docker-API servers on
+// ADR LEG-2026-064's probe and decision, against fake Docker-API servers on
 // temporary unix sockets: deterministic, and no container runtime needed.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -197,7 +197,7 @@ describe("an engine that answers a ping but nothing else (issue #52)", () => {
   });
 });
 
-describe("storeTestDecision (ADR 2026-064)", () => {
+describe("storeTestDecision (ADR LEG-2026-064)", () => {
   const down: ContainerRuntimeProbe = { available: false, reason: "no container runtime found" };
   const up: ContainerRuntimeProbe = { available: true, endpoint: "unix:///var/run/docker.sock" };
   const tests = ["contexts/pm/src/adapters/out/drizzle/notes/create-note.store.test.ts"];

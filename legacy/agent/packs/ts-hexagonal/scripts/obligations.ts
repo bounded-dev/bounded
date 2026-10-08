@@ -1,4 +1,4 @@
-// ts-hexagonal's test levels (ADR 2026-063, TN-26-012 §8), contributed to the
+// ts-hexagonal's test levels (ADR LEG-2026-063, TN-26-012 §8), contributed to the
 // ts pack's `testObligations` socket. Per feature of every context:
 //
 //   feature     <feature>.test.ts beside the contract, constructing
@@ -18,7 +18,7 @@
 // And per app workspace, at green only (Q2): a composition-root.test.ts next
 // to every composition-root.ts, the app's smoke test, which imports a
 // compose… function from ./composition-root.ts and calls it. The composition
-// root is generated (ADR 2026-067), but what it constructs is the builder's, so
+// root is generated (ADR LEG-2026-067), but what it constructs is the builder's, so
 // red cannot ask for it.
 
 import { readdirSync } from "node:fs";

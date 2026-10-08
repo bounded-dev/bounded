@@ -1,5 +1,5 @@
 // Claude Code PreToolUse hook: the path gate and the phase gate for one role
-// (ADR 2026-034, Tier B on the second host).
+// (ADR LEG-2026-034, Tier B on the second host).
 //
 //   node path-gate-hook.ts [--project-local] [--role <seat>] [--harness-root <dir>]  < payload.json
 //
@@ -27,7 +27,7 @@
 //
 // `--role scout` binds the read-only scout (lead-hook.ts). Project-local, with
 // no --role, the main session is the read-only team lead; the role file
-// cannot silently promote it. In a ticket worktree (ADR 2026-066) a
+// cannot silently promote it. In a ticket worktree (ADR LEG-2026-066) a
 // subagent's call is a ticket seat: this project-wide hook judges it as the
 // role its generated definition proves (and that definition's own hook stands
 // down), while a session opened directly there is read-only. Outside an initialized project,
@@ -40,7 +40,7 @@
 // documented child identifier) whose `agent_type` names a generated
 // definition that carries its own hook bound to that seat. Every other child
 // — a forked skill, a built-in agent — is held to the scout's read-only
-// policy: project-local hooks fail closed for unbound work (ADR 2026-048).
+// policy: project-local hooks fail closed for unbound work (ADR LEG-2026-048).
 // `agent_type` alone is not enough: a directly launched top-level `--agent`
 // session may carry it.
 //
@@ -272,7 +272,7 @@ const CLAUDE_CODE_AMBIENT = declareHost("claude-code", ["path-gate", "phase-gate
  */
 export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: string): HookOutcome {
   // No refusal, like no guard-log line, names a saved tool output outside
-  // the project (spill-read.ts, ADR 2026-069): every answer passes here.
+  // the project (spill-read.ts, ADR LEG-2026-069): every answer passes here.
   const out = judgeCall(argv, rawStdin, fallbackCwd);
   let cwd = fallbackCwd;
   try {
@@ -640,7 +640,7 @@ function evaluateContinuation(role: Role, payload: Payload, cwd: string, harness
 }
 
 function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, harnessRoot: string, projectLocal: boolean): string {
-  // Say which host this is and what it holds (ADR 2026-034). The strip is the
+  // Say which host this is and what it holds (ADR LEG-2026-034). The strip is the
   // agent definition's `tools:` allowlist, so only a BOUND role has it; an
   // ambient session keeps every Claude Code tool and the hook judges what it
   // maps. Recorded on change, so the line appears once per stretch of a run.
@@ -731,7 +731,7 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
           });
         }
       }
-      // The tier is policy (ADR 2026-022): the same core that plans pi's
+      // The tier is policy (ADR LEG-2026-022): the same core that plans pi's
       // injection plans it here. This host only translates the pi pattern
       // into the Agent tool's model vocabulary and rewrites the call — the
       // hook holds no tier opinion of its own. A configured tier this host
@@ -761,7 +761,7 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
         allowed = allowWith({ ...payload.toolInput, model: hostModel });
       }
       // A worker always runs in the foreground: background tasks are on for
-      // the lead's architects (ADR 2026-066), and an architect must await its
+      // the lead's architects (ADR LEG-2026-066), and an architect must await its
       // reviewer before freezing a design.
       const current = allowed === "" ? payload.toolInput
         : (JSON.parse(allowed) as { hookSpecificOutput: { updatedInput: Record<string, unknown> } }).hookSpecificOutput.updatedInput;

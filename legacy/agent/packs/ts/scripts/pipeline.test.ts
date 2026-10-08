@@ -163,7 +163,7 @@ describe.skipIf(!HAS_BUN)("the pipeline on a hexagonal Bun monorepo", () => {
   });
 });
 
-// --- persistence (ADR 2026-064) ----------------------------------------------------
+// --- persistence (ADR LEG-2026-064) ----------------------------------------------------
 //
 // The same notebook with ts-drizzle-postgres composed: every store also has a
 // Drizzle implementation, tested against real Postgres through Testcontainers.
@@ -255,7 +255,7 @@ describe.skipIf(!HAS_BUN)("the pipeline with Postgres persistence", () => {
     });
   });
 
-  // Issue #52 (ADR 2026-072): the project's own check needs a container
+  // Issue #52 (ADR LEG-2026-072): the project's own check needs a container
   // engine and nothing else. The app smoke tests start their own migrated
   // Postgres, so neither a `.env` file nor an inherited DATABASE_URL (both
   // pointing at a database nobody started) can reach them.

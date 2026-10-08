@@ -1,4 +1,4 @@
-// pi's half of the commission rule (ADR 2026-034; src/phase-gate.ts).
+// pi's half of the commission rule (ADR LEG-2026-034; src/phase-gate.ts).
 //
 // The core holds the rule: a bounce goes back to the worker that already ran,
 // never to a cold relaunch. How a finished worker is continued is pi's:

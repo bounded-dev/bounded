@@ -7,7 +7,7 @@ import { resetPathGateRegistry } from "../../src/path-gate.ts";
 import type { TempProject } from "../../test/support/temp-project.ts";
 import { makeLeadProject } from "../../test/support/lead-project.ts";
 
-// ADR 2026-048 on pi: in a project's own harness copy, the root session is
+// ADR LEG-2026-048 on pi: in a project's own harness copy, the root session is
 // the read-only team lead and an unbound child is held to the scout's
 // read-only policy. Both go through the same seat resolution and policy as
 // Claude Code; this file pins the pi adapter's wiring.
@@ -174,7 +174,7 @@ describe("pi lead session", () => {
   });
 });
 
-describe("a ticket worktree's own pi session (ADR 2026-066)", () => {
+describe("a ticket worktree's own pi session (ADR LEG-2026-066)", () => {
   const ticket = (): string => project({ ".bounded/ticket-worktree.json": JSON.stringify({ issue: 3, branch: "ticket/3", main: "/m" }), "docs/a.md": "" });
 
   test("an unbound top-level session there is only read-only, never a lead", async () => {

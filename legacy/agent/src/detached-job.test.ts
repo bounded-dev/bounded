@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { claimInline, jobOutput, listJobs, runOrCollect, stopJobs, type JobEvent, type JobSpec } from "./detached-job.ts";
 import { systemProcesses, type ProcessProbe } from "./process-lock.ts";
 
-// The core's detached, resumable job (ADR 2026-073): a run started in its own
+// The core's detached, resumable job (ADR LEG-2026-073): a run started in its own
 // session with its output in files, so a call can return while it works and a
 // later call collects it. Commands here are `node -e …`.
 

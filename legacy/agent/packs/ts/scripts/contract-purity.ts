@@ -1,6 +1,6 @@
 // contract-purity gate (TN-26-001, DESIGN stage): *.contract.ts files must be
 // declaration-only, express the domain in value objects, and use the
-// contract-owns-the-name form of ADR 2026-059. Thin CLI over ESLint + the
+// contract-owns-the-name form of ADR LEG-2026-059. Thin CLI over ESLint + the
 // bounded-ts plugin.
 // The orchestrator runs this; the architect never lints its own work.
 //
@@ -90,7 +90,7 @@ export function createContractLinter(cwd?: string): ESLint {
   const packPlugins = contributedPurityPlugins(overrides);
   return new ESLint({
     ...(cwd === undefined ? {} : { cwd }),
-    // A composed layout has one contract glob per source root (ADR 2026-056),
+    // A composed layout has one contract glob per source root (ADR LEG-2026-056),
     // and a project need not have every root yet (no apps/ before the first
     // app). The gate still refuses when the patterns match nothing at all.
     errorOnUnmatchedPattern: false,
@@ -111,7 +111,7 @@ export function createContractLinter(cwd?: string): ESLint {
           // and enforced nothing; the required form cannot be built without a
           // cast the src lint bans. Concepts are interface pairs instead.
           "bounded-ts/no-branded-aliases": "error",
-          // The contract-owns-the-name model (ADR 2026-059): a concept is
+          // The contract-owns-the-name model (ADR LEG-2026-059): a concept is
           // 'interface <Name>' + 'interface <Name>Factory'. no-naked-primitives
           // says a primitive may not cross the boundary; these say what must
           // be there instead — a value object's brand, single 'value', parse
@@ -127,12 +127,12 @@ export function createContractLinter(cwd?: string): ESLint {
           // types — every contract, so the frozen design never depends on a
           // builder-written file (contract-first freezing). An application
           // contract may also import its context's generated domain barrel
-          // (ADR 2026-059, lead decision Q3). It replaces the retired
+          // (ADR LEG-2026-059, lead decision Q3). It replaces the retired
           // no-cross-contract-type-import, whose rule was the opposite under
           // the declare-class model.
           "bounded-ts/contract-imports-contracts-only": "error",
           // zod is the engine inside a value object, never a public identity:
-          // nothing from zod may appear in a contract (ADR 2026-031).
+          // nothing from zod may appear in a contract (ADR LEG-2026-031).
           "bounded-ts/no-schema-on-surface": "error",
         },
       },
@@ -183,7 +183,7 @@ export async function runContractPurity(
 }
 
 /** The composed contract globs (one per source root and contract suffix, ADR
- *  2026-056), or the flat `src/**` default where the composition declares
+ *  LEG-2026-056), or the flat `src/**` default where the composition declares
  *  none or cannot be read (the gate then matches nothing and says so). */
 export function defaultContractPatterns(cwd: string): string[] {
   try {

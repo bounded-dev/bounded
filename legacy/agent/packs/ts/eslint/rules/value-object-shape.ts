@@ -15,7 +15,7 @@ import {
   textOf,
 } from "./concept-pairs.ts";
 
-// ADR 2026-059 contract rule: a value object's contract is the worked
+// ADR LEG-2026-059 contract rule: a value object's contract is the worked
 // example's "contract owns the name" pair, and nothing looser.
 //
 //   import type { Result } from "../shared/result.ts";
@@ -39,7 +39,7 @@ import {
 //   the name silently gives two unrelated types.
 // * `parse(raw: unknown): Result<Name>` is the only door in. `unknown`, so
 //   the generated laws can hand it hostile input; `Result`, so a refusal
-//   carries a reason instead of an `undefined` (the retired ADR 2026-015
+//   carries a reason instead of an `undefined` (the retired ADR LEG-2026-015
 //   form).
 // * Exactly one field, `readonly value`, of a primitive, and `toJSON()`
 //   returning that primitive: the laws assert toJSON round-trips through
@@ -76,7 +76,7 @@ type MessageId =
   | "domainFile"
   | "resultSource";
 
-const MODEL = "A value object's contract is 'interface <Name>' plus 'interface <Name>Factory' (ADR 2026-059, ts-contract-authoring).";
+const MODEL = "A value object's contract is 'interface <Name>' plus 'interface <Name>Factory' (ADR LEG-2026-059, ts-contract-authoring).";
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 

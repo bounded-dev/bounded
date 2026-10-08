@@ -4,8 +4,8 @@ wave it and its successor motivated (2026-09-09). Two pairs, harness arm only �
 these runs were testing new mechanism rather than re-measuring the
 harness-versus-guidance contrast. Same task and the same two
 models throughout (sonnet 5, kimi). **r13** is the first pair to run the
-composite `design_gate` (ADR 2026-019). **r14** is the first pair with a
-`reviewer` reading the design before the freeze (ADR 2026-020). Archive
+composite `design_gate` (ADR LEG-2026-019). **r14** is the first pair with a
+`reviewer` reading the design before the freeze (ADR LEG-2026-020). Archive
 branches `r13-sonnet-harness`, `r13-kimi-harness`,
 `r14-sonnet-harness-aborted`, `r14-kimi-harness`.
 
@@ -42,7 +42,7 @@ make.
 **2. The freshness lock fired live and forced an honest re-review.** The gate
 refuses to freeze a design whose bytes have moved since the review that covered
 it. It blocked in-run, named the files that had moved, and the architect
-commissioned the reviewer again rather than freezing. This is the ADR 2026-014
+commissioned the reviewer again rather than freezing. This is the ADR LEG-2026-014
 pattern holding once more: the *existence and freshness* of a review is
 mechanism, its content is judgment, and only the first half survives being
 merely written down.
@@ -51,7 +51,7 @@ merely written down.
 nine on a gate that had never asked for more than freshness — advisory findings
 polished until they ran out. An advisory role with no stopping condition will
 absorb whatever time is available, so the condition is now written into the
-architect's brief and ADR 2026-020: **zero blockers means freeze now**; concerns
+architect's brief and ADR LEG-2026-020: **zero blockers means freeze now**; concerns
 and notes are settled by the architect's decision, in writing at `sign_off` if
 they survive; a re-review is owed only when bytes changed.
 
@@ -74,13 +74,13 @@ Each of these landed after the runs, motivated by them:
   proves red there, so a valid red is establishable at any moment — which is
   also what makes the two workers parallel rather than sequential. Green is
   bound to that red in both directions: the contract manifest, and a hash of
-  the `tests/` tree, so a test edited after the red voids it (ADR 2026-017).
+  the `tests/` tree, so a test edited after the red voids it (ADR LEG-2026-017).
 - **Spawn control by shape.** Twice across the two pairs the architect wrapped
   both workers in a `workflowScript`, and the gate — seeing one `subagent` call
   carrying a string — let it through with no precondition checked. Twice more
   it spawned `delegate`, the general write-capable worker, which carries no role
   binding and therefore no zone. Both forms are now refused by shape
-  (ADR 2026-021): a gate cannot follow a script it never watches run, nor bind
+  (ADR LEG-2026-021): a gate cannot follow a script it never watches run, nor bind
   a role to a child it never sees named.
 - **Forbidden tools removed rather than refused.** Both r14 arms spent whole
   turns on tools their role does not hold — refused, but still visible, so the

@@ -1,5 +1,5 @@
 // Claude Code's hooks for a ticket's architect seat (architect-seat.ts, ADR
-// 2026-066): binding the lead's background architect launch to the pending
+// LEG-2026-066): binding the lead's background architect launch to the pending
 // ticket, routing the subagent's calls to its worktree, recording its end, and
 // letting the lead continue exactly the architect a reply was prepared for.
 //
@@ -188,7 +188,7 @@ export function leadReplySend(payload: HookPayload, main: string): string {
   const pending = pendingReplyFor(main, target.to);
   if (pending === undefined) return refuse(`team-lead: no reply is waiting for ${target.to}; ${LEAD_SEND_WAY_FORWARD}`);
   // Only a stopped seat whose session still runs continues; one whose session
-  // has gone is relaunched by `bounded lead start` (ADR 2026-066).
+  // has gone is relaunched by `bounded lead start` (ADR LEG-2026-066).
   if (!seatContinuable(pending.worktree, pending.agent)) {
     return refuse(seatNeedsRelaunch(architectStatus(pending.worktree))
       ? `team-lead: #${pending.issue}'s architect ran in a session that has ended and cannot be continued; relaunch it with bounded lead start ${pending.issue}`

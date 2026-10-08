@@ -1,4 +1,4 @@
-// The generated composition roots (ADR 2026-067, issue #44), golden.
+// The generated composition roots (ADR LEG-2026-067, issue #44), golden.
 //
 // Two designs, every app kind (web, MCP, Lambda, desktop):
 //

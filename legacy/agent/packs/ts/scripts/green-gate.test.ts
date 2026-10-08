@@ -377,7 +377,7 @@ describe("runGreenGate on the monorepo", () => {
     expect(greenEvent(f.dir)).toMatchObject({ verdict: "block", detail: { reason: "failures", names: ["ListNotesHandler > lists"] } });
   });
 
-  test("a skipped or todo test is not a pass (ADR 2026-064: nothing is skipped at green)", async () => {
+  test("a skipped or todo test is not a pass (ADR LEG-2026-064: nothing is skipped at green)", async () => {
     const f = built();
     standingRed(f.dir);
     const r = await green(f, [...ALL_PASS, { name: "NoteText laws > parse accepts", status: "skipped" }, { name: "later", status: "todo" }]);

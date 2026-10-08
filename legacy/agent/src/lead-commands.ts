@@ -1,4 +1,4 @@
-// The team lead's commands (ADR 2026-066). The lead sits in the main worktree
+// The team lead's commands (ADR LEG-2026-066). The lead sits in the main worktree
 // and stays read-only except through these. Each one checks its own
 // preconditions, moves the board only as the table below says, and leaves the
 // worktree and the board in step or refuses:
@@ -11,7 +11,7 @@
 //   merge           local merge, project check, push, close           → Done
 //                   (the check runs in the background: a merge whose
 //                   check outlasts the call answers RUNNING, and a later
-//                   merge collects it — ADR 2026-073)
+//                   merge collects it — ADR LEG-2026-073)
 //   status, reply   read the architects' state, answer one architect
 //   sync-config     restore a ticket's generated config in its worktree,
 //                   once the user agrees; Awaiting Merge → Building
@@ -57,7 +57,7 @@ import {
 export const MAIN_BRANCH = "main";
 /** The remote `main` is pushed to. */
 export const REMOTE = "origin";
-/** The data socket a pack declares its project's full check in (ADR 2026-066). */
+/** The data socket a pack declares its project's full check in (ADR LEG-2026-066). */
 export const PROJECT_CHECK_SOCKET = "projectCheckCommands";
 
 // ── The command line ────────────────────────────────────────────────────────
@@ -157,7 +157,7 @@ export function parseLeadArgs(args: readonly string[]): ParsedLead {
     const issue = rest.length === 2 ? parseIssueRef(rest[0]!) : undefined;
     const message = rest[1]?.trim() ?? "";
     if (issue === undefined || message === "") return { ok: false, reason: usageOf("reply") };
-    // A host's command line could read it as an option (ADR 2026-066).
+    // A host's command line could read it as an option (ADR LEG-2026-066).
     if (flagLike(message)) return { ok: false, reason: "a reply may not begin with '-'; reword it" };
     return { ok: true, request: { command: "reply", issue, message } };
   }
@@ -224,7 +224,7 @@ const packsOf = (main: string, deps: LeadDeps): string => deps.packsDir ?? join(
 
 /**
  * The default config sync, run in a ticket's worktree: the one composed
- * pack's `projectConfigSyncCommand` (ADR 2026-072), its script read from the
+ * pack's `projectConfigSyncCommand` (ADR LEG-2026-072), its script read from the
  * same packs directory as the socket, its output captured. Any refusal —
  * no such command, more than one, a malformed one — comes back as the output.
  */
@@ -257,7 +257,7 @@ export interface LeadOutcome {
   readonly ok: boolean;
   readonly text: string;
   /** The command's work goes on in the background: run it again to collect
-   *  it (ADR 2026-073). Exit 3 from the shell form. */
+   *  it (ADR LEG-2026-073). Exit 3 from the shell form. */
   readonly running?: true;
 }
 
@@ -321,7 +321,7 @@ function openingBrief(issue: TrackerIssue, worktree: string, main: string): stri
 }
 
 export async function runLeadCommand(main: string, request: LeadRequest, deps: LeadDeps): Promise<LeadOutcome> {
-  // A merge's wait on its check counts from here (ADR 2026-073).
+  // A merge's wait on its check counts from here (ADR LEG-2026-073).
   const startedAt = Date.now();
   const place = leadPlace(main, deps);
   if (place !== undefined) return refused(place);
@@ -812,7 +812,7 @@ function bringLevel(main: string, deps: LeadDeps): string | undefined {
 
 /**
  * Restore a started ticket's generated config in its own worktree (ADR
- * 2026-072), the lead's step once the user agrees: never while its architect
+ * LEG-2026-072), the lead's step once the user agrees: never while its architect
  * or a background worker may still change that tree. A delivered ticket is
  * reopened to Building first, as a reply does, because the sync may change
  * what deliver passed on.
@@ -850,7 +850,7 @@ async function syncConfig(main: string, issueNumber: number, deps: LeadDeps, tra
   return done(`#${issueNumber}'s generated config is restored in ${relative(main, ticket.worktree)}${reopened}:\n${tail(result.output)}`);
 }
 
-// ── Merge (ADR 2026-066, ADR 2026-073) ──────────────────────────────────────
+// ── Merge (ADR LEG-2026-066, ADR LEG-2026-073) ──────────────────────────────────────
 //
 // The project check behind a merge can outlast the host's call, so it runs as
 // a background job in the main worktree (`merge-<issue>`), and local main is
@@ -934,7 +934,7 @@ async function merge(main: string, issueNumber: number, deps: LeadDeps, tracker:
   const level = bringLevel(main, deps);
   if (level !== undefined) return refused(level);
   // Re-read after the fast-forward: an undo returns here, not to the
-  // pre-fetch commit (ADR 2026-072).
+  // pre-fetch commit (ADR LEG-2026-072).
   const local = gitOut(deps, main, "rev-parse", MAIN_BRANCH);
   if (local === undefined) return refused(`${MAIN_BRANCH} cannot be read`);
 

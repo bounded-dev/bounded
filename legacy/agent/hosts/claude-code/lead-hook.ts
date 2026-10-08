@@ -1,4 +1,4 @@
-// Claude Code side of the read-only seats (ADR 2026-048): the project-local
+// Claude Code side of the read-only seats (ADR LEG-2026-048): the project-local
 // team lead and the scout. The decision is the host-neutral policy in
 // src/lead-policy.ts; this module only turns Claude Code calls into its
 // actions (tool-map.ts), parses the lead's few shell commands with the
@@ -37,7 +37,7 @@ const sameWords = (a: readonly string[], b: readonly string[]): boolean =>
 /** Parse one lead Bash command. Anything but the listed shapes is refused. */
 export function leadCommand(command: unknown): LeadCommand {
   // Re-planning runs the user's own `bounded init`, which owns installation;
-  // the project's copy cannot add a capability it does not hold (ADR 2026-065).
+  // the project's copy cannot add a capability it does not hold (ADR LEG-2026-065).
   const replan = parseReplanCommand(command, "claude-code");
   if (replan !== undefined) return { action: replan.ok ? { kind: "replan" } : { kind: "refused", reason: replan.reason } };
   const words = typeof command === "string" ? shellWords(command) : { ok: false as const };
@@ -49,7 +49,7 @@ export function leadCommand(command: unknown): LeadCommand {
     if (cli !== undefined) {
       if (sameWords(cli, ["gates", "--list"])) return { action: { kind: "lookup", tool: "gates --list" }, cli };
       if (cli[0] === "lead") {
-        // The same parser the command itself runs (lead-commands.ts, ADR 2026-066).
+        // The same parser the command itself runs (lead-commands.ts, ADR LEG-2026-066).
         const parsed = parseLeadArgs(cli.slice(1));
         if (parsed.ok && parsed.request.command === "release") {
           return { action: { kind: "refused", reason: "bounded lead release is the user's own escape hatch: it clears seat state the harness " +
@@ -99,7 +99,7 @@ export function listingActions(command: unknown, cwd: string): readonly SeatActi
 
 /** Rewrite an admitted command onto the project's harness copy. `bounded lead
  *  merge` alone is told the call's deadline, because its project check runs
- *  in the background once it outlasts the call (ADR 2026-073); a prefix the
+ *  in the background once it outlasts the call (ADR LEG-2026-073); a prefix the
  *  model typed itself never reaches here (the lead's parser refuses it). */
 function runOnProjectCopy(payload: HookPayload, harnessRoot: string, cli: readonly string[]): string {
   const command = [join(harnessRoot, "scripts", "bounded"), ...cli].map(shellQuote).join(" ");

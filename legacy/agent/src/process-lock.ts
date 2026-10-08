@@ -1,4 +1,4 @@
-// A lock file owned by one live process (ADR 2026-066). The owner is recorded
+// A lock file owned by one live process (ADR LEG-2026-066). The owner is recorded
 // by pid AND that process's start time, so a lock whose owner has died — or
 // whose pid the system has since given to another process — is stale by
 // evidence, never by a timeout, and the next taker clears it.

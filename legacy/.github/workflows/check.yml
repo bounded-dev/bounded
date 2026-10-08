@@ -26,7 +26,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           # Exact pin: the harness's generated projects and the reference
-          # checks run on this Bun (ADR 2026-062).
+          # checks run on this Bun (ADR LEG-2026-062).
           bun-version: 1.3.14
       - run: bun --version
       - run: npm ci

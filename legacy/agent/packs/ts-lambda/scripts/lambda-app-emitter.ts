@@ -1,7 +1,7 @@
-// The Lambda app's seed files (ADR 2026-061, TN-26-012 §1), emitted for every
+// The Lambda app's seed files (ADR LEG-2026-061, TN-26-012 §1), emitted for every
 // workspace a TN declares with kind `lambdas`.
 //
-//   src/composition-root.ts   generated (ADR 2026-067): one compose<Feature>() per Lambda, its handler and adapters
+//   src/composition-root.ts   generated (ADR LEG-2026-067): one compose<Feature>() per Lambda, its handler and adapters
 //   src/<feature>.ts          skeleton, one entry per Lambda: `export const handler = compose<Feature>();`
 //
 // A Lambda app hosts every feature tagged `@exposedVia lambda`, from every

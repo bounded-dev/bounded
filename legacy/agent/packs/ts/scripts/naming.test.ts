@@ -43,7 +43,7 @@ describe("tRPC route keys", () => {
   });
 });
 
-describe("dependencyGroups: the grouped dependency shape (ADR 2026-067)", () => {
+describe("dependencyGroups: the grouped dependency shape (ADR LEG-2026-067)", () => {
   const f = (area: string, feature: string) => ({ area, feature });
 
   test("areas sorted, each keyed camelCase; features under their route keys, in the order given", () => {

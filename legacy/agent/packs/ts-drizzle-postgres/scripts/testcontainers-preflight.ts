@@ -1,5 +1,5 @@
 // Green's Testcontainers preflight, and the infrastructure-failure classifier
-// (ADR 2026-064, amended by ADR 2026-072).
+// (ADR LEG-2026-064, amended by ADR LEG-2026-072).
 //
 // At green a Postgres project starts containers through Testcontainers, inside
 // the generated test support: the store tests' and each persisting app's
@@ -37,7 +37,7 @@
 //
 // A failure refuses green with the real cause, cleaned of secrets, and a
 // remedy in product terms, routed to the user: the machine is theirs, and no
-// role can fix it (ADR 2026-072). The same classifier is green's backstop
+// role can fix it (ADR LEG-2026-072). The same classifier is green's backstop
 // over the suite's failures. It is deliberately conservative: it claims only
 // text that Docker or Testcontainers themselves produce, and when unsure it
 // leaves the failure with the builder.
@@ -300,7 +300,7 @@ export function recogniseInfrastructure(text: string, context: ClassifyContext, 
 }
 
 /** What the user does about each cause, in product terms: never a command
- *  to type (ADR 2026-072). The engine is the user's machine. */
+ *  to type (ADR LEG-2026-072). The engine is the user's machine. */
 const REMEDY: Readonly<Record<InfrastructureKind, string>> = {
   "credential-helper": "the container engine's settings name a registry login helper that isn't installed: install it, or remove it from the engine's settings",
   "no-runtime": "the container engine isn't running: start it",
@@ -330,7 +330,7 @@ export function classifyPreflightFailure(text: string, stage: PreflightStage, ti
 export function preflightRefusal(found: InfrastructureCause, image: string): string {
   return `Testcontainers, which the tests that need Postgres start it through, could not start a ${image} container on this ` +
     `machine (green's preflight, before any test ran): ${found.cause}. Remedy: ${found.remedy}. This is the machine, ` +
-    "not the code: no role can fix it (ADR 2026-064, ADR 2026-072).";
+    "not the code: no role can fix it (ADR LEG-2026-064, ADR LEG-2026-072).";
 }
 
 // The child: one container through the store tests' own Testcontainers,
@@ -524,7 +524,7 @@ export async function preflightTestcontainers(
   const budget = callBudgetMs(deps.deadlineMs ?? commandTimeoutMs(deps.env));
   const left = (): number => (budget === undefined ? Number.POSITIVE_INFINITY : budget - now());
   const tooLate = (at: PreflightStage): boolean => left() < STAGE_MINIMUM_MS[at];
-  // Inside a background job (ADR 2026-073) the deadline is the job's own
+  // Inside a background job (ADR LEG-2026-073) the deadline is the job's own
   // limit, which no role can raise: running out of it is the harness's bug.
   const inJob = deps.env["BOUNDED_JOB_DIR"] !== undefined;
   const budgetRefusal = (at: PreflightStage): Error => new Error(inJob

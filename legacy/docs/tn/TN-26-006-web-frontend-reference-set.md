@@ -17,7 +17,7 @@ proves it.
 ## Ratified at the 2026-09-14 grill
 
 - **Blessed web stack:** React, Vite, TanStack Query, `@trpc/client`,
-  Tailwind, shadcn/ui — exact-pinned by the pack (ADR 2026-029 applies).
+  Tailwind, shadcn/ui — exact-pinned by the pack (ADR LEG-2026-029 applies).
 - **shadcn components are pack-owned in v1**: vendored by the generator with
   generated markers, never hand-edited; restyling happens through the
   Tailwind token layer. Revisit if a real project needs a variant tokens
@@ -35,7 +35,7 @@ proves it.
 FSD is the enforceable form of the dumb-vs-domain-aware split — its core law
 (imports flow strictly downward; each slice exposes a public API through its
 index) is lint material, its vocabulary is in every model's training data,
-and its layer split aligns with the wire's CQRS (ADR 2026-030): `entities`
+and its layer split aligns with the wire's CQRS (ADR LEG-2026-030): `entities`
 own read models and queries, `features` own commands and forms.
 
 ```
@@ -154,7 +154,7 @@ own typed reader, never by the core. The two fences are
 `bounded-ts-web/tokens-only-styling` (raw palette and hand-written colours
 refused in `src/ui/**`; `bg-[var(--…)]` and non-colour arbitrary values stay
 legal, which the rule header states as a v1 scope) and `theme-check`, which
-rides a NEW socket the ts pack defines — `deliverChecks`, ADR 2026-033 — and
+rides a NEW socket the ts pack defines — `deliverChecks`, ADR LEG-2026-033 — and
 measures oklch/hex/rgb against WCAG AA in the base theme and every media
 variant. One deviation worth recording: `--color-muted-foreground` moved 0.55 →
 0.52, because the starter theme contrasted 4.45:1 against `--color-muted` and

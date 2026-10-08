@@ -163,7 +163,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
   // startup. A bound role is never the lead, so it loses nothing.
   const leadTools = projectCopy && boundRole === undefined;
 
-  // The lead's commands (ADR 2026-066): tickets, the board, each ticket's
+  // The lead's commands (ADR LEG-2026-066): tickets, the board, each ticket's
   // worktree and architect, merging.
   if (leadTools) registerLeadCommandTools(pi, leadSession);
 
@@ -182,7 +182,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
   });
 
   // Re-planning runs the user's own `bounded init`, which owns installation:
-  // the project's copy cannot add a capability it does not hold (ADR 2026-065).
+  // the project's copy cannot add a capability it does not hold (ADR LEG-2026-065).
   if (leadTools) pi.registerTool({
     name: LEAD_REPLAN_TOOL,
     label: "Re-plan initialization",
@@ -256,7 +256,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
 
     // Say which host this is and what it holds, before the first tool call:
     // a `bounded gates` transcript from a bare shell otherwise reads exactly like
-    // a blind run (ADR 2026-034). pi enforces every constraint the stage has.
+    // a blind run (ADR LEG-2026-034). pi enforces every constraint the stage has.
     recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
 
     // Defence in depth over a gate that already refuses these calls: if the
@@ -285,7 +285,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
   });
 
   // A ticket's architect is the lead's async child in the ticket worktree
-  // (ADR 2026-066): its own loader records the seat's start and end there.
+  // (ADR LEG-2026-066): its own loader records the seat's start and end there.
   if (boundRole === "architect" && projectCopy) {
     pi.on("session_start", (_event, ctx) => { if (isTicketWorktree(ctx.cwd)) recordArchitectSeatLife(ctx.cwd, "start"); });
     pi.on("session_shutdown", (_event, ctx) => { if (isTicketWorktree(ctx.cwd)) recordArchitectSeatLife(ctx.cwd, "end"); });
@@ -356,7 +356,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role, options: Pat
     if (evaluating) recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
 
     // Passed on whole: a content search is judged on its `glob` and a find on
-    // its `pattern` as well as its path (ADR 2026-057), so the gate must see
+    // its `pattern` as well as its path (ADR LEG-2026-057), so the gate must see
     // exactly the fields pi's grep and find will run with.
     const input = event.input as Readonly<Record<string, unknown>>;
     const ev = {

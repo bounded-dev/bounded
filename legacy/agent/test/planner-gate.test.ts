@@ -1,4 +1,4 @@
-// The planner's tool gate (scripts/workflow/planner-gate.ts, ADR 2026-068):
+// The planner's tool gate (scripts/workflow/planner-gate.ts, ADR LEG-2026-068):
 // the harness-planner development agent writes only under .agent-state/ and
 // runs only read-only commands. Its tests run here so `npm run check` covers it.
 import { execFileSync } from "node:child_process";

@@ -3,7 +3,7 @@ import { RuleTester } from "@typescript-eslint/rule-tester";
 import { valueObjectShape } from "./value-object-shape.ts";
 import { EXAMPLE_CONCEPTS, exampleConcept } from "../../scripts/testdata/example-domain.ts";
 
-// ADR 2026-059: a value object's contract is `interface <Name>` +
+// ADR LEG-2026-059: a value object's contract is `interface <Name>` +
 // `interface <Name>Factory`. Every example contract passes; every near miss of
 // the canonical form fails with the message naming the fix.
 

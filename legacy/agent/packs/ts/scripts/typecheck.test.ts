@@ -93,7 +93,7 @@ describe("formatTypecheck", () => {
   });
 });
 
-describe("the type-check invocation (ADR 2026-062)", () => {
+describe("the type-check invocation (ADR LEG-2026-062)", () => {
   test("bunx tsc on the generated tsconfig.json, one-line diagnostics", async () => {
     const seen: string[][] = [];
     await typecheck("/proj", { run: async (command, args) => { seen.push([command, ...args]); return { stdout: "", stderr: "", code: 0 }; } });

@@ -1,4 +1,4 @@
-// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.
+// Generated from the design (ADR LEG-2026-067); do not edit: the design gate regenerates it.
 // The one place that decides which adapter backs which port.
 import { DrizzleListWorkspacesStore } from "@dogfood/net-worth/adapters/drizzle";
 import { createListWorkspacesLambda } from "@dogfood/net-worth/adapters/lambda";

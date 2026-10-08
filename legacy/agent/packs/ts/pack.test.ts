@@ -23,7 +23,7 @@ function packsDir(packs: Record<string, unknown>, files: Record<string, string> 
   return dir;
 }
 
-describe("skeletonEmitters (ADR 2026-060)", () => {
+describe("skeletonEmitters (ADR LEG-2026-060)", () => {
   const emitter = (overrides: Partial<Emitter> = {}): Emitter => ({
     name: "domain-barrel",
     description: "The domain barrel.",
@@ -61,7 +61,7 @@ describe("skeletonEmitters (ADR 2026-060)", () => {
   });
 });
 
-describe("adapterTechnologies (ADR 2026-061)", () => {
+describe("adapterTechnologies (ADR LEG-2026-061)", () => {
   const MCP = { id: "mcp", direction: "in", featureRole: "tool", description: "MCP tools.", pins: { dependencies: { "@modelcontextprotocol/sdk": "1.20.0" } } };
   const MEMORY = { id: "in-memory", direction: "out", storage: true, database: "value", description: "In-memory stores." };
   const CONSOLE = { id: "console", direction: "out", storage: false, description: "Console stand-ins." };
@@ -156,7 +156,7 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
     expect(plain).not.toHaveProperty("appPins");
   });
 
-  test("connect is read with its runtimes sorted; absent when not declared (ADR 2026-067)", () => {
+  test("connect is read with its runtimes sorted; absent when not declared (ADR LEG-2026-067)", () => {
     const both = { ...DB, appPins: { node: { dependencies: { orm: "1.0.0" } }, bun: { dependencies: { orm: "1.0.0" } } },
       connect: { env: "DATABASE_URL", runtimes: { node: { function: "connect", from: "orm/node" }, bun: { function: "connect", from: "orm/bun" } } } };
     const [read] = adapterTechnologies(["p"], packsDir({ p: { adapterTechnologies: [both] } }));
@@ -179,7 +179,7 @@ describe("adapterTechnologies (ADR 2026-061)", () => {
   });
 });
 
-describe("workspaceTemplates (ADR 2026-061)", () => {
+describe("workspaceTemplates (ADR LEG-2026-061)", () => {
   const FILES = {
     "web/templates/web/package.json": "{}",
     "web/templates/web/main.ts": "x",

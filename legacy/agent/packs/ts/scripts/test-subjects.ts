@@ -5,7 +5,7 @@
 // (a module helper, a `describe`-level fixture, a variable a `beforeEach`
 // assigns), plus modules it loads with a literal `import()`. Type positions
 // never count. Each subject is classified by a resolver: generated (a module
-// only generators write, ADR 2026-058), authored (code a role writes), none
+// only generators write, ADR LEG-2026-058), authored (code a role writes), none
 // (a library, the test runner, a generated test helper), or unknown.
 //
 // A test whose subjects are all generated cannot fail for the right reason at
@@ -334,7 +334,7 @@ function barrelExports(text: string, path: string): { names: Map<string, string>
  * The imported values the export `name` of a module constructs with `new` (`new CreateNoteHandler(…)`),
  * as `{ spec, name }`, or undefined when it does not parse. A generated module
  * that constructs authored classes is wiring (a generated composition root,
- * ADR 2026-067): using it runs them, so it reaches what it constructs.
+ * ADR LEG-2026-067): using it runs them, so it reaches what it constructs.
  */
 function constructedImports(text: string, path: string, name: string): { spec: string; name: string }[] | undefined {
   let ast: TSESTree.Program;

@@ -21,7 +21,7 @@
 // makes the log load-bearing rather than merely diagnostic: it is the record of
 // what actually ran, so it is the right thing to ask.
 //
-// WHAT THE GATE CHECKS, AND WHAT IT NO LONGER DOES (ADR 2026-021)
+// WHAT THE GATE CHECKS, AND WHAT IT NO LONGER DOES (ADR LEG-2026-021)
 //
 // The precondition for a worker is the FREEZE, not the red. red_gate proves red
 // in a shadow project it builds itself — contracts plus regenerated skeletons
@@ -88,7 +88,7 @@ export interface PhaseEvidence {
   /** Current hashes of this ticket's TN and owned contracts. */
   readonly designHashes?: Readonly<Record<string, string>>;
   /** Project-relative paths of the contract files that exist — recognised by
-   *  the filename suffixes the composed packs contribute (ADR 2026-052). */
+   *  the filename suffixes the composed packs contribute (ADR LEG-2026-052). */
   readonly contracts: readonly string[];
   /** The composed packs' contract filename suffixes, for refusal wording. */
   readonly contractSuffixes?: readonly string[];
@@ -123,7 +123,7 @@ export interface PhaseEvidence {
  */
 const MIN_SPEC_BYTES = 400;
 
-// --- intake (ADR 2026-032) -------------------------------------------------------
+// --- intake (ADR LEG-2026-032) -------------------------------------------------------
 //
 // Every spec entering the stage is reworked to "what is required", and the
 // implementation choices stripped in that rework are recorded under an
@@ -260,7 +260,7 @@ export function checkSpawnPrecondition(
   if (specIntakeSection(specText) === undefined) {
     return deny(
       `phase-gate: cannot commission the ${target} — ${note} has no "## Intake" section ` +
-        "(ADR 2026-032). Every ticket is reworked to what-is-required, and the Intake section " +
+        "(ADR LEG-2026-032). Every ticket is reworked to what-is-required, and the Intake section " +
         "records the implementation choices stripped in that rework — \"nothing stripped\" is a " +
         "valid entry — so the reviewer can challenge the reworking. Add it, then commission.",
     );
@@ -271,7 +271,7 @@ export function checkSpawnPrecondition(
     return deny(
       `phase-gate: cannot commission the ${target} — ${note} names ${leaked.join(", ")} outside ` +
         "the Intake section. A technology a ticket names is a \"how\" that intake strips (ADR " +
-        "2026-032): remove it from the requirement text, or — if the user has ratified it as a " +
+        "LEG-2026-032): remove it from the requirement text, or — if the user has ratified it as a " +
         "genuine constraint — document it under \"## Intake\" with that rationale, where it is legal.",
     );
   }
@@ -293,7 +293,7 @@ export function checkSpawnPrecondition(
     }
   } else {
   // The three checks below read the INNER guard names, which `design_gate` logs
-  // as it runs each step (ADR 2026-019). So they still say precisely which step
+  // as it runs each step (ADR LEG-2026-019). So they still say precisely which step
   // is missing, and the remedy for every one of them is the same single call.
   if (!passed(events, "contract-purity")) {
     return deny(
@@ -326,7 +326,7 @@ export function checkSpawnPrecondition(
   // and 362k re-priming its successors.
   //
   // HOW a finished worker is continued belongs to the host, not to this file
-  // (ADR 2026-034). Each host adapter supplies a CommissionHost, and the
+  // (ADR LEG-2026-034). Each host adapter supplies a CommissionHost, and the
   // refusal carries that host's own instruction, never another host's. What
   // licenses a cold launch is host-neutral evidence: a `continuation-checked`
   // event after the role's last launch, recorded by the adapter when the host
@@ -355,7 +355,7 @@ export function checkSpawnPrecondition(
   }
 
   // Nothing below this line orders the two workers. The builder used to wait on
-  // a red-gate pass; it no longer does (ADR 2026-021). red_gate proves red in a
+  // a red-gate pass; it no longer does (ADR LEG-2026-021). red_gate proves red in a
   // shadow project built from the contracts, regenerated skeletons and the
   // tests tree, so it never reads live `src/` and a builder working in parallel
   // cannot contaminate it; green_gate then requires the standing red to match
@@ -461,7 +461,7 @@ export type CommissionCall =
 
 /**
  * What a host adapter supplies so the core can judge commissions without
- * naming any host's tool (ADR 2026-034). The rule — a bounce goes to the
+ * naming any host's tool (ADR LEG-2026-034). The rule — a bounce goes to the
  * worker that already ran, never to a cold relaunch — is the core's; the
  * mechanism for continuing a finished worker is the host's.
  */

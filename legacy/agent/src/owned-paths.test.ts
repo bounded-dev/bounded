@@ -7,8 +7,8 @@ import { decide, type Ctx } from "./path-policy.ts";
 import { TICKET_MARKER_RELATIVE } from "./ticket-worktree.ts";
 
 // In a ticket worktree every role writes only under the ticket's owned
-// paths, plus test-side and generated files (ADR 2026-066); paths compare
-// without case (ADR 2026-057).
+// paths, plus test-side and generated files (ADR LEG-2026-066); paths compare
+// without case (ADR LEG-2026-057).
 
 const LAYOUT: Omit<Ctx, "cwd"> = {
   sourceRoots: ["contexts"],

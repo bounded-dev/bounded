@@ -140,7 +140,7 @@ describe("the npm distribution", () => {
     mkdirSync(target);
     // Through the bin under node_modules: node there cannot type-strip, so
     // every pack script init runs must come from dist/.
-    // Planning needs no tracker (ADR 2026-066); the fake gh records that nothing asked it.
+    // Planning needs no tracker (ADR LEG-2026-066); the fake gh records that nothing asked it.
     const ghState = join(temp, "gh-state.json");
     writeFileSync(ghState, "{}\n");
     const out = execFileSync(join(installed, "scripts", "bounded"), ["init", "--host", "claude-code", "--cwd", target], {

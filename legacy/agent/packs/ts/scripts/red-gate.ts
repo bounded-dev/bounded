@@ -3,7 +3,7 @@
 //   bounded gates red-gate [targetDir]
 //
 // Runs the project's suite with `bun test` (through the shared run_tests
-// runner, JUnit report, ADR 2026-062) AND `bunx tsc`, and asserts a VALID red:
+// runner, JUnit report, ADR LEG-2026-062) AND `bunx tsc`, and asserts a VALID red:
 // the project TYPECHECKS, the suite RUNS, every test fails, and EVERY failure
 // is a NotImplementedError. Red only proves something if someone checks WHY it
 // went red (TN-26-001 Appendix, Böckeler). Wrong-reason red — import errors,
@@ -22,7 +22,7 @@
 //   copied      the contracts, the test-writer's test-side files in every
 //               context workspace, the generated files on disk (migrations,
 //               the rulebook), the root config and every workspace manifest
-//   emitted     every composed emitter's output at phase `red` (ADR 2026-060):
+//   emitted     every composed emitter's output at phase `red` (ADR LEG-2026-060):
 //               fresh skeletons that throw, and the generated files over the
 //               copies — so the shadow is the project the design scaffolds,
 //               whatever the builder has written since
@@ -39,7 +39,7 @@
 // test files (the generated architecture test) run at green only: nothing a
 // skeleton does can make them fail for the right reason.
 //
-// Store tests (ADR 2026-064): the composed phase test policies decide, and
+// Store tests (ADR LEG-2026-064): the composed phase test policies decide, and
 // without a container runtime the store tests are skipped with the reason
 // logged — the skip is set in the TEST PROCESS's environment, never the gate's.
 //
@@ -254,7 +254,7 @@ function classifySuite(run: RunTestsResult): GateResult {
  * type error points further upstream (a broken contract is the architect's).
  */
 /**
- * The generated laws' half of the red (ADR 2026-058/060). A law exercises
+ * The generated laws' half of the red (ADR LEG-2026-058/060). A law exercises
  * generated code as well as skeletons (a command's wire checks run before any
  * value object does), so a law may PASS against the skeletons. It may not
  * fail for any other reason than NotImplementedError, and it may not skip:
@@ -373,7 +373,7 @@ function walkFiles(root: string, dir: string, out: string[] = []): string[] {
 }
 
 /** Every test-side file a role wrote under the composed source roots (ADR
- *  2026-057): a composed test suffix, and no generated glob. Sorted. Throws
+ *  LEG-2026-057): a composed test suffix, and no generated glob. Sorted. Throws
  *  when the composition is unreadable. */
 export function testSideFiles(cwd: string): string[] {
   const suffixes = testFileSuffixes(cwd);
@@ -591,7 +591,7 @@ export function materializeShadow(cwd: string, plan: ShadowPlan): string {
 // --- obligations ------------------------------------------------------------------
 
 /**
- * What a red must ALSO discharge once it is otherwise valid (ADR 2026-063):
+ * What a red must ALSO discharge once it is otherwise valid (ADR LEG-2026-063):
  * the per-level test files and reach (test-obligations.ts). Dogfood Run 7 is
  * why: a right-reason red that never called 9 of 15 exports. The test-writer's
  * to fix, at the last gate where fixing is cheap.
@@ -804,7 +804,7 @@ function gateError(cwd: string, summary: string, reason: string): GateResult {
  *  `red_gate` tool and the CLI are thin wrappers over this. */
 export async function runRedGate(cwd: string): Promise<GateResult> {
   // The shadow copies and runs the project's config: it must be what the
-  // composed packs generate (ADR 2026-054).
+  // composed packs generate (ADR LEG-2026-054).
   const configBlock = configDriftBlock(GUARD, cwd);
   if (configBlock !== undefined) return configBlock;
 

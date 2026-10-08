@@ -1,4 +1,4 @@
-// Claude Code → pi tool vocabulary (ADR 2026-034, Tier B: capability
+// Claude Code → pi tool vocabulary (ADR LEG-2026-034, Tier B: capability
 // constraints per host).
 //
 // The path gate's pure core, decide() in src/path-policy.ts, speaks pi's tool
@@ -118,7 +118,7 @@ export function mapToolCall(call: ClaudeToolCall, cwd: string): readonly GateCal
     // directory listing of a blind zone leaks exactly what `ls` would in pi.
     case "LS":
       return one("ls", input["path"]);
-    // The file filter rides along (ADR 2026-057): a blind role's content
+    // The file filter rides along (ADR LEG-2026-057): a blind role's content
     // search over a directory is judged on whether its `glob` provably keeps
     // it off the other side, and a find pattern must stay inside the searched
     // directory — so dropping either would judge a different call than the
@@ -171,7 +171,7 @@ function mapAgent(input: Readonly<Record<string, unknown>>): readonly GateCall[]
   const agent = input["subagent_type"];
   const task = input["prompt"];
   // `model` rides along so the model-tier core can judge a caller-passed
-  // override exactly as it does on pi (ADR 2026-022).
+  // override exactly as it does on pi (ADR LEG-2026-022).
   const model = input["model"];
   return [
     {
@@ -207,7 +207,7 @@ export function claudeTaskModel(pattern: string): string | undefined {
   return CLAUDE_MODEL_FAMILIES.find((family) => id.includes(family));
 }
 
-// ── Read-only seats (ADR 2026-048) ──────────────────────────────────────────
+// ── Read-only seats (ADR LEG-2026-048) ──────────────────────────────────────────
 // The team lead and the scout are judged by the host-neutral policy in
 // src/lead-policy.ts, which speaks actions rather than tools. This is the
 // Claude Code side of that translation. Bash is not translated here: the lead
@@ -220,7 +220,7 @@ import { searchPatternContained } from "../../src/setup-state.ts";
  * Claude Code's conversation tools: they act on the conversation, never on the
  * project or the outside world. `SubagentHandback` returns a subagent's report
  * to the seat that commissioned it; `ToolSearch` loads a deferred tool's
- * schema, and the loaded tool is still judged when it is called (ADR 2026-069).
+ * schema, and the loaded tool is still judged when it is called (ADR LEG-2026-069).
  */
 export const CLAUDE_SESSION_TOOLS: ReadonlySet<string> = new Set(["SubagentHandback", "ToolSearch"]);
 

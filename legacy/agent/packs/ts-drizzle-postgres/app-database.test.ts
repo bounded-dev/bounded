@@ -1,5 +1,5 @@
 // The policy's decisions for a persisting tree with no gate database (issue
-// #52, ADR 2026-072), and the gate's prepared-service mechanics: the
+// #52, ADR LEG-2026-072), and the gate's prepared-service mechanics: the
 // environment the test process gets and release on every exit (signals
 // included). No runtime needed.
 import { describe, expect, test } from "vitest";

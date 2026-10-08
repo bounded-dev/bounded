@@ -1,5 +1,5 @@
 // The gate-verified reference (TN-26-008), now the worked example's domain
-// (ADR 2026-059): packs/ts/reference/contexts/project-management/src/domain.
+// (ADR LEG-2026-059): packs/ts/reference/contexts/project-management/src/domain.
 //
 // Its whole value is that the checks the harness enforces run over it on
 // every `npm run check`, so the example an agent copies can never show a

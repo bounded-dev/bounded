@@ -13,7 +13,7 @@ import {
   type GateResult,
 } from "./gate-result.ts";
 
-// The contract every host prints and parses (ADR 2026-029). The verdict line
+// The contract every host prints and parses (ADR LEG-2026-029). The verdict line
 // used to live in the pi extension alone; its exact wording is what the
 // architect reads, so it is pinned here rather than re-derived per host.
 
@@ -98,7 +98,7 @@ describe("gateEnvelope", () => {
   });
 });
 
-// RUNNING (ADR 2026-073): only the harness's background runner answers it,
+// RUNNING (ADR LEG-2026-073): only the harness's background runner answers it,
 // through gateRunning; a runner's own 3 stays "the gate could not run".
 describe("RUNNING", () => {
   test("only gateRunning builds RUNNING, and labels come from the result", () => {

@@ -5,7 +5,7 @@ import { EXAMPLE_CONTEXT, EXAMPLE_PACKS, exampleContracts, exampleFacts } from "
 import { type ComposeFunction, compositionRoot, compositionStorage } from "./composition-root.ts";
 import { contextModels } from "./context-model.ts";
 
-// The generated composition root's own rules (ADR 2026-067), beside the app
+// The generated composition root's own rules (ADR LEG-2026-067), beside the app
 // packs' goldens: which storage backs the stores, how the database is made
 // once, the grouped shape, and what it refuses. The app packs supply only the
 // functions; this file plays every app kind through one spec.
@@ -157,7 +157,7 @@ describe("layout", () => {
     const spec = { app: app(facts, "web"), path: "apps/web/src/server/composition-root.ts", imports: [], functions: [composeApp(facts, "create-note")] };
     const file = compositionRoot(facts, spec);
     expect(file.mode).toBe("generated");
-    expect(file.content.split("\n")[0]).toBe("// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.");
+    expect(file.content.split("\n")[0]).toBe("// Generated from the design (ADR LEG-2026-067); do not edit: the design gate regenerates it.");
     expect(compositionRoot(facts, spec)).toEqual(file);
   });
 });

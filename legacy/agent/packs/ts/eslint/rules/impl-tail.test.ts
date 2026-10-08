@@ -5,7 +5,7 @@ import { EXAMPLE_CONCEPTS, exampleConcept } from "../../scripts/testdata/example
 import { implementationSkeleton } from "../../scripts/domain-emitter.ts";
 import { parseDomainConcept } from "../../scripts/domain-concept.ts";
 
-// ADR 2026-059: an implementation file hides `<Name>Impl`, implements the
+// ADR LEG-2026-059: an implementation file hides `<Name>Impl`, implements the
 // contract namespace, and ends with exactly the two generated exports. Every
 // example implementation and every emitted skeleton passes; each near miss
 // fails with the exact tail to write.

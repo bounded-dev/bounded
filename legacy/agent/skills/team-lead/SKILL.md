@@ -215,7 +215,7 @@ long as it runs, so follow this order:
 2. Create that change as a ticket of its own with `ticket create`, naming
    ticket `<n>` with `--depends` and the contract path with `--owns`; queue
    and start it, and its architect takes the contract over from ticket
-   `<n>` through its note's `takes:` list (ADR 2026-071) and delivers the
+   `<n>` through its note's `takes:` list (ADR LEG-2026-071) and delivers the
    follow-up.
 3. Return to the work that needed it, as a new run.
 
@@ -228,7 +228,7 @@ ticket's note.
 
 When the change is the active ticket's own work, its architect can instead
 take the delivered contract over in that ticket's own note, through its
-`takes:` list (ADR 2026-071); the refusal names this too. The gates then treat
+`takes:` list (ADR LEG-2026-071); the refusal names this too. The gates then treat
 the active ticket as the owner and leave the earlier ticket's note as it was
 delivered, so no change run on the earlier ticket is needed.
 

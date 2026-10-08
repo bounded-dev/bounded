@@ -14,7 +14,7 @@ This run took three launches; the first two are findings, not noise:
 1. **The architect could not read its own skill files.** Every open-model
    arm had opened by being refused its own `SKILL.md`; DeepSeek *thrashed* on
    it (a dozen blocks, web searches, doc fetches) badly enough to confound
-   the run. Root cause: the `hosts/pi` restructure (ADR 2026-035) left
+   the run. Root cause: the `hosts/pi` restructure (ADR LEG-2026-035) left
    `HARNESS_ROOT` walking up too few directory levels, so it pointed at
    `hosts/pi` and the "a role may read its own skill files" allowance never
    matched. Fixed (depth corrected, value exported and pinned by

@@ -1,6 +1,6 @@
 {
-  "//": "The ts-mcp pack (ADR 2026-063): MCP tools as an in adapter, and the MCP app template. adapterTechnologies declares the `mcp` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/mcp/, the package export ./adapters/mcp and the feature role `tool`. generatedFileGlobs write-protects that folder, every file of which is emitted from the feature contracts (TN-26-012 §6). workspaceTemplates.mcp is the app a TN declares as `apps/<name>: mcp`: a stdio server hosting one context's MCP server.",
-  "//productSurfaces": "What this pack lets the product be used from (ADR 2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
+  "//": "The ts-mcp pack (ADR LEG-2026-063): MCP tools as an in adapter, and the MCP app template. adapterTechnologies declares the `mcp` in technology: the @exposedVia token, the folder contexts/<context>/src/adapters/in/mcp/, the package export ./adapters/mcp and the feature role `tool`. generatedFileGlobs write-protects that folder, every file of which is emitted from the feature contracts (TN-26-012 §6). workspaceTemplates.mcp is the app a TN declares as `apps/<name>: mcp`: a stdio server hosting one context's MCP server.",
+  "//productSurfaces": "What this pack lets the product be used from (ADR LEG-2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
   "productSurfaces": ["assistant-tools"],
   "dependsOnPacks": [
     "ts",
@@ -19,7 +19,7 @@
       }
     }
   ],
-  "//generatedFileGlobs": "The MCP in adapter, and the MCP app's composition root (ADR 2026-067), are generated from the design.",
+  "//generatedFileGlobs": "The MCP in adapter, and the MCP app's composition root (ADR LEG-2026-067), are generated from the design.",
   "generatedFileGlobs": [
     "apps/*/src/composition-root.ts",
     "contexts/*/src/adapters/in/mcp/**"

@@ -1,4 +1,4 @@
-// Where the gates are (ADR 2026-034): every `packs/<lang>/gates.ts` the packs
+// Where the gates are (ADR LEG-2026-034): every `packs/<lang>/gates.ts` the packs
 // directory holds, read by convention and never by name. Its own module so a
 // background job's worker (gate-job-worker.ts) can find a gate without loading
 // the command line's board and tracker machinery.

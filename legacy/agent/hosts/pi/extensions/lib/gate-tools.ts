@@ -1,5 +1,5 @@
 /**
- * Gate tools — the pi face of the gate registry (ADR 2026-034).
+ * Gate tools — the pi face of the gate registry (ADR LEG-2026-034).
  *
  * A gate's name, description, flags and prompt guidance live in one registry
  * entry (`packs/<lang>/gates.ts`), and `bounded gates` reads that entry for its
@@ -133,7 +133,7 @@ function stringParam(params: Readonly<Record<string, unknown>>, name: string): s
  * set is the host's statement of which gates this extension offers — the
  * architect's roster and the workers' are two extensions over one registry.
  * `packsDir` is where `gates` came from, when not this harness's own packs: a
- * long gate's background run finds its gate there (ADR 2026-073).
+ * long gate's background run finds its gate there (ADR LEG-2026-073).
  */
 export function registerGateTools(
   pi: ExtensionAPI,
@@ -155,9 +155,9 @@ export function registerGateTools(
         const startedAt = Date.now();
         const cwd = targetCwd(ctx.cwd, stringParam(params, "cwd"));
         const role = sessionRole(ctx.cwd);
-        // In a ticket worktree the board follows the gate (ADR 2026-066). pi
+        // In a ticket worktree the board follows the gate (ADR LEG-2026-066). pi
         // gives no deadline, so a long gate runs in the call, after collecting
-        // any background run a deadline-bound call started (ADR 2026-073).
+        // any background run a deadline-bound call started (ADR LEG-2026-073).
         const result = await runGate(cwd, gate, { ...gateArgsFrom(gate, params), ...hostArgs(gate, ctx.cwd) }, {
           open: openTracker, startedAt, ...(signal !== undefined ? { signal } : {}),
           ...(packsDir !== undefined ? { packsDir } : {}), ...(role !== undefined ? { role } : {}),

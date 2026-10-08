@@ -12,7 +12,7 @@ const FIELDS: TicketFields = {
   decisions: "Which currency invoices use.",
 };
 
-describe("the ticket body (ADR 2026-066)", () => {
+describe("the ticket body (ADR LEG-2026-066)", () => {
   test("renders the five sections in order and reads back its owned paths and dependencies", () => {
     const body = renderTicketBody(FIELDS);
     expect(body.split("\n").filter((l) => l.startsWith("## "))).toEqual([

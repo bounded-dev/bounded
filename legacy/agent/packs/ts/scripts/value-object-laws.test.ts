@@ -12,7 +12,7 @@ import {
 } from "./value-object-laws.ts";
 import { EXAMPLE_CONCEPTS, exampleConcept } from "./testdata/example-domain.ts";
 
-// The domain-concept law generator (ADR 2026-059): laws for every value
+// The domain-concept law generator (ADR LEG-2026-059): laws for every value
 // object, identifier and entity, colocated as `<concept>.laws.test.ts` and run
 // by `bun test`. Running them against real implementations is
 // domain-emitter.test.ts's job; this file pins what is generated and why.

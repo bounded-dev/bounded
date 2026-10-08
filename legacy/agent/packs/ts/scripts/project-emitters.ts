@@ -1,4 +1,4 @@
-// Every emitter a composed project runs (ADR 2026-060), and the facts they
+// Every emitter a composed project runs (ADR LEG-2026-060), and the facts they
 // run over, read from the project on disk.
 //
 // The ts pack's own domain emitter comes first, then every composed pack's
@@ -14,7 +14,7 @@
 //
 // `projectFactsOf` is the gates' reading of a project: the composition, the
 // project name (the scope), the workspaces the design derives (contexts from
-// contract paths, apps from the TNs, ADR 2026-061) and each workspace's
+// contract paths, apps from the TNs, ADR LEG-2026-061) and each workspace's
 // contract sources. It is the same derivation the manifest generator uses
 // (project-package.ts), so the files a gate emits and the manifests it checks
 // never disagree about which workspaces exist.
@@ -83,7 +83,7 @@ export class EmitError extends Error {
  * newline (`emittedFileProblem`), no two emitters at one path, and every
  * `generated` file inside a composed `generatedFileGlobs` entry — a generated
  * file no glob protects would be writable by a role and then silently
- * overwritten (ADR 2026-058).
+ * overwritten (ADR LEG-2026-058).
  */
 export function emitProject(facts: ProjectFacts, generatedGlobs: readonly string[]): ProjectFile[] {
   const isGenerated = pathGlobMatcher(generatedGlobs);

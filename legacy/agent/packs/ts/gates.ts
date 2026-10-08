@@ -1,4 +1,4 @@
-// The TypeScript pack's gate registry (ADR 2026-034).
+// The TypeScript pack's gate registry (ADR LEG-2026-034).
 //
 // Every artifact gate this pack contributes, as one list the root discovers by
 // convention (`packs/*/gates.ts`) and never by name. `bounded gates` reads it for
@@ -21,8 +21,8 @@
 // Every entry is wrapped (`afterLeftoverRestore`): before a gate runs, whatever
 // mutant a killed mutation-score run left in the tree is put back from its
 // journal, or the gate refuses to judge a tree that may still hold one
-// (ADR 2026-070). The restore is the entry's `prepare`, so a gate run as a
-// background job (ADR 2026-073) takes the tree it judges after it, and its own
+// (ADR LEG-2026-070). The restore is the entry's `prepare`, so a gate run as a
+// background job (ADR LEG-2026-073) takes the tree it judges after it, and its own
 // `run` does it too for a caller that calls `run` alone. The registry is the
 // one entry both hosts call, so no host can run a ts gate without it.
 //
@@ -215,7 +215,7 @@ export function deadlineForBudgetMs(budgetMs: number): number {
 
 /** What to do when the measurement's budget cannot fit its next step. Inside
  *  a background job the deadline is the job's own limit, which no role can
- *  raise, so only a smaller per-mutant timeout is offered (ADR 2026-073). */
+ *  raise, so only a smaller per-mutant timeout is offered (ADR LEG-2026-073). */
 export function mutationBudgetRemedy(neededMs: number, env: Readonly<Record<string, string | undefined>> = process.env): string {
   if (env[JOB_DIR_ENV] !== undefined) return "pass a smaller --timeout-ms";
   return `give this command a timeout of at least ${Math.ceil(deadlineForBudgetMs(neededMs) / 1000)}s ` +
@@ -294,7 +294,7 @@ export const gates: readonly GateCommand[] = ([
     description:
       "Verify the active ticket's design note and owned contracts are unchanged since design_gate froze them. Legacy projects verify their project-wide contract set.",
     // Verify only. Recording the manifest is the freeze, and the freeze is a
-    // step of design_gate (ADR 2026-019): a flag here would be a second way to
+    // step of design_gate (ADR LEG-2026-019): a flag here would be a second way to
     // freeze, offered to every role that may run this. A person wanting a raw
     // freeze has `node packs/ts/scripts/checksum-gate.ts --write`.
     flags: [],
@@ -560,7 +560,7 @@ export const gates: readonly GateCommand[] = ([
       return result;
     },
   },
-  // A step of design_gate, not a tool (ADR 2026-019): exposed on the command
+  // A step of design_gate, not a tool (ADR LEG-2026-019): exposed on the command
   // line for a person regenerating skeletons by hand, never to a role.
   {
     name: "scaffold",

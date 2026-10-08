@@ -14,7 +14,7 @@ import {
 } from "../../src/architect-seat.ts";
 import { TICKET_MARKER_RELATIVE } from "../../src/ticket-worktree.ts";
 
-// ADR 2026-048 on Claude Code: the project-wide hook (`--project-local`)
+// ADR LEG-2026-048 on Claude Code: the project-wide hook (`--project-local`)
 // makes the main session the read-only team lead, holds unbound children to
 // the scout's read-only policy, and stands down only for a child whose
 // generated definition carries its own bound hook.
@@ -66,7 +66,7 @@ describe("lead Bash: only its commands, rewritten onto the project's harness", (
     ["bounded lead status", q(CLI, "lead", "status")],
     ["bounded lead queue 4", q(CLI, "lead", "queue", "4")],
     ["bash .bounded/harness/scripts/bounded lead start 4", q(CLI, "lead", "start", "4")],
-    // Merge alone carries the call's deadline (ADR 2026-073): its check may outlast the call.
+    // Merge alone carries the call's deadline (ADR LEG-2026-073): its check may outlast the call.
     ["bounded lead merge '#4'", `BOUNDED_COMMAND_TIMEOUT_MS=120000 ${q(CLI, "lead", "merge", "#4")}`],
     ["bounded lead reply 4 'use the shorter name'", q(CLI, "lead", "reply", "4", "use the shorter name")],
     ["bounded lead ticket create --title 'Invoices' --outcome 'Send invoices' --acceptance 'A sent invoice is listed' --owns contexts/billing/invoice.contract.ts --depends 3 --decisions 'Currency'",
@@ -203,7 +203,7 @@ describe("lead commissions", () => {
     expect(hook(project(), "Task", { subagent_type: role, prompt: "do" }).decision).toBe("deny");
   });
 
-  test("an architect is never commissioned in the lead's session, prepared run or not (ADR 2026-066)", () => {
+  test("an architect is never commissioned in the lead's session, prepared run or not (ADR LEG-2026-066)", () => {
     const dir = project({ ".bounded/active-ticket": "1\n", [LOG]: logLines(prepared("1")) });
     const r = hook(dir, "Agent", { subagent_type: "architect", prompt: "deliver" }, LEAD, { tool_use_id: "t1" });
     expect(r.decision).toBe("deny");
@@ -211,7 +211,7 @@ describe("lead commissions", () => {
   });
 });
 
-describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
+describe("the architect seat in a ticket worktree (ADR LEG-2026-066)", () => {
   const AGENT = "a00000000000000a7";
   /** A main worktree with one ticket worktree under it, as `bounded lead start` leaves them. */
   const ticketed = (owns: readonly string[] = []): { main: string; wt: string } => {
@@ -368,7 +368,7 @@ describe("the architect seat in a ticket worktree (ADR 2026-066)", () => {
   });
 });
 
-describe("the lead's architect launch and reply (ADR 2026-066)", () => {
+describe("the lead's architect launch and reply (ADR LEG-2026-066)", () => {
   const BRIEF = "Ticket #7: Invoices";
   const pendingAt = (main: string, wt: string): void => writePendingLaunch(main, { issue: 7, worktree: wt, brief: BRIEF, model: "opus", createdAt: "t" });
   const setup = () => {

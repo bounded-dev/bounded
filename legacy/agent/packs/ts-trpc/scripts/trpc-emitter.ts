@@ -1,5 +1,5 @@
 // The tRPC in adapter, generated whole from the feature contracts (ADR
-// 2026-060, TN-26-012 §6). For every context with a feature tagged
+// LEG-2026-060, TN-26-012 §6). For every context with a feature tagged
 // `@exposedVia trpc` it emits, all in mode `generated`:
 //
 //   adapters/in/trpc/trpc.ts                          the one initTRPC instance
@@ -95,7 +95,7 @@ function areaRouterFile(group: DependencyGroup<FeatureContractModel>): string[] 
 }
 
 function contextRouterFile(context: string, groups: readonly DependencyGroup<FeatureContractModel>[]): string[] {
-  // Grouped by area, as the router nests (ADR 2026-067): `deps.notes` feeds `notes.*`.
+  // Grouped by area, as the router nests (ADR LEG-2026-067): `deps.notes` feeds `notes.*`.
   const members = groups.map((g) => `${g.key}: Parameters<typeof ${areaRouterFactory(g.area)}>[0]`);
   const deps = `type Deps = { ${members.join("; ")} };`;
   return [

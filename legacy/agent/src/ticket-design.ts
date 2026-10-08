@@ -14,13 +14,13 @@ export interface TicketDesign {
   readonly note: string;
   readonly status: "draft" | "active" | "ratified" | "superseded";
   /** The contracts this ticket owns: those its note lists, minus any a later
-   *  ticket has taken from it (ADR 2026-071). */
+   *  ticket has taken from it (ADR LEG-2026-071). */
   readonly contracts: readonly string[];
   /** The apps the note declares (TN-26-012 §9): `<dir>` → workspace kind.
    *  Shape-checked here; packs interpret it. Empty when absent. */
   readonly workspaces: Readonly<Record<string, string>>;
   /** The delivered contracts this ticket takes over, each with the ticket
-   *  number it takes it from (ADR 2026-071). Empty when there is no `takes:`. */
+   *  number it takes it from (ADR LEG-2026-071). Empty when there is no `takes:`. */
   readonly taken: readonly ContractTake[];
 }
 
@@ -34,10 +34,10 @@ export interface TicketWriteScope {
   readonly ticket?: string;
   readonly contracts: readonly string[];
   /** Contracts this ticket's note lists that a later ticket took, each mapped
-   *  to the taking ticket's note (ADR 2026-071). Absent when none. */
+   *  to the taking ticket's note (ADR LEG-2026-071). Absent when none. */
   readonly released?: Readonly<Record<string, string>>;
   /** Filename suffixes the composed packs contribute for contract files
-   *  (ADR 2026-052). Empty when none is composed or the composition is
+   *  (ADR LEG-2026-052). Empty when none is composed or the composition is
    *  unreadable — the latter always carries `error`. */
   readonly contractSuffixes: readonly string[];
   /** Contracts other tickets' live notes claim: path → the refusal naming
@@ -60,10 +60,10 @@ const TN_INDEX = "docs/tn/README.md";
 const TICKETS_DIR = ".bounded/tickets";
 const NOTE_NAME = /^TN-([1-9][0-9]*)\.md$/;
 /** The safe project-relative shape of a contract path. Which directory it must
- *  sit under (a source root, ADR 2026-056) and the filename suffix that makes
- *  it a contract (ADR 2026-052) come from the composed packs. */
+ *  sit under (a source root, ADR LEG-2026-056) and the filename suffix that makes
+ *  it a contract (ADR LEG-2026-052) come from the composed packs. */
 const CONTRACT_PATH = /^(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+$/;
-/** One `takes:` entry (ADR 2026-071): `  - <path> from TN-<n>`. */
+/** One `takes:` entry (ADR LEG-2026-071): `  - <path> from TN-<n>`. */
 const TAKE_LINE = /^  - ([^\s]+) from TN-([1-9][0-9]*)$/;
 /** One `workspaces:` entry (TN-26-012 §9): `  <dir>: <kind>`. */
 const WORKSPACE_LINE = /^  ([a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*): ([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/;
@@ -186,7 +186,7 @@ function contractList(lines: readonly string[]): string[] | undefined {
 }
 
 /**
- * The `takes:` list (ADR 2026-071): one `takes:` line with nothing after the
+ * The `takes:` list (ADR LEG-2026-071): one `takes:` line with nothing after the
  * colon, then `  - <path> from TN-<n>` entries up to the first unindented
  * line. Absent, or bare, is no takes. A malformed block is a string naming
  * what is wrong.
@@ -209,7 +209,7 @@ function takesList(lines: readonly string[]): ContractTake[] | string {
 }
 
 /** The ticket abandoned with `bounded change-run --force` carries this marker
- *  until a later run of it delivers (ADR 2026-071). */
+ *  until a later run of it delivers (ADR LEG-2026-071). */
 function abandonedMarker(ticket: string): string {
   return `.bounded/tickets/${ticket}/abandoned`;
 }
@@ -321,7 +321,7 @@ type Siblings = { readonly claimants: readonly Claimant[] } | { readonly error: 
  * one — unless it cannot be read at all: then ownership cannot be proven
  * (`check`), or the note releases nothing (`ignore`). A superseded note is no
  * claimant. An abandoned ticket's takes lapse, so it releases nothing, but it
- * still claims the contracts its frozen design holds (ADR 2026-071).
+ * still claims the contracts its frozen design holds (ADR LEG-2026-071).
  */
 function readSiblings(root: string, active: string, mode: "check" | "ignore"): Siblings {
   let entries: string[];
@@ -478,7 +478,7 @@ type Ownership =
 /**
  * Who owns each contract the active note lists, from the TN files and the
  * frozen manifests. The claimants are the notes that list it; a claimant is
- * released when another claimant takes it from that note (ADR 2026-071).
+ * released when another claimant takes it from that note (ADR LEG-2026-071).
  * Among the unreleased claimants the active ticket must be the owner: the only
  * one, or the one whose frozen design holds it. `released` maps each contract
  * taken from the active ticket to the note that took it, and `foreign` names

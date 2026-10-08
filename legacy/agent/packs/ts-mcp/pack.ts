@@ -1,4 +1,4 @@
-// The ts-mcp pack (ADR 2026-063): MCP tools as an in adapter, and the MCP app.
+// The ts-mcp pack (ADR LEG-2026-063): MCP tools as an in adapter, and the MCP app.
 //
 //   * the `mcp-in-adapter` emitter: every context's adapters/in/mcp/**,
 //     generated from the features tagged `@exposedVia mcp`, with its laws;

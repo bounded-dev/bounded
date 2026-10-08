@@ -9,7 +9,7 @@ import { projectAgentsInstructions } from "./project-init.ts";
 import { BOARD_STATUSES } from "./tracker.ts";
 
 // The lead's commands are typed by people and agents from the docs; a doc that
-// drifts from the parser teaches a command that is refused (ADR 2026-066).
+// drifts from the parser teaches a command that is refused (ADR LEG-2026-066).
 // The team-lead skill is held to every command exactly, to every pi tool that
 // carries one, and to the board's statuses; the READMEs to the commands they
 // teach. No doc may teach a command the parser no longer accepts.
@@ -68,7 +68,7 @@ describe("lead commands in the docs match the code", () => {
     expect(text).not.toMatch(/bounded lead prepare/);
   });
 
-  // Re-planning before the first ticket (ADR 2026-065) is the lead's too.
+  // Re-planning before the first ticket (ADR LEG-2026-065) is the lead's too.
   test.each(DOCS.slice(1))("%s names the re-plan command exactly", (doc) => {
     expect(flat(doc)).toContain(LEAD_REPLAN_USAGE);
   });

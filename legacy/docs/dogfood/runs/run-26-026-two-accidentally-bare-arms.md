@@ -9,13 +9,13 @@ transcripts, the trees, and the harness's own mutation gate.
 
 ## Why no harness ran (two independent failures)
 
-1. **The pi adapter did not load.** ADR 2026-035 had moved the pi extensions
+1. **The pi adapter did not load.** ADR LEG-2026-035 had moved the pi extensions
    to `hosts/pi/extensions/`, and pi's global discovery scans only
    `~/.pi/agent/extensions/` — it never reads the agent package.json the
    move relied on. Every pi session that day ran with no path gate, no gate
    tools, no tiers, no guard log, while 2539 unit tests stayed green. Fixed
    the same afternoon (loader shim + `hosts/pi/discovery.test.ts`, which
-   runs pi's own loader against the repo); full account in ADR 2026-035's
+   runs pi's own loader against the repo); full account in ADR LEG-2026-035's
    change log.
 2. **The hosts were swapped, and nothing said so.** Claude Code was run in
    the *harnessed* arm — where the reset had wiped `.claude/`, so no

@@ -2,7 +2,7 @@
 //
 //   node scripts/workflow/red-first-check.ts <red-commit> [<branch>] [--package <dir>] [--repo <dir>]
 //
-// The development lifecycle (docs/harness-workflow.md, ADR 2026-068) has the
+// The development lifecycle (docs/harness-workflow.md, ADR LEG-2026-068) has the
 // builder commit failing tests alone, then implement. Given that red commit
 // and the branch it sits on (default HEAD), this checks four things:
 //

@@ -280,8 +280,8 @@ scaffold() {
   rm -rf "$dir"
   mkdir -p "$dir/src" "$dir/tests"
 
-  # The blessed stacks are installed from birth (ADR 2026-029): zod backs
-  # every value object's parse (ADR 2026-031) and @trpc/server backs any
+  # The blessed stacks are installed from birth (ADR LEG-2026-029): zod backs
+  # every value object's parse (ADR LEG-2026-031) and @trpc/server backs any
   # service component, so "Do not add dependencies" stays true for the run.
   # Versions mirror the pack's own pins (agent/package.json).
   cat > "$dir/package.json" <<'EOF'

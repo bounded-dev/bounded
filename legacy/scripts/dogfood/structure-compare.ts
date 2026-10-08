@@ -33,7 +33,7 @@
 //                   or port that does not exist, nor an in adapter its
 //                   feature's @exposedVia does not name;
 //   · test levels   every required level, file by file (TN-26-012 §8, ADR
-//                   2026-063): unit tests and laws per concept, a handler
+//                   LEG-2026-063): unit tests and laws per concept, a handler
 //                   test per feature, command laws, the store conformance
 //                   suite and a store test per store, a test per other out
 //                   adapter, generated laws per in adapter, a smoke test
@@ -53,7 +53,7 @@
 //   · contracts the exported names of every contract both trees have, where
 //               they differ;
 //   · tests     the test levels the project's own files require (TN-26-012 §8,
-//               ADR 2026-063) that its tests do not reach. Levels are checked
+//               ADR LEG-2026-063) that its tests do not reach. Levels are checked
 //               against that list, not against the example's tests (the
 //               example has almost none): which tests a run writes is its own
 //               business, that every required level exists is the structure's.
@@ -197,7 +197,7 @@ export function exportedNames(source: string): string[] {
 
 // --- test levels ------------------------------------------------------------------
 
-/** The test level a test-side file belongs to (ADR 2026-063's levels). */
+/** The test level a test-side file belongs to (ADR LEG-2026-063's levels). */
 export function testLevel(path: string): string {
   const parts = path.split("/");
   const name = parts.at(-1)!;
@@ -230,7 +230,7 @@ export function testLevel(path: string): string {
 
 /**
  * The test levels the project's own files require (TN-26-012 §8, ADR
- * 2026-063), worked out from the project alone: a domain concept needs its
+ * LEG-2026-063), worked out from the project alone: a domain concept needs its
  * unit tests and its generated laws; a feature its handler test, and its
  * command laws when it has a command; a store its feature's conformance suite
  * and a store test per storage technology; any other out adapter its own

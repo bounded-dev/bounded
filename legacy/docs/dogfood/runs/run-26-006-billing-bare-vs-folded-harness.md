@@ -119,7 +119,7 @@ day:
 | before the fix | 1 | one `SubscriptionBilling` interface, 4 methods, unimplementable |
 | after the fix | **7** | `calendar` `ids` `invoice` `money` `plan` `result` `subscription`, 38 operations |
 
-Two data points only, but they point the same direction as ADR 2026-014: fix
+Two data points only, but they point the same direction as ADR LEG-2026-014: fix
 what is *wrong*, do not add more taste.
 
 **3. Value objects reproduced for a third consecutive run.** Bare:

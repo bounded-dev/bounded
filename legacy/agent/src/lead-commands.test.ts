@@ -20,10 +20,10 @@ import { LEAD_LOCK_RELATIVE } from "./lead-commands.ts";
 import { FakeTracker } from "../test/support/fake-tracker.ts";
 import { delivered, logLines, prepared, runStart } from "../test/support/lead-project.ts";
 
-// The lead's commands and every board transition they make (ADR 2026-066),
+// The lead's commands and every board transition they make (ADR LEG-2026-066),
 // against real git repositories (a bare origin and the main worktree) and a
 // fake tracker, setup and architect host. The project check is a fixture
-// pack's (ADR 2026-073): a small script whose exit code and duration a test
+// pack's (ADR LEG-2026-073): a small script whose exit code and duration a test
 // sets in check.json, and which appends a line to checks.log each time it runs.
 
 let root = "";
@@ -406,7 +406,7 @@ describe("the board transitions", () => {
   });
 });
 
-describe("review fixes (ADR 2026-066)", () => {
+describe("review fixes (ADR LEG-2026-066)", () => {
   const started = async (title: string, owns: string[]): Promise<number> => {
     const n = await create(title, owns);
     await lead(["queue", String(n)]);
@@ -667,7 +667,7 @@ describe("review fixes (ADR 2026-066)", () => {
   });
 });
 
-// Issue #52 (ADR 2026-072): generated config that drifted is restored by the
+// Issue #52 (ADR LEG-2026-072): generated config that drifted is restored by the
 // lead, in the ticket's own worktree, once the user agrees; never by the user.
 describe("sync-config: the lead restores a ticket's generated config", () => {
   const started = async (title: string, owns: string[]): Promise<number> => {
@@ -800,7 +800,7 @@ describe("refusals before anything changes", () => {
   });
 });
 
-// Issue #53 (ADR 2026-073): the project check behind a merge runs as a
+// Issue #53 (ADR LEG-2026-073): the project check behind a merge runs as a
 // background job, so a check that outlasts the host's command limit finishes
 // over repeated merges. Local main is never left unsafe: the merge is recorded
 // before git merges, and adopted, collected, undone or refused by the rules

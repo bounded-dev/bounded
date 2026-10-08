@@ -1,5 +1,5 @@
 // Rendered Claude Code subagent definitions for the four pipeline roles
-// (ADR 2026-034): the tool strip and the role binding on the second host.
+// (ADR LEG-2026-034): the tool strip and the role binding on the second host.
 //
 // pi binds a role with two frontmatter fields: `tools:` (the allowlist — the
 // only layer that PREVENTS rather than detects) and `subagentOnlyExtensions`
@@ -97,7 +97,7 @@ export interface RenderOptions {
   readonly hookCommand?: string;
   /** A permission mode for the definition. A project installation runs every
    *  role in `dontAsk`, so a call that needs permission runs only when the
-   *  role's gate explicitly allows it (ADR 2026-066). */
+   *  role's gate explicitly allows it (ADR LEG-2026-066). */
   readonly permissionMode?: "dontAsk";
 }
 
@@ -215,7 +215,7 @@ export function renderPreamble(role: Role): string {
 
 const code = (s: string): string => `\`${s}\``;
 
-/** What a role's content search over a directory must carry (ADR 2026-057). */
+/** What a role's content search over a directory must carry (ADR LEG-2026-057). */
 function blindSearchNote(role: Role): string {
   if (role === "builder") {
     return "A search of a directory under a source root needs an `--include` glob that provably keeps it off test files, such as `--include='*.handler.ts'`; search one implementation file by path otherwise.";

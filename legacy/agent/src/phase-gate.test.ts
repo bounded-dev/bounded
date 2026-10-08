@@ -97,7 +97,7 @@ describe("spawning the test-writer", () => {
     expect(d.allow).toBe(false);
   });
 
-  // ADR 2026-032: the Intake section is where stripped hows are recorded, so
+  // ADR LEG-2026-032: the Intake section is where stripped hows are recorded, so
   // its absence means the reworking never demonstrably happened.
   test("is refused when the spec has no Intake section", () => {
     const noIntake = {
@@ -108,7 +108,7 @@ describe("spawning the test-writer", () => {
     expect(d.allow).toBe(false);
     if (!d.allow) {
       expect(d.reason).toContain('"## Intake"');
-      expect(d.reason).toContain("2026-032");
+      expect(d.reason).toContain("LEG-2026-032");
       expect(d.reason).toContain("nothing stripped");
     }
   });
@@ -186,7 +186,7 @@ describe("spawning the test-writer", () => {
   });
 });
 
-// The builder waits on the FREEZE, not on the red (ADR 2026-021).
+// The builder waits on the FREEZE, not on the red (ADR LEG-2026-021).
 //
 // red_gate proves red in a shadow project it rebuilds itself — contracts,
 // regenerated skeletons, a copy of the tests tree — so it never reads the live
@@ -346,7 +346,7 @@ describe("cold respawn", () => {
     expect(d.reason).not.toMatch(/children\.list|resume|SendMessage/);
   });
 
-  // ADR 2026-034: the core names no host's commission tool or its fields. The
+  // ADR LEG-2026-034: the core names no host's commission tool or its fields. The
   // host adapters (CommissionHost) read them: pi's `children.list`, resume,
   // `workflowScript`/`chain`/`parallel`; Claude Code's SendMessage.
   test("the core names no host's commission tool or its fields (#33)", () => {
@@ -756,7 +756,7 @@ describe("a configured tier the registry cannot resolve refuses the spawn", () =
   });
 });
 
-// --- intake helpers (ADR 2026-032) ------------------------------------------------
+// --- intake helpers (ADR LEG-2026-032) ------------------------------------------------
 
 describe("specIntakeSection / techNounsOutsideIntake", () => {
   const NOUNS = ["graphql", "express", "io-ts"];

@@ -123,7 +123,7 @@ describe("install — an existing settings.json", () => {
     }
   });
 
-  // Background tasks stay on: each ticket's architect is a background subagent (ADR 2026-066).
+  // Background tasks stay on: each ticket's architect is a background subagent (ADR LEG-2026-066).
   test("a setting that disables background tasks is refused; an explicit on is kept", () => {
     expect(mergeAmbientHook({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" } }, "x"))
       .toMatchObject({ ok: false, reason: expect.stringContaining("one at a time") });

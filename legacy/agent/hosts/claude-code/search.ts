@@ -4,7 +4,7 @@
 // why), so a role that wants a call site would read whole files. This is the
 // minimal read-only grammar instead, mapped onto the call pi's own `grep` tool
 // makes — a path plus an optional file glob — and judged by the same decide()
-// rules (ADR 2026-057): a file is judged as a read; a directory search needs
+// rules (ADR LEG-2026-057): a file is judged as a read; a directory search needs
 // the host's complete, link-free, ASCII listing of the tree, and a blind
 // role's needs a file glob that provably keeps it off the other side.
 //
@@ -28,7 +28,7 @@
 //     always runs on the bundled ugrep, as the tests pin;
 //   · more than one pattern (`-e` twice), more than one path, `--`;
 //   · an include glob with `/`, `,`, whitespace or `{[?!` — the greps disagree
-//     on those, and ADR 2026-057 refuses them on every host.
+//     on those, and ADR LEG-2026-057 refuses them on every host.
 //
 // Pure.
 
@@ -48,7 +48,7 @@ export const SEARCH_USAGE = "grep -rn [-i] [-F|-E] [--include='<glob>'] -e '<pat
  *  beyond the files searched. */
 const FLAG_CLUSTER = /^-[rnHhiFEwlcovsx]+$/;
 const INCLUDE = "--include=";
-/** Include-glob characters the greps (or ADR 2026-057) do not agree on. */
+/** Include-glob characters the greps (or ADR LEG-2026-057) do not agree on. */
 const UNSAFE_GLOB = /[/,\s{}[\]?!\\]/;
 
 const no = (reason: string): Search => ({ ok: false, reason: `${reason} — search here is ${SEARCH_USAGE}` });

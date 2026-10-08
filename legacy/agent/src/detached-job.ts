@@ -1,4 +1,4 @@
-// Detached, resumable jobs (ADR 2026-073). A host that kills a command at a
+// Detached, resumable jobs (ADR LEG-2026-073). A host that kills a command at a
 // time limit cannot run a check that takes longer in one call. So the core
 // runs such work as a job: a runner process in a session of its own
 // (src/job-runner.ts), with its output in files, which the call waits on for

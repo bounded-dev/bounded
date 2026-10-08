@@ -1,4 +1,4 @@
-// Project selection is data shared by every host and gate (ADR 2026-036).
+// Project selection is data shared by every host and gate (ADR LEG-2026-036).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 

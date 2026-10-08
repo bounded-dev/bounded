@@ -119,7 +119,7 @@ describe("phase spans", () => {
   });
 });
 
-describe("a contract revised mid-loop (ADR 2026-019's re-run path)", () => {
+describe("a contract revised mid-loop (ADR LEG-2026-019's re-run path)", () => {
   // Revising means the design was not finished at the first freeze, so those
   // minutes are design minutes. But a freeze AFTER the red pass belongs to a
   // loop already in flight; stretching DESIGN over it would double-count TEST

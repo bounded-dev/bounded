@@ -358,7 +358,7 @@ function evaluateGate(ev: GateInput): GateBlock | undefined {
       return { block: true, reason };
     }
     // How a commission call is read, and how a finished worker is continued,
-    // is the host's (ADR 2026-034). A call that reaches here with no host to
+    // is the host's (ADR LEG-2026-034). A call that reaches here with no host to
     // read it is refused rather than guessed at.
     if (ev.commissions === undefined) {
       const reason = "phase-gate: this host supplied no commission policy, so the commission is refused rather than judged by guesswork";
@@ -478,7 +478,7 @@ function hostedInput(role: Role, ev: GateInput):
 /**
  * The Ctx the path gate judges a role's call with: the project's layout
  * (source roots, contract globs, test suffixes, generated globs — ADRs
- * 2026-056…058), its protected names and, for content search, what the
+ * LEG-2026-056…058), its protected names and, for content search, what the
  * filesystem says. Each socket is read independently and an unreadable one
  * is passed as `"unreadable"`, which decide() treats fail-closed. Exported so
  * every host builds the same context (the Claude Code bash policy included).
@@ -492,7 +492,7 @@ export function foldsCase(cwd: string): boolean {
 export function pathGateCtx(role: Role, cwd: string, harnessRoot?: string): Ctx {
   const marker = readTicketMarker(cwd);
   return {
-    // A ticket worktree confines every role to the ticket's owned paths (ADR 2026-066).
+    // A ticket worktree confines every role to the ticket's owned paths (ADR LEG-2026-066).
     ...(marker !== undefined ? {
       ownedPaths: { ticket: marker.issue, paths: marker.owns ?? [], caseInsensitive: foldsCase(cwd) },
     } : {}),
@@ -606,7 +606,7 @@ function gatherEvidence(
 
 /**
  * The concrete directories a set of source-root globs names on disk (ADR
- * 2026-056): each `*` segment expands to the real, non-hidden directories at
+ * LEG-2026-056): each `*` segment expands to the real, non-hidden directories at
  * that level, and links are not followed. Project-relative, sorted.
  */
 export function expandSourceRoots(project: string, roots: readonly string[]): string[] {
@@ -635,7 +635,7 @@ export function expandSourceRoots(project: string, roots: readonly string[]): st
 }
 
 /** Project-relative contract paths (by the composed packs' suffixes), found
- *  under the composed source roots only (ADR 2026-056) — every contract glob
+ *  under the composed source roots only (ADR LEG-2026-056) — every contract glob
  *  is `<root>/**\/*<suffix>`. Hidden directories and links are skipped, so
  *  nothing outside a root is walked and the core names no stack's
  *  directories. No root, no contract. */

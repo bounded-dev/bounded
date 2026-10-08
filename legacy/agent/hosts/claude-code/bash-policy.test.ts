@@ -5,13 +5,13 @@ import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts"
 import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-policy.ts";
 import { discoverGates } from "../../src/gates-cli.ts";
 
-// ADR 2026-034: in Claude Code, Bash is the carrier for `bounded gates`, and the
+// ADR LEG-2026-034: in Claude Code, Bash is the carrier for `bounded gates`, and the
 // hook narrows it to exactly the gates in the role's ROLE_TOOLS. Anything else
 // — compound commands, redirects, substitutions — is refused with the role's
 // forbiddenWhy reason. Table-driven over all four roles so a change to
 // ROLE_TOOLS shows up here as a changed row, never as a silent widening.
 
-// The layout comes from composed pack data (ADRs 2026-052, 2026-056…058), as
+// The layout comes from composed pack data (ADRs LEG-2026-052, LEG-2026-056…058), as
 // the hook passes it.
 // The path facts a fake filesystem gives: `contexts/link` is a link (into .git,
 // say), and everything else is as written.
@@ -61,7 +61,7 @@ const TABLE: readonly Row[] = [
   ["bounded gates --list", all("allow")],
   ["bounded gates --help", all("allow")],
   ["bounded gates", all("deny")],
-  // Project config is regenerated only by the user (ADR 2026-054), and no role
+  // Project config is regenerated only by the user (ADR LEG-2026-054), and no role
   // may run the package manager that would rewrite it.
   ["bounded sync-config", all("deny")],
   ["bash .bounded/harness/scripts/bounded sync-config", all("deny")],
@@ -325,7 +325,7 @@ describe("cliGates — derived from ROLE_TOOLS, never a second list", () => {
 });
 
 // #35, adversarially: content search through Bash is judged exactly as pi's
-// grep (ADR 2026-057). A blind role reads nothing of the other side: not one
+// grep (ADR LEG-2026-057). A blind role reads nothing of the other side: not one
 // file, not a directory without a glob that provably excludes it, not a tree
 // with a link or an odd name, not through a link.
 describe("grep through Bash keeps each blind role off the other side", () => {
@@ -365,7 +365,7 @@ describe("grep through Bash keeps each blind role off the other side", () => {
 });
 
 // #35, adversarially: a listing shows names, never contents. Names of the other
-// side are fine (ADR 2026-057); everything that could print, run, follow or
+// side are fine (ADR LEG-2026-057); everything that could print, run, follow or
 // escape is refused before the gate is even asked.
 describe("listing through Bash stays names-only and blind-safe", () => {
   test("a blind role may list and find the other side's NAMES", () => {

@@ -1,5 +1,5 @@
 // Domain contracts the domain-concept parser refuses, each with the reason it
-// gives (ADR 2026-059). Shared by the parser's tests and by contract-purity's
+// gives (ADR LEG-2026-059). Shared by the parser's tests and by contract-purity's
 // parity test: every case the lint can see must fail the lint too, so
 // lint-passing implies emittable. `lintBlind` names the few only the parser
 // can judge, and why.

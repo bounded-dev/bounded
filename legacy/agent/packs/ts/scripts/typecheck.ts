@@ -1,6 +1,6 @@
 // typecheck custom tool core (TN-26-001, §"Custom tools").
 //
-// Runs `bunx tsc -p tsconfig.json` in the target project (ADR 2026-062; the
+// Runs `bunx tsc -p tsconfig.json` in the target project (ADR LEG-2026-062; the
 // generated tsconfig sets noEmit) and returns pass/fail plus the diagnostics,
 // with absolute machine paths redacted: paths under the project root are
 // relativized, and any remaining absolute path is replaced with `[path]`.
@@ -98,7 +98,7 @@ export function parseTscOutput(
 
 /**
  * A generated project's tsconfig.json includes exactly the composed source
- * roots (ADR 2026-056), so a composition with none has nothing to check:
+ * roots (ADR LEG-2026-056), so a composition with none has nothing to check:
  * refused with the fix, instead of tsc's "No inputs were found". Projects
  * whose config the packs did not generate keep their own tsconfig.
  */
@@ -118,7 +118,7 @@ export function generatedLayoutProblem(cwd: string): string | undefined {
 /** Type-check `cwd` and return the redacted diagnostics view. */
 export async function typecheck(cwd: string, options: TypecheckOptions = {}): Promise<TypecheckResult> {
   // The type-checker reads the project's config: refuse to spawn it over
-  // config the composed packs did not generate (ADR 2026-054).
+  // config the composed packs did not generate (ADR LEG-2026-054).
   const drift = configDriftReason(cwd);
   if (drift !== undefined) return { ok: false, errorCount: 0, diagnostics: [drift] };
   const layout = generatedLayoutProblem(cwd);

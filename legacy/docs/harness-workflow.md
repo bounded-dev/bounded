@@ -2,8 +2,8 @@
 
 Every non-trivial change to the harness itself runs through one light
 lifecycle, per GitHub issue: plan, plan review, red-first tests, build, final
-review, report (ADR 2026-068, extending the independent review of ADR
-2026-038). Changes to behavior, enforcement, architecture or contributor
+review, report (ADR LEG-2026-068, extending the independent review of ADR
+LEG-2026-038). Changes to behavior, enforcement, architecture or contributor
 policy qualify; typographical fixes need only the driver's own review.
 
 The lifecycle is for working **on this repository**. It does not recreate the

@@ -1,5 +1,5 @@
 // An in-memory tracker for unit tests of the lead's commands and the board
-// sync (ADR 2026-066). It keeps issues, their board status and labels, records
+// sync (ADR LEG-2026-066). It keeps issues, their board status and labels, records
 // every change, and can be switched offline to stand for an unreachable tracker.
 
 import { TrackerError, type BoardStatus, type Tracker, type TrackerIssue } from "../../src/tracker.ts";

@@ -2,7 +2,7 @@
 
 This is the worked example's domain: one bounded context,
 `contexts/project-management`, with two areas (`notes`, `projects`) and six
-concepts in the contract-owns-the-name form (ADR 2026-059, TN-26-012). It
+concepts in the contract-owns-the-name form (ADR LEG-2026-059, TN-26-012). It
 exists so an agent starting a build can read the shapes the gates enforce
 instead of reconstructing them from prose. **Transfer the structure; do not
 carry the domain across.** Your ticket is not about projects and notes.

@@ -1,5 +1,5 @@
 // The parsed shape of a design contract, as every skeleton emitter sees it
-// (TN-26-012, ADR 2026-060). TYPES ONLY: the domain parser belongs to the ts
+// (TN-26-012, ADR LEG-2026-060). TYPES ONLY: the domain parser belongs to the ts
 // pack's contract scaffolder, the feature parser to ts-hexagonal. Emitters in
 // other packs code against these interfaces, never against a parser's
 // internals, so a parser can change without touching an emitter.
@@ -167,7 +167,7 @@ export interface FeatureContractModel {
   /** `contexts/<context>/src/application/<area>/<feature>/<feature>.contract.ts` */
   readonly contractPath: string;
   /** The module the contract imports domain types from:
-   *  `@<scope>/<context>/domain` (ADR 2026-059, Q3). */
+   *  `@<scope>/<context>/domain` (ADR LEG-2026-059, Q3). */
   readonly domainImport: string;
   /** Domain concept names the contract imports, sorted; `Result` excluded. */
   readonly domainTypes: readonly string[];

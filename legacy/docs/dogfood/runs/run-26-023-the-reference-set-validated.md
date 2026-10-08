@@ -1,6 +1,6 @@
 # Run 23 — the reference set validated: three tickets, one structure
 r23 is TN-26-004's validation run, kimi-only, on the reference set built the
-same day (ADRs 2026-029..032): a fresh baseline, then two service change
+same day (ADRs LEG-2026-029..032): a fresh baseline, then two service change
 runs on the same delivered tree — one ticket worded "expose the core **over
 GraphQL**", one worded in a single sentence ("expose an API for the
 frontend") — with **zero harness expertise in any prompt**. r22 had proven
@@ -16,7 +16,7 @@ type every service test needs unreachable from the test-writer's
 contract-limited imports — the reviewer called the jam precisely, and the
 architect "solved" it by abandoning the shipped runtime. Also in that
 attempt, all firing correctly for the first time in the wild: the ADR
-2026-028 drift-tolerant re-freeze (`typecheckDrift: 7 errors, workers`), the
+LEG-2026-028 drift-tolerant re-freeze (`typecheckDrift: 7 errors, workers`), the
 scaffolder pruning the runtime when its import vanished, and an 11-finding
 review that caught a genuine spec self-contradiction (the boundary tie-break
 rule against its own spread-20K example) which later resurfaced as exactly

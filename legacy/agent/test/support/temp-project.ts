@@ -2,7 +2,7 @@ import { writeProjectPacks } from "../../src/project-composition.ts";
 // Temp project — a throwaway target directory for a gate test.
 //
 // Two dozen test files each roll their own mkdtemp + writeFileSync + rmSync;
-// this is the shared version for tests written from ADR 2026-029 on. Files are
+// this is the shared version for tests written from ADR LEG-2026-029 on. Files are
 // given as project-relative paths (nested directories are created), and
 // `nodeModules: true` links the harness's own node_modules into the project so
 // `npx tsc` and `npx vitest` resolve locally and never reach for the network.

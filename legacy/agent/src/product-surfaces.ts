@@ -1,5 +1,5 @@
 // Product surfaces: the places a product is used from, in the user's terms
-// (ADR 2026-065). `bounded init` reads the product spec first; the agent maps
+// (ADR LEG-2026-065). `bounded init` reads the product spec first; the agent maps
 // it to these surfaces and init turns the decisions into a pack selection.
 //
 // The core owns the vocabulary, because init's validation consumes it, and

@@ -1,4 +1,4 @@
-// A pack not composed leaves zero trace of behaviour (ADR 2026-046). Every
+// A pack not composed leaves zero trace of behaviour (ADR LEG-2026-046). Every
 // tRPC-shaped rule, emitter and obligation the TypeScript gates run comes from
 // this pack, so a project without it meets none of them and a project with it
 // meets all. Checked through the registry the gates read, so the test does not

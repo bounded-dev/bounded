@@ -1,5 +1,5 @@
 // The dogfood structure comparer lives with the other repo experiments in
-// scripts/dogfood/ (ADR 2026-042); its tests run here so `npm run check`
+// scripts/dogfood/ (ADR LEG-2026-042); its tests run here so `npm run check`
 // covers it. Every tree is a fixture built in a temporary directory: the
 // worked example itself is a local checkout and is never read by a test.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";

@@ -67,7 +67,7 @@ export function specTechNouns(cwd: string, packsDir?: string): string[] {
 }
 
 /** Filename suffixes that mark a design contract, from this project's composed
- *  packs (ADR 2026-052). The core never names one: with no composed pack
+ *  packs (ADR LEG-2026-052). The core never names one: with no composed pack
  *  contributing a suffix, no file is recognised as a contract. */
 export function contractFileSuffixes(cwd: string, packsDir?: string): string[] {
   return contractFileSuffixesFor(readProjectPacks(cwd), packsDir);
@@ -92,7 +92,7 @@ export function hasContractSuffix(path: string, suffixes: readonly string[]): bo
 
 /** The project-relative globs of contract files for an explicit composition:
  *  `<root>/**\/*<suffix>` for each composed source root and contract suffix
- *  (ADRs 2026-052, 2026-056). No root, or no suffix, means no contract file. */
+ *  (ADRs LEG-2026-052, LEG-2026-056). No root, or no suffix, means no contract file. */
 export function contractGlobsFor(packs: readonly string[], packsDir?: string): string[] {
   const roots = sourceRootsFor(packs, packsDir);
   const suffixes = contractFileSuffixesFor(packs, packsDir);
@@ -115,7 +115,7 @@ export function contractGlobsOrUnreadable(cwd: string, packsDir?: string): reado
 }
 
 /**
- * Everything the path policy needs to tell the sides apart (ADRs 2026-056…058),
+ * Everything the path policy needs to tell the sides apart (ADRs LEG-2026-056…058),
  * each field read independently so one bad field closes only what it decides.
  * A host passes this to decide() (spread into its Ctx) and to ownerOfPath().
  */
@@ -163,7 +163,7 @@ export function projectCommandNames(packs: readonly string[], reserved: readonly
 }
 
 /** The data socket naming which project command restores a project's
- *  generated config (ADR 2026-072). Its consumer is `bounded lead sync-config`. */
+ *  generated config (ADR LEG-2026-072). Its consumer is `bounded lead sync-config`. */
 export const CONFIG_SYNC_SOCKET = "projectConfigSyncCommand";
 
 /**
@@ -189,7 +189,7 @@ export function projectConfigSyncCommand(packs: readonly string[], packsDir?: st
   return { pack, command: value };
 }
 
-/** A config-names field (ADR 2026-054): file-name globs, `*` the only
+/** A config-names field (ADR LEG-2026-054): file-name globs, `*` the only
  *  wildcard, never a path. */
 export function fileNameGlobs(field: string, packs: readonly string[], packsDir?: string): string[] {
   const names = mergedContribution(field, packs, packsDir);
@@ -209,7 +209,7 @@ export function fileNameMatcher(names: readonly string[]): (name: string) => boo
 }
 
 /**
- * `projectDependencyDirs` (ADR 2026-054): the directory names the stack's
+ * `projectDependencyDirs` (ADR LEG-2026-054): the directory names the stack's
  * tools resolve installed dependencies from. The drift check skips them only
  * at the project root, and a nested one anywhere is drift and write-denied
  * for every role, because it is resolved before the root's. Literal names.
@@ -247,7 +247,7 @@ const RESERVED_SEGMENTS = new Set([".git", ".bounded"]);
 
 /**
  * `.gitignore` lines the composed packs add for what setup and builds
- * produce (ADR 2026-051). The core appends its own rules for `.bounded` after
+ * produce (ADR LEG-2026-051). The core appends its own rules for `.bounded` after
  * these, so a pack rule must never reach `.bounded` or `.git`, nor re-include
  * anything. The accepted form is decidable from the text alone: anchored to
  * the project root (leading `/`), a literal first segment that is not `.git`
@@ -280,7 +280,7 @@ export interface ProjectConfigSource {
 }
 
 /**
- * The composed packs' `projectConfigFiles` (ADR 2026-051, ADR 2026-054):
+ * The composed packs' `projectConfigFiles` (ADR LEG-2026-051, ADR LEG-2026-054):
  * pack-relative reference files copied to the project root under their own
  * file name. Read without executing packs; the initializer copies them and a
  * pack's config sync and drift check compare against them. Two packs landing
@@ -304,7 +304,7 @@ export function projectConfigSources(packs: readonly string[], packsDir = defaul
   return out;
 }
 
-// --- Layout sockets (ADRs 2026-056, 2026-057, 2026-058) ----------------------
+// --- Layout sockets (ADRs LEG-2026-056, LEG-2026-057, LEG-2026-058) ----------------------
 //
 // Three data fields tell the core where a project's source lives, which of
 // its files are test-side, and which are generated. The core names none of
@@ -328,7 +328,7 @@ function rootsOverlap(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * `sourceRoots` (ADR 2026-056): project-relative directory globs under which
+ * `sourceRoots` (ADR LEG-2026-056): project-relative directory globs under which
  * roles author source, e.g. `packages/*\/lib`. Each segment is a literal name
  * or exactly `*` (one directory level); the first segment is literal; no
  * `**`, partial wildcard, `.`/`..`, leading or trailing `/`, and no `.git` or
@@ -393,7 +393,7 @@ export function sourceRootOf(path: string, roots: readonly string[]): string | u
 const DOTTED_SUFFIX = /^[._][a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$/;
 
 /**
- * `testFileSuffixes` (ADR 2026-057): file-name suffixes that make a file
+ * `testFileSuffixes` (ADR LEG-2026-057): file-name suffixes that make a file
  * test-side, e.g. `.test.ext`. Lowercase, at least two parts, the first
  * opening with a dot or an underscore (`.test.ext`, `_test.ext`: test
  * runners collect both) and the rest dotted, so a bare language extension can
@@ -440,7 +440,7 @@ export function hasTestFileSuffix(path: string, suffixes: readonly string[]): bo
 const GLOB_SEGMENT = /^[A-Za-z0-9._*-]+$/;
 
 /**
- * `generatedFileGlobs` (ADR 2026-058): project-relative path globs of files
+ * `generatedFileGlobs` (ADR LEG-2026-058): project-relative path globs of files
  * that only generators write. Segments are literal names, names with `*`
  * (any run of characters inside one segment), or exactly `**` (any number of
  * segments). Refused: `?`, `[`, `{`, `!`, escapes, `.`/`..`, a leading or

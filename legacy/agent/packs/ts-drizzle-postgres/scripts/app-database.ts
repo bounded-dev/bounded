@@ -1,5 +1,5 @@
-// Child processes for the pack's machine checks (ADR 2026-064, amended by
-// ADR 2026-072): one awaited child with its own timeout, and the docker CLI
+// Child processes for the pack's machine checks (ADR LEG-2026-064, amended by
+// ADR LEG-2026-072): one awaited child with its own timeout, and the docker CLI
 // pointed at one endpoint. Nothing here blocks the event loop while it waits.
 //
 // The gates no longer start an application database of their own (issue

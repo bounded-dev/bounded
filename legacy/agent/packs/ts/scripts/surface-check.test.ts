@@ -8,13 +8,13 @@ import { parseDomainConcept } from "./domain-concept.ts";
 import { implementationSkeleton } from "./domain-emitter.ts";
 import { EXAMPLE_CONCEPTS, exampleConcept } from "./testdata/example-domain.ts";
 
-// The delivered surface check (ADR 2026-059, TN-26-012 §5): a concept's
+// The delivered surface check (ADR LEG-2026-059, TN-26-012 §5): a concept's
 // implementation exports only its tail; a feature's handler file exports only
 // `<InPort>Handler implements <InPort>`, public in `execute` alone.
 
 // --- concepts -----------------------------------------------------------------------
 
-describe("concept contracts (ADR 2026-059)", () => {
+describe("concept contracts (ADR LEG-2026-059)", () => {
   const surfaceOf = (stem: string, impl?: string): SurfaceViolation[] => {
     const c = exampleConcept(stem);
     return compareSurfaces(c.contract, c.contractPath, impl ?? c.implementation, c.contractPath.replace(".contract.ts", ".ts"));

@@ -406,7 +406,7 @@ describe("lintSrc", () => {
   });
 });
 
-// --- source roots (ADR 2026-056): the monorepo layout ---------------------------
+// --- source roots (ADR LEG-2026-056): the monorepo layout ---------------------------
 //
 // The composition's own ts pack, with the layout a ts-hexagonal composition
 // adds: two source roots, the test-side suffixes and a generated glob. A
@@ -476,7 +476,7 @@ describe("the lint scope comes from the composed source roots", () => {
     expect(files).toEqual(["contexts/pm/src/application/notes.store.test-support.ts", "contexts/pm/src/domain/note.test.ts"]);
   });
 
-  // ADR 2026-059: the builder's lint step holds a concept implementation to
+  // ADR LEG-2026-059: the builder's lint step holds a concept implementation to
   // its generated shape, so a varied tail is refused where it is written.
   test("a concept implementation with a wrong tail is refused by impl-tail; the generated tail passes", async () => {
     const packsDir = monorepoPacks();

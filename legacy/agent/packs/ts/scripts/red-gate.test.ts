@@ -114,7 +114,7 @@ describe("classifyRed", () => {
   });
 });
 
-describe("generated laws are judged apart (ADR 2026-058)", () => {
+describe("generated laws are judged apart (ADR LEG-2026-058)", () => {
   const LAWS = `${CONTEXT_SRC}/domain/notes/note.laws.test.ts`;
   const MINE = `${CONTEXT_SRC}/domain/notes/note.test.ts`;
   const isGenerated = (file: string): boolean => file.endsWith(".laws.test.ts");
@@ -163,7 +163,7 @@ describe("skips a phase test policy asked for", () => {
   });
 });
 
-describe("the test-side files a green is bound to (ADR 2026-057)", () => {
+describe("the test-side files a green is bound to (ADR LEG-2026-057)", () => {
   test("every role-written test-side file under every source root, app tests included, generated laws excluded", () => {
     const f = notebook();
     const files = testSideFiles(f.dir);
@@ -239,7 +239,7 @@ describe("the shadow project", () => {
     for (const impl of ["domain/notes/note.ts", "application/notes/create-note/create-note.handler.ts", "adapters/out/in-memory/notes/create-note.store.ts"]) {
       expect(copy).not.toContain(`${CONTEXT_SRC}/${impl}`);
     }
-    // The composition root is generated (ADR 2026-067), so it is copied like any generated file.
+    // The composition root is generated (ADR LEG-2026-067), so it is copied like any generated file.
     expect(copy).toContain("apps/web/src/server/composition-root.ts");
     expect(workspaces).toEqual(["apps/web", "contexts/notebook"]);
   });

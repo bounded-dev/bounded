@@ -20,7 +20,7 @@ import {
 } from "./path-policy.js";
 
 // TN-26-001 blindness matrix, executable form, on the layout of ADRs
-// 2026-056…058: source roots, suffix-based test side, generated files.
+// LEG-2026-056…058: source roots, suffix-based test side, generated files.
 // Paths resolve against a fixed project root (/repo) so tests are hermetic.
 // The layout below is the hexagonal monorepo's (TN-26-012), handed in the way a
 // host hands in what the composed packs contribute; the core names none of it.
@@ -548,7 +548,7 @@ describe("refusals name the legal alternative", () => {
     expect(reasonOf(d("builder", "write", P.contract))).toContain("it is a contract — the architect's");
     expect(reasonOf(d("builder", "write", "docs/x.ts"))).toContain("outside every source root — the builder writes implementation files under apps/*/src, contexts/*/src");
     expect(reasonOf(d("test-writer", "write", P.handler))).toContain("the test-writer writes files named with '.test.ts', '.test.tsx', '.test-support.ts'");
-    expect(reasonOf(d("test-writer", "write", P.laws))).toContain("it is a generated file (matches '**/*.laws.test.ts', ADR 2026-058)");
+    expect(reasonOf(d("test-writer", "write", P.laws))).toContain("it is a generated file (matches '**/*.laws.test.ts', ADR LEG-2026-058)");
     expect(reasonOf(d("reviewer", "write", "spec.md"))).toBe(
       "path-gate: reviewer may not write 'spec.md': reviewer has no write zone — it is read-only, and records what it found with record_design_review",
     );
@@ -597,7 +597,7 @@ describe("find patterns stay inside the searched directory", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Generated files (ADR 2026-058): shared, written by nobody
+// Generated files (ADR LEG-2026-058): shared, written by nobody
 // ---------------------------------------------------------------------------
 
 describe("generated files are write-denied for every role and readable by all", () => {
@@ -615,7 +615,7 @@ describe("generated files are write-denied for every role and readable by all", 
 
   test("the refusal says it is generated and which glob matched", () => {
     expect(reasonOf(d("builder", "write", P.command))).toBe(
-      `path-gate: builder may not write '${P.command}': it is a generated file (matches 'contexts/*/src/application/*/*/*.command.ts', ADR 2026-058) — a generator writes it from the design and a hand edit is discarded; read it freely, and report what should change to the orchestrator`,
+      `path-gate: builder may not write '${P.command}': it is a generated file (matches 'contexts/*/src/application/*/*/*.command.ts', ADR LEG-2026-058) — a generator writes it from the design and a hand edit is discarded; read it freely, and report what should change to the orchestrator`,
     );
   });
 
@@ -1131,7 +1131,7 @@ describe(".bounded is write-denied for every role, read-allowed for all", () => 
 });
 
 // A background job's output files hold raw suite output, which run_tests
-// sanitizes only in its result (ADR 2026-073): no role reads them.
+// sanitizes only in its result (ADR LEG-2026-073): no role reads them.
 describe("no role reads background job files", () => {
   for (const role of ["architect", "test-writer", "builder", "reviewer"] as const) {
     test(`${role} may not read .bounded/jobs, and may still read the guard log`, () => {
@@ -1177,7 +1177,7 @@ describe("remove obeys write zones", () => {
   });
 });
 
-// ADR 2026-054: project config is generated from the composed packs; no role
+// ADR LEG-2026-054: project config is generated from the composed packs; no role
 // writes any of it. Project knowledge stays the architect's alone.
 describe("no role may write project config", () => {
   const protection = { dirNames: ["node_modules"], fileNames: ["package.json", "tsconfig*.json", "bun.lock"] };
@@ -1192,7 +1192,7 @@ describe("no role may write project config", () => {
     }
   });
   test("project knowledge stays the architect's alone", () => {
-    for (const path of ["CONTEXT.md", "ADRs/2026-001-domain.md"]) {
+    for (const path of ["CONTEXT.md", "ADRs/LEG-2026-001-domain.md"]) {
       expect(decide("architect", "write", { path }, ctx).allow, path).toBe(true);
       for (const role of ["test-writer", "builder", "reviewer"] as const) {
         expect(decide(role, "write", { path }, ctx).allow, `${role}: ${path}`).toBe(false);
@@ -1201,7 +1201,7 @@ describe("no role may write project config", () => {
   });
 });
 
-// Nested dependency directories, harness state and config (ADR 2026-054). The
+// Nested dependency directories, harness state and config (ADR LEG-2026-054). The
 // stack's tools resolve the nearest dependency directory or manifest before
 // the root's, so one inside a role's zone would let that role replace a
 // dependency or re-configure a gate. The names are pack data; .git and
@@ -1272,7 +1272,7 @@ describe("the architect scratch zone", () => {
   });
 });
 
-// ADRs 2026-052 and 2026-056: contract files are the composed packs'
+// ADRs LEG-2026-052 and LEG-2026-056: contract files are the composed packs'
 // contract globs (source roots × contract suffixes). The core lists none.
 describe("pack-contributed contract globs", () => {
   test("the core zones name no contract, root, suffix or generated file", () => {
@@ -1310,7 +1310,7 @@ describe("pack-contributed contract globs", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Adversarial review, round 1 (ADR 2026-057): three bypasses, pinned
+// Adversarial review, round 1 (ADR LEG-2026-057): three bypasses, pinned
 // ---------------------------------------------------------------------------
 
 describe("attack: Unicode case folding (APFS folds 'ſ' U+017F onto 's')", () => {

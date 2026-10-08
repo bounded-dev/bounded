@@ -1,5 +1,5 @@
 // The composed phase test policies (the ts pack's `phaseTestPolicies`
-// socket, ADR 2026-064), combined into the one decision a gate applies to
+// socket, ADR LEG-2026-064), combined into the one decision a gate applies to
 // the test process it spawns.
 //
 //   red     every policy's `env` is set and its `unsetEnv` removed; a skipped
@@ -13,7 +13,7 @@
 //           cannot skip anything
 //   green   a refusal a policy routes to the user (the machine's container
 //           engine) routes the gate to the user, but only when every
-//           refusal does (`refusalRoute`, ADR 2026-072)
+//           refusal does (`refusalRoute`, ADR LEG-2026-072)
 //   green   a policy may recognise a failure as the machine's, not the
 //           code's (`infrastructureFailure`): when every failure is the
 //           machine's, the gate routes to the user instead of a role
@@ -35,7 +35,7 @@ export interface PhaseRun {
   readonly refusals: readonly string[];
   /** "user" only when there are refusals and every one of them is a
    *  policy's refusal routed to the user (the machine's container engine);
-   *  otherwise undefined, and the gate's own route applies (ADR 2026-072). */
+   *  otherwise undefined, and the gate's own route applies (ADR LEG-2026-072). */
   readonly refusalRoute?: typeof USER_ROUTE;
   /** Why some tests are skipped (red only), one line per skipping policy. */
   readonly skips: readonly string[];
@@ -137,7 +137,7 @@ export function combineDecisions(phase: TestPhase, decisions: readonly { readonl
 export type PreparedRun<T> =
   | { readonly ok: true; readonly value: T; readonly lines: readonly string[] }
   /** `route` is "user" when the service could not start for a reason only
-   *  the user can clear (ADR 2026-072); otherwise the gate's own route. */
+   *  the user can clear (ADR LEG-2026-072); otherwise the gate's own route. */
   | { readonly ok: false; readonly reason: string; readonly route?: typeof USER_ROUTE };
 
 /**

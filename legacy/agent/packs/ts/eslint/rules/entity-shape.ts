@@ -1,7 +1,7 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 import { conceptPairs, importedNames, inDomainLayer, isBrandFor, memberName, PRIMITIVE_KEYWORDS, textOf } from "./concept-pairs.ts";
 
-// ADR 2026-059 contract rule: an entity's contract is the worked example's
+// ADR LEG-2026-059 contract rule: an entity's contract is the worked example's
 // pair, built only from already-valid value objects and equal by identity.
 //
 //   export interface Note {
@@ -37,7 +37,7 @@ import { conceptPairs, importedNames, inDomainLayer, isBrandFor, memberName, PRI
 
 type MessageId = "brand" | "construct" | "factoryMember" | "fields" | "identity" | "fieldType" | "equals" | "toJSON" | "member";
 
-const MODEL = "An entity's contract is 'interface <Name>' plus 'interface <Name>Factory { new (…): <Name>; }' (ADR 2026-059, ts-contract-authoring).";
+const MODEL = "An entity's contract is 'interface <Name>' plus 'interface <Name>Factory { new (…): <Name>; }' (ADR LEG-2026-059, ts-contract-authoring).";
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 

@@ -120,7 +120,7 @@ describe("typecheckLines", () => {
   });
 });
 
-// --- suffix ownership (ADR 2026-057) through the path policy ------------------
+// --- suffix ownership (ADR LEG-2026-057) through the path policy ------------------
 
 describe("routing a monorepo's diagnostics by file suffix", () => {
   const dir = mkdtempSync(join(tmpdir(), "routing-suffix-"));
@@ -147,7 +147,7 @@ describe("routing a monorepo's diagnostics by file suffix", () => {
     for (const [path, owner] of cases) expect(ownerOf(path), path).toBe(owner);
   });
 
-  test("with the app packs composed, every app's composition root is generated: nobody's (ADR 2026-067)", () => {
+  test("with the app packs composed, every app's composition root is generated: nobody's (ADR LEG-2026-067)", () => {
     const apps = mkdtempSync(join(tmpdir(), "routing-apps-"));
     writeProjectPacks(apps, ["ts", "ts-hexagonal", "ts-trpc", "ts-mcp", "ts-lambda", "ts-web", "ts-desktop"]);
     const appOwnerOf = projectOwnerOf(apps);

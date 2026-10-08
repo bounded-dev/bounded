@@ -1,4 +1,4 @@
-// A pack of fake gates for the background-job tests (ADR 2026-073): plain
+// A pack of fake gates for the background-job tests (ADR LEG-2026-073): plain
 // TypeScript with no harness imports, so a job's worker loads it the way it
 // loads any pack. Each gate appends its name to `<cwd>/../runs.log` when its
 // run ends, and logs its own pass, as a real gate does.

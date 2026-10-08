@@ -1,4 +1,4 @@
-// Which seat a hosted session holds (ADR 2026-048). Each host adapter gathers
+// Which seat a hosted session holds (ADR LEG-2026-048). Each host adapter gathers
 // the facts it can prove — a role bound from outside the session, whether the
 // adapter is a project's own copy, whether the host marks this as a child,
 // whether another bound hook already judges its calls — and this one pure
@@ -25,7 +25,7 @@ export interface SessionFacts {
   readonly projectLocal: boolean;
   /** The host marks the session as one commissioned by another. */
   readonly child: boolean;
-  /** The session runs in a ticket's own worktree (ADR 2026-066), where the
+  /** The session runs in a ticket's own worktree (ADR LEG-2026-066), where the
    *  only seat with work to do is that ticket's launched architect. */
   readonly ticketWorktree?: boolean;
   /** Another hook, bound to a known seat, is proven to judge these calls. */

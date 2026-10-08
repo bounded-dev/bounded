@@ -1,7 +1,7 @@
-// The ts-trpc pack (ADR 2026-063): tRPC as an in adapter. It was ts-service.
+// The ts-trpc pack (ADR LEG-2026-063): tRPC as an in adapter. It was ts-service.
 //
 // Everything tRPC-shaped rides this pack's contributions, so a project that did
-// not compose it meets none of it (ADR 2026-046):
+// not compose it meets none of it (ADR LEG-2026-046):
 //
 //   * the `trpc-in-adapter` emitter: every context's adapters/in/trpc/**,
 //     generated from the features tagged `@exposedVia trpc`, with its laws;
@@ -52,7 +52,7 @@ export const tsTrpcPack = definePack({
       rules: { [`${TS_TRPC_PLUGIN}/no-erased-router`]: "error" },
       why:
         "A contract must never name a type-erased tRPC type: the router's real type is generated with the in " +
-        "adapter, and an erased one silently loses the typed client (ADR 2026-030, TN-26-012 §6).",
+        "adapter, and an erased one silently loses the typed client (ADR LEG-2026-030, TN-26-012 §6).",
     }]),
   ],
 });

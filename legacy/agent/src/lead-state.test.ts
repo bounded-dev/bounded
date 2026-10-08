@@ -7,7 +7,7 @@ import {
 import type { ProcessProbe } from "./process-lock.ts";
 import { delivered, LOG, logLines, makeLeadProject, prepared, runStart } from "../test/support/lead-project.ts";
 
-// The background-worker hold (ADR 2026-066) fails closed: it ends only with
+// The background-worker hold (ADR LEG-2026-066) fails closed: it ends only with
 // the worker's recorded stop, its session gone stale, or the user's release.
 
 const T0 = Date.parse("2026-10-03T08:00:00.000Z");
@@ -77,7 +77,7 @@ describe("backgroundWorkers", () => {
   });
 });
 
-describe("readRunLog with background runs (ADR 2026-073)", () => {
+describe("readRunLog with background runs (ADR LEG-2026-073)", () => {
   test("readRunLog reads a log holding running events", () => {
     const running = { ts: "t", guard: "deliver", verdict: "running", summary: "deliver: running in the background", detail: { kind: "job-started" } };
     const project = makeLeadProject({ ".bounded/active-ticket": "7\n", [LOG]: logLines(prepared("7"), runStart, running) });

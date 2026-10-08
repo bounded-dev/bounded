@@ -37,7 +37,7 @@ The root `docker-compose.yml`, `.env.example`, `scripts/check-db.ts` and
   passes one shared database, connected with the driver for the app's
   runtime (`drizzle-orm/bun-sql` for Bun apps, `drizzle-orm/node-postgres`
   with `pg` for Lambdas and the desktop app's main process; this pack's
-  `connect`, ADR 2026-067). Each app's manifest already pins its driver. A store
+  `connect`, ADR LEG-2026-067). Each app's manifest already pins its driver. A store
   never imports a driver, and nothing outside `adapters/out/drizzle/` imports
   Drizzle.
 - Query with Drizzle's query builder over the table objects in `schema/`
@@ -97,13 +97,13 @@ product question "renamed or new?". Running the generation with that answer is t
 
 ## Docker
 
-Store tests need a container runtime (ADR 2026-064). Without one, red skips
+Store tests need a container runtime (ADR LEG-2026-064). Without one, red skips
 the store tests and logs why; every other level still runs. Green refuses
 while store tests exist and no container runtime answers: it never passes by
 skipping them. The runtime is asked for its version as well as a ping, so an
 engine that answers but hangs is refused within seconds. That refusal is
 routed to the user, in product terms: starting or restarting the engine is
-the one step on their machine no role can take (ADR 2026-072).
+the one step on their machine no role can take (ADR LEG-2026-072).
 
 The apps' generated composition roots connect to `process.env.DATABASE_URL`,
 and refuse to start without it. Each app of a persisting project gets a
@@ -113,7 +113,7 @@ starts one throwaway Postgres (the pinned image) for that file, applies every
 context's migrations, points `DATABASE_URL` at it (so an inherited or `.env`
 value is never used), and stops it afterwards. Compose the app only inside a test or a
 hook, never while the file is collected; green and deliver check both before
-anything runs (ADR 2026-072). The gates start no database of their own, so the
+anything runs (ADR LEG-2026-072). The gates start no database of their own, so the
 project's own `check` needs nothing but a container engine.
 
 ## Project commands

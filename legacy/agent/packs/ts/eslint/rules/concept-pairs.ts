@@ -1,6 +1,6 @@
 import { TSESTree } from "@typescript-eslint/utils";
 
-// Shared reading of the ADR 2026-059 contract form for the concept rules
+// Shared reading of the ADR LEG-2026-059 contract form for the concept rules
 // (value-object-shape, entity-shape, value-object-documented,
 // no-naked-primitives). A CONCEPT is a pair of exported interfaces in one
 // contract file:

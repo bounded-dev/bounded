@@ -18,7 +18,7 @@ names they derive, the contract shapes they parse, and which files are
 generated, skeleton or role-authored. Every rule below is deterministic;
 where the example leaves a choice open, this note makes it.
 
-Decisions are in ADRs 2026-056 to 2026-064 and 2026-067. Throughout, `C` stands for
+Decisions are in ADRs LEG-2026-056 to LEG-2026-064 and LEG-2026-067. Throughout, `C` stands for
 `contexts/<context>/src`, `<scope>` for the package scope with its `@`
 (`@example`), and names in angle brackets are kebab-case unless the rule
 says otherwise. The derivation functions are in
@@ -28,7 +28,7 @@ says otherwise. The derivation functions are in
 ## 1. Layout
 
 ```
-package.json  tsconfig.base.json  tsconfig.json  bun.lock      config (ADR 2026-054)
+package.json  tsconfig.base.json  tsconfig.json  bun.lock      config (ADR LEG-2026-054)
 architecture.test.ts                                            generated
 docker-compose.yml  .env.example                                config (ts-drizzle-postgres)
 docs/architecture/*.md                                          generated (ts-hexagonal)
@@ -60,7 +60,7 @@ apps/<app>/
     <entry files>                                               per workspace template
 ```
 
-Source roots (ADR 2026-056) are `contexts/*/src` and `apps/*/src`. A
+Source roots (ADR LEG-2026-056) are `contexts/*/src` and `apps/*/src`. A
 workspace directory is its source root's parent; its package name is
 `<scope>/<last segment>`.
 
@@ -85,7 +85,7 @@ workspace directory is its source root's parent; its package name is
 | Adapter class prefix | `pascal(tech id)` (`adapterClassPrefix`) | `InMemory`, `Drizzle`, `Console` |
 | Out-adapter class | `<Prefix><Port>` in `<feature>.<role>.ts` | `InMemoryCreateNoteStore`, `ConsoleProjectExporter` |
 | Storage database | `<Prefix>Database` in `<tech>-database.ts` | `InMemoryDatabase` |
-| Composition dependency key | `camel(area)`, then `routeKey(area, feature)` (`dependencyGroups`, ADR 2026-067) | `notes.create` |
+| Composition dependency key | `camel(area)`, then `routeKey(area, feature)` (`dependencyGroups`, ADR LEG-2026-067) | `notes.create` |
 | Package | `<scope>/<workspace dir name>` | `@example/project-management` |
 | Package export | `./domain`, `./application`, `./adapters/<tech>` | `./adapters/in-memory` |
 | CQRS kind | `query` when the first word is `count`, `find`, `get`, `list` or `search`; otherwise `command` (`featureKind`) | `list-notes` is a query |
@@ -98,7 +98,7 @@ guessed.
 
 ### Domain concept (`C/domain/<area>/<concept>.contract.ts`)
 
-As the example's `domain.md` (ADR 2026-059). The kind is read from the
+As the example's `domain.md` (ADR LEG-2026-059). The kind is read from the
 factory:
 
 | Kind | Factory members | Instance members |
@@ -187,7 +187,7 @@ tech-id    = kebab-case id of a composed adapter technology
 literal    = a TypeScript literal of the value's primitive type ("Website relaunch", 42)
 ```
 
-`@accepts` (ADR 2026-059, rule `bounded-ts/value-object-documented`): every
+`@accepts` (ADR LEG-2026-059, rule `bounded-ts/value-object-documented`): every
 value object and every identifier carries a doc comment stating its validity
 rule and at least two `@accepts` lines, one tag per line, whose literals
 differ after trimming. They are the valid samples the generated laws
@@ -312,7 +312,7 @@ barrel.
 ## 6. In adapters (generated)
 
 Only features whose in port names the technology in `@exposedVia` get files.
-Deps objects are grouped by area (ADR 2026-067): `{ <camel(area)>: { <routeKey>: <InPort>, … }, … }`, areas
+Deps objects are grouped by area (ADR LEG-2026-067): `{ <camel(area)>: { <routeKey>: <InPort>, … }, … }`, areas
 sorted, features sorted within each area. File lists and
 barrels are sorted by path.
 
@@ -383,7 +383,7 @@ Tool names are `toolName(feature)` = `snake(feature)`: `create_project`,
 | `in/lambda/<area>/<feature>.lambda.ts` | `export const create<InPort>Lambda = (deps: { <camel(area)>: { <routeKey>: <InPort> } }) => async (): Promise<void> => { await deps.<camel(area)>.<routeKey>.execute(); };` (for an input-less `void` feature, as `export-projects`; a feature with input takes `(event: unknown)`, parses it with its command and answers as a tRPC procedure does) |
 | `in/lambda/index.ts` | one `export { create<InPort>Lambda } from "./<area>/<feature>.lambda.ts";` per feature |
 
-### Composition roots (generated, ADR 2026-067)
+### Composition roots (generated, ADR LEG-2026-067)
 
 Each app pack emits its app's composition root through ts-hexagonal's
 `compositionRoot` (`packs/ts-hexagonal/scripts/composition-root.ts`):
@@ -466,9 +466,9 @@ The globs are the `generatedFileGlobs` each pack contributes:
 | `contexts/*/src/application/*/*/*.command.ts` | ts-hexagonal | WI-5 |
 | `contexts/*/src/adapters/out/*/index.ts` | ts-hexagonal | WI-5 |
 | `contexts/*/src/adapters/in/trpc/**` | ts-trpc | WI-7 |
-| `apps/*/src/server/composition-root.ts` | ts-web | ADR 2026-067 |
-| `apps/*/src/main/composition-root.ts` | ts-desktop | ADR 2026-067 |
-| `apps/*/src/composition-root.ts` | ts-mcp, ts-lambda | ADR 2026-067 |
+| `apps/*/src/server/composition-root.ts` | ts-web | ADR LEG-2026-067 |
+| `apps/*/src/main/composition-root.ts` | ts-desktop | ADR LEG-2026-067 |
+| `apps/*/src/composition-root.ts` | ts-mcp, ts-lambda | ADR LEG-2026-067 |
 | `contexts/*/src/adapters/in/mcp/**` | ts-mcp | WI-7 |
 | `contexts/*/src/adapters/in/lambda/**` | ts-lambda | WI-7 |
 | `contexts/*/drizzle.config.ts` | ts-drizzle-postgres | WI-6 |
@@ -480,7 +480,7 @@ The globs are the `generatedFileGlobs` each pack contributes:
 Generated laws include `<concept>.laws.test.ts`,
 `<feature>.command.laws.test.ts` and the in-adapter laws
 `in/<tech>/<area>/<feature>.<role>.laws.test.ts`. Manifests, `tsconfig*`
-and `bun.lock` are generated **config** (ADR 2026-054), protected by the
+and `bun.lock` are generated **config** (ADR LEG-2026-054), protected by the
 config-name sockets rather than these globs.
 
 A context's `drizzle.config.ts` is an emitted, generated file, not config:
@@ -537,7 +537,7 @@ following generated barrels to the module that defines a name) and a test
 import the architecture test would fail on (`bounded-ts-hexagonal/test-imports`,
 the same `boundaryProblems` the builder's boundary rules use). A red that
 refuses a test for passing against the skeletons says when the test exercises
-only generated code. Store tests follow ADR 2026-064:
+only generated code. Store tests follow ADR LEG-2026-064:
 skipped with a logged reason at red without a container runtime, and a
 refusal at green. Before green (and mutation score, and deliver's check)
 runs any test, store tests' Testcontainers must start and stop one
@@ -606,10 +606,10 @@ workspaces:
 | `testFileSuffixes` | data | core, same file | `string[]`; `testFileSuffixes(cwd)`, `testFileSuffixesFor(packs)`, `testFileSuffixesOrUnreadable(cwd)`, `hasTestFileSuffix(path, suffixes)` |
 | `generatedFileGlobs` | data | core, same file | `string[]`; `generatedFileGlobs(cwd)`, `generatedFileGlobsFor(packs)`, `generatedFileGlobsOrUnreadable(cwd)`, `pathGlobMatcher(globs)` |
 | `skeletonEmitters` | code | ts, `agent/packs/ts/pack.ts` | `Emitter { name; description; emit(facts: ProjectFacts): readonly EmittedFile[] }`, `EmittedFile { path; content; mode }`, `emittedFileProblem(file, emitter)` |
-| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), database? (storage), pins?, appPins?: { <runtime>: pins }, workspaceScripts?, connect? (storage: `{ env, runtimes: { <runtime>: { function, from } } }`, ADR 2026-067) }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
+| `adapterTechnologies` | data | ts, same file | contrib entry `{ id, direction: "in"\|"out", description, featureRole? (in), storage? (out), database? (storage), pins?, appPins?: { <runtime>: pins }, workspaceScripts?, connect? (storage: `{ env, runtimes: { <runtime>: { function, from } } }`, ADR LEG-2026-067) }`; read with `adapterTechnologies(packs)` → `AdapterTechnology[]` |
 | `workspaceTemplates` | data | ts, same file | contrib `{ <kind>: { root, manifest, description, runtime? (apps: required when a used technology has appPins; contexts: never), files?: { <path>: { source, mode } } } }`; read with `workspaceTemplates(packs)` → `WorkspaceTemplate[]` |
-| `phaseTestPolicies` | code | ts, same file | `PhaseTestPolicy { name; description; decide({ project, phase: "red" \| "green" }) → run (prepare?(envChange), infrastructureFailure?) \| skip (red: env, unsetEnv, skippedTest) \| refuse (green) }`; ts-drizzle-postgres contributes the store-test rule (ADR 2026-064) |
-| `testObligations` | code | ts, same file | `TestObligation { name; description; phases?; check(input) → ObligationGap[] }` over the facts, the source-root files and the test-side sources; ts-hexagonal contributes the feature, store, out-adapter, in-adapter-laws and app levels (ADR 2026-063) |
+| `phaseTestPolicies` | code | ts, same file | `PhaseTestPolicy { name; description; decide({ project, phase: "red" \| "green" }) → run (prepare?(envChange), infrastructureFailure?) \| skip (red: env, unsetEnv, skippedTest) \| refuse (green) }`; ts-drizzle-postgres contributes the store-test rule (ADR LEG-2026-064) |
+| `testObligations` | code | ts, same file | `TestObligation { name; description; phases?; check(input) → ObligationGap[] }` over the facts, the source-root files and the test-side sources; ts-hexagonal contributes the feature, store, out-adapter, in-adapter-laws and app levels (ADR LEG-2026-063) |
 | `tnExampleContracts` | data | core, `agent/src/project-init.ts` | `string[]`: contract paths (placeholders allowed) `bounded init` shows in `docs/tn/README.md`; each must lie under a composed source root and end with a composed contract suffix. ts-hexagonal names a concept and a feature |
 | `tnExampleWorkspaces` | data | core, same file | `{ <dir>: <kind> }`: the apps shown in that README's example `workspaces:` block; each app pack names its own |
 

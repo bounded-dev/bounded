@@ -70,7 +70,7 @@ export function depsFunctionHead(name: string, members: readonly (readonly [stri
 }
 
 /**
- * The grouped dependency type (ADR 2026-067), `{ notes: { create: CreateNote } }`,
+ * The grouped dependency type (ADR LEG-2026-067), `{ notes: { create: CreateNote } }`,
  * between `head` and `tail`: on one line when it fits, else one area per
  * line, an area that does not fit breaking one member per line.
  */
@@ -88,7 +88,7 @@ export function groupedType(head: string, groups: readonly DependencyGroup<Featu
   ];
 }
 
-/** The grouped dependency groups of features (ADR 2026-067), naming the contract on a clash. */
+/** The grouped dependency groups of features (ADR LEG-2026-067), naming the contract on a clash. */
 export function groupsOf(features: readonly FeatureContractModel[]): DependencyGroup<FeatureContractModel>[] {
   try {
     return dependencyGroups(features);

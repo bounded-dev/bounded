@@ -1,5 +1,5 @@
 // Store tests and persisting apps' smoke tests need a container runtime at
-// green only (ADR 2026-064, ADR 2026-072). This is the pack's half of that
+// green only (ADR LEG-2026-064, ADR LEG-2026-072). This is the pack's half of that
 // rule, for the red and green gates to call:
 //
 //   probeContainerRuntime  is a Docker-API runtime answering right now?
@@ -24,7 +24,7 @@
 //
 // A refusal for the engine is routed to the user, in product terms: starting
 // or restarting the engine on their own machine is the one environment step
-// no role can take (ADR 2026-072). The gates never start a database of
+// no role can take (ADR LEG-2026-072). The gates never start a database of
 // their own: each persisting app's smoke tests start theirs through the
 // generated app-test-database support.
 import { spawnSync } from "node:child_process";
@@ -196,7 +196,7 @@ export function drizzleStoreTests(root: string): string[] {
 }
 
 /**
- * ADR 2026-064 as a pure function. With no store tests, or a runtime that
+ * ADR LEG-2026-064 as a pure function. With no store tests, or a runtime that
  * answers, the suite runs. Otherwise red skips the store tests with the
  * reason, and green refuses.
  */
@@ -207,7 +207,7 @@ export function storeTestDecision(
   // Red always skips store tests, container runtime or not: they apply the
   // context's migrations, which generate-artifacts only produces from the
   // builder's schema after red. Running them at red would fail for that
-  // missing file, not for NotImplementedError (ADR 2026-064).
+  // missing file, not for NotImplementedError (ADR LEG-2026-064).
   if (phase === "red") {
     const why = probe.available
       ? "they apply migrations that are generated from the builder's schema after red"
@@ -222,12 +222,12 @@ export function storeTestDecision(
     route: USER_ROUTE,
     reason: `green needs a container runtime: ${storeTests.length} Drizzle store test file(s) run against real Postgres ` +
       `(${storeTests.join(", ")}), and ${probe.reason}. ${engineRemedy(probe)}; ` +
-      "store tests are never skipped at green (ADR 2026-064).",
+      "store tests are never skipped at green (ADR LEG-2026-064).",
   };
 }
 
 /** What the user does about an engine that is not available, in product
- *  terms (ADR 2026-072): start it, or restart it when it answers but hangs. */
+ *  terms (ADR LEG-2026-072): start it, or restart it when it answers but hangs. */
 export function engineRemedy(probe: Extract<ContainerRuntimeProbe, { available: false }>): string {
   return /not responding|is failing/.test(probe.reason)
     ? "The container engine is running but not answering properly: restart it"
@@ -261,7 +261,7 @@ export function isSkippedStoreTest(resultName: string): boolean {
  *  but no runtime answers: each starts its own migrated Postgres. */
 export function appDatabaseRefusal(probe: Extract<ContainerRuntimeProbe, { available: false }>): string {
   return `green needs a container runtime: the apps keep their data in Postgres, and their smoke tests each start a ` +
-    `throwaway migrated database, and ${probe.reason}. ${engineRemedy(probe)} (ADR 2026-064, ADR 2026-072).`;
+    `throwaway migrated database, and ${probe.reason}. ${engineRemedy(probe)} (ADR LEG-2026-064, ADR LEG-2026-072).`;
 }
 
 /** Drizzle contexts (project-relative dirs) whose migrations folder holds no
@@ -309,7 +309,7 @@ function buildDecision(options: StoreTestPhaseOptions, files: readonly string[])
   const leaveOut = (why: string): PhaseTestDecision => ({
     action: "run",
     unsetEnv: STORE_TEST_ENV,
-    exclude: { files, reason: `${files.length} test file(s) that need Postgres are left out of this run: ${why}. They are not skipped: green runs them (ADR 2026-064)` },
+    exclude: { files, reason: `${files.length} test file(s) that need Postgres are left out of this run: ${why}. They are not skipped: green runs them (ADR LEG-2026-064)` },
   });
   const missing = options.missingMigrations ?? [];
   if (missing.length > 0) {
@@ -333,7 +333,7 @@ function withPreflight(
 }
 
 /**
- * ADR 2026-064 (amended by ADR 2026-072) in the ts pack's
+ * ADR LEG-2026-064 (amended by ADR LEG-2026-072) in the ts pack's
  * `phaseTestPolicies` shape. The runtime is probed only when the tree has
  * tests that need it (store tests, or a persisting tree's app smoke tests at
  * green), before anything is prepared. At green with a runtime, the gate
@@ -347,7 +347,7 @@ function withPreflight(
 export function storeTestPhaseDecision(options: StoreTestPhaseOptions): PhaseTestDecision {
   const decision = phaseDecision(options);
   // A persisting tree's green and build runs never see an inherited
-  // DATABASE_URL: the apps' smoke tests set their own (ADR 2026-072).
+  // DATABASE_URL: the apps' smoke tests set their own (ADR LEG-2026-072).
   if (options.persists !== true || options.phase === "red" || decision.action === "skip") return decision;
   return { ...decision, unsetEnv: [...decision.unsetEnv, APP_DATABASE_ENV] };
 }
@@ -374,7 +374,7 @@ export const storeTestPolicy: PhaseTestPolicy = {
   description:
     "Drizzle store tests, and the smoke tests of apps that keep their data in Postgres, run against real Postgres: " +
     "without a container runtime the red gate skips the store tests with the reason logged, and the green gate " +
-    "refuses, routed to the user (ADR 2026-064, ADR 2026-072). The runtime is probed (a ping and the engine's " +
+    "refuses, routed to the user (ADR LEG-2026-064, ADR LEG-2026-072). The runtime is probed (a ping and the engine's " +
     "version) before anything starts. The builder's run_tests gets what green gets where it can start, and " +
     "otherwise leaves those tests out with the reason (no runtime, or no migration generated yet). At green, their " +
     "Testcontainers first start and stop one container (a preflight that refuses with the machine's cause), and a " +

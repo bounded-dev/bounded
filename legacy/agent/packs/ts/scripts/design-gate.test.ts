@@ -117,7 +117,7 @@ const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 /** A contract that passes purity, scaffolds and typechecks: a domain value
- *  object in the ADR 2026-059 form (interface + factory, `@accepts` examples
+ *  object in the ADR LEG-2026-059 form (interface + factory, `@accepts` examples
  *  for its generated laws). */
 const CLEAN_CONTRACT = `import type { Result } from "../shared/result.ts";
 
@@ -150,7 +150,7 @@ export interface MoveMoney {
 const BAD_AREA_PATH = join("application", "money", "move-money", "move-money.contract.ts");
 
 /** A second clean contract, for the file a review never saw: the ADR
- *  2026-059 interface + factory pair (the retired `declare class` form now
+ *  LEG-2026-059 interface + factory pair (the retired `declare class` form now
  *  fails contract-purity). */
 const TICKER_CONTRACT = `import type { Result } from "../shared/result.ts";
 
@@ -419,7 +419,7 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
   });
 });
 
-// A change run (ADR 2026-028) revises the contract over a tree that already
+// A change run (ADR LEG-2026-028) revises the contract over a tree that already
 // implements the old one, so the tree failing to compile IS the change: the
 // workers repair their own zones once commissioned, and they cannot be
 // commissioned until the freeze. On a RE-freeze, worker-owned drift therefore
@@ -490,7 +490,7 @@ describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", (
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
   });
 
-  // ADR 2026-071: a ticket that takes a delivered ticket's contract changes
+  // ADR LEG-2026-071: a ticket that takes a delivered ticket's contract changes
   // what the earlier ticket's workers built, so on its FIRST freeze that
   // worker-owned drift is the change, exactly as on a re-freeze.
   const CURRENCY_REL = "contexts/money/src/domain/currencies/currency.contract.ts";
@@ -746,7 +746,7 @@ describe("reviewStepOutcome: the step says which of the two it is", () => {
   });
 
   // The passing line is advisory whatever the findings say: the whole point of
-  // the reframe (ADR 2026-020) is that the architect decides, so the step never
+  // the reframe (ADR LEG-2026-020) is that the architect decides, so the step never
   // suppress-freezes and never prints a freezability verdict of its own.
   test("the passing line reads advisory, and carries no freezability verdict", () => {
     const withFindings = reviewStepOutcome({

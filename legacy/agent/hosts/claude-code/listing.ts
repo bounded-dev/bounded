@@ -24,7 +24,7 @@
 // `shellWords`), so a glob reaches here only quoted, as one literal argument.
 //
 // What comes out is the call pi's own `ls` or `find` tool would make, which
-// the path gate then judges with the same decide() (ADR 2026-057: names may be
+// the path gate then judges with the same decide() (ADR LEG-2026-057: names may be
 // listed, contents stay blind). Pure.
 
 /** One listing, as the pi call the gate judges. */

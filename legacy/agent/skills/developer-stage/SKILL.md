@@ -12,7 +12,7 @@ gate, and arbitrate when they disagree.
 In a new target project, the design note is `docs/tn/TN-<ticket-number>.md`.
 The team lead selects the ticket and records it in `.bounded/active-ticket`:
 a tracker issue number where the project has one, otherwise a locally
-allocated number (ADR 2026-048). The gates and `bounded ticket` read that
+allocated number (ADR LEG-2026-048). The gates and `bounded ticket` read that
 selection; `BOUNDED_TICKET` (or `bounded ticket --ticket <number>`) is only an
 explicit override. You may write the note after the ticket is selected — until
 then only read-only helpers can be commissioned. List this ticket's owned
@@ -22,7 +22,7 @@ retain the legacy root `spec.md`.
 **Taking a delivered ticket's contract.** When this ticket must change a
 contract an earlier, delivered ticket owns, list it under `contracts:` and also
 under `takes:` as `  - <path> from TN-<n>`, citing that ticket's note (ADR
-2026-071). Never edit the earlier note: you may write only this ticket's TN,
+LEG-2026-071). Never edit the earlier note: you may write only this ticket's TN,
 and the earlier ticket's record stays as it was delivered. The gates then treat
 this ticket as the owner. A take must cite an active or ratified note that lists
 the contract and was not abandoned; when another ticket already took it, take it
@@ -126,7 +126,7 @@ removes it at the end of the run.
    domain at three altitudes was duplication that drifted, so think it
    through and write it once. Use `scout` if you want read-only
    investigation of an unfamiliar codebase.
-   - **Strip the "how" at intake (ADR 2026-032).** The ticket's authority is
+   - **Strip the "how" at intake (ADR LEG-2026-032).** The ticket's authority is
      the requirement, not the implementation it happens to mention. Rework
      the request into what must be possible, for whom, under what rules;
      drop any embedded technology or mechanism choice ("over GraphQL", "as a
@@ -226,7 +226,7 @@ removes it at the end of the run.
    unified spec, contract and project-knowledge changes since adoption or the
    last delivered run, then reads the full current design as context.
 
-   **One child per call, in the plain `subagent` form** (ADR 2026-021). A
+   **One child per call, in the plain `subagent` form** (ADR LEG-2026-021). A
    `workflowScript`, `chain` or `parallel` spawn naming a pipeline role is
    refused: those forms bury the target role inside a script or a batch, where
    neither the phase gate that checks the transition nor the model tier that
@@ -255,11 +255,11 @@ removes it at the end of the run.
      failing test and each type error. Green also runs the store tests against
      real Postgres, so it **refuses** when store tests exist and no container
      runtime (Docker) answers — it never passes by skipping them (ADR
-     2026-064). That refusal is routed to the user, because the container
+     LEG-2026-064). That refusal is routed to the user, because the container
      engine is the user's machine and no role can start it (see the route
      list below). Green also runs every app's smoke test and the architecture
      test, and checks before anything runs that each smoke test of a
-     persisting app calls `useAppDatabase()` (ADR 2026-072).
+     persisting app calls `useAppDatabase()` (ADR LEG-2026-072).
    - **The one ordering that survives: green requires a red that covers these
      tests.** Two halves, both mechanical. *Contracts:* a red pass since the
      most recent freeze — a green over a suite no red gate ever validated is a
@@ -355,7 +355,7 @@ removes it at the end of the run.
 ## Change runs — the same loop over a delivered tree
 
 Most real work is **change**: a spec change to a component this stage already
-delivered (ADR 2026-028). From where you sit almost nothing is different — the
+delivered (ADR LEG-2026-028). From where you sit almost nothing is different — the
 tree already holds the ticket's design note, contracts, an implementation and a suite; the
 frozen manifest survived; the guard log was archived by the driver before your
 session started, so every gate treats this as a new run. The loop is the same
@@ -372,7 +372,7 @@ five phases with three things worth knowing:
   contract, config, or generated skeleton blocks. Green is unchanged: the
   project must fully compile before you may call it green. So does a first
   freeze whose ticket takes a delivered contract, because changing it breaks
-  the earlier ticket's code (ADR 2026-071).
+  the earlier ticket's code (ADR LEG-2026-071).
 - **Workers revise, blindness holds.** Commission both as usual. The
   test-writer updates and extends the test files from the revised spec — still
   never seeing an implementation file; the builder brings the implementation
@@ -403,7 +403,7 @@ transition:
 Each returns `PASS`, `BLOCK`, or `ERROR` (misuse — the gate could not run) and
 prints what it found. The long gates — `deliver`, `green_gate`, `red_gate`,
 `run_tests` and `mutation_score` — may also answer **RUNNING** on a host that
-limits how long one command runs (ADR 2026-073): the gate is still working in
+limits how long one command runs (ADR LEG-2026-073): the gate is still working in
 the background. RUNNING is not a verdict. Call the same gate again with the
 same arguments until it gives PASS, BLOCK or ERROR, and on Claude Code give
 that Bash call the longest timeout it allows. `red_gate`, `green_gate` and
@@ -417,7 +417,7 @@ recorded in the guard log automatically.
 **Every gate is also a command.** `bounded gates <gate> [dir] [--json]` runs the
 same function the tool runs, prints the same lines and the same trailing
 verdict, and writes the same guard-log event — one registry, two doors (ADR
-2026-034). Whichever door, the guard log opens with a `host` line naming what
+LEG-2026-034). Whichever door, the guard log opens with a `host` line naming what
 that host enforced: read it before trusting that blindness held.
 
 Every gate and every bounce writes a one-line, greppable reason to the
@@ -428,7 +428,7 @@ a deterministic jam — keep the log readable and cite it when escalating.
 `.bounded/dev-stage-models.json`, a spawn of a judgment seat (architect, reviewer)
 takes its `designModel` and a spawn of a production seat (test-writer, builder)
 takes its `workerModel`, injected as the spawn happens and recorded as a
-`model-tier` guard event (ADR 2026-022). That line in the log is the tier being
+`model-tier` guard event (ADR LEG-2026-022). That line in the log is the tier being
 applied, not an anomaly, and nothing else about the loop changes. **The tier
 beats a model you pass on the spawn call** — seat models are policy, and the
 value you passed is recorded as discarded rather than silently honoured. A

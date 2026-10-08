@@ -25,7 +25,7 @@ desktop, AI-assistant and scheduled-job surfaces, with data that survives
 restarts. Its wording and refusal messages are the clinic's own rather than
 pm-notes' templates. What a time is (format, the clinic's single time zone,
 opening hours) and every list's order, ties included, are pinned so a run
-has no open product question. Product language only (ADR 2026-032): no
+has no open product question. Product language only (ADR LEG-2026-032): no
 framework, runtime, database or file layout is named. First edited in place
 after review, before any run used it.
 
@@ -37,7 +37,7 @@ example: `node scripts/dogfood/structure-compare.ts <arm>` (see
 
 ## `heating-cockpit-change-1-prompt.md`
 
-The first CHANGE-REQUEST dogfood prompt (ADR 2026-028, TN-26-003, issue #14).
+The first CHANGE-REQUEST dogfood prompt (ADR LEG-2026-028, TN-26-003, issue #14).
 First used at Run 21, against a tree delivered from
 heating-cockpit-ingest-prompt.md by the same arm in the same repository.
 
@@ -76,11 +76,11 @@ never as constants scattered through the logic.
 The TN-26-004 validation prompt (first used at Run 23): a change-request
 ticket for a service layer, written the way a real ticket arrives — it NAMES
 GRAPHQL, and it carries zero harness expertise. What is under test is the
-whole reference set: intake must strip the "how" (ADR 2026-032, the phase
+whole reference set: intake must strip the "how" (ADR LEG-2026-032, the phase
 gate refuses a spec naming graphql outside its Intake section), the blessed
-stack must bind as policy (ADR 2026-029 — no GraphQL interface may leak),
+stack must bind as policy (ADR LEG-2026-029 — no GraphQL interface may leak),
 the scaffolder must ship the service runtime, the payloads must land as
-command/query value objects with zod inside (ADR 2026-030/031), and the
+command/query value objects with zod inside (ADR LEG-2026-030/031), and the
 write must acknowledge without returning data.
 
 Compare against Run 22, whose prompt hand-fed the stack and the conventions:
@@ -142,10 +142,10 @@ prompt file under a new name.
 
 ## `pm-notes-prompt.md`
 
-The dogfood prompt for the hexagonal monorepo rework (ADRs 2026-056 to
-2026-064). It describes the worked example's product — projects and notes,
+The dogfood prompt for the hexagonal monorepo rework (ADRs LEG-2026-056 to
+LEG-2026-064). It describes the worked example's product — projects and notes,
 reached from a browser, a desktop app, AI assistants and a scheduled export —
-in product language only. Intake strips the how (ADR 2026-032), so this text
+in product language only. Intake strips the how (ADR LEG-2026-032), so this text
 names no framework, runtime, database or file layout: the stack must come
 from the composed packs, and the structure from the harness's conventions.
 

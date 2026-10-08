@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { targetCwd } from "./target-cwd.ts";
 
 // One rule for "which directory does the gate run in", shared by every host
-// (ADR 2026-029). Pure, so the whole behaviour is three cases.
+// (ADR LEG-2026-029). Pure, so the whole behaviour is three cases.
 
 describe("targetCwd", () => {
   test("no parameter: the caller's own cwd", () => {

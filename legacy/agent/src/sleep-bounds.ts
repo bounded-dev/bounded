@@ -1,4 +1,4 @@
-// The bounds of the architect's `sleep` (ADR 2026-029: one definition, two
+// The bounds of the architect's `sleep` (ADR LEG-2026-029: one definition, two
 // hosts). In pi it is a named tool; on Claude Code it is `sleep <n>` through
 // the role-narrowed Bash, and the policy there must refuse exactly what the
 // tool would clamp. A second copy of the numbers is how the two would drift.

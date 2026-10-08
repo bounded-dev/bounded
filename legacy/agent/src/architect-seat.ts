@@ -1,4 +1,4 @@
-// A ticket's architect seat (ADR 2026-066): one architect per ticket worktree,
+// A ticket's architect seat (ADR LEG-2026-066): one architect per ticket worktree,
 // running as the host's own standard subagent.
 //
 // The core never launches anything. `bounded lead start` prepares the

@@ -22,7 +22,7 @@ export type GuardVerdict =
   | "pass" // guard ran, nothing wrong
   | "block" // guard stopped something (drift caught)
   | "error" // guard itself couldn't run (e.g. no files matched)
-  | "running"; // a long gate's run is still working in the background (ADR 2026-073)
+  | "running"; // a long gate's run is still working in the background (ADR LEG-2026-073)
 
 export interface GuardEvent {
   /** Which guard fired: "contract-purity", "scaffold", "path-gate", "red-gate", … */
@@ -52,7 +52,7 @@ export function guardLogPath(cwd: string): string {
 /**
  * Text a host must never write to the log, rewritten before every line is
  * written: a host adapter registers what its own host must keep out (ADR
- * 2026-069). The core names nothing it redacts.
+ * LEG-2026-069). The core names nothing it redacts.
  */
 export type GuardLogRedactor = (cwd: string, text: string) => string;
 const redactors: GuardLogRedactor[] = [];

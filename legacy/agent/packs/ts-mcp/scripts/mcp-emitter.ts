@@ -1,5 +1,5 @@
 // The MCP in adapter, generated whole from the feature contracts (ADR
-// 2026-060, TN-26-012 §6). For every context with a feature tagged
+// LEG-2026-060, TN-26-012 §6). For every context with a feature tagged
 // `@exposedVia mcp` it emits, all in mode `generated`:
 //
 //   adapters/in/mcp/<area>/<feature>.tool.ts             one tool per feature
@@ -106,7 +106,7 @@ function toolFile(feature: FeatureContractModel): string[] {
 }
 
 function serverFile(context: string, features: readonly FeatureContractModel[]): string[] {
-  // Grouped by area, as the tRPC router nests (ADR 2026-067).
+  // Grouped by area, as the tRPC router nests (ADR LEG-2026-067).
   const groups = groupsOf(features);
   return [
     `import { McpServer } from "${SDK_SERVER}";`,

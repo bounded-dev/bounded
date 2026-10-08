@@ -80,7 +80,7 @@ concrete harness fixes followed the same day (both shipped, with tests):
   import-resolution check (catches DeepSeek's missing `app.tsx`) plus folding
   `vite build` into the delivered repo's own `check`, contributed by ts-web
   through the deliver-check socket so core names no technology (ADR
-  2026-033).
+  LEG-2026-033).
 
 The deeper design — **composition as a commitment**, each pack obligating its
 own layer (build + wiring + service), with UI and service kept decoupled —

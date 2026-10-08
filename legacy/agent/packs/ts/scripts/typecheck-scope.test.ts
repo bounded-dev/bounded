@@ -187,7 +187,7 @@ describe("zero leak: nothing but a count and an owner crosses the boundary", () 
     expect(s.shown).toBe(1);
   });
 
-  test("a generated law suite is nobody's to write, so every role may see it (ADR 2026-058)", () => {
+  test("a generated law suite is nobody's to write, so every role may see it (ADR LEG-2026-058)", () => {
     const generated = `${DIR}/money.laws.test.ts(7,1): error TS2345: Argument of type 'Isbn'…`;
     for (const role of ["builder", "test-writer", "reviewer"] as const) {
       const s = scopeTypecheck(result([generated]), role, TS_ZONE);

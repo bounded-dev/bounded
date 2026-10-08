@@ -2,7 +2,7 @@ import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { noSchemaOnSurface } from "./no-schema-on-surface.ts";
 
-// TN-26-004 / ADR 2026-031: zod is the engine inside a value object, never a
+// TN-26-004 / ADR LEG-2026-031: zod is the engine inside a value object, never a
 // public identity — nothing from zod may appear in a contract at all. The
 // contract declares `parse(raw: unknown): T | undefined`; the schema stays in
 // the implementation module.

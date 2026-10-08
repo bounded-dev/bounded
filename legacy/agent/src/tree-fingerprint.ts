@@ -1,5 +1,5 @@
 // The project's tree as one hash, without the harness's own state (ADR
-// 2026-073). A long gate's run is judged against the tree it ran on: its
+// LEG-2026-073). A long gate's run is judged against the tree it ran on: its
 // worker records this before and after the run, and a later call collects the
 // result only over the tree the run left.
 //

@@ -1,4 +1,4 @@
-// The ts-hexagonal pack (ADR 2026-063): the hexagonal monorepo layout of
+// The ts-hexagonal pack (ADR LEG-2026-063): the hexagonal monorepo layout of
 // TN-26-012 — bounded contexts under contexts/, apps under apps/, each context
 // split into domain, application and adapters.
 //
@@ -16,7 +16,7 @@
 //                      (scripts/obligations.ts)
 //   lintSrcRules       the builder's layout rules (eslint/index.ts), each
 //                      named in the builder's brief (guard-doc-drift, ADR
-//                      2026-018)
+//                      LEG-2026-018)
 import { contribute, definePack } from "../../src/socket-registry.ts";
 import { lintSrcRules, skeletonEmitters, testObligations, TS_PACK } from "../ts/pack.ts";
 import { TS_HEXAGONAL_LINT_RULES } from "./eslint/index.ts";

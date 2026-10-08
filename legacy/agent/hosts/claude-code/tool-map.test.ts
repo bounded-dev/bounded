@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { BASH_TOOL, claudeSeatActions, claudeTaskModel, mapToolCall } from "./tool-map.ts";
 
-// ADR 2026-034: the Claude Code hook judges the SAME pi-shaped call the pi
+// ADR LEG-2026-034: the Claude Code hook judges the SAME pi-shaped call the pi
 // extension would. These fixtures are the tool_input shapes the Claude Code
 // docs give, one per tool, and the pi call each must become.
 
@@ -68,7 +68,7 @@ describe("search tools → find/grep, defaulting to the session cwd", () => {
     expect(map("Grep", { pattern: "TODO", path: "/proj/app" })).toEqual([{ toolName: "grep", input: { path: "/proj/app" } }]);
     expect(map("Grep", { pattern: "TODO" })).toEqual([{ toolName: "grep", input: { path: CWD } }]);
   });
-  // ADR 2026-057: a blind role's directory search is judged on its file glob,
+  // ADR LEG-2026-057: a blind role's directory search is judged on its file glob,
   // so the glob must reach the gate exactly as the tool will use it.
   test("Grep's glob rides along under pi's own field name", () => {
     expect(map("Grep", { pattern: "TODO", path: "/proj/app", glob: "*.handler.ts" }))
@@ -114,7 +114,7 @@ describe("Bash and the rest", () => {
   );
 });
 
-describe("Agent model passthrough and claudeTaskModel — ADR 2026-022 on this host", () => {
+describe("Agent model passthrough and claudeTaskModel — ADR LEG-2026-022 on this host", () => {
   test("a caller-passed model rides into the mapped spawn so the tier core can judge it", () => {
     const calls = map("Agent", { subagent_type: "builder", prompt: "implement it", model: "haiku" });
     expect(calls).toEqual([{ toolName: "subagent", input: { agent: "builder", task: "implement it", model: "haiku" } }]);

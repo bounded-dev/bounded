@@ -1,4 +1,4 @@
-// A long gate's background run (ADR 2026-073): the one command of the job
+// A long gate's background run (ADR LEG-2026-073): the one command of the job
 // src/gate-jobs.ts starts.
 //
 //   node gate-job-worker.ts <packs-dir> <cwd> <gate> <args-json>

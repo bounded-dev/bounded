@@ -1,4 +1,4 @@
-// The background job's runner (ADR 2026-073): one process per run, started by
+// The background job's runner (ADR LEG-2026-073): one process per run, started by
 // src/detached-job.ts in a session of its own, so the call that started it can
 // return and nothing that ends that call reaches it.
 //

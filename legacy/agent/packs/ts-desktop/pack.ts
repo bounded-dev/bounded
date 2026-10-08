@@ -1,4 +1,4 @@
-// The ts-desktop pack (ADR 2026-063): the Electron desktop app, hosting one
+// The ts-desktop pack (ADR LEG-2026-063): the Electron desktop app, hosting one
 // context's tRPC router in-process and rendering with React. It depends on
 // ts-trpc for the router it hosts (and the router-hosting helpers it shares
 // with the web app). It does not depend on ts-web: a desktop app is not a web

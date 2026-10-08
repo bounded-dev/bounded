@@ -1,4 +1,4 @@
-// A seat re-reading its own saved tool output (ADR 2026-069).
+// A seat re-reading its own saved tool output (ADR LEG-2026-069).
 //
 // When a tool result is too large for the context, Claude Code saves it to
 // `<projects-dir>/<session_id>/tool-results/<name>.txt` and hands the caller a

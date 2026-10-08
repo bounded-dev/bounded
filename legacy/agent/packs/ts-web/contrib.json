@@ -1,6 +1,6 @@
 {
-  "//": "The ts-web pack (ADR 2026-063): the web app of the hexagonal monorepo, served and bundled by Bun. This file is the DATA-only half of its contributions: what a host reads without executing pack code. workspaceTemplates.web is the app a TN declares as `apps/<name>: web`; its manifest pins the client stack exactly (ADR 2026-029), and packs/ts-web/pins.test.ts holds those pins to the versions the harness itself runs. The seed files are emitted from the design by the web-app emitter (pack.ts), because they name the hosted context. componentReturnTypes feeds the scaffolder's skeleton-extension decision: a contract whose surface references one of these names declares a React component, so its skeleton is .tsx. specTechNouns feeds the phase gate's Intake check (ADR 2026-032): web frameworks and styling systems the stack does not use.",
-  "//productSurfaces": "What this pack lets the product be used from (ADR 2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
+  "//": "The ts-web pack (ADR LEG-2026-063): the web app of the hexagonal monorepo, served and bundled by Bun. This file is the DATA-only half of its contributions: what a host reads without executing pack code. workspaceTemplates.web is the app a TN declares as `apps/<name>: web`; its manifest pins the client stack exactly (ADR LEG-2026-029), and packs/ts-web/pins.test.ts holds those pins to the versions the harness itself runs. The seed files are emitted from the design by the web-app emitter (pack.ts), because they name the hosted context. componentReturnTypes feeds the scaffolder's skeleton-extension decision: a contract whose surface references one of these names declares a React component, so its skeleton is .tsx. specTechNouns feeds the phase gate's Intake check (ADR LEG-2026-032): web frameworks and styling systems the stack does not use.",
+  "//productSurfaces": "What this pack lets the product be used from (ADR LEG-2026-065). bounded init maps the product spec to these surfaces and selects the pack that serves each needed one.",
   "productSurfaces": ["browser-ui"],
   "//build": "check:build runs the shipped scripts/web-build-check.ts, which bundles the client page of every web app the design declares (TN workspaces maps) with Bun, so a client entry that does not resolve fails the project's own check (dogfood Run 29); with none declared it builds nothing and says so. projectCheckScripts folds it into check; projectShippedFiles ships the script at init.",
   "dependsOnPacks": [
@@ -42,7 +42,7 @@
       "description": "A web app: src/server/main.ts serves the context's tRPC router at /trpc/* and src/client/index.html at / with Bun.serve; src/client/main.tsx is a React root with a typed tRPC client; src/server/composition-root.ts, generated, wires handlers and adapters."
     }
   },
-  "//generatedFileGlobs": "The web app's composition root is generated from the design (ADR 2026-067): write-denied to every role and drift-checked.",
+  "//generatedFileGlobs": "The web app's composition root is generated from the design (ADR LEG-2026-067): write-denied to every role and drift-checked.",
   "generatedFileGlobs": [
     "apps/*/src/server/composition-root.ts"
   ],

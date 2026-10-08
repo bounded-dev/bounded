@@ -1,4 +1,4 @@
-// Running a gate, from any host (ADR 2026-034, ADR 2026-073). Both front
+// Running a gate, from any host (ADR LEG-2026-034, ADR LEG-2026-073). Both front
 // doors — `bounded gates` and pi's gate tools — call `runGate`, so how a gate
 // runs never depends on which host asked.
 //
@@ -24,7 +24,7 @@
 // Which long runs may overlap, in a call or in the background: never two runs
 // of one gate; an `exclusive` gate (it changes the project's files, for good
 // or for a while) runs alone; the others run alongside each other (ADR
-// 2026-021). Whether a run must leave the tree as it found it is its own
+// LEG-2026-021). Whether a run must leave the tree as it found it is its own
 // property (`longRunning`), independent of whether it runs alone. A
 // refusal names what is running in the calling role's own terms: a gate the
 // role cannot call is never offered to it.
@@ -47,7 +47,7 @@ export const GATE_JOB_GUARD = "gate-job";
 /** The job directory of a gate's background run. */
 export const gateJobName = (gate: string): string => `gate-${gate}`;
 
-/** What every long gate's description says where a host renders it (ADR 2026-018). */
+/** What every long gate's description says where a host renders it (ADR LEG-2026-018). */
 export const LONG_RUNNING_NOTE =
   "On a host with a command time limit this gate may answer RUNNING: call it again with the same arguments until it gives a verdict.";
 

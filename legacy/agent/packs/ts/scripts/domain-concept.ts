@@ -1,4 +1,4 @@
-// The domain-concept parser (ADR 2026-059, TN-26-012 §3): one
+// The domain-concept parser (ADR LEG-2026-059, TN-26-012 §3): one
 // `<concept>.contract.ts` in a context's domain → the `DomainConceptModel`
 // every domain emitter codes against (feature-model.ts).
 //

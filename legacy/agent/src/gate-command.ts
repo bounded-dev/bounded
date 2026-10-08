@@ -1,4 +1,4 @@
-// Gate command — how a pack declares a gate to the root (ADR 2026-034).
+// Gate command — how a pack declares a gate to the root (ADR LEG-2026-034).
 //
 // The root names no technology: it discovers `packs/<lang>/gates.ts` by
 // convention and reads a list of these. One entry carries everything BOTH
@@ -51,12 +51,12 @@ export interface FlagSpec {
 export type GateArgs = Readonly<Record<string, unknown>>;
 
 /** A point in a ticket's delivery that a gate's pass marks, which the board
- *  follows (src/board-sync.ts, ADR 2026-066). Packs tag their gates; the core
+ *  follows (src/board-sync.ts, ADR LEG-2026-066). Packs tag their gates; the core
  *  names no gate. */
 export type GateMilestone = "design-frozen" | "delivered" | "handoff-published";
 export const GATE_MILESTONES: readonly GateMilestone[] = ["design-frozen", "delivered", "handoff-published"];
 
-/** A gate whose run can outlast a host's command limit (ADR 2026-073). Under
+/** A gate whose run can outlast a host's command limit (ADR LEG-2026-073). Under
  *  a host deadline the core runs it as a background job and answers RUNNING
  *  until a later call collects its verdict. `reads-tree`: the tree must not
  *  change while it runs (it may write, as long as it puts everything back), so
@@ -81,7 +81,7 @@ export interface GateCommand {
   readonly promptSnippet?: string;
   /** Prompt guidance a host may fold into the role's brief. */
   readonly promptGuidelines?: readonly string[];
-  /** Run as a background job under a host deadline (ADR 2026-073). */
+  /** Run as a background job under a host deadline (ADR LEG-2026-073). */
   readonly longRunning?: LongRunning;
   /** A long gate that runs alone: no other long run beside it, and none
    *  starts while it runs (it changes the project's files, even if only for

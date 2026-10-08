@@ -1,4 +1,4 @@
-// Generated from the design (ADR 2026-067); do not edit: the design gate regenerates it.
+// Generated from the design (ADR LEG-2026-067); do not edit: the design gate regenerates it.
 // The one place that decides which adapter backs which port.
 import { ConsoleProjectExporter } from "@example/project-management/adapters/console";
 import { InMemoryDatabase, InMemoryExportProjectsStore } from "@example/project-management/adapters/in-memory";

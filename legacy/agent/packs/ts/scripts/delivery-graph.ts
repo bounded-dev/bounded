@@ -5,7 +5,7 @@ import { Node, Project, SyntaxKind, type SourceFile } from "ts-morph";
 import { sourceRoots } from "../../../src/pack-contrib.ts";
 import { expandSourceRoots } from "../../../src/path-gate.ts";
 
-/** Every source file under the composed source roots (ADR 2026-056), or under
+/** Every source file under the composed source roots (ADR LEG-2026-056), or under
  *  `src/` where the composition declares none or cannot be read. */
 export function deliveryProject(cwd: string): Project {
   const config = join(cwd, "tsconfig.json");

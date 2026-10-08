@@ -7,7 +7,7 @@ import { commandsIn, constantStrings, harnessSources, stringTexts, userCommandVi
 import { ghFailure, gitHubSignInError } from "../trackers/github.ts";
 import { trackerRaw, trackerRefusal } from "./tracker.ts";
 
-// "A project's user never runs harness steps" (AGENTS.md; ADR 2026-072), held
+// "A project's user never runs harness steps" (AGENTS.md; ADR LEG-2026-072), held
 // over what the harness itself says: the refusals routed to a person, and
 // every string in the harness's own source that addresses the user. Only the
 // reserved recovery commands may be named, each with why; the one other

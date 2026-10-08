@@ -4,7 +4,7 @@ import { installPathGate } from "./extensions/path-gate.ts";
 import { resetPathGateRegistry } from "../../src/path-gate.ts";
 import { makeTempProject, type TempProject } from "../../test/support/temp-project.ts";
 
-// ADR 2026-057 on pi: a blind role's content search is judged on its file
+// ADR LEG-2026-057 on pi: a blind role's content search is judged on its file
 // glob, and a find on its pattern. pi's own grep takes `glob` and its find
 // takes `pattern`, and the extension hands the tool call's input to the gate
 // unchanged — this file pins that the fields arrive, so the gate judges the

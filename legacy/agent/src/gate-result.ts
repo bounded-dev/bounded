@@ -1,11 +1,11 @@
-// Gate result — the one contract every artifact gate answers in (ADR 2026-034).
+// Gate result — the one contract every artifact gate answers in (ADR LEG-2026-034).
 //
 // A gate inspects the tree and says one of three things: PASS (code 0), BLOCK
 // (code 1, the gate ran and said no), or ERROR (code 2, the gate itself could
 // not run — misuse, nothing matched, a broken target). A fourth answer, RUNNING
 // (code 3), is never a gate's own: only the harness's background runner gives
 // it, through `gateRunning`, when a long gate's run outlasts the host's call
-// and the next call with the same arguments collects it (ADR 2026-073). That triple was already
+// and the next call with the same arguments collects it (ADR LEG-2026-073). That triple was already
 // the exit-code convention of every pack script, but the SHAPE around it was
 // declared four separate times (red-gate, design-gate, sign-off, design-review)
 // and the trailing verdict line the architect reads lived only in the pi

@@ -24,8 +24,8 @@ function trackedProject(): string {
   writeFileSync(join(dir, "contexts/lending/src/domain/items/item.contract.ts"), "export declare function returnItem(): void;\n");
   writeFileSync(join(dir, "CONTEXT.md"), "# Terms\n\nBorrower means the person holding an item.\n");
   mkdirSync(join(dir, "ADRs"));
-  writeFileSync(join(dir, "ADRs/2026-001-loans.md"), "# Loan decision\n\nReturns are explicit.\n");
-  // Contracts are the files under the composed source roots (ADR 2026-056).
+  writeFileSync(join(dir, "ADRs/LEG-2026-001-loans.md"), "# Loan decision\n\nReturns are explicit.\n");
+  // Contracts are the files under the composed source roots (ADR LEG-2026-056).
   writeProjectPacks(dir, ["ts", "ts-hexagonal"]);
   execFileSync("git", ["-C", dir, "init", "-q"]);
   execFileSync("git", ["-C", dir, "add", "-A"]);
@@ -118,16 +118,16 @@ describe("change baseline and reviewer diff", () => {
     const dir = trackedProject();
     const baseline = captureChangeBaseline(dir);
     expect(Object.keys(baseline.files).sort()).toEqual([
-      "ADRs/2026-001-loans.md", "CONTEXT.md", "contexts/lending/src/domain/items/item.contract.ts", "spec.md",
+      "ADRs/LEG-2026-001-loans.md", "CONTEXT.md", "contexts/lending/src/domain/items/item.contract.ts", "spec.md",
     ]);
     writeFileSync(join(dir, "spec.md"), "# Design\n\nA loan has a named borrower and due date.\n");
     writeFileSync(join(dir, "contexts/lending/src/domain/items/item.contract.ts"), "export declare function returnItem(id: string): void;\n");
     writeFileSync(join(dir, "contexts/lending/src/domain/items/receipt.contract.ts"), "export declare function receipt(): string;\n");
     writeFileSync(join(dir, "CONTEXT.md"), "# Terms\n\nBorrower means the person responsible for return.\n");
-    writeFileSync(join(dir, "ADRs/2026-001-loans.md"), "# Loan decision\n\nReturns include a due date.\n");
+    writeFileSync(join(dir, "ADRs/LEG-2026-001-loans.md"), "# Loan decision\n\nReturns include a due date.\n");
     const diff = designDiff(dir);
     expect(diff.paths).toEqual(expect.arrayContaining([
-      "ADRs/2026-001-loans.md", "CONTEXT.md", "spec.md", "contexts/lending/src/domain/items/item.contract.ts", "contexts/lending/src/domain/items/receipt.contract.ts",
+      "ADRs/LEG-2026-001-loans.md", "CONTEXT.md", "spec.md", "contexts/lending/src/domain/items/item.contract.ts", "contexts/lending/src/domain/items/receipt.contract.ts",
     ]));
     expect(diff.lines.join("\n")).toContain("+A loan has a named borrower and due date.");
     expect(diff.lines.join("\n")).toContain("+export declare function receipt(): string;");

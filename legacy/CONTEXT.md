@@ -37,7 +37,7 @@ The script names every project declares — `check`, `test`, `build`, `lint` —
 _Avoid_: scripts (unqualified), tasks
 
 **Tool-managed**:
-Extension files an external tool installs and rewrites under `extensions/`; untracked runtime state, never hand-edited (ADR 2026-006).
+Extension files an external tool installs and rewrites under `extensions/`; untracked runtime state, never hand-edited (ADR LEG-2026-006).
 
 **Technical Note (TN)**:
 The single document primitive for project thinking — numbered, statused, kinded, ticket-linked. The working surface where ideas develop before ratification into ADRs. Conventions live per-repo in `docs/tn/README.md`.
@@ -120,7 +120,7 @@ _Avoid_: test checksum (that's the contract manifest's word), fingerprint (unqua
 **Value object**:
 A domain type that replaces a primitive at a contract's public boundary — in
 TS a nominal class (private `__brand`, private constructor, `static parse`;
-ADR 2026-015) or a string-literal union. Branded type aliases are banned.
+ADR LEG-2026-015) or a string-literal union. Branded type aliases are banned.
 Enforced by `no-naked-primitives` and `no-branded-aliases` inside the
 contract-purity gate.
 _Avoid_: newtype, wrapper type, DTO
@@ -148,7 +148,7 @@ The agent runtime that loads the harness and runs a session in it — pi today, 
 _Avoid_: platform, runtime (unqualified), IDE
 
 **Host adapter**:
-The thin, per-host layer that binds the harness's capability constraints to that host's own mechanisms — pi's extensions (`pi.setActiveTools`, the `tool_call` hook, `subagentOnlyExtensions`) or Claude Code's `hosts/claude-code/` (a `PreToolUse` hook, generated agent definitions with `tools:` allowlists and per-agent `hooks:`). Wires the same pure cores (`decide()`, `checkSubagentCall()`, `sessionRole()`); holds no policy of its own (ADR 2026-034).
+The thin, per-host layer that binds the harness's capability constraints to that host's own mechanisms — pi's extensions (`pi.setActiveTools`, the `tool_call` hook, `subagentOnlyExtensions`) or Claude Code's `hosts/claude-code/` (a `PreToolUse` hook, generated agent definitions with `tools:` allowlists and per-agent `hooks:`). Wires the same pure cores (`decide()`, `checkSubagentCall()`, `sessionRole()`); holds no policy of its own (ADR LEG-2026-034).
 _Avoid_: plugin, integration, port
 
 **Artifact gate**:
@@ -164,7 +164,7 @@ The append-only JSONL at `<project>/.bounded/guard-log.jsonl` where every determ
 _Avoid_: audit log, telemetry (unqualified)
 
 **Model tier**:
-One of the two per-project model settings in `<project>/.bounded/dev-stage-models.json` — `designModel` for the judgment seats (architect, reviewer), `workerModel` for the production seats (test-writer, builder). Injected as a spawn happens and logged as a `model-tier` guard event, and it beats a model the spawn call passed explicitly — the tier is policy, and the discarded value is recorded. An absent or malformed config only means "no override" and never stops anything; a tier the project DID set and the harness cannot resolve makes the phase gate refuse the spawn. A resume cannot be tiered at all — the tool refuses a model override — so a resumed seat keeps the tier of its launch and logs a note (ADR 2026-022).
+One of the two per-project model settings in `<project>/.bounded/dev-stage-models.json` — `designModel` for the judgment seats (architect, reviewer), `workerModel` for the production seats (test-writer, builder). Injected as a spawn happens and logged as a `model-tier` guard event, and it beats a model the spawn call passed explicitly — the tier is policy, and the discarded value is recorded. An absent or malformed config only means "no override" and never stops anything; a tier the project DID set and the harness cannot resolve makes the phase gate refuse the spawn. A resume cannot be tiered at all — the tool refuses a model override — so a resumed seat keeps the tier of its launch and logs a note (ADR LEG-2026-022).
 _Avoid_: model override, per-agent model
 
 **Friction**:
@@ -179,7 +179,7 @@ _Avoid_: friction (the refusals), churn, bounce (that's a routed hand-back)
 A new developer-stage run against a tree the stage already delivered — the
 spec change edited into the existing `spec.md` and contracts, re-challenged,
 re-frozen over the drift it creates, re-red, re-green, delivered as a delta.
-Entered by opening the run boundary (ADR 2026-028); resuming an interrupted
+Entered by opening the run boundary (ADR LEG-2026-028); resuming an interrupted
 run (`pi -c`) is not one.
 _Avoid_: brownfield run, incremental run
 
@@ -241,7 +241,7 @@ _Avoid_: sample, snippet, fixture (that's a test's input)
 The one framework a pack binds to a capability (tRPC for typed frontend
 access, zod as schema engine), pack-pinned and pack-installed. Tickets name
 capabilities; a ticket naming a different stack is challenged and escalated,
-never obeyed (ADR 2026-029).
+never obeyed (ADR LEG-2026-029).
 _Avoid_: default library, preferred stack
 
 **How-stripping**:
@@ -254,7 +254,7 @@ _Avoid_: requirement laundering, scope cleaning
 **Command / Query (wire)**:
 The single value object every mutation (Command) or query (Query) accepts as
 its whole payload — nominal class, zod-backed parse, fields composed from
-the domain's existing value objects (ADR 2026-030). Writes return an
+the domain's existing value objects (ADR LEG-2026-030). Writes return an
 acknowledgement, never data; ids inside commands are client-produced.
 _Avoid_: DTO, request object, params
 

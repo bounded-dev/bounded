@@ -1,6 +1,6 @@
 import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
-// ADR 2026-059 implementation rule: a concept's implementation file hides its
+// ADR LEG-2026-059 implementation rule: a concept's implementation file hides its
 // class and ends with the two exports the emitter generated, byte for byte.
 //
 //   import type * as Contract from "./note-text.contract.ts";
@@ -40,7 +40,7 @@ type MessageId =
   | "tail"
   | "extraExport";
 
-const WHY = "A concept's implementation hides '<Name>Impl' and ends with exactly the two generated exports (ADR 2026-059, domain.md \"Contracts own the name\").";
+const WHY = "A concept's implementation hides '<Name>Impl' and ends with exactly the two generated exports (ADR LEG-2026-059, domain.md \"Contracts own the name\").";
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 

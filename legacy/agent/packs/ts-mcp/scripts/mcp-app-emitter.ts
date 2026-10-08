@@ -1,8 +1,8 @@
-// The MCP app's seed files (ADR 2026-061, TN-26-012 §1), emitted for every
+// The MCP app's seed files (ADR LEG-2026-061, TN-26-012 §1), emitted for every
 // workspace a TN declares with kind `mcp`.
 //
 //   src/main.ts               skeleton: connects the composed server to a stdio transport
-//   src/composition-root.ts   generated (ADR 2026-067): composeApp(), the context's MCP server with
+//   src/composition-root.ts   generated (ADR LEG-2026-067): composeApp(), the context's MCP server with
 //                             every exposed feature's handler and adapters, grouped by area
 //
 // An MCP app hosts exactly one context's server: the context whose features

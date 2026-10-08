@@ -1,9 +1,9 @@
-// The team lead's commands from a shell (ADR 2026-066): `bounded lead ...`.
+// The team lead's commands from a shell (ADR LEG-2026-066): `bounded lead ...`.
 // A host that reaches tools through a shell validates the exact command with
 // the same parser before it reaches this process (hosts/claude-code/
 // lead-hook.ts); pi calls the same commands in-process. Exit 0 done, 1
 // refused, 3 still running in the background (a merge's check, ADR
-// 2026-073: run the same command again), 64 usage.
+// LEG-2026-073: run the same command again), 64 usage.
 import { leadDeps, parseLeadArgs, runLeadCommand } from "./lead-commands.ts";
 import { openTracker } from "../trackers/index.ts";
 

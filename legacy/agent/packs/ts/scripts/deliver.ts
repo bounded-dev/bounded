@@ -20,16 +20,16 @@
 //   2. shadow         remove .bounded/shadow-red/, the throwaway project red_gate
 //                     rebuilds to prove red in.
 //   3. generated      every generated file the emitters produce at `deliver`
-//                     is on disk byte for byte (ADR 2026-058), and no skeleton
+//                     is on disk byte for byte (ADR LEG-2026-058), and no skeleton
 //                     file still throws NotImplementedError. Out of date →
 //                     BLOCK, route → orchestrator (re-run the design gate);
 //                     a throwing skeleton → BLOCK, route → builder.
 //   4. surface check  the shipped scripts/surface-check.ts is present and
 //                     wired into `check`; in a project whose config the packs
-//                     generate (ADR 2026-054) the manifest must already carry
+//                     generate (ADR LEG-2026-054) the manifest must already carry
 //                     it, and anything missing is a BLOCK. In a project whose
 //                     config they do not generate, deliver ships and pins it,
-//                     with bun (ADR 2026-062).
+//                     with bun (ADR LEG-2026-062).
 //   5. gitignore      ensure `.bounded/` is ignored.
 //   6. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
@@ -41,7 +41,7 @@
 //                     asks the repo whether it satisfies its own definition of
 //                     done.
 //   9. pack checks    READ-ONLY, and LAST: every `deliverChecks` contribution
-//                     (ADR 2026-033), in composition order.
+//                     (ADR LEG-2026-033), in composition order.
 //
 // Idempotent: every step checks before acting; a second run applies 0 steps.
 // Exit 0 delivered · 1 block · 2 misuse (bad target / missing checker
@@ -80,10 +80,10 @@ import { errorsImportsOf, tsFilesUnder } from "./skeleton-imports.ts";
 import { expandSourceRoots } from "./surface-check.ts";
 
 const GUARD = "deliver";
-// ADR 2026-062: TypeScript projects run on Bun. The shipped checker runs with
+// ADR LEG-2026-062: TypeScript projects run on Bun. The shipped checker runs with
 // bun, scripts are folded with `bun run`, and a missing package is added with
 // `bun add --exact` (which also writes bun.lock). In a generated project none
-// of these edits happen: deliver refuses instead (ADR 2026-054).
+// of these edits happen: deliver refuses instead (ADR LEG-2026-054).
 export const SURFACE_SCRIPT = "bun scripts/surface-check.ts";
 /** The package manager and runner deliver spawns (no shell anywhere in this file). */
 const BUN = "bun";
@@ -249,14 +249,14 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
   }
 
   // Delivery runs the project's own check over its config and must hand over
-  // the config the composed packs generate (ADR 2026-054). Checked before
+  // the config the composed packs generate (ADR LEG-2026-054). Checked before
   // anything mutates.
   const configBlock = configDriftBlock(GUARD, cwd);
   if (configBlock !== undefined) return { code: 1, lines: [...lines, ...configBlock.lines] };
   const configGenerated = configIsGenerated(cwd);
   const refuseConfigChange = (step: string, what: string, detail: Record<string, unknown> = {}): DeliverResult => {
     lines.push(`deliver: BLOCK — ${what} — this project's config is generated from its composed packs, so deliver may not change ` +
-      "the package manifest, the lockfile or the installed dependencies (ADR 2026-054)");
+      "the package manifest, the lockfile or the installed dependencies (ADR LEG-2026-054)");
     lines.push(`  a missing pin or script is a defect in the pack; for missing installed dependencies, ${TEAM_LEAD_RESTORES}`);
     lines.push("deliver: route → orchestrator");
     log("block", step, what, { ...detail, route: "orchestrator" });
@@ -425,7 +425,7 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
     pass("surface-check", did.length > 0, did.length > 0 ? did.join(", ") : "already shipped and wired", { did });
   }
 
-  // --- 4b. pack-contributed check scripts folded into `check` (ADR 2026-033) ---
+  // --- 4b. pack-contributed check scripts folded into `check` (ADR LEG-2026-033) ---
   {
     const scripts = registry
       .read(deliverChecks)
@@ -519,10 +519,10 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
     // included: under the green policies, exactly as green ran it, so it is
     // refused where green would be. Each app's smoke tests start their own
     // database through the generated support, which overrides any inherited
-    // or .env DATABASE_URL (ADR 2026-072).
+    // or .env DATABASE_URL (ADR LEG-2026-072).
     const policy = options.policy ?? phaseRun(cwd, "green");
     // Routed to the user, the line names no command, not even the check's
-    // own (ADR 2026-072).
+    // own (ADR LEG-2026-072).
     const cannotRun = (why: string, route: string): string => route === "user"
       ? `the project's check can't run because ${why}`
       : `the project's own \`bun run check\` cannot run here: ${why}`;
@@ -563,7 +563,7 @@ export async function runDeliver(cwd: string, options: DeliverOptions = {}): Pro
     });
   }
 
-  // --- 9. pack-contributed checks (ADR 2026-033) ---
+  // --- 9. pack-contributed checks (ADR LEG-2026-033) ---
   {
     const checks = registry.read(deliverChecks);
     for (const check of checks) {

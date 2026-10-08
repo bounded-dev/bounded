@@ -1,5 +1,5 @@
 // pi's gate for a ticket's architect seat (hosts/pi/architect-seat.ts, ADR
-// 2026-066). The lead may start an architect only as the one pending
+// LEG-2026-066). The lead may start an architect only as the one pending
 // ticket's — an async pi-subagents child whose `cwd` is that ticket's worktree
 // — and continue one only with the pending reply. pi lets a tool_call hook
 // rewrite the call's input in place, so the call that runs carries exactly
@@ -47,7 +47,7 @@ export function leadArchitectCall(input: Input, toolCallId: string, main: string
       return { handled: true, refuse: "team-lead: only a reply prepared with bounded lead reply <issue> <message> continues an architect" };
     }
     // A stopped seat continues; one lost with its process is relaunched by
-    // `bounded lead start` (ADR 2026-066).
+    // `bounded lead start` (ADR LEG-2026-066).
     if (!seatContinuable(pending.worktree, pending.agent)) {
       return { handled: true, refuse: seatNeedsRelaunch(architectStatus(pending.worktree))
         ? `team-lead: #${pending.issue}'s architect was lost with its process; relaunch it with bounded lead start ${pending.issue}`

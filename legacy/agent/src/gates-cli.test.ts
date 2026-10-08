@@ -7,7 +7,7 @@ import { readGuardLog } from "../src/guard-log.ts";
 import { makeTempProject, type TempProject } from "../test/support/temp-project.ts";
 import { USAGE_EXIT, main } from "./gates-cli.ts";
 
-// `bounded gates` end to end (ADR 2026-034): spawned, because the launcher, the
+// `bounded gates` end to end (ADR LEG-2026-034): spawned, because the launcher, the
 // symlink resolution and the exit code ARE the contract a shell sees. The
 // gates chosen are the cheap ones — surface-check and contract-purity spawn
 // nothing; typecheck runs the real tsc once on a one-file project.
@@ -32,7 +32,7 @@ function run(args: readonly string[], cwd: string) {
   return spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8" });
 }
 
-/** The log minus the host declaration the CLI writes first (ADR 2026-034) —
+/** The log minus the host declaration the CLI writes first (ADR LEG-2026-034) —
  *  the gate-focused tests below are about the gate's own line. */
 function gateEvents(dir: string) {
   return readGuardLog(dir).filter((e) => e.guard !== "host");
@@ -143,7 +143,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
   });
 });
 
-// A monorepo concept pair (ADR 2026-059): the root manifest's workspaces name
+// A monorepo concept pair (ADR LEG-2026-059): the root manifest's workspaces name
 // the source roots the delivered checker walks.
 const CONCEPT_CONTRACT = `import type { Result } from "../shared/result.ts";
 
@@ -268,7 +268,7 @@ describe("typecheck (runs the real tsc once)", () => {
     expect(r.stderr).toMatch(/--role must be one of architect \| test-writer \| builder \| reviewer/);
   });
 
-  // The host hands the CLI its role through the environment (ADR 2026-034);
+  // The host hands the CLI its role through the environment (ADR LEG-2026-034);
   // the gate never resolves one itself, because it would resolve it against
   // the TARGET directory — Run 15's hole.
   test("BOUNDED_DEV_STAGE_ROLE scopes typecheck with no --role", () => {
@@ -332,7 +332,7 @@ describe("through the symlinks (the ~/.pi/agent case)", () => {
   });
 });
 
-describe("host declaration (ADR 2026-034)", () => {
+describe("host declaration (ADR LEG-2026-034)", () => {
   test("a bare shell records `host none` — gates alone are never mistaken for a blind run", () => {
     const dir = project({});
     run(["contract-purity", "--json"], dir);

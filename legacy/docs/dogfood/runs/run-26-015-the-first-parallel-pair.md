@@ -103,7 +103,7 @@ Everything below landed after the pair, each motivated by a numbered finding
 above:
 
 - **One class identity per value object, and a scaffolder that cannot clobber**
-  (ADR 2026-023, findings 2 and 3). A contract may not import types from — or
+  (ADR LEG-2026-023, findings 2 and 3). A contract may not import types from — or
   re-export types from — another contract; it imports that contract's
   implementation module, which re-exports every type the contract declares. The
   scaffolder refuses anything else at scaffold time with the exact replacement

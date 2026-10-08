@@ -1,4 +1,4 @@
-// run_tests custom tool core (TN-26-001, §"Custom tools" #3; ADR 2026-062).
+// run_tests custom tool core (TN-26-001, §"Custom tools" #3; ADR LEG-2026-062).
 //
 // The builder subagent is blind to test SOURCE but must see failure output to
 // debug. run_tests runs the project's suite with `bun test` and its JUnit
@@ -355,7 +355,7 @@ function reportOf(report: string, stdout: string): string | undefined {
  */
 export async function runTests(cwd: string, options: RunTestsOptions = {}): Promise<RunTestsResult> {
   // The test runner loads the project's config: refuse to spawn it over
-  // config the composed packs did not generate (ADR 2026-054).
+  // config the composed packs did not generate (ADR LEG-2026-054).
   const drift = configDriftReason(cwd);
   if (drift !== undefined) return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], blocked: drift };
   if (options.run === undefined && options.command === undefined) {
@@ -516,7 +516,7 @@ export function formatRunTests(result: RunTestsResult): string {
   return parts.join("\n\n");
 }
 
-// --- the gate (ADR 2026-034) ----------------------------------------------------
+// --- the gate (ADR LEG-2026-034) ----------------------------------------------------
 // The builder's tool and the `bounded gates run-tests` command are the same call.
 // This is the guard-log boundary for the suite run: the event is what the
 // convergence nudge reads back, so writing it anywhere but next to the nudge
@@ -559,7 +559,7 @@ function buildPolicy(cwd: string): BuildPolicy {
  * suite; ERROR is a suite that could not even produce a report, or could not
  * be given what it needs.
  *
- * It runs under the build phase's test policies (ADR 2026-064, issue #48):
+ * It runs under the build phase's test policies (ADR LEG-2026-064, issue #48):
  * a service they prepare (green's container preflight) is started for the run
  * and released after it, and a test file they leave out is not run, with the
  * reason printed before the results and the files logged. A service that
@@ -573,7 +573,7 @@ export async function runTestsGate(cwd: string, options: RunTestsGateOptions = {
   const excluded = policy.exclusions?.files ?? [];
   const exclusionLines = (policy.exclusions?.reasons ?? []).map((reason) => `run_tests: ${reason}`);
   // What only the user can clear (the container engine) says so, in the
-  // board's own wording; anything else goes back to the caller (ADR 2026-072).
+  // board's own wording; anything else goes back to the caller (ADR LEG-2026-072).
   const cannotRun = (reason: string, route?: "user"): GateResult => {
     const summary = "suite could not run";
     const routed = route === undefined ? {} : { route };
