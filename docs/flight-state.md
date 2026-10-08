@@ -27,25 +27,36 @@ when written; keep it current (AGENTS.md, "Working with the user").
   command changed in protected files.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
-- **The install command** (issue #65, first slice): the `bounded` package's
-  bin, `contexts/core/src/composition-root/bounded-cli-main.ts`.
-  `bounded init` writes a `bounded.config.ts` selecting only the core pack
-  (refusing if any `bounded.config.*` exists) and runs every host installer.
-  `bounded update --from <dir>` upgrades the bounded packages from packed
-  tarballs, then hands over to the newly installed CLI, which runs
-  `bounded update --no-upgrade` (refresh the hooks only; idempotent; never
-  writes the configuration). That hand-off is the contract between
-  versions: every version must keep accepting `bounded update --no-upgrade`.
-  Host installers are found at run time: each dependency whose package.json
-  exports `./host-installer` (a `hostInstaller` implementing the core's
-  `HostInstaller` contract) takes part; `bounded-claude-code` merges its
-  hooks into `.claude/settings.json`, pointing at the project's own
-  `node_modules/bounded-claude-code/src/main.ts`, and `bounded-pi` writes
-  its loader when `.pi/` exists ([ADR 2026-015](adr/2026-015-host-installers.md);
-  every installer runs the conformance suite
-  `bounded/application/host-installer-conformance`). The end-to-end test
-  (`contexts/core/test/bounded-cli.e2e.test.ts`) packs the workspace with
-  `bun pm pack` and runs `npx bounded` against the tarballs.
+- **The install command** (issue #65, first slice): the app `apps/cli`,
+  package `bounded-cli`, bin `bounded`
+  ([ADR 2026-016](adr/2026-016-cli-app.md)). The core keeps the
+  `project-setup` features and their ports and adapters.
+  - `bounded init --from <dir> [--host <host>]...` is the first install,
+    run through npx. It adds `bounded`, `bounded-cli` and `bounded-<host>`
+    as devDependencies, for each host found (`.claude/`, `.pi/`) or named.
+    It overrides `bounded` with the local tarball, checks the installed
+    versions, and hands over to the installed `bounded init`.
+  - `bounded init` writes a `bounded.config.ts` selecting only the core pack
+    (refusing if any `bounded.config.*` exists) and runs every host
+    installer.
+  - `bounded update --from <dir>` upgrades the packages and moves the
+    override. It then hands over to the installed
+    `bounded update --no-upgrade`, which refreshes the hooks only, is
+    idempotent and never writes the configuration.
+  - The two hand-offs are the contract between versions: every version
+    must keep accepting `bounded init` and `bounded update --no-upgrade`.
+  - Host installers are found at run time: each dependency whose
+    package.json exports `./host-installer` takes part
+    ([ADR 2026-015](adr/2026-015-host-installers.md); every installer runs
+    `bounded/application/host-installer-conformance`).
+    `bounded-claude-code` merges hooks running
+    `bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"`
+    into `.claude/settings.json`. The file can be committed and works in
+    every checkout, and older absolute-path entries are replaced.
+    `bounded-pi` writes its loader when `.pi/` exists.
+  - The end-to-end test (`apps/cli/test/bounded-cli.e2e.test.ts`) packs the
+    workspace and runs the first install through npx against the tarballs,
+    then `npx bounded update --from` against a later release.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
   `node_modules/bounded*` are symlinks into a checkout of this repository
@@ -104,19 +115,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - The packages are versioned `0.1.0`; publishing them as a new major above
     the legacy 2.x is still to decide. Until then a project installing from
     tarballs must override `bounded` with the local tarball (`overrides`),
-    or its package manager resolves `bounded@0.1.0` on npm and fails. The
-    first install sets that override by hand; `bounded update --from` then
-    points it at each new tarball itself, checks every upgraded package's
-    installed version against its tarball's, and restores `package.json`
-    on any failure.
-  - The Claude Code hook runs an absolute path. A moved or re-cloned
-    project's stale hook (which blocks every call) is replaced by
-    `bounded update`, whatever path it pointed at, but until then it
-    blocks. A `.claude/settings.json` committed and checked out elsewhere
-    therefore needs `bounded update` in each checkout. A command relative to
-    `$CLAUDE_PROJECT_DIR` would avoid this. It was not adopted here because
-    the slice's red-commit tests require the absolute path; it needs a
-    decision and a superseded-tests record.
+    or its package manager resolves `bounded@0.1.0` on npm and fails.
+    `init --from` adds that override; `update --from` points it at each new
+    tarball, checks every installed version against its tarball's, and
+    restores `package.json` on any failure. npx must likewise be given
+    bounded's tarball beside bounded-cli's.
+  - npm's `overrides` may refuse an override that differs from a direct
+    dependency's spec (EOVERRIDE). The tarball install path is exercised
+    end to end with bun only; npm, pnpm and yarn are unit-tested at the
+    command level.
   - `NodeModulesHostInstallerSource` refuses when a declared dependency is
     missing from `<root>/node_modules`: a devDependency left out
     (`--production`), or a workspace that hoists packages to a parent
@@ -129,12 +136,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
     rules) until a shipped pack does.
   - Hooks run TypeScript under bun (`bun …/src/main.ts`); the packages ship
     their `.ts` sources. Compiled JavaScript for node is not built.
-  - The CLI and its upgrade step live in the composition root
-    (`bounded-cli.ts`, `package-upgrade.ts`), not a driving adapter under
-    `src/adapters/in/cli/`: that would need a new export path, and the
-    core's export paths are pinned by `architecture.test.ts`. The upgrade
-    (package manager detection, running it, the hand-off) has no port of its
-    own yet.
+  - In `apps/cli`, installing (package manager detection, running it, the
+    hand-off) is plain code in `bounded-cli.ts` and `package-upgrade.ts`,
+    not a feature with ports.
+  - `init --from` maps a host to its package by the convention
+    `bounded-<host>`, and finds hosts only by `.claude/` and `.pi/`.
   - With bun, the upgrade rewrites the bounded packages' specs in
     package.json and runs `bun install`: `bun add` cannot replace one
     tarball dependency with another (bun 1.3.14 reports a dependency loop).

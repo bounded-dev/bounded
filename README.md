@@ -102,19 +102,29 @@ run under [bun](https://bun.sh), which must be on `PATH`.
 (cd contexts/core && bun pm pack --destination /tmp/bounded)
 (cd apps/claude-code && bun pm pack --destination /tmp/bounded)
 (cd apps/pi && bun pm pack --destination /tmp/bounded)
+(cd apps/cli && bun pm pack --destination /tmp/bounded)
 
-# in your project; the override stops `bounded` resolving to the legacy 2.x on npm
-#   package.json: "overrides": { "bounded": "file:/tmp/bounded/bounded-<version>.tgz" }
-bun add /tmp/bounded/bounded-<version>.tgz /tmp/bounded/bounded-claude-code-<version>.tgz
-npx bounded init
+# in your project (it needs a package.json): the first install runs bounded-cli through npx.
+# npx is given bounded's tarball too: on npm, `bounded` is still the legacy 2.x.
+npx -p /tmp/bounded/bounded-<version>.tgz -p /tmp/bounded/bounded-cli-<version>.tgz bounded init --from /tmp/bounded
 ```
 
-`bounded init` writes `bounded.config.ts`, selecting only the core pack (which
-guards nothing by itself; add packs there, see
-[configuration](docs/configuration.md)), and installs the hooks of every host
-adapter package the project depends on: Claude Code's into
-`.claude/settings.json`, and pi's loader when the project has `.pi/`. Restart
-the host's session afterwards.
+`bounded init --from <dir>` adds `bounded`, `bounded-cli` and each host's
+adapter package as devDependencies, installed from the tarballs in `<dir>`.
+The hosts are the ones whose directory the project has (`.claude/` for
+`bounded-claude-code`, `.pi/` for `bounded-pi`), or the ones named with
+`--host claude-code` or `--host pi`. It also overrides `bounded` with the
+local tarball in `package.json`. It uses the project's package manager: its
+lockfile's, else `package.json`'s `packageManager`, else the one running
+npx. It then hands over to the installed `bounded init`. That writes
+`bounded.config.ts`, selecting only the core pack (which guards nothing by
+itself; add packs there, see [configuration](docs/configuration.md)), and
+installs every host's hooks. Claude Code's go into `.claude/settings.json`,
+running `bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"`,
+so the file can be committed and works in every checkout. pi's loader goes
+under `.pi/extensions/`. Restart the host's session afterwards. When the
+packages are already installed, `npx bounded init` does the second half
+alone. Once published, `npx bounded-cli init` will be the first step.
 
 To upgrade, pack the new release into an empty directory and run
 `npx bounded update --from <dir>`. It installs the tarballs in `<dir>` and
@@ -122,9 +132,7 @@ points the `bounded` override at the new tarball itself. It checks the
 installed versions, then hands over to the newly installed version, which
 refreshes the hooks. If the upgrade fails, `package.json` is restored.
 `npx bounded update --no-upgrade` refreshes the hooks from the installed
-version only. Neither touches `bounded.config.ts`. Run `bounded update`
-again after moving or re-cloning the project: the Claude Code hook names
-the project's absolute path.
+version only. Neither touches `bounded.config.ts`.
 
 ## Develop
 

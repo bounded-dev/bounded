@@ -5,7 +5,7 @@
 ## Decision
 
 - **Installing into an agent host is distribution, not extension.**
-  `bounded init` and `bounded update` (issue #65) write a host's hooks or
+  `bounded init` and `bounded update` (issue #65; the app bounded-cli, [ADR 2026-016](2026-016-cli-app.md)) write a host's hooks or
   loader into a project: `.claude/settings.json` for Claude Code, the loader
   under `.pi/extensions/` for pi. That happens before anything is composed
   and before any decision is made, and it changes no verdict. It is how the
