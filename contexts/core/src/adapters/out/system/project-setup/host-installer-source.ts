@@ -56,21 +56,32 @@ function parseInstaller(module: unknown, packageName: string): Result<HostInstal
   if (!isRecord(exported) || typeof exported.host !== "string" || typeof exported.install !== "function") {
     return { ok: false, error: `${packageName} exports ${EXPORT_PATH} without a hostInstaller ({ host, install }): reinstall ${packageName}, or report it to its maintainers` };
   }
+  if (exported.isInstalled !== undefined && typeof exported.isInstalled !== "function") {
+    return { ok: false, error: `${packageName}'s hostInstaller has an isInstalled that is not a function: reinstall ${packageName}, or report it to its maintainers` };
+  }
   const { host } = exported;
   const install: (projectRoot: string) => unknown = exported.install.bind(exported);
-  return {
-    ok: true,
-    value: {
-      host,
-      install: async (projectRoot) => {
-        try {
-          return parseResult(await install(projectRoot), packageName);
-        } catch (thrown) {
-          return { ok: false, error: `${packageName}'s host installer failed: ${message(thrown)}` };
-        }
-      },
+  const askInstalled: ((projectRoot: string) => unknown) | undefined = typeof exported.isInstalled === "function" ? exported.isInstalled.bind(exported) : undefined;
+  const installer: HostInstaller = {
+    host,
+    install: async (projectRoot) => {
+      try {
+        return parseResult(await install(projectRoot), packageName);
+      } catch (thrown) {
+        return { ok: false, error: `${packageName}'s host installer failed: ${message(thrown)}` };
+      }
     },
   };
+  if (askInstalled === undefined) return { ok: true, value: installer };
+  // Contributed code's answer: only a true is a yes; anything else, or a throw, is no.
+  const isInstalled = async (projectRoot: string): Promise<boolean> => {
+    try {
+      return (await askInstalled(projectRoot)) === true;
+    } catch {
+      return false;
+    }
+  };
+  return { ok: true, value: { ...installer, isInstalled } };
 }
 
 export class NodeModulesHostInstallerSource implements HostInstallerSource {

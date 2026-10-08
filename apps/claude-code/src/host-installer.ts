@@ -8,7 +8,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostInstaller } from "bounded/application";
-import { BUNDLED_HOOK, PROJECT_HOOK_COMMAND, withProjectHooks } from "./install.ts";
+import { BUNDLED_HOOK, isBoundedHook, PROJECT_HOOK_COMMAND, withProjectHooks } from "./install.ts";
+import { isRecord } from "./json.ts";
 
 const SETTINGS = ".claude/settings.json";
 
@@ -45,5 +46,11 @@ export const hostInstaller: HostInstaller = {
     await mkdir(join(projectRoot, ".claude"), { recursive: true });
     await writeFile(path, `${JSON.stringify(merged.value.settings, null, 2)}\n`);
     return { ok: true, value: { host: "claude-code", changedPaths: [SETTINGS], skippedBecause: null } };
+  },
+  /** Whether .claude/settings.json holds a bounded hook, in any form an install wrote; settings that are absent or cannot be read hold none. */
+  async isInstalled(projectRoot) {
+    const settings = await readSettings(join(projectRoot, SETTINGS));
+    if (!settings.ok || !isRecord(settings.value) || !isRecord(settings.value.hooks)) return false;
+    return Object.values(settings.value.hooks).some((entries) => Array.isArray(entries) && entries.some((entry) => isRecord(entry) && Array.isArray(entry.hooks) && entry.hooks.some(isBoundedHook)));
   },
 };

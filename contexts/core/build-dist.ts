@@ -13,7 +13,7 @@
 // package's own export paths, and anything else must be one of bounded's
 // dependencies, so the tree-sitter grammar and the rest load from node_modules.
 import { mkdir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const HERE = import.meta.dir;
 const APPS = join(HERE, "..", "..", "apps");
@@ -58,11 +58,20 @@ export async function buildDist(): Promise<void> {
   if (!built.success) throw new AggregateError(built.logs, "bounded's library could not be built");
 
   for (const { entry, out, program } of CARRIED) {
-    const carried = await Bun.build({ entrypoints: [entry], target: "node", format: "esm", packages: "external" });
-    const [output] = carried.outputs;
-    if (!carried.success || output === undefined) throw new AggregateError(carried.logs, `${entry} could not be built`);
-    const text = (await output.text()).replace(/^#!.*\n/, "").replace(/^\/\/ @bun.*\n/, "");
+    // Split, so an entry's dynamic imports stay dynamic: the Claude Code hook's bootstrap loads everything
+    // inside its try, so a missing module is a deny, not a crash before it (apps/claude-code/src/main.ts).
     await mkdir(dirname(join(HERE, out)), { recursive: true });
+    const carried = await Bun.build({
+      entrypoints: [entry],
+      outdir: dirname(join(HERE, out)),
+      target: "node",
+      format: "esm",
+      splitting: true,
+      packages: "external",
+      naming: { entry: basename(out), chunk: "chunks/[name]-[hash].[ext]" },
+    });
+    if (!carried.success) throw new AggregateError(carried.logs, `${entry} could not be built`);
+    const text = (await Bun.file(join(HERE, out)).text()).replace(/^#!.*\n/, "").replace(/^\/\/ @bun.*\n/, "");
     await Bun.write(join(HERE, out), program === true ? `#!/usr/bin/env node\n${text}` : text);
   }
 

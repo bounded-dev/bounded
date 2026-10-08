@@ -16,6 +16,12 @@ export interface HostInstallReport {
 export interface HostInstaller {
   readonly host: string;
   install(projectRoot: string): Promise<Result<HostInstallReport>>;
+  /**
+   * Whether bounded is installed for this host in the project (its hook, its
+   * loader), so a refresh never adds a host the project did not choose.
+   * Optional: a caller treats an installer without it by its own rule.
+   */
+  isInstalled?(projectRoot: string): Promise<boolean>;
 }
 
 /**

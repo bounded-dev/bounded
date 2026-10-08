@@ -28,4 +28,8 @@ export const hostInstaller: HostInstaller = {
     await writeFile(path, loader.content);
     return { ok: true, value: { host: "pi", changedPaths: [loader.path], skippedBecause: null } };
   },
+  /** Whether bounded's loader is where pi discovers it. */
+  async isInstalled(projectRoot) {
+    return existsSync(join(projectRoot, piLoader().path));
+  },
 };

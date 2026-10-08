@@ -351,37 +351,44 @@ for (const context of contexts) {
   for (const { path, text } of texts) violations.push(...valueObjectClassViolations(path, text, (contract) => valueObjects.has(contract)));
 }
 
-const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
-for (const path of appFiles) {
+/**
+ * The app rules for one app file: its own src by relative path, a context only
+ * through its export paths and declared dependencies, and never another app,
+ * nor the host adapters' code a context carries at `bounded/hosts/*` (built
+ * from the apps into bounded at pack time, ADR 2026-016).
+ */
+function appImportViolations(path: string, text: string): string[] {
   const [, appName = ""] = path.split("/");
   const app = apps.find((a) => a.dir === `apps/${appName}`);
-  if (app === undefined) {
-    violations.push(`${path} — every app file sits in src/ of an app with a package.json`);
-    continue;
-  }
-  const text = await Bun.file(`${ROOT}/${path}`).text();
+  if (app === undefined) return [`${path} — every app file sits in src/ of an app with a package.json`];
+  const out: string[] = [];
   for (const { spec, line } of importsOf(path, text)) {
     const at = `${path}:${line} imports "${spec}"`;
     if (spec.startsWith(".")) {
       const target = new URL(spec, `file:///${path}`).pathname.slice(1);
-      if (!target.startsWith(`${app.dir}/src/`)) violations.push(`${at} — an app reaches outside its own src only through packages`);
+      if (!target.startsWith(`${app.dir}/src/`)) out.push(`${at} — an app reaches outside its own src only through packages`);
       continue;
     }
     const isPackage = (name: string): boolean => spec === name || spec.startsWith(`${name}/`);
     const otherApp = apps.find((a) => isPackage(a.name));
     if (otherApp !== undefined) {
-      violations.push(`${at} — an app never imports an app`);
+      out.push(`${at} — an app never imports an app`);
       continue;
     }
     const target = contexts.find((c) => isPackage(c.name));
     if (target !== undefined) {
-      if (!(`./${spec.slice(target.name.length + 1)}` in target.exports)) violations.push(`${at} — import a context only through its export paths`);
-      else if (!app.dependencies.includes(target.name)) violations.push(`${at} — ${app.name} does not declare ${target.name} as a dependency`);
+      if (spec.startsWith(`${target.name}/hosts/`)) out.push(`${at} — an app never imports an app: ${target.name}/hosts/* is the host adapters' code, bundled into ${target.name}`);
+      else if (!(`./${spec.slice(target.name.length + 1)}` in target.exports)) out.push(`${at} — import a context only through its export paths`);
+      else if (!app.dependencies.includes(target.name)) out.push(`${at} — ${app.name} does not declare ${target.name} as a dependency`);
       continue;
     }
-    if (spec === "<computed>") violations.push(`${at} — an import with a computed specifier cannot be checked`);
+    if (spec === "<computed>") out.push(`${at} — an import with a computed specifier cannot be checked`);
   }
+  return out;
 }
+
+const appFiles = [...new Glob("apps/*/src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].sort();
+for (const path of appFiles) violations.push(...appImportViolations(path, await Bun.file(`${ROOT}/${path}`).text()));
 
 // The contract rules R1–R6 (architecture.rules.test-support.ts): every file of every context, tests included.
 const contextSources: SourceFile[] = await Promise.all(files.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() })));

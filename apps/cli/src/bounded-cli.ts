@@ -140,26 +140,39 @@ function bundledHosts(projectRoot: string): Set<string> {
   }
 }
 
+/** Which of bounded's bundled installers run: those of the hosts named or found (init), or those already installed (update). */
+type Selection = { readonly kind: "hosts"; readonly hosts: ReadonlySet<string> } | { readonly kind: "installed"; readonly found: ReadonlySet<string> };
+
 /**
  * The project's host installers, keeping bounded's bundled ones only for the
  * hosts selected; an installer another package offers always runs, since
- * installing that package chose it (ADR 2026-015).
+ * installing that package chose it (ADR 2026-015). When refreshing, a bundled
+ * host runs only if bounded is installed for it (its installer's
+ * isInstalled), so an update never adds a host init did not install; an
+ * installer that cannot say falls back to its host's directory.
  */
 class SelectedHostInstallerSource implements HostInstallerSource {
   constructor(
     private readonly source: HostInstallerSource,
     private readonly bundled: ReadonlySet<string>,
-    private readonly selected: ReadonlySet<string>,
+    private readonly selection: Selection,
   ) {}
 
   async load(projectRoot: string): Promise<Result<readonly HostInstaller[]>> {
     const loaded = await this.source.load(projectRoot);
     if (!loaded.ok) return loaded;
-    return { ok: true, value: loaded.value.filter((installer) => !this.bundled.has(installer.host) || this.selected.has(installer.host)) };
+    const kept: HostInstaller[] = [];
+    for (const installer of loaded.value) {
+      if (!this.bundled.has(installer.host)) kept.push(installer);
+      else if (this.selection.kind === "hosts") {
+        if (this.selection.hosts.has(installer.host)) kept.push(installer);
+      } else if (installer.isInstalled === undefined ? this.selection.found.has(installer.host) : await installer.isInstalled(projectRoot)) kept.push(installer);
+    }
+    return { ok: true, value: kept };
   }
 }
 
-const selectedSource = (projectRoot: string, hosts: readonly string[]): HostInstallerSource => new SelectedHostInstallerSource(new NodeModulesHostInstallerSource(), bundledHosts(projectRoot), new Set(hosts));
+const selectedSource = (projectRoot: string, selection: Selection): HostInstallerSource => new SelectedHostInstallerSource(new NodeModulesHostInstallerSource(), bundledHosts(projectRoot), selection);
 
 /** How the project lists bounded: as a devDependency unless it is in dependencies. */
 function boundedPackage(projectRoot: string): Result<readonly { name: string; dev: boolean }[]> {
@@ -195,17 +208,15 @@ interface Installation {
  * hand-off restores package.json and the lockfiles.
  */
 function installThenHandOver(projectRoot: string, manager: PackageManager, installation: Installation, handOverArgs: readonly string[], run: CommandRunner): CliRun {
-  // package.json and every lockfile as they were (undefined: absent), so a failed install can be undone.
-  const saved = new Map<string, string | undefined>(
-    ["package.json", ...LOCKFILE_NAMES].map((name) => [name, existsSync(join(projectRoot, name)) ? readFileSync(join(projectRoot, name), "utf8") : undefined]),
-  );
-  /** Puts package.json and the lockfiles back as they were, so a failed install leaves the project's manifest and lock unchanged. */
+  // package.json and every lockfile as they were, as bytes (bun.lockb is binary; undefined: absent), so a failed install can be undone.
+  const saved = new Map<string, Buffer | undefined>(["package.json", ...LOCKFILE_NAMES].map((name) => [name, existsSync(join(projectRoot, name)) ? readFileSync(join(projectRoot, name)) : undefined]));
+  /** Puts package.json and the lockfiles back as they were, byte for byte, rewriting only a file that changed, so a failed install leaves the project's manifest and lock unchanged. */
   const restored = (error: string): CliRun => {
     const lockfiles: string[] = [];
-    for (const [name, text] of saved) {
+    for (const [name, bytes] of saved) {
       const path = join(projectRoot, name);
-      if (text !== undefined) {
-        writeFileSync(path, text);
+      if (bytes !== undefined) {
+        if (!existsSync(path) || !readFileSync(path).equals(bytes)) writeFileSync(path, bytes);
         if (name !== "package.json") lockfiles.push(name);
       } else if (existsSync(path)) {
         rmSync(path);
@@ -215,7 +226,10 @@ function installThenHandOver(projectRoot: string, manager: PackageManager, insta
     const withLockfiles = lockfiles.length === 0 ? "" : `, with ${lockfiles.join(", ")},`;
     return refused(`${error}\npackage.json was restored${withLockfiles} and the hooks were not changed; if node_modules changed, run your package manager's install to return to the previous versions`);
   };
-  if (installation.manifest !== null) writeFileSync(join(projectRoot, "package.json"), `${JSON.stringify(installation.manifest, null, 2)}\n`);
+  if (installation.manifest !== null) {
+    const written = `${JSON.stringify(installation.manifest, null, 2)}\n`;
+    if (saved.get("package.json")?.toString("utf8") !== written) writeFileSync(join(projectRoot, "package.json"), written);
+  }
   for (const command of installation.commands) {
     const ran = run(command, projectRoot);
     if (ran.status !== 0) return restored(`${command.join(" ")} failed${ran.error === undefined ? "" : ` (${ran.error})`}:\n${ran.stdout}${ran.stderr}`);
@@ -310,7 +324,31 @@ async function initInstalling(projectRoot: string, from: string | undefined, nam
   return installThenHandOver(projectRoot, manager, installation, ["init", "--no-install", ...hosts.flatMap((host) => ["--host", host])], run);
 }
 
-/** `bounded update` from the registry: the manager upgrades bounded to its latest; afterwards it must not be older than before. */
+/** The manifest without any override of `bounded` (overrides, resolutions, pnpm.overrides) a `--from` install wrote, so the registry's version is installed. */
+function withoutBoundedOverride(manifest: Json): Json | null {
+  let changed = false;
+  const without = (group: unknown): unknown => {
+    if (!isRecord(group) || !("bounded" in group)) return group;
+    changed = true;
+    const { bounded: _bounded, ...rest } = group;
+    return rest;
+  };
+  const out: Record<string, unknown> = { ...manifest };
+  for (const field of ["overrides", "resolutions"]) if (field in manifest) out[field] = without(manifest[field]);
+  if (isRecord(manifest.pnpm) && "overrides" in manifest.pnpm) out.pnpm = { ...manifest.pnpm, overrides: without(manifest.pnpm.overrides) };
+  return changed ? out : null;
+}
+
+/** The version a spec names (`^3.2.0`, `3.2.0`), or undefined (a path, a tag). */
+const versionIn = (spec: unknown): string | undefined => (typeof spec === "string" ? /(\d+\.\d+\.\d+)/.exec(spec)?.[1] : undefined);
+
+/**
+ * `bounded update` from the registry: any `--from` override of bounded is
+ * dropped, then the manager upgrades bounded to its latest. Afterwards the
+ * installed bounded must be at least the version the manager wrote into
+ * package.json for it (the registry's latest, as it resolved it), so a pin it
+ * could not lift is refused, and not older than before.
+ */
 function registryUpgrade(projectRoot: string, manager: PackageManager, packages: readonly { name: string; dev: boolean }[]): Result<Installation> {
   const before = new Map<string, string>();
   for (const { name } of packages) {
@@ -325,11 +363,17 @@ function registryUpgrade(projectRoot: string, manager: PackageManager, packages:
       if (!version.ok) return version;
       const previous = before.get(name) ?? version.value;
       if (compareVersions(version.value, previous) < 0) return { ok: false, error: `after the upgrade ${name} is version ${version.value}, older than ${previous}` };
+      const manifest = readJson(join(projectRoot, "package.json"));
+      const groups = [manifest.dependencies, manifest.devDependencies].filter(isRecord);
+      const resolved = versionIn(groups.find((group) => name in group)?.[name]);
+      if (resolved !== undefined && compareVersions(version.value, resolved) < 0) {
+        return { ok: false, error: `after the upgrade ${name} is version ${version.value}, older than ${resolved}, the latest the package manager resolved: something pins it (an override or resolution); remove it, then run this again` };
+      }
       after.push(`${name} ${version.value}`);
     }
     return { ok: true, value: after.join(", ") };
   };
-  return { ok: true, value: { manifest: null, commands: upgradeToLatestCommands(manager, packages), check } };
+  return { ok: true, value: { manifest: withoutBoundedOverride(readJson(join(projectRoot, "package.json"))), commands: upgradeToLatestCommands(manager, packages), check } };
 }
 
 /** The options after `init`: pairs of --host <host> and one --from <dir>, or --no-install with --host pairs; undefined when they are not understood. */
@@ -360,7 +404,7 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
       if (!parsed.noInstall) return await initInstalling(projectRoot, parsed.from, parsed.hosts, files, run);
       const invalid = invalidHost(parsed.hosts);
       if (invalid !== undefined) return refused(`"${invalid}" is not a host name: name a host such as claude-code or pi`);
-      return done(await new InitProjectHandler(files, selectedSource(projectRoot, hostsFor(projectRoot, parsed.hosts)), INITIAL_CONFIG).execute(projectRoot));
+      return done(await new InitProjectHandler(files, selectedSource(projectRoot, { kind: "hosts", hosts: new Set(hostsFor(projectRoot, parsed.hosts)) }), INITIAL_CONFIG).execute(projectRoot));
     }
     if (command !== "update") return usage();
     const refreshOnly = options.length === 1 && options[0] === "--no-upgrade";
@@ -368,7 +412,7 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
     if (!refreshOnly && fromDir === undefined && options.length > 0) return usage();
     const initialised = await requireInitialised(files, projectRoot);
     if (!initialised.ok) return refused(initialised.error);
-    if (refreshOnly) return done(await new UpdateProjectHandler(files, selectedSource(projectRoot, hostsFor(projectRoot, []))).execute(projectRoot));
+    if (refreshOnly) return done(await new UpdateProjectHandler(files, selectedSource(projectRoot, { kind: "installed", found: new Set(hostsFor(projectRoot, [])) })).execute(projectRoot));
     const packages = boundedPackage(projectRoot);
     if (!packages.ok) return refused(packages.error);
     const manifest = readJson(join(projectRoot, "package.json"));

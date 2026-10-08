@@ -135,8 +135,12 @@ describe("bounded, the one published package", () => {
     const hook = readFileSync(join(CORE, "dist/hosts/claude-code/hook.js"), "utf8");
     const beforeTry = hook.slice(0, hook.search(/^try \{/m));
     expect(hook.search(/^try \{/m)).toBeGreaterThan(0);
-    expect(beforeTry.match(/^(?:import|export)\b.*$/gm) ?? []).toEqual([]);
-    expect(hook).toMatch(/await import\(/);
+    // Before the try, only the bundler's own helper chunks, relative, which import nothing but node's built-ins: no package that could be missing.
+    const specsOf = (text: string): string[] => [...text.matchAll(/^(?:import|export)\b[^";]*?\bfrom\s*"([^"]+)"/gm), ...text.matchAll(/^import\s*"([^"]+)"/gm)].map(([, spec = ""]) => spec);
+    const early = specsOf(beforeTry);
+    expect(early.filter((spec) => !spec.startsWith("./"))).toEqual([]);
+    for (const chunk of early) expect(specsOf(readFileSync(join(CORE, "dist/hosts/claude-code", chunk), "utf8")).filter((spec) => !spec.startsWith("node:"))).toEqual([]);
+    expect(hook).toMatch(/await import\(|import\("/);
   });
 
   test("ships a README saying what Bounded is, how to start, and a path gate rule, linking to the repository's docs", () => {
