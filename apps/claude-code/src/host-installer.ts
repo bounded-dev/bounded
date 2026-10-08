@@ -1,13 +1,14 @@
-// The host installer `bounded init` and `bounded update` load from this
-// package (its ./host-installer export): bounded's hooks merged into the
-// project's .claude/settings.json, running the project's own installed copy
-// of bounded-claude-code under bun, through $CLAUDE_PROJECT_DIR. A bounded hook pointing elsewhere
-// (an older install's absolute path, or a checkout of this repository) is replaced.
+// The host installer `bounded init` and `bounded update` run for Claude Code:
+// bounded carries it as bounded/hosts/claude-code/host-installer. It merges
+// bounded's hooks into the project's .claude/settings.json, running the hook bounded carries under
+// node, in the project's own installed copy, through $CLAUDE_PROJECT_DIR. A
+// bounded hook pointing elsewhere (an older install's bun command, absolute
+// path or bounded-claude-code package, or a checkout of this repository) is replaced.
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostInstaller } from "bounded/application";
-import { PROJECT_HOOK_COMMAND, withProjectHooks } from "./install.ts";
+import { BUNDLED_HOOK, PROJECT_HOOK_COMMAND, withProjectHooks } from "./install.ts";
 
 const SETTINGS = ".claude/settings.json";
 
@@ -33,8 +34,8 @@ async function readSettings(path: string): Promise<{ ok: true; value: unknown } 
 export const hostInstaller: HostInstaller = {
   host: "claude-code",
   async install(projectRoot) {
-    const main = join(projectRoot, "node_modules", "bounded-claude-code", "src", "main.ts");
-    if (!existsSync(main)) return { ok: false, error: `${main} is missing: install bounded-claude-code in this project, so the hook runs the project's own copy` };
+    const hook = join(projectRoot, BUNDLED_HOOK);
+    if (!existsSync(hook)) return { ok: false, error: `${hook} is missing: install bounded in this project (npx bounded init), so the hook runs the project's own copy` };
     const path = join(projectRoot, SETTINGS);
     const settings = await readSettings(path);
     if (!settings.ok) return settings;

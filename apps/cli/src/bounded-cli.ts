@@ -1,28 +1,39 @@
 // The `bounded` command: `bounded init` and `bounded update`, wired to the
 // core's file-system and node_modules adapters. Its source is this app,
-// apps/cli; it ships inside the `bounded` package as its bin, dist/cli.js,
-// bundled by bounded's prepack (ADR 2026-016).
+// apps/cli; it ships inside the one `bounded` package as its bin,
+// dist/cli.js, compiled for node by bounded's prepack, beside the host
+// adapters it installs (ADR 2026-016).
 //
-// Both install packages, then hand over to the bounded they just installed,
+// Both install bounded, then hand over to the bounded they just installed,
 // so the rest is always the installed version's own work:
 // - `bounded init` (run through `npx bounded init` before the project has
-//   any bounded package) adds bounded and the hosts' adapter packages at
-//   this CLI's own version, from the npm registry or with
-//   `--from <dir>` from local tarballs, then runs the installed
-//   `bounded init --no-install`, which sets the project up;
-// - `bounded update` upgrades them, to their latest from the registry or
-//   from the tarballs in `--from <dir>`, then runs the installed
+//   bounded) adds bounded at this CLI's own version, from the npm registry or
+//   with `--from <dir>` from its tarball, then runs the installed
+//   `bounded init --no-install --host <host>...`, which writes the
+//   configuration and installs the hooks of the hosts named or found;
+// - `bounded update` upgrades bounded, to its latest from the registry or
+//   from the tarball in `--from <dir>`, then runs the installed
 //   `bounded update --no-upgrade`, which refreshes the hooks.
 // Those two hand-offs are the contract between versions: every version
-// accepts `bounded init --no-install` and `bounded update --no-upgrade`.
+// accepts `bounded init --no-install [--host <host>]...` and
+// `bounded update --no-upgrade`.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileSystemProjectSetupFiles } from "bounded/adapters/file-system";
 import { NodeModulesHostInstallerSource } from "bounded/adapters/system";
-import { InitProjectHandler, type ProjectSetupFiles, requireInitialised, type SetupReport, UpdateProjectHandler } from "bounded/application";
+import {
+  type HostInstaller,
+  type HostInstallerSource,
+  InitProjectHandler,
+  type ProjectSetupFiles,
+  requireInitialised,
+  type SetupReport,
+  UpdateProjectHandler,
+} from "bounded/application";
 import type { Result } from "bounded/domain";
+import { INITIAL_CONFIG } from "./initial-config.ts";
 import {
   compareVersions,
   installCommand,
@@ -62,17 +73,17 @@ const spawnRunner: CommandRunner = (command, cwd) => {
 };
 
 export const USAGE = `Usage:
-  bounded init [--host <host>]... [--from <dir>]   first install: add bounded and each host's adapter package
-                                                   (bounded-<host>; by default the hosts whose directory exists: .claude/, .pi/)
-                                                   at this CLI's version from the npm registry, or from the tarballs in <dir>,
-                                                   then set bounded up
-  bounded init --no-install                        set bounded up: a configuration selecting the core pack, and every host's hooks
-  bounded update [--from <dir>]                    upgrade the bounded packages to their latest from the npm registry, or from
-                                                   the tarballs in <dir>, then refresh every host's hooks
-  bounded update --no-upgrade                      refresh every host's hooks to point at the installed version
+  bounded init [--host <host>]... [--from <dir>]     first install: add bounded at this CLI's version, from the npm registry or
+                                                     from its tarball in <dir>, then set it up for the hosts named
+                                                     (by default the hosts whose directory exists: .claude/, .pi/)
+  bounded init --no-install [--host <host>]...       set bounded up: the configuration (the core, the path gate and its default
+                                                     rules), and the hooks of the hosts named or found
+  bounded update [--from <dir>]                      upgrade bounded to its latest from the npm registry, or from its tarball
+                                                     in <dir>, then refresh the hooks
+  bounded update --no-upgrade                        refresh the hooks of the hosts found to point at the installed version
 `;
 
-/** The hosts `bounded init` finds by their directory in the project, and the adapter package each is installed with (bounded-<host>). */
+/** The hosts bounded carries an adapter for, found by their directory in the project. */
 const HOST_DIRECTORIES: readonly (readonly [string, string])[] = [
   [".claude", "claude-code"],
   [".pi", "pi"],
@@ -99,7 +110,7 @@ const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.m
 
 function reportText(report: SetupReport): string {
   const lines = [`bounded ${ownVersion()}`];
-  if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the core pack only; add packs there to guard this project.`);
+  if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the core and the path gate, with two default rules protecting the configuration and .bounded/; add your own rules there.`);
   for (const host of report.hosts) {
     if (host.skippedBecause !== null) lines.push(`${host.host}: skipped (${host.skippedBecause})`);
     else if (host.changedPaths.length > 0) lines.push(`${host.host}: updated ${host.changedPaths.join(", ")}`);
@@ -113,25 +124,50 @@ const done = (outcome: Result<SetupReport>): CliRun => (outcome.ok ? { exitCode:
 const refused = (error: string, stdout = ""): CliRun => ({ exitCode: 1, stdout, stderr: `bounded: ${error}\n` });
 const usage = (): CliRun => ({ exitCode: 2, stdout: "", stderr: USAGE });
 
-/** The bounded packages the project depends on: bounded, and every package offering a host installer. */
-function boundedPackages(projectRoot: string): Result<readonly { name: string; dev: boolean }[]> {
+/** A host name as --host gives it: lower-case letters, digits and dashes, so it can name nothing else. */
+const invalidHost = (hosts: readonly string[]): string | undefined => hosts.find((host) => !/^[a-z0-9][a-z0-9-]*$/.test(host));
+
+/** The hosts named, or else those found by their directory in the project. */
+const hostsFor = (projectRoot: string, named: readonly string[]): string[] => (named.length > 0 ? [...new Set(named)] : HOST_DIRECTORIES.filter(([dir]) => existsSync(join(projectRoot, dir))).map(([, host]) => host));
+
+/** The hosts the installed bounded carries an installer for: its export paths ./hosts/<host>/host-installer (none when it cannot be read). */
+function bundledHosts(projectRoot: string): Set<string> {
   try {
-    const manifest = readJson(join(projectRoot, "package.json"));
-    const groups = (field: string): string[] => {
-      const group = manifest[field];
-      return isRecord(group) ? Object.keys(group) : [];
-    };
-    const dev = new Set(groups("devDependencies"));
-    const names = [...new Set([...groups("dependencies"), ...dev])].sort();
-    const offersInstaller = (name: string): boolean => {
-      const exports = readJson(join(projectRoot, "node_modules", name, "package.json")).exports;
-      return isRecord(exports) && exports["./host-installer"] !== undefined;
-    };
-    const chosen = new Set(names.filter((name) => name === "bounded" || offersInstaller(name)));
-    chosen.add("bounded");
-    return { ok: true, value: [...chosen].sort().map((name) => ({ name, dev: dev.has(name) })) };
+    const exports = readJson(join(projectRoot, "node_modules", "bounded", "package.json")).exports;
+    return new Set(Object.keys(isRecord(exports) ? exports : {}).flatMap((path) => /^\.\/hosts\/([^/]+)\/host-installer$/.exec(path)?.[1] ?? []));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * The project's host installers, keeping bounded's bundled ones only for the
+ * hosts selected; an installer another package offers always runs, since
+ * installing that package chose it (ADR 2026-015).
+ */
+class SelectedHostInstallerSource implements HostInstallerSource {
+  constructor(
+    private readonly source: HostInstallerSource,
+    private readonly bundled: ReadonlySet<string>,
+    private readonly selected: ReadonlySet<string>,
+  ) {}
+
+  async load(projectRoot: string): Promise<Result<readonly HostInstaller[]>> {
+    const loaded = await this.source.load(projectRoot);
+    if (!loaded.ok) return loaded;
+    return { ok: true, value: loaded.value.filter((installer) => !this.bundled.has(installer.host) || this.selected.has(installer.host)) };
+  }
+}
+
+const selectedSource = (projectRoot: string, hosts: readonly string[]): HostInstallerSource => new SelectedHostInstallerSource(new NodeModulesHostInstallerSource(), bundledHosts(projectRoot), new Set(hosts));
+
+/** How the project lists bounded: as a devDependency unless it is in dependencies. */
+function boundedPackage(projectRoot: string): Result<readonly { name: string; dev: boolean }[]> {
+  try {
+    const dependencies = readJson(join(projectRoot, "package.json")).dependencies;
+    return { ok: true, value: [{ name: "bounded", dev: !(isRecord(dependencies) && "bounded" in dependencies) }] };
   } catch (thrown) {
-    return { ok: false, error: `the project's packages cannot be read: ${message(thrown)}` };
+    return { ok: false, error: `the project's package.json cannot be read: ${message(thrown)}` };
   }
 }
 
@@ -221,7 +257,7 @@ function fromTarballs(from: string, packages: readonly { name: string; dev: bool
   try {
     tarballs = readdirSync(from);
   } catch {
-    return { ok: false, error: `${from} cannot be read: pass --from a directory holding the packed tarballs (bun pm pack) of ${packages.map(({ name }) => name).join(", ")}` };
+    return { ok: false, error: `${from} cannot be read: pass --from a directory holding bounded's packed tarball (bun pm pack in contexts/core)` };
   }
   const wanted: Wanted[] = [];
   for (const { name, dev } of packages) {
@@ -244,20 +280,20 @@ function tarballInstallation(projectRoot: string, manager: PackageManager, manif
   return { manifest: withUpgradedSpecs(withOverride, wanted), commands: [installCommand(manager)], check: exactly(projectRoot, wanted, "from its tarball") };
 }
 
-/** `bounded init [--host <host>]... [--from <dir>]`: add the packages, then hand over to the installed `bounded init --no-install`. */
+/** `bounded init [--host <host>]... [--from <dir>]`: add bounded, then hand over to the installed `bounded init --no-install` with the hosts. */
 async function initInstalling(projectRoot: string, from: string | undefined, namedHosts: readonly string[], files: ProjectSetupFiles, run: CommandRunner): Promise<CliRun> {
   const manifestPath = join(projectRoot, "package.json");
   if (!existsSync(manifestPath)) return refused(`${projectRoot} has no package.json: create one (\`npm init -y\`, or your package manager's own), then run this again`);
   const present = await files.configFileNames(projectRoot);
   if (!present.ok) return refused(present.error);
   if (present.value.length > 0) return refused(`${projectRoot} already has ${present.value.join(", ")}: init never overwrites a configuration. Run \`bounded update\` to bring its hooks up to date`);
-  const invalid = namedHosts.find((host) => !/^[a-z0-9][a-z0-9-]*$/.test(host));
-  if (invalid !== undefined) return refused(`"${invalid}" is not a host name: a host is named by its adapter package without "bounded-", such as claude-code`);
-  const hosts = namedHosts.length > 0 ? namedHosts : HOST_DIRECTORIES.filter(([dir]) => existsSync(join(projectRoot, dir))).map(([, host]) => host);
+  const invalid = invalidHost(namedHosts);
+  if (invalid !== undefined) return refused(`"${invalid}" is not a host name: name a host such as claude-code or pi`);
+  const hosts = hostsFor(projectRoot, namedHosts);
   if (hosts.length === 0) {
     return refused(`no agent host found in ${projectRoot} (${HOST_DIRECTORIES.map(([dir]) => `${dir}/`).join(", ")}): name the hosts you use with --host, such as --host claude-code`);
   }
-  const packages = ["bounded", ...new Set(hosts.map((host) => `bounded-${host}`))].map((name) => ({ name, dev: true }));
+  const packages = [{ name: "bounded", dev: true }];
   const manifest = readJson(manifestPath);
   const manager = packageManagerOf(readdirSync(projectRoot), manifest, process.env.npm_config_user_agent);
   let installation: Installation;
@@ -266,19 +302,15 @@ async function initInstalling(projectRoot: string, from: string | undefined, nam
     if (!wanted.ok) return refused(wanted.error);
     installation = tarballInstallation(projectRoot, manager, manifest, wanted.value);
   } else {
-    // From the registry: every package at exactly this CLI's version, so the set is one release.
+    // From the registry: bounded at exactly this CLI's version.
     const version = ownVersion();
     const wanted = packages.map(({ name, dev }) => ({ name, dev, spec: version, version }));
     installation = { manifest: withUpgradedSpecs(manifest, wanted), commands: [installCommand(manager)], check: exactly(projectRoot, wanted, "this CLI's own") };
   }
-  return installThenHandOver(projectRoot, manager, installation, ["init", "--no-install"], run);
+  return installThenHandOver(projectRoot, manager, installation, ["init", "--no-install", ...hosts.flatMap((host) => ["--host", host])], run);
 }
 
-/**
- * `bounded update` from the registry: the manager upgrades the bounded
- * packages to their latest; afterwards they must be at one version (a
- * release is published in lockstep) and none older than before.
- */
+/** `bounded update` from the registry: the manager upgrades bounded to its latest; afterwards it must not be older than before. */
 function registryUpgrade(projectRoot: string, manager: PackageManager, packages: readonly { name: string; dev: boolean }[]): Result<Installation> {
   const before = new Map<string, string>();
   for (const { name } of packages) {
@@ -287,40 +319,48 @@ function registryUpgrade(projectRoot: string, manager: PackageManager, packages:
     before.set(name, version.value);
   }
   const check = (): Result<string> => {
-    const after = new Map<string, string>();
+    const after: string[] = [];
     for (const { name } of packages) {
       const version = installedVersion(projectRoot, name);
       if (!version.ok) return version;
-      after.set(name, version.value);
       const previous = before.get(name) ?? version.value;
       if (compareVersions(version.value, previous) < 0) return { ok: false, error: `after the upgrade ${name} is version ${version.value}, older than ${previous}` };
+      after.push(`${name} ${version.value}`);
     }
-    const versions = new Set(after.values());
-    if (versions.size > 1) return { ok: false, error: `after the upgrade the bounded packages are not all at one version (${[...after].map(([name, version]) => `${name} ${version}`).join(", ")}): a release is published in lockstep` };
-    return { ok: true, value: [...after].map(([name, version]) => `${name} ${version}`).join(", ") };
+    return { ok: true, value: after.join(", ") };
   };
   return { ok: true, value: { manifest: null, commands: upgradeToLatestCommands(manager, packages), check } };
+}
+
+/** The options after `init`: pairs of --host <host> and one --from <dir>, or --no-install with --host pairs; undefined when they are not understood. */
+function initOptions(projectRoot: string, options: readonly string[]): { noInstall: boolean; hosts: string[]; from: string | undefined } | undefined {
+  const noInstall = options[0] === "--no-install";
+  const rest = noInstall ? options.slice(1) : options;
+  if (rest.length % 2 !== 0) return undefined;
+  const hosts: string[] = [];
+  let from: string | undefined;
+  for (let at = 0; at < rest.length; at += 2) {
+    const [name, value] = [rest[at], rest[at + 1]];
+    if (value === undefined) return undefined;
+    if (name === "--host") hosts.push(value);
+    else if (name === "--from" && from === undefined && !noInstall) from = resolve(projectRoot, value);
+    else return undefined;
+  }
+  return { noInstall, hosts, from };
 }
 
 /** Runs `bounded <args>` in the project at `projectRoot`, running package managers and the installed CLI with `run`. Never throws. */
 export async function runBoundedCli(args: readonly string[], projectRoot: string, run: CommandRunner = spawnRunner): Promise<CliRun> {
   try {
     const files = new FileSystemProjectSetupFiles();
-    const hostInstallerSource = new NodeModulesHostInstallerSource();
     const [command, ...options] = args;
     if (command === "init") {
-      if (options.length === 1 && options[0] === "--no-install") return done(await new InitProjectHandler(files, hostInstallerSource).execute(projectRoot));
-      if (options.length % 2 !== 0) return usage();
-      const hosts: string[] = [];
-      let from: string | undefined;
-      for (let at = 0; at < options.length; at += 2) {
-        const [name, value] = [options[at], options[at + 1]];
-        if (value === undefined) return usage();
-        if (name === "--host") hosts.push(value);
-        else if (name === "--from" && from === undefined) from = resolve(projectRoot, value);
-        else return usage();
-      }
-      return await initInstalling(projectRoot, from, hosts, files, run);
+      const parsed = initOptions(projectRoot, options);
+      if (parsed === undefined) return usage();
+      if (!parsed.noInstall) return await initInstalling(projectRoot, parsed.from, parsed.hosts, files, run);
+      const invalid = invalidHost(parsed.hosts);
+      if (invalid !== undefined) return refused(`"${invalid}" is not a host name: name a host such as claude-code or pi`);
+      return done(await new InitProjectHandler(files, selectedSource(projectRoot, hostsFor(projectRoot, parsed.hosts)), INITIAL_CONFIG).execute(projectRoot));
     }
     if (command !== "update") return usage();
     const refreshOnly = options.length === 1 && options[0] === "--no-upgrade";
@@ -328,8 +368,8 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
     if (!refreshOnly && fromDir === undefined && options.length > 0) return usage();
     const initialised = await requireInitialised(files, projectRoot);
     if (!initialised.ok) return refused(initialised.error);
-    if (refreshOnly) return done(await new UpdateProjectHandler(files, hostInstallerSource).execute(projectRoot));
-    const packages = boundedPackages(projectRoot);
+    if (refreshOnly) return done(await new UpdateProjectHandler(files, selectedSource(projectRoot, hostsFor(projectRoot, []))).execute(projectRoot));
+    const packages = boundedPackage(projectRoot);
     if (!packages.ok) return refused(packages.error);
     const manifest = readJson(join(projectRoot, "package.json"));
     const manager = packageManagerOf(readdirSync(projectRoot), manifest, process.env.npm_config_user_agent);

@@ -1,5 +1,5 @@
-// The host installer `bounded init` and `bounded update` load from this
-// package (its ./host-installer export): the loader pi discovers under
+// The host installer `bounded init` and `bounded update` run for pi (bounded
+// carries it as bounded/hosts/pi/host-installer): the loader pi discovers under
 // .pi/extensions/, written only when the project uses pi (it has .pi/).
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";

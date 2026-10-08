@@ -19,7 +19,7 @@ export type { AfterToolOutcome, ProjectLifecycle, ProjectLifecycleOptions } from
 export { ProjectLifecycleHandler } from "./lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 
 export type { HostInstaller, HostInstallerSource, HostInstallReport, InitProject, ProjectSetupFiles, SetupReport } from "./project-setup/init-project/init-project.contract.ts";
-export { INITIAL_CONFIG, InitProjectHandler } from "./project-setup/init-project/init-project.handler.ts";
+export { InitProjectHandler } from "./project-setup/init-project/init-project.handler.ts";
 export type { UpdateProject } from "./project-setup/update-project/update-project.contract.ts";
 export { requireInitialised, UpdateProjectHandler } from "./project-setup/update-project/update-project.handler.ts";
 

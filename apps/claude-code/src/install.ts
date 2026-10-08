@@ -24,14 +24,18 @@ export function hookCommand({ bun, main, role }: { bun: string; main: string; ro
   return [quote(bun), quote(main), ...(role === undefined ? [] : ["--role", quote(role)])].join(" ");
 }
 
+/** Where bounded carries this adapter's hook, bundled for node at pack time (ADR 2026-016), from the project's root. */
+export const BUNDLED_HOOK = "node_modules/bounded/dist/hosts/claude-code/hook.js";
+
 /**
- * The command a project's hook runs: bun on the project's own installed
- * copy, found through CLAUDE_PROJECT_DIR, which Claude Code sets for every
- * hook to the project's root. The variable sits inside double quotes, so the
- * shell expands it and a root with spaces stays one word; the rest is fixed
- * text. The same settings therefore work in every checkout, wherever it is.
+ * The command a project's hook runs: node on the hook bounded carries, in
+ * the project's own installed copy, found through CLAUDE_PROJECT_DIR, which
+ * Claude Code sets for every hook to the project's root. The variable sits
+ * inside double quotes, so the shell expands it and a root with spaces stays
+ * one word; the rest is fixed text. The same settings therefore work in every
+ * checkout, wherever it is, and need no bun.
  */
-export const PROJECT_HOOK_COMMAND = 'bun "$CLAUDE_PROJECT_DIR/node_modules/bounded-claude-code/src/main.ts"';
+export const PROJECT_HOOK_COMMAND = `node "$CLAUDE_PROJECT_DIR/${BUNDLED_HOOK}"`;
 
 /** The hook events bounded is installed for: before every call to judge it, after it to undo what it changed. */
 type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
@@ -70,14 +74,15 @@ export function withHooks(settings: unknown, command: string): Result<{ settings
 
 /**
  * Whether a settings hook is bounded's own Claude Code hook without a role,
- * wherever it pointed: a command hook running bounded-claude-code's main.ts
- * (an installed copy, or a checkout's apps/claude-code), in any form an
- * install wrote. Its path does not count, so a moved or re-cloned project's
- * stale entry is recognised.
+ * wherever it pointed and whatever ran it: a command hook running bounded's
+ * bundled hook (dist/hosts/claude-code/hook.js), or, from earlier installs,
+ * the bounded-claude-code package's main.ts or a checkout's
+ * apps/claude-code/src/main.ts, under node or bun. Its path does not count, so
+ * a moved or re-cloned project's stale entry is recognised.
  */
 export function isBoundedHook(hook: unknown): boolean {
   if (!isRecord(hook) || hook.type !== "command" || typeof hook.command !== "string") return false;
-  return /(bounded-claude-code|apps\/claude-code)\/src\/main\.ts\b/.test(hook.command) && !/\s--role\s/.test(hook.command);
+  return /((bounded-claude-code|apps\/claude-code)\/src\/main\.ts|bounded\/dist\/hosts\/claude-code\/hook\.js)\b/.test(hook.command) && !/\s--role\s/.test(hook.command);
 }
 
 /**

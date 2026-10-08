@@ -9,6 +9,13 @@ export interface Timing {
   readonly drainMs?: number;
 }
 
+/** All of stdin as text, with node's streams: the hook runs under node, with no bun (ADR 2026-016). */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 /**
  * Answers one call. The process is then left to drain, so work still pending
  * (a guard log's follow-up line) can finish, but for at most `drainMs`:
@@ -18,7 +25,7 @@ export async function run(decide: Decide, { deadlineMs = DEADLINE_MS, drainMs = 
   let answer: string;
   try {
     const hook = composeHook({ ...extras, env: process.env, argv: process.argv.slice(2), decide, deadlineMs });
-    answer = await hook(await Bun.stdin.text());
+    answer = await hook(await readStdin());
   } catch (thrown) {
     answer = respond(Verdict.refuse(`bounded's Claude Code hook failed: ${thrown instanceof Error ? thrown.message : String(thrown)}`, FAILED));
   }

@@ -115,7 +115,9 @@ describe("bounded, the one published package", () => {
     for (const file of files) {
       const text = readFileSync(file, "utf8");
       expect(text).not.toMatch(/\bBun\.|from "bun"|from "bun:/);
-      for (const [, spec = ""] of text.matchAll(/(?:from|import)\s*\(?\s*"([^"./][^"]*)"/g)) {
+      // Import and export statements (over several lines too) and dynamic imports; not a string that merely ends in "from".
+      const statements = [...text.matchAll(/^(?:import|export)\b[^";]*?\bfrom\s*"([^"]+)"/gm), ...text.matchAll(/^import\s*"([^"]+)"/gm), ...text.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)];
+      for (const [, spec = ""] of statements.filter(([, found = ""]) => !found.startsWith("."))) {
         const external = spec.startsWith("node:") || spec === "bounded" || spec.startsWith("bounded/") || allowed.has(spec) || [...allowed].some((name) => spec.startsWith(`${name}/`));
         expect(`${file}: ${spec} ${external ? "allowed" : "not allowed"}`).toEndWith("allowed");
       }

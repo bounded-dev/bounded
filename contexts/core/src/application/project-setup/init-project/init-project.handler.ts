@@ -1,17 +1,6 @@
 import type { Result } from "bounded/domain";
 import type { HostInstaller, HostInstallerSource, HostInstallReport, InitProject, ProjectSetupFiles, SetupReport } from "./init-project.contract.ts";
 
-/** The configuration `bounded init` writes: the core pack only, which guards nothing by itself. */
-export const INITIAL_CONFIG = `// bounded's configuration for this project, written by \`bounded init\`.
-// It selects only the core pack, which guards nothing by itself. To guard
-// this project, install packs and add them, with your contributions, to
-// \`packs\`: see docs/configuration.md and the README's "Installing" section
-// in the Bounded harness repository.
-import { corePack, defineConfig } from "bounded/domain";
-
-export default defineConfig({ packs: [corePack] });
-`;
-
 /** The project's host installers, or a refusal when there are none: a project bounded cannot hook into is not set up. */
 export async function loadInstallers(hostInstallerSource: HostInstallerSource, projectRoot: string): Promise<Result<readonly HostInstaller[]>> {
   const loaded = await hostInstallerSource.load(projectRoot);
@@ -37,6 +26,8 @@ export class InitProjectHandler implements InitProject {
   constructor(
     private readonly files: ProjectSetupFiles,
     private readonly hostInstallerSource: HostInstallerSource,
+    /** The configuration to write: content, so the caller's (the CLI's); the core only writes it. */
+    private readonly initialConfig: string,
   ) {}
 
   async execute(projectRoot: string): Promise<Result<SetupReport>> {
@@ -47,7 +38,7 @@ export class InitProjectHandler implements InitProject {
     }
     const installers = await loadInstallers(this.hostInstallerSource, projectRoot);
     if (!installers.ok) return installers;
-    const written = await this.files.createConfig(projectRoot, INITIAL_CONFIG);
+    const written = await this.files.createConfig(projectRoot, this.initialConfig);
     if (!written.ok) return written;
     const hosts = await runInstallers(installers.value, projectRoot);
     if (!hosts.ok) return { ok: false, error: `${written.value} was written, but a host could not be installed: ${hosts.error}. Fix it, then run \`bounded update\`` };

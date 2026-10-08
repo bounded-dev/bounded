@@ -1,7 +1,9 @@
 // The host installers a project's installed packages offer: every dependency
-// whose package.json exports `./host-installer` is loaded from the project's
-// node_modules, and its `hostInstaller` export parsed. The core names no host:
-// any package that offers the export path takes part.
+// whose package.json exports `./host-installer`, or bundles one per host at
+// `./hosts/<host>/host-installer` (as bounded does), is loaded from the
+// project's node_modules, and its `hostInstaller` export parsed. The core
+// names no host: any package that offers those export paths takes part
+// (ADR 2026-015). Which bundled hosts run is the caller's choice.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +11,15 @@ import type { HostInstaller, HostInstallerSource, HostInstallReport } from "boun
 import type { Result } from "bounded/domain";
 
 const EXPORT_PATH = "./host-installer";
+/** A package bundling several hosts' adapters offers one installer per host here; the core names no host, only the pattern. */
+const BUNDLED_EXPORT_PATH = /^\.\/hosts\/[^/]+\/host-installer$/;
+
+/** The file an export path names: a path, or a conditional export's node (`default`) target. */
+function targetOf(target: unknown): string | undefined {
+  if (typeof target === "string") return target;
+  if (typeof target === "object" && target !== null && "default" in target && typeof target.default === "string") return target.default;
+  return undefined;
+}
 
 type Json = Readonly<Record<string, unknown>>;
 const isRecord = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -77,18 +88,25 @@ export class NodeModulesHostInstallerSource implements HostInstallerSource {
       const installed = await readJson(join(packageDir, "package.json"));
       if (!installed.ok) return { ok: false, error: `${packageName} is a dependency but is not installed (${installed.error}): install the project's dependencies, then run this again` };
       const exports = installed.value.exports;
-      const target = isRecord(exports) ? exports[EXPORT_PATH] : undefined;
-      if (target === undefined) continue;
-      if (typeof target !== "string") return { ok: false, error: `${packageName}'s ${EXPORT_PATH} export is not a file path` };
-      let module: unknown;
-      try {
-        module = await import(pathToFileURL(join(packageDir, target)).href);
-      } catch (thrown) {
-        return { ok: false, error: `${packageName}'s host installer could not be loaded: ${message(thrown)}` };
+      if (!isRecord(exports)) continue;
+      // A package's own installer, then those it bundles one per host, in export path order.
+      const paths = Object.keys(exports)
+        .filter((path) => path === EXPORT_PATH || BUNDLED_EXPORT_PATH.test(path))
+        .sort((a, b) => (a === EXPORT_PATH ? -1 : b === EXPORT_PATH ? 1 : a.localeCompare(b)));
+      for (const path of paths) {
+        const target = targetOf(exports[path]);
+        const from = path === EXPORT_PATH ? packageName : `${packageName}'s ${path}`;
+        if (target === undefined) return { ok: false, error: `${packageName}'s ${path} export is not a file path` };
+        let module: unknown;
+        try {
+          module = await import(pathToFileURL(join(packageDir, target)).href);
+        } catch (thrown) {
+          return { ok: false, error: `${from} host installer could not be loaded: ${message(thrown)}` };
+        }
+        const installer = parseInstaller(module, path === EXPORT_PATH ? packageName : `${packageName} (${path})`);
+        if (!installer.ok) return installer;
+        installers.push(installer.value);
       }
-      const installer = parseInstaller(module, packageName);
-      if (!installer.ok) return installer;
-      installers.push(installer.value);
     }
     return { ok: true, value: installers };
   }

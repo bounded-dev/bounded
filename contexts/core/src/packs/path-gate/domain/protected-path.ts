@@ -349,32 +349,16 @@ export type ProtectedPath = Contract.ProtectedPath;
 export const ProtectedPath: Contract.ProtectedPathFactory = ProtectedPathImpl;
 
 /**
- * The path gate's own rules: an agent can never edit its own guardrails.
- * `bounded.config.*` at any depth (any extension a loader might pick up) and
- * `.bounded/**` are refused for every write. Only the configuration's entry
- * file is protected, not the modules it imports (ADR 2026-009). Adapters write the guard log in `.bounded/`
- * directly, not through guards, so this does not stop them.
+ * The path gate's point, as declared in its pack: deny-only path rules. The
+ * pack ships none of its own (ADR 2026-009): selected with no rules, it
+ * protects nothing. The defaults that keep agents off the project's
+ * guardrails (`**\/bounded.config.*` and `.bounded/**`) are in the
+ * configuration `bounded init` writes, where the project can see and change them.
  */
-const OWN_RULES: readonly Contract.ProtectedPathJSON[] = [
-  {
-    match: "**/bounded.config.*",
-    deny: [...WRITES],
-    redirect: "Ask a person to change the project's Bounded configuration; describe the change you need",
-    why: "the project's guardrails are changed by people, not by agents",
-  },
-  {
-    match: ".bounded/**",
-    deny: [...WRITES],
-    redirect: "Leave .bounded/ to Bounded; ask a person if its state looks wrong",
-    why: "Bounded's own state and guard log",
-  },
-];
-
-/** The path gate's point, as declared in its pack: deny-only path rules, its own first. */
 export const protectedPathsPoint = point({
   description: "Deny-only path rules: what no agent may read, list, create, modify or delete, and what to do instead",
   check: ProtectedPath.parse,
-  values: OWN_RULES,
+  values: [],
 });
 
 /** The path gate's protected paths in a composition: the point its pack made from protectedPathsPoint, or undefined when it is not selected. */

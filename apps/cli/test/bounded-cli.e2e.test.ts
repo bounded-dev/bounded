@@ -70,14 +70,16 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-e2e-tarball-")));
     packBounded(join(scratch, "release"));
     const listed = mustRun(["tar", "-tzf", tarball(join(scratch, "release"), VERSION)], scratch).split("\n");
-    for (const entry of ["dist/cli.js", "dist/hosts/claude-code/hook.js", "dist/hosts/claude-code/host-installer.js", "dist/hosts/pi/index.js", "dist/hosts/pi/host-installer.js", "dist/domain/index.js", "dist/path-gate/index.js"]) {
+    for (const entry of ["dist/cli.js", "dist/hosts/claude-code/hook.js", "dist/hosts/claude-code/host-installer.js", "dist/hosts/pi/index.js", "dist/hosts/pi/host-installer.js", "dist/domain/index.js", "dist/packs/path-gate/index.js"]) {
       expect(listed).toContain(`package/${entry}`);
     }
     mustRun(["tar", "-xzf", tarball(join(scratch, "release"), VERSION)], scratch);
     const manifest = json<{ bin: Record<string, string>; exports: Record<string, unknown> }>(join(scratch, "package", "package.json"));
     expect(manifest.bin).toEqual({ bounded: "dist/cli.js" });
     expect(manifest.exports["./hosts/pi"]).toBe("./dist/hosts/pi/index.js");
-    const usage = run(["node", join(scratch, "package", "dist", "cli.js")], scratch, { bun: false });
+    // The bin as built for the tarball, run by node where bounded's dependencies resolve (the extracted tarball has none installed;
+    // the npm case below runs it from an install).
+    const usage = run(["node", join(CORE, "dist", "cli.js")], scratch, { bun: false });
     expect(usage.exitCode).toBe(2);
     expect(usage.stderr).toContain("bounded init");
     expect(usage.stdout).toBe("");
