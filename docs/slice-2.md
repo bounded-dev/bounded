@@ -16,7 +16,9 @@ pack's guard points and dispatch over a composition. All code is in
 3. `verdicts/verdict.contract.ts` — allow, or refuse with a reason and a redirect.
 4. `guards/dispatch.contract.ts`, then `guards/dispatch.ts` — the guard type,
    the context placeholder, and how dispatch fails closed without throwing;
-   `guards/core-pack.contract.ts`, every point of the core pack.
+   `core-pack/core.contract.ts`, every point of the core pack, then its
+   overview `core-pack/core.pack.ts` and the declarations in
+   `core-pack/guard-points.ts`.
 5. `guards/dispatch.test.ts` — the behaviour; `test/fixtures/compile-time/events-rejected.ts`
    — what does not compile, with reasons (`events-accepted.ts` shows the
    legitimate forms).
@@ -68,7 +70,7 @@ whole-call guards, then each effect through the guards for its kind, in pack
 order; the first refusal wins and names the pack and the effect. Without the
 core pack selected, every event is refused (ADR 2026-007).
 
-Reading order: `guards/core-pack.ts`, `guards/dispatch-event.ts`, then
+Reading order: `core-pack/core.pack.ts`, `guards/dispatch-event.ts`, then
 `guards/dispatch-event.test.ts` and the fixtures `guards-accepted.ts` and
 `guards-rejected.ts`.
 

@@ -12,15 +12,19 @@ imported from `bounded/path-gate`. Role path rules come later. All code is in
    exact matching, and the conservative reach of a listing (the reasoning is
    in its comments).
 2. `path-gate.contract.ts` — the pack's points, which `pathGate` is typed by.
-3. `path-gate.ts` — the pack: its own rules for `**/bounded.config.*` and
-   `.bounded/**`, and the read, list, write and shell guards;
+3. `path-gate.pack.ts` — the overview: every point, contribution and port
+   of the pack, bound from its own files; the path gate's own rules for
+   `**/bounded.config.*` and `.bounded/**` are in `domain/protected-path.ts`,
+   the read, list, write and shell guards in
+   `application/judge-calls/judge-calls.ts`, its checks around shell
+   commands in `application/watch-shell/`;
    `domain/shell-command.ts`, the translation of a parsed command into the
    paths it reads, lists and writes, with `domain/command-meanings.ts`, the
    table of what commands do with their arguments; the syntax tree is in
    `domain/shell-command.contract.ts`, and the parser and path kinds are
    ports of `application/judge-calls/judge-calls.contract.ts`, with their
    adapters under `adapters/out/` (tree-sitter, file system, memory).
-4. `domain/protected-path.test.ts`, `path-gate.test.ts`, then `rocketflare.test.ts`
+4. `domain/protected-path.test.ts`, `application/judge-calls/judge-calls.test.ts`, then `application/judge-calls/rocketflare.test.ts`
    (end to end); the fixtures `path-gate-accepted.ts` and
    `path-gate-rejected.ts` show what compiles and what does not.
 

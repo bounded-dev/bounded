@@ -8,7 +8,7 @@ import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
 import type { BasePack, ExtensionPoint } from "../packs/pack.contract.ts";
 import type { PackId } from "../packs/pack-id.contract.ts";
-import type { EffectGuard, Guard } from "./dispatch.contract.ts";
+import type { EffectGuard, Guard } from "../guards/dispatch.contract.ts";
 
 // The core pack, `bounded/core`: in one place, every way a pack plugs into
 // the core. corePack is typed by this contract, so its definition must match.

@@ -1,4 +1,4 @@
-import type { Result } from "bounded/domain";
+import type { Composition, ExtensionPoint, PackId, Result } from "bounded/domain";
 
 /** The brand only ProtectedPath itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const protectedPathBrand: unique symbol;
@@ -65,3 +65,6 @@ export interface ProtectedPathFactory {
    */
   parse(raw: unknown): Result<ProtectedPath>;
 }
+
+/** The path gate's protected paths in a composition, found by the declaration the pack made its point from: how its own code reads them without importing the pack. Undefined when the path gate is not selected. */
+export type ProtectedPathsIn = (composition: Composition) => ExtensionPoint<ProtectedPath, PackId> | undefined;

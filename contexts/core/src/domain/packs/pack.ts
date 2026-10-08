@@ -105,6 +105,10 @@ class ExtensionPointImpl implements Contract.BasePoint {
   parseValue(raw: unknown): Result<unknown> {
     return this.declaration.parseValue(raw);
   }
+
+  declaredBy(declaration: Contract.BaseDeclaration): boolean {
+    return this.declaration === declaration;
+  }
 }
 
 /** A group's member points, keyed by member, as own properties only. */

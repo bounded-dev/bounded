@@ -1,4 +1,4 @@
-import { type Command, portKeysFor, type ProjectPath, type Result } from "bounded/domain";
+import { type Command, type Composition, type EffectGuard, type ExecuteEffect, type ListEffect, portKeysFor, type ProjectOpenHandler, type ProjectPath, type ReadEffect, type Result, type WriteEffect } from "bounded/domain";
 import { pathGateId } from "../../domain/path-gate-id.ts";
 import type { PathKind, ShellCommandEffects, ShellNode } from "../../domain/shell-command.contract.ts";
 
@@ -7,6 +7,18 @@ import type { PathKind, ShellCommandEffects, ShellNode } from "../../domain/shel
 // list and write. To read a shell command it needs two ports a host provides.
 
 export type { PathKind, ShellCommandEffects, ShellNode } from "../../domain/shell-command.contract.ts";
+
+// What this feature contributes to the core: a guard per effect kind it judges, and the work it does when a project opens.
+/** Judges a read against the protected paths. */
+export type JudgeRead = EffectGuard<ReadEffect, Composition>;
+/** Judges a listing against the protected paths. */
+export type JudgeList = EffectGuard<ListEffect, Composition>;
+/** Judges a write against the protected paths. */
+export type JudgeWrite = EffectGuard<WriteEffect, Composition>;
+/** Judges a shell command by what its text says it reads, lists and writes. */
+export type JudgeExecute = EffectGuard<ExecuteEffect, Composition>;
+/** When a project opens: prepares its shell check, from the parser and path kinds the host provides. */
+export type PrepareShell = ProjectOpenHandler;
 
 // Out ports: exactly what this feature needs.
 /**

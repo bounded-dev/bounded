@@ -336,7 +336,7 @@
     "file": "contexts/core/src/pack/path-gate/path-gate.test.ts",
     "case": "the path gate — listing is judged conservatively > a filter excludes a protected path only provably: when the rule ends in a literal name the filter does not match",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
       "case": "the path gate — listing is judged conservatively > a filter excludes a protected path only provably: a literal name, or disjoint literal suffixes or prefixes"
     },
     "reason": "a literal name now covers its contents, so a filter cannot rule it out; disjoint literal suffixes and prefixes now can, so config/*.pem is out of reach of *.ts (ADR 2026-009)"
@@ -396,7 +396,7 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — what it does not judge in this slice > execute, fetch, delegate and invoke are not judged by path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
       "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
     },
     "reason": "the path gate now refuses, best effort, a shell command that names a path a rule denies read for"
@@ -483,7 +483,7 @@
     "file": "contexts/core/src/pack/path-gate/path-gate.test.ts",
     "case": "the path gate — what it does not judge in this slice > execute, fetch, delegate and invoke are not judged by path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
       "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
     },
     "reason": "the path gate now refuses, best effort, a shell command that names a read-protected path; this is the case under the path the path gate's first red commit gave it, before the pack moved to src/packs/"
@@ -2803,5 +2803,14 @@
     "case": "OpenProjectHandler > without a way to ask what is at a path, a pack is told it cannot know",
     "successor": null,
     "reason": "the core no longer asks what is at a path: the path gate declares a pathKinds port, and a project whose host does not provide it refuses every event when it opens (ADR 2026-013, C8)"
+  },
+  {
+    "file": "architecture.test.ts",
+    "case": "architecture > R3b: a pack a package ships is typed by its contract",
+    "successor": {
+      "file": "architecture.test.ts",
+      "case": "architecture > R7: an overview binds imported names in definePack's sections, in order, typed by its contract"
+    },
+    "reason": "a pack is defined only in its overview file, typed by its contract: R7 checks that with the overview's other rules (ADR 2026-013, C)"
   }
 ]

@@ -96,6 +96,8 @@ export interface BasePoint {
   readonly ownValues: readonly unknown[];
   /** Parses a value with the point's own check; a check that throws, or returns no result, refuses it. Never throws. */
   parseValue(raw: unknown): Result<unknown>;
+  /** Whether this point was made from `declaration` (by definePack, from the pack's points section). */
+  declaredBy(declaration: BaseDeclaration): boolean;
 }
 
 /** An extension point of the pack with id `Owner`, accepting values of type `Value`. */

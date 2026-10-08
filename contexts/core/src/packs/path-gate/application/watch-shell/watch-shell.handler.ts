@@ -1,6 +1,5 @@
-import type { Composition, ExecuteEffect, ExtensionPoint, Result, ToolResult, ToolUse } from "bounded/domain";
+import type { Composition, ExecuteEffect, ExtensionPoint, PackId, Result, ToolResult, ToolUse } from "bounded/domain";
 import { Verdict } from "bounded/domain";
-import type { PathGateId } from "../../domain/path-gate-id.contract.ts";
 import type { ProtectedPath } from "../../domain/protected-path.contract.ts";
 import { Snapshot } from "../../domain/snapshot.ts";
 import type { WatchedChange } from "../../domain/watched-path.contract.ts";
@@ -59,7 +58,7 @@ export class WatchShellHandler implements WatchShell {
 
   constructor(
     private readonly composition: Composition,
-    private readonly protectedPaths: ExtensionPoint<ProtectedPath, PathGateId>,
+    private readonly protectedPaths: ExtensionPoint<ProtectedPath, PackId>,
     private readonly files: WatchedFiles,
     private readonly snapshots: ShellSnapshots,
     options: WatchShellOptions = {},

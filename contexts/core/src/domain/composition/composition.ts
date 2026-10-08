@@ -1,6 +1,6 @@
 import type { compositionBrand } from "./composition.contract.ts";
 import { pointsOf } from "../packs/pack.ts";
-import type { BasePack, BasePoint, ExtensionPoint } from "../packs/pack.contract.ts";
+import type { BasePack, BasePoint, ExtensionPoint, PointDeclaration } from "../packs/pack.contract.ts";
 import type { PackId as PackIdType } from "../packs/pack-id.contract.ts";
 import { packIdText } from "../packs/pack-id.ts";
 import type { BasePortKey } from "../lifecycle/port-key.contract.ts";
@@ -68,6 +68,13 @@ class CompositionImpl implements Contract.Composition {
 
   static parse(raw: unknown): Result<Composition> {
     return raw instanceof CompositionImpl ? { ok: true, value: raw } : refuse("Dispatch was given something that is not a composition");
+  }
+
+  pointDeclaredBy<Value>(declaration: PointDeclaration<Value>): ExtensionPoint<Value, PackIdType> | undefined {
+    const point = this.packs.flatMap(pointsOf).find((candidate) => candidate.declaredBy(declaration));
+    // The second cast in composition: a point made from this declaration
+    // takes values of its check's type, (raw) => Result<Value>.
+    return point as ExtensionPoint<Value, PackIdType> | undefined;
   }
 
   requiredPorts(): readonly BasePortKey[] {

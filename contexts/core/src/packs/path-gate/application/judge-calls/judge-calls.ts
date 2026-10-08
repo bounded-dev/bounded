@@ -1,50 +1,16 @@
-import {
-  type Composition,
-  contribution,
-  corePack,
-  definePack,
-  type EffectGuard,
-  type ExecuteEffect,
-  type ListEffect,
-  type ProjectOpenHandler,
-  point,
-  type ReadEffect,
-  Verdict,
-  type LifecycleContext,
-  type ToolResult,
-  type ToolUse,
-  type WriteEffect,
-} from "bounded/domain";
-import type { PathGate } from "./path-gate.contract.ts";
-import { restoreWatched, snapshotBeforeShell } from "./application/watch-shell/watch-shell.lifecycle.ts";
-import { shellSnapshotsPort, watchedFilesPort } from "./application/watch-shell/watch-shell.contract.ts";
-import { pathGateId } from "./domain/path-gate-id.ts";
-import type { ProtectedPathJSON } from "./domain/protected-path.contract.ts";
-import { ProtectedPath, WRITES } from "./domain/protected-path.ts";
-import { pathKindsPort, type ShellCheck, shellParserPort } from "./application/judge-calls/judge-calls.contract.ts";
-import { startShellCheck } from "./application/judge-calls/shell-check.ts";
+import { type Composition, Verdict, type ListEffect, type WriteEffect } from "bounded/domain";
+import { pathGateId } from "../../domain/path-gate-id.ts";
+import type { ProtectedPath } from "../../domain/protected-path.contract.ts";
+import { protectedPathsIn } from "../../domain/protected-path.ts";
+import type * as Contract from "./judge-calls.contract.ts";
+import { pathKindsPort, type ShellCheck, shellParserPort } from "./judge-calls.contract.ts";
+import { startShellCheck } from "./shell-check.ts";
 
-/**
- * The path gate's own rules: an agent can never edit its own guardrails.
- * `bounded.config.*` at any depth (any extension a loader might pick up) and
- * `.bounded/**` are refused for every write. Only the configuration's entry
- * file is protected, not the modules it imports (ADR 2026-009). Adapters write the guard log in `.bounded/`
- * directly, not through guards, so this does not stop them.
- */
-const OWN_RULES: readonly ProtectedPathJSON[] = [
-  {
-    match: "**/bounded.config.*",
-    deny: [...WRITES],
-    redirect: "Ask a person to change the project's Bounded configuration; describe the change you need",
-    why: "the project's guardrails are changed by people, not by agents",
-  },
-  {
-    match: ".bounded/**",
-    deny: [...WRITES],
-    redirect: "Leave .bounded/ to Bounded; ask a person if its state looks wrong",
-    why: "Bounded's own state and guard log",
-  },
-];
+// The path gate's guards: reads, listings and writes judged against its
+// protected paths, and shell commands by what their text says they read,
+// list and write. Each reads the protected paths from the composition it is
+// given; a shell command is described by the project's shell check, prepared
+// when the project opens.
 
 /** Why a rule denies, and the redirect when it is not the rule's own. */
 type Denial = { readonly what: string; readonly redirect?: string } | undefined;
@@ -55,9 +21,10 @@ type Denial = { readonly what: string; readonly redirect?: string } | undefined;
  * redirect (or one composed from it). Rules that cannot be read refuse.
  */
 function firstDenial(composition: Composition, denies: (rule: ProtectedPath) => Denial): Verdict {
-  const rules = composition.entries(pathGate.points.protectedPaths);
+  const point = protectedPathsIn(composition);
+  const rules = point === undefined ? { ok: false as const, error: `${pathGateId.value} is not selected` } : composition.entries(point);
   if (!rules.ok) {
-    return Verdict.refuse(`The protected paths cannot be read: ${rules.error}`, `Select ${pathGate.id.value} with the packs that contribute rules`);
+    return Verdict.refuse(`The protected paths cannot be read: ${rules.error}`, `Select ${pathGateId.value} with the packs that contribute rules`);
   }
   for (const { fromPackId, value: rule } of rules.value) {
     const denial = denies(rule);
@@ -108,7 +75,7 @@ function writeDenial(rule: ProtectedPath, path: string, change: WriteEffect["cha
  * also lists is the read half of a content search (ADR 2026-006): it could
  * read any file the listing reaches, so it is judged as reaching them.
  */
-const onRead: EffectGuard<ReadEffect, Composition> = (effect, composition, call) => {
+export const judgeRead: Contract.JudgeRead = (effect, composition, call) => {
   const path = effect.path.value;
   const searches = call.effects.filter((other): other is ListEffect => other.kind === "list" && other.root.value.toLowerCase() === path.toLowerCase());
   return firstDenial(composition, (rule) => {
@@ -130,9 +97,9 @@ function listDenial(rule: ProtectedPath, root: string, filter: string | null): D
 /** A listing's file-name filter as text, or null when it has none. */
 const filterOf = (list: ListEffect): string | null => (list.filter === null ? null : list.filter.value);
 
-const onList: EffectGuard<ListEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => listDenial(rule, effect.root.value, filterOf(effect)));
+export const judgeList: Contract.JudgeList = (effect, composition) => firstDenial(composition, (rule) => listDenial(rule, effect.root.value, filterOf(effect)));
 
-const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
+export const judgeWrite: Contract.JudgeWrite = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
 
 /**
  * Each opened project's shell check, by its composition: set when the
@@ -142,7 +109,7 @@ const onWrite: EffectGuard<WriteEffect, Composition> = (effect, composition) => 
 const shellChecks = new WeakMap<Composition, ShellCheck>();
 
 /** When a project opens: prepare its shell parser, and keep the project's root and what is at its paths for its check. */
-const prepareShell: ProjectOpenHandler = async (project, { composition, ports }) => {
+export const prepareShell: Contract.PrepareShell = async (project, { composition, ports }) => {
   const parser = ports.get(shellParserPort);
   const pathKinds = ports.get(pathKindsPort);
   if (!parser.ok || !pathKinds.ok) {
@@ -166,7 +133,7 @@ const UNCHECKED = "the path gate cannot check shell commands";
  * refused. Confining the command at the operating-system level is the real
  * control; drift undoes its writes to watched files.
  */
-const onExecute: EffectGuard<ExecuteEffect, Composition> = (effect, composition) => {
+export const judgeExecute: Contract.JudgeExecute = (effect, composition) => {
   const check = shellChecks.get(composition);
   if (check === undefined) {
     return Verdict.refuse(`${UNCHECKED}: this project was not opened with openProject, which prepares the check`, "Open the project with openProject (bounded/open-project); shell commands are refused until then");
@@ -190,44 +157,3 @@ const onExecute: EffectGuard<ExecuteEffect, Composition> = (effect, composition)
   }
   return Verdict.allow;
 };
-
-// The watch-shell feature's lifecycle checks, given the path gate's own
-// protected paths when they run (function declarations, read only then).
-function beforeShell(call: ToolUse, context: LifecycleContext) {
-  return snapshotBeforeShell(pathGate.points.protectedPaths, call, context);
-}
-function afterShell(result: ToolResult, context: LifecycleContext) {
-  return restoreWatched(pathGate.points.protectedPaths, result, context);
-}
-
-/**
- * The path gate, `bounded/path-gate`: an ordinary pack. Packs and projects
- * contribute deny-only rules to `protectedPaths`; its guards judge reads,
- * listings and writes against them. A shell command's paths cannot really
- * be read from its text: the path gate refuses, best effort, one that names
- * a read-protected path, and watches what it protects from writes around
- * every shell command, undoing its changes (the watch-shell feature, with
- * the watched files and snapshots a host provides as ports). Fetch,
- * delegate and invoke are not judged by path.
- */
-export const pathGate: PathGate = definePack({
-  id: pathGateId,
-  dependsOn: [corePack],
-  points: {
-    protectedPaths: point({
-      description: "Deny-only path rules: what no agent may read, list, create, modify or delete, and what to do instead",
-      check: ProtectedPath.parse,
-      values: OWN_RULES,
-    }),
-  },
-  contributes: [
-    contribution(corePack.points.effectGuards.read, [onRead]),
-    contribution(corePack.points.effectGuards.list, [onList]),
-    contribution(corePack.points.effectGuards.write, [onWrite]),
-    contribution(corePack.points.effectGuards.execute, [onExecute]),
-    contribution(corePack.points.onProjectOpen, [prepareShell]),
-    contribution(corePack.points.beforeTool, [beforeShell]),
-    contribution(corePack.points.afterTool, [afterShell]),
-  ],
-  ports: { watchedFiles: watchedFilesPort, shellSnapshots: shellSnapshotsPort, pathKinds: pathKindsPort, shellParser: shellParserPort },
-});

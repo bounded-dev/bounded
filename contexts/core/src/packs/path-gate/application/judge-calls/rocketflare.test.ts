@@ -3,7 +3,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Composition, contribution, corePack, definePack, dispatchEvent, packIdsFor, ToolUse, Verdict } from "bounded/domain";
 import { pathGate } from "bounded/path-gate";
-import { openComposition } from "./application/judge-calls/shell.test-support.ts";
+import { openComposition } from "./shell.test-support.ts";
 
 const rocketflare = definePack({
   id: packIdsFor("rocketflare")("rules"),
