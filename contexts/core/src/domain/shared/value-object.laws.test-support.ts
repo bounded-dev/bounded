@@ -85,6 +85,17 @@ export function valueObjectLaws<T extends ValueObject<T>>(
       }
     });
 
+    test("a value forged with its class's own constructor is checked again, never trusted", () => {
+      // The private constructor is TypeScript's only: at run time it can be called.
+      const made = Object.getPrototypeOf(parsed(accepts[0])).constructor as new (...args: unknown[]) => unknown;
+      for (const raw of refuses) {
+        const forged = Reflect.construct(made, [raw, raw, raw, raw, raw, raw]);
+        const result = factory.parse(forged);
+        expect(result.ok && result.value === forged).toBe(false);
+        if (typeof raw === "string") expect(result.ok).toBe(false);
+      }
+    });
+
     test("refuses what it does not accept, with a reason", () => {
       for (const raw of [...refuses, undefined, null, 42, true, []]) {
         const result = factory.parse(raw);
