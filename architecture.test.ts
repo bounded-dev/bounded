@@ -12,7 +12,8 @@ import {
   conceptTripletViolations,
   featureContractViolations,
   implementedByViolations,
-  packContractViolations,
+  packLayoutViolations,
+  packOverviewViolations,
   shapeCheckViolations,
   type SourceFile,
 } from "./architecture.rules.test-support.ts";
@@ -383,7 +384,7 @@ const ASSERTIONS = new Map([
   ["contexts/core/src/domain/guards/dispatch-event.ts", 0],
   ["contexts/core/src/domain/events/effect.contract.ts", 0],
   // functionOf: a contributed function's signature cannot be checked at run time (ADR 2026-007).
-  ["contexts/core/src/domain/guards/core-pack.ts", 1],
+  ["contexts/core/src/domain/core-pack/guard-points.ts", 1],
 ]);
 /** R6: files with a shape check that owns no shape, each with its reason. */
 const SHAPE_CHECKS = new Map([
@@ -394,7 +395,8 @@ violations.push(
   ...adapterContractViolations(contextSources, barrels),
   ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS),
   ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
-  ...packContractViolations(contextSources),
+  ...packLayoutViolations(files),
+  ...packOverviewViolations(contextSources),
   ...featureContractViolations(files, texts),
   ...assertionViolations(contextSources, ASSERTIONS),
   ...shapeCheckViolations(contextSources, SHAPE_CHECKS),
@@ -546,15 +548,26 @@ describe("architecture", () => {
     expect(conceptTripletViolations(["contexts/x/src/packs/gate/matching.ts"], new Map())).toEqual([]);
   });
 
-  test("R3b: a pack a package ships is typed by its contract", () => {
-    const typed = { path: "contexts/x/src/domain/guards/core-pack.ts", text: 'import type { CorePack } from "./core-pack.contract.ts";\nexport const corePack: CorePack = definePack({});\n' };
-    const untyped = { path: "contexts/x/src/domain/guards/core-pack.ts", text: "export const corePack = definePack({});\n" };
-    const elsewhere = { path: "contexts/x/src/domain/guards/core-pack.ts", text: 'import type { CorePack } from "./other.contract.ts";\nexport const corePack: CorePack = definePack({});\n' };
-    const test = { path: "contexts/x/src/domain/guards/core-pack.test.ts", text: "export const pack = definePack({});\n" };
-    expect(packContractViolations([typed, test])).toEqual([]);
-    const message = "contexts/x/src/domain/guards/core-pack.ts — corePack is a pack this package ships: type it with the pack type its contract declares (./core-pack.contract.ts)";
-    expect(packContractViolations([untyped])).toEqual([message]);
-    expect(packContractViolations([elsewhere])).toEqual([message]);
+  test("R7: a shipped pack's directory holds its overview, contract, index and their test, and only domain/, application/ and adapters/", () => {
+    const dir = "contexts/x/src/packs/gate";
+    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/file-system/files.ts`];
+    expect(packLayoutViolations(tidy)).toEqual([]);
+    expect(packLayoutViolations([...tidy, `${dir}/helpers.ts`, `${dir}/lib/x.ts`])).toEqual([
+      `${dir}/helpers.ts — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`,
+      `${dir}/lib/x.ts — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`,
+    ]);
+    expect(packLayoutViolations([`${dir}/index.ts`])).toEqual([`${dir} — a shipped pack has gate.pack.ts`, `${dir} — a shipped pack has gate.contract.ts`]);
+  });
+
+  test("R7: an overview binds imported names in definePack's sections, in order, typed by its contract", () => {
+    const path = "contexts/x/src/packs/gate/gate.pack.ts";
+    const head = 'import { contribution, corePack, definePack } from "bounded/domain";\nimport { judge } from "./application/judge/judge.ts";\nimport { gateId } from "./domain/gate-id.ts";\nimport type { Gate } from "./gate.contract.ts";\n';
+    const overview = (body: string, more = "") => ({ path, text: `${head}${more}export const gate: Gate = definePack({ ${body} });\n` });
+    expect(packOverviewViolations([overview("id: gateId, dependsOn: [corePack], contributes: [contribution(corePack.points.effectGuards.read, [judge])]")])).toEqual([]);
+    expect(packOverviewViolations([overview("id: gateId, contributes: [contribution(corePack.points.effectGuards.read, [() => judge])]")])).toEqual([`${path}:5 — an overview binds imported names only: no functions, conditionals, operators or literal text`]);
+    expect(packOverviewViolations([overview("dependsOn: [corePack], id: gateId")])).toEqual([`${path} — an overview's sections are id, dependsOn, points, contributes, ports, in that order (it gives dependsOn, id)`]);
+    expect(packOverviewViolations([overview("id: gateId", 'import { files } from "./adapters/out/file-system/files.ts";\n')])).toEqual([`${path}:5 — an overview imports only its domain/, application/, its contract and bounded/domain, never "./adapters/out/file-system/files.ts"`]);
+    expect(packOverviewViolations([{ path: "contexts/x/src/packs/gate/domain/extra.ts", text: 'import { definePack } from "bounded/domain";\nexport const extra = definePack({ id: x });\n' }])).toEqual(["contexts/x/src/packs/gate/domain/extra.ts:2 — a pack is defined in its overview file, <name>.pack.ts"]);
   });
 
   test("R4: a feature has a contract, and its handler implements the in port from it", () => {

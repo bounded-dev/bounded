@@ -43,6 +43,17 @@ function wordsPack(local: string, more: readonly BasePack[], values: string[]): 
 
 const ids = (packs: readonly BasePack[]): string[] => packs.map((pack) => pack.id.value);
 
+describe("Composition — finding a pack's own point", () => {
+  test("gives the point a selected pack made from a declaration, typed by it; none for another declaration or an unselected pack", () => {
+    const declared = point({ description: "Words", check: word });
+    const owner = definePack({ id: packId("owner"), points: { words: declared } });
+    const composition = composed([owner, base], [owner]);
+    expect(composition.pointDeclaredBy(declared)).toBe(owner.points.words);
+    expect(composition.pointDeclaredBy(point({ description: "Words", check: word }))).toBeUndefined();
+    expect(composed([owner, base], [base]).pointDeclaredBy(declared)).toBeUndefined();
+  });
+});
+
 describe("Composition — the ports its packs need", () => {
   test("lists the selected packs' ports in composition order; an unselected pack leaves no trace", () => {
     const [aFiles, bFiles] = [portKeysFor(packId("a"))("files"), portKeysFor(packId("b"))("files")];

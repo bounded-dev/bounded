@@ -1,7 +1,7 @@
 // The contract rules (AGENTS.md "Layout", ADR 2026-013): adapters implement
 // contract ports (R1), every @implementedBy is true (R2), every domain concept
 // is a triplet, four files for a value object (R3), every pack a package ships
-// has a contract (R3b), every feature has a contract its handler implements
+// is laid out and bound in an overview file typed by its contract (R7), every feature has a contract its handler implements
 // (R4), the files that route events assert no types (R5), and shape checks
 // live where the shape is owned (R6). Each rule reads
 // source text with the TypeScript parser and is a pure function of the files
@@ -172,12 +172,20 @@ const declaresValueObject = (text: string): boolean => /readonly __brand/.test(t
 export function conceptTripletViolations(paths: readonly string[], texts: ReadonlyMap<string, string>, exempt: ReadonlyMap<string, string> = new Map()): string[] {
   const out: string[] = [];
   const present = new Set(paths);
-  const inScope = (path: string): boolean => /^contexts\/[^/]+\/src\/(domain|packs\/[^/]+\/(domain|pack))\//.test(path);
+  const inScope = (path: string): boolean => /^contexts\/[^/]+\/src\/(domain\/|packs\/[^/]+\/(domain\/|[^/]+\.(pack|contract)\.ts$))/.test(path);
   for (const path of paths.filter(inScope)) {
     if (exempt.has(path) || isTest(path) || path.endsWith("/index.ts")) continue;
+    if (path.endsWith(".pack.ts")) {
+      // A pack's overview: its contract and its test sit beside it.
+      const base = path.slice(0, -".pack.ts".length);
+      for (const needed of [".contract.ts", ".pack.test.ts"]) {
+        if (!present.has(`${base}${needed}`)) out.push(`${path} — a pack is its overview, its contract and its test: add ${base.split("/").at(-1)}${needed}`);
+      }
+      continue;
+    }
     if (path.endsWith(".contract.ts")) {
       const base = path.slice(0, -".contract.ts".length);
-      if (!present.has(`${base}.ts`)) out.push(`${path} — a contract with no implementation: add ${base.split("/").at(-1)}.ts, or fold its types into the contract they belong to`);
+      if (!present.has(`${base}.ts`) && !present.has(`${base}.pack.ts`)) out.push(`${path} — a contract with no implementation: add ${base.split("/").at(-1)}.ts, or fold its types into the contract they belong to`);
       if (declaresValueObject(texts.get(path) ?? "") && !present.has(`${base}.laws.test.ts`)) out.push(`${path} — a value object's laws run in ${base.split("/").at(-1)}.laws.test.ts`);
       continue;
     }
@@ -185,35 +193,6 @@ export function conceptTripletViolations(paths: readonly string[], texts: Readon
     const base = path.slice(0, -".ts".length);
     for (const needed of [".contract.ts", ".test.ts"]) {
       if (!present.has(`${base}${needed}`)) out.push(`${path} — a domain concept is a contract, an implementation and a test: add ${base.split("/").at(-1)}${needed}`);
-    }
-  }
-  return out;
-}
-
-/**
- * R3b: every pack a package ships (`export const x = definePack(…)` outside
- * tests) is typed by a contract beside it: the const's annotation names a
- * type imported from `./<file>.contract.ts`.
- */
-export function packContractViolations(files: readonly SourceFile[]): string[] {
-  const out: string[] = [];
-  for (const file of files) {
-    if (isTest(file.path) || !/^contexts\/[^/]+\/src\//.test(file.path)) continue;
-    const source = parse(file);
-    const imports = importedNames(source);
-    const contract = `./${file.path.split("/").at(-1)?.replace(/\.ts$/, ".contract.ts")}`;
-    for (const statement of source.statements) {
-      if (!ts.isVariableStatement(statement) || !exported(statement)) continue;
-      for (const declaration of statement.declarationList.declarations) {
-        const initializer = declaration.initializer;
-        if (initializer === undefined || !ts.isCallExpression(initializer) || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== "definePack") continue;
-        const name = ts.isIdentifier(declaration.name) ? declaration.name.text : "the pack";
-        const type = declaration.type;
-        const typeName = type !== undefined && ts.isTypeReferenceNode(type) ? (ts.isIdentifier(type.typeName) ? type.typeName.text : type.typeName.right.text) : undefined;
-        const namespace = type !== undefined && ts.isTypeReferenceNode(type) && ts.isQualifiedName(type.typeName) && ts.isIdentifier(type.typeName.left) ? type.typeName.left.text : undefined;
-        const from = namespace !== undefined ? imports.get(namespace)?.spec : typeName === undefined ? undefined : imports.get(typeName)?.spec;
-        if (from !== contract) out.push(`${file.path} — ${name} is a pack this package ships: type it with the pack type its contract declares (${contract})`);
-      }
     }
   }
   return out;
@@ -334,6 +313,99 @@ export function brandExportViolations(files: readonly SourceFile[]): string[] {
       const names = statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause) ? statement.exportClause.elements.map((element) => element.name.text) : undefined;
       if (names === undefined) out.push(`${file.path} — a barrel names what it exports, so it never passes on a brand`);
       else for (const name of names.filter((name) => name.endsWith("Brand"))) out.push(`${file.path} — ${name} is a brand: it stays in its contract, never in a barrel`);
+    }
+  }
+  return out;
+}
+
+/** The sections of definePack, in the only order an overview may give them. */
+const SECTIONS = ["id", "dependsOn", "points", "contributes", "ports"];
+const PACK_DIR = /^(contexts\/[^/]+\/src\/packs\/([^/]+))\/(.+)$/;
+
+/**
+ * R7, layout: a shipped pack's directory holds exactly its overview
+ * (`<name>.pack.ts`), its contract (`<name>.contract.ts`), its index, the
+ * overview's test and an optional README, and only the folders `domain/`,
+ * `application/` and `adapters/`.
+ */
+export function packLayoutViolations(paths: readonly string[]): string[] {
+  const out: string[] = [];
+  const dirs = new Map<string, string>();
+  for (const path of paths) {
+    const match = PACK_DIR.exec(path);
+    if (match === null) continue;
+    const [, dir = "", name = "", rest = ""] = match;
+    dirs.set(dir, name);
+    const allowed = rest.includes("/") ? ["domain", "application", "adapters"].includes(rest.split("/")[0] ?? "") : [`${name}.pack.ts`, `${name}.contract.ts`, `${name}.pack.test.ts`, "index.ts", "README.md"].includes(rest);
+    if (!allowed) out.push(`${path} — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`);
+  }
+  for (const [dir, name] of dirs) {
+    for (const needed of [`${name}.pack.ts`, `${name}.contract.ts`, "index.ts"]) if (!paths.includes(`${dir}/${needed}`)) out.push(`${dir} — a shipped pack has ${needed}`);
+  }
+  return out;
+}
+
+/**
+ * R7, overview: a pack is defined only in an overview file (`<name>.pack.ts`),
+ * which holds imports and one `export const <x>: <Type> = definePack({…})`,
+ * `<Type>` from `./<name>.contract.ts`; its sections are a subsequence of id,
+ * dependsOn, points, contributes, ports; and every value is built from
+ * imported names, property access, calls and array or object literals: no
+ * functions, conditionals, operators or literal text. A shipped pack's
+ * overview imports only its own domain/ and application/, its contract and
+ * the core's domain export.
+ */
+export function packOverviewViolations(files: readonly SourceFile[], domainExport = "bounded/domain"): string[] {
+  const out: string[] = [];
+  for (const file of files) {
+    if (isTest(file.path) || !/^contexts\/[^/]+\/src\//.test(file.path)) continue;
+    const source = parse(file);
+    const overview = file.path.endsWith(".pack.ts");
+    if (!overview) {
+      const calls: number[] = [];
+      const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "definePack") calls.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      if (calls.length > 0) out.push(`${file.path}:${calls.join(",")} — a pack is defined in its overview file, <name>.pack.ts`);
+      continue;
+    }
+    const base = file.path.split("/").at(-1)?.slice(0, -".pack.ts".length) ?? "";
+    const contract = `./${base}.contract.ts`;
+    const shipped = PACK_DIR.test(file.path);
+    const at = (node: ts.Node) => `${file.path}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
+    const imports = importedNames(source);
+    const consts = source.statements.filter((statement): statement is ts.VariableStatement => ts.isVariableStatement(statement));
+    for (const statement of source.statements) {
+      if (ts.isImportDeclaration(statement)) {
+        const spec = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : "";
+        const allowed = spec === contract || spec.startsWith("./domain/") || spec.startsWith("./application/") || spec === domainExport || (!shipped && spec.startsWith("."));
+        if (!allowed) out.push(`${at(statement)} — an overview imports only its domain/, application/, its contract and ${domainExport}, never "${spec}"`);
+      } else if (!ts.isVariableStatement(statement)) out.push(`${at(statement)} — an overview holds imports and its pack, nothing else`);
+    }
+    const declaration = consts.length === 1 && exported(consts[0] as ts.VariableStatement) ? consts[0]?.declarationList.declarations[0] : undefined;
+    const call = declaration?.initializer;
+    if (declaration === undefined || call === undefined || !ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.expression.text !== "definePack" || call.arguments.length !== 1 || !ts.isObjectLiteralExpression(call.arguments[0] as ts.Expression)) {
+      out.push(`${file.path} — an overview exports one pack, as const <x>: <Type> = definePack({ … })`);
+      continue;
+    }
+    const type = declaration.type;
+    const typeName = type !== undefined && ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) ? type.typeName.text : undefined;
+    if (typeName === undefined || imports.get(typeName)?.spec !== contract) out.push(`${file.path} — the pack is typed with the pack type its contract declares (${contract})`);
+    const spec = call.arguments[0] as ts.ObjectLiteralExpression;
+    const keys = spec.properties.map((property) => (property.name !== undefined && ts.isIdentifier(property.name) ? property.name.text : "?"));
+    const order = keys.map((key) => SECTIONS.indexOf(key));
+    if (order.some((index, i) => index < 0 || (i > 0 && index <= (order[i - 1] ?? -1)))) out.push(`${file.path} — an overview's sections are id, dependsOn, points, contributes, ports, in that order (it gives ${keys.join(", ")})`);
+    const binding = (node: ts.Node): boolean =>
+      ts.isIdentifier(node) ||
+      (ts.isPropertyAccessExpression(node) && binding(node.expression)) ||
+      (ts.isElementAccessExpression(node) && binding(node.expression) && binding(node.argumentExpression)) ||
+      (ts.isCallExpression(node) && binding(node.expression) && node.arguments.every(binding)) ||
+      (ts.isArrayLiteralExpression(node) && node.elements.every(binding)) ||
+      (ts.isObjectLiteralExpression(node) && node.properties.every((property) => (ts.isPropertyAssignment(property) && binding(property.initializer)) || ts.isShorthandPropertyAssignment(property)));
+    for (const property of spec.properties) {
+      if (!ts.isPropertyAssignment(property) || !binding(property.initializer)) out.push(`${at(property)} — an overview binds imported names only: no functions, conditionals, operators or literal text`);
     }
   }
   return out;

@@ -3,7 +3,7 @@ import { Composition } from "../composition/composition.ts";
 import { Effect } from "../events/effect.ts";
 import type { BasePack } from "../packs/pack.contract.ts";
 import { contribution, definePack } from "../packs/pack.ts";
-import { corePack } from "./core-pack.ts";
+import { corePack } from "./core.pack.ts";
 
 const untypedPack = definePack as unknown as (spec: object) => BasePack;
 

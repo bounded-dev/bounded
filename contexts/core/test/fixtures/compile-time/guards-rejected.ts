@@ -30,7 +30,7 @@ export type Mislabelled = KindsMatch<{ read: WriteEffect }>; // rejected: does n
 // Dispatch takes a composition Composition.compose made, never a look-alike.
 declare const someCall: ToolUse;
 export const forged = decideEvent({ __brand: "Composition", packs: [corePack] }, someCall); // rejected: is missing the following properties from type 'Composition': read, entries
-export const complete = decideEvent({ __brand: "Composition", packs: [corePack], read: () => ({ ok: true, value: [] }), entries: () => ({ ok: true, value: [] }), requiredPorts: () => [] }, someCall); // rejected: Property '[compositionBrand]' is missing
+export const complete = decideEvent({ __brand: "Composition", packs: [corePack], read: () => ({ ok: true, value: [] }), entries: () => ({ ok: true, value: [] }), requiredPorts: () => [], pointDeclaredBy: () => undefined }, someCall); // rejected: Property '[compositionBrand]' is missing
 // Lifecycle checks are asynchronous and answer in kind; a port's adapter is exactly its type.
 export const syncBefore = contribution(guards.beforeTool, [() => Verdict.allow]); // rejected: from type 'Promise<Verdict>'
 export const bareAfter = contribution(guards.afterTool, [async () => "done"]); // rejected: is not assignable to type 'AfterToolReport'

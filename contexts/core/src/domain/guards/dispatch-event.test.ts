@@ -11,7 +11,7 @@ import { type BasePack, contribution, definePack, point } from "../packs/pack.ts
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
 import { Verdict } from "../verdicts/verdict.ts";
-import { corePack } from "./core-pack.ts";
+import { corePack } from "../core-pack/core.pack.ts";
 import { decideEvent, dispatchEvent } from "./dispatch-event.ts";
 import type { EffectGuard, Guard } from "./dispatch.contract.ts";
 

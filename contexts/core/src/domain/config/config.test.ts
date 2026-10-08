@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { corePack } from "../guards/core-pack.ts";
+import { corePack } from "../core-pack/core.pack.ts";
 import { contribution, definePack, point } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
