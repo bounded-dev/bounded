@@ -5494,5 +5494,95 @@
       "case": "protectedPathsId > is bounded/protected-paths"
     },
     "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/file-set.test.ts",
+    "case": "FileSet — which project files a rule's patterns name > patterns are checked as the path gate checks them",
+    "successor": {
+      "file": "contexts/core/src/packs/prereqs/domain/file-set.test.ts",
+      "case": "FileSet — which project files a rule's patterns name > patterns are checked as the protected-paths pack checks them"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/file-set.test.ts",
+    "case": "FileSet — which project files a rule's patterns name > a path matcher matches as the path gate does, excluding nothing",
+    "successor": {
+      "file": "contexts/core/src/packs/prereqs/domain/file-set.test.ts",
+      "case": "FileSet — which project files a rule's patterns name > a path matcher matches as the protected-paths pack does, excluding nothing"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+    "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a before.write rule over node_modules or .git comes before a write there, as the path gate matches",
+    "successor": {
+      "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+      "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a before.write rule over node_modules or .git comes before a write there, as the protected-paths pack matches"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — rules that name files only > a file rule covers exactly the paths it matches, not what is under them",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > a file rule covers exactly the paths it matches, not what is under them"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — rules that name files only > a filter that cannot match a file rule's name keeps a listing or search of the whole project away from it",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > a filter that cannot match a file rule's name keeps a listing or search of the whole project away from it"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — rules that name files only > refusing a listing or search of the whole project says to narrow it or filter the name out, never to look outside the name",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > refusing a listing or search of the whole project says to narrow it or filter the name out, never to look outside the name"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — rules that name files only > a file rule that denies writes is watched as the file alone",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > a file rule that denies writes is watched as the file alone"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
+    "case": "the path gate — shell commands, judged from bounded's reading > an unread command's redirect follows its cause: split or simplify one too complex, else open the project with a reader",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — shell commands, judged from bounded's reading > an unread command's redirect follows its cause: split or simplify one too complex, else open the project with a reader"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+    "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > xargs's input never takes a literal destination out of judgement",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > xargs's input never takes a literal destination out of judgement"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
+    "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > a command too complex for the reader's work budget is unread, and so refused, though it names no protected path",
+    "successor": {
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > a command too complex for the reader's work budget is unread, and so refused, though it names no protected path"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
   }
 ]

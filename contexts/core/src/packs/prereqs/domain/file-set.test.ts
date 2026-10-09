@@ -44,7 +44,7 @@ describe("FileSet — which project files a rule's patterns name", () => {
     for (const dir of [".bounded", "node_modules", "packages/x/node_modules", ".git"]) expect(set.mayHold(dir)).toBe(false);
   });
 
-  test("patterns are checked as the path gate checks them", () => {
+  test("patterns are checked as the protected-paths pack checks them", () => {
     expect(refused("/etc/passwd")).toContain("'/etc/passwd' is absolute");
     expect(refused("../outside/**")).toContain("'../outside/**' uses '..'");
     expect(refused("!src/**")).toContain("'!src/**' is negated");
@@ -69,7 +69,7 @@ describe("FileSet — which project files a rule's patterns name", () => {
     expect(checkFilePattern(".git/**", "before.write")).toEqual({ ok: true, value: ".git/**" });
   });
 
-  test("a path matcher matches as the path gate does, excluding nothing", () => {
+  test("a path matcher matches as the protected-paths pack does, excluding nothing", () => {
     expect(pathMatcherOf("node_modules/**")("node_modules/x/index.js")).toBe(true);
     expect(pathMatcherOf(".git")(".git/hooks/pre-commit")).toBe(true);
     expect(pathMatcherOf("SRC/**")("src/a.ts")).toBe(true);
