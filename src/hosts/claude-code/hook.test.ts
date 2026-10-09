@@ -79,6 +79,19 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
     expect(effect?.kind === "execute" && effect.reading.toJSON()).toEqual(READ);
   });
 
+  test("a PostToolUse whose re-read of a Bash command never settles is told, at the hook's deadline", async () => {
+    const hanging: ReadShellCommand = { prepare: async () => {}, read: () => new Promise(() => {}) };
+    let checked = false;
+    const afterTool: AfterTool = async () => {
+      checked = true;
+      return { message: null };
+    };
+    const out = await runHook(after("Bash", { command: "ls" }), { ...hook(recording([])), readShellCommand: hanging, afterTool, deadlineMs: 50 });
+    expect(JSON.parse(out).decision).toBe("block");
+    expect(JSON.parse(out).reason).toContain("no answer within 50 ms");
+    expect(checked).toBe(false);
+  });
+
   test("a PostToolUse with nothing undone, or no afterTool, answers nothing", async () => {
     expect(await runHook(after("Bash", { command: "ls" }), { ...hook(recording([])), afterTool: async () => ({ message: null }) })).toBe("");
     expect(await runHook(after("Bash", { command: "ls" }), hook(recording([])))).toBe("");

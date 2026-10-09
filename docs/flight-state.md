@@ -254,10 +254,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - **A synchronously busy guard can overrun the Claude Code hook deadline.**
   The adapter's deadline bounds asynchronous work only
   ([Claude Code adapter](adapter-claude-code.md)).
-- **A pi shell call made while the reader's grammar still loads is
-  blocked.** pi prepares the shell command reader at session start; a call
-  made before that finishes waits for it (up to 5 s) and outruns pi's 3 s
-  decision deadline, so it is blocked, never let through. Claude Code's
+- **A pi shell call can wait on the reader's grammar loading.** pi prepares
+  the shell command reader at session start; a call made before that
+  finishes waits for it (up to 5 s), and is blocked, never let through, only
+  if loading outruns pi's 3 s decision deadline. A preparation that never
+  settles is cached and never retried, so every later shell call in that pi
+  process waits up to 5 s for it and is blocked. Claude Code's
   first read in each hook process waits for the grammar within its 20 s
   deadline ([ADR 2026-020](adr/2026-020-shell-command-reading.md), "Reading
   in the host adapter").
@@ -313,11 +315,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
     host adapter reads each shell command, not the core's judge, breaking
     what 3.2.0 published, with no aliases: `bounded/application`'s
     `ShellCommandReader` (now `bounded/shell-command-reader`'s),
-    `openProject`'s `shellCommandReader` option, `JudgeEventHandler`'s
-    `shellCommandReader`, `projectRoot` and `readWithinMs` options and its
-    `DEFAULT_READ_WITHIN_MS` are gone; `ExecuteEffect.reading` is never null
-    and `ExecuteEffectJSON.reading` is required; `bounded/hosts/pi`'s
-    `translate` gives the call before its readings. Its behaviour breaks too:
+    `openProject`'s and `OpenProjectHandler`'s `shellCommandReader` option,
+    `JudgeEventHandler`'s `shellCommandReader`, `projectRoot` and
+    `readWithinMs` options and its `DEFAULT_READ_WITHIN_MS` are gone;
+    `ExecuteEffect.reading` is never null and `ExecuteEffectJSON.reading` is
+    required; `bounded/hosts/pi`'s `translate` gives the call before its
+    readings, and its `piExtension` (`ExtensionOptions`) requires a
+    `readShellCommand`. Its behaviour breaks too:
     a host that sends an execute effect without a reading, as every 3.2.0
     host did, has each such call refused as an event that cannot be read and
     recorded as invalid, and a tool result's execute effects must now carry a

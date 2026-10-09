@@ -111,12 +111,13 @@ as it was. 3.3.0 also corrects how shell commands are read (the
 repository's ADR 2026-020, corrected): the host adapter reads each one, not
 the core's judge, breaking what 3.2.0 published, with no aliases:
 `bounded/application` no longer exports `ShellCommandReader` (now
-`bounded/shell-command-reader`'s), `openProject` takes no
-`shellCommandReader`, `JudgeEventHandler` takes no `shellCommandReader`,
+`bounded/shell-command-reader`'s), `openProject` and `OpenProjectHandler`
+take no `shellCommandReader`, `JudgeEventHandler` takes no `shellCommandReader`,
 `projectRoot` or `readWithinMs` and has no `DEFAULT_READ_WITHIN_MS`,
 `ExecuteEffect.reading` is never null and `ExecuteEffectJSON.reading` is
-required, and `bounded/hosts/pi`'s `translate` gives the call before its
-readings. A host that sends an execute effect without a reading, as every
+required, `bounded/hosts/pi`'s `translate` gives the call before its
+readings, and its `piExtension` (`ExtensionOptions`) requires a
+`readShellCommand`. A host that sends an execute effect without a reading, as every
 3.2.0 host did, has each such call refused as an event that cannot be read
 and recorded as invalid; a tool result's execute effects must now carry a
 reading too.

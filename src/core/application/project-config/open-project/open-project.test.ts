@@ -213,4 +213,3 @@ describe("OpenProjectHandler — shell commands", () => {
     expect(reasonOf(verdict)).toEndWith(JSON.stringify(READ));
   });
 });
-

@@ -136,8 +136,10 @@ project's root and the session's directory) and deciding share the
 decision's 3 s deadline; a command the reader cannot read carries an
 unread reading saying why, which the protected-paths pack refuses. pi's
 `powershell` commands are read as bash. The grammar normally loads at
-session start; a call made while it still loads waits for it and runs past
-the 3 s deadline, so it is blocked.
+session start; a call made while it still loads waits for it (up to 5 s)
+and is blocked only if loading outruns the 3 s deadline. A preparation that
+never settles is cached and never retried, so every later shell call in
+that pi process waits up to 5 s for it and is blocked.
 
 `composeProject` opens the project with the core's `openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] })` (every port of the protected-paths pack, from `bounded/protected-paths/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`);
 `decide` is its judge, which decides each tool use with the composed packs

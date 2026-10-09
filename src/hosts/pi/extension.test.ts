@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ShellCommandReadingJSON, type ToolResult, Verdict } from "bounded/domain";
+import { ReadShellCommandHandler, type ShellCommandReader } from "bounded-shell-command-reader/application";
 import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import type { ToolUse } from "./event.ts";
 import { type AdapterRefusal, type ProjectJudgeForPi, type ExtensionOptions, type LoadJudge, type Pi, type PiHandler, piExtension } from "./extension.ts";
@@ -130,6 +131,27 @@ describe("piExtension — end to end through a fake pi", () => {
     expect(prepared).toBe(2);
   });
 
+  test("a shell call made while the reader still prepares waits for it and is allowed when preparing ends within the deadline", async () => {
+    let prepared = false;
+    const loading: ShellCommandReader = {
+      prepare: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            prepared = true;
+            resolve();
+          }, 100),
+        ),
+      read: async () => {
+        if (!prepared) throw new Error("read before the grammar loaded");
+        return READ;
+      },
+    };
+    const fake = await started(loads(noGenerated), { deadlineMs: 1000 }, new ReadShellCommandHandler(loading, { readWithinMs: 50 }));
+    expect(await fake.call("bash", { command: "ls" })).toBeUndefined();
+    const [effect] = seen.at(-1)?.effects ?? [];
+    expect(effect?.kind === "execute" && effect.reading.toJSON()).toEqual(READ);
+  });
+
   test("reading and deciding share the decision's deadline", async () => {
     let decided = false;
     const hanging: ReadShellCommand = { prepare: async () => {}, read: () => never() };
@@ -183,6 +205,25 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
     expect(reads).toEqual([{ projectRoot: project, command: "./regenerate.sh", cwd: "." }]);
     const [effect] = results[0]?.effects ?? [];
     expect(effect?.kind === "execute" && effect.reading.toJSON()).toEqual(READ);
+  });
+
+  test("a finished shell call whose re-read never settles is told, at the decision's deadline", async () => {
+    let checked = false;
+    const hanging: ReadShellCommand = { prepare: async () => {}, read: () => never() };
+    const fake = await started(
+      withExtras({
+        afterTool: async () => {
+          checked = true;
+          return { message: null };
+        },
+      }),
+      { deadlineMs: 50 },
+      hanging,
+    );
+    const result = (await fake.finished("bash", { command: "ls" })) as { content: { text: string }[]; isError: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content.at(-1)?.text).toContain("bounded could not check protected files after this call: no answer within 50 ms");
+    expect(checked).toBe(false);
   });
 
   test("what afterTool undid is added to the result pi gives the agent, marked as an error", async () => {

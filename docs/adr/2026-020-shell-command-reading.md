@@ -246,8 +246,10 @@ names no tool or language (AGENTS.md). It can own the shape.
   first read waits for the grammar: at most `prepareWithinMs` (5 s) then
   `readWithinMs` (2 s), within the hook's 20 s deadline. pi prepares at
   session start, so its calls normally find the grammar loaded; a call made
-  while loading still runs takes longer than pi's 3 s decision deadline and
-  is blocked (fail closed).
+  while loading still runs waits for it (up to `prepareWithinMs`) and is
+  blocked (fail closed) only if loading outruns pi's 3 s decision deadline.
+  A preparation that never settles is cached and never retried, so every
+  later shell call in that pi process waits up to 5 s for it and is blocked.
 - **The host's decision deadline covers the whole call**: reading its
   commands and deciding, on both hosts, as before the correction.
 - **The core's part.** `Effect.parse` requires the reading and checks its
@@ -451,13 +453,14 @@ every moved or replaced case is recorded in `superseded-tests.json`.
     `bounded/shell-command-reader`'s, with `ReadShellCommand`,
     `ReadShellCommandHandler` and `openShellCommandReading`;
   - `openProject`'s `shellCommandReader` option is gone, and its options may
-    be left out;
+    be left out; `OpenProjectHandler`'s (`bounded/application`) is gone too;
   - `JudgeEventHandler`'s `shellCommandReader`, `projectRoot` and
     `readWithinMs` options and its `DEFAULT_READ_WITHIN_MS` are gone;
   - `ExecuteEffect.reading` is never null, and `ExecuteEffectJSON.reading`
     is required;
   - `bounded/hosts/pi`'s `translate` gives the call before its readings
-    (`PiCall`), and `piExtension` takes a required `readShellCommand`.
+    (`PiCall`), and `piExtension` (its `ExtensionOptions`) takes a required
+    `readShellCommand`.
 - **Behaviour breaks:**
   - a host that sends an execute effect without a reading, as every 3.2.0
     host did, has each such call refused as an event that cannot be read,

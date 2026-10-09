@@ -23,14 +23,15 @@ imported from `bounded/path-gate`. Role path rules come later. All code is in
    `application/judge-calls/judge-calls.ts`, its checks around shell
    commands in `application/watch-shell/`. Its ports are watched files and
    shell snapshots, with their adapters under `adapters/out/`. The shell
-   guard judges each command from the reading the core's judge gives its
-   execute effect ([ADR 2026-020](adr/2026-020-shell-command-reading.md)):
-   the parsing lives in the private context
-   `contexts/shell-command-reader/` — `src/domain/shell-command.ts`, the
-   translation of a parsed command into the programs it runs and the paths
-   it reads, lists and writes, with `src/domain/command-meanings.ts`, the
-   table of what commands do with their arguments, and the tree-sitter
-   reader under `src/adapters/out/shell-command-reader/`.
+   guard judges each command from the reading its execute effect carries,
+   built by the host adapter with bounded's reader
+   ([ADR 2026-020](adr/2026-020-shell-command-reading.md)): the parsing
+   lives in the private context `src/lib/shell-command-reader/` —
+   `domain/shell-command.ts`, the translation of a parsed command into the
+   programs it runs and the paths it reads, lists and writes, with
+   `domain/command-meanings.ts`, the table of what commands do with their
+   arguments, and the tree-sitter reader under
+   `adapters/out/shell-command-reader/`.
 4. `domain/protected-path.test.ts`, `application/judge-calls/judge-calls.test.ts`, then `application/judge-calls/rocketflare.test.ts`
    (end to end); the fixtures `path-gate-accepted.ts` and
    `path-gate-rejected.ts` show what compiles and what does not.

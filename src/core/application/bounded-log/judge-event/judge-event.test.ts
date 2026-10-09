@@ -325,4 +325,3 @@ describe("JudgeEventHandler — shell commands, as the host read them", () => {
     expect(reasonOf(await new JudgeEventHandler(showing, new FakeLog(), clock).judge(event))).toEndWith(`: ${JSON.stringify(unread)}`);
   });
 });
-
