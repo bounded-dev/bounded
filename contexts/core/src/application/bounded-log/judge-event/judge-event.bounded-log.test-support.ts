@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Decision, DecisionId, SessionStart, ToolUse, Verdict } from "bounded/domain";
-import type { GuardLog } from "./judge-event.contract.ts";
+import type { BoundedLog } from "./judge-event.contract.ts";
 
 /** A decision id from known-good text. */
 function decisionId(text: string): DecisionId {
@@ -10,8 +10,8 @@ function decisionId(text: string): DecisionId {
 }
 
 /** What each log technology hands the suite: a fresh log, and its decisions read back as plain data. */
-export interface GuardLogFixture {
-  readonly log: GuardLog;
+export interface BoundedLogFixture {
+  readonly log: BoundedLog;
   recorded(): Promise<readonly unknown[]>;
 }
 
@@ -26,9 +26,9 @@ function decisions(): Decision[] {
   ];
 }
 
-/** The behaviour every GuardLog must have, whatever stores the decisions. */
-export function guardLogConformance(name: string, fixture: () => Promise<GuardLogFixture>): void {
-  describe(`${name} conforms to GuardLog`, () => {
+/** The behaviour every BoundedLog must have, whatever stores the decisions. */
+export function boundedLogConformance(name: string, fixture: () => Promise<BoundedLogFixture>): void {
+  describe(`${name} conforms to BoundedLog`, () => {
     test("holds nothing until a decision is recorded", async () => {
       expect(await (await fixture()).recorded()).toEqual([]);
     });

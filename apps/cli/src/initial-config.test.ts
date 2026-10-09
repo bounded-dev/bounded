@@ -37,7 +37,7 @@ describe("bounded init's configuration", () => {
     expect(INITIAL_CONFIG).toContain("Ask a person to change the project's Bounded configuration; describe the change you need");
     expect(INITIAL_CONFIG).toContain("the project's guardrails are changed by people, not by agents");
     expect(INITIAL_CONFIG).toContain("Leave .bounded/ to Bounded; ask a person if its state looks wrong");
-    expect(INITIAL_CONFIG).toContain("Bounded's own state and guard log");
+    expect(INITIAL_CONFIG).toContain("Bounded's own state and log");
     expect(INITIAL_CONFIG).toMatch(/defaults/i);
     expect(INITIAL_CONFIG).toContain("README");
   });
@@ -56,6 +56,7 @@ describe("bounded init's configuration", () => {
     const refused = await judge(edit("bounded.config.ts"));
     expect(refused.kind).toBe("refuse");
     expect(refused.kind === "refuse" && refused.reason).toContain("the rule '**/bounded.config.*' from bounded/project");
+    expect((await judge(edit(".bounded/log.jsonl"))).kind).toBe("refuse");
     expect((await judge(edit(".bounded/guard-log.jsonl"))).kind).toBe("refuse");
     expect((await judge(edit("src/index.ts"))).kind).toBe("allow");
   });

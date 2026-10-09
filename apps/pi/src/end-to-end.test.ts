@@ -1,6 +1,6 @@
 // bounded-pi with the real core: a temporary project with its own
 // bounded.config.ts, driven through a fake pi, judged by openProject and
-// recorded in the project's guard log.
+// recorded in the project's Bounded log.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,7 +40,7 @@ async function session(root: string) {
 }
 
 const logged = (root: string): { event: string; verdict: { kind: string } }[] =>
-  readFileSync(join(root, ".bounded", "guard-log.jsonl"), "utf8")
+  readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")
     .split("\n")
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line));
@@ -79,7 +79,7 @@ await handlers.session_start({ type: "session_start", reason: "startup" }, { cwd
 const results = [];
 for (const [toolName, input] of JSON.parse(calls)) results.push((await handlers.tool_call({ type: "tool_call", toolCallId: "1", toolName, input }, { cwd: root })) ?? null);
 const { readFileSync } = await import("node:fs");
-const log = readFileSync(root + "/.bounded/guard-log.jsonl", "utf8").split("\\n").filter((line) => line !== "").map((line) => JSON.parse(line).verdict.kind);
+const log = readFileSync(root + "/.bounded/log.jsonl", "utf8").split("\\n").filter((line) => line !== "").map((line) => JSON.parse(line).verdict.kind);
 console.log(JSON.stringify({ results, log }));`;
   return underPi(body, join(import.meta.dir, "index.ts"), root, JSON.stringify(calls)) as { results: unknown[]; log: string[] };
 }

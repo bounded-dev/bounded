@@ -87,9 +87,9 @@ describe("composeHook: the hook wired to the file system, the environment and ar
     expect(verdict.kind === "refuse" && verdict.reason).toStartWith("This project's configuration cannot be used: ");
   });
 
-  test("recordFromConfig records the adapter's own refusal in the project's guard log", async () => {
+  test("recordFromConfig records the adapter's own refusal in the project's Bounded log", async () => {
     await recordFromConfig({ hostToolName: "Read", reason: "no file_path", redirect: "give one", role: null, input: {} }, { projectRoot: root });
-    const file = join(root, ".bounded", "guard-log.jsonl");
+    const file = join(root, ".bounded", "log.jsonl");
     expect(existsSync(file)).toBe(true);
     expect(readFileSync(file, "utf8")).toContain('"event":"adapter"');
   });

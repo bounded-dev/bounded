@@ -62,7 +62,7 @@ describe("main.ts as a Claude Code PreToolUse hook", () => {
     const payload = { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: join(root, "src") }, cwd: root };
     const { stdout, stderr, exitCode } = await run("test/fixtures/late-writing-hook.ts", JSON.stringify(payload));
     expect(stdout).toBe(deny("No\nAsk"));
-    expect(stderr).toContain("late guard-log line");
+    expect(stderr).toContain("late log line");
     expect(exitCode).toBe(0);
   });
 
@@ -106,7 +106,7 @@ export default defineConfig({ packs: [corePack, noGenerated] });
       expect(allowed.stdout).toBe("");
       expect(allowed.exitCode).toBe(0);
 
-      const lines = readFileSync(join(project, ".bounded", "guard-log.jsonl"), "utf8").split("\n").filter((line) => line !== "");
+      const lines = readFileSync(join(project, ".bounded", "log.jsonl"), "utf8").split("\n").filter((line) => line !== "");
       expect(lines.map((line) => JSON.parse(line).verdict.kind)).toEqual(["refuse", "allow"]);
     } finally {
       rmSync(project, { recursive: true, force: true });

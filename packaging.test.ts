@@ -15,7 +15,7 @@ const CORE = join(ROOT, "contexts/core");
 const VERSION = "3.3.0";
 const CONFORMANCE = "src/application/project-setup/init-project/init-project.host-installer.test-support.ts";
 /** The conformance suites bounded publishes for other packages' tests (bounded/testing/*): the only test support in its tarball. */
-const PUBLISHED_TEST_SUPPORT = [CONFORMANCE, "src/application/guard-log/judge-event/judge-event.shell-command-reader.test-support.ts"];
+const PUBLISHED_TEST_SUPPORT = [CONFORMANCE, "src/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts"];
 /** The private apps bounded's dist carries. */
 const APPS = ["apps/cli", "apps/claude-code", "apps/pi"];
 /** What the hooks and the pi loader run, beside every export target: the Claude Code hook is run by path, not imported. */

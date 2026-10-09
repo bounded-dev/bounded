@@ -552,8 +552,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > creates the folders on the way to its file",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog > creates the folders on the way to its file"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > creates the folders on the way to its file"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -561,8 +561,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > appends one JSON line per decision, keeping what the file already holds",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog > appends one JSON line per decision, keeping what the file already holds"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > appends one JSON line per decision, keeping what the file already holds"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -570,8 +570,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > creates its file readable and writable by its owner only",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog > creates its file readable and writable by its owner only"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > creates its file readable and writable by its owner only"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -579,8 +579,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > makes an existing log file readable and writable by its owner only",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog > makes an existing log file readable and writable by its owner only"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > makes an existing log file readable and writable by its owner only"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -588,8 +588,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > two processes appending at once leave only whole lines",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog > two processes appending at once leave only whole lines"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > two processes appending at once leave only whole lines"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -597,8 +597,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog > rejects when the file cannot be written",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog > rejects when the file cannot be written"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > rejects when the file cannot be written"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -606,8 +606,8 @@
     "file": "contexts/core/src/adapters/out/in-memory/judging/decision-log.test.ts",
     "case": "InMemoryDecisionLog conforms to DecisionLog > holds nothing until a decision is recorded",
     "successor": {
-      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
-      "case": "InMemoryGuardLog conforms to GuardLog > holds nothing until a decision is recorded"
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.in-memory-bounded-log.test.ts",
+      "case": "InMemoryBoundedLog conforms to BoundedLog > holds nothing until a decision is recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -615,8 +615,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog conforms to DecisionLog > holds nothing until a decision is recorded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog conforms to GuardLog > holds nothing until a decision is recorded"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog conforms to BoundedLog > holds nothing until a decision is recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -624,8 +624,8 @@
     "file": "contexts/core/src/adapters/out/in-memory/judging/decision-log.test.ts",
     "case": "InMemoryDecisionLog conforms to DecisionLog > records each decision, whole, in the order recorded",
     "successor": {
-      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
-      "case": "InMemoryGuardLog conforms to GuardLog > records each decision, whole, in the order recorded"
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.in-memory-bounded-log.test.ts",
+      "case": "InMemoryBoundedLog conforms to BoundedLog > records each decision, whole, in the order recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -633,8 +633,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog conforms to DecisionLog > records each decision, whole, in the order recorded",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog conforms to GuardLog > records each decision, whole, in the order recorded"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog conforms to BoundedLog > records each decision, whole, in the order recorded"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -642,8 +642,8 @@
     "file": "contexts/core/src/adapters/out/in-memory/judging/decision-log.test.ts",
     "case": "InMemoryDecisionLog conforms to DecisionLog > decisions recorded at once all arrive",
     "successor": {
-      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
-      "case": "InMemoryGuardLog conforms to GuardLog > decisions recorded at once all arrive"
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.in-memory-bounded-log.test.ts",
+      "case": "InMemoryBoundedLog conforms to BoundedLog > decisions recorded at once all arrive"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -651,8 +651,8 @@
     "file": "contexts/core/src/adapters/out/file-system/judging/decision-log.test.ts",
     "case": "FileSystemDecisionLog conforms to DecisionLog > decisions recorded at once all arrive",
     "successor": {
-      "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
-      "case": "FileSystemGuardLog conforms to GuardLog > decisions recorded at once all arrive"
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog conforms to BoundedLog > decisions recorded at once all arrive"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -660,8 +660,8 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/decision-logs.test.ts",
     "case": "FileSystemProjectDecisionLogs conforms to ProjectDecisionLogs > a project's log records its decisions",
     "successor": {
-      "file": "contexts/core/src/adapters/out/project-guard-logs/project-guard-logs.test.ts",
-      "case": "FileSystemProjectGuardLogs conforms to ProjectGuardLogs > a project's log records its decisions"
+      "file": "contexts/core/src/adapters/out/project-bounded-logs/project-bounded-logs.test.ts",
+      "case": "FileSystemProjectBoundedLogs conforms to ProjectBoundedLogs > a project's log records its decisions"
     },
     "reason": "renamed: guard log, ADR 2026-013"
   },
@@ -4428,7 +4428,7 @@
     "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
     "case": "the shell check: the parser, loaded once when the project opens > a parser used before it is prepared, or that cannot load, refuses rather than guesses",
     "successor": {
-      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.test.ts",
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.test.ts",
       "case": "JudgeEventHandler — reading shell commands > a reader that rejects leaves the command unread, saying why"
     },
     "reason": "the judge reads commands through the core's port; a reading that fails leaves the command unread and the path gate refuses it (ADR 2026-020)"
@@ -4437,7 +4437,7 @@
     "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
     "case": "the shell check: the parser, loaded once when the project opens > a parser still loading when the project opened refuses, saying it timed out",
     "successor": {
-      "file": "contexts/core/src/application/guard-log/judge-event/judge-event.test.ts",
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.test.ts",
       "case": "JudgeEventHandler — reading shell commands > a reader that does not answer within readWithinMs leaves the command unread, saying it timed out"
     },
     "reason": "the judge reads commands through the core's port; a reading that fails leaves the command unread and the path gate refuses it (ADR 2026-020)"
@@ -5674,5 +5674,140 @@
       "case": "bounded init's configuration > selects the protected-paths pack, which brings in the core, contributing its default rules with their reasons, under a comment saying they may be changed"
     },
     "reason": "bounded init writes seven default rules, not two: the title no longer counts them (the protected-paths rename's final review); its assertions are unchanged"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog > creates the folders on the way to its file",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > creates the folders on the way to its file"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog > appends one JSON line per decision, keeping what the file already holds",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > appends one JSON line per decision, keeping what the file already holds"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog > creates its file readable and writable by its owner only",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > creates its file readable and writable by its owner only"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog > makes an existing log file readable and writable by its owner only",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > makes an existing log file readable and writable by its owner only"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog > two processes appending at once leave only whole lines",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > two processes appending at once leave only whole lines"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog > rejects when the file cannot be written",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog > rejects when the file cannot be written"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog conforms to GuardLog > holds nothing until a decision is recorded",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog conforms to BoundedLog > holds nothing until a decision is recorded"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog conforms to GuardLog > records each decision, whole, in the order recorded",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog conforms to BoundedLog > records each decision, whole, in the order recorded"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/guard-log/guard-log.test.ts",
+    "case": "FileSystemGuardLog conforms to GuardLog > decisions recorded at once all arrive",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/bounded-log/bounded-log.test.ts",
+      "case": "FileSystemBoundedLog conforms to BoundedLog > decisions recorded at once all arrive"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
+    "case": "InMemoryGuardLog conforms to GuardLog > holds nothing until a decision is recorded",
+    "successor": {
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.in-memory-bounded-log.test.ts",
+      "case": "InMemoryBoundedLog conforms to BoundedLog > holds nothing until a decision is recorded"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
+    "case": "InMemoryGuardLog conforms to GuardLog > records each decision, whole, in the order recorded",
+    "successor": {
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.in-memory-bounded-log.test.ts",
+      "case": "InMemoryBoundedLog conforms to BoundedLog > records each decision, whole, in the order recorded"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log.test.ts",
+    "case": "InMemoryGuardLog conforms to GuardLog > decisions recorded at once all arrive",
+    "successor": {
+      "file": "contexts/core/src/application/bounded-log/judge-event/judge-event.in-memory-bounded-log.test.ts",
+      "case": "InMemoryBoundedLog conforms to BoundedLog > decisions recorded at once all arrive"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/adapters/out/project-guard-logs/project-guard-logs.test.ts",
+    "case": "FileSystemProjectGuardLogs conforms to ProjectGuardLogs > a project's log records its decisions",
+    "successor": {
+      "file": "contexts/core/src/adapters/out/project-bounded-logs/project-bounded-logs.test.ts",
+      "case": "FileSystemProjectBoundedLogs conforms to ProjectBoundedLogs > a project's log records its decisions"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "contexts/core/src/composition-root/open-project.test.ts",
+    "case": "openProject — what a host's composition root calls > judges events with the project's bounded.config.ts and records them in .bounded/guard-log.jsonl",
+    "successor": {
+      "file": "contexts/core/src/composition-root/open-project.test.ts",
+      "case": "openProject — what a host's composition root calls > judges events with the project's bounded.config.ts and records them in .bounded/log.jsonl"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "apps/claude-code/src/composition-root.test.ts",
+    "case": "composeHook: the hook wired to the file system, the environment and argv > recordFromConfig records the adapter's own refusal in the project's guard log",
+    "successor": {
+      "file": "apps/claude-code/src/composition-root.test.ts",
+      "case": "composeHook: the hook wired to the file system, the environment and argv > recordFromConfig records the adapter's own refusal in the project's Bounded log"
+    },
+    "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
   }
 ]

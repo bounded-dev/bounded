@@ -487,14 +487,14 @@ describe("architecture", () => {
 
   test("the out adapters are grouped by the port each serves: no technology folders", () => {
     const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
-    expect(foldersUnder("contexts/core/src/adapters/out")).toEqual(["clock", "compose-packs-catalog", "decision-ids", "guard-log", "host-installer-source", "project-config-source", "project-guard-logs", "project-setup-files"]);
+    expect(foldersUnder("contexts/core/src/adapters/out")).toEqual(["bounded-log", "clock", "compose-packs-catalog", "decision-ids", "host-installer-source", "project-bounded-logs", "project-config-source", "project-setup-files"]);
     expect(foldersUnder("contexts/core/src/packs/protected-paths/adapters/out")).toEqual(["shell-snapshots", "watched-files"]);
     expect(foldersUnder("contexts/core/src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records"]);
   });
 
   test("in-memory test doubles are test support beside the ports they stand in for", async () => {
     const doubles = [
-      "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log",
+      "contexts/core/src/application/bounded-log/judge-event/judge-event.in-memory-bounded-log",
       "contexts/core/src/packs/protected-paths/application/watch-shell/watch-shell.in-memory-shell-snapshots",
       "contexts/core/src/packs/protected-paths/application/watch-shell/watch-shell.in-memory-watched-files",
       "contexts/core/src/packs/prereqs/application/check-prerequisites/check-prerequisites.in-memory-file-set-fingerprints",

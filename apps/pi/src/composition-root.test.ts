@@ -64,7 +64,7 @@ describe("composeProject — never fails open, whatever openProject or its judge
     if (!result.ok) throw new Error(result.error);
     expect(await decide.afterTool?.(result.value)).toMatchObject({ message: null });
     await decide.refuse?.({ hostToolName: "read", reason: "outside the project", redirect: "use a path inside it", role: null, input: {} });
-    const log = join(root, ".bounded", "guard-log.jsonl");
+    const log = join(root, ".bounded", "log.jsonl");
     expect(existsSync(log)).toBe(true);
     expect(readFileSync(log, "utf8")).toContain('"event":"adapter"');
     const failed = await composeProject(root, rejecting);
