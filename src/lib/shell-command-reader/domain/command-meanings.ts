@@ -169,6 +169,11 @@ function moves(args: readonly ShellWord[]): CommandMeaning {
   return meaning({ location: { to: to === undefined || text === "-" || /^[+-]\d+$/.test(text ?? "") ? null : to } });
 }
 
+/** The path find -exec's command is given where {} stands, as one word only the run can resolve. */
+export const FOUND_PATH: ShellWord = Object.freeze({ kind: "unresolved", text: "(found path)", commands: Object.freeze([]) });
+/** find -exec's replace string. */
+const FOUND_PATH_REPLACE: ShellWord = Object.freeze({ kind: "literal", text: "{}" });
+
 /** find: its leading operands are listed (where it runs when none); -exec and its kin run a command. */
 function find(args: readonly ShellWord[]): CommandMeaning {
   const roots: ShellWord[] = [];
@@ -178,13 +183,14 @@ function find(args: readonly ShellWord[]): CommandMeaning {
     if (text !== undefined && (text.startsWith("-") || text === "(" || text === "!")) break;
     roots.push(args[index] as ShellWord);
   }
-  const ran: { name: ShellWord; args: ShellWord[] }[] = [];
+  const ran: { name: ShellWord; args: ShellWord[]; replace: ShellWord; replacedBy: ShellWord }[] = [];
   for (; index < args.length; index++) {
     if (!["-exec", "-execdir", "-ok", "-okdir"].includes(literal(args[index]) ?? "")) continue;
     const words: ShellWord[] = [];
     for (index++; index < args.length && ![";", "+"].includes(literal(args[index]) ?? ""); index++) words.push(args[index] as ShellWord);
     const [name, ...rest] = words;
-    if (name !== undefined) ran.push({ name, args: rest });
+    // {} is a replace string whose stand-in is the path find found: listed and reported where it stands; every word is still judged as written.
+    if (name !== undefined) ran.push({ name, args: rest, replace: FOUND_PATH_REPLACE, replacedBy: FOUND_PATH });
   }
   return meaning({ lists: roots.length === 0 ? [here] : roots, runs: ran });
 }
@@ -219,19 +225,138 @@ function git(args: readonly ShellWord[]): CommandMeaning {
   return meaning({ reads: readsOf(rest), repositoryReads });
 }
 
-/** A shell: with -c, its first operand is code it runs; else it reads the script it is given. */
-function shell(args: readonly ShellWord[]): CommandMeaning {
-  let runsCode = false;
-  const rest: ShellWord[] = [];
-  for (let index = 0; index < args.length; index++) {
+/** The code a shell reads from its standard input, as one word only the run can resolve. */
+export const STANDARD_INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(standard input)", commands: Object.freeze([]) });
+
+/**
+ * How a shell's `o` and `O` letters take their values, as recorded from the
+ * shells themselves (ADR 2026-020): `next` takes the next whole word and the
+ * cluster goes on (bash's o and O, dash's o); `rest` takes the rest of the
+ * word, or the next word when it ends the cluster (zsh's and ksh's o);
+ * `flag` takes nothing (zsh's O).
+ */
+type OptionValueReading = "next" | "rest" | "flag";
+/** Each shell's readings of o and O, where they are known; any other shell, sh among them, is read every way. */
+const SHELL_OPTION_READINGS: Readonly<Record<string, { readonly o: readonly OptionValueReading[]; readonly O: readonly OptionValueReading[] }>> = Object.freeze({
+  bash: { o: ["next"], O: ["next"] },
+  dash: { o: ["next"], O: ["next", "rest", "flag"] },
+  zsh: { o: ["rest"], O: ["flag"] },
+  ksh: { o: ["rest"], O: ["next", "rest", "flag"] },
+});
+const EVERY_READING: readonly OptionValueReading[] = ["next", "rest", "flag"];
+
+/** Where a reading of a shell's options leaves it: its operands start at `from`; whether c and s were given; whether a lone '-' ended the options. */
+interface ShellOptionsReading {
+  readonly from: number;
+  readonly code: boolean;
+  readonly standardInput: boolean;
+}
+
+/**
+ * A shell (sh, bash, zsh, dash, ksh): with c, its first operand is code it
+ * runs; else it reads the script it is given. Its options are walked every
+ * way the shell named, or any shell when its grammar is not known, could
+ * read them (o and O, SHELL_OPTION_READINGS), each reading charged and
+ * memoised, and the union judged: code from any reading is parsed, and
+ * standard input from any is reported. A reading runs code from its standard
+ * input when it has no script, s in a cluster, or a script operand that may
+ * be standard input (mayBeStandardInput; one that names no project path
+ * counts too, judged where the command runs). A long option bounded does not
+ * know, and ksh's -R, may have taken any word: standard input is reported
+ * (fail closed). '-' before an operand ends the options, the operand being
+ * the script. Every operand is still read as written; a heredoc fed to a
+ * shell is not parsed as code.
+ */
+function shell(name: string, args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
+  const grammar = Object.hasOwn(SHELL_OPTION_READINGS, name) ? SHELL_OPTION_READINGS[name] : undefined;
+  const readingsOf = (letter: "o" | "O"): readonly OptionValueReading[] => grammar?.[letter] ?? EVERY_READING;
+  let unknownOption = false;
+  const startupFiles: ShellWord[] = [];
+  const outcomes = new Map<string, ShellOptionsReading>();
+  const seen = new Set<string>();
+
+  /** Every reading from word `index`, letter `at` of it (0: the word's start), owing `owed` next words to o and O. */
+  const walk = (index: number, at: number, code: boolean, standardInput: boolean, owed: number): void => {
+    const key = `${index}/${at}/${code}/${standardInput}/${owed}`;
+    if (seen.has(key) || !spend(budget)) return;
+    seen.add(key);
+    const done = (from: number): void => {
+      outcomes.set(`${from}/${code}/${standardInput}`, { from, code, standardInput });
+    };
     const text = literal(args[index]);
-    if (text === "-o" || text === "+o" || text === "-O" || text === "+O") index++;
-    else if (text !== undefined && /^[-+][a-zA-Z]+$/.test(text)) runsCode ||= text.includes("c");
-    else if (text?.startsWith("--") !== true) rest.push(args[index] as ShellWord);
+    if (at > 0 && text !== undefined && at < text.length) {
+      const letter = text.charAt(at);
+      if (letter === "o" || letter === "O") {
+        for (const reading of readingsOf(letter)) {
+          if (reading === "next") walk(index, at + 1, code, standardInput, owed + 1);
+          else if (reading === "flag") walk(index, at + 1, code, standardInput, owed);
+          else walk(index + 1 + owed + (at === text.length - 1 ? 1 : 0), 0, code, standardInput, 0);
+        }
+        return;
+      }
+      if (letter === "R") unknownOption = true;
+      walk(index, at + 1, code || letter === "c", standardInput || letter === "s", owed);
+      return;
+    }
+    if (at > 0) {
+      walk(index + 1 + owed, 0, code, standardInput, 0);
+      return;
+    }
+    if (index >= args.length || text === undefined || !/^[-+]/.test(text)) done(index);
+    // '-' before an operand ends the options, the operand being the script; alone, it is the script, standard input.
+    else if (text === "-") done(index + 1 < args.length ? index + 1 : index);
+    else if (text === "--") done(index + 1);
+    else if (text.startsWith("--")) {
+      const equals = text.indexOf("=");
+      const option = equals === -1 ? text : text.slice(0, equals);
+      if (SHELL_FILE_OPTIONS.includes(option)) {
+        const value = equals === -1 ? args[index + 1] : literalWord(text.slice(equals + 1));
+        if (value !== undefined && !startupFiles.includes(value)) startupFiles.push(value);
+        walk(index + (equals === -1 ? 2 : 1), 0, code, standardInput, 0);
+      } else {
+        if (!SHELL_FLAG_OPTIONS.includes(option)) unknownOption = true;
+        walk(index + 1, 0, code, standardInput, 0);
+      }
+    } else walk(index, 1, code, standardInput, 0);
+  };
+  walk(0, 0, false, false, 0);
+
+  const scripts: ShellWord[] = [];
+  const reads: ShellWord[] = [...startupFiles];
+  const maybeStandardInput: ShellWord[] = [];
+  let standardInput = unknownOption;
+  for (const { from, code, standardInput: given } of outcomes.values()) {
+    const first = args[from];
+    if (code) {
+      if (first !== undefined && !scripts.includes(first)) scripts.push(first);
+      continue;
+    }
+    if (first === undefined || given || mayBeStandardInput(literal(first))) standardInput = true;
+    if (first !== undefined && !reads.includes(first)) reads.push(first);
+    if (first !== undefined && !maybeStandardInput.includes(first)) maybeStandardInput.push(first);
   }
-  const [first] = rest;
-  if (first === undefined) return NONE;
-  return runsCode ? meaning({ scripts: [first] }) : meaning({ reads: [first] });
+  return meaning({ scripts, reads, unresolved: standardInput ? [STANDARD_INPUT] : [], ...(standardInput ? {} : { standardInputUnlessInProject: maybeStandardInput }) });
+}
+
+/** bash's long options that take a file as their value (the next word, or =value): it reads that file at startup. */
+const SHELL_FILE_OPTIONS: readonly string[] = ["--rcfile", "--init-file"];
+/** bash's long options that take no value. */
+const SHELL_FLAG_OPTIONS: readonly string[] = ["--debugger", "--dump-po-strings", "--dump-strings", "--help", "--login", "--noediting", "--noprofile", "--norc", "--posix", "--pretty-print", "--restricted", "--verbose", "--version"];
+
+/**
+ * Whether a script operand may be the shell's standard input, failing
+ * closed: '-'; a path under /dev/ or /proc/ (repeated slashes and '.'
+ * segments collapsed: /dev/stdin, /dev/fd/<n>, /proc/self/fd/0, and any
+ * other device or process file); a path with a '..' segment, which may
+ * climb anywhere; or one starting with '~'. One that names no project path
+ * counts too, judged where the command runs (standardInputUnlessInProject).
+ */
+function mayBeStandardInput(text: string | undefined): boolean {
+  if (text === undefined) return false;
+  if (text === "-" || text.startsWith("~")) return true;
+  const parts = text.split("/").filter((part) => part !== "" && part !== ".");
+  if (parts.includes("..")) return true;
+  return text.startsWith("/") && (parts[0] === "dev" || parts[0] === "proc");
 }
 
 /** dd: if= is read, of= is written; its other operands are settings. */
@@ -467,11 +592,11 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[], budget: WorkBu
   cp: (args) => transfer(args, false),
   mv: (args) => transfer(args, true),
   git,
-  sh: shell,
-  bash: shell,
-  zsh: shell,
-  dash: shell,
-  ksh: shell,
+  sh: (args, budget) => shell("sh", args, budget),
+  bash: (args, budget) => shell("bash", args, budget),
+  zsh: (args, budget) => shell("zsh", args, budget),
+  dash: (args, budget) => shell("dash", args, budget),
+  ksh: (args, budget) => shell("ksh", args, budget),
   tee: (args) => meaning({ writes: operands(args).map((target) => ({ word: target, change: "write" as const })) }),
   dd,
   curl,

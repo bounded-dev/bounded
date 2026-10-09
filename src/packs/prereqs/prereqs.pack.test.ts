@@ -7,6 +7,7 @@ const canonical = [
   { before: { delegate: "builder" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan" },
   { before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" },
   { before: { delegate: "test-writer" }, require: { delegate: "spec-reviewer", succeeded: true }, unchangedSince: ["spec.md", "src/**/*.contract.ts"], redirect: "Have spec-reviewer review the current spec and contracts" },
+  { before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" },
 ] as const;
 
 describe("prereqs — the prerequisites pack's overview", () => {
@@ -28,8 +29,8 @@ describe("prereqs — the prerequisites pack's overview", () => {
     expect(rules.ok && rules.value.map(({ fromPackId, value }) => [fromPackId.value, value.toJSON()])).toEqual(canonical.map((rule) => ["bounded/project", rule]));
   });
 
-  test("a rule built from untyped data is refused at composition, naming bounded/prereqs.rules, bounded/project and the problem", () => {
-    const untyped: unknown[] = [{ before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" }];
+  test("a rule built from untyped data is refused at composition, naming bounded/prereqs.rules, bounded/project and the problem: a before naming no action the pack knows", () => {
+    const untyped: unknown[] = [{ before: { read: "infra/**" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" }];
     const composed = defineConfig({ packs: [corePack, prereqs], contributes: [contribution(prereqs.points.rules, untyped as never)] }).compose();
     expect(composed.ok).toBe(false);
     const error = composed.ok ? "" : composed.error;

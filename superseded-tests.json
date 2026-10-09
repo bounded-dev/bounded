@@ -6049,5 +6049,50 @@
       "case": "bounded/prereqs end to end: runs that finish after their result (ADR 2026-025) > a result neither finished nor reported later records nothing, and afterTool says no later finish will be reported"
     },
     "reason": "a real background launch now moves its start to the run (ADR 2026-025); a result with no finish to come keeps the reworded message"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+    "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule's before names one action",
+    "successor": {
+      "file": "src/packs/prereqs/domain/prerequisite-rule.test.ts",
+      "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > a rule's before names one action: a delegation, a write or an execute"
+    },
+    "reason": "before: { execute } is now matched against the execute effect's reading, so an execute rule is accepted and is a canonical rule (ADR 2026-019, amended by prereqs-execute)"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/domain/prerequisite-rule.test.ts",
+    "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > the three canonical rules parse, and their wire form is what was written",
+    "successor": {
+      "file": "src/packs/prereqs/domain/prerequisite-rule.test.ts",
+      "case": "PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files > the four canonical rules parse, and their wire form is what was written"
+    },
+    "reason": "before: { execute } is now matched against the execute effect's reading, so an execute rule is accepted and is a canonical rule (ADR 2026-019, amended by prereqs-execute)"
+  },
+  {
+    "file": "contexts/core/src/packs/prereqs/prereqs.pack.test.ts",
+    "case": "prereqs — the prerequisites pack's overview > a rule built from untyped data is refused at composition, naming bounded/prereqs.rules, bounded/project and the problem",
+    "successor": {
+      "file": "src/packs/prereqs/prereqs.pack.test.ts",
+      "case": "prereqs — the prerequisites pack's overview > a rule built from untyped data is refused at composition, naming bounded/prereqs.rules, bounded/project and the problem: a before naming no action the pack knows"
+    },
+    "reason": "before: { execute } is now matched against the execute effect's reading, so an execute rule is accepted and is a canonical rule (ADR 2026-019, amended by prereqs-execute)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+    "case": "TreeSitterShellCommandReader — bounded's reading of a shell command > xargs's literal words are judged as written; its input is only reported, never an operand",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+      "case": "TreeSitterShellCommandReader — bounded's reading of a shell command > xargs's literal words are judged as written; its input is only reported, never an operand, and listed as (input) where the replace string stands"
+    },
+    "reason": "a word holding xargs's replace string is listed as (input) in programs, so a rule cannot match it as written (ADR 2026-020, amended by prereqs-execute); every word is still judged as written"
+  },
+  {
+    "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+    "case": "TreeSitterShellCommandReader — bounded's reading of a shell command > every way to give xargs a replace string is one: -I, --replace=X, a bare --replace or -i ({}), -iX and BSD -J",
+    "successor": {
+      "file": "src/lib/shell-command-reader/adapters/out/shell-command-reader/shell-command-reader.test.ts",
+      "case": "TreeSitterShellCommandReader — bounded's reading of a shell command > every way to give xargs a replace string is one: -I, --replace=X, a bare --replace or -i ({}), -iX and BSD -J; the string's words are listed as (input)"
+    },
+    "reason": "a word holding xargs's replace string is listed as (input) in programs, so a rule cannot match it as written (ADR 2026-020, amended by prereqs-execute); every word is still judged as written"
   }
 ]

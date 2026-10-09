@@ -2,8 +2,10 @@
 // It depends only on the core's public exports; the core never imports it.
 export type { Prereqs, PrereqsId, PrereqsPoints, PrereqsPorts } from "./prereqs.contract.ts";
 export { prereqs } from "./prereqs.pack.ts";
-export type { PrerequisiteBefore, PrerequisiteBeforeJSON, PrerequisiteRuleFactory, PrerequisiteRuleJSON, PrerequisiteStatus } from "./domain/prerequisite-rule.contract.ts";
+export type { BeforeMatch, PrerequisiteBefore, PrerequisiteBeforeJSON, PrerequisiteRuleFactory, PrerequisiteRuleJSON, PrerequisiteStatus } from "./domain/prerequisite-rule.contract.ts";
 export { PrerequisiteRule } from "./domain/prerequisite-rule.ts";
+export type { CannotSeeFix, ProgramPrefixFactory, ProgramPrefixMatch } from "./domain/program-prefix.contract.ts";
+export { ProgramPrefix } from "./domain/program-prefix.ts";
 export type { FileSetFingerprintFactory } from "./domain/file-set-fingerprint.contract.ts";
 export { FileSetFingerprint } from "./domain/file-set-fingerprint.ts";
 export type { PrerequisiteRecordFactory } from "./domain/prerequisite-record.contract.ts";

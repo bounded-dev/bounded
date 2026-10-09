@@ -1,14 +1,48 @@
 import type { prerequisiteRuleBrand } from "./prerequisite-rule.contract.ts";
-import { AgentName, type Effect, own, point, type Result, readSafely, sameWire, wireFormOf } from "bounded/domain";
+import { AgentName, describeEffect, type Effect, type ExecuteEffect, own, point, type Result, readSafely, sameWire, wireFormOf } from "bounded/domain";
 import { checkFilePattern, pathMatcherOf } from "./file-set.ts";
 import type { FileSetFingerprint } from "./file-set-fingerprint.contract.ts";
 import type { PendingAgentRun } from "./pending-agent-run.contract.ts";
 import type { PrerequisiteRecord } from "./prerequisite-record.contract.ts";
 import type * as Contract from "./prerequisite-rule.contract.ts";
 import { hasExactly, requirementKeyOf } from "./prerequisite-start.ts";
+import { ProgramPrefix } from "./program-prefix.ts";
 
 const FORM = "A prerequisite rule is { before, require, unchangedSince, redirect }";
-const BEFORE = "A rule's before names one action: { delegate: <agent> } or { write: <pattern> } (execute is not matched yet)";
+const BEFORE = "A rule's before names one action: { delegate: <agent> }, { write: <pattern> } or { execute: <program and leading arguments> }";
+const NOT_BEFORE: Contract.BeforeMatch = Object.freeze({ kind: "not-before" });
+/** Paths that are never project paths, so a write there blocks no write rule. */
+const DEVICE_PATH = /^\/dev\/(null|stdout|stderr|fd\/\d+)$/;
+/** A write's text bounded can read but not place in the project: outside it, as written (absolute, home, or climbing with a .. segment), with nothing only the shell can expand. */
+const OUTSIDE_PROJECT = /^(\/|~)|(^|\/)\.\.(\/|$)/;
+const SHELL_EXPANDS = /[$`*?[]/;
+
+/**
+ * What a write rule makes of a shell command's reading: it writes a path the
+ * pattern matches; else it cannot see, first found in this order, an
+ * unresolved write (outside the project, or only the shell can resolve; the
+ * device paths are exempt), code, or a program whose name is unresolved;
+ * else it is not before. Every unresolved part counts against every
+ * pattern: bounded cannot know what it names.
+ */
+function writeMatch(pattern: string, effect: ExecuteEffect): Contract.BeforeMatch {
+  const { reading } = effect;
+  if (reading.outcome === "unread") return { kind: "cannot-see", why: `the command could not be read (${reading.why})`, fix: reading.cause === "too-complex" ? "simplify" : "reinstall" };
+  const matches = pathMatcherOf(pattern);
+  const written = reading.fileEffects.find(({ effect: fileEffect }) => fileEffect.kind === "write" && matches(fileEffect.path.value));
+  if (written !== undefined && written.effect.kind === "write") return { kind: "comes-before", what: `${describeEffect(effect)}, which writes '${written.effect.path.value}'` };
+  const write = reading.unresolved.find((part) => part.role === "write" && !DEVICE_PATH.test(part.text));
+  if (write !== undefined) {
+    return OUTSIDE_PROJECT.test(write.text) && !SHELL_EXPANDS.test(write.text)
+      ? { kind: "cannot-see", why: `it writes a path bounded cannot place in the project ('${write.text}')`, fix: "inside-project" }
+      : { kind: "cannot-see", why: `it writes a path only the shell can resolve ('${write.text}')`, fix: "readable" };
+  }
+  const code = reading.unresolved.find((part) => part.role === "code");
+  if (code !== undefined) return { kind: "cannot-see", why: `it runs code bounded cannot read ('${code.text}')`, fix: "none" };
+  const unresolvedName = reading.programs.find((run) => run.name.kind === "unresolved");
+  if (unresolvedName !== undefined) return { kind: "cannot-see", why: `it runs a program whose name only the shell can resolve ('${unresolvedName.name.text}')`, fix: "readable" };
+  return NOT_BEFORE;
+}
 const REQUIRE = "A rule's require is { delegate, succeeded: true }: a delegation to an agent that succeeded";
 const FILES = "A rule's unchangedSince is a non-empty list of file patterns";
 const MAX_REDIRECT = 1000;
@@ -39,6 +73,10 @@ function beforeOf(raw: unknown): Result<Contract.PrerequisiteBefore> {
   if (hasExactly(raw, ["write"])) {
     const pattern = checkFilePattern(own(raw, "write"), "before.write");
     return pattern.ok ? { ok: true, value: Object.freeze({ write: pattern.value }) } : pattern;
+  }
+  if (hasExactly(raw, ["execute"])) {
+    const prefix = ProgramPrefix.parse(own(raw, "execute"));
+    return prefix.ok ? { ok: true, value: Object.freeze({ execute: prefix.value }) } : prefix;
   }
   return refuse(BEFORE);
 }
@@ -115,8 +153,20 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
   }
 
   comesBefore(effect: Effect): boolean {
-    if (this.before.delegate !== undefined) return effect.kind === "delegate" && anySpelling(effect.agent, this.before.delegate);
-    return effect.kind === "write" && pathMatcherOf(this.before.write)(effect.path.value);
+    return this.matchBefore(effect).kind === "comes-before";
+  }
+
+  matchBefore(effect: Effect): Contract.BeforeMatch {
+    const { before } = this;
+    if (before.delegate !== undefined) return effect.kind === "delegate" && anySpelling(effect.agent, before.delegate) ? { kind: "comes-before", what: describeEffect(effect) } : NOT_BEFORE;
+    if (before.write !== undefined) {
+      if (effect.kind === "write") return pathMatcherOf(before.write)(effect.path.value) ? { kind: "comes-before", what: describeEffect(effect) } : NOT_BEFORE;
+      return effect.kind === "execute" ? writeMatch(before.write, effect) : NOT_BEFORE;
+    }
+    if (effect.kind !== "execute") return NOT_BEFORE;
+    const match = before.execute.matchIn(effect.reading);
+    if (match.kind === "runs") return { kind: "comes-before", what: `${describeEffect(effect)}, which runs '${before.execute.toJSON()}'` };
+    return match.kind === "cannot-see" ? match : NOT_BEFORE;
   }
 
   requiredAgent(): AgentName {
@@ -137,7 +187,10 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
   }
 
   describeBefore(): string {
-    return this.before.delegate !== undefined ? `before delegating to '${this.before.delegate.value}'` : `before write '${this.before.write}'`;
+    const { before } = this;
+    if (before.delegate !== undefined) return `before delegating to '${before.delegate.value}'`;
+    if (before.write !== undefined) return `before write '${before.write}'`;
+    return `before executing '${before.execute.toJSON()}'`;
   }
 
   status(records: readonly PrerequisiteRecord[], current: FileSetFingerprint, pendingRuns: readonly PendingAgentRun[] = []): Contract.PrerequisiteStatus {
@@ -160,7 +213,8 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
   }
 
   toJSON(): Contract.PrerequisiteRuleJSON {
-    const before = this.before.delegate !== undefined ? { delegate: this.before.delegate.value } : { write: this.before.write };
+    const given = this.before;
+    const before = given.delegate !== undefined ? { delegate: given.delegate.value } : given.write !== undefined ? { write: given.write } : { execute: given.execute.toJSON() };
     return { before, require: { delegate: this.requiredAgent().value, succeeded: true }, unchangedSince: this.unchangedSince, redirect: this.redirect };
   }
 }

@@ -4,11 +4,12 @@ import { FileSetFingerprint } from "./file-set-fingerprint.ts";
 import { PendingAgentRun } from "./pending-agent-run.ts";
 import { PrerequisiteRecord } from "./prerequisite-record.ts";
 import { PrerequisiteRule } from "./prerequisite-rule.ts";
+import type { CannotSeeFix } from "./program-prefix.contract.ts";
 
-// Three of the canonical rules; the fourth comes before an execute, which is not matched yet.
 const beforeBuilder = { before: { delegate: "builder" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan" };
 const beforeSrc = { before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" };
 const beforeTests = { before: { delegate: "test-writer" }, require: { delegate: "spec-reviewer", succeeded: true }, unchangedSince: ["spec.md", "src/**/*.contract.ts"], redirect: "Have spec-reviewer review the current spec and contracts" };
+const beforeApply = { before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" };
 
 const rule = (raw: unknown): PrerequisiteRule => {
   const parsed = PrerequisiteRule.parse(raw);
@@ -41,8 +42,8 @@ const record = (delegate: string, unchangedSince: readonly string[], sha: string
 };
 
 describe("PrerequisiteRule — an action that needs a delegation to have succeeded over unchanged files", () => {
-  test("the three canonical rules parse, and their wire form is what was written", () => {
-    for (const raw of [beforeBuilder, beforeSrc, beforeTests]) {
+  test("the four canonical rules parse, and their wire form is what was written", () => {
+    for (const raw of [beforeBuilder, beforeSrc, beforeTests, beforeApply]) {
       expect<unknown>(rule(raw).toJSON()).toEqual(raw);
       expect(JSON.parse(JSON.stringify(rule(raw)))).toEqual(raw);
     }
@@ -59,14 +60,20 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     for (const raw of [null, "rule", [], 3]) expect(error(raw)).toBe(form);
   });
 
-  test("a rule's before names one action", () => {
-    const one = "A rule's before names one action: { delegate: <agent> } or { write: <pattern> } (execute is not matched yet)";
+  test("a rule's before names one action: a delegation, a write or an execute", () => {
+    const one = "A rule's before names one action: { delegate: <agent> }, { write: <pattern> } or { execute: <program and leading arguments> }";
+    const execute = "A rule's before.execute is a program and its leading arguments as the program receives them, separated by spaces: ";
+    expect<unknown>(rule({ ...beforeSrc, before: { execute: "terraform apply" } }).toJSON()).toEqual({ ...beforeSrc, before: { execute: "terraform apply" } });
     expect(error({ ...beforeSrc, before: {} })).toBe(one);
     expect(error({ ...beforeSrc, before: { delegate: "builder", write: "src/**" } })).toBe(one);
-    expect(error({ ...beforeSrc, before: { execute: "terraform apply" } })).toBe(one);
+    expect(error({ ...beforeSrc, before: { execute: "terraform apply", write: "src/**" } })).toBe(one);
+    expect(error({ ...beforeSrc, before: { execute: "terraform apply", delegate: "builder" } })).toBe(one);
     expect(error({ ...beforeSrc, before: "src/**" })).toBe(one);
     expect(error({ ...beforeSrc, before: { delegate: " " } })).toStartWith("A rule's before.delegate: ");
     expect(error({ ...beforeSrc, before: { write: "../x" } })).toContain("A rule's before.write pattern '../x' uses '..'");
+    expect(error({ ...beforeSrc, before: { execute: "$TF apply" } })).toBe(`${execute}it holds '$', which the shell would read, not pass on`);
+    expect(error({ ...beforeSrc, before: { execute: ["terraform", "apply"] } })).toBe(`${execute}it is not text`);
+    expect(error({ ...beforeSrc, before: { execute: "terraform -auto-approve" } })).toBe(`${execute}'-auto-approve' starts with '-': a rule names its program and subcommand words, never an option`);
   });
 
   test("a rule requires a delegation that succeeded", () => {
@@ -192,5 +199,106 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     // requiresDelegationTo stays exact: it is applied to the agent the host resolved.
     expect(reviewed.requiresDelegationTo(agent("Plan-Reviewer"))).toBe(false);
     expect(reviewed.requiresDelegationTo(agent("plan-reviewer"))).toBe(true);
+  });
+});
+
+/** A word only the shell can resolve, as the reader reports it. */
+const unresolvedWord = (text: string) => ({ kind: "unresolved", text });
+type Word = string | ReturnType<typeof unresolvedWord>;
+const wordOf = (word: Word) => (typeof word === "string" ? { kind: "literal", text: word } : word);
+const ran = (name: Word, args: readonly Word[] = []) => ({ name: wordOf(name), arguments: args.map(wordOf), workingDirectory: "." });
+/** An execute effect of `command`, read as running `programs`, with `fileEffects` and `parts` left unresolved. */
+const shell = (command: string, programs: readonly object[], fileEffects: readonly object[] = [], parts: readonly object[] = [], cwd?: string): Effect =>
+  effect({ kind: "execute", command, ...(cwd === undefined ? {} : { cwd }), reading: { outcome: "read", programs, fileEffects, unresolved: parts } });
+const unreadShell = (command: string, why: string, cause?: "too-complex"): Effect => effect({ kind: "execute", command, reading: { outcome: "unread", why, ...(cause === undefined ? {} : { cause }) } });
+const writes = (path: string, change = "modify", existenceUnknown = false) => ({ effect: { kind: "write", path, change }, ...(existenceUnknown ? { existenceUnknown: true } : {}) });
+
+describe("PrerequisiteRule — before an execute, and shell writes (ADR 2026-019, amended)", () => {
+  test("a rule before an execute comes before a shell command that runs its program with its words, wrapped or nested, and names what it runs, where", () => {
+    const apply = rule(beforeApply);
+    const direct = shell("terraform apply", [ran("terraform", ["apply"])], [], [], "infra");
+    expect(apply.matchBefore(direct)).toEqual({ kind: "comes-before", what: "execute `terraform apply` in infra, which runs 'terraform apply'" });
+    expect(apply.comesBefore(direct)).toBe(true);
+    const wrapped = shell("sudo terraform apply", [ran("sudo", ["terraform", "apply"]), ran("terraform", ["apply"])]);
+    expect(apply.matchBefore(wrapped)).toEqual({ kind: "comes-before", what: "execute `sudo terraform apply`, which runs 'terraform apply'" });
+    expect(apply.comesBefore(wrapped)).toBe(true);
+    expect(apply.describeBefore()).toBe("before executing 'terraform apply'");
+  });
+
+  test("a rule before an execute cannot see through an unread command, an unresolved program, argument or code, or a run passing its program, and is never before a file tool's write or a delegation", () => {
+    const apply = rule(beforeApply);
+    const cases: readonly (readonly [Effect, string, CannotSeeFix])[] = [
+      [unreadShell("terraform apply", "bounded's shell parser could not load (x)"), "the command could not be read (bounded's shell parser could not load (x))", "reinstall"],
+      [unreadShell("terraform apply", "the command is too complex", "too-complex"), "the command could not be read (the command is too complex)", "simplify"],
+      [shell("$TF apply", [ran(unresolvedWord("$TF"), ["apply"])]), "it runs a program whose name only the shell can resolve ('$TF')", "readable"],
+      [shell("terraform $X", [ran("terraform", [unresolvedWord("$X")])]), "'$X', which only the shell can resolve, stands before terraform's argument 'apply' could be found", "readable"],
+      [shell('sh -c "$X"', [ran("sh", ["-c", unresolvedWord('"$X"')])], [], [{ text: '"$X"', role: "code" }]), "it runs code bounded cannot read ('\"$X\"')", "none"],
+      [shell("echo terraform", [ran("echo", ["terraform"])]), "it passes 'terraform' to echo, which may run terraform", "none"],
+    ];
+    for (const [given, why, fix] of cases) {
+      expect(apply.matchBefore(given)).toEqual({ kind: "cannot-see", why, fix });
+      expect(apply.comesBefore(given)).toBe(false);
+    }
+    expect(apply.matchBefore(effect({ kind: "write", path: "infra/main.tf", change: "modify" }))).toEqual({ kind: "not-before" });
+    expect(apply.matchBefore(effect({ kind: "delegate", agent: "terraform" }))).toEqual({ kind: "not-before" });
+    expect(apply.matchBefore(shell("terraform plan", [ran("terraform", ["plan"])]))).toEqual({ kind: "not-before" });
+  });
+
+  test("a rule before a write comes before a shell command whose reading writes a path its pattern matches, ignoring case", () => {
+    const src = rule(beforeSrc);
+    expect(src.matchBefore(shell("echo x > src/a.ts", [ran("echo", ["x"])], [writes("src/a.ts")]))).toEqual({ kind: "comes-before", what: "execute `echo x > src/a.ts`, which writes 'src/a.ts'" });
+    expect(src.matchBefore(shell("echo x > SRC/b.ts", [ran("echo", ["x"])], [writes("SRC/b.ts", "create", true), writes("SRC/b.ts", "modify", true)]))).toEqual({
+      kind: "comes-before",
+      what: "execute `echo x > SRC/b.ts`, which writes 'SRC/b.ts'",
+    });
+    expect(src.matchBefore(shell("rm src/c.ts", [ran("rm", ["src/c.ts"])], [writes("src/c.ts", "delete")])).kind).toBe("comes-before");
+    expect(src.comesBefore(shell("rm src/c.ts", [ran("rm", ["src/c.ts"])], [writes("src/c.ts", "delete")]))).toBe(true);
+    expect(src.matchBefore(shell("echo x > docs/a.md", [ran("echo", ["x"])], [writes("docs/a.md")]))).toEqual({ kind: "not-before" });
+    expect(src.matchBefore(shell("cat src/a.ts", [ran("cat", ["src/a.ts"])], [{ effect: { kind: "read", path: "src/a.ts" } }]))).toEqual({ kind: "not-before" });
+  });
+
+  test("a rule before a write cannot see through an unread command, an unresolved write, code or an unresolved program name; unresolved reads, listings and directories are not writes", () => {
+    const src = rule(beforeSrc);
+    const cases: readonly (readonly [Effect, string, CannotSeeFix])[] = [
+      [unreadShell("echo x > src/a.ts", "the parser could not load"), "the command could not be read (the parser could not load)", "reinstall"],
+      [unreadShell("echo x > src/a.ts", "too complex", "too-complex"), "the command could not be read (too complex)", "simplify"],
+      [shell('echo x > "$OUT"', [ran("echo", ["x"])], [], [{ text: '"$OUT"', role: "write" }]), "it writes a path only the shell can resolve ('\"$OUT\"')", "readable"],
+      [shell("eval x", [ran("eval", ["x"])], [], [{ text: "x", role: "code" }]), "it runs code bounded cannot read ('x')", "none"],
+      [shell("$TOOL", [ran(unresolvedWord("$TOOL"))]), "it runs a program whose name only the shell can resolve ('$TOOL')", "readable"],
+    ];
+    for (const [given, why, fix] of cases) {
+      expect(src.matchBefore(given)).toEqual({ kind: "cannot-see", why, fix });
+      expect(src.comesBefore(given)).toBe(false);
+    }
+    // A write part is told before code, and code before a program's name.
+    const all = shell("x", [ran(unresolvedWord("$TOOL"))], [], [{ text: "y", role: "code" }, { text: "$OUT", role: "write" }]);
+    expect(src.matchBefore(all)).toEqual({ kind: "cannot-see", why: "it writes a path only the shell can resolve ('$OUT')", fix: "readable" });
+    for (const role of ["read", "list", "directory"]) expect(src.matchBefore(shell("x", [ran("cat", ["x"])], [], [{ text: "$X", role }]))).toEqual({ kind: "not-before" });
+    // A definite write wins over what it cannot see.
+    expect(src.matchBefore(shell("x", [ran(unresolvedWord("$TOOL"))], [writes("src/a.ts")], [{ text: "$OUT", role: "write" }])).kind).toBe("comes-before");
+  });
+
+  test("a write bounded cannot place in the project is one it cannot see, with its own why; the device paths are exempt", () => {
+    const src = rule(beforeSrc);
+    const writing = (text: string) => src.matchBefore(shell(`echo x > ${text}`, [ran("echo", ["x"])], [], [{ text, role: "write" }]));
+    for (const text of ["/tmp/x", "~/x", "../x", "/dev/sda", "/dev/fd/x", "src/../../x"]) {
+      expect(writing(text)).toEqual({ kind: "cannot-see", why: `it writes a path bounded cannot place in the project ('${text}')`, fix: "inside-project" });
+    }
+    for (const text of ['"$OUT"', "/tmp/$X", "~/`x`", "/tmp/*.log", "/tmp/a?", "/tmp/[ab]"]) {
+      expect(writing(text)).toEqual({ kind: "cannot-see", why: `it writes a path only the shell can resolve ('${text}')`, fix: "readable" });
+    }
+    for (const text of ["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/fd/2"]) expect({ text, match: writing(text) }).toEqual({ text, match: { kind: "not-before" } });
+  });
+
+  test("a rule before a delegation is never before a shell command, read or not", () => {
+    const builder = rule(beforeBuilder);
+    for (const given of [
+      shell("claude -p --agent builder", [ran("claude", ["-p", "--agent", "builder"])]),
+      shell("$X", [ran(unresolvedWord("$X"))], [], [{ text: "x", role: "code" }]),
+      unreadShell("builder", "the parser could not load"),
+    ]) {
+      expect(builder.matchBefore(given)).toEqual({ kind: "not-before" });
+      expect(builder.comesBefore(given)).toBe(false);
+    }
   });
 });

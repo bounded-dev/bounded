@@ -19,7 +19,7 @@ import {
 import { FileSetFingerprint } from "../../domain/file-set-fingerprint.ts";
 import { PendingAgentRun } from "../../domain/pending-agent-run.ts";
 import { PrerequisiteRecord } from "../../domain/prerequisite-record.ts";
-import type { PrerequisiteRule } from "../../domain/prerequisite-rule.contract.ts";
+import type { BeforeMatch, PrerequisiteRule } from "../../domain/prerequisite-rule.contract.ts";
 import { rulesIn } from "../../domain/prerequisite-rule.ts";
 import { PrerequisiteStart } from "../../domain/prerequisite-start.ts";
 import type { CheckPrerequisites, FileSetFingerprints, PrerequisiteRecords } from "./check-prerequisites.contract.ts";
@@ -49,6 +49,32 @@ type Rule = Entry<PrerequisiteRule>;
 /** How a message names a rule: "<pack>'s rule before …, requiring <agent> to have succeeded over <files>". */
 const named = ({ fromPackId, value: rule }: Rule): string =>
   `${fromPackId.value}'s rule ${rule.describeBefore()} requires a delegation to ${rule.requiredAgent().value} that succeeded over the current ${listed(rule.unchangedSince)}`;
+
+/**
+ * What a refusal says the call would do (`tail`), and what the redirect adds
+ * where bounded cannot see (`fixTail`, after the rule's redirect): what would
+ * let it see, if the command does not do what the rule comes before.
+ */
+function wouldDo(rule: PrerequisiteRule, effect: Effect, match: Exclude<BeforeMatch, { kind: "not-before" }>): { tail: string; fixTail: string } {
+  if (match.kind === "comes-before") return { tail: match.what, fixTail: "" };
+  const { before } = rule;
+  const [does, action] =
+    before.execute !== undefined ? [`runs '${before.execute.toJSON()}'`, `run '${before.execute.toJSON()}'`] : [`writes a path '${before.write}' matches`, `write a path '${before.write}' matches`];
+  const tail = `${describeEffect(effect)}, and bounded cannot see whether it ${does}: ${match.why}`;
+  const unless = ` (or, if this command does not ${action}, `;
+  switch (match.fix) {
+    case "readable":
+      return { tail, fixTail: `${unless}write it so that bounded can read it: no words only the shell can resolve where a program, its leading arguments or a written path stand)` };
+    case "reinstall":
+      return { tail, fixTail: `${unless}reinstall bounded's dependencies if its shell parser cannot load, then retry)` };
+    case "simplify":
+      return { tail, fixTail: `${unless}split it into simpler commands, or simplify it, and run each on its own)` };
+    case "inside-project":
+      return { tail, fixTail: `${unless}leave out its writes outside the project)` };
+    case "none":
+      return { tail, fixTail: "" };
+  }
+}
 
 /** What one delegation's result came to: a message for the agent, and what to record, if anything. */
 interface Outcome {
@@ -83,7 +109,12 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
     try {
       const rules = this.rules();
       if (!rules.ok) return Verdict.refuse(`${PREFIX} the rules cannot be read: ${rules.error}`, "Select bounded/prereqs once, with the core pack");
-      const gated = rules.value.flatMap((rule) => call.effects.filter((effect) => rule.value.comesBefore(effect)).map((effect) => ({ rule, effect })));
+      const gated = rules.value.flatMap((rule) =>
+        call.effects.flatMap((effect) => {
+          const match = rule.value.matchBefore(effect);
+          return match.kind === "not-before" ? [] : [{ rule, effect, match }];
+        }),
+      );
       const delegations = call.effects.filter(isDelegation).filter((effect) => this.candidates(rules.value, effect).length > 0);
       if (gated.length === 0 && delegations.length === 0) return Verdict.allow;
 
@@ -105,7 +136,8 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
         if (!records.ok) return Verdict.refuse(`${PREFIX} the prerequisites recorded so far could not be read: ${records.error}`, UNREADABLE_RECORDS);
         // The runs still to finish are read only when a rule does not hold, and then once.
         let pendingRuns: Result<readonly PendingAgentRun[]> | undefined;
-        for (const { rule, effect } of gated) {
+        for (const { rule, effect, match } of gated) {
+          const { tail, fixTail } = wouldDo(rule.value, effect, match);
           const now = await this.fingerprint(rule.value.unchangedSince);
           if (!now.ok) return Verdict.refuse(`${PREFIX} the files of ${named(rule)} could not be fingerprinted: ${now.error}`, UNREADABLE_FILES);
           let status = rule.value.status(records.value, now.value);
@@ -118,8 +150,8 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
             if (status === "pending" && waitedOn !== undefined) {
               const started = `${rule.value.requiredAgent().value}'s run started at ${waitedOn.startedAt.value}`;
               return Verdict.refuse(
-                `${PREFIX} ${named(rule)}, and ${started} has not finished yet: wait for its finish. This call would ${describeEffect(effect)}`,
-                `Wait for ${started} to finish (it is recorded when it does); if it stopped without finishing, ${rule.value.redirect}`,
+                `${PREFIX} ${named(rule)}, and ${started} has not finished yet: wait for its finish. This call would ${tail}`,
+                `Wait for ${started} to finish (it is recorded when it does); if it stopped without finishing, ${rule.value.redirect}${fixTail}`,
               );
             }
           }
@@ -128,7 +160,7 @@ export class CheckPrerequisitesHandler implements CheckPrerequisites {
             : status === "stale"
               ? `${rule.value.requiredAgent().value} succeeded over them, but they have changed since`
               : `${rule.value.requiredAgent().value} has not succeeded over them`;
-          return Verdict.refuse(`${PREFIX} ${named(rule)}, and ${why}. This call would ${describeEffect(effect)}`, rule.value.redirect);
+          return Verdict.refuse(`${PREFIX} ${named(rule)}, and ${why}. This call would ${tail}`, `${rule.value.redirect}${fixTail}`);
         }
       }
 

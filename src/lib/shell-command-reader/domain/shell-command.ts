@@ -1,12 +1,13 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning, MAX_NESTING, newWorkBudget, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
+import { commandMeaning, MAX_NESTING, newWorkBudget, STANDARD_INPUT, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
 import type { MeaningChange } from "./command-meanings.contract.ts";
 import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
 
 // A parsed command line as the programs it runs and the project paths it
 // reads, lists and writes: a translation that decides nothing. Programs are
-// every one the command runs, nested and wrapped ones included, in the order
-// met; the parser's stand-ins are none. Where each command runs is followed as
+// the runs the reader knows, nested and wrapped ones included, in the order
+// met (never what a program or script runs itself; ADR 2026-020 names what is
+// not listed); the parser's stand-ins are none. Where each command runs is followed as
 // the shell would: a cd carries on to later commands in the same shell, never
 // out of a subshell, a substitution or a pipeline stage, and leaves where
 // later commands run unknown when it may or may not have happened, or when
@@ -30,41 +31,42 @@ const partsOf = (path: ProjectPath): string[] => (path.value === "." ? [] : path
 const joinedPathCost = (scope: Scope): number => (scope.at === null ? 0 : Math.floor(scope.at.reduce((characters, directory) => characters + directory.length + 1, 0) / 8));
 
 /**
- * The roles xargs's input would have for the command `name` run with
- * `words`, among which the input stands as XARGS_INPUT (after them, or where
- * the replace string is): where the table puts the input word, followed into
- * a command the command runs. Only a report: the words are judged as
- * written, never these.
+ * The roles an input would have for the command `name` run with `words`,
+ * among which the input stands as `input` (xargs's XARGS_INPUT after them,
+ * or where a replace string is; find's FOUND_PATH where {} is): where the
+ * table puts the input word, followed into a command the command runs. Only
+ * a report: the words are judged as written, never these.
  */
-function inputRoles(name: ShellWord, words: readonly ShellWord[], budget: WorkBudget, depth = 0): UnresolvedWord["role"][] {
+function inputRoles(name: ShellWord, words: readonly ShellWord[], budget: WorkBudget, input: ShellWord = XARGS_INPUT, depth = 0): UnresolvedWord["role"][] {
   if (!spend(budget, 1 + words.length)) return [];
-  if (name === XARGS_INPUT) return ["code"];
+  if (name === input) return ["code"];
   if (name.kind !== "literal" || depth > 8) return ["code"];
   const meaning = commandMeaning(name.text, words, budget);
-  const has = (words: readonly ShellWord[]): boolean => words.includes(XARGS_INPUT);
+  const has = (words: readonly ShellWord[]): boolean => words.includes(input);
   const roles: UnresolvedWord["role"][] = [];
   if (has(meaning.reads) || has(meaning.repositoryReads) || meaning.transfers.some((transfer) => has(transfer.sources))) roles.push("read");
   if (has(meaning.lists)) roles.push("list");
-  if (has(meaning.writes.map(({ word }) => word)) || meaning.transfers.some((transfer) => transfer.destination === XARGS_INPUT)) roles.push("write");
-  if (meaning.location?.to === XARGS_INPUT) roles.push("directory");
+  if (has(meaning.writes.map(({ word }) => word)) || meaning.transfers.some((transfer) => transfer.destination === input)) roles.push("write");
+  if (meaning.location?.to === input) roles.push("directory");
   if (has(meaning.scripts) || has(meaning.unresolved)) roles.push("code");
   for (const ran of meaning.runs) {
     // A command the input would name is code; a trailing run (a wrapper's command) is given the input itself, and reports it there.
-    if (ran.name === XARGS_INPUT) roles.push("code");
-    else if (ran.trailing !== true && has(ran.args)) roles.push(...inputRoles(ran.name, ran.args, budget, depth + 1));
+    if (ran.name === input) roles.push("code");
+    else if (ran.trailing !== true && has(ran.args)) roles.push(...inputRoles(ran.name, ran.args, budget, input, depth + 1));
   }
   return [...new Set(roles)];
 }
 
 /**
- * Where xargs's input stands with replace string `replace`: each literal word
- * that is it or holds it, as XARGS_INPUT; for reporting the input's roles
- * only, never for judging. A replace string only the shell can resolve
+ * Where an input stands with replace string `replace`: each literal word
+ * that is it or holds it, as `input` (xargs's XARGS_INPUT, find's
+ * FOUND_PATH); for reporting the input's roles and listing the program's
+ * words only, never for judging. A replace string only the shell can resolve
  * stands nowhere known: the input is reported as code.
  */
-function withInputReplaced(words: readonly ShellWord[], replace: ShellWord): ShellWord[] | undefined {
+function withInputReplaced(words: readonly ShellWord[], replace: ShellWord, input: ShellWord): ShellWord[] | undefined {
   if (replace.kind !== "literal" || replace.text === "") return undefined;
-  return words.map((word) => (word.kind === "literal" && word.text.includes(replace.text) ? XARGS_INPUT : word));
+  return words.map((word) => (word.kind === "literal" && word.text.includes(replace.text) ? input : word));
 }
 
 /** Where a scope runs, as a project path ("." for the root), or null when it cannot be known. */
@@ -166,19 +168,30 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * string), more arguments come from its input: they are the program's
    * last argument and an unresolved part with each role they could have,
    * never an operand, so the literal words are judged as written. With
-   * `replace` (xargs's replace string), the input stands where the string is
-   * written: that is reported as an unresolved part with each role the
+   * `replace` (xargs's replace string, or find -exec's {}), the input
+   * (`replacedBy`: xargs's (input), find's (found path)) stands where the
+   * string is written: each word holding it is listed as the input among the
+   * program's words, and reported as an unresolved part with each role the
    * command gives it, and every word is still judged as written (a
    * substitution adds a report, never replaces the check).
    */
-  const command = (name: ShellWord | null, args: readonly ShellWord[], scope: Scope, how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord } = {}): void => {
+  const command = (
+    name: ShellWord | null,
+    args: readonly ShellWord[],
+    scope: Scope,
+    how: { readonly standIn?: boolean; readonly input?: boolean; readonly replace?: ShellWord; readonly replacedBy?: ShellWord } = {},
+  ): void => {
     if (name === null || !spend(budget, 1 + args.length + joinedPathCost(scope))) return;
-    if (how.standIn !== true) programs.push({ name, arguments: how.input === true ? [...args, XARGS_INPUT] : args, workingDirectory: directoryOf(scope) });
+    const replacedBy = how.replacedBy ?? XARGS_INPUT;
+    const charged = how.replace !== undefined && spend(budget, 1 + args.length + textCost(args));
+    const replaced = charged && how.replace !== undefined ? withInputReplaced([name, ...args], how.replace, replacedBy) : undefined;
+    const [listedName = name, ...listedArgs] = replaced ?? [name, ...args];
+    if (how.standIn !== true) programs.push({ name: listedName, arguments: how.input === true ? [...listedArgs, XARGS_INPUT] : listedArgs, workingDirectory: directoryOf(scope) });
     if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT], budget)) unresolved.push({ text: XARGS_INPUT.text, role });
-    if (how.replace !== undefined && spend(budget, 1 + args.length + textCost(args))) {
-      const [inputName = name, ...inputArgs] = withInputReplaced([name, ...args], how.replace) ?? [XARGS_INPUT];
-      const roles = inputName === name && !inputArgs.includes(XARGS_INPUT) ? [] : inputRoles(inputName, inputArgs, budget);
-      for (const role of roles) unresolved.push({ text: XARGS_INPUT.text, role });
+    if (charged) {
+      const [inputName = name, ...inputArgs] = replaced ?? [replacedBy];
+      const roles = inputName === name && !inputArgs.includes(replacedBy) ? [] : inputRoles(inputName, inputArgs, budget, replacedBy);
+      for (const role of roles) unresolved.push({ text: replacedBy.text, role });
     }
     const meaning = commandMeaning(name.kind === "literal" ? name.text : "", args, budget);
     for (const word of meaning.reads) {
@@ -230,10 +243,15 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       }
     }
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
+    // A shell's script naming no project path from here may be its standard input (a link to /dev/stdin): fail closed.
+    const outside = (meaning.standardInputUnlessInProject ?? []).some((word) => word.kind === "literal" && pathOf(word.text, scope) === undefined);
+    if (outside) unresolved.push({ text: STANDARD_INPUT.text, role: "code" });
     for (const ran of meaning.runs) {
       // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
-      const replace = ran.replace ?? (ran.trailing === true ? how.replace : undefined);
-      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(replace === undefined ? {} : { replace }) };
+      const inherited = ran.replace === undefined && ran.trailing === true;
+      const replace = inherited ? how.replace : ran.replace;
+      const replacedBy = inherited ? how.replacedBy : ran.replacedBy;
+      const passed = { input: ran.input === true || (how.input === true && ran.trailing === true), ...(replace === undefined ? {} : { replace }), ...(replacedBy === undefined ? {} : { replacedBy }) };
       if (ran.directory === undefined) nested(() => command(ran.name, ran.args, scope, passed));
       else {
         // A wrapper that sets the directory (env -C, sudo -D): the command runs from there, or from nowhere known.

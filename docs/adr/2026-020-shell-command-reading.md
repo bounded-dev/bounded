@@ -13,7 +13,9 @@ the host adapter, trusted code, builds each execute effect's reading from
 the model's tool input, the untrusted part, with bounded's reader. The core
 requires the reading and checks its shape. The sections below state the
 decision as corrected; "Release" keeps what 3.2.0 shipped and lists the
-correction's changes under 3.3.0.
+correction's changes under 3.3.0. Amended by `prereqs-execute` (3.3.0):
+xargs's replace string and find's `{}` are listed as unresolved in
+`programs`; a shell reading its standard input reports it as code.
 
 ## Context
 
@@ -35,10 +37,11 @@ names no tool or language (AGENTS.md). It can own the shape.
   or `{ outcome: "unread", why, cause? }`, where a reader that can tell says
   what made the command unreadable when the command itself is to blame
   (`too-complex`).
-  - `programs`: every program the command runs, nested and wrapped ones
-    included (a wrapper and what it runs, literal `sh -c` code, `find -exec`'s
-    and xargs's commands, builtins such as `cd`, `[` and `export`), in the
-    order met; each a `ShellProgramRun` of `name` and `arguments` (words,
+  - `programs`: the runs the reader knows, nested and wrapped ones included
+    (a wrapper in its table and what it runs, literal `sh -c` code,
+    `find -exec`'s and xargs's commands, builtins such as `cd`, `[` and
+    `export`), in the order met; not every program the command runs (see
+    Limits: what is not listed); each a `ShellProgramRun` of `name` and `arguments` (words,
     `{ kind: "literal" | "unresolved", text }`) and `workingDirectory`, a
     project path ("." the root) or null when it cannot be known. The
     reader's stand-ins (the `true` it uses for a loop's words) and bare
@@ -54,7 +57,47 @@ names no tool or language (AGENTS.md). It can own the shape.
     that is not literal, and inline code for another language: `python -c`,
     `node -e`/`--eval`/`-p`/`--print`, `perl -e`/`-E`, `ruby -e`, awk's
     program without `-f`; short options cluster as getopt reads them, as in
-    `perl -ne` or `python3 -Bc`, a value-taking letter ending the cluster).
+    `perl -ne` or `python3 -Bc`, a value-taking letter ending the cluster;
+    *amended by `prereqs-execute`:* `(standard input)`, the code a shell
+    (`sh`, `bash`, `zsh`, `dash`, `ksh`) reads from its standard input.
+    **A shell's options are read every way the shells read them, and the
+    union judged** (the strictest reading wins, as for xargs). Recorded
+    from the shells themselves (bash 3.2.57 and zsh 5.9 on macOS, with its
+    `/bin/sh`; bash 5.3 and its image's busybox-style `sh`; dash 0.5.12 and
+    ksh93 20240113, with Debian's dash as `sh`):
+    - a short option cluster is read letter by letter: `c` makes the first
+      operand code, `s` reads standard input, anywhere in the cluster;
+    - bash's `o` and `O`, and dash's `o`, each take the next whole word and
+      the cluster goes on (`bash -oe pipefail` reads standard input,
+      `bash -oc posix 'echo CODE'` runs CODE, `bash -oo errexit pipefail`
+      takes both words);
+    - zsh's and ksh's `o` take the rest of the word, or the next word when
+      `o` ends the cluster (`zsh -euo pipefail`);
+    - zsh's `O` is a flag (`zsh -Oc 'echo CODE'` runs CODE, `zsh -Os x`
+      reads standard input with `x` as `$1`); dash and ksh refuse `-O`;
+    - in every one, `-` before an operand ends the options and the operand
+      is the script (`bash - script.sh` runs `script.sh`); `-` alone is
+      the script, standard input; `--` ends the options.
+
+    bash's `o`/`O`, dash's, and zsh's and ksh's readings are applied to the
+    shell so named; for `sh` or a shell named any other way every reading
+    is taken. Each fork is charged to the work budget and memoised.
+    `--rcfile` and `--init-file` take the next word or `=value`, a file
+    read at startup; bash's other long options take none. A long option
+    bounded does not know, and ksh's `-R` (a value option taking a file),
+    may have taken any word: standard input is reported, failing closed.
+
+    A reading runs code from standard input when it has no script, `s` in
+    a cluster, or a script operand that may be standard input, failing
+    closed: `-`; a path under `/dev/` or `/proc/` (`/dev/stdin`,
+    `/dev/fd/<n>`, `/proc/self/fd/0`, `/proc/thread-self/fd/0`, however
+    spelt); a path with a `..` segment; or one that names no project path
+    from where the command runs (`/opt/x.sh`, `../../dev/stdin`). Every
+    operand is still read as written. An operand only the shell can resolve
+    (`bash "$S"`, `bash ~/x.sh`, `bash <(…)`) is not, until
+    `shell-every-reading`. Examples: `echo … | sh`, `bash <<EOF`,
+    `curl … | bash`, `bash -euo pipefail <<< …`, `bash -oe pipefail <<< …`;
+    a heredoc fed to a shell is not parsed as code).
     A token tree-sitter inserted to recover from an error (the missing
     command after `cat a |`) is never a literal word: it is an unresolved
     word named `(a token the parser inserted to recover)`, and any other
@@ -79,6 +122,15 @@ names no tool or language (AGENTS.md). It can own the shape.
     also shown as the program's last argument but never an operand, so a
     literal `cp` destination is judged as written. The input reaches a
     command a wrapper under xargs runs (`xargs sudo rm`, `xargs env -C d cp a`).
+    *Amended by `prereqs-execute`:* a word holding the replace string is
+    listed as the unresolved `(input)` among the run's words in `programs`,
+    its name too (`echo apply | xargs -I{} terraform {}` lists
+    `terraform [(input)]`), so a rule cannot match what only the input
+    names. `find -exec`, `-execdir`, `-ok` and `-okdir` treat `{}` the same
+    way, with the stand-in `(found path)`: listed in `programs` and reported
+    with each role the command gives it. `fileEffects` do not change: every
+    word is still judged as written (`find . -exec cat .env {} \;` reads
+    `.env`).
   - **When the reader cannot tell which word is xargs's command, it judges
     every plausible reading, and the strictest verdict wins.** An unknown or
     ambiguous long option, or a word only the shell can resolve among
@@ -422,8 +474,18 @@ every moved or replaced case is recorded in `superseded-tests.json`.
     directory, which only the shell can name.
   - `env -S $S rm x`: read as nothing (`$S` unresolved code, the words after
     it only reported as unresolved); lost: `rm x` and its delete of `x`.
+- **What `programs` does not list** (*amended by `prereqs-execute`*; each
+  until `shell-reader-coverage` where it fixes it): what programs and
+  scripts run themselves; package runners (`npx`, `bunx`, `pnpm exec`,
+  `yarn dlx`, `uvx`); a program named by its path (`/usr/bin/env terraform`,
+  `/bin/bash -c …`), looked up by its full name, not its last segment;
+  `time` and `coproc`; `trap`'s code and `alias` values; aliases and
+  functions; git's `!` aliases; a script run through a shell or sourced;
+  `-execdir`'s directory (read from where `find` runs).
 - A pack judging writes must look in readings as well as write effects.
-- `bounded/prereqs` does not use readings yet (item (ii)).
+- `bounded/prereqs` matches `before: { execute }` and `before: { write }`
+  against readings, and refuses where it cannot see (ADR 2026-019,
+  amended).
 
 ## Release
 
