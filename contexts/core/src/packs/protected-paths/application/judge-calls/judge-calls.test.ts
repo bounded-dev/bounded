@@ -390,11 +390,12 @@ describe("the protected-paths pack — shell commands, judged from bounded's rea
 });
 
 /**
- * The two rules `bounded init` writes into a project's configuration: the
- * protected-paths pack itself ships none, so its guardrails are protected only when the
- * project contributes these (ADR 2026-009). Their text is the CLI's.
+ * Two of the default rules `bounded init` writes into a project's
+ * configuration, those for the configuration and for .bounded/: the
+ * protected-paths pack itself ships none, so its guardrails are protected only
+ * when the project contributes them (ADR 2026-009). Their text is the CLI's.
  */
-const DEFAULT_RULES: ProtectedPathJSON[] = [
+const DEFAULT_RULES_FOR_CONFIG_AND_STATE: ProtectedPathJSON[] = [
   {
     match: "**/bounded.config.*",
     deny: ["create", "modify", "delete"],
@@ -414,25 +415,25 @@ describe("the protected-paths pack — no rules of its own; the defaults live in
 
   test("with the default rules, an agent cannot write the project's guardrails, and the refusal names the project's rule", () => {
     for (const change of ["create", "modify", "delete"] as const) {
-      expect(reason(decide([rules("a", ...DEFAULT_RULES)], [write("bounded.config.ts", change)]))).toBe(
+      expect(reason(decide([rules("a", ...DEFAULT_RULES_FOR_CONFIG_AND_STATE)], [write("bounded.config.ts", change)]))).toBe(
         `bounded/protected-paths refused write (${change}) bounded.config.ts: the rule '**/bounded.config.*' from test-packs/a denies ${change} of 'bounded.config.ts' (the project's guardrails are changed by people, not by agents)`,
       );
     }
-    expect(decide([rules("a", ...DEFAULT_RULES)], [write("bounded.config.js", "create")]).kind).toBe("refuse");
-    expect(decide([rules("a", ...DEFAULT_RULES)], [write(".bounded/guard-log.jsonl", "modify")]).kind).toBe("refuse");
-    expect(decide([rules("a", ...DEFAULT_RULES)], [write(".bounded/state/x.json", "delete")]).kind).toBe("refuse");
+    expect(decide([rules("a", ...DEFAULT_RULES_FOR_CONFIG_AND_STATE)], [write("bounded.config.js", "create")]).kind).toBe("refuse");
+    expect(decide([rules("a", ...DEFAULT_RULES_FOR_CONFIG_AND_STATE)], [write(".bounded/guard-log.jsonl", "modify")]).kind).toBe("refuse");
+    expect(decide([rules("a", ...DEFAULT_RULES_FOR_CONFIG_AND_STATE)], [write(".bounded/state/x.json", "delete")]).kind).toBe("refuse");
   });
 
   test("with the default rules, the configuration can still be read, and other files written", () => {
-    expect(decide([rules("a", ...DEFAULT_RULES)], [read("bounded.config.ts"), read(".bounded/guard-log.jsonl"), write("src/config.ts", "modify")])).toBe(Verdict.allow);
+    expect(decide([rules("a", ...DEFAULT_RULES_FOR_CONFIG_AND_STATE)], [read("bounded.config.ts"), read(".bounded/guard-log.jsonl"), write("src/config.ts", "modify")])).toBe(Verdict.allow);
   });
 
   test("with the default rules, a configuration file is protected at any depth", () => {
-    expect(decide([rules("a", ...DEFAULT_RULES)], [write("packages/app/bounded.config.ts", "modify")]).kind).toBe("refuse");
+    expect(decide([rules("a", ...DEFAULT_RULES_FOR_CONFIG_AND_STATE)], [write("packages/app/bounded.config.ts", "modify")]).kind).toBe("refuse");
   });
 
   test("another pack's except carves out only its own rule: the default rule still protects the configuration", () => {
     const loose = rules("b", { match: "**", except: ["bounded.config.ts"], deny: ["read"], redirect: "x" });
-    expect(decide([rules("a", ...DEFAULT_RULES), loose], [write("bounded.config.ts", "modify")]).kind).toBe("refuse");
+    expect(decide([rules("a", ...DEFAULT_RULES_FOR_CONFIG_AND_STATE), loose], [write("bounded.config.ts", "modify")]).kind).toBe("refuse");
   });
 });

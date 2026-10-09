@@ -44,7 +44,7 @@ describe("bounded-cli: the bounded command, in its own app", () => {
   });
 
   test("init's report and the usage name the protected-paths pack, and the report does not miscount its default rules", async () => {
-    const formerName = new RegExp(["path", "gate"].join("[-\\s_]?"), "i");
+    const formerName = new RegExp(["path", "gate"].join("[-\\s_./]?"), "i");
     const ran = await runBoundedCli(["init", "--no-install"], project());
     expect(ran.exitCode).toBe(0);
     expect(ran.stdout).toContain("it selects the protected-paths pack, which brings in the core");

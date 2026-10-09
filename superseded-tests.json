@@ -336,8 +336,8 @@
     "file": "contexts/core/src/pack/path-gate/path-gate.test.ts",
     "case": "the path gate — listing is judged conservatively > a filter excludes a protected path only provably: when the rule ends in a literal name the filter does not match",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — listing is judged conservatively > a filter excludes a protected path only provably: a literal name, or disjoint literal suffixes or prefixes"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — listing is judged conservatively > a filter excludes a protected path only provably: a literal name, or disjoint literal suffixes or prefixes"
     },
     "reason": "a literal name now covers its contents, so a filter cannot rule it out; disjoint literal suffixes and prefixes now can, so config/*.pem is out of reach of *.ts (ADR 2026-009)"
   },
@@ -354,7 +354,7 @@
     "file": "contexts/core/src/application/drift/watch-shell/watch-shell.test.ts",
     "case": "WatchShellHandler — after a shell command > a restore that leaves a file different from before the command is a failed restore",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/application/watch-shell/watch-shell.test.ts",
       "case": "WatchShellHandler — after a shell command > uncommitted work in a watched file is put back from the snapshot's copy, not from the commit"
     },
     "reason": "the snapshot now keeps a copy of work git does not hold, so restoring puts that work back instead of failing (review M1)"
@@ -372,7 +372,7 @@
     "file": "contexts/core/src/adapters/out/file-system/drift/watched-files.test.ts",
     "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/watched-files/watched-files.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/watched-files/watched-files.test.ts",
       "case": "FileSystemWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
     },
     "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
@@ -381,7 +381,7 @@
     "file": "contexts/core/src/adapters/out/in-memory/drift/watched-files.test.ts",
     "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control and removes files it never held",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-watched-files.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/application/watch-shell/watch-shell.in-memory-watched-files.test.ts",
       "case": "InMemoryWatchedFiles conforms to WatchedFiles > restores modified and deleted files from version control, and moves files it never held aside"
     },
     "reason": "restoring never deletes: a file the command created is moved into a quarantine directory, since a snapshot entry removed by tampering would otherwise delete a user's file"
@@ -396,8 +396,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — what it does not judge in this slice > execute, fetch, delegate and invoke are not judged by path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
     },
     "reason": "the path gate now refuses, best effort, a shell command that names a path a rule denies read for"
   },
@@ -405,8 +405,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
   },
@@ -414,8 +414,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
   },
@@ -423,8 +423,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
     },
     "reason": "moved into shell-reads.test.ts, then superseded there: a shell command is translated into the reads and writes it names, each judged by the file tools' own code, and what the parser cannot read is unresolved, not matched by text"
   },
@@ -432,8 +432,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
   },
@@ -441,8 +441,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
   },
@@ -450,8 +450,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
   },
@@ -459,8 +459,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "moved into shell-reads.test.ts, then superseded there: a shell command is translated into the reads and writes it names, each judged by the file tools' own code, and what the parser cannot read is unresolved, not matched by text"
   },
@@ -468,8 +468,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone"
     },
     "reason": "moved, unchanged, into a file of its own, so path-gate.test.ts stays recognisably the file the path gate's first red commit created (git's rename detection follows it)"
   },
@@ -483,8 +483,8 @@
     "file": "contexts/core/src/pack/path-gate/path-gate.test.ts",
     "case": "the path gate — what it does not judge in this slice > execute, fetch, delegate and invoke are not judged by path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
     },
     "reason": "the path gate now refuses, best effort, a shell command that names a read-protected path; this is the case under the path the path gate's first red commit gave it, before the pack moved to src/packs/"
   },
@@ -492,8 +492,8 @@
     "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says shell reads of protected files are refused, naming the rule and the path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
     },
     "reason": "a shell command is now translated into the reads and writes it names, each judged by the same code as a file tool's, so the refusal is the read guard's own, prefixed by what the command reads (maintainer direction: one judging code path)"
   },
@@ -501,8 +501,8 @@
     "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is refused only when its text names a read-protected file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "no separate textual matching (maintainer direction): what the parser cannot read is unresolved, not guessed at; OS confinement is the real control"
   },
@@ -510,8 +510,8 @@
     "file": "contexts/core/src/packs/path-gate/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command the parser cannot read is left unresolved, and allowed",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
-      "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/shell-reads.test.ts",
+      "case": "the protected-paths pack — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "the shell guard now parses a full syntax tree (review: a tokeniser made the translation guess): what the parser could not read is unresolved, and what it did read, such as `cat .env` before a stray `${`, is still judged"
   },
@@ -519,7 +519,7 @@
     "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
     "case": "shellQuoteParser: the shell parser behind the port > gives words without quotes, operators, and globs as unresolved; drops comments",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/shell-command.test.ts",
       "case": "treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them"
     },
     "reason": "shell-quote, a tokeniser, is replaced by a full shell parser behind the same port (review: no guessing); its words are checked by the new parser's case"
@@ -528,7 +528,7 @@
     "file": "contexts/core/src/packs/path-gate/shell-command.test.ts",
     "case": "shellQuoteParser: the shell parser behind the port > keeps variables as written, so they stay unresolved",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/shell-command.test.ts",
       "case": "treeSitterShellParser: the shell parser behind the port > quoted and escaped words are literal; expansions, globs and home are unresolved, with the commands inside them"
     },
     "reason": "shell-quote is replaced by a full shell parser; variables are unresolved words of its syntax tree"
@@ -543,7 +543,7 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell for a path that is not a plain project path",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "after the value-objects refactor the port takes a ProjectPath, which cannot be absolute, empty or climb out of the project, so the case it pinned cannot arise; what is left to pin is a disk that cannot answer"
@@ -1065,7 +1065,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > accepts every sample",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > accepts every sample"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1074,7 +1074,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > its wire form parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > its wire form parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1083,7 +1083,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > parsing a parsed value gives it back unchanged",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > parsing a parsed value gives it back unchanged"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1092,7 +1092,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > different samples give different values",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > different samples give different values"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1101,7 +1101,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > each value is an instance of its class, not a plain object, and frozen",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > each value is an instance of its class, not a plain object, and frozen"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1110,7 +1110,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1119,7 +1119,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > toJSON is its wire form: plain data that parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > toJSON is its wire form: plain data that parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1128,7 +1128,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > an object that merely inherits from a value is never taken for it",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > an object that merely inherits from a value is never taken for it"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1137,7 +1137,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > a value forged with its class's own constructor is checked again, never trusted",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > a value forged with its class's own constructor is checked again, never trusted"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -1146,7 +1146,7 @@
     "file": "contexts/core/src/domain/drift/watched-path.test.ts",
     "case": "WatchedPath — laws > refuses what it does not accept, with a reason",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.laws.test.ts",
       "case": "WatchedPath — laws > refuses what it does not accept, with a reason"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2469,7 +2469,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > accepts every sample",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > accepts every sample"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2478,7 +2478,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > its wire form parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > its wire form parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2487,7 +2487,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > parsing a parsed value gives it back unchanged",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > parsing a parsed value gives it back unchanged"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2496,7 +2496,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > different samples give different values",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > different samples give different values"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2505,7 +2505,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > each value is an instance of its class, not a plain object, and frozen",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > each value is an instance of its class, not a plain object, and frozen"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2514,7 +2514,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > equal by value: the same sample parsed twice is equal, different samples are not"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2523,7 +2523,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > toJSON is its wire form: plain data that parses back to an equal value",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > toJSON is its wire form: plain data that parses back to an equal value"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2532,7 +2532,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > an object that merely inherits from a value is never taken for it",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > an object that merely inherits from a value is never taken for it"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2541,7 +2541,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > a value forged with its class's own constructor is checked again, never trusted",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > a value forged with its class's own constructor is checked again, never trusted"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2550,7 +2550,7 @@
     "file": "contexts/core/src/packs/path-gate/protected-path.test.ts",
     "case": "ProtectedPath — laws > refuses what it does not accept, with a reason",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/protected-path.laws.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/protected-path.laws.test.ts",
       "case": "ProtectedPath — laws > refuses what it does not accept, with a reason"
     },
     "reason": "a value object's laws run in its own laws file, so every concept is a contract, an implementation, a test and (for a value object) a laws test (rule R3, ADR 2026-013)"
@@ -2673,8 +2673,8 @@
     "file": "contexts/core/src/domain/drift/watched-paths.test.ts",
     "case": "watchedPathsOf > gives every watched path with the pack that contributed it, calling sources with the composition",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
-      "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path, and only those: read-only rules do not, and the path gate adds none"
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-rules.test.ts",
+      "case": "the protected-paths pack watches what it protects from writes > every rule that denies a write becomes a watched path, and only those: read-only rules do not, and the protected-paths pack adds none"
     },
     "reason": "watched paths are the path gate's own, worked out from its protected paths, so the core's watchedPaths point and its watchedPathsOf are gone (ADR 2026-013, C); then the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -2688,8 +2688,8 @@
     "file": "contexts/core/src/domain/drift/watched-paths.test.ts",
     "case": "watchedPathsOf > without the core pack, nothing is watched",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
-      "case": "the path gate watches what it protects from writes > without the path gate selected, it watches nothing"
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-rules.test.ts",
+      "case": "the protected-paths pack watches what it protects from writes > without the protected-paths pack selected, it watches nothing"
     },
     "reason": "watched paths are the path gate's own, worked out from its protected paths, so the core's watchedPaths point and its watchedPathsOf are gone (ADR 2026-013, C)"
   },
@@ -2697,7 +2697,7 @@
     "file": "contexts/core/src/domain/guards/dispatch-event.test.ts",
     "case": "corePack — watched paths > a watched path that is not one is refused when the packs are composed",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-path.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-path.test.ts",
       "case": "WatchedPath > patterns are project-relative globs"
     },
     "reason": "the core has no watchedPaths point; a watched path is the path gate's, refused by WatchedPath.parse (ADR 2026-013, C)"
@@ -2724,7 +2724,7 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2733,7 +2733,7 @@
     "file": "contexts/core/src/adapters/out/file-system/path-kinds/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2742,7 +2742,7 @@
     "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > a file, a directory, something else (a link, never followed) or nothing"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2751,7 +2751,7 @@
     "file": "contexts/core/src/adapters/out/file-system/projects/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2760,7 +2760,7 @@
     "file": "contexts/core/src/adapters/out/file-system/path-kinds/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -2769,7 +2769,7 @@
     "file": "contexts/core/src/packs/path-gate/adapters/out/file-system/path-kinds.test.ts",
     "case": "FileSystemProjectPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/path-kinds/path-kinds.test.ts",
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/path-kinds/path-kinds.test.ts",
       "case": "FileSystemPathKinds: what is at a project path > cannot tell when the disk cannot say, such as a path through a file"
     },
     "reason": "the core no longer owns path kinds: the path gate's PathKinds port does, and its file-system adapter is FileSystemPathKinds (ADR 2026-013, C8)"
@@ -3277,7 +3277,7 @@
     "case": "bounded-cli end to end, from packed tarballs > under npm (skipped when npm is not installed): npx bounded-cli init --from, then npx bounded update --from to a later release",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "npx bounded end to end, from the one bounded tarball, under node > under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the path gate judges with init's default rules and a project rule; then update --from"
+      "case": "npx bounded end to end, from the one bounded tarball, under node > under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the protected-paths pack judges with init's default rules and a project rule; then update --from"
     },
     "reason": "the maintainer's packaging decision: the CLI ships inside `bounded` as its bin (dist/cli.js, bundled from apps/cli at pack time; ADR 2026-016), and there is no bounded-cli package, so installs and upgrades handle bounded and the hosts' adapters, and the hand-off runs the installed bounded's bin; then the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
@@ -3285,8 +3285,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
     "case": "pathGate — the path gate's overview > is bounded/path-gate, depending on the core, declaring protectedPaths with its own rules first",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
-      "case": "pathGate — the path gate's overview > is bounded/path-gate, depending on the core, declaring protectedPaths with no rules of its own"
+      "file": "contexts/core/src/packs/protected-paths/protected-paths.pack.test.ts",
+      "case": "protectedPathsPack — the protected-paths pack's overview > is bounded/protected-paths, depending on the core, declaring protectedPaths with no rules of its own"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3294,8 +3294,8 @@
     "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
     "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path; read-only rules and .bounded/ do not",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
-      "case": "the path gate watches what it protects from writes > every rule that denies a write becomes a watched path, and only those: read-only rules do not, and the path gate adds none"
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-rules.test.ts",
+      "case": "the protected-paths pack watches what it protects from writes > every rule that denies a write becomes a watched path, and only those: read-only rules do not, and the protected-paths pack adds none"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3303,8 +3303,8 @@
     "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
     "case": "the path gate watches what it protects from writes > a watched path forbids only the changes its rule denies",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
-      "case": "the path gate watches what it protects from writes > a watched path forbids only the changes its rule denies, for the project's rules alone"
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-rules.test.ts",
+      "case": "the protected-paths pack watches what it protects from writes > a watched path forbids only the changes its rule denies, for the project's rules alone"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3312,8 +3312,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
     "case": "the path gate — names and directories > deleting the project root is always refused",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — names and directories > deleting the project root is refused when a rule protects anything in it, and allowed when none does"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — names and directories > deleting the project root is refused when a rule protects anything in it, and allowed when none does"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3321,8 +3321,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
     "case": "the path gate — built-in protection of its own configuration > its own rules protect bounded.config.* and .bounded/** from every write, contributed by bounded/path-gate",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > selected with no rules contributed, it protects nothing, not even the configuration"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — no rules of its own; the defaults live in the configuration init writes > selected with no rules contributed, it protects nothing, not even the configuration"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3330,8 +3330,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
     "case": "the path gate — built-in protection of its own configuration > an agent cannot write its own guardrails",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > with the default rules, an agent cannot write the project's guardrails, and the refusal names the project's rule"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — no rules of its own; the defaults live in the configuration init writes > with the default rules, an agent cannot write the project's guardrails, and the refusal names the project's rule"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3339,8 +3339,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
     "case": "the path gate — built-in protection of its own configuration > the configuration can still be read, and other files written",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > with the default rules, the configuration can still be read, and other files written"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — no rules of its own; the defaults live in the configuration init writes > with the default rules, the configuration can still be read, and other files written"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3348,8 +3348,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
     "case": "the path gate — built-in protection of its own configuration > a configuration file is protected at any depth",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > with the default rules, a configuration file is protected at any depth"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — no rules of its own; the defaults live in the configuration init writes > with the default rules, a configuration file is protected at any depth"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3357,8 +3357,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
     "case": "the path gate — built-in protection of its own configuration > no pack's except can carve out the built-in protection",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — no rules of its own; the defaults live in the configuration init writes > another pack's except carves out only its own rule: the default rule still protects the configuration"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — no rules of its own; the defaults live in the configuration init writes > another pack's except carves out only its own rule: the default rule still protects the configuration"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3366,8 +3366,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/rocketflare.test.ts",
     "case": "a Rocketflare-like project: core, path gate and the project's rules > the project's guardrails are protected by the path gate itself",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/rocketflare.test.ts",
-      "case": "a Rocketflare-like project: core, path gate and the project's rules > the project's guardrails are protected by the default rule in its own configuration"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/rocketflare.test.ts",
+      "case": "a Rocketflare-like project: core, the protected-paths pack and the project's rules > the project's guardrails are protected by the default rule in its own configuration"
     },
     "reason": "the maintainer's decision: the path gate ships no rules of its own; the two defaults (bounded.config.* and .bounded/**) live in the configuration bounded init writes (ADR 2026-009)"
   },
@@ -3385,7 +3385,7 @@
     "case": "InitProjectHandler: bounded init > the configuration selects the core pack only, and says where to read about adding packs",
     "successor": {
       "file": "apps/cli/src/initial-config.test.ts",
-      "case": "bounded init's configuration > selects the core and the path gate, contributing the two default rules with their reasons, under a comment saying they may be changed"
+      "case": "bounded init's configuration > selects the core and the protected-paths pack, contributing the two default rules with their reasons, under a comment saying they may be changed"
     },
     "reason": "the configuration init writes is content, so the CLI owns it (apps/cli/src/initial-config.ts) and the core's init feature writes the text it is given; it now selects the core and the path gate with the two default rules (ADR 2026-009)"
   },
@@ -3691,7 +3691,7 @@
     "case": "npx bounded end to end, from packed tarballs: the CLI inside bounded > under npm (skipped when npm is not installed): npx -p bounded's tarball bounded init --from, then npx bounded update --from to a later release",
     "successor": {
       "file": "apps/cli/test/bounded-cli.e2e.test.ts",
-      "case": "npx bounded end to end, from the one bounded tarball, under node > under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the path gate judges with init's default rules and a project rule; then update --from"
+      "case": "npx bounded end to end, from the one bounded tarball, under node > under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the protected-paths pack judges with init's default rules and a project rule; then update --from"
     },
     "reason": "the maintainer's packaging decision: one package, bounded, carries the CLI and the host adapters (apps/cli, apps/claude-code, apps/pi, private apps in source), compiled to JavaScript for node at pack time (ADR 2026-016); installs and upgrades handle bounded alone, and its bundled installers run for the hosts found or named"
   },
@@ -3898,7 +3898,7 @@
     "case": "bounded init's configuration > selects the core and the path gate, contributing the two default rules with their reasons, under a comment saying they may be changed",
     "successor": {
       "file": "apps/cli/src/initial-config.test.ts",
-      "case": "bounded init's configuration > selects the path gate, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed"
+      "case": "bounded init's configuration > selects the protected-paths pack, which brings in the core, contributing its default rules with their reasons, under a comment saying they may be changed"
     },
     "reason": "init's configuration lists only the path gate, which brings in the core (ADR 2026-018)"
   },
@@ -3960,8 +3960,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > a command naming the protected file is refused, however it spells the path"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -3969,8 +3969,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > relative paths are resolved from the command's directory, and from a cd inside it"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -3978,8 +3978,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > the refusal says what the command reads, then gives the rule's own refusal and redirect"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -3987,8 +3987,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > a shell read is judged exactly as a file read: the same rules, exceptions, file rules and case"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -3996,8 +3996,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a redirect target is a write, judged as a file write; a redirect source is a read",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a redirect target is a write, judged as a file write; a redirect source is a read"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > a redirect target is a write, judged as a file write; a redirect source is a read"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4005,8 +4005,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > what only the shell can resolve is not guessed at: globs, variables, home and absolute paths are allowed"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4014,8 +4014,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > a name that only resembles the protected one is not refused"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4023,8 +4023,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > a '**'-led rule ending in a name refuses the name anywhere"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4032,8 +4032,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > redirections, command substitution and option values are read as the shell parses them"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4041,8 +4041,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > what the parser could not read is unresolved; what it did read is still judged"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4050,8 +4050,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort) > a rule that does not deny read leaves shell commands alone"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4059,8 +4059,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — where a shell command runs from: cd, pushd and their scope > a cd takes later commands with it; one that cannot be known leaves later relative paths unresolved",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — where a shell command runs from: cd, pushd and their scope > a cd takes later commands with it; one that cannot be known leaves later relative paths unresolved"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — where a shell command runs from: cd, pushd and their scope > a cd takes later commands with it; one that cannot be known leaves later relative paths unresolved"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4068,8 +4068,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — where a shell command runs from: cd, pushd and their scope > a cd in a subshell, a substitution or a pipeline stage does not leak",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — where a shell command runs from: cd, pushd and their scope > a cd in a subshell, a substitution or a pipeline stage does not leak"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — where a shell command runs from: cd, pushd and their scope > a cd in a subshell, a substitution or a pipeline stage does not leak"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4077,8 +4077,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — where a shell command runs from: cd, pushd and their scope > after a cd that may or may not have run, where later commands run is unknown",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — where a shell command runs from: cd, pushd and their scope > after a cd that may or may not have run, where later commands run is unknown"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — where a shell command runs from: cd, pushd and their scope > after a cd that may or may not have run, where later commands run is unknown"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4086,8 +4086,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what each command does with its arguments > echo, printf, test and [ take text, not paths; listing commands list; git add stages",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > echo, printf, test and [ take text, not paths; listing commands list; git add stages"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > echo, printf, test and [ take text, not paths; listing commands list; git add stages"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4095,8 +4095,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what each command does with its arguments > ls, find and tree are judged as listings, by the list guard",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > ls, find and tree are judged as listings, by the list guard"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > ls, find and tree are judged as listings, by the list guard"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4104,8 +4104,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what each command does with its arguments > rm deletes, touch creates a missing file, mkdir creates, each judged as a file write",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > rm deletes, touch creates a missing file, mkdir creates, each judged as a file write"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > rm deletes, touch creates a missing file, mkdir creates, each judged as a file write"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4113,8 +4113,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what each command does with its arguments > cp reads its sources and writes its destination, into a directory by name; mv deletes its sources",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > cp reads its sources and writes its destination, into a directory by name; mv deletes its sources"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > cp reads its sources and writes its destination, into a directory by name; mv deletes its sources"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4122,8 +4122,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what each command does with its arguments > git rm deletes and git mv moves; other git commands read what they name",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > git rm deletes and git mv moves; other git commands read what they name"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > git rm deletes and git mv moves; other git commands read what they name"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4131,8 +4131,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what each command does with its arguments > xargs and find -exec run their command with the literal arguments they are given",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > xargs and find -exec run their command with the literal arguments they are given"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > xargs and find -exec run their command with the literal arguments they are given"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4140,8 +4140,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what each command does with its arguments > builtin, command and exec are looked past; an unknown command's arguments are reads",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what each command does with its arguments > builtin, command and exec are looked past; an unknown command's arguments are reads"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > builtin, command and exec are looked past; an unknown command's arguments are reads"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4149,8 +4149,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — redirections > a redirect to a missing file is a create, and to an existing one a modify, as for the Write tool",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — redirections > a redirect to a missing file is a create, and to an existing one a modify, as for the Write tool"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — redirections > a redirect to a missing file is a create, and to an existing one a modify, as for the Write tool"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4158,8 +4158,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4167,8 +4167,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — redirections > &> writes; heredoc bodies and here-strings are text, not paths; backquotes run like $()",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — redirections > &> writes; heredoc bodies and here-strings are text, not paths; backquotes run like $()"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — redirections > &> writes; heredoc bodies and here-strings are text, not paths; backquotes run like $()"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4176,8 +4176,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — absolute paths > an absolute path inside the project is judged as the project path; outside, it is unresolved",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — absolute paths > an absolute path inside the project is judged as the project path; outside, it is unresolved"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — absolute paths > an absolute path inside the project is judged as the project path; outside, it is unresolved"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4185,8 +4185,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > brace expansion is expanded, not taken as a path",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > brace expansion is expanded, not taken as a path"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what the shell would read through braces, nested shells, git and other commands > brace expansion is expanded, not taken as a path"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4194,8 +4194,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > bash, sh, zsh and dash -c run their code as a nested command line",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > bash, sh, zsh and dash -c run their code as a nested command line"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what the shell would read through braces, nested shells, git and other commands > bash, sh, zsh and dash -c run their code as a nested command line"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4203,8 +4203,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > git <rev>:<path> reads the path from the repository root",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > git <rev>:<path> reads the path from the repository root"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what the shell would read through braces, nested shells, git and other commands > git <rev>:<path> reads the path from the repository root"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4212,8 +4212,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > mv and git mv read what they move, as cp does",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > mv and git mv read what they move, as cp does"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what the shell would read through braces, nested shells, git and other commands > mv and git mv read what they move, as cp does"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4221,8 +4221,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — what the shell would read through braces, nested shells, git and other commands > ANSI-C strings, $(< file), curl's @file data, dd and tee are read as they act",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands > ANSI-C strings, $(< file), curl's @file data, dd and tee are read as they act"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — what the shell would read through braces, nested shells, git and other commands > ANSI-C strings, $(< file), curl's @file data, dd and tee are read as they act"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4230,8 +4230,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — commands that run another command > sudo, doas, env, timeout, nice, nohup, stdbuf and ionice run the rest as a command, nested shells included",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — commands that run another command > sudo, doas, env, timeout, nice, nohup, stdbuf and ionice run the rest as a command, nested shells included"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — commands that run another command > sudo, doas, env, timeout, nice, nohup, stdbuf and ionice run the rest as a command, nested shells included"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4239,8 +4239,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — wrappers that set where or what their command runs > env -S runs its string as a nested command line",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — wrappers that set where or what their command runs > env -S runs its string as a nested command line"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — wrappers that set where or what their command runs > env -S runs its string as a nested command line"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4248,8 +4248,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — wrappers that set where or what their command runs > env -C and sudo -D run their command from that directory",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — wrappers that set where or what their command runs > env -C and sudo -D run their command from that directory"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — wrappers that set where or what their command runs > env -C and sudo -D run their command from that directory"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4257,8 +4257,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — git -C and short options with an attached value > git -C dir runs git from dir, as cd dir && git does: its paths are judged from there",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — git -C and short options with an attached value > git -C dir runs git from dir, as cd dir && git does: its paths are judged from there"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — git -C and short options with an attached value > git -C dir runs git from dir, as cd dir && git does: its paths are judged from there"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4266,8 +4266,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — git -C and short options with an attached value > git -C with a directory only the shell can resolve leaves its paths unresolved, never guessed",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — git -C and short options with an attached value > git -C with a directory only the shell can resolve leaves its paths unresolved, never guessed"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — git -C and short options with an attached value > git -C with a directory only the shell can resolve leaves its paths unresolved, never guessed"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4275,8 +4275,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/shell-reads.test.ts",
     "case": "the path gate — git -C and short options with an attached value > a short option's attached value is read as the word after it would be (grep -f.env), in a cluster too",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — git -C and short options with an attached value > a short option's attached value is read as the word after it would be (grep -f.env), in a cluster too"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — git -C and short options with an attached value > a short option's attached value is read as the word after it would be (grep -f.env), in a cluster too"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4446,8 +4446,8 @@
     "file": "contexts/core/src/packs/path-gate/domain/shell-command.test.ts",
     "case": "the shell check: the parser, loaded once when the project opens > a project the path gate was never opened for refuses shell commands, saying how to open it",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.test.ts",
-      "case": "the path gate — shell commands, judged from bounded's reading > a shell command bounded did not read is refused, saying so"
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — shell commands, judged from bounded's reading > a shell command bounded did not read is refused, saying so"
     },
     "reason": "the judge reads commands through the core's port; a reading that fails leaves the command unread and the path gate refuses it (ADR 2026-020)"
   },
@@ -4509,8 +4509,8 @@
     "file": "contexts/core/src/packs/path-gate/application/judge-calls/judge-calls.in-memory-path-kinds.test.ts",
     "case": "InMemoryPathKinds: what is at a path, as given > a path given as unknown cannot be told",
     "successor": {
-      "file": "contexts/shell-command-reader/src/composition-root/path-gate-shell-commands.test.ts",
-      "case": "read by bounded's shell command reader — the path gate — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so"
+      "file": "contexts/shell-command-reader/src/composition-root/protected-paths-shell-commands.test.ts",
+      "case": "read by bounded's shell command reader — the protected-paths pack — redirections > when whether a file exists cannot be told, a redirect is judged as both a create and a modify, and the reason says so"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -4518,8 +4518,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
     "case": "pathGate — the path gate's overview > contributes its guards, its work on opening a project, and its checks around tool calls",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
-      "case": "pathGate — the path gate's overview > contributes its guards, and its checks around tool calls"
+      "file": "contexts/core/src/packs/protected-paths/protected-paths.pack.test.ts",
+      "case": "protectedPathsPack — the protected-paths pack's overview > contributes its guards, and its checks around tool calls"
     },
     "reason": "the path gate no longer prepares a parser or declares the path-kinds and shell-parser ports (ADR 2026-020)"
   },
@@ -4527,8 +4527,8 @@
     "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
     "case": "pathGate — the path gate's overview > declares the ports a host provides: watched files, shell snapshots, path kinds and the shell parser",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/path-gate.pack.test.ts",
-      "case": "pathGate — the path gate's overview > declares the ports a host provides: watched files and shell snapshots"
+      "file": "contexts/core/src/packs/protected-paths/protected-paths.pack.test.ts",
+      "case": "protectedPathsPack — the protected-paths pack's overview > declares the ports a host provides: watched files and shell snapshots"
     },
     "reason": "the path gate no longer prepares a parser or declares the path-kinds and shell-parser ports (ADR 2026-020)"
   },
@@ -4536,8 +4536,8 @@
     "file": "contexts/core/src/packs/path-gate/adapters/out/port-provisions.test.ts",
     "case": "pathGatePortProvisions > provides every port the path gate uses for a project: watched files, shell snapshots, path kinds and the shell parser",
     "successor": {
-      "file": "contexts/core/src/packs/path-gate/adapters/out/port-provisions.test.ts",
-      "case": "pathGatePortProvisions > provides every port the path gate uses for a project, and only those: watched files and shell snapshots"
+      "file": "contexts/core/src/packs/protected-paths/adapters/out/port-provisions.test.ts",
+      "case": "protectedPathsPortProvisions > provides every port the protected-paths pack uses for a project, and only those: watched files and shell snapshots"
     },
     "reason": "the path gate no longer declares the path-kinds and shell-parser ports (ADR 2026-020); the successor asserts the two it keeps, that every declared port is provided, and nothing more"
   },
@@ -4546,7 +4546,7 @@
     "case": "openProject — what a host's composition root calls > openProject prepares the path gate's shell check: reads by absolute path, and redirects judged by whether the file exists",
     "successor": {
       "file": "contexts/shell-command-reader/src/composition-root/open-project-shell-commands.test.ts",
-      "case": "openProject with bounded's shell command reader > openProject, given a shell command reader, reads each command before the path gate judges it: reads by absolute path, and redirects judged by whether the file exists"
+      "case": "openProject with bounded's shell command reader > openProject, given a shell command reader, reads each command before the protected-paths pack judges it: reads by absolute path, and redirects judged by whether the file exists"
     },
     "reason": "the shell command is read by the shell command reader, a context of its own (bounded-shell-command-reader), so its tests sit with the reader or, end to end, in its composition root (ADR 2026-020)"
   },
@@ -5041,7 +5041,7 @@
     "case": "bounded init's configuration > selects the path gate, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed",
     "successor": {
       "file": "apps/cli/src/initial-config.test.ts",
-      "case": "bounded init's configuration > selects the protected-paths pack, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed"
+      "case": "bounded init's configuration > selects the protected-paths pack, which brings in the core, contributing its default rules with their reasons, under a comment saying they may be changed"
     },
     "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
   },
@@ -5584,5 +5584,95 @@
       "case": "read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments > a command too complex for the reader's work budget is unread, and so refused, though it names no protected path"
     },
     "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — rules that name files only > a file rule covers exactly the paths it matches, not what is under them",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > a file rule covers exactly the paths it matches, not what is under them"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — rules that name files only > a filter that cannot match a file rule's name keeps a listing or search of the whole project away from it",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > a filter that cannot match a file rule's name keeps a listing or search of the whole project away from it"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — rules that name files only > refusing a listing or search of the whole project says to narrow it or filter the name out, never to look outside the name",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > refusing a listing or search of the whole project says to narrow it or filter the name out, never to look outside the name"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — rules that name files only > a file rule that denies writes is watched as the file alone",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — rules that name files only > a file rule that denies writes is watched as the file alone"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate is an ordinary pack > a rule built from untyped data is refused at composition, naming the pack, the point and the fix",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack is an ordinary pack > a rule built from untyped data is refused at composition, naming the pack, the point and the fix"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — what it does not judge in this slice > fetch, delegate and invoke are not judged by path, nor a shell command naming no protected path"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate is an ordinary pack > bounded/path-gate depends on the core pack and declares protectedPaths",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack is an ordinary pack > bounded/protected-paths depends on the core pack and declares protectedPaths"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/path-gate.test.ts",
+    "case": "the path gate — except carves paths out of its own rule only > an exception never reaches another rule, from the same pack or another",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+      "case": "the protected-paths pack — except carves paths out of its own rule only > an exception never reaches another rule, from the same pack or another"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "contexts/core/src/packs/path-gate/domain/watched-rules.test.ts",
+    "case": "the path gate watches what it protects from writes > without the path gate selected, it watches nothing",
+    "successor": {
+      "file": "contexts/core/src/packs/protected-paths/domain/watched-rules.test.ts",
+      "case": "the protected-paths pack watches what it protects from writes > without the protected-paths pack selected, it watches nothing"
+    },
+    "reason": "the path gate was renamed the protected-paths pack, bounded/protected-paths (ADR 2026-021): the case is retitled, its assertions unchanged but for the new names"
+  },
+  {
+    "file": "apps/cli/src/initial-config.test.ts",
+    "case": "bounded init's configuration > selects the protected-paths pack, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed",
+    "successor": {
+      "file": "apps/cli/src/initial-config.test.ts",
+      "case": "bounded init's configuration > selects the protected-paths pack, which brings in the core, contributing its default rules with their reasons, under a comment saying they may be changed"
+    },
+    "reason": "bounded init writes seven default rules, not two: the title no longer counts them (the protected-paths rename's final review); its assertions are unchanged"
   }
 ]

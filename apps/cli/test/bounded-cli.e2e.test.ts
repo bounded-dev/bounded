@@ -3,7 +3,7 @@
 // The first install runs `npx -p <dir>/bounded-<v>.tgz bounded init --from
 // <dir>` before the project has any bounded package; it adds bounded and
 // hands over to the installed bounded, which writes the configuration (the
-// core, the protected-paths pack and its two default rules) and installs the hooks of
+// protected-paths pack, which brings in the core, and its default rules) and installs the hooks of
 // the hosts found. After that, `npx bounded update --from` runs the project's
 // own bin, upgrades, and hands over to the newer bounded it installs. Under
 // npm with no bun on PATH, the installed Claude Code hook, run by node as

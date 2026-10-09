@@ -7,8 +7,8 @@ const FORM = "must be an npm package name, '/', and lowercase words joined by hy
 
 describe("PackId — boundaries", () => {
   test("an id is the npm package name and the pack's local id", () => {
-    const protectedPathsPack: "bounded/protected-paths" = packIdsFor("bounded")("protected-paths").value;
-    expect(protectedPathsPack).toBe("bounded/protected-paths");
+    const protectedPathsId: "bounded/protected-paths" = packIdsFor("bounded")("protected-paths").value;
+    expect(protectedPathsId).toBe("bounded/protected-paths");
     expect(packIdsFor("@acme/rules")("web-2").value).toBe("@acme/rules/web-2");
   });
 

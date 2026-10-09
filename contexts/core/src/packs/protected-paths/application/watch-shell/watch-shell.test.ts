@@ -119,8 +119,8 @@ class FakeLog {
  * only what a test contributes (none of the protected-paths pack's own rules), so each
  * test watches exactly the paths it names.
  */
-const gate = definePack({ id: protectedPathsId, points: { protectedPaths: point({ description: "Protected paths", check: ProtectedPath.parse }) } });
-const protectedPaths = gate.points.protectedPaths;
+const protectedPathsStandIn = definePack({ id: protectedPathsId, points: { protectedPaths: point({ description: "Protected paths", check: ProtectedPath.parse }) } });
+const protectedPaths = protectedPathsStandIn.points.protectedPaths;
 
 /** A watched path as a test names it: what it matches, the changes it forbids (every one unless said), why, and what to do instead. */
 interface Watching {
@@ -135,8 +135,8 @@ const ruleFor = ({ changes, ...watched }: Watching): ProtectedPathJSON => ({ ...
 
 /** A composition whose protected paths are exactly `watched`, in order. */
 function watching(local: string, watched: readonly Watching[]): Composition {
-  const rules = (definePack as unknown as (spec: object) => typeof gate)({ id: `test-packs/${local}`, dependsOn: [gate], contributes: [contribution(protectedPaths, watched.map(ruleFor))] });
-  const composed = Composition.compose([gate, rules, corePack], [gate, rules, corePack]);
+  const rules = (definePack as unknown as (spec: object) => typeof protectedPathsStandIn)({ id: `test-packs/${local}`, dependsOn: [protectedPathsStandIn], contributes: [contribution(protectedPaths, watched.map(ruleFor))] });
+  const composed = Composition.compose([protectedPathsStandIn, rules, corePack], [protectedPathsStandIn, rules, corePack]);
   if (!composed.ok) throw new Error(composed.error);
   return composed.value;
 }

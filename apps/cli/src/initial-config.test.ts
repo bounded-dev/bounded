@@ -1,5 +1,5 @@
 // The configuration `bounded init` writes: live, selecting the protected-paths pack
-// (which brings in the core) with the two default rules that keep agents off the project's
+// (which brings in the core) with the default rules that keep agents off the project's
 // guardrails (the protected-paths pack ships no rules of its own, ADR 2026-009).
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
@@ -27,7 +27,7 @@ function project(): string {
 const edit = (path: string) => ({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
 
 describe("bounded init's configuration", () => {
-  test("selects the protected-paths pack, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed", () => {
+  test("selects the protected-paths pack, which brings in the core, contributing its default rules with their reasons, under a comment saying they may be changed", () => {
     expect(INITIAL_CONFIG).toContain('import { contribution, defineConfig } from "bounded/domain";');
     expect(INITIAL_CONFIG).toContain('import { protectedPathsPack } from "bounded/protected-paths";');
     expect(INITIAL_CONFIG).toContain("packs: [protectedPathsPack],");
@@ -44,7 +44,7 @@ describe("bounded init's configuration", () => {
 
   test("names the protected-paths pack only by its current name (ADR 2026-021)", () => {
     // The former name, built from its parts so this file does not spell it.
-    const formerName = new RegExp(["path", "gate"].join("[-\\s_]?"), "i");
+    const formerName = new RegExp(["path", "gate"].join("[-\\s_./]?"), "i");
     expect(INITIAL_CONFIG).toContain("the protected-paths pack");
     expect(INITIAL_CONFIG).not.toMatch(formerName);
   });

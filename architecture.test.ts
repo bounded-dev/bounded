@@ -519,15 +519,23 @@ describe("architecture", () => {
   });
 
   test("no code names the protected-paths pack by the name it had before ADR 2026-021", async () => {
-    // Built from its parts, so this test does not name it either. Code only:
+    // Built from its parts, so this test does not name it either: the two
+    // words in any case, joined by nothing or by one of - _ . / or a space,
+    // within one line (prose wrapped across lines is not caught). Code only:
     // the docs, the ADRs, legacy/ and superseded-tests.json keep history.
-    const formerName = new RegExp(["path", "gate"].join("[-\\s_]?"), "i");
+    const formerName = new RegExp(["path", "gate"].join("[-\\s_./]?"), "i");
     const allowed: readonly string[] = [];
     const code = [
-      ...["contexts/**/*.ts", "contexts/*/package.json", "apps/**/*.ts", "apps/*/package.json"].flatMap((pattern) => [...new Glob(pattern).scanSync({ cwd: ROOT })]),
+      ...["contexts/**/*.ts", "contexts/*/package.json", "contexts/**/tsconfig*.json", "apps/**/*.ts", "apps/*/package.json", "apps/**/tsconfig*.json", "scripts/**/*.ts"].flatMap((pattern) => [
+        ...new Glob(pattern).scanSync({ cwd: ROOT }),
+      ]),
       ...new Glob("*.ts").scanSync({ cwd: ROOT }),
+      ...new Glob("tsconfig*.json").scanSync({ cwd: ROOT }),
     ].filter((path) => !path.split("/").some((segment) => segment === "node_modules" || segment === "dist"));
     expect(code).toContain("contexts/core/src/packs/protected-paths/protected-paths.pack.ts");
+    expect(code).toContain("scripts/workflow/red-first-check.ts");
+    expect(code).toContain("tsconfig.json");
+    expect(code).toContain("contexts/core/tsconfig.types.json");
     const naming: string[] = [];
     for (const path of code.sort()) {
       if (allowed.includes(path)) continue;
