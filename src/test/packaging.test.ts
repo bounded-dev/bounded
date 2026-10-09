@@ -288,6 +288,14 @@ describe("bounded, the one published package", () => {
     expect(files.filter((file) => readFileSync(file, "utf8").includes("function describeShellCommand")).map((file) => file.slice(CORE.length + 1))).toEqual(["dist/shell-command-reader/index.js"]);
   });
 
+  test("no published declaration names the private reader package, and the reader is one copy in dist", () => {
+    const declarations = distFiles(join(CORE, "dist", "types")).filter((file) => file.endsWith(".d.ts"));
+    expect(declarations.length).toBeGreaterThan(0);
+    expect(declarations.filter((file) => readFileSync(file, "utf8").includes("bounded-shell-command-reader")).map((file) => file.slice(CORE.length + 1))).toEqual([]);
+    const scripts = distFiles().filter((file) => file.endsWith(".js"));
+    expect(scripts.filter((file) => readFileSync(file, "utf8").includes("function describeShellCommand")).map((file) => file.slice(CORE.length + 1))).toEqual(["dist/shell-command-reader/index.js"]);
+  });
+
   test("build-dist rewrites only the shell command reader's package to its export", () => {
     expect(PRIVATE_PACKAGE_EXPORTS).toEqual({ "bounded-shell-command-reader/shell-command-reading": "bounded/shell-command-reader" });
     const dependencies = Object.keys(manifestOf("src").dependencies ?? {});

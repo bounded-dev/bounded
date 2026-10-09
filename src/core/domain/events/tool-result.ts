@@ -44,13 +44,9 @@ class ToolResultImpl implements Contract.ToolResult {
       if (kind !== undefined && kind !== "tool-result") return { ok: false, error: `A tool result has kind 'tool-result', not '${show(kind)}'` };
       const ok = own(raw, "ok");
       if (typeof ok !== "boolean") return { ok: false, error: "A tool result says whether the tool succeeded: ok is true or false" };
-      // The rest is a tool use's, checked the same way.
+      // The rest is a tool use's, checked the same way: its execute effects carry their reading too (ADR 2026-020).
       const call = callOf(raw, "A tool use");
       if (!call.ok) return call;
-      // Results are never read (ADR 2026-020): a reading on one would be the host's, unchecked.
-      if (call.value.effects.some((effect) => effect.kind === "execute" && effect.reading !== null)) {
-        return { ok: false, error: "A tool result's execute effects carry no reading: bounded reads a command only when it judges it" };
-      }
       const runs = delegatedAgentRunsOf(own(raw, "delegatedAgentRuns"), call.value.effects.filter((effect) => effect.kind === "delegate").length);
       return runs.ok ? { ok: true, value: new ToolResultImpl(call.value, ok, runs.value) } : runs;
     });

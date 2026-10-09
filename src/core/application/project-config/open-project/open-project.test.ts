@@ -174,7 +174,7 @@ describe("OpenProjectHandler", () => {
       ports: [Ports.provide(files, () => ({ read: () => "locked" }))],
     }).execute(command);
     expect(project.problem).toBeNull();
-    const shell = { kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "make" }], callId: "c1" };
+    const shell = { kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } }], callId: "c1" };
     expect<unknown>(await project.judge(shell)).toEqual({ kind: "refuse", reason: "Locked", redirect: "Wait" });
     expect(await project.judge(write("src/a.ts"))).toBe(Verdict.allow);
     expect((await project.afterTool({ ...shell, kind: "tool-result", ok: true })).message).toBe("Checked after");

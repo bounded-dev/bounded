@@ -11,7 +11,7 @@ import type { ProtectedPathsPack } from "./protected-paths.contract.ts";
  * contribute deny-only rules to `protectedPaths`; its guards judge reads,
  * listings and writes against them. A shell command's paths cannot really
  * be read from its text: the protected-paths pack refuses, best effort, one whose
- * reading (the core's, ADR 2026-020) names a protected path, and watches
+ * reading (built by the host adapter, ADR 2026-020) names a protected path, and watches
  * what it protects from writes around every shell command, undoing its
  * changes. Fetch, delegate and invoke are not judged by path. What a host
  * must provide is its ports section.

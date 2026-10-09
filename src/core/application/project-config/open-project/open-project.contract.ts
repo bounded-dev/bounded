@@ -1,12 +1,12 @@
 import type { Config, PortProvision, Result, Verdict } from "bounded/domain";
 import type { AfterToolOutcome } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
-import type { AdapterRefusalInput, DecisionIds, BoundedLog, ShellCommandReader } from "../../bounded-log/judge-event/judge-event.contract.ts";
+import type { AdapterRefusalInput, DecisionIds, BoundedLog } from "../../bounded-log/judge-event/judge-event.contract.ts";
 
 /** The brand only OpenProjectCommand itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const openProjectCommandBrand: unique symbol;
 
 // Out ports this feature shares with judge-event: declared there, listed here so this contract names every port the feature needs.
-export type { Clock, DecisionIds, BoundedLog, ShellCommandReader } from "../../bounded-log/judge-event/judge-event.contract.ts";
+export type { Clock, DecisionIds, BoundedLog } from "../../bounded-log/judge-event/judge-event.contract.ts";
 
 // Wire input: what a host's composition root sends.
 export interface OpenProjectInput {
@@ -76,10 +76,4 @@ export interface OpenProjectOptions {
   readonly ports?: readonly PortProvision[];
   /** Where every decision's id comes from, the judges' and the after-tool records'; by default a random UUID each. */
   readonly ids?: DecisionIds;
-  /**
-   * Reads every shell command the judge is given (ADR 2026-020), prepared
-   * when the project opens, alongside the packs' work and under the same
-   * bound. Without one, every command is judged unread.
-   */
-  readonly shellCommandReader?: ShellCommandReader;
 }

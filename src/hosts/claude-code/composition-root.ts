@@ -8,15 +8,19 @@ import { Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
-import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
+import { openShellCommandReading, type ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import { type AfterTool, type Decide, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
 
-/** The shell command reader every project this process opens reads its commands with: its grammar loads once. */
-const shellCommandReader = new TreeSitterShellCommandReader();
+/**
+ * How this process reads shell commands (ADR 2026-020): bounded's reader,
+ * its grammar loading once. The hook reads each execute effect's command
+ * with it when it builds the core's event.
+ */
+const shellCommandReading = openShellCommandReading();
 
-/** Opens a project with the adapters this host provides: the protected-paths pack's and the prerequisites pack's, on disk, and bounded's shell command reader. */
-const open = (projectRoot: string) => openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+/** Opens a project with the adapters this host provides: the protected-paths pack's and the prerequisites pack's, on disk. */
+const open = (projectRoot: string) => openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
 
 /**
  * How long bounded may take to decide, then how long work still pending after
@@ -35,6 +39,8 @@ export interface Wiring {
   readonly decide: Decide;
   readonly afterTool?: AfterTool;
   readonly record?: RecordRefusal;
+  /** How shell commands are read; bounded's reader by default, tests inject their own. */
+  readonly readShellCommand?: ReadShellCommand;
   /** Defaults to DEADLINE_MS; tests inject a short one. */
   readonly deadlineMs?: number;
 }
@@ -59,8 +65,13 @@ export const afterToolFromConfig: AfterTool = async (result, { projectRoot }) =>
 /** Records a refusal the hook made itself in the project's Bounded log. */
 export const recordFromConfig: RecordRefusal = async (refusal, { projectRoot }) => (await open(projectRoot)).refuse(refusal);
 
-/** The hook for one process: stdin text in, stdout text out. */
-export function composeHook({ env, argv, decide, afterTool, record, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
+/**
+ * The hook for one process: stdin text in, stdout text out. The shell
+ * command reader starts preparing here, once, without the hook waiting for
+ * it: a first read waits for it, within the reader's own bounds and the
+ * hook's deadline.
+ */
+export function composeHook({ env, argv, decide, afterTool, record, readShellCommand = shellCommandReading, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
   const projectRoot = env.CLAUDE_PROJECT_DIR;
   if (projectRoot === undefined || !projectRoot.startsWith("/")) {
     return refuseAll(
@@ -70,8 +81,10 @@ export function composeHook({ env, argv, decide, afterTool, record, deadlineMs =
   }
   const role = roleFrom(argv);
   if (role === undefined) return refuseAll("--role is given without a role label", "Give the role after it, as in --role builder");
+  // Started, never awaited: it never rejects, and the hook answers whether or not it has finished.
+  void readShellCommand.prepare();
   const extras = { ...(afterTool === undefined ? {} : { afterTool }), ...(record === undefined ? {} : { record }) };
-  return (stdin) => runHook(stdin, { projectRoot, role, decide, paths: projectPaths(projectRoot), deadlineMs, ...extras });
+  return (stdin) => runHook(stdin, { projectRoot, role, decide, paths: projectPaths(projectRoot), readShellCommand, deadlineMs, ...extras });
 }
 
 /** `--role <label>` or `--role=<label>`; null when absent, undefined when given without a label. */

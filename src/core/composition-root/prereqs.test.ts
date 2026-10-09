@@ -6,11 +6,8 @@ import { join, resolve } from "node:path";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { openProject } from "./open-project.ts";
-import { fixedShellCommandReader, UNREAD_SAMPLE } from "./shell-command-reader.test-support.ts";
 
 const CORE = resolve(import.meta.dir, "../..");
-/** These tests judge no shell command by its reading: every command is read as unread. */
-const unread = fixedShellCommandReader(UNREAD_SAMPLE);
 process.env.XDG_STATE_HOME = mkdtempSync(join(tmpdir(), "bounded-state-"));
 const REDIRECT = "Have plan-reviewer review the current plan before editing src/";
 const PREREQS = `import { contribution, corePack, defineConfig } from "bounded/domain";
@@ -51,7 +48,7 @@ const log = (root: string): { verdict: { kind: string }; note?: string }[] =>
 describe("bounded/prereqs end to end: openProject with the pack's adapters", () => {
   test("the foreground path: refused, reviewed, allowed, then stale when the plan changes", async () => {
     const root = project(PREREQS);
-    const { judge, afterTool, problem } = await openProject(root, { ports: prereqsPortProvisions(), shellCommandReader: unread });
+    const { judge, afterTool, problem } = await openProject(root, { ports: prereqsPortProvisions() });
     expect(problem).toBeNull();
     const refused = await judge(writeSrc);
     expect(refused.kind === "refuse" && refused.reason).toContain("has not succeeded");
@@ -69,7 +66,7 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
 
   test("a background launch records nothing, and afterTool says why", async () => {
     const root = project(PREREQS);
-    const { judge, afterTool } = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader: unread });
+    const { judge, afterTool } = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
     expect((await judge(review("c1"))).kind).toBe("allow");
     const told = await afterTool(reviewed("c1", false));
     expect(told.message).toContain("plan-reviewer's run was not seen to finish (it may still be running in the background)");
@@ -78,7 +75,7 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
 
   test("opening without the ports refuses every event naming bounded/prereqs and fileSetFingerprints", async () => {
     const root = project(PREREQS);
-    const { judge, problem } = await openProject(root, { shellCommandReader: unread });
+    const { judge, problem } = await openProject(root);
     expect(problem).toContain("bounded/prereqs");
     expect(problem).toContain("fileSetFingerprints");
     for (const event of [writeSrc, review("c1"), { kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "README.md" }] }]) {
@@ -89,7 +86,7 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
 
   test("a project that does not select bounded/prereqs leaves no trace", async () => {
     const root = project(CORE_ONLY);
-    const { judge, afterTool } = await openProject(root, { ports: prereqsPortProvisions(), shellCommandReader: unread });
+    const { judge, afterTool } = await openProject(root, { ports: prereqsPortProvisions() });
     expect((await judge(writeSrc)).kind).toBe("allow");
     expect((await judge(review("c1"))).kind).toBe("allow");
     expect((await afterTool(reviewed("c1", true))).message).toBeNull();
@@ -101,7 +98,7 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
     symlinkSync("../../src/a.ts", join(root, ".agent-state", "item", "plan.md.link"));
     mkdirSync(join(root, ".agent-state", "linked"));
     symlinkSync("../item/plan.md", join(root, ".agent-state", "linked", "plan.md"));
-    const { judge } = await openProject(root, { ports: prereqsPortProvisions(), shellCommandReader: unread });
+    const { judge } = await openProject(root, { ports: prereqsPortProvisions() });
     const refused = await judge(writeSrc);
     expect(refused.kind === "refuse" && refused.reason).toContain(".agent-state/linked/plan.md is a symbolic link");
     expect((await judge(review("c1"))).kind).toBe("refuse");
@@ -109,7 +106,7 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
 
   test("a symbolic link created during the run is refused after it: nothing is recorded", async () => {
     const root = project(PREREQS);
-    const { judge, afterTool } = await openProject(root, { ports: prereqsPortProvisions(), shellCommandReader: unread });
+    const { judge, afterTool } = await openProject(root, { ports: prereqsPortProvisions() });
     expect((await judge(review("c1"))).kind).toBe("allow");
     mkdirSync(join(root, ".agent-state", "linked"));
     symlinkSync("../item/plan.md", join(root, ".agent-state", "linked", "plan.md"));
@@ -122,11 +119,11 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
 
   test("records are per project root", async () => {
     const [first, second] = [project(PREREQS), project(PREREQS)];
-    const one = await openProject(first, { ports: prereqsPortProvisions(), shellCommandReader: unread });
+    const one = await openProject(first, { ports: prereqsPortProvisions() });
     expect((await one.judge(review("c1"))).kind).toBe("allow");
     await one.afterTool(reviewed("c1", true));
     expect((await one.judge(writeSrc)).kind).toBe("allow");
-    const two = await openProject(second, { ports: prereqsPortProvisions(), shellCommandReader: unread });
+    const two = await openProject(second, { ports: prereqsPortProvisions() });
     expect((await two.judge(writeSrc)).kind).toBe("refuse");
   });
 });

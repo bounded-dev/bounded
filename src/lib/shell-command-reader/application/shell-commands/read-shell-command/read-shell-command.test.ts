@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { Command, ProjectPath } from "bounded/domain";
+import { Command, ProjectPath, type ShellCommandReadingJSON } from "bounded/domain";
 import type { ShellCommandReader } from "./read-shell-command.contract.ts";
 import { ReadShellCommandHandler } from "./read-shell-command.handler.ts";
 
 const ROOT = "/work/project";
 /** A read reading's wire form: a reader's reading of a command that runs tool-a from the project root, touching no file. */
-const READ = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
+const READ: ShellCommandReadingJSON = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
 const input = { projectRoot: ROOT, command: "tool-a x", cwd: null };
-const unread = (why: string) => ({ outcome: "unread", why });
+const unread = (why: string): ShellCommandReadingJSON => ({ outcome: "unread", why });
 /** The error `parsed` holds; a test that expects one fails when it is ok. */
 const errorOf = (parsed: { ok: true } | { ok: false; error: string }): string => (parsed.ok ? "it parsed" : parsed.error);
 /** A reader that answers every command with `answer`, prepared at once. */

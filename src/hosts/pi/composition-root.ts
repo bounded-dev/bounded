@@ -9,24 +9,27 @@ import { type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
-import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
+import { openShellCommandReading } from "bounded-shell-command-reader/shell-command-reading";
 import type { AdapterRefusal, ProjectJudgeForPi } from "./extension.ts";
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** The shell command reader every project this process opens reads its commands with: its grammar loads once. */
-const shellCommandReader = new TreeSitterShellCommandReader();
+/**
+ * How this process reads shell commands (ADR 2026-020): bounded's reader,
+ * its grammar loading once. The extension reads each execute effect's
+ * command with it when it builds the core's event.
+ */
+export const shellCommandReading = openShellCommandReading();
 
 /**
  * Opens the project at `root` (absolute) with the adapters this host
- * provides (the protected-paths pack's and the prerequisites pack's, on disk, and
- * bounded's shell command reader) and decides each event with its judge,
- * which records every decision.
+ * provides (the protected-paths pack's and the prerequisites pack's, on
+ * disk) and decides each event with its judge, which records every decision.
  */
 export async function composeProject(root: string, open: typeof openProject = openProject): Promise<ProjectJudgeForPi> {
   let project: Awaited<ReturnType<typeof openProject>>;
   try {
-    project = await open(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    project = await open(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
   } catch (error) {
     const refusal = Verdict.refuse(`bounded could not open the project: ${message(error)}`, "Fix the project's bounded setup, then start a new pi session");
     return async () => refusal;

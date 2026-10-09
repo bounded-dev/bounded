@@ -5,12 +5,12 @@ import type { ProjectPath } from "./project-path.contract.ts";
 /** The brand only ShellCommandReading itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const shellCommandReadingBrand: unique symbol;
 
-// What bounded made of a shell command (ADR 2026-020): the reading an execute
-// effect carries, given by the judge, which reads every command through the
-// host's shell command reader before any guard runs. The core holds its
-// shape, never how a shell is read: a reading names programs, words and
-// files, in the effects' own vocabulary, and says what could not be resolved
-// rather than guess it.
+// What bounded made of a shell command (ADR 2026-020): the reading every
+// execute effect carries, built by the host adapter, trusted code, from the
+// model's tool input with bounded's shell command reader. The core holds its
+// shape and checks it, never how a shell is read: a reading names programs,
+// words and files, in the effects' own vocabulary, and says what could not be
+// resolved rather than guess it.
 
 /** A word of a command: literal text (quotes and escapes removed), or text only the shell can resolve, as written. */
 export interface ShellCommandWord {
@@ -65,8 +65,9 @@ export interface ReadShellCommandReading extends ShellCommandReadingOf<"read", R
  * to blame: it is too complex (too long, read too many ways, nested too
  * deep, costing too much to expand or too long to read), so splitting or
  * simplifying it would help. Absent, the reading failed for no reason the
- * command can change (no reader, one that failed, its parser failing, one
- * too slow, an answer that could not be used): its why says which.
+ * command can change (a reader that failed, its parser failing, one too
+ * slow, an answer that could not be used, a command the host adapter could
+ * not give it): its why says which.
  */
 export type UnreadShellCommandCause = "too-complex";
 

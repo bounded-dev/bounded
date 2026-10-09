@@ -23,7 +23,13 @@ export interface DelegatedAgentRun {
   readonly finishNeverReported?: true;
 }
 
-/** A tool call that has run: the tool use, whether it succeeded, and its call id when the host gives one. Its execute effects carry no reading: bounded reads a command only when it judges it (ADR 2026-020). */
+/**
+ * A tool call that has run: the tool use, whether it succeeded, and its call
+ * id when the host gives one. Its execute effects carry a reading, as a tool
+ * use's do (ADR 2026-020): the host adapter reads the command again after the
+ * call, so the result's reading may differ from the call's (the files it
+ * named may now exist).
+ */
 export interface ToolResult {
   readonly __brand: "ToolResult";
   readonly [toolResultBrand]: true;

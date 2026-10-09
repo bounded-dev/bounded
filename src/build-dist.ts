@@ -16,9 +16,12 @@
 // Every package import stays external: `bounded/*` resolves through the
 // package's own export paths, and anything else must be one of bounded's
 // dependencies, so the tree-sitter grammar and the rest load from node_modules.
-// The one rewrite: a carried app's import of the private reader package
-// becomes an import of bounded/shell-command-reader, so dist holds one copy
-// of the reader and imports no private package.
+// Two exceptions, both for the private reader package (ADR 2026-020): its
+// own entry's imports of its own export paths (bounded-shell-command-reader/
+// application, /adapters) resolve to their sources and are built in; and a
+// carried app's import of its entry (bounded-shell-command-reader/
+// shell-command-reading) becomes an import of bounded/shell-command-reader,
+// so dist holds one copy of the reader and imports no private package.
 import { mkdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import type { BunPlugin } from "bun";
@@ -27,23 +30,32 @@ import type { BunPlugin } from "bun";
 const HERE = import.meta.dir;
 const HOSTS = join(HERE, "hosts");
 const READER = join(HERE, "lib", "shell-command-reader");
-const READER_ENTRY = join(READER, "adapters", "out", "index.ts");
+/** The reader package's name: its export paths are `${READER_PACKAGE}/<path>`. */
+const READER_PACKAGE = "bounded-shell-command-reader";
+/** The reader's entry, its composition root: what bounded/shell-command-reader is built from. */
+const READER_ENTRY = join(READER, "composition-root", "shell-command-reading.ts");
 
-/** What bounded carries from private packages: each entry point, where it goes, and whether it is run as a program. */
-const CARRIED: readonly { readonly entry: string; readonly out: string; readonly program?: true }[] = [
+/** What bounded carries from private packages: each entry point, where it goes, whether it is run as a program, and whether it is the reader, built with its own package's sources. */
+const CARRIED: readonly { readonly entry: string; readonly out: string; readonly program?: true; readonly reader?: true }[] = [
   { entry: join(HERE, "cli", "main.ts"), out: "dist/cli.js", program: true },
   { entry: join(HOSTS, "claude-code", "main.ts"), out: "dist/hosts/claude-code/hook.js", program: true },
   { entry: join(HOSTS, "claude-code", "host-installer.ts"), out: "dist/hosts/claude-code/host-installer.js" },
   { entry: join(HOSTS, "pi", "index.ts"), out: "dist/hosts/pi/index.js" },
   { entry: join(HOSTS, "pi", "host-installer.ts"), out: "dist/hosts/pi/host-installer.js" },
-  { entry: READER_ENTRY, out: "dist/shell-command-reader/index.js" },
+  { entry: READER_ENTRY, out: "dist/shell-command-reader/index.js", reader: true },
 ];
 
 /** The private workspace packages' export paths the carried apps import, each with the bounded export path dist reaches it through. */
-export const PRIVATE_PACKAGE_EXPORTS: Readonly<Record<string, string>> = Object.freeze({ "bounded-shell-command-reader/adapters": "bounded/shell-command-reader" });
+export const PRIVATE_PACKAGE_EXPORTS: Readonly<Record<string, string>> = Object.freeze({ "bounded-shell-command-reader/shell-command-reading": "bounded/shell-command-reader" });
 
 /** Each private export path's source, whose value exports the mapped module re-exports by name. */
-const PRIVATE_PACKAGE_SOURCES: Readonly<Record<string, string>> = Object.freeze({ "bounded-shell-command-reader/adapters": READER_ENTRY });
+const PRIVATE_PACKAGE_SOURCES: Readonly<Record<string, string>> = Object.freeze({ "bounded-shell-command-reader/shell-command-reading": READER_ENTRY });
+
+/** The reader package's export paths (its manifest's `exports`), each with its source file relative to the package. */
+async function readerExports(): Promise<Readonly<Record<string, string>>> {
+  const manifest = (await Bun.file(join(READER, "package.json")).json()) as { exports?: Record<string, string> };
+  return Object.freeze(Object.fromEntries(Object.entries(manifest.exports ?? {}).map(([path, target]) => [`${READER_PACKAGE}${path.slice(1)}`, target])));
+}
 
 type Target = string | Record<string, string>;
 interface Manifest {
@@ -84,15 +96,36 @@ const privatePackageExports: BunPlugin = {
 };
 
 /**
+ * For the reader's own entry: each of its package's export paths it imports
+ * resolves to that path's source, so the reader is built whole into
+ * dist/shell-command-reader and imports nothing of its private package.
+ */
+function readerOwnSources(exports: Readonly<Record<string, string>>): BunPlugin {
+  return {
+    name: "bounded-reader-own-sources",
+    setup(build) {
+      build.onResolve({ filter: /^bounded-shell-command-reader\// }, ({ path }) => {
+        const target = exports[path];
+        if (target === undefined) throw new Error(`${path} is not an export path of ${READER_PACKAGE}`);
+        return { path: join(READER, target) };
+      });
+    },
+  };
+}
+
+/**
  * The declarations a consumer's tsc reads (dist/types, each export path's
  * `types`): emitted from the sources by tsc (tsconfig.types.json: the
  * core's, the shipped packs' and the shell command reader's entry, under
  * src/), placed so src/ is dist/types (dist/types/core, dist/types/packs)
  * and the reader's is dist/types/shell-command-reader, with an index there,
  * and each relative `.ts` specifier rewritten to `.js`, as a consumer's tsc
- * resolves declarations without allowImportingTsExtensions.
+ * resolves declarations without allowImportingTsExtensions. A reader
+ * declaration's import of its own package's export path is rewritten to the
+ * relative path of that export's declaration, so no published declaration
+ * names the private package.
  */
-async function buildDeclarations(): Promise<void> {
+async function buildDeclarations(exports: Readonly<Record<string, string>>): Promise<void> {
   const emittedRoot = join(HERE, "dist", "types-emitted");
   const tsc = Bun.resolveSync("typescript/bin/tsc", HERE);
   const emitted = Bun.spawnSync([process.execPath, tsc, "-p", join(HERE, "tsconfig.types.json")], { cwd: HERE, stdout: "pipe", stderr: "pipe" });
@@ -101,15 +134,24 @@ async function buildDeclarations(): Promise<void> {
   const emittedLibraries = join(HERE, "dist", "types", relative(HERE, dirname(READER)));
   await rename(join(emittedLibraries, basename(READER)), join(HERE, "dist", "types", "shell-command-reader"));
   await rm(emittedLibraries, { recursive: true, force: true });
+  const readerTypes = join(HERE, "dist", "types", "shell-command-reader");
+  /** The declaration of the reader's export path `spec`, relative to `file`'s directory, as a `.js` specifier. */
+  const ownExport = (file: string, spec: string): string => {
+    const target = exports[spec];
+    if (target === undefined) throw new Error(`${file} imports ${spec}, which is not an export path of ${READER_PACKAGE}`);
+    const declaration = relative(dirname(file), join(readerTypes, target.replace(/\.ts$/, ".js")));
+    return declaration.startsWith(".") ? declaration : `./${declaration}`;
+  };
   for await (const path of new Bun.Glob("dist/types/**/*.d.ts").scan({ cwd: HERE })) {
     const file = join(HERE, path);
     const text = await Bun.file(file).text();
-    const rewritten = text.replace(/((?:\bfrom|\bimport)\s*\(?\s*")(\.{1,2}\/[^"]*)\.ts(")/g, "$1$2.js$3");
+    const rewritten = text
+      .replace(/((?:\bfrom|\bimport)\s*\(?\s*")(\.{1,2}\/[^"]*)\.ts(")/g, "$1$2.js$3")
+      .replace(/((?:\bfrom|\bimport)\s*\(?\s*")(bounded-shell-command-reader\/[^"]*)(")/g, (_, before: string, spec: string, after: string) => `${before}${ownExport(file, spec)}${after}`);
     if (rewritten !== text) await Bun.write(file, rewritten);
   }
-  // The export's declarations are its entry's (adapters/out/index), placed at the export's own index with each relative specifier re-rooted there.
-  const readerTypes = join(HERE, "dist", "types", "shell-command-reader");
-  const entry = join(readerTypes, "adapters", "out", "index.d.ts");
+  // The export's declarations are its entry's (composition-root/shell-command-reading), placed at the export's own index with each relative specifier re-rooted there.
+  const entry = join(readerTypes, "composition-root", "shell-command-reading.d.ts");
   const entryText = await Bun.file(entry).text();
   const reRooted = entryText.replace(/((?:\bfrom|\bimport)\s*\(?\s*")(\.{1,2}\/[^"]*)(")/g, (_, before: string, spec: string, after: string) => `${before}./${relative(readerTypes, join(dirname(entry), spec))}${after}`);
   await Bun.write(join(readerTypes, "index.d.ts"), reRooted);
@@ -133,7 +175,8 @@ export async function buildDist(): Promise<void> {
   });
   if (!built.success) throw new AggregateError(built.logs, "bounded's library could not be built");
 
-  for (const { entry, out, program } of CARRIED) {
+  const ownReaderExports = await readerExports();
+  for (const { entry, out, program, reader } of CARRIED) {
     // Split, so an entry's dynamic imports stay dynamic: the Claude Code hook's bootstrap loads everything
     // inside its try, so a missing module is a deny, not a crash before it (src/hosts/claude-code/main.ts).
     await mkdir(dirname(join(HERE, out)), { recursive: true });
@@ -144,7 +187,7 @@ export async function buildDist(): Promise<void> {
       format: "esm",
       splitting: true,
       packages: "external",
-      plugins: [privatePackageExports],
+      plugins: [reader === true ? readerOwnSources(ownReaderExports) : privatePackageExports],
       naming: { entry: basename(out), chunk: "chunks/[name]-[hash].[ext]" },
     });
     if (!carried.success) throw new AggregateError(carried.logs, `${entry} could not be built`);
@@ -152,7 +195,7 @@ export async function buildDist(): Promise<void> {
     await Bun.write(join(HERE, out), program === true ? `#!/usr/bin/env node\n${text}` : text);
   }
 
-  await buildDeclarations();
+  await buildDeclarations(ownReaderExports);
 
   const dependencies = Object.keys(manifest.dependencies ?? {});
   const targets = Object.values(manifest.exports).flatMap((target) => (typeof target === "string" ? [target] : [target.default ?? ""])).filter((target) => target.startsWith("./dist/"));

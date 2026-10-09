@@ -81,14 +81,14 @@ describe("Decision", () => {
   });
 
   test("text past 4,096 characters is shortened, saying so, so a log line stays bounded", () => {
-    const long = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "x".repeat(10_000) }] });
+    const long = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "x".repeat(10_000), reading: { outcome: "unread", why: "the parser could not load" } }] });
     if (!long.ok) throw new Error(long.error);
     const [effect] = Decision.of(id("d-7"), TIME, long.value, { verdict: Verdict.allow, refusedBy: null }).effects;
     expect(effect).toBe(`execute \`${"x".repeat(4096 - "execute `".length)}… (shortened from ${10_000 + "execute ``".length} characters)`);
   });
 
   test("shortening a field never splits a character made of two code units", () => {
-    const emoji = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "😀".repeat(5000) }] });
+    const emoji = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "😀".repeat(5000), reading: { outcome: "unread", why: "the parser could not load" } }] });
     if (!emoji.ok) throw new Error(emoji.error);
     const [effect] = Decision.of(id("d-11"), TIME, emoji.value, { verdict: Verdict.allow, refusedBy: null }).effects;
     expect(effect?.includes("\ud83d…")).toBe(false);
@@ -107,7 +107,7 @@ describe("Decision", () => {
   });
 
   test("records the directory a command runs in", () => {
-    const inApp = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "make", cwd: "apps/web" }] });
+    const inApp = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "make", cwd: "apps/web", reading: { outcome: "unread", why: "the parser could not load" } }] });
     if (!inApp.ok) throw new Error(inApp.error);
     expect(Decision.of(id("d-9"), TIME, inApp.value, { verdict: Verdict.allow, refusedBy: null }).effects).toEqual(["execute `make` in apps/web"]);
   });
@@ -126,7 +126,7 @@ describe("Decision", () => {
   });
 
   test("records a finished tool call, with a note", () => {
-    const result = ToolResult.parse({ kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make" }], ok: true, callId: "c1" });
+    const result = ToolResult.parse({ kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } }], ok: true, callId: "c1" });
     if (!result.ok) throw new Error(result.error);
     const decision = Decision.of(id("d-12"), TIME, result.value, { verdict: Verdict.refuse("changed", "restore"), refusedBy: null }, "changed by a shell command; restored");
     expect(wireOf(decision)).toEqual({

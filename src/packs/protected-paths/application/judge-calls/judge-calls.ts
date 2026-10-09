@@ -5,9 +5,9 @@ import { protectedPathsIn } from "../../domain/protected-path.ts";
 import type * as Contract from "./judge-calls.contract.ts";
 
 // The protected-paths pack's guards: reads, listings and writes judged against its
-// protected paths, and shell commands by what the core's reading of them
-// says they read, list and write (ADR 2026-020). Each reads the protected
-// paths from the composition it is given.
+// protected paths, and shell commands by what the reading the host adapter
+// built for them says they read, list and write (ADR 2026-020). Each reads
+// the protected paths from the composition it is given.
 
 /** Why a rule denies, and the redirect when it is not the rule's own. */
 type Denial = { readonly what: string; readonly redirect?: string } | undefined;
@@ -99,25 +99,24 @@ export const judgeList: Contract.JudgeList = (effect, composition) => firstDenia
 export const judgeWrite: Contract.JudgeWrite = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
 
 const UNCHECKED = "the protected-paths pack cannot check shell commands";
-const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project) and a shell command reader, and reinstall bounded's dependencies if its parser cannot load; shell commands are refused until then";
+const UNREAD_REDIRECT = "Reinstall bounded's dependencies if its shell parser cannot load, then retry; shell commands are refused until the host adapter can read them";
 /** The redirect for each cause a reader gives: what would let the command be read. */
 const UNREAD_REDIRECTS: Readonly<Record<UnreadShellCommandCause, string>> = Object.freeze({
   "too-complex": "Split the command into simpler commands, or simplify it (fewer nested commands, no words only the shell can resolve where a program's options are), and run each on its own; this one is refused as it is",
 });
 
 /**
- * A shell command is judged by the core's reading of it (ADR 2026-020): the
- * paths it reads, lists and writes, each judged exactly as a file tool's
- * read, listing or write, reads first, then listings, then writes. What only
- * the shell can resolve (globs, variables, substitutions' output, files
- * programs open by themselves) is not guessed at: it is allowed. A command
- * bounded did not read, or could not, is refused. Confining the command at
- * the operating-system level is the real control; drift undoes its writes
- * to watched files.
+ * A shell command is judged by the reading its execute effect carries, built
+ * by the host adapter with bounded's reader (ADR 2026-020): the paths it
+ * reads, lists and writes, each judged exactly as a file tool's read,
+ * listing or write, reads first, then listings, then writes. What only the
+ * shell can resolve (globs, variables, substitutions' output, files programs
+ * open by themselves) is not guessed at: it is allowed. A command bounded
+ * could not read is refused. Confining the command at the operating-system
+ * level is the real control; drift undoes its writes to watched files.
  */
 export const judgeExecute: Contract.JudgeExecute = (effect, composition) => {
   const { reading } = effect;
-  if (reading === null) return Verdict.refuse(`${UNCHECKED}: bounded did not read this command; openProject's judge, given a shell command reader, reads every command`, UNREAD_REDIRECT);
   if (reading.outcome === "unread") return Verdict.refuse(`${UNCHECKED}: ${reading.why}`, reading.cause === undefined ? UNREAD_REDIRECT : UNREAD_REDIRECTS[reading.cause]);
   const judged = (what: string, verdict: Verdict): Verdict | undefined => (verdict.kind === "refuse" ? Verdict.refuse(`this command ${what} — ${verdict.reason}`, verdict.redirect) : undefined);
   for (const { effect: read } of reading.fileEffects) {

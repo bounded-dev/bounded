@@ -22,6 +22,8 @@
     "README.md",
     "core",
     "packs",
+    "lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.contract.ts",
+    "lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.shell-command-reader.test-support.ts",
     "!{core,packs}/**/*.test.ts",
     "!core/{adapters,composition-root,domain}/**/*.test-support.ts",
     "!packs/**/*.test-support.ts",
@@ -86,8 +88,8 @@
       "default": "./dist/shell-command-reader/index.js"
     },
     "./testing/shell-command-reader-conformance": {
-      "bun": "./core/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts",
-      "types": "./core/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts"
+      "bun": "./lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.shell-command-reader.test-support.ts",
+      "types": "./lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.shell-command-reader.test-support.ts"
     },
     "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",
     "./hosts/pi": "./dist/hosts/pi/index.js",

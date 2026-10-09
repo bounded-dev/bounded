@@ -1,4 +1,4 @@
-import type { AdapterRefusalJSON, Command, Decision, DecisionId, DecisionTime, Event, ProjectPath, Result, Verdict } from "bounded/domain";
+import type { AdapterRefusalJSON, Decision, DecisionId, DecisionTime, Event, Result, Verdict } from "bounded/domain";
 
 /** The brand only JudgeEventCommand itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const judgeEventCommandBrand: unique symbol;
@@ -36,15 +36,6 @@ export interface JudgeEventOptions {
   readonly ids?: DecisionIds;
   /** Run when the guards allow an event, before it is recorded; a refusal replaces the allow. */
   readonly beforeAllow?: (event: Event) => Promise<Verdict>;
-  /**
-   * Reads every execute effect's command before the guards run (ADR 2026-020).
-   * Without one, every command is judged unread, saying the host passes one.
-   */
-  readonly shellCommandReader?: ShellCommandReader;
-  /** The project's root, an absolute path, given to the reader with each command: required with a reader. */
-  readonly projectRoot?: string;
-  /** How long reading every command of one event may take; a command still unread then is judged unread, timed out. */
-  readonly readWithinMs?: number;
 }
 
 /** A refusal the host adapter made itself, in its wire form: the host's tool name, its input, the role, and the reason and redirect (read by AdapterRefusal.parse). */
@@ -67,23 +58,6 @@ export interface BoundedLog {
  */
 export interface DecisionIds {
   next(): DecisionId;
-}
-
-/**
- * Reads a shell command: what it runs, the files it reads, lists and writes,
- * and what only the shell could resolve (ADR 2026-020). `read` gives the
- * reading's wire form (a ShellCommandReadingJSON), which the judge parses,
- * for `command` run from `cwd` (null: the project root) in the project at
- * `projectRoot`; it rejects when it cannot read at all. `prepare` loads what
- * reading needs, once, when the project opens; `read` works unprepared too.
- * Untagged, as HostInstaller is: the core names no reader. Its adapters live
- * in other packages (bounded's own, published as bounded/shell-command-reader;
- * a host's own) and each runs the suite in judge-event.shell-command-reader.test-support.ts,
- * published as bounded/testing/shell-command-reader-conformance.
- */
-export interface ShellCommandReader {
-  prepare(): Promise<void>;
-  read(projectRoot: string, command: Command, cwd: ProjectPath | null): Promise<unknown>;
 }
 
 /**

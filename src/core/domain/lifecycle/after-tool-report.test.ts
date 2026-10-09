@@ -4,7 +4,7 @@ import { Verdict } from "../verdicts/verdict.ts";
 import { AfterToolReport } from "./after-tool-report.ts";
 
 const NOT_ONE = { ok: false, error: "it reported something that is not an after-tool report" };
-const make = Effect.parse({ kind: "execute", command: "make" });
+const make = Effect.parse({ kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } });
 
 describe("AfterToolReport — what an after-tool check found", () => {
   test("a message and a record naming the effect, or neither", () => {

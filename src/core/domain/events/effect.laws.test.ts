@@ -4,7 +4,7 @@ import { Effect } from "./effect.ts";
 const read = { kind: "read", path: "src/a.ts" };
 const list = { kind: "list", root: "src", filter: "*.ts" };
 const write = { kind: "write", path: "src/a.ts", change: "modify" };
-const execute = { kind: "execute", command: "make build" };
+const execute = { kind: "execute", command: "make build", reading: { outcome: "unread", why: "the parser could not load" } };
 const fetch = { kind: "fetch", url: "https://example.com/a" };
 const delegate = { kind: "delegate", agent: "explore" };
 const invoke = { kind: "invoke", name: "mcp__docs__search" };

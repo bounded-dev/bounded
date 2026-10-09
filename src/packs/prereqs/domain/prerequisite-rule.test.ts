@@ -106,7 +106,7 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(rule(beforeSrc).comesBefore(effect({ kind: "write", path: "SRC/a.ts", change: "delete" }))).toBe(true);
     expect(rule(beforeSrc).comesBefore(effect({ kind: "write", path: "docs/a.md", change: "create" }))).toBe(false);
     expect(rule(beforeSrc).comesBefore(effect({ kind: "read", path: "src/a.ts" }))).toBe(false);
-    expect(rule(beforeSrc).comesBefore(effect({ kind: "execute", command: "echo x > src/a.ts" }))).toBe(false);
+    expect(rule(beforeSrc).comesBefore(effect({ kind: "execute", command: "echo x > src/a.ts", reading: { outcome: "unread", why: "the parser could not load" } }))).toBe(false);
     expect(rule(beforeSrc).describeBefore()).toBe("before write 'src/**'");
     expect(rule(beforeBuilder).describeBefore()).toBe("before delegating to 'builder'");
   });

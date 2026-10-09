@@ -2,7 +2,7 @@
 // translation understands, so nothing it does goes undescribed. Unlike pi's
 // built-in tools, it honours a `cwd` argument, so paths start there.
 import type { Result } from "bounded/domain";
-import type { EffectJSON } from "./event.ts";
+import type { PiEffectJSON } from "./event.ts";
 import type { Locate } from "./pi-path.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
@@ -19,7 +19,7 @@ const isFields = (value: unknown): value is Fields => typeof value === "object" 
 const own = (fields: Fields, name: string): unknown => (Object.hasOwn(fields, name) ? fields[name] : undefined);
 
 /** The effects of one subagent call, or why it cannot be translated. */
-export function subagentEffects(toolName: string, input: Fields, sessionCwd: string, locate: Locate): Result<EffectJSON[]> {
+export function subagentEffects(toolName: string, input: Fields, sessionCwd: string, locate: Locate): Result<PiEffectJSON[]> {
   const refuse = (error: string): { ok: false; error: string } => ({ ok: false, error: `pi's ${toolName} call ${error}` });
   const unknownFields = (fields: Fields, allowed: ReadonlySet<string>): string | undefined => {
     const unknown = Object.keys(fields).filter((name) => !allowed.has(name));
@@ -41,7 +41,7 @@ export function subagentEffects(toolName: string, input: Fields, sessionCwd: str
     return { ok: true, value: [{ kind: "invoke", name: `${toolName}.${action}` }] };
   }
 
-  const effects: EffectJSON[] = [];
+  const effects: PiEffectJSON[] = [];
   /** The directory a `cwd` field names, from `base`; `base` itself when there is none. */
   const directory = (fields: Fields, base: string): Result<string> => {
     const cwd = own(fields, "cwd");

@@ -94,7 +94,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
       { kind: "invoke", name: "mcp__docs__search" },
       { kind: "delegate", agent: "explore" },
       { kind: "fetch", url: "https://example.com" },
-      { kind: "execute", command: "make" },
+      { kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } },
       { kind: "write", path: "a.ts", change: "create" },
       { kind: "list", root: "." },
       { kind: "read", path: "a.ts" },
@@ -107,7 +107,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
     { kind: "invoke", name: "mcp__docs__search" },
     { kind: "delegate", agent: "explore" },
     { kind: "fetch", url: "https://example.com" },
-    { kind: "execute", command: "make" },
+    { kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } },
     { kind: "write", path: "a.ts", change: "create" },
     { kind: "list", root: "." },
     { kind: "read", path: "a.ts" },
@@ -129,7 +129,7 @@ describe("dispatchEvent — whole calls, then each effect", () => {
 
   test("an effect kind with no guards is allowed", () => {
     const onlyWrites = definePack({ id: packId("writes"), dependsOn: [corePack], contributes: [contribution(guards.effectGuards.write, [() => Verdict.refuse("No writes", "Ask")])] });
-    expect(dispatchEvent(composed([onlyWrites, corePack]), call([{ kind: "read", path: "a.ts" }, { kind: "execute", command: "ls" }]))).toBe(Verdict.allow);
+    expect(dispatchEvent(composed([onlyWrites, corePack]), call([{ kind: "read", path: "a.ts" }, { kind: "execute", command: "ls", reading: { outcome: "unread", why: "the parser could not load" } }]))).toBe(Verdict.allow);
   });
 
   test("one refused effect refuses the whole call; the refusal names the pack and the effect", () => {
@@ -311,7 +311,7 @@ describe("decideEvent — the verdict and who refused", () => {
     const refused = decideEvent(composition, call([{ kind: "read", path: "a.ts" }, { kind: "write", path: "b.ts", change: "create" }]));
     expect(refused.verdict.kind).toBe("refuse");
     expect(wireOf(refused.refusedBy)).toEqual({ packId: "test-packs/gate", effect: { kind: "write", path: "b.ts", change: "create" } });
-    const shell = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }] });
+    const shell = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", reading: { outcome: "unread", why: "the parser could not load" } }] });
     if (!shell.ok) throw new Error(shell.error);
     expect(wireOf(decideEvent(composition, shell.value).refusedBy)).toEqual({ packId: "test-packs/gate", effect: null });
     expect(decideEvent(composition, call([{ kind: "read", path: "a.ts" }]))).toEqual({ verdict: Verdict.allow, refusedBy: null });
