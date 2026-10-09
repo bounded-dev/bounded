@@ -179,10 +179,11 @@ through `withProjectHooks`. Claude Code sets `CLAUDE_PROJECT_DIR` to the
 project's root for every hook, so a committed `.claude/settings.json` works
 in every checkout, wherever it is. `withProjectHooks` first removes every
 other bounded hook without a role. `isBoundedHook` recognises any command
-running bounded's bundled hook, or, from earlier installs, the
-bounded-claude-code package's or a checkout's `apps/claude-code/src/main.ts`,
-under node or bun, at any path, so an older install's hook is replaced, not
-duplicated. Settings that exist but cannot be read, or are not JSON, are
+running bounded's bundled hook, a hook installed by hand from a checkout's
+`src/hosts/claude-code/main.ts`, or, from earlier installs, the
+bounded-claude-code package's or an older checkout's
+`apps/claude-code/src/main.ts`, under node or bun, at any path, so an older
+install's hook is replaced, not duplicated. Settings that exist but cannot be read, or are not JSON, are
 refused and left alone.
 
 To install by hand, read `.claude/settings.json` (or `{}`), pass it to

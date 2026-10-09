@@ -75,14 +75,15 @@ export function withHooks(settings: unknown, command: string): Result<{ settings
 /**
  * Whether a settings hook is bounded's own Claude Code hook without a role,
  * wherever it pointed and whatever ran it: a command hook running bounded's
- * bundled hook (dist/hosts/claude-code/hook.js), or, from earlier installs,
- * the bounded-claude-code package's main.ts or a checkout's
- * apps/claude-code/src/main.ts, under node or bun. Its path does not count, so
- * a moved or re-cloned project's stale entry is recognised.
+ * bundled hook (dist/hosts/claude-code/hook.js), a hook installed by hand
+ * from a checkout's src/hosts/claude-code/main.ts (ADR 2026-024), or, from
+ * earlier installs, the bounded-claude-code package's main.ts or an older
+ * checkout's apps/claude-code/src/main.ts, under node or bun. Its path does
+ * not count, so a moved or re-cloned project's stale entry is recognised.
  */
 export function isBoundedHook(hook: unknown): boolean {
   if (!isRecord(hook) || hook.type !== "command" || typeof hook.command !== "string") return false;
-  return /((bounded-claude-code|apps\/claude-code)\/src\/main\.ts|bounded\/dist\/hosts\/claude-code\/hook\.js)\b/.test(hook.command) && !/\s--role\s/.test(hook.command);
+  return /((bounded-claude-code|apps\/claude-code)\/src\/main\.ts|src\/hosts\/claude-code\/main\.ts|bounded\/dist\/hosts\/claude-code\/hook\.js)\b/.test(hook.command) && !/\s--role\s/.test(hook.command);
 }
 
 /**

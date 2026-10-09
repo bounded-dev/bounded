@@ -1,6 +1,6 @@
 # bounded/prereqs: an action needs a prerequisite
 
-A pack shipped in `bounded` 3.2.0 ([ADR 2026-019](../../../../../docs/adr/2026-019-prereqs-pack.md)).
+A pack shipped in `bounded` 3.2.0 ([ADR 2026-019](../../../docs/adr/2026-019-prereqs-pack.md)).
 A rule says that before an action, a delegation to an agent must have
 succeeded over files that have not changed since. It is not a phase or a
 state machine, and there is no "mark done" tool: the agent never claims

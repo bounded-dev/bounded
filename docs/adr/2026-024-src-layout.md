@@ -111,10 +111,13 @@ Every file moved with `git mv`, so its history follows.
   retitled; its records name files by the paths they had at their own red
   commits, as history, and the red-first check consults a record only for a
   case its red commit owns.
-- **`isBoundedHook` is unchanged.** It recognises the forms older installs
-  wrote, a checkout's `apps/claude-code/src/main.ts` among them; 3.x writes
-  only the bundled hook, so recognising a checkout path no install writes
-  would be a guess.
+- **`isBoundedHook` also recognises a checkout's
+  `src/hosts/claude-code/main.ts`.** The documented hand install
+  (`withHooks` with a command running the checkout's hook) now writes that
+  path, so `bounded init` and `bounded update` must replace such a hook, not
+  duplicate it, as they replaced one at `apps/claude-code/src/main.ts`. The
+  older forms stay recognised: the bounded-claude-code package's `main.ts`
+  and an older checkout's `apps/claude-code/src/main.ts`.
 - **The CLI's version is bounded's in source too.** `bounded-cli.ts` reads
   `../package.json`: bundled (`dist/cli.js`) that is bounded's manifest, and
   from `src/cli/bounded-cli.ts` it is now `src/package.json` (it was

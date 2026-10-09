@@ -55,7 +55,7 @@ changed (ADR 2026-013, drift). Its one extension point is already called
   `bounded/protected-paths refused …`.
 - **Records.** Nothing bounded keeps reads a pack id back. The guard log is
   append-only, so its older records name `bounded/path-gate` and newer ones
-  `bounded/protected-paths` ([the guard log](../guard-log.md)). Drift's
+  `bounded/protected-paths` ([the guard log](../bounded-log.md)). Drift's
   snapshots are named by a hash of the call id and hold no pack id, nor do
   its quarantine or the prerequisites pack's records. Nothing is migrated.
 - **No code names the old pack.** An architecture test reads the code, one

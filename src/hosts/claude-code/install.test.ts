@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HOOK_TIMEOUT_SECONDS, hookCommand, withHook, withHooks } from "./install.ts";
+import { HOOK_TIMEOUT_SECONDS, hookCommand, isBoundedHook, withHook, withHooks } from "./install.ts";
 
 const COMMAND = "bun /opt/bounded/apps/claude-code/src/main.ts";
 // If the command cannot run at all (bun missing, a crash before main), exit 2 blocks the call.
@@ -82,5 +82,17 @@ describe("hookCommand: the command that runs the hook, every path shell-quoted",
   test("quotes bun's path and main.ts's path, and adds the role when given", () => {
     expect(hookCommand({ bun: "/opt/my bun/bun", main: "/p/it's/main.ts" })).toBe("'/opt/my bun/bun' '/p/it'\\''s/main.ts'");
     expect(hookCommand({ bun: "bun", main: "/p/main.ts", role: "builder" })).toBe("'bun' '/p/main.ts' --role 'builder'");
+  });
+});
+
+describe("isBoundedHook: bounded's own hook without a role, whatever form an install wrote", () => {
+  const hook = (command: string) => ({ type: "command", command });
+  test("recognises a hand-installed hook at a checkout's src/hosts/claude-code/main.ts (ADR 2026-024), and keeps every older form", () => {
+    expect(isBoundedHook(hook(hookCommand({ bun: "bun", main: "/path/to/src/hosts/claude-code/main.ts" })))).toBe(true);
+    expect(isBoundedHook(hook("bun /old/checkout/apps/claude-code/src/main.ts"))).toBe(true);
+    expect(isBoundedHook(hook("bun /p/node_modules/bounded-claude-code/src/main.ts"))).toBe(true);
+    expect(isBoundedHook(hook('node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"'))).toBe(true);
+    expect(isBoundedHook(hook(hookCommand({ bun: "bun", main: "/path/to/src/hosts/claude-code/main.ts", role: "builder" })))).toBe(false);
+    expect(isBoundedHook(hook("bun /p/src/hosts/other/main.ts"))).toBe(false);
   });
 });

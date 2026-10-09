@@ -58,8 +58,8 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 Everything the repository builds and ships is under `src/` (ADR 2026-024);
 the root keeps only project files (`package.json`, the tsconfigs,
 `biome.json`, `bunfig.toml`, `bun.lock`, `test-preload.ts`,
-`superseded-tests.json`, this file, the README, the licence, `docs/` and
-`scripts/`).
+`superseded-tests.json`, `.gitignore`, this file, `CLAUDE.md`, the README,
+the licence, `.claude/`, `docs/` and `scripts/`).
 
 ```
 src/                    bounded             the published package: package.json, build-dist.ts (its build for Node: the library,
