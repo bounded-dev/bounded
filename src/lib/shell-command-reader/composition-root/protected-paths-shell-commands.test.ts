@@ -414,3 +414,84 @@ describe("read by bounded's shell command reader — the protected-paths pack �
     expect(await shell("grep -rn KEY src")).toBe(Verdict.allow);
   });
 });
+
+describe("read by bounded's shell command reader — the protected-paths pack — a word only the shell can resolve never hides a literal one (every reading adds)", () => {
+  const x = rules("a", { match: "x", file: true, deny: ["delete"], redirect: "Leave x alone" });
+  const dotEnv = rules("b", { match: ".env", file: true, deny: ["delete"], redirect: "Leave .env alone" });
+  const subDotEnv = rules("b", { match: "sub/.env", file: true, deny: ["delete"], redirect: "Leave sub/.env alone" });
+  /** Each of `commands` refused, saying it deletes `path`. */
+  const refusedFor = async (shell: (command: string) => Promise<Verdict>, commands: readonly string[], path: string) => {
+    for (const command of commands) expect({ command, reason: reason(await shell(command)) }).toEqual({ command, reason: expect.stringContaining(`this command deletes '${path}'`) });
+  };
+
+  test("a wrapper or builtin with an option word only the shell can resolve is refused for its command's delete", async () => {
+    const shell = await shellWith([x]);
+    const commands = ['sudo "$OPT" rm x', 'doas "$X" rm x', 'env "$X" rm x', 'nice "$N" rm x', 'nohup "$X" rm x', 'stdbuf "$X" rm x', 'ionice "$X" rm x', 'builtin "$X" rm x', 'command "$X" rm x', 'exec "$X" rm x'];
+    await refusedFor(shell, commands, "x");
+  });
+
+  test("a short cluster ending in a value-taking letter is read as getopt reads it", async () => {
+    await refusedFor(await shellWith([dotEnv]), ["sudo -Eu root rm .env"], ".env");
+    await refusedFor(await shellWith([x]), ["env -iu VAR rm x"], "x");
+  });
+
+  test("a directory option the word may be is followed", async () => {
+    await refusedFor(await shellWith([subDotEnv], { sub: "directory" }), ['env "$X" sub rm .env', 'git "$X" sub rm .env'], "sub/.env");
+  });
+
+  test("a child process's cd never moves the shell", async () => {
+    await refusedFor(await shellWith([dotEnv], { sub: "directory" }), ["env cd sub; rm .env", "find . -maxdepth 0 -exec cd sub \\; ; rm .env"], ".env");
+    await refusedFor(await shellWith([x], { sub: "directory" }), ["xargs cd sub; rm x"], "x");
+  });
+
+  test("a shell with an option word only the shell can resolve is refused for its literal code's delete", async () => {
+    await refusedFor(await shellWith([x]), ['bash "$X" -c "rm x"', 'sh "$X" -c "rm x"', 'zsh "$X" -c "rm x"', 'dash "$X" -c "rm x"', 'ksh "$X" -c "rm x"', 'bash "$X" "rm x"'], "x");
+  });
+
+  test("git with a global option word only the shell can resolve is refused for git rm's delete", async () => {
+    await refusedFor(await shellWith([x]), ["git $OPTS rm x", 'git "$O" rm x'], "x");
+  });
+
+  test("env -S is refused for the delete its string and trailing words make", async () => {
+    await refusedFor(await shellWith([x]), ["env -S $S rm x", 'env -S "$S" rm x', "env -S 'sudo' rm x", "env -S '-i rm' x"], "x");
+  });
+
+  test("a variable-named program is refused for the delete its words would make", async () => {
+    await refusedFor(await shellWith([x]), ['"$W" rm x', '"$W" -u root rm x', "$GIT rm x", '"$SHELL" -c "rm x"', 'find . -exec "$C" rm x \\;'], "x");
+  });
+
+  test("limit: an added reading never moves today's; a cd it cannot place is a named fail-open", async () => {
+    // "$W" may be builtin, and then the shell deletes sub/x, which this pack does not see; bounded/prereqs refuses it while a rule does not hold (ADR 2026-020).
+    await refusedFor(await shellWith([x], { sub: "directory" }), ['"$W" cd sub && rm x'], "x");
+  });
+
+  test("ordinary forms stay allowed", async () => {
+    const shell = await shellWith([x]);
+    for (const command of [
+      'sudo "$@"',
+      'exec "$@"',
+      '"$PYTHON" -m pip install -r requirements.txt',
+      'bash "$SCRIPT" deploy',
+      'env "$VAR=1" node app.js',
+      "sudo apt-get update",
+      "env FOO=1 node app.js",
+      "nice -n 10 make",
+      "git -C sub status",
+      "bash -c 'echo hi'",
+      "timeout 5 sleep 1",
+      "command -v node",
+      "cp a.txt dir/",
+      "mv a.txt b.txt",
+    ]) {
+      expect({ command, verdict: reason(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    }
+    await refusedFor(shell, ["sudo rm x"], "x");
+  });
+
+  test("a write only the shell can name is allowed, as the pack's policy is; the sources are still read", async () => {
+    const shell = await shellWith([x], { dir: "directory" });
+    for (const command of ['cp -t "$D" x', 'cp x "$D"', 'cp "$X" dir/', 'mv "$F" notes.txt']) expect({ command, verdict: reason(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    const reads = await shellWith([rules("a", { match: "x", file: true, deny: ["read"], redirect: "Keep x private" })]);
+    expect(reason(await reads('cp -t "$D" x'))).toContain("this command reads 'x'");
+  });
+});

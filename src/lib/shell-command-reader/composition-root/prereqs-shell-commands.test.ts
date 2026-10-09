@@ -261,3 +261,78 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
     }
   });
 });
+
+describe("bounded/prereqs judging shell commands from bounded's reading of them — every reading adds (ADR 2026-020, amended by shell-every-reading)", () => {
+  /** The cannot-see part of a refusal: what follows "cannot see whether it …: ". */
+  const cannotSeeOf = (verdict: { kind: string; reason?: string }): string => {
+    const reason = reasonOf(verdict);
+    const at = reason.indexOf("bounded cannot see whether it ");
+    if (at === -1) return reason;
+    const rest = reason.slice(at);
+    return rest.slice(rest.indexOf(": ") + 2);
+  };
+
+  test("a write into a directory only the shell can name, or from a source only the shell can name, is refused while a write rule does not hold", async () => {
+    const { shell } = await opened();
+    for (const [command, part] of [
+      ['cp -t "$D" src/a.ts', `it writes a path only the shell can resolve ('"$D"')`],
+      ['cp "$X" src/', `it writes a path only the shell can resolve ('src/"$X"')`],
+      // A move deletes its source, wherever it goes: reported first, then the write into src/.
+      ['mv "$X" src/', `it writes a path only the shell can resolve ('"$X"')`],
+      ["ls | xargs cp -t src", "it writes a path only the shell can resolve ('src/(input)')"],
+      ['mv "$F" notes.txt', `it writes a path only the shell can resolve ('"$F"')`],
+    ] as const) {
+      const verdict = await shell(command);
+      expect({ command, part: cannotSeeOf(verdict), redirect: redirectOf(verdict).startsWith(SRC_REDIRECT) }).toEqual({ command, part, redirect: true });
+    }
+  });
+
+  test("a plus-signed range's words are judged", async () => {
+    const { shell } = await opened();
+    expect(reasonOf(await shell("rm src/a{+1..2}.ts"))).toContain("which writes 'src/");
+  });
+
+  test("forms with an unresolved program name or unseen code are refused while a rule does not hold", async () => {
+    const { shell, reviewedBy, reviewedByAll } = await opened();
+    const name = (word: string) => `it runs a program whose name only the shell can resolve ('${word}')`;
+    const STANDARD_INPUT = "it runs code bounded cannot read ('(standard input)')";
+    // Under the execute rule before terraform apply, the first: a program name only the shell can resolve is found before code.
+    const beforeApply = [
+      ['exec "$@"', name('"$@"')],
+      ['sudo "$@"', name('"$@"')],
+      ['bash "$SCRIPT"', STANDARD_INPUT],
+      ['"$CMD" --version', name('"$CMD"')],
+      ['env "$VAR=1" node app.js', name('"$VAR=1"')],
+    ] as const;
+    for (const [command, part] of beforeApply) expect({ command, part: cannotSeeOf(await shell(command)) }).toEqual({ command, part });
+    // Under the write rule before src/**, once the first holds: code is found before a program's name.
+    await reviewedBy("infra-reviewer");
+    const beforeSrc = [
+      ['exec "$@"', STANDARD_INPUT],
+      ['sudo "$@"', STANDARD_INPUT],
+      ['bash "$SCRIPT"', STANDARD_INPUT],
+      ['"$CMD" --version', STANDARD_INPUT],
+      ['env "$VAR=1" node app.js', name('"$VAR=1"')],
+    ] as const;
+    for (const [command, part] of beforeSrc) expect({ command, part: cannotSeeOf(await shell(command)) }).toEqual({ command, part });
+    await reviewedByAll();
+    for (const [command] of beforeSrc) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  });
+
+  test("a cd the reading cannot place is refused while a rule does not hold", async () => {
+    const { shell, reviewedBy } = await opened();
+    await reviewedBy("infra-reviewer");
+    // "$W" may be builtin, so the shell may delete sub/x: bounded cannot place that cd, and refuses while a rule does not hold.
+    expect(cannotSeeOf(await shell('"$W" cd sub && rm x'))).toBe(`it runs a program whose name only the shell can resolve ('"$W"')`);
+  });
+
+  test("a shell whose options only the shell can resolve may read standard input", async () => {
+    const { shell } = await opened();
+    expect(cannotSeeOf(await shell(`echo 'terraform apply' | bash "$X" deploy.sh`))).toBe("it runs code bounded cannot read ('(standard input)')");
+  });
+
+  test("a shell whose options only the shell can resolve may read its operand as code", async () => {
+    const { shell } = await opened();
+    expect(cannotSeeOf(await shell('bash "$S" "$1"'))).toBe(`it runs code bounded cannot read ('"$1"')`);
+  });
+});

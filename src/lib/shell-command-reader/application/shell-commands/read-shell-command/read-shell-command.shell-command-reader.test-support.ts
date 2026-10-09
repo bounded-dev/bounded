@@ -60,11 +60,12 @@ export function shellCommandReaderConformance(name: string, fixture: ShellComman
       expect(from.programs).toEqual([{ name: literal("tool-a"), arguments: [], workingDirectory: "sub" }]);
     });
 
-    test("what only the shell can resolve is unresolved, never guessed", async () => {
+    test("what only the shell can resolve is unresolved, never guessed; a program it names may be a wrapper, so its words also run", async () => {
       const { reader, projectRoot } = await fixture({ files: [], dirs: [] });
       const reading = await readingOf(reader, projectRoot, "$TOOL x; tool-a $X > $Y");
       expect(reading.programs).toEqual([
         { name: { kind: "unresolved", text: "$TOOL" }, arguments: [literal("x")], workingDirectory: "." },
+        { name: literal("x"), arguments: [], workingDirectory: "." },
         { name: literal("tool-a"), arguments: [{ kind: "unresolved", text: "$X" }], workingDirectory: "." },
       ]);
       expect(reading.unresolved).toContainEqual({ text: "$Y", role: "write" });

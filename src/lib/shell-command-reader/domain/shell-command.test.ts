@@ -25,7 +25,7 @@ const programsOf = (script: readonly ShellNode[], at: ShellPlace = place()) =>
   describeShellCommand(script, at).programs.map((program) => [program.name.text, program.arguments.map((word) => word.text), program.workingDirectory === null ? null : program.workingDirectory.value]);
 
 describe("describeShellCommand — the programs a command runs, and what it could not resolve", () => {
-  test("describeShellCommand lists the programs a parsed command runs, with where each runs", () => {
+  test("describeShellCommand lists the programs a parsed command runs, with where each runs, a variable-named program's words as a run of their own", () => {
     // cd sub && tool-a x; then a substitution's program, run before the command that uses it.
     const script = [and(command(literal("cd"), [literal("sub")]), command(literal("tool-a"), [literal("x"), unresolved("$(tool-b)", [{ kind: "subshell", body: [command(literal("tool-b"))] }])]))];
     expect(programsOf(script, place({ sub: "directory" }))).toEqual([
@@ -39,8 +39,11 @@ describe("describeShellCommand — the programs a command runs, and what it coul
       ["tool-a", [], null],
     ]);
     expect(programsOf([command(null)])).toEqual([]);
-    // From the directory the command is given.
-    expect(programsOf([command(unresolved("$TOOL"), [literal("x")])], place({ app: "directory" }, "app"))).toEqual([["$TOOL", ["x"], "app"]]);
+    // From the directory the command is given; a program only the shell can name may be a wrapper, so its words also run (ADR 2026-020).
+    expect(programsOf([command(unresolved("$TOOL"), [literal("x")])], place({ app: "directory" }, "app"))).toEqual([
+      ["$TOOL", ["x"], "app"],
+      ["x", [], "app"],
+    ]);
   });
 
   test("each unresolved word carries the role it would have had", () => {

@@ -42,10 +42,6 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect(await names("find . -name x -exec tool-a {} \\; | xargs tool-b")).toEqual(["find", "tool-a", "xargs", "tool-b"]);
   });
 
-  test("a program whose name only the shell can resolve is listed with an unresolved name", async () => {
-    expect((await read("$TOOL x")).programs).toEqual([{ name: { kind: "unresolved", text: "$TOOL" }, arguments: [{ kind: "literal", text: "x" }], workingDirectory: "." }]);
-  });
-
   test("inline code for another language is unresolved code; what the command reads is unchanged", async () => {
     const cases: readonly (readonly [string, string])[] = [
       ["python3 -c 'print(1)' data.csv", "print(1)"],
@@ -505,6 +501,61 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     }
   }, 60_000);
 
+  test("the review's repeat-heavy shell command is read, in under 1.5 s, not for time", async () => {
+    // The shell's forks are memoised and its code, reached by them, is parsed once.
+    const { elapsed, reading } = await timed(`bash ${'"$A" '.repeat(20)}-c '${"cat a; ".repeat(370)}'`);
+    expect({ fast: elapsed < 1500, outcome: reading.outcome }).toEqual({ fast: true, outcome: "read" });
+    expect(reading.outcome === "read" && reading.toJSON().programs.filter((program) => program.name.text === "cat")).toHaveLength(370);
+  }, 30_000);
+
+  test("chains of wrappers each holding a word only the shell can resolve outgrow the budget and come back unread, quickly, never as a reduced reading", async () => {
+    for (const command of [`${'sudo "$A" '.repeat(24)}rm x`, `${'env "$A" '.repeat(24)}rm x`, `${'command "$A" '.repeat(24)}rm x`]) {
+      const { elapsed, reading } = await timed(command);
+      expect({ command: command.slice(0, 30), fast: elapsed < 2000, outcome: reading.outcome }).toEqual({ command: command.slice(0, 30), fast: true, outcome: "unread" });
+      expect(reading.outcome === "unread" && reading.why).toBe("the command is too complex to read within bounded's work budget (200000 steps): its words could be read too many ways, or it nests too deep");
+      expect(reading.outcome === "unread" && reading.cause).toBe("too-complex");
+    }
+  }, 30_000);
+
+  test("a shell's unresolved option words do not multiply its readings", async () => {
+    const { elapsed, reading } = await timed(`bash ${'"$A" '.repeat(40)}-c 'rm x'`);
+    expect(elapsed).toBeLessThan(250);
+    expect(reading.outcome === "read" && reading.toJSON().fileEffects).toContainEqual({ effect: { kind: "write", path: "x", change: "delete" } });
+  });
+
+  test("a chain of variable-named words before a command gives one suffix reading, charged", async () => {
+    for (const command of [`${"$A ".repeat(60)}rm x`, `${"$A ".repeat(200)}rm x`]) {
+      const { elapsed, reading } = await timed(command);
+      expect({ command: command.slice(0, 20), fast: elapsed < 250 }).toEqual({ command: command.slice(0, 20), fast: true });
+      expect(reading.outcome === "read" && reading.toJSON().fileEffects).toContainEqual({ effect: { kind: "write", path: "x", change: "delete" } });
+    }
+  });
+
+  test("two levels of wrappers are read", async () => {
+    for (const command of ['sudo "$A" sudo "$A" rm x', 'env "$A" nice "$N" rm x']) {
+      expect({ command, deletes: (await read(command)).fileEffects }).toEqual({ command, deletes: expect.arrayContaining([{ effect: { kind: "write", path: "x", change: "delete" } }]) });
+    }
+  });
+
+  test("a command that spends its budget deep in a cd stops costing: unread for its budget, not its time, in under 250 ms", async () => {
+    // At the red commit's parent this took 560 ms on the machine the item was built on: carrying the deep directory cost its depth at every charge.
+    const { elapsed, reading } = await timed(`cd ${"a/".repeat(16_000)} && ${"t\n".repeat(16_000)}`);
+    expect(elapsed).toBeLessThan(250);
+    expect(reading.outcome === "unread" && reading.why).toBe("the command is too complex to read within bounded's work budget (200000 steps): its words could be read too many ways, or it nests too deep");
+  });
+
+  test("fuzz: wrappers, shells and git with words only the shell can resolve, seeded, each read in under 250 ms, never throwing, never unread for time", async () => {
+    const random = seededRandom(0x2026_0024);
+    const pieces = ["sudo ", "env ", "nice ", "command ", "exec ", "builtin ", "bash ", "sh -c ", "git ", "cp ", "mv ", "find . -exec ", "\\; ", "-c ", "-C ", "-S ", "-s ", "-t ", "-u ", "-Eu ", '"$A" ', "$B ", '"A=$X" ', "sub ", "rm ", "x ", "dir/ ", "; ", "| ", "xargs ", "cd "];
+    const commands = Array.from({ length: 300 }, () => {
+      const count = Math.floor(random() * 40) + 1;
+      let text = "";
+      for (let piece = 0; piece < count; piece++) text += pieces[Math.floor(random() * pieces.length)];
+      return text;
+    });
+    expect(await slowestRead(commands)).toBeLessThan(250);
+  }, 600_000);
+
   test("a long group of digits and dots that is no range stays a literal word, as in bash", async () => {
     const word = `secret{${Array.from({ length: 17 }, (_, index) => index + 1).join("..")}}`;
     expect(word.length).toBeGreaterThan(48);
@@ -613,4 +664,264 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     await expect(reader.read(ROOT, made(Command.parse("ls")), null)).rejects.toThrow("bounded's shell parser could not load (main.wasm is missing)");
     await expect(reader.prepare()).rejects.toThrow("bounded's shell parser could not load (main.wasm is missing)");
   });
+});
+
+/** What a reader over a project where only the root and `dirs` are directories, and nothing else exists (or, given "unknown", where nothing can be told), makes of `command`. */
+async function readIn(command: string, dirs: readonly string[] | "unknown") {
+  const reader = new TreeSitterShellCommandReader({ pathKindOf: (_root, path) => (dirs === "unknown" ? undefined : path.value === "." || dirs.includes(path.value) ? "directory" : "absent") });
+  const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
+  if (reading.outcome !== "read") throw new Error(`not read: ${reading.why}`);
+  return reading.toJSON();
+}
+type Reading = Awaited<ReturnType<typeof read>>;
+/** The paths a reading deletes, in order. */
+const deletesOf = (reading: Reading): string[] => reading.fileEffects.flatMap(({ effect }) => (effect.kind === "write" && effect.change === "delete" ? [effect.path] : []));
+/** A program as `name [arguments] @directory`. */
+const programLine = (program: Reading["programs"][number]): string => `${program.name.text} [${program.arguments.map((word) => word.text).join(" ")}] @${program.workingDirectory}`;
+const effectLine = ({ effect }: Reading["fileEffects"][number]): string => (effect.kind === "write" ? `write ${effect.path} ${effect.change}` : effect.kind === "list" ? `list ${effect.root}` : `read ${effect.path}`);
+const partLine = (part: Reading["unresolved"][number]): string => `${part.text} ${part.role}`;
+
+describe("TreeSitterShellCommandReader — a word only the shell can resolve never hides a literal one (every reading adds)", () => {
+  test("a wrapper or builtin whose option word only the shell can resolve still gives its command's delete, and today's reading", async () => {
+    for (const [command, word] of [
+      ['sudo "$OPT" rm x', '"$OPT"'],
+      ['doas "$X" rm x', '"$X"'],
+      ['env "$X" rm x', '"$X"'],
+      ['nice "$N" rm x', '"$N"'],
+      ['nohup "$X" rm x', '"$X"'],
+      ['stdbuf "$X" rm x', '"$X"'],
+      ['ionice "$X" rm x', '"$X"'],
+      ['builtin "$X" rm x', '"$X"'],
+      ['command "$X" rm x', '"$X"'],
+      ['exec "$X" rm x', '"$X"'],
+    ] as const) {
+      const reading = await read(command);
+      expect({ command, deletes: deletesOf(reading) }).toEqual({ command, deletes: expect.arrayContaining(["x"]) });
+      // Today's reading is kept: the word taken for the command.
+      expect({ command, programs: reading.programs.map(programLine) }).toEqual({ command, programs: expect.arrayContaining([`${word} [rm x] @.`]) });
+    }
+  });
+
+  test("a short cluster ending in a value-taking letter takes the next word", async () => {
+    expect(deletesOf(await read("sudo -Eu root rm .env"))).toEqual([".env"]);
+    expect(deletesOf(await read("env -iu VAR rm x"))).toEqual(["x"]);
+  });
+
+  test("a directory option the word may be is followed to the next word's directory", async () => {
+    for (const command of ['env "$X" sub rm x', 'sudo "$X" sub rm x', 'git "$X" sub rm x']) {
+      expect({ command, deletes: deletesOf(await readIn(command, ["sub"])) }).toEqual({ command, deletes: expect.arrayContaining(["sub/x"]) });
+    }
+  });
+
+  test("a shell whose option word only the shell can resolve still runs its literal code, or reads standard input", async () => {
+    for (const shell of ["bash", "sh", "zsh", "dash", "ksh"]) {
+      const reading = await read(`${shell} "$X" -c "rm x"`);
+      // Today's reading is kept: the word read as the script.
+      expect({ shell, deletes: deletesOf(reading), unresolved: reading.unresolved }).toEqual({ shell, deletes: expect.arrayContaining(["x"]), unresolved: expect.arrayContaining([{ text: '"$X"', role: "read" }]) });
+    }
+    const operand = await read('bash "$X" "rm x"');
+    expect(deletesOf(operand)).toContain("x");
+    expect(operand.fileEffects).toContainEqual({ effect: { kind: "read", path: "rm x" } });
+    expect((await read('bash "$S" "$1"')).unresolved).toContainEqual({ text: '"$1"', role: "code" });
+    const script = await read('bash "$X" deploy.sh');
+    expect(script.fileEffects).toContainEqual({ effect: { kind: "read", path: "deploy.sh" } });
+    expect(script.unresolved).toContainEqual({ text: "(standard input)", role: "code" });
+  });
+
+  test("git whose global option word only the shell can resolve still gives git rm's delete", async () => {
+    for (const command of ["git $OPTS rm x", 'git "$O" rm x']) expect({ command, deletes: deletesOf(await read(command)) }).toEqual({ command, deletes: expect.arrayContaining(["x"]) });
+  });
+
+  test("env -S's trailing words run, and a literal string is walked through env itself", async () => {
+    for (const command of ["env -S $S rm x", "env -S 'sudo' rm x", "env -S '-i rm' x"]) expect({ command, deletes: deletesOf(await read(command)) }).toEqual({ command, deletes: expect.arrayContaining(["x"]) });
+    expect(deletesOf(await readIn("env -S '-C sub rm' x", ["sub"]))).toContain("sub/x");
+  });
+
+  test("a variable-named program is walked like an unknown wrapper: every literal-led suffix is a command", async () => {
+    for (const command of ['"$W" rm x', '"$W" -u root rm x', "$GIT rm x", 'find . -exec "$C" rm x \\;', '"$SHELL" -c "rm x"']) {
+      expect({ command, deletes: deletesOf(await read(command)) }).toEqual({ command, deletes: expect.arrayContaining(["x"]) });
+    }
+    expect((await read("$TOOL x")).programs).toEqual([
+      { name: { kind: "unresolved", text: "$TOOL" }, arguments: [{ kind: "literal", text: "x" }], workingDirectory: "." },
+      { name: { kind: "literal", text: "x" }, arguments: [], workingDirectory: "." },
+    ]);
+  });
+
+  test("the review's forms, with their real outcomes", async () => {
+    // At the red commit's parent each had the program names below and no code part. The code parts are added readings: a program only
+    // the shell can name read as a shell given its words (none: standard input), and "$SCRIPT" read as options that may hold s.
+    for (const [command, names, code] of [
+      ['exec "$@"', ['"$@"'], ["(standard input)"]],
+      ['sudo "$@"', ['"$@"'], ["(standard input)"]],
+      ['bash "$SCRIPT"', [], ["(standard input)"]],
+      ['"$CMD" --version', ['"$CMD"'], ["(standard input)"]],
+      ['env "$VAR=1" node app.js', ['"$VAR=1"'], []],
+    ] as const) {
+      const reading = await read(command);
+      expect({
+        command,
+        names: reading.programs.filter((program) => program.name.kind === "unresolved").map((program) => program.name.text),
+        code: reading.unresolved.filter((part) => part.role === "code").map((part) => part.text),
+      }).toEqual({ command, names: [...names], code: [...code] });
+    }
+  });
+
+  test("a ten-assignment env with words only the shell can resolve is read", async () => {
+    const started = performance.now();
+    const reading = await read('env "A=$X" "B=$X" "C=$X" "D=$X" "E=$X" "F=$X" "G=$X" "H=$X" "I=$X" "J=$X" node app.js');
+    expect(performance.now() - started).toBeLessThan(250);
+    expect(reading.programs.map(programLine)).toContain("node [app.js] @.");
+  });
+
+  test("a value a known option takes is taken as written", async () => {
+    // Each exactly as read at the red commit's parent.
+    expect(await read('sudo -u "$U" rm x')).toEqual({
+      outcome: "read",
+      programs: [
+        { name: { kind: "literal", text: "sudo" }, arguments: [{ kind: "literal", text: "-u" }, { kind: "unresolved", text: '"$U"' }, { kind: "literal", text: "rm" }, { kind: "literal", text: "x" }], workingDirectory: "." },
+        { name: { kind: "literal", text: "rm" }, arguments: [{ kind: "literal", text: "x" }], workingDirectory: "." },
+      ],
+      fileEffects: [{ effect: { kind: "write", path: "x", change: "delete" } }],
+      unresolved: [],
+    });
+    expect(await read('env -C "$D" rm x')).toEqual({
+      outcome: "read",
+      programs: [
+        { name: { kind: "literal", text: "env" }, arguments: [{ kind: "literal", text: "-C" }, { kind: "unresolved", text: '"$D"' }, { kind: "literal", text: "rm" }, { kind: "literal", text: "x" }], workingDirectory: "." },
+        { name: { kind: "literal", text: "rm" }, arguments: [{ kind: "literal", text: "x" }], workingDirectory: null },
+      ],
+      fileEffects: [],
+      unresolved: [
+        { text: '"$D"', role: "directory" },
+        { text: "x", role: "write" },
+      ],
+    });
+    expect(await read('exec -a "$N" rm x')).toEqual({
+      outcome: "read",
+      programs: [
+        { name: { kind: "literal", text: "exec" }, arguments: [{ kind: "literal", text: "-a" }, { kind: "unresolved", text: '"$N"' }, { kind: "literal", text: "rm" }, { kind: "literal", text: "x" }], workingDirectory: "." },
+        { name: { kind: "literal", text: "rm" }, arguments: [{ kind: "literal", text: "x" }], workingDirectory: "." },
+      ],
+      fileEffects: [{ effect: { kind: "write", path: "x", change: "delete" } }],
+      unresolved: [],
+    });
+  });
+
+  test("a move's source only the shell can name is always deleted; a copy or move into a directory, or a path of unknown kind, reports the write into it", async () => {
+    expect((await read('mv "$F" notes.txt')).unresolved).toContainEqual({ text: '"$F"', role: "write" });
+    expect((await read('git mv "$F" notes.txt')).unresolved).toContainEqual({ text: '"$F"', role: "write" });
+    expect((await readIn('cp "$X" dir/', ["dir"])).unresolved).toContainEqual({ text: 'dir/"$X"', role: "write" });
+    const moved = await readIn('mv "$X" dir', ["dir"]);
+    expect(moved.unresolved).toContainEqual({ text: '"$X"', role: "write" });
+    expect(moved.unresolved).toContainEqual({ text: 'dir/"$X"', role: "write" });
+    // A destination whose kind cannot be told is still written as a file, and the write into it is reported too.
+    const unknown = await readIn('cp "$X" out', "unknown");
+    expect(unknown.fileEffects).toContainEqual({ effect: { kind: "write", path: "out", change: "create" }, existenceUnknown: true });
+    expect(unknown.unresolved).toContainEqual({ text: 'out/"$X"', role: "write" });
+    expect((await readIn("ls | xargs cp -t dir", ["dir"])).unresolved).toContainEqual({ text: "dir/(input)", role: "write" });
+    expect((await read("echo a | xargs -I % cp % out/a.txt")).unresolved).toEqual([{ text: "(input)", role: "read" }]);
+  });
+
+  test("cp -t into a directory only the shell can name reports the write as unresolved", async () => {
+    const reading = await read('cp -t "$D" x');
+    expect(reading.unresolved).toEqual([{ text: '"$D"', role: "write" }]);
+    expect(reading.fileEffects).toEqual([{ effect: { kind: "read", path: "x" } }]);
+  });
+
+  test("ordinary forms are read as before", async () => {
+    // Each as read at the red commit's parent; the readings this item adds come beside it, never in its stead.
+    const before: readonly (readonly [string, readonly string[], readonly string[], readonly string[]])[] = [
+      ['sudo "$@"', ['sudo ["$@"] @.', '"$@" [] @.'], [], []],
+      ['exec "$@"', ['exec ["$@"] @.', '"$@" [] @.'], [], []],
+      ['"$PYTHON" -m pip install -r requirements.txt', ['"$PYTHON" [-m pip install -r requirements.txt] @.'], ["read pip", "read install", "read requirements.txt"], []],
+      ['bash "$SCRIPT" deploy', ['bash ["$SCRIPT" deploy] @.'], [], ['"$SCRIPT" read']],
+      ['env "$VAR=1" node app.js', ['env ["$VAR=1" node app.js] @.', '"$VAR=1" [node app.js] @.'], ["read node", "read app.js"], []],
+      ["sudo apt-get update", ["sudo [apt-get update] @.", "apt-get [update] @."], ["read update"], []],
+      ["env FOO=1 node app.js", ["env [FOO=1 node app.js] @.", "node [app.js] @."], ["read app.js"], []],
+      ["nice -n 10 make", ["nice [-n 10 make] @.", "make [] @."], [], []],
+      ["git -C sub status", ["git [-C sub status] @.", "git [status] @sub"], [], []],
+      ["bash -c 'echo hi'", ["bash [-c echo hi] @.", "echo [hi] @."], [], []],
+      ["timeout 5 sleep 1", ["timeout [5 sleep 1] @.", "sleep [1] @."], [], []],
+      ["command -v node", ["command [-v node] @."], [], []],
+      ["cp a.txt dir/", ["cp [a.txt dir/] @."], ["read a.txt", "write dir create"], []],
+      ["mv a.txt b.txt", ["mv [a.txt b.txt] @."], ["read a.txt", "write a.txt delete", "write b.txt create"], []],
+    ];
+    for (const [command, programs, fileEffects, unresolved] of before) {
+      const reading = await read(command);
+      expect({ command, programs: reading.programs.map(programLine), fileEffects: reading.fileEffects.map(effectLine), unresolved: reading.unresolved.map(partLine) }).toEqual({
+        command,
+        programs: expect.arrayContaining([...programs]),
+        fileEffects: expect.arrayContaining([...fileEffects]),
+        unresolved: expect.arrayContaining([...unresolved]),
+      });
+    }
+  });
+});
+
+describe("TreeSitterShellCommandReader — a range or a nested group gives every word a recorded shell prints, and the reading before", () => {
+  // Recorded with /bin/bash -c (GNU bash 3.2.57), zsh -f -c (zsh 5.9) and docker run --rm bash:5 bash -c (GNU bash 5.3.20), each
+  // printing 'echo <form>' (ADR 2026-020):
+  //                 bash 3.2.57          zsh 5.9                  bash 5.3.20
+  //   f{+1..2}      f1 f2                f{+1..2}                 f1 f2
+  //   f{1..+2}      f1 f2                f{1..+2}                 f1 f2
+  //   f{1..5..+2}   f{1..5..+2}          f{1..5..+2}              f1 f3 f5
+  //   f{+01..03}    f1 f2 f3             f{+01..03}               f001 f002 f003
+  //   f{1..{2,3}}   f1..2 f1..3          f{1..2} f{1..3}          f{1..2} f{1..3}
+  //   f{a{b,c}}     f{ab} f{ac}          f{ab} f{ac}              f{ab} f{ac}
+  //   f{1..5..2}    f{1..5..2}           f1 f3 f5                 f1 f3 f5
+  //   f{01..03}     f1 f2 f3             f01 f02 f03              f01 f02 f03
+  //   f{-01..2}     f-1 f0 f1 f2         f-01 f000 f001 f002      f-01 f000 f001 f002
+  //   f{1..2..-1}   f{1..2..-1}          f2 f1                    f1 f2
+  //   f{a..e..2}    f{a..e..2}           f{a..e..2}               fa fc fe
+  // And, recorded by the builder the same way: f{-5..05} gives f-5 f-4 f-3 f-2 f-1 f00 f01 f02 f03 f04 f05 in zsh 5.9 and bash 5.3.20
+  // (padded to the wider end's written width, 2, the sign included), f{-05..5} gives f-05 … f000 … f005 in bash 5.3.20, and g{x{1,2}}
+  // gives g{x1} g{x2} in all three.
+  const sorted = (words: readonly string[]): string[] => [...words].sort();
+  const deleted = async (command: string) => {
+    const reading = await read(command);
+    return { deletes: sorted(deletesOf(reading)), unresolved: reading.unresolved };
+  };
+
+  test("a range gives every word any recorded shell prints, and today's reading", async () => {
+    expect(await deleted("rm f{+1..2}")).toEqual({ deletes: sorted(["f1", "f2", "f{+1..2}"]), unresolved: [] });
+    expect(await deleted("rm f{1..+2}")).toEqual({ deletes: sorted(["f1", "f2", "f{1..+2}"]), unresolved: [] });
+    expect(await deleted("rm f{1..5..+2}")).toEqual({ deletes: sorted(["f1", "f3", "f5", "f{1..5..+2}"]), unresolved: [] });
+    expect(await deleted("rm f{+01..03}")).toEqual({ deletes: sorted(["f1", "f2", "f3", "f001", "f002", "f003", "f{+01..03}"]), unresolved: [] });
+    // Where today's reading left the word unresolved, it still does, beside the words.
+    expect(await deleted("rm f{1..2..-1}")).toEqual({ deletes: sorted(["f1", "f2", "f{1..2..-1}"]), unresolved: [{ text: "f{1..2..-1}", role: "write" }] });
+    expect(await deleted("rm f{-01..2}")).toEqual({ deletes: sorted(["f-1", "f0", "f1", "f2", "f-01", "f000", "f001", "f002"]), unresolved: [{ text: "f{-01..2}", role: "write" }] });
+    // Padding is to the wider end's written width, the sign included, the zeros after a minus.
+    const wideNegative = (await deleted("rm f{-05..5}")).deletes;
+    expect(wideNegative).toEqual(expect.arrayContaining(["f-05", "f000", "f005"]));
+    const wideZero = (await deleted("rm f{-5..05}")).deletes;
+    expect(wideZero).toEqual(expect.arrayContaining(["f-5", "f00", "f05"]));
+    expect(wideZero).not.toContain("f-05");
+    // Pins: letter steps, steps and zero-padded ranges, as before.
+    expect(await deleted("rm f{a..e..2}")).toEqual({ deletes: sorted(["fa", "fc", "fe", "f{a..e..2}"]), unresolved: [] });
+    expect(await deleted("rm f{1..5..2}")).toEqual({ deletes: sorted(["f1", "f3", "f5", "f{1..5..2}"]), unresolved: [] });
+    expect(await deleted("rm f{01..03}")).toEqual({ deletes: sorted(["f1", "f01", "f2", "f02", "f3", "f03"]), unresolved: [] });
+  });
+
+  test("a nested group gives bash 3.2's, bash 5's and zsh's readings, and today's", async () => {
+    expect(await deleted("rm f{1..{2,3}}")).toEqual({ deletes: sorted(["f1", "f2", "f3", "f1..2", "f1..3", "f{1..2}", "f{1..3}"]), unresolved: [] });
+    // Without a range's .. at the outer group's own level, every recorded shell keeps the outer braces as text, as today's reading does.
+    expect(await deleted("rm g{x{1,2}}")).toEqual({ deletes: sorted(["g{x1}", "g{x2}"]), unresolved: [] });
+    expect(await deleted("rm f{a{b,c}}")).toEqual({ deletes: sorted(["f{ab}", "f{ac}"]), unresolved: [] });
+  });
+
+  test("a zero-padded range's padded and unpadded words both count towards 256", async () => {
+    expect(deletesOf(await read("rm f{0001..0128}"))).toHaveLength(256);
+    for (const word of ["f{0001..0129}", "f{001..200}"]) expect({ word, ...(await deleted(`rm ${word}`)) }).toEqual({ word, deletes: [], unresolved: [{ text: word, role: "write" }] });
+  });
+
+  test("a deep nest of range-like groups is bounded and quick", async () => {
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    for (const command of [`echo f${"{1..".repeat(2000)}{2,3}${"}".repeat(2000)}`, `rm f${"{a".repeat(5000)}{b,c}${"}".repeat(5000)}`]) {
+      const started = performance.now();
+      const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
+      const elapsed = performance.now() - started;
+      const readOrTooComplex = reading.outcome === "read" || (reading.cause === "too-complex" && !reading.why.includes("within the time"));
+      expect({ command: command.slice(0, 20), fast: elapsed < 1500, readOrTooComplex }).toEqual({ command: command.slice(0, 20), fast: true, readOrTooComplex: true });
+    }
+  }, 30_000);
 });
