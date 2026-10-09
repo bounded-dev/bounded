@@ -302,8 +302,12 @@ pi-subagents' project agent directory), which give role identity.
   `"git push"` rule, as does any alias or subcommand name the program
   itself expands. Not seen: aliases and functions from the host's shell
   snapshot (`tf apply`); git's `!` aliases; a program named `terraform.exe`;
-  a script run through a shell, or sourced, is refused as cannot see (its
-  name stands as an argument), not seen to run; PowerShell is read as bash;
+  a script run through a shell, or sourced, is not seen to run: it is
+  refused as cannot see only when its name is the rule's program and is
+  written out as an argument (`bash deploy.sh`, `. deploy.sh` under
+  `"deploy.sh"`), while a script the shell names (`bash "$S"`) or
+  substitutes (`bash <(curl -s https://example.com/deploy)`) is allowed
+  until `shell-every-reading`; PowerShell is read as bash;
   a range bash 3.2 keeps literal and bash 4 expands may shift a later
   word's position.
 - **Execute rules, until `shell-reader-coverage`: an expansion inside an
@@ -321,14 +325,20 @@ pi-subagents' project agent directory), which give role identity.
   `cat commands.txt | xargs /usr/bin/env`. `shell-reader-coverage` gives
   such an argument, here-string, piped input or xargs input role `code`,
   so the pack refuses each as cannot see, and interprets `/bin/bash`,
-  `/bin/sh` and `/usr/bin/env` by their path.
+  `/bin/sh` and `/usr/bin/env` by their path. Until then the same holds of
+  code read from standard input by a program other than a shell named
+  `sh`, `bash`, `zsh`, `dash` or `ksh` (which report it as code, given no
+  script, `-s`, or a script operand of `-`, `/dev/stdin` or
+  `/dev/fd/<n>`): `sudo -s`/`sudo -i` and `doas -s` with no command,
+  `source /dev/stdin` and `. /dev/stdin` (each fed by `<<<` or a heredoc),
+  and `trap 'terra$()form apply' EXIT`.
 - **Write rules, until `shell-reader-coverage`** (named, so they are not
   mistaken for seen): in-place edits (`sed -i`, `perl -i`); what programs
   and scripts write themselves; package runners (`npx`, `bunx`, `pnpm exec`,
   `yarn dlx`, `uvx`); a program named by its path (`/bin/rm`,
   `/usr/bin/env rm`); `time` and `coproc`; the other standard-input forms
-  (`bash -`, a cluster holding `s`, `/dev/stdin`, `/dev/fd/*`, an unresolved
-  script operand, `.`/`source`, `sudo -s`/`-i`); `-execdir`/`-okdir` read
+  (a cluster holding `s`, an unresolved script operand, `.`/`source` of
+  `/dev/stdin`, `sudo -s`/`-i`, `doas -s`); `-execdir`/`-okdir` read
   from where `find` runs; `trap`'s code and `alias` values; git's writing
   subcommands (`checkout`, `restore`, `apply`, `stash`, `reset`, `clone`),
   read as reads. (In-place edits and programs' own writes remain after it

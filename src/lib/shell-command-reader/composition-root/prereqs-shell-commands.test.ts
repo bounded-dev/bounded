@@ -180,6 +180,18 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
     for (const command of commands) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
+  test("a shell reading its code from standard input through -, /dev/stdin or /dev/fd/N is refused as cannot see (final review)", async () => {
+    const { shell } = await opened();
+    for (const command of ["bash - <<< 'terraform apply'", "bash /dev/stdin <<< 'terraform apply'", "sh /dev/fd/0 <<< 'terraform apply'", "bash - <<'EOF'\nterraform apply\nEOF"]) {
+      const verdict = await shell(command);
+      expect({ command, cannotSee: reasonOf(verdict).includes("bounded cannot see whether it runs 'terraform apply': it runs code bounded cannot read ('(standard input)')"), redirect: redirectOf(verdict) }).toEqual({
+        command,
+        cannotSee: true,
+        redirect: APPLY_REDIRECT,
+      });
+    }
+  });
+
   test("limit, until shell-reader-coverage: terraform reached through an expansion inside an argument or input to a program the reader does not interpret is not seen", async () => {
     const { shell } = await opened();
     // Today's outcome, asserted so that shell-reader-coverage supersedes this case knowingly: each is allowed while the rule is unmet.
@@ -194,6 +206,12 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
       '/usr/bin/env "$TF" apply',
       "/bin/sh <<< 'terraform apply'",
       "cat commands.txt | xargs /usr/bin/env",
+      "sudo -s <<< 'terraform apply'",
+      "sudo -i <<< 'terraform apply'",
+      "doas -s <<< 'terraform apply'",
+      "source /dev/stdin <<< 'terraform apply'",
+      ". /dev/stdin <<< 'terraform apply'",
+      "trap 'terra$()form apply' EXIT",
     ]) {
       expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
     }

@@ -59,8 +59,9 @@ names no tool or language (AGENTS.md). It can own the shape.
     program without `-f`; short options cluster as getopt reads them, as in
     `perl -ne` or `python3 -Bc`, a value-taking letter ending the cluster;
     *amended by `prereqs-execute`:* `(standard input)`, the code a shell
-    given neither `-c` nor a script operand, or given `-s`, reads from its
-    standard input: `echo … | sh`, `bash <<EOF`, `curl … | bash`; a heredoc
+    given neither `-c` nor a script operand, given `-s`, or given a script
+    operand of exactly `-`, `/dev/stdin` or `/dev/fd/<digits>` (the operand
+    still read as written), reads from its standard input: `echo … | sh`, `bash <<EOF`, `curl … | bash`; a heredoc
     fed to a shell is not parsed as code).
     A token tree-sitter inserted to recover from an error (the missing
     command after `cat a |`) is never a literal word: it is an unresolved

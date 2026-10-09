@@ -194,8 +194,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - `before: { execute }` and `before: { write }` see a shell command only
     through its reading: what programs and scripts do themselves, aliases
     and functions, git's `!` aliases, a program named `terraform.exe`, a
-    script run through a shell or sourced (refused as cannot see, not seen
-    to run), and PowerShell (read as bash) are not seen. Until
+    script run through a shell or sourced (refused as cannot see only when
+    its name is the rule's program written out, `bash deploy.sh`;
+    `bash "$S"` and `bash <(…)` are allowed until `shell-every-reading`),
+    and PowerShell (read as bash) are not seen. Until
     `shell-reader-coverage`, write rules do not see in-place edits, package
     runners, a program named by its path, `time`, `coproc`, the other
     standard-input forms, `-execdir`/`-okdir`'s directory, `trap` and
@@ -212,11 +214,16 @@ when written; keep it current (AGENTS.md, "Working with the user").
     the reader does not interpret (one named by its path such as
     `/bin/bash` or `/usr/bin/env`, `ssh`, `watch`, `su -c`, `script -c`,
     `time`, `coproc`): `/bin/bash -c 'terra$()form apply'`,
-    `watch 'terra${x}form apply'`, `su -c $'\x74erraform apply'`,
+    `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`, `su -c $'\x74erraform apply'`,
     `script -c "$(… | base64 -d)"`, `time $TF apply`, `coproc $TF apply`,
     `/usr/bin/env "$TF" apply`, `/bin/sh <<< 'terraform apply'`,
     `cat commands.txt | xargs /usr/bin/env` are allowed while the
-    requirement is unmet (ADR 2026-019, "Limits").
+    requirement is unmet, as is code read from standard input by anything
+    but a shell named `sh`, `bash`, `zsh`, `dash` or `ksh`: `sudo -s`,
+    `sudo -i` and `doas -s` with no command, `source /dev/stdin`,
+    `. /dev/stdin`, and `trap 'terra$()form apply' EXIT` (ADR 2026-019,
+    "Limits"). A shell given `-`, `/dev/stdin` or `/dev/fd/<n>` as its
+    script reports its standard input as code, so `bash - <<< …` is refused.
   - Drift never watches `.bounded/`, so records forged by a shell command
     the protected-paths pack does not see are kept: the records rest on the protected-paths pack's
     `.bounded/**` rule.

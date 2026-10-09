@@ -230,9 +230,10 @@ export const STANDARD_INPUT: ShellWord = Object.freeze({ kind: "unresolved", tex
 
 /**
  * A shell: with -c, its first operand is code it runs; else it reads the
- * script it is given. Given neither, or given -s, it runs code from its
- * standard input, which only the run can resolve (a heredoc fed to it is not
- * parsed as code).
+ * script it is given. Given neither, given -s, or given a script operand of
+ * exactly -, /dev/stdin or /dev/fd/<digits>, it runs code from its standard
+ * input, which only the run can resolve (a heredoc fed to it is not parsed
+ * as code); the operand is still read as written.
  */
 function shell(args: readonly ShellWord[]): CommandMeaning {
   let runsCode = false;
@@ -248,7 +249,9 @@ function shell(args: readonly ShellWord[]): CommandMeaning {
   }
   const [first] = rest;
   if (runsCode) return first === undefined ? NONE : meaning({ scripts: [first] });
-  const standardInput = first === undefined || readsStandardInput ? [STANDARD_INPUT] : [];
+  const operand = literal(first);
+  const scriptIsStandardInput = operand === "-" || operand === "/dev/stdin" || /^\/dev\/fd\/\d+$/.test(operand ?? "");
+  const standardInput = first === undefined || readsStandardInput || scriptIsStandardInput ? [STANDARD_INPUT] : [];
   return meaning({ reads: first === undefined ? [] : [first], unresolved: standardInput });
 }
 

@@ -130,6 +130,21 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect(readsEnv.unresolved).toEqual([{ text: "(found path)", role: "read" }]);
   });
 
+  test("a shell whose script operand is -, /dev/stdin or /dev/fd/N reads code from its standard input, unresolved; its file effects are as written before (final review)", async () => {
+    const cases: readonly (readonly [string, readonly object[], readonly object[]])[] = [
+      ["bash - <<< 'x'", [{ effect: { kind: "read", path: "-" } }], []],
+      ["bash /dev/stdin <<< 'x'", [], [{ text: "/dev/stdin", role: "read" }]],
+      ["sh /dev/fd/0 <<< 'x'", [], [{ text: "/dev/fd/0", role: "read" }]],
+    ];
+    for (const [command, fileEffects, before] of cases) {
+      const reading = await read(command);
+      expect<unknown>({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({ command, fileEffects, unresolved: [...before, { text: "(standard input)", role: "code" }] });
+    }
+    // Another operand is a script file, read as before; /dev/fd/x is no descriptor.
+    expect((await read("bash ./-x")).unresolved).toEqual([]);
+    expect((await read("bash /dev/fd/x")).unresolved).toEqual([{ text: "/dev/fd/x", role: "read" }]);
+  });
+
   test("listing a replace string, a found path or standard input as unresolved leaves every file effect as written", async () => {
     expect((await read("ls | xargs -I{} rm .git/hooks/{}")).fileEffects).toEqual(PINNED_HOOKS);
     expect((await read("find . -name x -exec cat .env {} \\;")).fileEffects).toEqual(PINNED_FIND);

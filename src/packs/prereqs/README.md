@@ -46,9 +46,10 @@ export default defineConfig({
   may take the next word as its value, so `git --no-pager log push` counts
   too). Wrapped and nested runs count (`sudo`, `env`, `timeout`,
   `bash -c '…'`, `find -exec`, `xargs`).
-- **Where the pack cannot see what a shell command does, it refuses while
-  the rule does not hold**, saying it cannot see and why, and how to let it
-  see. A command that certainly does what the rule comes before is refused
+- **Where the pack knows it cannot see what a shell command does, it
+  refuses while the rule does not hold**, saying it cannot see and why, and
+  how to let it see. What it does not know it cannot see is listed under
+  "What it cannot see" below. A command that certainly does what the rule comes before is refused
   for that instead. For example, under the execute rule above:
   - `$TF apply`: "This call would execute `$TF apply`, and bounded cannot
     see whether it runs 'terraform apply': it runs a program whose name
@@ -162,7 +163,11 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   apply'`, `su -c $'\x74erraform apply'`, `script -c "$(echo … | base64
   -d)"`, `time $TF apply`, `coproc $TF apply`, `/usr/bin/env "$TF" apply`,
   `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`.
-  A program named by a variable is refused only where it is the run's own
+  So is code read from standard input by anything but a shell named `sh`,
+  `bash`, `zsh`, `dash` or `ksh` (those report it, `bash - <<< …`
+  included): `sudo -s`/`sudo -i` and `doas -s` with no command,
+  `source /dev/stdin` and `. /dev/stdin`, and `trap 'terra$()form apply'
+  EXIT`. A program named by a variable is refused only where it is the run's own
   name (`$TF apply`, `sudo $TF apply`).
 - **What a prefix does not match.** It matches a run's first positional
   words, in order, past options only: under `"make deploy"`,
@@ -174,11 +179,14 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   given only where the rule's program's name stands in one of its
   arguments); aliases and functions from the host's
   shell (`tf apply`); git's `!` aliases; a program named `terraform.exe`; a
-  script run through a shell or sourced (refused as cannot see, since its
-  name stands as an argument, not seen to run); PowerShell, read as bash.
-  Until `shell-reader-coverage`, write rules also miss in-place edits
+  script run through a shell or sourced, never seen to run (refused as
+  cannot see only when its name is the rule's program, written out as an
+  argument: `bash deploy.sh`; a script the shell names, `bash "$S"`, or
+  substitutes, `bash <(curl -s https://example.com/deploy)`, is allowed
+  until `shell-every-reading`); PowerShell, read as bash.
+  Until `shell-reader-coverage`, write rules miss in-place edits
   (`sed -i`), package runners (`npx`, `bunx`), a program named by its path
-  (`/bin/rm`), `time`, `coproc`, other standard-input forms (`bash -`),
+  (`/bin/rm`), `time`, `coproc`, other standard-input forms (`sudo -s`),
   `-execdir`'s directory, `trap` and `alias` values, and git's writing
   subcommands (`git checkout`, `git restore`). A delegation run from the
   shell (`claude -p --agent …`) is not seen as one.
