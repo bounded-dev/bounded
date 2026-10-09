@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { callIdOf, prerequisiteRecordsConformance, recordOf, startOf } from "../../../application/check-prerequisites/check-prerequisites.prerequisite-records.test-support.ts";
+import { agentRunIdOf, callIdOf, prerequisiteRecordsConformance, recordOf, startOf } from "../../../application/check-prerequisites/check-prerequisites.prerequisite-records.test-support.ts";
 import { FileSystemPrerequisiteRecords } from "./prerequisite-records.ts";
 
 const projectRoot = (): string => mkdtempSync(join(tmpdir(), "prereqs-records-"));
@@ -17,6 +17,9 @@ prerequisiteRecordsConformance("FileSystemPrerequisiteRecords", async () => {
     readAll: () => reader.readAll(),
     saveStartedForCall: (callId, starts) => writer.saveStartedForCall(callId, starts),
     takeStartedForCall: (callId) => reader.takeStartedForCall(callId),
+    saveStartedForRun: (agentRunId, callId, starts) => writer.saveStartedForRun(agentRunId, callId, starts),
+    takeStartedForRun: (agentRunId) => reader.takeStartedForRun(agentRunId),
+    readStartedForRuns: () => reader.readStartedForRuns(),
   };
 });
 
@@ -98,5 +101,68 @@ describe("FileSystemPrerequisiteRecords — records in the project, starts besid
     const [file] = readdirSync(dir);
     writeFileSync(join(dir, file ?? ""), "{garbled");
     await expect(records.takeStartedForCall(callIdOf("c1"))).rejects.toThrow();
+  });
+
+  test("a run's start is kept in .bounded/prereqs/started/runs/ and written whole", async () => {
+    const root = projectRoot();
+    const records = new FileSystemPrerequisiteRecords(root);
+    await records.saveStartedForRun(agentRunIdOf("a1"), callIdOf("c1"), [startOf("plan-reviewer")]);
+    const dir = join(root, ".bounded", "prereqs", "started", "runs");
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^[0-9a-f]{64}\.json$/);
+    const kept = JSON.parse(readFileSync(join(dir, files[0] ?? ""), "utf8"));
+    expect(kept).toEqual({ agentRunId: "a1", callId: "c1", startedAt: kept.startedAt, starts: [startOf("plan-reviewer").toJSON()] });
+    expect(new Date(kept.startedAt).toISOString()).toBe(kept.startedAt);
+  });
+
+  test("a run's start older than seven days is neither given back nor listed", async () => {
+    const root = projectRoot();
+    const records = new FileSystemPrerequisiteRecords(root);
+    await records.saveStartedForRun(agentRunIdOf("old"), callIdOf("c1"), [startOf("plan-reviewer")]);
+    const dir = join(root, ".bounded", "prereqs", "started", "runs");
+    const [file] = readdirSync(dir);
+    const eightDaysAgo = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+    utimesSync(join(dir, file ?? ""), eightDaysAgo, eightDaysAgo);
+    expect(await records.readStartedForRuns()).toEqual([]);
+    expect(await records.takeStartedForRun(agentRunIdOf("old"))).toBeUndefined();
+    // Six days is still within the seven.
+    await records.saveStartedForRun(agentRunIdOf("recent"), callIdOf("c2"), [startOf("plan-reviewer")]);
+    const [recent] = readdirSync(dir);
+    const sixDaysAgo = (Date.now() - 6 * 24 * 60 * 60 * 1000) / 1000;
+    utimesSync(join(dir, recent ?? ""), sixDaysAgo, sixDaysAgo);
+    expect(await records.readStartedForRuns()).toHaveLength(1);
+  });
+
+  test("saving a run's start sweeps run starts older than seven days", async () => {
+    const root = projectRoot();
+    const records = new FileSystemPrerequisiteRecords(root);
+    await records.saveStartedForRun(agentRunIdOf("abandoned"), callIdOf("c1"), [startOf("plan-reviewer")]);
+    const dir = join(root, ".bounded", "prereqs", "started", "runs");
+    const [abandoned] = readdirSync(dir);
+    const eightDaysAgo = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+    utimesSync(join(dir, abandoned ?? ""), eightDaysAgo, eightDaysAgo);
+    await records.saveStartedForRun(agentRunIdOf("next"), callIdOf("c2"), [startOf("plan-reviewer")]);
+    expect(readdirSync(dir)).toHaveLength(1);
+    expect(existsSync(join(dir, abandoned ?? ""))).toBe(false);
+  });
+
+  test("a run's start gone between listing and reading is skipped", async () => {
+    const root = projectRoot();
+    const records = new FileSystemPrerequisiteRecords(root);
+    await records.saveStartedForRun(agentRunIdOf("a1"), callIdOf("c1"), [startOf("plan-reviewer")]);
+    const dir = join(root, ".bounded", "prereqs", "started", "runs");
+    // A dangling link reads as a file that is gone (ENOENT), as one taken by another process between readdir and the read.
+    symlinkSync(join(dir, "nowhere.json"), join(dir, "x.json"));
+    expect((await records.readStartedForRuns()).map((run) => (run as { agentRunId: string }).agentRunId)).toEqual(["a1"]);
+  });
+
+  test("a run's start that is not JSON makes listing reject", async () => {
+    const root = projectRoot();
+    const records = new FileSystemPrerequisiteRecords(root);
+    const dir = join(root, ".bounded", "prereqs", "started", "runs");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${"b".repeat(64)}.json`), "{garbled");
+    await expect(records.readStartedForRuns()).rejects.toThrow();
   });
 });

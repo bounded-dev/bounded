@@ -79,4 +79,15 @@ describe("the Claude Code host installer", () => {
     const unrelated = project(JSON.stringify({ hooks: { PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: "lint" }] }] } }));
     expect(await hostInstaller.isInstalled?.(unrelated)).toBe(false);
   });
+
+  test("an install made before SubagentStop gains it on the next install, as bounded update runs it", async () => {
+    const wrapped = `{\n${PROJECT_HOOK_COMMAND}\n} || { echo "bounded hook failed" >&2; exit 2; }`;
+    const entry = (command: string) => [{ matcher: "", hooks: [{ type: "command", command, timeout: 30 }] }];
+    const root = project(JSON.stringify({ hooks: { PreToolUse: entry(wrapped), PostToolUse: entry(wrapped), PostToolUseFailure: entry(wrapped) } }));
+    expect(await hostInstaller.install(root)).toEqual({ ok: true, value: { host: "claude-code", changedPaths: [".claude/settings.json"], skippedBecause: null } });
+    const settings = settingsOf(root) as { hooks: Record<string, unknown> };
+    expect(settings.hooks.SubagentStop).toEqual(entry(PROJECT_HOOK_COMMAND));
+    expect(settings.hooks.PreToolUse).toEqual(entry(wrapped));
+    expect(await hostInstaller.install(root)).toEqual({ ok: true, value: { host: "claude-code", changedPaths: [], skippedBecause: null } });
+  });
 });

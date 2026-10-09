@@ -31,8 +31,10 @@ hosts:
   project's own configuration ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)).
 - **The prerequisites pack** (`bounded/prereqs`, in 3.2.0): an
   action waits until a delegation to a named agent has succeeded over files
-  unchanged since; only a run the host says finished counts
+  unchanged since; only a run the host says finished counts, as the agent
+  the host resolved, and from 3.3.0 a background run counts at its finish
   ([ADR 2026-019](docs/adr/2026-019-prereqs-pack.md),
+  [ADR 2026-025](docs/adr/2026-025-agent-run-finish.md),
   [its README](src/packs/prereqs/README.md)).
 - **The Bounded log**: every decision, and every refusal a host adapter
   makes itself, recorded in `.bounded/log.jsonl`
@@ -50,7 +52,7 @@ hosts:
   moved aside, reported and recorded; tampered snapshots are detected
   ([docs/drift.md](docs/drift.md)).
 - **Host adapters**: Claude Code hooks (PreToolUse, PostToolUse,
-  PostToolUseFailure; [docs/adapter-claude-code.md](docs/adapter-claude-code.md))
+  PostToolUseFailure, SubagentStop; [docs/adapter-claude-code.md](docs/adapter-claude-code.md))
   and a pi extension (tool_call, tool_result;
   [docs/adapter-pi.md](docs/adapter-pi.md)), in `src/hosts/`.
 

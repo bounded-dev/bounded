@@ -3,4 +3,5 @@ import { ToolResult } from "./tool-result.ts";
 
 const done = { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } }], ok: true, callId: "toolu_1" };
 const delegated = { kind: "tool-result", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }], ok: true, callId: "toolu_3", delegatedAgentRuns: [{ finished: true }, { finished: false }] };
-valueObjectLaws("ToolResult", ToolResult, [done, { ...done, ok: false, callId: "toolu_2" }, delegated], [{ ...done, ok: "yes" }, { ...done, effects: [] }, { ...done, kind: "tool-use" }, { ...delegated, delegatedAgentRuns: [{ finished: true }] }]);
+const launched = { ...delegated, callId: "toolu_4", delegatedAgentRuns: [{ finished: true, agentRunId: "a1", resolvedAgent: "a" }, { finished: false, agentRunId: "a2", finishReportedLater: true }] };
+valueObjectLaws("ToolResult", ToolResult, [done, { ...done, ok: false, callId: "toolu_2" }, delegated, launched], [{ ...delegated, delegatedAgentRuns: [{ finished: true, agentRunId: "a1", finishReportedLater: true }, { finished: false }] }, { ...done, ok: "yes" }, { ...done, effects: [] }, { ...done, kind: "tool-use" }, { ...delegated, delegatedAgentRuns: [{ finished: true }] }]);

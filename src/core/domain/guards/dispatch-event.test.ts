@@ -329,7 +329,7 @@ describe("decideEvent — the verdict and who refused", () => {
 describe("corePack", () => {
   test("is the pack bounded/core, declaring a guards point per event kind and per effect kind", () => {
     expect(corePack.id.value).toBe("bounded/core");
-    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards"]);
+    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onAgentRunFinish", "onProjectOpen", "sessionStartGuards", "toolUseGuards"]);
     expect(Object.keys(corePack.points.effectGuards).sort()).toEqual(["delegate", "execute", "fetch", "invoke", "list", "read", "write"]);
     expect(corePack.dependsOn).toEqual([]);
   });

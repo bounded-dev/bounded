@@ -1,0 +1,26 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000006",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000006.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000006",
+  "permission_mode": "default",
+  "agent_id": "a200fbb5b748e07d4",
+  "agent_type": "plan-reviewer",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000006/subagents/agent-a200fbb5b748e07d4.jsonl",
+  "last_assistant_message": "Finding: the plan is a stub.\n\nVerdict: revise",
+  "background_tasks": [
+    {
+      "id": "a200fbb5b748e07d4",
+      "type": "subagent",
+      "status": "running",
+      "description": "Review plan.md",
+      "agent_type": "plan-reviewer"
+    }
+  ],
+  "session_crons": []
+}

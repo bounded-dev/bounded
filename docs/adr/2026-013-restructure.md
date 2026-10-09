@@ -16,7 +16,10 @@ suite through the declaring package's export path. Amended by
 Amended by [ADR 2026-024](2026-024-src-layout.md) (src layout): R1–R7 read
 a path's unit (the core, a library, a shipped pack in `src/packs/<name>/`,
 or an app) as that ADR defines it, and the composition root is
-`src/core/composition-root/`.
+`src/core/composition-root/`. Amended by [ADR 2026-025](2026-025-agent-run-finish.md): the core pack gains the
+lifecycle point `onAgentRunFinish`, and `ProjectJudge` and
+`ProjectLifecycle` gain `recordAgentRunFinish`, which hosts call when a
+delegated agent run they started finishes.
 
 ## Decision
 

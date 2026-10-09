@@ -4,11 +4,13 @@
 // itself is also recorded. PostToolUse and PostToolUseFailure (a call that
 // failed, such as a command exiting 1): the finished call is checked after
 // the fact, and what bounded undid, or could not check, is told to Claude.
+// SubagentStop: a delegated run's finish is handed on to be recorded, and the
+// answer is always empty (ADR 2026-025).
 import { type Refuse, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import { type PathResolver, type ToolUse, toToolUse } from "./event.ts";
 import { isRecord } from "./json.ts";
-import { agentRunFinished, type Payload, readPayload, translate } from "./translate.ts";
+import { delegatedAgentRunOf, type Payload, readPayload, translate } from "./translate.ts";
 
 /** The project a decision is for. */
 export interface Project {
@@ -34,6 +36,9 @@ export type AfterTool = (result: ToolResult, project: Project) => Promise<{ read
 /** Records a refusal the hook made itself. Its outcome never changes or delays the answer. */
 export type RecordRefusal = (refusal: AdapterRefusal, project: Project) => Promise<unknown>;
 
+/** Hands a delegated run's finish, in the core's wire form, on to be recorded (ADR 2026-025). Its outcome never changes the answer. */
+export type RecordAgentRunFinish = (finish: unknown, project: Project) => Promise<void>;
+
 export interface Hook {
   /** Claude Code's project root; the session's cwd falls back to it. */
   readonly projectRoot: string;
@@ -47,6 +52,8 @@ export interface Hook {
   /** Checks a finished call; without it, PostToolUse and PostToolUseFailure answer nothing. */
   readonly afterTool?: AfterTool;
   readonly record?: RecordRefusal;
+  /** Records a SubagentStop as the run's finish; without it, SubagentStop answers nothing. */
+  readonly recordAgentRunFinish?: RecordAgentRunFinish;
 }
 
 /** The redirect for every failure of the hook itself. */
@@ -61,7 +68,8 @@ export function respond(verdict: Verdict): string {
 
 /** The hook's answer to its stdin. Never rejects. */
 export async function runHook(stdin: string, hook: Hook): Promise<string> {
-  const event = peek(stdin, "hook_event_name");
+  const event = hookEventOf(stdin);
+  if (event === "SubagentStop") return agentRunFinish(stdin, hook);
   if (event === "PostToolUse" || event === "PostToolUseFailure") return afterToolUse(stdin, hook, event);
   const refused = (verdict: Refuse): Refuse => record(verdict, stdin, hook);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -118,13 +126,13 @@ async function afterToolUse(stdin: string, hook: Hook, event: "PostToolUse" | "P
       const response = peek(stdin, "tool_response");
       // An Agent call's run finished only when its response says so; a failure never says so.
       const delegates = use.ok ? use.value.effects.filter((effect) => effect.kind === "delegate").length : 0;
-      const finished = event === "PostToolUse" && agentRunFinished(response);
+      const run = event === "PostToolUse" ? delegatedAgentRunOf(response) : { finished: false };
       const result = ToolResult.parse({
         ...(use.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: payload.value.tool_name }] }),
         kind: "tool-result",
         ok: event === "PostToolUse" && !(isRecord(response) && response.success === false),
         ...(payload.value.callId === undefined ? {} : { callId: payload.value.callId }),
-        ...(delegates === 0 ? {} : { delegatedAgentRuns: Array.from({ length: delegates }, () => ({ finished })) }),
+        ...(delegates === 0 ? {} : { delegatedAgentRuns: Array.from({ length: delegates }, () => run) }),
       });
       if (!result.ok) throw new Error(result.error);
       return afterTool(result.value, { projectRoot });
@@ -138,6 +146,35 @@ async function afterToolUse(stdin: string, hook: Hook, event: "PostToolUse" | "P
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Answers a SubagentStop: the run's finish, in the core's wire form, is handed
+ * to recordAgentRunFinish, within the hook's deadline, and the answer is
+ * always empty. A block would keep the subagent running, and there is
+ * nothing to refuse: the run has finished. Claude Code 2.1.294 says nothing
+ * of whether the run ran to its end, so `ranToEnd` is null; a field it leaves
+ * out is passed on as null, for the core to record as unreadable. An empty
+ * agent_type names no agent a rule can require, so nothing is sent.
+ */
+async function agentRunFinish(stdin: string, { recordAgentRunFinish, role, projectRoot, deadlineMs }: Hook): Promise<string> {
+  if (recordAgentRunFinish === undefined) return "";
+  const agent = peek(stdin, "agent_type");
+  if (agent === "") return "";
+  const agentRunId = peek(stdin, "agent_id");
+  const finish = { kind: "agent-run-finished", role, agent: typeof agent === "string" ? agent : null, agentRunId: typeof agentRunId === "string" ? agentRunId : null, ranToEnd: null };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<void>((settle) => {
+    timer = setTimeout(settle, deadlineMs);
+  });
+  try {
+    await Promise.race([Promise.resolve().then(() => recordAgentRunFinish(finish, { projectRoot })), late]);
+  } catch {
+    // Not recorded: there is nothing to refuse, and the answer stays empty.
+  } finally {
+    clearTimeout(timer);
+  }
+  return "";
 }
 
 async function toolUseOf(payload: Payload, { projectRoot, role, paths, readShellCommand }: Pick<Hook, "projectRoot" | "role" | "paths" | "readShellCommand">): Promise<Result<ToolUse, Refuse>> {
@@ -155,6 +192,11 @@ function record(verdict: Refuse, stdin: string, { record, role, projectRoot }: H
     .then(() => record(refusal, { projectRoot }))
     .catch(() => {});
   return verdict;
+}
+
+/** The hook event the input names, read without trusting it; undefined when absent or unreadable. */
+export function hookEventOf(stdin: string): unknown {
+  return peek(stdin, "hook_event_name");
 }
 
 /** One top-level field of the hook's input, read without trusting it; undefined when absent or unreadable. */

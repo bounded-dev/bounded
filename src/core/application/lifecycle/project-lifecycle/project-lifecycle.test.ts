@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AfterTool,
+  AgentRunFinished,
+  type AgentRunFinishHandler,
   type BeforeTool,
   type BasePack,
   Composition,
@@ -49,6 +51,8 @@ const [a, b] = [packId("a"), packId("b")];
 /** A pack that depends on the core, built without its id checked at compile time, so one helper serves both test packs. */
 const packOf = definePack as unknown as (spec: object) => BasePack;
 const before = (id: typeof a | typeof b, checks: BeforeTool[]) => packOf({ id, dependsOn: [corePack], contributes: [contribution(corePack.points.beforeTool, checks)] });
+const atFinish = (id: typeof a | typeof b, checks: AgentRunFinishHandler[]) => packOf({ id, dependsOn: [corePack], contributes: [contribution(corePack.points.onAgentRunFinish, checks)] });
+const finish = parsed(AgentRunFinished.parse({ role: "builder", agent: "plan-reviewer", agentRunId: "a1", ranToEnd: null }));
 const after = (id: typeof a | typeof b, checks: AfterTool[]) => packOf({ id, dependsOn: [corePack], contributes: [contribution(corePack.points.afterTool, checks)] });
 
 /** A before-tool check that notes its name and answers `verdict`. */
@@ -129,5 +133,84 @@ describe("ProjectLifecycleHandler — after a tool ran", () => {
     const failing: BoundedLog = { record: async () => { throw new Error("disk full"); } };
     const { handler } = lifecycle([after(a, [async () => ({ message: "Restored", record: { verdict: Verdict.refuse("changed", "restore"), refusedBy: null, note: "n" } })])], failing);
     expect(await handler.after(result)).toEqual({ message: "Restored" });
+  });
+});
+
+describe("ProjectLifecycleHandler — when an agent run finishes", () => {
+  test("runs every finish check in pack order, each given the finish, the composition and the ports, and records each report's record on the finish", async () => {
+    const log = new Log();
+    const seen: string[] = [];
+    const { handler, composition, ports } = lifecycle(
+      [
+        atFinish(b, [
+          async (given, context) => {
+            seen.push(`b ${given.agentRunId.value} ${context.composition === composition} ${context.ports === ports}`);
+            return { record: { verdict: Verdict.refuse("plan-reviewer's run a1 did not count", "Run it again"), note: "not recorded" } };
+          },
+        ]),
+        atFinish(a, [
+          async (given) => {
+            seen.push(`a ${given.agent.value}`);
+            return { record: { verdict: Verdict.allow, note: "recorded" } };
+          },
+        ]),
+      ],
+      log,
+    );
+    expect(await handler.recordAgentRunFinish(finish)).toBeUndefined();
+    expect(seen).toEqual(["a plan-reviewer", "b a1 true true"]);
+    expect(log.decisions.map((decision) => decision.toJSON())).toEqual([
+      { id: expect.any(String), time: "2026-10-07T12:00:00.000Z", event: "agent-run-finished", role: "builder", tool: null, effects: [], verdict: { kind: "allow" }, note: "plan-reviewer's run a1 finished (ran to its end: not said): recorded" },
+      {
+        id: expect.any(String),
+        time: "2026-10-07T12:00:00.000Z",
+        event: "agent-run-finished",
+        role: "builder",
+        tool: null,
+        effects: [],
+        verdict: { kind: "refuse", reason: "plan-reviewer's run a1 did not count", redirect: "Run it again", pack: "test-packs/b", effect: null },
+        note: "plan-reviewer's run a1 finished (ran to its end: not said): not recorded",
+      },
+    ]);
+  });
+
+  test("a finish no check records anything for writes nothing to the Bounded log", async () => {
+    const log = new Log();
+    const { handler } = lifecycle([atFinish(a, [async () => ({ record: null })])], log);
+    await handler.recordAgentRunFinish(finish);
+    expect(log.decisions).toEqual([]);
+    const none = new Log();
+    await lifecycle([], none).handler.recordAgentRunFinish(finish);
+    expect(none.decisions).toEqual([]);
+  });
+
+  test("a check that throws, or reports nonsense, is recorded as a refusal naming its pack, the agent and the run, and later checks still run", async () => {
+    const log = new Log();
+    const seen: string[] = [];
+    const { handler } = lifecycle(
+      [
+        atFinish(a, [async () => { throw new Error("boom"); }, async () => "done" as never]),
+        atFinish(b, [async () => { seen.push("b"); return { record: null }; }]),
+      ],
+      log,
+    );
+    await handler.recordAgentRunFinish(finish);
+    expect(seen).toEqual(["b"]);
+    expect(log.decisions.map((decision) => decision.toJSON().verdict)).toEqual([
+      { kind: "refuse", reason: "test-packs/a could not handle the finish of plan-reviewer's run a1: boom", redirect: "Report this to the maintainers of test-packs/a", pack: "test-packs/a", effect: null },
+      {
+        kind: "refuse",
+        reason: "test-packs/a could not handle the finish of plan-reviewer's run a1: it reported something that is not an agent run finish report",
+        redirect: "Report this to the maintainers of test-packs/a",
+        pack: "test-packs/a",
+        effect: null,
+      },
+    ]);
+  });
+
+  test("a record that cannot be written is swallowed: recordAgentRunFinish never rejects", async () => {
+    const failing: BoundedLog = { record: async () => { throw new Error("disk full"); } };
+    const { handler } = lifecycle([atFinish(a, [async () => ({ record: { verdict: Verdict.allow, note: "recorded" } })])], failing);
+    expect(await handler.recordAgentRunFinish(finish)).toBeUndefined();
   });
 });

@@ -1,0 +1,83 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000005",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000005.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000005",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Review plan.md",
+    "prompt": "review plan.md",
+    "subagent_type": "Plan-Reviewer",
+    "run_in_background": false
+  },
+  "tool_response": {
+    "status": "completed",
+    "prompt": "review plan.md",
+    "agentId": "ade9718fcccf40d18",
+    "agentType": "plan-reviewer",
+    "harnessNoteCount": 0,
+    "harnessTailCount": 0,
+    "harnessSectionHash": "f277c9c0174fe9fd",
+    "content": [
+      {
+        "type": "text",
+        "text": "Finding: the plan is a stub.\n\nVerdict: revise"
+      }
+    ],
+    "resolvedModel": "claude-haiku-5-5",
+    "totalDurationMs": 3207,
+    "totalTokens": 4167,
+    "totalToolUseCount": 1,
+    "usage": {
+      "output_tokens_details": {
+        "thinking_tokens": 244
+      },
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 925,
+      "cache_read_input_tokens": 2890,
+      "output_tokens": 350,
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 925
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 350,
+          "cache_read_input_tokens": 2890,
+          "cache_creation_input_tokens": 925,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 925,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "toolStats": {
+      "readCount": 1,
+      "searchCount": 0,
+      "bashCount": 0,
+      "editFileCount": 0,
+      "linesAdded": 0,
+      "linesRemoved": 0,
+      "otherToolCount": 0
+    },
+    "canContinueAgent": true
+  },
+  "tool_use_id": "toolu_011xX7bmMpFPZ1oGgJefWPuE",
+  "duration_ms": 3208
+}

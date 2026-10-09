@@ -1,0 +1,23 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000008",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000008.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000008",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "TaskStop",
+  "tool_input": {
+    "task_id": "a4176902638d1b659"
+  },
+  "tool_response": {
+    "message": "Successfully stopped task: a4176902638d1b659 (Run slow agent probe)",
+    "task_id": "a4176902638d1b659",
+    "task_type": "local_agent",
+    "command": "Run slow agent probe"
+  },
+  "tool_use_id": "toolu_015ipPh651F14dtskiodSXxk",
+  "duration_ms": 3
+}

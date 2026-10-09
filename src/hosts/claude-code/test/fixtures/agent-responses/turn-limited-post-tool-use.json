@@ -1,0 +1,82 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000003",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000003.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000003",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Read three project files",
+    "prompt": "Working directory: /project\n\nRead plan.md in that directory first. Then read two more files from the same project that plan.md references (or, if it references none, the first two files under capture/ that you can reach by reading paths you know). Read the files one at a time. Then give a short answer: a summary of what each of the three files contains, and anything in them that looks incomplete or contradictory. If a file cannot be read, say so and continue with the others.",
+    "subagent_type": "turn-limited"
+  },
+  "tool_response": {
+    "status": "completed",
+    "prompt": "Working directory: /project\n\nRead plan.md in that directory first. Then read two more files from the same project that plan.md references (or, if it references none, the first two files under capture/ that you can reach by reading paths you know). Read the files one at a time. Then give a short answer: a summary of what each of the three files contains, and anything in them that looks incomplete or contradictory. If a file cannot be read, say so and continue with the others.",
+    "agentId": "ab428aba50349fc91",
+    "agentType": "turn-limited",
+    "harnessNoteCount": 1,
+    "harnessTailCount": 0,
+    "harnessSectionHash": "8707d9d2f7c6cbbb",
+    "content": [
+      {
+        "type": "text",
+        "text": "NOTE: this agent stopped at its 1-turn limit before finishing. It was still calling tools and had produced no report. Send the agent a message (SendMessage) to let it continue from where it stopped.\n"
+      }
+    ],
+    "resolvedModel": "claude-haiku-5-5",
+    "totalDurationMs": 3184,
+    "totalTokens": 3697,
+    "totalToolUseCount": 1,
+    "usage": {
+      "output_tokens_details": {
+        "thinking_tokens": 456
+      },
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1715,
+      "cache_read_input_tokens": 1386,
+      "output_tokens": 594,
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 1715
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 594,
+          "cache_read_input_tokens": 1386,
+          "cache_creation_input_tokens": 1715,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 1715,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "toolStats": {
+      "readCount": 1,
+      "searchCount": 0,
+      "bashCount": 0,
+      "editFileCount": 0,
+      "linesAdded": 0,
+      "linesRemoved": 0,
+      "otherToolCount": 0
+    },
+    "canContinueAgent": true
+  },
+  "tool_use_id": "toolu_01GBCiZQ6NY6384PsXn4d47s",
+  "duration_ms": 3184
+}

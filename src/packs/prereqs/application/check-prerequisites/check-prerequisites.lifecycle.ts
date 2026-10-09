@@ -1,4 +1,4 @@
-import type { AfterTool, BeforeTool, Effect, LifecycleContext } from "bounded/domain";
+import type { AfterTool, AgentRunFinishHandler, BeforeTool, Effect, LifecycleContext } from "bounded/domain";
 import { Verdict } from "bounded/domain";
 import { rulesIn } from "../../domain/prerequisite-rule.ts";
 import { fileSetFingerprintsPort, prerequisiteRecordsPort } from "./check-prerequisites.contract.ts";
@@ -26,7 +26,7 @@ function concerns({ composition }: LifecycleContext, effects: readonly Effect[])
   if (point === undefined) return false;
   const rules = composition.entries(point);
   if (!rules.ok) return true;
-  return rules.value.some(({ value: rule }) => effects.some((effect) => rule.comesBefore(effect) || (effect.kind === "delegate" && rule.requiresDelegationTo(effect.agent))));
+  return rules.value.some(({ value: rule }) => effects.some((effect) => rule.comesBefore(effect) || (effect.kind === "delegate" && rule.mayResolveToRequiredAgent(effect.agent))));
 }
 
 /** Before a tool call runs: refuse an action whose prerequisite does not hold, and keep the start of a delegation some rule requires. */
@@ -45,4 +45,13 @@ export const recordAfterTool: AfterTool = async (result, context) => {
   const message = `${PREFIX} prerequisites cannot be recorded after this call: ${check}`;
   const effect = result.effects.find((given) => given.kind === "delegate") ?? null;
   return { message, record: { verdict: Verdict.refuse(message, NO_PORTS), refusedBy: { effect }, note: "a prerequisite could not be recorded" } };
+};
+
+/** When a run whose finish the host reports later has finished: record it if it meets a requirement over unchanged files, or record why not (ADR 2026-025). */
+export const recordRunAtFinish: AgentRunFinishHandler = async (finish, context) => {
+  const check = handler(context);
+  if (typeof check !== "string") return check.recordAgentRunFinish(finish);
+  if (rulesIn(context.composition) === undefined) return { record: null };
+  const reason = `${PREFIX} the finish of ${finish.agent.value}'s run ${finish.agentRunId.value} cannot be recorded: ${check}`;
+  return { record: { verdict: Verdict.refuse(reason, NO_PORTS), note: "a prerequisite could not be recorded" } };
 };

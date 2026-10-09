@@ -5,7 +5,11 @@
 today under the new names. Amends [ADR 2026-010](2026-010-project-configuration.md)
 (the default log is `<root>/.bounded/log.jsonl`) and
 [ADR 2026-013](2026-013-restructure.md) (A's first bullet: the decision log is
-the Bounded log, not the guard log).
+the Bounded log, not the guard log). Amended by [ADR 2026-025](2026-025-agent-run-finish.md): the log also
+records decisions on an agent run's finish, event kind
+`"agent-run-finished"`, with no tool and no effects, but only what packs
+report: a finish no pack reports on writes no line; one that cannot be read
+is recorded as `invalid`.
 
 ## Context
 

@@ -4,7 +4,7 @@ import type { SessionStart } from "../events/session-start.contract.ts";
 import type { ToolUse } from "../events/tool-use.contract.ts";
 import type { EffectGuard, Guard } from "../guards/dispatch.contract.ts";
 import type { PointDeclaration, PointGroupDeclaration } from "../packs/pack.contract.ts";
-import type { AfterTool, BeforeTool, CoreId, ProjectOpenHandler } from "./core.contract.ts";
+import type { AfterTool, AgentRunFinishHandler, BeforeTool, CoreId, ProjectOpenHandler } from "./core.contract.ts";
 
 // The core pack's points as declared, before core.pack.ts binds them into
 // the pack: each takes functions, checked to be functions when contributed.
@@ -18,3 +18,4 @@ export type EffectGuardsPoint = PointGroupDeclaration<{ readonly [K in EffectKin
 export type BeforeToolPoint = PointDeclaration<BeforeTool>;
 export type AfterToolPoint = PointDeclaration<AfterTool>;
 export type OnProjectOpenPoint = PointDeclaration<ProjectOpenHandler>;
+export type OnAgentRunFinishPoint = PointDeclaration<AgentRunFinishHandler>;

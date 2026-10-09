@@ -2,7 +2,7 @@
 // effects. Pure: no file system, no process. Paths stay as Claude Code gave
 // them; event.ts resolves them through a port.
 import { isAbsolute, join } from "node:path";
-import { type Change, type Refuse, type Result, type ToolKind, Verdict } from "bounded/domain";
+import { type Change, type DelegatedAgentRunJSON, type Refuse, type Result, type ToolKind, Verdict } from "bounded/domain";
 import picomatch from "picomatch";
 import { isRecord } from "./json.ts";
 
@@ -144,6 +144,35 @@ export function translate({ tool_name: name, tool_input: input }: Payload): Resu
  */
 export function agentRunFinished(response: unknown): boolean {
   return isRecord(response) && response.status === "completed" && typeof response.harnessNoteCount === "number" && response.harnessNoteCount === 0;
+}
+
+/** Text that is not blank, or undefined. */
+const nonBlank = (raw: unknown): string | undefined => (typeof raw === "string" && raw.trim() !== "" ? raw : undefined);
+
+/**
+ * What an Agent (or Task) call's tool_response says of its run (ADR 2026-025),
+ * as captured from Claude Code 2.1.294: whether it finished (agentRunFinished);
+ * its `agentId` as the run's id, for a `completed` or `async_launched`
+ * response; that its finish is reported later, by SubagentStop, only for an
+ * `async_launched` response with `isAsync: true` and an id; and, for a
+ * finished run, its `agentType` as the agent Claude Code resolved the
+ * requested name to. A run stopped at its turn limit says completed with an
+ * id but is not finished, and no SubagentStop follows it.
+ */
+export function delegatedAgentRunOf(response: unknown): DelegatedAgentRunJSON {
+  const finished = agentRunFinished(response);
+  if (!isRecord(response)) return { finished };
+  const { status } = response;
+  const agentRunId = status === "completed" || status === "async_launched" ? nonBlank(response.agentId) : undefined;
+  const finishReportedLater = status === "async_launched" && response.isAsync === true && agentRunId !== undefined;
+  // Only a finished run counts, so only its resolved agent is given.
+  const resolvedAgent = finished ? nonBlank(response.agentType) : undefined;
+  return {
+    finished,
+    ...(agentRunId === undefined ? {} : { agentRunId }),
+    ...(finishReportedLater ? { finishReportedLater: true as const } : {}),
+    ...(resolvedAgent === undefined ? {} : { resolvedAgent }),
+  };
 }
 
 /**

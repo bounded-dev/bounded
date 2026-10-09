@@ -17,8 +17,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
   project [configuration](configuration.md) (`bounded.config.ts`,
   [ADR 2026-010](adr/2026-010-project-configuration.md)). The core pack
   `bounded/core` declares the guard points and the lifecycle points
-  `onProjectOpen`, `beforeTool` and `afterTool`; packs get adapters through
-  ports the host provides ([ADR 2026-013](adr/2026-013-restructure.md)).
+  `onProjectOpen`, `beforeTool`, `afterTool` and `onAgentRunFinish`; packs
+  get adapters through ports the host provides
+  ([ADR 2026-013](adr/2026-013-restructure.md),
+  [ADR 2026-025](adr/2026-025-agent-run-finish.md)).
   A selection brings in every pack its listed packs depend on, transitively
   ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)); the
   project still contributes only to points of packs it lists.
@@ -61,7 +63,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   since. Its records and starts are in `.bounded/prereqs/`; its two ports
   are provided by both hosts. The core's delegate effect carries `isolated`
   and `finishUnreported`, and a tool result `delegatedAgentRuns`: only a run
-  the host says finished counts.
+  the host says finished counts, as the agent the host resolved
+  (`require` matches it exactly). From 3.3.0 a background run counts at its
+  finish: the core's `AgentRunFinished`, from Claude Code's SubagentStop,
+  reaches the pack through `onAgentRunFinish`, and until then an action
+  waiting on it is refused as pending
+  ([ADR 2026-025](adr/2026-025-agent-run-finish.md)).
 - **Host adapters** in `src/hosts/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
 - **One package, `bounded` 3.3.0, ready to publish; 3.2.0 is published**
@@ -175,7 +182,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
     - `cp -t "$D" x`: read as a read of `x`; lost: the write into the
       directory.
     - `env -S $S rm x`: read as nothing; lost: `rm x` and its delete of `x`.
-- **The prerequisites pack's limits** ([ADR 2026-019](adr/2026-019-prereqs-pack.md)):
+- **The prerequisites pack's limits** ([ADR 2026-019](adr/2026-019-prereqs-pack.md), [ADR 2026-025](adr/2026-025-agent-run-finish.md)):
   - `before: { write }` matches file tools' writes only; a shell command's
     writes are not matched yet, though the core now carries them in each
     execute effect's reading (item `prereqs-execute`).
@@ -186,10 +193,17 @@ when written; keep it current (AGENTS.md, "Working with the user").
     only the project's (`.claude/agents/`, pi-subagents' project agent
     directory) can be protected. User-level `~/.claude/agents/` and pi's
     user-level agents are not covered.
-  - Background runs never count until the finish event is built: in
-    interactive Claude Code a requirement is met only with background
-    subagents disabled (`CLAUDE_CODE_FORK_SUBAGENT=0` or
-    `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`).
+  - A run whose finish never comes never counts: Claude Code 2.1.294 sends
+    no SubagentStop for a run stopped at its turn limit (foreground or
+    background) nor for a background run stopped with TaskStop (both
+    captured). Such a run shows as pending for up to seven days.
+  - Unknown, uncaptured: whether a run interrupted by the user (Esc) or
+    ended by an API error fires SubagentStop. If it does, Claude Code does
+    not say how it ended, so the run counts (failing open). Also unknown:
+    Ctrl+B on a foreground run, a finish before its launch result, and an
+    empty `agent_type`.
+  - A finish can be forged by piping a SubagentStop payload to the hook from
+    a shell, as anything running as the user can (see the same-user limits).
   - On pi no requirement can be met yet: pi-subagents 0.52.1 runs a call in
     the background unless it says `async: false`
     (`src/extension/config.ts:150-151`), `forceTopLevelAsync` can override
@@ -203,7 +217,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
     they match, makes the rule refuse, naming the link; so does a FIFO,
     socket or device they match. Other links are ignored.
   - `before.delegate` folds case and spaces (Claude Code resolves agent
-    names case-insensitively, seen on 2.1.294); `require` is exact.
+    names case-insensitively, seen on 2.1.294); `require` matches the agent
+    the host resolved, exactly, so a run whose host does not say which agent
+    ran never counts.
   - Records are never compacted.
   - `beforeTool` refusals are recorded with `refusedBy: null`, naming no
     pack in the Bounded log (the reason names it).
@@ -325,7 +341,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
     a host that sends an execute effect without a reading, as every 3.2.0
     host did, has each such call refused as an event that cannot be read and
     recorded as invalid, and a tool result's execute effects must now carry a
-    reading, where 3.2.0 refused one. `--from <dir>` stays only for installing a
+    reading, where 3.2.0 refused one. 3.3.0 also observes a delegated agent
+    run's finish ([ADR 2026-025](adr/2026-025-agent-run-finish.md)),
+    additively: `AgentRunFinished`, `onAgentRunFinish`, the
+    `agent-run-finished` Bounded log kind, three optional result-entry
+    fields, Claude Code's SubagentStop hook (`bounded update` installs it),
+    and a method `ProjectJudge` now requires, `recordAgentRunFinish`, which
+    `openProject` builds. `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
@@ -380,9 +402,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   below), no other command-line tool exists.
 - A file-backed pack catalog (only the in-memory catalog exists).
 - The prerequisites pack's next items (ADR 2026-019, "Future work"):
-  observing an agent run's finish (`prereqs-run-finish`, gated on a capture
-  of Claude Code's SubagentStop payloads), pi-subagents' asynchronous
-  completion (`prereqs-pi-async`), `before: { execute }` with shell writes
+  pi-subagents' asynchronous completion (`prereqs-pi-async`, mapped to the
+  agent run finish of ADR 2026-025), `before: { execute }` with shell writes
   (`prereqs-execute`, item (ii) of ADR 2026-020: matched against each
   execute effect's reading, refusing where it cannot see), and a Claude
   Code status widget listing each requirement as holds, stale or missing.

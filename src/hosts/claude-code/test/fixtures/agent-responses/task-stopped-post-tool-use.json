@@ -1,0 +1,30 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000008",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000008.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000008",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Run slow agent probe",
+    "prompt": "go",
+    "subagent_type": "slow"
+  },
+  "tool_response": {
+    "isAsync": true,
+    "status": "async_launched",
+    "agentId": "a4176902638d1b659",
+    "description": "Run slow agent probe",
+    "resolvedModel": "claude-haiku-5-5",
+    "prompt": "go",
+    "outputFile": "/tmp/claude/project/00000000-0000-4000-8000-000000000008/tasks/a4176902638d1b659.output",
+    "canReadOutputFile": true,
+    "canContinueAgent": true
+  },
+  "tool_use_id": "toolu_0127L25bTG5JGnjQuvaGde7r",
+  "duration_ms": 3
+}

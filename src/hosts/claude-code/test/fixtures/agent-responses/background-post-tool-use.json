@@ -1,0 +1,30 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000001",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Review plan.md",
+    "prompt": "Review the file plan.md in the working directory /project/plan.md. Return your one line of findings and the verdict line.",
+    "subagent_type": "plan-reviewer"
+  },
+  "tool_response": {
+    "isAsync": true,
+    "status": "async_launched",
+    "agentId": "a6eef1505a0b443a2",
+    "description": "Review plan.md",
+    "resolvedModel": "claude-haiku-5-5",
+    "prompt": "Review the file plan.md in the working directory /project/plan.md. Return your one line of findings and the verdict line.",
+    "outputFile": "/tmp/claude/project/00000000-0000-4000-8000-000000000001/tasks/a6eef1505a0b443a2.output",
+    "canReadOutputFile": true,
+    "canContinueAgent": true
+  },
+  "tool_use_id": "toolu_01AW2ttSVfJ4u3ZpwBztUbJR",
+  "duration_ms": 6
+}

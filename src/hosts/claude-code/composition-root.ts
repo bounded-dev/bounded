@@ -1,7 +1,7 @@
 // The composition root: the only place that chooses the adapters and reads
 // the environment. It returns the hook, ready to host; run.ts hosts it.
 //
-// THE SEAM: `decide`, with the optional `afterTool` and `record`. main.ts
+// THE SEAM: `decide`, with the optional `afterTool`, `record` and `recordAgentRunFinish`. main.ts
 // passes the `...FromConfig` ones, which open the project with its
 // bounded.config.ts and ask the core's judge; tests inject their own.
 import { Verdict } from "bounded/domain";
@@ -9,7 +9,7 @@ import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { openShellCommandReading, type ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
-import { type AfterTool, type Decide, type RecordRefusal, respond, runHook } from "./hook.ts";
+import { type AfterTool, type Decide, hookEventOf, type RecordAgentRunFinish, type RecordRefusal, respond, runHook } from "./hook.ts";
 import { projectPaths } from "./paths.ts";
 
 /**
@@ -39,6 +39,7 @@ export interface Wiring {
   readonly decide: Decide;
   readonly afterTool?: AfterTool;
   readonly record?: RecordRefusal;
+  readonly recordAgentRunFinish?: RecordAgentRunFinish;
   /** How shell commands are read; bounded's reader by default, tests inject their own. */
   readonly readShellCommand?: ReadShellCommand;
   /** Defaults to DEADLINE_MS; tests inject a short one. */
@@ -65,13 +66,16 @@ export const afterToolFromConfig: AfterTool = async (result, { projectRoot }) =>
 /** Records a refusal the hook made itself in the project's Bounded log. */
 export const recordFromConfig: RecordRefusal = async (refusal, { projectRoot }) => (await open(projectRoot)).refuse(refusal);
 
+/** When a subagent stops: the project's judge hands its run's finish to the packs, which record what they find (ADR 2026-025). */
+export const recordAgentRunFinishFromConfig: RecordAgentRunFinish = async (finish, { projectRoot }) => (await open(projectRoot)).recordAgentRunFinish(finish);
+
 /**
  * The hook for one process: stdin text in, stdout text out. The shell
  * command reader starts preparing here, once, without the hook waiting for
  * it: a first read waits for it, within the reader's own bounds and the
  * hook's deadline.
  */
-export function composeHook({ env, argv, decide, afterTool, record, readShellCommand = shellCommandReading, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
+export function composeHook({ env, argv, decide, afterTool, record, recordAgentRunFinish, readShellCommand = shellCommandReading, deadlineMs = DEADLINE_MS }: Wiring): (stdin: string) => Promise<string> {
   const projectRoot = env.CLAUDE_PROJECT_DIR;
   if (projectRoot === undefined || !projectRoot.startsWith("/")) {
     return refuseAll(
@@ -83,7 +87,11 @@ export function composeHook({ env, argv, decide, afterTool, record, readShellCom
   if (role === undefined) return refuseAll("--role is given without a role label", "Give the role after it, as in --role builder");
   // Started, never awaited: it never rejects, and the hook answers whether or not it has finished.
   void readShellCommand.prepare();
-  const extras = { ...(afterTool === undefined ? {} : { afterTool }), ...(record === undefined ? {} : { record }) };
+  const extras = {
+    ...(afterTool === undefined ? {} : { afterTool }),
+    ...(record === undefined ? {} : { record }),
+    ...(recordAgentRunFinish === undefined ? {} : { recordAgentRunFinish }),
+  };
   return (stdin) => runHook(stdin, { projectRoot, role, decide, paths: projectPaths(projectRoot), readShellCommand, deadlineMs, ...extras });
 }
 
@@ -95,7 +103,8 @@ function roleFrom(argv: readonly string[]): string | null | undefined {
   return label === undefined || label === "" || label.startsWith("--") ? undefined : label;
 }
 
+/** Denies every call with `reason`; a SubagentStop is answered with nothing, since a deny means nothing there and a block would keep the subagent running. */
 function refuseAll(reason: string, redirect: string): (stdin: string) => Promise<string> {
   const answer = respond(Verdict.refuse(reason, redirect));
-  return async () => answer;
+  return async (stdin) => (hookEventOf(stdin) === "SubagentStop" ? "" : answer);
 }

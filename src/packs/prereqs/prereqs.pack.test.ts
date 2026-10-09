@@ -15,7 +15,7 @@ describe("prereqs — the prerequisites pack's overview", () => {
     expect(prereqs.dependsOn).toEqual([corePack]);
     expect(Object.keys(prereqs.points)).toEqual(["rules"]);
     expect(prereqs.points.rules.ownValues).toEqual([]);
-    expect(prereqs.contributes.map((given) => given.point.id)).toEqual(["bounded/core.beforeTool", "bounded/core.afterTool"]);
+    expect(prereqs.contributes.map((given) => given.point.id)).toEqual(["bounded/core.beforeTool", "bounded/core.afterTool", "bounded/core.onAgentRunFinish"]);
     expect(prereqs.ports).toEqual({ fileSetFingerprints: fileSetFingerprintsPort, prerequisiteRecords: prerequisiteRecordsPort });
     expect(prereqs.problem).toBeUndefined();
   });

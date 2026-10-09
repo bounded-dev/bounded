@@ -1,6 +1,6 @@
-import { AdapterRefusal, type Composition, Ports, type Result, ToolResult, Verdict } from "bounded/domain";
+import { AdapterRefusal, AgentRunFinished, type Composition, Decision, DecisionTime, Ports, type Result, ToolResult, Verdict } from "bounded/domain";
 import type { AdapterRefusalInput, JudgeEvent } from "../../bounded-log/judge-event/judge-event.contract.ts";
-import { JudgeEventHandler } from "../../bounded-log/judge-event/judge-event.handler.ts";
+import { defaultDecisionIds, JudgeEventHandler, nextDecisionId } from "../../bounded-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 import type { Clock, DecisionIds, BoundedLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectBoundedLogs, ProjectJudge } from "./open-project.contract.ts";
@@ -47,7 +47,7 @@ export class OpenProjectHandler implements OpenProject {
         ...this.idsOption(),
         beforeAllow: async (event) => (event.kind === "tool-use" ? lifecycle.before(event) : Verdict.allow),
       });
-      return this.judge(handler, null, lifecycle);
+      return this.judge(handler, null, { lifecycle, log });
     } catch (thrown) {
       return this.refusing(log, text(thrown));
     }
@@ -58,13 +58,33 @@ export class OpenProjectHandler implements OpenProject {
     return this.options.ids === undefined ? {} : { ids: this.options.ids };
   }
 
-  private judge(handler: JudgeEvent, problem: string | null, lifecycle?: ProjectLifecycle): ProjectJudge {
+  /** A judge over `handler`; with the project's lifecycle and log, it runs the packs' checks after a call and at a run's finish, else those do nothing. */
+  private judge(handler: JudgeEvent, problem: string | null, opened?: { readonly lifecycle: ProjectLifecycle; readonly log: BoundedLog }): ProjectJudge {
     return Object.freeze({
       judge: (event: unknown) => handler.judge(event),
-      afterTool: (result: unknown) => afterTool(lifecycle, result),
+      afterTool: (result: unknown) => afterTool(opened?.lifecycle, result),
       refuse: (refusal: AdapterRefusalInput) => handler.refuse(refusal),
+      recordAgentRunFinish: async (finish: unknown) => (opened === undefined ? undefined : this.recordAgentRunFinish(opened.lifecycle, opened.log, finish)),
       problem,
     });
+  }
+
+  /**
+   * Hand an agent run's finish (its wire form) to the packs' finish checks.
+   * One that cannot be read is recorded as invalid, and no check runs.
+   * Never rejects: a finish has no verdict to enforce.
+   */
+  private async recordAgentRunFinish(lifecycle: ProjectLifecycle, log: BoundedLog, raw: unknown): Promise<void> {
+    try {
+      const finish = AgentRunFinished.parse(raw);
+      if (finish.ok) return await lifecycle.recordAgentRunFinish(finish.value);
+      const time = DecisionTime.parse(this.clock.now());
+      if (!time.ok) return;
+      const refusal = Verdict.refuse(`The host sent an agent run's finish that cannot be read: ${finish.error}`, "Report this to the maintainers of the host adapter");
+      await log.record(Decision.invalid(nextDecisionId(this.options.ids ?? defaultDecisionIds), time.value.value, refusal));
+    } catch {
+      // A finish that cannot be recorded changes nothing: there is nothing to refuse.
+    }
   }
 
   /** A judge that refuses every event with `problem`, recording it if it can. */
@@ -78,6 +98,7 @@ export class OpenProjectHandler implements OpenProject {
     return Object.freeze({
       judge: async () => refusal,
       afterTool: async () => NOTHING,
+      recordAgentRunFinish: async () => {},
       refuse: async (given: AdapterRefusalInput) => {
         const refusal = AdapterRefusal.parse(given);
         return refusal.ok ? refusal.value.verdict : Verdict.refuse(`Judging could not finish: ${refusal.error}`, "Report this to the maintainers of bounded; the action is refused meanwhile");

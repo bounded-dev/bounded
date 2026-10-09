@@ -130,6 +130,8 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     expect(config).toContain('match: ".bounded/**"');
     const settingsText = readFileSync(join(project, ".claude", "settings.json"), "utf8");
     for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure"]) expect(settingsOf(project).hooks[event]?.map((entry) => entry.hooks[0]?.command)).toEqual([`{\n${HOOK}\n} || { echo "bounded hook failed" >&2; exit 2; }`]);
+    // When a subagent stops, the bare command: exit 2 there would keep the subagent running (ADR 2026-025).
+    expect(settingsOf(project).hooks.SubagentStop?.map((entry) => entry.hooks[0]?.command)).toEqual([HOOK]);
     expect(settingsText).not.toContain(project);
     expect(settingsText).not.toContain(REPO);
     const loader = readFileSync(join(project, ".pi", "extensions", "bounded", "index.ts"), "utf8");
@@ -169,6 +171,15 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     expect(refresh.stdout).toContain(claudeCodeNoRestart("99.0.0"));
     expect(readFileSync(join(project, ".claude", "settings.json"), "utf8")).toBe(settingsText);
     expect(readFileSync(join(project, "bounded.config.ts"), "utf8")).toBe(config);
+
+    // An install made before SubagentStop: bounded update adds it, and says to restart Claude Code.
+    const { SubagentStop: _added, ...earlierHooks } = settingsOf(project).hooks;
+    writeFileSync(join(project, ".claude", "settings.json"), `${JSON.stringify({ ...settingsOf(project), hooks: earlierHooks }, null, 2)}\n`);
+    expect(settingsOf(project).hooks.SubagentStop).toBeUndefined();
+    const gains = run(["npx", "--no-install", "bounded", "update", "--no-upgrade"], project);
+    expect(gains.exitCode).toBe(0);
+    expect(settingsOf(project).hooks.SubagentStop?.map((entry) => entry.hooks[0]?.command)).toEqual([HOOK]);
+    expect(gains.stdout).toContain(CLAUDE_CODE_RESTART);
   }, 300_000);
 
   test.skipIf(Bun.which("npm") === null)(

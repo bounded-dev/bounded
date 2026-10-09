@@ -67,7 +67,7 @@ type Open = typeof openProject;
 const rejecting: Open = async () => {
   throw new Error("the log directory cannot be created");
 };
-const judging = (judge: (event: unknown) => Promise<never>): Open => async () => ({ judge, afterTool: async () => ({ changed: [], restored: true, message: null }), refuse: async () => Verdict.refuse("refused", "fix it"), problem: null });
+const judging = (judge: (event: unknown) => Promise<never>): Open => async () => ({ judge, afterTool: async () => ({ changed: [], restored: true, message: null }), refuse: async () => Verdict.refuse("refused", "fix it"), recordAgentRunFinish: async () => {}, problem: null });
 
 describe("composeProject — never fails open, whatever openProject or its judge does", () => {
   test("an openProject that rejects gives a decide that refuses every event, saying why", async () => {

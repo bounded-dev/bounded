@@ -40,6 +40,13 @@ export interface ProjectJudge {
   afterTool(result: unknown): Promise<AfterToolOutcome>;
   /** Record a refusal the host adapter made itself, before an event existed, and return it. Never throws. */
   refuse(refusal: AdapterRefusalInput): Promise<Verdict>;
+  /**
+   * When a delegated agent run the host started has finished (its wire form,
+   * ADR 2026-025): run the packs' finish checks, recording what they report.
+   * A finish that cannot be read is recorded as invalid; a judge whose
+   * configuration cannot be used records nothing. Never rejects.
+   */
+  recordAgentRunFinish(finish: unknown): Promise<void>;
   readonly problem: string | null;
 }
 

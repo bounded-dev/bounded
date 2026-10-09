@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgentName, Effect } from "bounded/domain";
 import { FileSetFingerprint } from "./file-set-fingerprint.ts";
+import { PendingAgentRun } from "./pending-agent-run.ts";
 import { PrerequisiteRecord } from "./prerequisite-record.ts";
 import { PrerequisiteRule } from "./prerequisite-rule.ts";
 
@@ -155,5 +156,41 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(rule(beforeSrc).status([record("plan-reviewer", plan, "a"), record("plan-reviewer", plan, "b")], now)).toBe("holds");
     // Patterns that match no file are never satisfied.
     expect(rule(beforeSrc).status([record("plan-reviewer", plan, "a")], fingerprint("a", 0))).toBe("missing");
+  });
+
+  test("a rule no record meets waits on a pending run over its files as they are now", () => {
+    const plan = [".agent-state/*/plan.md"];
+    const now = fingerprint("a");
+    const pendingRun = (agentRunId: string, delegate: string, sha: string, unchangedSince: readonly string[] = plan): PendingAgentRun => {
+      const parsed = PendingAgentRun.parse({ agentRunId, callId: `c-${agentRunId}`, startedAt: "2026-10-09T12:00:00.000Z", starts: [{ delegate, unchangedSince, fingerprint: { sha256: sha.repeat(64), fileCount: 1 } }] });
+      if (!parsed.ok) throw new Error(parsed.error);
+      return parsed.value;
+    };
+    const waiting = pendingRun("a1", "plan-reviewer", "a");
+    expect(rule(beforeSrc).status([], now, [waiting])).toBe("pending");
+    expect(rule(beforeSrc).pendingRun([waiting], now)?.agentRunId.value).toBe("a1");
+    // A record that holds wins over a pending run.
+    expect(rule(beforeSrc).status([record("plan-reviewer", plan, "a")], now, [waiting])).toBe("holds");
+    // A stale record does not stop a pending run over the files as they are now.
+    expect(rule(beforeSrc).status([record("plan-reviewer", plan, "b")], now, [waiting])).toBe("pending");
+    // A pending run over files that have changed since, or for another requirement, is not waited on.
+    expect(rule(beforeSrc).status([], now, [pendingRun("a2", "plan-reviewer", "b")])).toBe("missing");
+    expect(rule(beforeSrc).status([record("plan-reviewer", plan, "b")], now, [pendingRun("a2", "plan-reviewer", "b")])).toBe("stale");
+    expect(rule(beforeSrc).status([], now, [pendingRun("a3", "spec-reviewer", "a"), pendingRun("a4", "plan-reviewer", "a", ["other.md"])])).toBe("missing");
+    expect(rule(beforeSrc).pendingRun([pendingRun("a2", "plan-reviewer", "b")], now)).toBeUndefined();
+    // Without pending runs, as before.
+    expect(rule(beforeSrc).status([], now)).toBe("missing");
+    // Patterns that match no file are never satisfied, pending or not.
+    expect(rule(beforeSrc).status([], fingerprint("a", 0), [waiting])).toBe("missing");
+  });
+
+  test("a delegation may resolve to a rule's required agent when its requested name matches ignoring case and surrounding spaces", () => {
+    const reviewed = rule(beforeSrc);
+    for (const name of ["plan-reviewer", "Plan-Reviewer", " plan-reviewer ", "PLAN-REVIEWER"]) expect(reviewed.mayResolveToRequiredAgent(agent(name))).toBe(true);
+    expect(reviewed.mayResolveToRequiredAgent(agent("spec-reviewer"))).toBe(false);
+    expect(reviewed.mayResolveToRequiredAgent(agent("plan-reviewers"))).toBe(false);
+    // requiresDelegationTo stays exact: it is applied to the agent the host resolved.
+    expect(reviewed.requiresDelegationTo(agent("Plan-Reviewer"))).toBe(false);
+    expect(reviewed.requiresDelegationTo(agent("plan-reviewer"))).toBe(true);
   });
 });

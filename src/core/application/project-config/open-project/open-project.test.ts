@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type Config, contribution, corePack, type Decision, DecisionId, DecisionTime, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
+import { type AgentRunFinishHandler, type Config, contribution, corePack, type Decision, DecisionId, DecisionTime, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
 import type { Clock, BoundedLog } from "../../bounded-log/judge-event/judge-event.contract.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
 import type { ProjectConfigSource, ProjectBoundedLogs } from "./open-project.contract.ts";
@@ -198,6 +198,52 @@ describe("OpenProjectHandler", () => {
     expect((await broken.judge(write("src/a.ts"))).kind).toBe("refuse");
     expect(logs.decisions.map((decision) => decision.event)).toEqual(["tool-use", "tool-result", "tool-use"]);
     expect(logs.decisions.map((decision) => decision.id.value)).toEqual(["id-1", "id-1", "id-1"]);
+  });
+});
+
+describe("OpenProjectHandler — an agent run's finish", () => {
+  const finish = { kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: "a1", ranToEnd: null };
+  /** A configuration whose finish check notes each finish it is given and records it. */
+  function watching(seen: string[]): Config {
+    const check: AgentRunFinishHandler = async (given) => {
+      seen.push(`${given.agent.value} ${given.agentRunId.value}`);
+      return { record: { verdict: Verdict.allow, note: "seen" } };
+    };
+    const watcher = definePack({ id: packIdsFor("test-packs")("watcher"), dependsOn: [corePack], contributes: [contribution(corePack.points.onAgentRunFinish, [check])] });
+    return defineConfig({ packs: [corePack, watcher] });
+  }
+
+  test("the judge hands an agent run's finish to the packs' finish checks", async () => {
+    const seen: string[] = [];
+    const logs = new Logs();
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: watching(seen) })), logs, clock).execute(command);
+    expect(await project.recordAgentRunFinish(finish)).toBeUndefined();
+    expect(seen).toEqual(["plan-reviewer a1"]);
+    expect(logs.decisions.map((decision) => decision.toJSON())).toMatchObject([{ event: "agent-run-finished", verdict: { kind: "allow" }, note: "plan-reviewer's run a1 finished (ran to its end: not said): seen" }]);
+  });
+
+  test("a finish that cannot be read is recorded as invalid, and no check runs", async () => {
+    const seen: string[] = [];
+    const logs = new Logs();
+    const project = await new OpenProjectHandler(source(async () => ({ ok: true, value: watching(seen) })), logs, clock).execute(command);
+    expect(await project.recordAgentRunFinish({ ...finish, agent: "" })).toBeUndefined();
+    expect(seen).toEqual([]);
+    expect(logs.decisions).toHaveLength(1);
+    const [line] = logs.decisions.map((decision) => decision.toJSON());
+    expect(line?.event).toBe("invalid");
+    expect(line?.verdict.kind === "refuse" && line.verdict.reason).toStartWith("The host sent an agent run's finish that cannot be read: ");
+    expect(line?.verdict.kind === "refuse" && line.verdict.redirect).toBe("Report this to the maintainers of the host adapter");
+  });
+
+  test("a judge whose configuration cannot be used records nothing for a finish, and never rejects", async () => {
+    const logs = new Logs();
+    const broken = await new OpenProjectHandler(source(async () => ({ ok: false, error: "no config" })), logs, clock).execute(command);
+    expect(await broken.recordAgentRunFinish(finish)).toBeUndefined();
+    expect(await broken.recordAgentRunFinish({ kind: "nonsense" })).toBeUndefined();
+    const unopened: ProjectBoundedLogs = { forProject: () => { throw new Error("read-only file system"); } };
+    const unlogged = await new OpenProjectHandler(source(async () => ({ ok: false, error: "no config" })), unopened, clock).execute(command);
+    expect(await unlogged.recordAgentRunFinish(finish)).toBeUndefined();
+    expect(logs.decisions).toEqual([]);
   });
 });
 
