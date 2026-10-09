@@ -222,8 +222,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
     but a shell named `sh`, `bash`, `zsh`, `dash` or `ksh`: `sudo -s`,
     `sudo -i` and `doas -s` with no command, `source /dev/stdin`,
     `. /dev/stdin`, and `trap 'terra$()form apply' EXIT` (ADR 2026-019,
-    "Limits"). A shell given `-`, `/dev/stdin` or `/dev/fd/<n>` as its
-    script reports its standard input as code, so `bash - <<< …` is refused.
+    "Limits"). A shell given `-`, `/dev/stdin`, `/dev/fd/<n>` or
+    `/proc/self/fd/0` (however spelt) as its script, `s` in an option
+    cluster, or a long option bounded does not know reports its standard
+    input as code, its options walked as getopt walks them, so
+    `bash - <<< …` and `bash -euo pipefail <<< …` are refused.
   - Drift never watches `.bounded/`, so records forged by a shell command
     the protected-paths pack does not see are kept: the records rest on the protected-paths pack's
     `.bounded/**` rule.

@@ -230,29 +230,72 @@ export const STANDARD_INPUT: ShellWord = Object.freeze({ kind: "unresolved", tex
 
 /**
  * A shell: with -c, its first operand is code it runs; else it reads the
- * script it is given. Given neither, given -s, or given a script operand of
- * exactly -, /dev/stdin or /dev/fd/<digits>, it runs code from its standard
- * input, which only the run can resolve (a heredoc fed to it is not parsed
- * as code); the operand is still read as written.
+ * script it is given. Its options are walked as getopt walks them (a cluster
+ * letter by letter; o and O take a value; --rcfile and --init-file a file
+ * it reads). Given no script, s in a cluster, a script operand that is its
+ * standard input (isStandardInputPath), or a long option bounded does not
+ * know (it may have taken any word: fail closed), it runs code from its
+ * standard input, which only the run can resolve (a heredoc fed to it is
+ * not parsed as code); every operand is still read as written.
  */
 function shell(args: readonly ShellWord[]): CommandMeaning {
   let runsCode = false;
   let readsStandardInput = false;
+  /** Whether an unknown long option may have taken a word: what is standard input cannot be told, so it is reported (fail closed). */
+  let unknownOption = false;
+  const startupFiles: ShellWord[] = [];
   const rest: ShellWord[] = [];
-  for (let index = 0; index < args.length; index++) {
-    const text = literal(args[index]);
-    if (text === "-o" || text === "+o" || text === "-O" || text === "+O") index++;
-    else if (text !== undefined && /^[-+][a-zA-Z]+$/.test(text)) {
-      runsCode ||= text.includes("c");
-      readsStandardInput ||= text === "-s";
-    } else if (text?.startsWith("--") !== true) rest.push(args[index] as ShellWord);
+  let index = 0;
+  for (; index < args.length; index++) {
+    const word = args[index] as ShellWord;
+    const text = literal(word);
+    if (text === undefined || text === "-" || !/^[-+]/.test(text)) break;
+    if (text === "--") {
+      index++;
+      break;
+    }
+    if (text.startsWith("--")) {
+      const equals = text.indexOf("=");
+      const name = equals === -1 ? text : text.slice(0, equals);
+      if (SHELL_FILE_OPTIONS.includes(name)) {
+        const value = equals === -1 ? args[++index] : literalWord(text.slice(equals + 1));
+        if (value !== undefined) startupFiles.push(value);
+      } else if (!SHELL_FLAG_OPTIONS.includes(name)) unknownOption = true;
+      continue;
+    }
+    // A cluster, letter by letter, as getopt reads it: o and O take the rest of the word, or the next word when they end it.
+    for (let at = 1; at < text.length; at++) {
+      const letter = text.charAt(at);
+      if (letter === "c") runsCode = true;
+      else if (letter === "s") readsStandardInput = true;
+      else if (letter === "o" || letter === "O") {
+        if (at === text.length - 1) index++;
+        break;
+      }
+    }
   }
+  rest.push(...args.slice(index));
   const [first] = rest;
-  if (runsCode) return first === undefined ? NONE : meaning({ scripts: [first] });
-  const operand = literal(first);
-  const scriptIsStandardInput = operand === "-" || operand === "/dev/stdin" || /^\/dev\/fd\/\d+$/.test(operand ?? "");
-  const standardInput = first === undefined || readsStandardInput || scriptIsStandardInput ? [STANDARD_INPUT] : [];
-  return meaning({ reads: first === undefined ? [] : [first], unresolved: standardInput });
+  if (runsCode) return first === undefined ? meaning({ reads: startupFiles }) : meaning({ scripts: [first], reads: startupFiles });
+  const standardInput = first === undefined || readsStandardInput || unknownOption || isStandardInputPath(literal(first)) ? [STANDARD_INPUT] : [];
+  return meaning({ reads: [...startupFiles, ...(first === undefined ? [] : [first])], unresolved: standardInput });
+}
+
+/** bash's long options that take a file as their value (the next word, or =value): it reads that file at startup. */
+const SHELL_FILE_OPTIONS: readonly string[] = ["--rcfile", "--init-file"];
+/** bash's long options that take no value. */
+const SHELL_FLAG_OPTIONS: readonly string[] = ["--debugger", "--dump-po-strings", "--dump-strings", "--help", "--login", "--noediting", "--noprofile", "--norc", "--posix", "--pretty-print", "--restricted", "--verbose", "--version"];
+
+/** Whether a script operand is the shell's standard input: '-', or a path that normalises (repeated slashes and '.' segments collapsed) to /dev/stdin, /dev/fd/<digits> or /proc/self/fd/0. */
+function isStandardInputPath(text: string | undefined): boolean {
+  if (text === undefined) return false;
+  if (text === "-") return true;
+  if (!text.startsWith("/")) return false;
+  const normalised = `/${text
+    .split("/")
+    .filter((part) => part !== "" && part !== ".")
+    .join("/")}`;
+  return normalised === "/dev/stdin" || /^\/dev\/fd\/\d+$/.test(normalised) || normalised === "/proc/self/fd/0";
 }
 
 /** dd: if= is read, of= is written; its other operands are settings. */

@@ -327,9 +327,10 @@ pi-subagents' project agent directory), which give role identity.
   so the pack refuses each as cannot see, and interprets `/bin/bash`,
   `/bin/sh` and `/usr/bin/env` by their path. Until then the same holds of
   code read from standard input by a program other than a shell named
-  `sh`, `bash`, `zsh`, `dash` or `ksh` (which report it as code, given no
-  script, `-s`, or a script operand of `-`, `/dev/stdin` or
-  `/dev/fd/<n>`): `sudo -s`/`sudo -i` and `doas -s` with no command,
+  `sh`, `bash`, `zsh`, `dash` or `ksh` (which report it as code: given no
+  script, `s` in an option cluster, a script operand of `-`, `/dev/stdin`,
+  `/dev/fd/<n>` or `/proc/self/fd/0` however spelt, or a long option
+  bounded does not know; ADR 2026-020): `sudo -s`/`sudo -i` and `doas -s` with no command,
   `source /dev/stdin` and `. /dev/stdin` (each fed by `<<<` or a heredoc),
   and `trap 'terra$()form apply' EXIT`.
 - **Write rules, until `shell-reader-coverage`** (named, so they are not
@@ -337,7 +338,7 @@ pi-subagents' project agent directory), which give role identity.
   and scripts write themselves; package runners (`npx`, `bunx`, `pnpm exec`,
   `yarn dlx`, `uvx`); a program named by its path (`/bin/rm`,
   `/usr/bin/env rm`); `time` and `coproc`; the other standard-input forms
-  (a cluster holding `s`, an unresolved script operand, `.`/`source` of
+  (an unresolved script operand, `.`/`source` of
   `/dev/stdin`, `sudo -s`/`-i`, `doas -s`); `-execdir`/`-okdir` read
   from where `find` runs; `trap`'s code and `alias` values; git's writing
   subcommands (`checkout`, `restore`, `apply`, `stash`, `reset`, `clone`),

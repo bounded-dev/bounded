@@ -145,6 +145,42 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect((await read("bash /dev/fd/x")).unresolved).toEqual([{ text: "/dev/fd/x", role: "read" }]);
   });
 
+  test("a shell's options are walked as getopt walks them: a cluster letter by letter, o and O taking a value, known long options with theirs; an unknown long option fails closed (final review)", async () => {
+    const STDIN = { text: "(standard input)", role: "code" } as const;
+    // Standard input, the options' values never taken for a script.
+    for (const command of ["bash -euo pipefail", "bash -eo pipefail", "bash -o pipefail -e", "bash -Oextglob", "bash -O extglob", "bash +o posix", "bash --norc --noprofile"]) {
+      const reading = await read(command);
+      expect({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({ command, fileEffects: [], unresolved: [STDIN] });
+    }
+    // The file --rcfile or --init-file names is read, as bash reads it.
+    for (const command of ["bash --rcfile .env", "bash --rcfile=.env", "bash --init-file .env"]) {
+      const reading = await read(command);
+      expect({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({ command, fileEffects: [{ effect: { kind: "read", path: ".env" } }], unresolved: [STDIN] });
+    }
+    // s anywhere in a cluster reads standard input; the operand is still read as written.
+    expect((await read("bash -es x.sh")).unresolved).toEqual([STDIN]);
+    expect((await read("bash -es x.sh")).fileEffects).toEqual([{ effect: { kind: "read", path: "x.sh" } }]);
+    // c anywhere in a cluster runs its operand as code.
+    expect((await read("bash -ec 'cat a.txt'")).fileEffects).toEqual([{ effect: { kind: "read", path: "a.txt" } }]);
+    // A script after options runs the script, read as before, not standard input.
+    for (const command of ["bash -euo pipefail script.sh", "bash --norc script.sh", "bash -O extglob script.sh", "bash -- script.sh"]) {
+      const reading = await read(command);
+      expect({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({ command, fileEffects: [{ effect: { kind: "read", path: "script.sh" } }], unresolved: [] });
+    }
+    // An unknown long option may have taken any word: standard input is reported too, and the words are read as written.
+    const unknown = await read("bash --bogus script.sh");
+    expect(unknown.unresolved).toEqual([STDIN]);
+    expect(unknown.fileEffects).toEqual([{ effect: { kind: "read", path: "script.sh" } }]);
+  });
+
+  test("every spelling of standard input as a shell's script is one: -, /dev/stdin, /dev/fd/<n> and /proc/self/fd/0, normalised; file effects as written (final review)", async () => {
+    for (const operand of ["//dev/stdin", "/dev/./stdin", "/dev//fd/0", "/proc/self/fd/0", "/dev/fd/3"]) {
+      const reading = await read(`bash ${operand}`);
+      expect({ operand, unresolved: reading.unresolved }).toEqual({ operand, unresolved: [{ text: operand, role: "read" }, { text: "(standard input)", role: "code" }] });
+    }
+    for (const operand of ["/dev/stdinx", "/proc/self/fd/1", "/dev/fd/"]) expect({ operand, unresolved: (await read(`bash ${operand}`)).unresolved }).toEqual({ operand, unresolved: [{ text: operand, role: "read" }] });
+  });
+
   test("listing a replace string, a found path or standard input as unresolved leaves every file effect as written", async () => {
     expect((await read("ls | xargs -I{} rm .git/hooks/{}")).fileEffects).toEqual(PINNED_HOOKS);
     expect((await read("find . -name x -exec cat .env {} \\;")).fileEffects).toEqual(PINNED_FIND);

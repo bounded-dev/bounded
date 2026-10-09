@@ -59,9 +59,20 @@ names no tool or language (AGENTS.md). It can own the shape.
     program without `-f`; short options cluster as getopt reads them, as in
     `perl -ne` or `python3 -Bc`, a value-taking letter ending the cluster;
     *amended by `prereqs-execute`:* `(standard input)`, the code a shell
-    given neither `-c` nor a script operand, given `-s`, or given a script
-    operand of exactly `-`, `/dev/stdin` or `/dev/fd/<digits>` (the operand
-    still read as written), reads from its standard input: `echo … | sh`, `bash <<EOF`, `curl … | bash`; a heredoc
+    (`sh`, `bash`, `zsh`, `dash`, `ksh`) reads from its standard input:
+    when it has neither `-c` nor a script operand, has `s` anywhere in a
+    short option cluster (`-s`, `-es`), has a script operand of `-` or of a
+    path that normalises (repeated slashes and `.` segments collapsed) to
+    `/dev/stdin`, `/dev/fd/<digits>` or `/proc/self/fd/0`, or has a long
+    option bounded does not know (it may have taken any word, so standard
+    input is reported, failing closed). Its options are walked as getopt
+    walks them: a cluster letter by letter (`c` runs its operand as code;
+    `o` and `O` take the rest of the word, or the next word when they end
+    it, so `bash -euo pipefail` has no script); `--rcfile` and
+    `--init-file` take the next word or `=value`, a file read at startup;
+    bash's other long options take none; `--` ends the options. Every
+    operand is still read as written. Examples: `echo … | sh`,
+    `bash <<EOF`, `curl … | bash`, `bash -euo pipefail <<< …`; a heredoc
     fed to a shell is not parsed as code).
     A token tree-sitter inserted to recover from an error (the missing
     command after `cat a |`) is never a literal word: it is an unresolved
