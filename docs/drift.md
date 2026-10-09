@@ -30,10 +30,10 @@ of them forbids is undone, reported under the first that forbids it. `match` ign
 the protected-paths pack's does, so a file cannot be dodged by its case on a
 case-insensitive file system; `except` is exact.
 
-**Never watched:** `.bounded/` (bounded's own state, including the decision
-log `.bounded/guard-log.jsonl`), and every `node_modules/` and `.git/`
+**Never watched:** `.bounded/` (bounded's own state, including the Bounded
+log `.bounded/log.jsonl`), and every `node_modules/` and `.git/`
 directory at any depth, with everything under them. So a shell command can
-edit or delete the guard log, and nothing undoes it: the log's value as
+edit or delete the Bounded log, and nothing undoes it: the log's value as
 evidence rests on the same limit as the snapshots (anything running as the
 same user can change it). Protecting files inside `node_modules` is out of
 scope: installs rewrite dependencies all the time, and reading them would make
@@ -74,7 +74,7 @@ exceptions aside. Messages show such names escaped, as in JSON.
    `$XDG_STATE_HOME/bounded/<sha256 of the project root>/quarantine/<time>/<path>`
    (directories 0700, files 0600), and the message and the record say where.
    It checks the files now
-   match the snapshot, records a refusal in the guard log (note "changed
+   match the snapshot, records a refusal in the Bounded log (note "changed
    by a shell command; restored") and returns a message for the agent:
 
    > This command changed protected files, and they were restored:

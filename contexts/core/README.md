@@ -3,7 +3,7 @@
 Guardrails for AI coding agents. Bounded judges every tool call an agent
 makes (Claude Code or pi), before it runs, against the packs a project
 selects. A refusal names the rule, the pack that contributed it, and what to
-do instead. Every decision is recorded in `.bounded/guard-log.jsonl`. The
+do instead. Every decision is recorded in `.bounded/log.jsonl`. The
 protected-paths pack refuses reads, listings and writes of the paths a project
 protects, including those a shell command names, and puts back what a shell
 command changed in them.
@@ -99,7 +99,15 @@ gate the protected-paths pack (the repository's ADR 2026-021):
 `bounded/protected-paths` and `bounded/protected-paths/adapters`, and
 `pathGate` and `pathGatePortProvisions` are `protectedPathsPack` and
 `protectedPathsPortProvisions`; the old names are removed, with nothing kept
-for them.
+for them. 3.3.0 also renames the guard log the Bounded log (the repository's
+ADR 2026-022), breaking what 3.2.0 published, with no aliases:
+`bounded/application` no longer exports `GuardLog` and `ProjectGuardLogs`
+(now `BoundedLog` and `ProjectBoundedLogs`), `openProject`'s `guardLog`
+option is `boundedLog`, `bounded/adapters` no longer exports
+`FileSystemGuardLog` and `FileSystemProjectGuardLogs` (now
+`FileSystemBoundedLog` and `FileSystemProjectBoundedLogs`), and decisions
+go to `.bounded/log.jsonl`; an existing `.bounded/guard-log.jsonl` is left
+as it was.
 
 A host other than the two this package carries opens a project with the
 shell command reader bounded publishes:

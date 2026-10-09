@@ -13,7 +13,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   of effects, verdicts and dispatch ([slice 2](slice-2.md), ADRs
   [2026-005](adr/2026-005-events-verdicts-dispatch.md) to
   [2026-007](adr/2026-007-guards-over-a-composition.md)); the
-  [guard log](guard-log.md) ([ADR 2026-008](adr/2026-008-guard-log.md));
+  [Bounded log](bounded-log.md) ([ADR 2026-022](adr/2026-022-bounded-log.md));
   project [configuration](configuration.md) (`bounded.config.ts`,
   [ADR 2026-010](adr/2026-010-project-configuration.md)). The core pack
   `bounded/core` declares the guard points and the lifecycle points
@@ -203,7 +203,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
     names case-insensitively, seen on 2.1.294); `require` is exact.
   - Records are never compacted.
   - `beforeTool` refusals are recorded with `refusedBy: null`, naming no
-    pack in the guard log (the reason names it).
+    pack in the Bounded log (the reason names it).
   - A requirement over patterns that match no file can never be met.
   - ABA: files edited and put back during a run compare equal, so it counts.
 - **Interrupted tool calls are unchecked.** Pressing Esc in Claude Code fires
@@ -211,7 +211,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   ([Claude Code adapter](adapter-claude-code.md), [drift](drift.md)).
 - **Same-user limits** (the agent runs as the same OS user): a consistent
   forged snapshot wins ([drift](drift.md), [ADR 2026-011](adr/2026-011-drift.md));
-  `.bounded/` (including the guard log), `node_modules` and `.git` are never
+  `.bounded/` (including the Bounded log), `node_modules` and `.git` are never
   watched, nor are git submodule contents ([drift](drift.md)); hard links out
   of the project are judged as inside it; check-then-use races; pi runs tool
   calls in parallel batches and offers no sequential mode
@@ -291,7 +291,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
     protected-paths pack
     ([ADR 2026-021](adr/2026-021-protected-paths-rename.md)): it removes
     `bounded/path-gate` and `bounded/path-gate/adapters`, keeping nothing
-    for them, since 3.x has no users. `--from <dir>` stays only for installing a
+    for them, since 3.x has no users. 3.3.0 also renames the guard log the
+    Bounded log ([ADR 2026-022](adr/2026-022-bounded-log.md)), kept in
+    `.bounded/log.jsonl` (an existing `.bounded/guard-log.jsonl` is left as
+    it was), breaking what 3.2.0 published, with no aliases:
+    `bounded/application`'s `GuardLog` and `ProjectGuardLogs` (now
+    `BoundedLog` and `ProjectBoundedLogs`), `openProject`'s `guardLog`
+    option (now `boundedLog`) and `bounded/adapters`' `FileSystemGuardLog`
+    and `FileSystemProjectGuardLogs` (now `FileSystemBoundedLog` and
+    `FileSystemProjectBoundedLogs`). `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
@@ -354,8 +362,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   Code status widget listing each requirement as holds, stale or missing.
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.
-- A redaction hook for the guard log ([guard log](guard-log.md),
-  [ADR 2026-008](adr/2026-008-guard-log.md)).
+- A redaction hook for the Bounded log ([Bounded log](bounded-log.md),
+  [ADR 2026-022](adr/2026-022-bounded-log.md)).
 - Publishing `bounded` 3.3.0 to npm (3.2.0, above the legacy
   2.x, is published,
   [ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the

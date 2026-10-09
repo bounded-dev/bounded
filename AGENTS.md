@@ -237,7 +237,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   loosens a rule, or adds one, comes with a rejected fixture line stating
   its reason (`contexts/core/test/fixtures/compile-time/`) and a run-time
   refusal test.
-- **Every decision is recorded (ADR 2026-008).** Hosts judge events through
+- **Every decision is recorded (ADR 2026-022).** Hosts judge events through
   the judge-event feature, which records each decision; a decision that
   cannot be recorded within the bound is refused, never allowed.
 - **The project is a pack too (ADR 2026-010).** `defineConfig` turns a

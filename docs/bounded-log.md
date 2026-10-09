@@ -1,9 +1,17 @@
-# The guard log
+# The Bounded log
 
+Every decision Bounded makes goes to the Bounded log: every event's decision,
+every refusal a host adapter makes itself, and the packs' after-tool reports.
 Every event a host asks about is judged and recorded. The judge-event feature
-(`contexts/core/src/application/guard-log/judge-event/`) decides the event with
+(`contexts/core/src/application/bounded-log/judge-event/`) decides the event with
 the composed guards (`decideEvent`), then records one **decision** through the
-`GuardLog` out port, and returns the verdict the host enforces.
+`BoundedLog` out port, and returns the verdict the host enforces.
+
+A project's log is `.bounded/log.jsonl` (ADR 2026-022). A project that was
+opened by an earlier version may also have `.bounded/guard-log.jsonl`, the
+log's old name: Bounded leaves it as it was, never reading, writing, moving or
+deleting it, and records new decisions in `.bounded/log.jsonl`. The project's
+`.bounded/**` rule protects both.
 
 ## A decision
 
@@ -49,8 +57,8 @@ the answer. If the log rejects, throws or takes longer, or the clock fails:
 - an allow becomes a refusal: "The guards allowed this, but the decision
   could not be recorded: …".
 
-The handler never throws; input that is not a command is refused and not
-recorded, and a clock that does not give an ISO 8601 time counts as a failure
+The handler never throws; input that is not a command is refused and
+recorded as an `invalid` decision, and a clock that does not give an ISO 8601 time counts as a failure
 to record.
 
 ### A late line
@@ -106,23 +114,23 @@ planned, not built.
 
 | Adapter | Package export | Keeps decisions |
 | --- | --- | --- |
-| `FileSystemGuardLog` | `bounded/adapters` | appended to a JSON-lines file, creating its folders |
+| `FileSystemBoundedLog` | `bounded/adapters` | appended to a JSON-lines file, creating its folders |
 | `SystemClock` | `bounded/adapters` | (the time of each decision, a `DecisionTime`) |
 | `RandomDecisionIds` | `bounded/adapters` | (each decision's id, a `DecisionId`) |
 
 The composition root chooses the file, such as
-`<project>/.bounded/guard-log.jsonl`. The port is asynchronous so a later
+`<project>/.bounded/log.jsonl`. The port is asynchronous so a later
 adapter can send decisions to a service. Every log runs the conformance suite
-in `judge-event.guard-log.test-support.ts`. Tests use the in-memory double
-`InMemoryGuardLog` (`judge-event.in-memory-guard-log.test-support.ts`), which
+in `judge-event.bounded-log.test-support.ts`. Tests use the in-memory double
+`InMemoryBoundedLog` (`judge-event.in-memory-bounded-log.test-support.ts`), which
 is test support and not published (ADR 2026-017).
 
 ```ts
-import { FileSystemGuardLog, SystemClock } from "bounded/adapters";
+import { FileSystemBoundedLog, SystemClock } from "bounded/adapters";
 import { JudgeEventCommand, JudgeEventHandler } from "bounded/application";
 
 // The judge reads each shell command with the host's reader (ADR 2026-020), such as bounded/shell-command-reader's.
-const judge = new JudgeEventHandler(composition, new FileSystemGuardLog(`${project}/.bounded/guard-log.jsonl`), new SystemClock(), { shellCommandReader, projectRoot: project });
+const judge = new JudgeEventHandler(composition, new FileSystemBoundedLog(`${project}/.bounded/log.jsonl`), new SystemClock(), { shellCommandReader, projectRoot: project });
 const command = JudgeEventCommand.parse(hookEvent);
 const verdict = command.ok ? await judge.execute(command.value) : { kind: "refuse", reason: command.error, redirect: "Report this to the host adapter's maintainers" };
 ```

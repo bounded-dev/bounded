@@ -106,7 +106,7 @@ the core. It decides whether an agent's action on a file path is allowed.
   `..`) is refused.
 - Fail closed: a missing or invalid selected rule set refuses every action with
   an actionable error. It never silently disables protection.
-- Every decision can be handed to a guard log through a port. If the log
+- Every decision can be handed to the Bounded log through a port. If the log
   cannot record a refusal, the action is still refused and the result says the
   record was not stored; it never claims a record exists when it does not.
 - The decision logic never touches the file system, any agent host or any

@@ -175,7 +175,7 @@ sequenceDiagram
     participant H as Host adapter
     participant J as Bounded
     participant G as Guards (from packs)
-    participant L as Guard log
+    participant L as Bounded log
     A->>H: tool call
     H->>J: effects [write tests/test_auth.py, …] + seat
     J->>G: before-tool lifecycle (snapshot, count…)
@@ -215,7 +215,7 @@ effects, and verdicts back into the host's answers; they decide nothing.
 The real matrix is generated from the adapters and published with every
 release. `bounded doctor` prints it for your project: which of *your* rules
 each host can enforce, and what is lost where. When a host cannot enforce a
-rule, the guard log says so. Nothing pretends otherwise.
+rule, the Bounded log says so. Nothing pretends otherwise.
 
 **Bounded is a guardrail, not a security boundary.** An agent running as your
 user can always get round a hook. Bounded informs, redirects and records,
@@ -392,7 +392,7 @@ contribution(judge.points.rules, [
   `bounded eval` reports precision and recall, and rehearsal tunes the
   threshold on real sessions before the rule is enforced.
 - **Verdicts are repeatable and recorded.** They are cached by a hash of the
-  rule, the model and the evidence, and the guard log records the score and
+  rule, the model and the evidence, and the Bounded log records the score and
   the reasoning.
 - **It fails closed.** No model, no pass. Below the threshold it refuses;
   an optional middle band asks a human.
@@ -640,7 +640,7 @@ with yours.
 
 - **`bounded explain`** shows the composed rules of your project: every
   point, every contribution, which pack it came from and why.
-- **`bounded log`** shows the guard log as a timeline: each decision, the
+- **`bounded log`** shows the Bounded log as a timeline: each decision, the
   verdict, the pack, the redirect, and what the agent did next.
 - **`bounded replay`** runs past sessions against a changed configuration
   and shows what would have changed.
