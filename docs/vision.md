@@ -306,9 +306,9 @@ are bound from outside the session, by the host adapter at launch, so an
 agent cannot promote itself. A subagent with no seat gets the
 least-privilege seat. Any rule in any pack can carry `when: { seat }`.
 
-### path-gate, zones and blindness: who may touch what
+### protected-paths, zones and blindness: who may touch what
 
-- **path-gate** protects paths with deny-only rules and honest redirects,
+- **protected-paths** protects paths with deny-only rules and honest redirects,
   and puts back protected files that a shell command changed, moving
   anything new aside rather than deleting it.
 - **zones** gives each seat an allow-only territory: the architect writes
@@ -477,7 +477,7 @@ in the agents' own briefs.
 | Family | Packs |
 |---|---|
 | **Foundations** | selectors · seats · guidance · conditions |
-| **Who may touch what** | path-gate · zones · blindness · generated |
+| **Who may touch what** | protected-paths · zones · blindness · generated |
 | **What may run** | command-gate · egress · tool-gate · supply-chain · footprint |
 | **What is written** | content-gate · judge · co-change |
 | **The shape of the work** | phases · obligations · declarations · calendar · exit-gate |
@@ -562,7 +562,7 @@ points.
 
 | Recipe | Packs | What you get |
 |---|---|---|
-| **Starter** | selectors, path-gate, command-gate, egress, budgets, receipts, exit-gate, guidance | Sensible defaults for any repository, in one line |
+| **Starter** | selectors, protected-paths, command-gate, egress, budgets, receipts, exit-gate, guidance | Sensible defaults for any repository, in one line |
 | **Strict TDD** | phases, zones, red-first, content-gate, ratchet, separation-of-duties | Only tests are writable in `red`; every new test fails first; the test count never drops |
 | **Test quality** | judge, red-first, ratchet, receipts | Tests describe behaviour; no change weakens a test; mutation score never drops |
 | **Honest done** | receipts, exit-gate, co-change | Done means the checks passed on this exact tree and the docs moved with the code |

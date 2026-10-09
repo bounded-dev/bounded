@@ -1,10 +1,10 @@
 # Drift: undoing what shell commands change
 
 A guard judges a tool call from its effects, but a shell command's effects
-cannot be read from its text: `./regenerate.sh` may rewrite files the path
-gate protects. So the path gate checks the files it protects from writes
+cannot be read from its text: `./regenerate.sh` may rewrite files the protected-paths
+pack protects. So the protected-paths pack checks the files it protects from writes
 around every allowed shell command and undoes any change (ADR 2026-013: the
-path gate's own `watch-shell` feature, run by the core's `beforeTool` and
+protected-paths pack's own `watch-shell` feature, run by the core's `beforeTool` and
 `afterTool` lifecycle points).
 
 ## Watched paths
@@ -14,7 +14,7 @@ denies (`create`, `modify`, `delete`); a rule whose pattern ends in a literal
 name (and is not a `file` rule) also watches what is under it.
 
 ```ts
-contribution(pathGate.points.protectedPaths, [
+contribution(protectedPathsPack.points.protectedPaths, [
   { match: "generated/**", except: ["generated/README.md"], deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" },
   { match: "migrations/**", deny: ["modify", "delete"], why: "applied migrations are history", redirect: "Add a new migration instead" },
 ]);
@@ -27,7 +27,7 @@ reported), but a change to or deletion of an existing migration is put back.
 `match` and `except` are project-relative globs; a file is watched by every
 rule that matches it and does not except it; when several do, a change any
 of them forbids is undone, reported under the first that forbids it. `match` ignores case, as
-the path gate's does, so a file cannot be dodged by its case on a
+the protected-paths pack's does, so a file cannot be dodged by its case on a
 case-insensitive file system; `except` is exact.
 
 **Never watched:** `.bounded/` (bounded's own state, including the decision
@@ -150,11 +150,11 @@ snapshot expires.
 
 ## Ports
 
-The path gate reads the project's files and keeps snapshots through two
+The protected-paths pack reads the project's files and keeps snapshots through two
 ports, `watchedFiles` and `shellSnapshots`, which a host supplies when it
-opens a project: `openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader })`
-(`bounded/path-gate/adapters`, which gives every port the path gate uses;
+opens a project: `openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader })`
+(`bounded/protected-paths/adapters`, which gives every port the protected-paths pack uses;
 tests use the in-memory doubles beside each port, ADR 2026-017). A host
-that selects the path gate without them refuses every event, saying what to
+that selects the protected-paths pack without them refuses every event, saying what to
 pass. Snapshots and quarantined files stay where they were:
 `$XDG_STATE_HOME/bounded/<sha256 of the root>/`.

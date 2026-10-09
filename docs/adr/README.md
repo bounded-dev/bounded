@@ -14,7 +14,7 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-006](2026-006-effects.md) | A tool use is a list of precise effects (amended by 2026-019 and 2026-020) |
 | [2026-007](2026-007-guards-over-a-composition.md) | Guards over a composition: the core pack and per-effect dispatch |
 | [2026-008](2026-008-guard-log.md) | Every decision is recorded in the guard log, and an unrecorded decision fails closed |
-| [2026-009](2026-009-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules |
+| [2026-009](2026-009-path-gate-pack.md) | The path gate is an ordinary pack shipped in `bounded`; deny-only rules (renamed `bounded/protected-paths` by 2026-021) |
 | [2026-010](2026-010-project-configuration.md) | A project's configuration (defineConfig), and opening a project for judging |
 | [2026-011](2026-011-drift.md) | Undoing what shell commands change in watched files |
 | [2026-012](2026-012-value-objects-are-classes.md) | Value objects are classes, as in the example; a point takes a value object's wire form |
@@ -26,3 +26,4 @@ decision is young; supersede it with a new record once code depends on it.
 | [2026-018](2026-018-selection-brings-in-dependencies.md) | A selection brings in every pack its packs depend on, transitively; the project still contributes only to the packs it lists |
 | [2026-019](2026-019-prereqs-pack.md) | The prerequisites pack, `bounded/prereqs`: an action needs a delegation that succeeded over unchanged files; amends 2026-006 (a delegate effect's `isolated` and `finishUnreported`, a tool result's `delegatedAgentRuns`) |
 | [2026-020](2026-020-shell-command-reading.md) | The core carries a shell command's reading on its execute effect, read by the judge through an untagged `ShellCommandReader` port; a private context, `bounded-shell-command-reader`, reads it and is published as `bounded/shell-command-reader`; the path gate judges from the reading |
+| [2026-021](2026-021-protected-paths-rename.md) | The path gate is renamed the protected-paths pack, `bounded/protected-paths` and `protectedPathsPack`; a pack object takes the `Pack` suffix only where its bare name would clash with one of its point keys; 3.3.0 removes the old names |

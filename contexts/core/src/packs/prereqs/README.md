@@ -11,12 +11,12 @@ anything; the harness observes.
 ```ts
 // bounded.config.ts
 import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 import { prereqs } from "bounded/prereqs";
 
 // Each pack brings in the core it depends on (ADR 2026-018).
 export default defineConfig({
-  packs: [pathGate, prereqs],
+  packs: [protectedPathsPack, prereqs],
   contributes: [
     contribution(prereqs.points.rules, [
       { before: { delegate: "builder" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan" },
@@ -37,12 +37,12 @@ export default defineConfig({
   a run under another spelling does not count. A rule cannot require the
   action it comes before, in any spelling.
 - `unchangedSince` names the files the run must have seen as they are now.
-  Patterns are checked as the path gate's, and matched as its `match`:
+  Patterns are checked as the protected-paths pack's, and matched as its `match`:
   ignoring case, seeing dotfiles; a pattern without a glob covers everything
   under it. Gitignored files count, but `.bounded`, `node_modules` and
   `.git` are never fingerprinted, so a pattern leading into any of them is
   refused.
-- A `before.write` pattern matches a write exactly as the path gate's
+- A `before.write` pattern matches a write exactly as the protected-paths pack's
   `match` does, with nothing excluded: a rule over `node_modules/**` or
   `.git/**` comes before writes there. One inside `.bounded` is refused.
 - `redirect` is what the agent is told to do instead.
@@ -118,7 +118,7 @@ audit record of each recorded run.
 
 ## The protection it relies on
 
-The guarantee rests on the path gate keeping agents off:
+The guarantee rests on the protected-paths pack keeping agents off:
 
 - `.bounded/**`, where the records are (in `bounded init`'s default rules);
 - the project's agent definitions, which say who an agent is:
@@ -132,7 +132,7 @@ composes.
 ## Ports
 
 A host provides both, through `openProject(root, { ports:
-[...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader })`; the hooks for
+[...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader })`; the hooks for
 Claude Code and pi that `bounded` carries do.
 
 - `fileSetFingerprints` (`FileSetFingerprints`): the fingerprint of the

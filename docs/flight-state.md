@@ -24,8 +24,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   project still contributes only to points of packs it lists.
 - **Out adapters grouped by the port they serve**
   ([ADR 2026-017](adr/2026-017-adapters-by-port.md)): one folder per port
-  under `adapters/out/`, in the core and the path gate, behind two internal
-  export paths, `bounded/adapters` and `bounded/path-gate/adapters`. The
+  under `adapters/out/`, in the core and the protected-paths pack, behind two internal
+  export paths, `bounded/adapters` and `bounded/protected-paths/adapters`. The
   in-memory doubles are test support beside their ports. The `Clock` and
   `DecisionIds` ports give `DecisionTime` and `DecisionId` value objects, and
   `openProject` passes `RandomDecisionIds`. This breaks what 3.0.0
@@ -33,7 +33,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `pathGateInMemory`, string-typed clock and ids), shipped deliberately as
   the minor 3.1.0 because 3.0.0 was about an hour old with no users (the
   ADR's "Release").
-- **The path gate pack** (`bounded/path-gate`, [slice 3](slice-3.md),
+- **The protected-paths pack** (`bounded/protected-paths`, [slice 3](slice-3.md),
   [ADR 2026-009](adr/2026-009-path-gate-pack.md)): deny-only protected
   paths on reads, listings and writes; a shell guard that judges the files
   a command names from the core's reading of it; [drift](drift.md)
@@ -61,10 +61,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
   the host says finished counts.
 - **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
-- **One package, `bounded` 3.2.0, ready to publish; 3.1.0 is published**
+- **One package, `bounded` 3.3.0, ready to publish; 3.2.0 is published**
   (issue #65, first slice;
-  [ADR 2026-016](adr/2026-016-cli-app.md)). It carries the library, the path
-  gate, the `bounded` command (source `apps/cli`) and the Claude Code and pi
+  [ADR 2026-016](adr/2026-016-cli-app.md)). It carries the library, the protected-paths
+  pack, the `bounded` command (source `apps/cli`) and the Claude Code and pi
   adapters (sources `apps/claude-code`, `apps/pi`). The three apps are
   private, and `bounded`'s prepack (`contexts/core/build-dist.ts`) compiles
   them with the library to JavaScript for Node in `dist/`. Nothing needs bun
@@ -73,7 +73,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - `npx bounded init [--host <host>]...` adds `bounded` at the CLI's own
     version from the npm registry, with the project's package manager. It
     then hands over to the installed `bounded init --no-install`, which:
-    - writes `bounded.config.ts`: the path gate (which brings in the core),
+    - writes `bounded.config.ts`: the protected-paths pack (which brings in the core),
       and seven default rules, since the pack ships none
       ([ADR 2026-009](adr/2026-009-path-gate-pack.md)). They protect
       `bounded.config.*`, `.bounded/`, `.claude/settings*.json`,
@@ -112,7 +112,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - The end-to-end test (`apps/cli/test/bounded-cli.e2e.test.ts`) packs
     `bounded` and installs it with bun and with npm. The npm run has no bun
     on `PATH`: it pipes Claude Code payloads through the installed hook
-    command under `sh`. The path gate refuses an edit of the configuration
+    command under `sh`. The protected-paths pack refuses an edit of the configuration
     (init's default rule) and of `secrets/` (a project rule), allows another
     edit, and refuses `echo hi > secrets/x` and
     `echo x > .git/hooks/pre-commit`, which shows tree-sitter loading under
@@ -147,7 +147,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   in-place edits (`sed -i`, `perl -i`), what a script file or program opens
   itself, and brace expansion in a command name (`{cat,.env}`). PowerShell
   (pi's `powershell` tool) is read as bash. What it cannot resolve the
-  path gate allows. A copy or move whose sources are unknown records no
+  protected-paths pack allows. A copy or move whose sources are unknown records no
   write into its destination directory (`xargs cp -t dir` without a replace
   string, `cp $X dir/`), so
   nothing there is judged (ADR 2026-020, "Limits"). A command past the
@@ -177,7 +177,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
     writes are not matched yet, though the core now carries them in each
     execute effect's reading (item `prereqs-execute`).
   - Drift never watches `.bounded/`, so records forged by a shell command
-    the path gate does not see are kept: the records rest on the path gate's
+    the protected-paths pack does not see are kept: the records rest on the protected-paths pack's
     `.bounded/**` rule.
   - Agent definitions, which say who an agent is, come from five places;
     only the project's (`.claude/agents/`, pi-subagents' project agent
@@ -217,13 +217,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
   calls in parallel batches and offers no sequential mode
   ([Claude Code adapter](adapter-claude-code.md), [pi adapter](adapter-pi.md)).
 - **The guardrails are protected only by init's seven default rules**, and
-  only as written: the path gate ships none, so a project that removes them
+  only as written: the protected-paths pack ships none, so a project that removes them
   protects nothing.
   - They cover `bounded.config.*`, `.bounded/**`,
     `.claude/settings*.json`, `.pi/extensions/bounded/**`,
     `node_modules/bounded/**`, `.git/hooks/**` and `.git/config`. Drift
     never watches `.git`, so a git hook or config changed by a command the
-    path gate does not see (`git config core.hooksPath …`) is not put back,
+    protected-paths pack does not see (`git config core.hooksPath …`) is not put back,
     and a worktree's or submodule's `.git` file points at hooks outside the
     project.
   - Not covered: the modules the configuration imports
@@ -258,7 +258,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   ([ADR 2026-012](adr/2026-012-value-objects-are-classes.md)).
 - **The install command's limits** (issue #65, first slice):
   - The default rule for `node_modules/bounded/**` refuses only writes the
-    path gate sees: an edit, or a shell command naming the path. Drift never
+    protected-paths pack sees: an edit, or a shell command naming the path. Drift never
     watches `node_modules` (see [drift](drift.md)), so an agent's
     `npm install` changing Bounded's installed code is not put back. Drift
     does put back what a shell command changed in `.claude/settings.json`
@@ -273,7 +273,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
     the adapters grouped by port
     ([ADR 2026-017](adr/2026-017-adapters-by-port.md)):
     `npx bounded init` in a fresh project installs it from the registry,
-    with no `--from`. Not on npm yet: 3.2.0, a minor release carrying a
+    with no `--from`. 3.2.0 is on npm too, a minor release carrying a
     selection that brings in its packs' dependencies
     ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)), the
     prerequisites pack, `bounded/prereqs`
@@ -287,7 +287,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
     `shellCommandReader`, gives `pathGatePortProvisions()` two provisions,
     and removes the path gate's path-kinds and shell-parser ports and their
     adapters (its "Release"); the maintainer chose to ship these breaks in a
-    minor. `--from <dir>` stays only for installing a
+    minor. Not on npm yet: 3.3.0, a minor release renaming the path gate the
+    protected-paths pack
+    ([ADR 2026-021](adr/2026-021-protected-paths-rename.md)): it removes
+    `bounded/path-gate` and `bounded/path-gate/adapters`, keeping nothing
+    for them, since 3.x has no users. `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
@@ -310,7 +314,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
     for example by protecting `package.json`, `node_modules/` and the
     lockfile, or by refusing the command, in its rules.
   - The pack-time build mirrors `src/` in `dist/` (for example
-    `dist/packs/path-gate/index.js`). The workspace uses bun's hoisted
+    `dist/packs/protected-paths/index.js`). The workspace uses bun's hoisted
     linker: bun mis-resolved the conditionally exported package through
     several workspace symlinks.
   - In `apps/cli`, installing (package manager detection, running it, the
@@ -352,7 +356,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the guard log ([guard log](guard-log.md),
   [ADR 2026-008](adr/2026-008-guard-log.md)).
-- Publishing `bounded` 3.2.0 to npm (3.1.0, above the legacy
+- Publishing `bounded` 3.3.0 to npm (3.2.0, above the legacy
   2.x, is published,
   [ADR 2026-014](adr/2026-014-legacy-harness-moves-to-legacy.md)): the
   package is ready ([releasing](releasing.md)); the publish waits for review.

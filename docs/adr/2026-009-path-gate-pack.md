@@ -13,6 +13,8 @@ parsing (the syntax tree, the command-meanings table, tree-sitter) moves to
 the private context `bounded-shell-command-reader`; the path gate judges a
 command from the reading the judge gives its execute effect, and declares
 no path-kinds or shell-parser port.
+Renamed by [ADR 2026-021](2026-021-protected-paths-rename.md): the pack is
+`bounded/protected-paths`, `protectedPathsPack`, in `src/packs/protected-paths/`.
 
 ## Decision
 
