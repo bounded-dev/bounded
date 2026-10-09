@@ -79,8 +79,9 @@ feature keep their names.
 - **Bounded and private** (ADR 2026-008): text fields are shortened past
   4,096 code points; the file log creates its file with mode 0600, makes an
   existing one so, and appends each record as one complete line; readers skip
-  a line that does not parse. Installers ignore `.bounded/` in version
-  control. Redaction is a later hook.
+  a line that does not parse. Installers should ignore `.bounded/` in
+  version control; that is not built yet, so projects add `.bounded/` to
+  `.gitignore` themselves. Redaction is a later hook.
 - **Strict bounds** (ADR 2026-008): a bound that is not a finite number of
   milliseconds above zero stops the handler from being built.
 - **Value-object time and ids** (ADR 2026-017): `Clock.now()` gives a
@@ -98,8 +99,8 @@ feature keep their names.
 ### Protection
 
 Both files are protected by the project's own `.bounded/**` rule, which
-`bounded init` writes into `bounded.config.ts` and the path gate judges like
-any rule. Nothing in the code names either file: a rule for one file would be
+`bounded init` writes into `bounded.config.ts` and the protected-paths pack
+judges like any rule. Nothing in the code names either file: a rule for one file would be
 a special case beside the one plug-in mechanism.
 
 ### Release
