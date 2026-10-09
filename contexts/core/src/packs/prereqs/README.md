@@ -113,7 +113,7 @@ fingerprinted over, or every run changes its own files and never counts.
 Records are in the project, in `.bounded/prereqs/records.jsonl` (one line
 per recorded run, never compacted), and per project root: a second checkout
 starts with none. The starts of delegations awaiting their result are in
-`.bounded/prereqs/started/calls/`, kept for a day. The guard log keeps an
+`.bounded/prereqs/started/calls/`, kept for a day. The Bounded log keeps an
 audit record of each recorded run.
 
 ## The protection it relies on

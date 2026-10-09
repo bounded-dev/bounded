@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { type Config, contribution, corePack, type Decision, DecisionId, DecisionTime, defineConfig, definePack, packIdsFor, portKeysFor, Ports, type ProjectOpenHandler, type Result, Verdict, type WriteEffect } from "bounded/domain";
-import type { Clock, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+import type { Clock, BoundedLog } from "../../bounded-log/judge-event/judge-event.contract.ts";
 import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
 import { OpenProjectCommand } from "./open-project.command.ts";
-import type { ProjectConfigSource, ProjectGuardLogs, ShellCommandReader } from "./open-project.contract.ts";
+import type { ProjectConfigSource, ProjectBoundedLogs, ShellCommandReader } from "./open-project.contract.ts";
 import { OpenProjectHandler } from "./open-project.handler.ts";
 
 const clock: Clock = { now: () => decisionTime("2026-10-07T12:00:00.000Z") };
@@ -16,10 +16,10 @@ function decisionTime(text: string): DecisionTime {
 }
 const FIX = "Fix bounded.config.ts in the project root (see docs/configuration.md); until then every action is refused";
 
-class Logs implements ProjectGuardLogs {
+class Logs implements ProjectBoundedLogs {
   readonly decisions: Decision[] = [];
   readonly roots: string[] = [];
-  forProject(root: string): GuardLog {
+  forProject(root: string): BoundedLog {
     this.roots.push(root);
     return { record: async (decision) => void this.decisions.push(decision) };
   }
@@ -97,7 +97,7 @@ describe("OpenProjectHandler", () => {
   });
 
   test("a project whose log cannot be opened still refuses: nothing is allowed unrecorded", async () => {
-    const logs: ProjectGuardLogs = {
+    const logs: ProjectBoundedLogs = {
       forProject: () => {
         throw new Error("read-only file system");
       },

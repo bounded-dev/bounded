@@ -9,7 +9,7 @@ import type { ToolUse } from "./event.ts";
 import { locator } from "./pi-path.ts";
 import { translate } from "./translate.ts";
 
-/** A block the extension made itself, before the project judged anything: what the project's guard log records. */
+/** A block the extension made itself, before the project judged anything: what the project's Bounded log records. */
 export interface AdapterRefusal {
   readonly hostToolName: string;
   readonly reason: string;

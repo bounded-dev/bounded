@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Composition, type Composition as CompositionType, contribution, corePack, type Decision, DecisionId, DecisionTime, definePack, packIdsFor, Verdict } from "bounded/domain";
 import { JudgeEventCommand } from "./judge-event.command.ts";
-import type { Clock, DecisionIds, GuardLog, ShellCommandReader } from "./judge-event.contract.ts";
+import type { Clock, DecisionIds, BoundedLog, ShellCommandReader } from "./judge-event.contract.ts";
 import { JudgeEventHandler } from "./judge-event.handler.ts";
 
 const TIME = "2026-10-07T12:00:00.000Z";
@@ -18,9 +18,9 @@ function decisionId(text: string): DecisionId {
   return parsed.value;
 }
 const clock: Clock = { now: () => decisionTime(TIME) };
-const UNRECORDED_REDIRECT = "Make the guard log writable; until decisions can be recorded, every action is refused";
+const UNRECORDED_REDIRECT = "Make the Bounded log writable; until decisions can be recorded, every action is refused";
 
-class FakeLog implements GuardLog {
+class FakeLog implements BoundedLog {
   readonly decisions: Decision[] = [];
   constructor(private readonly behaviour: (decision: Decision) => Promise<void> = async () => {}) {}
 
@@ -90,7 +90,7 @@ describe("JudgeEventHandler", () => {
   });
 
   test("a log that throws instead of rejecting is a failure to record", async () => {
-    const log: GuardLog = {
+    const log: BoundedLog = {
       record: () => {
         throw new Error("no log");
       },

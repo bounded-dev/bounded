@@ -3,7 +3,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Composition, Verdict } from "bounded/domain";
+import type { BoundedLog } from "bounded/application";
+import { Composition, type Decision, Verdict } from "bounded/domain";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { openProject } from "./open-project.ts";
 import { fixedShellCommandReader, readingOf, UNREAD_SAMPLE } from "./shell-command-reader.test-support.ts";
@@ -32,13 +33,13 @@ function project(files: Record<string, string>): string {
 }
 
 const log = (root: string): { event: string; verdict: { kind: string } }[] =>
-  readFileSync(join(root, ".bounded", "guard-log.jsonl"), "utf8")
+  readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")
     .split("\n")
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line));
 
 describe("openProject — what a host's composition root calls", () => {
-  test("judges events with the project's bounded.config.ts and records them in .bounded/guard-log.jsonl", async () => {
+  test("judges events with the project's bounded.config.ts and records them in .bounded/log.jsonl", async () => {
     const root = project({ "bounded.config.ts": CONFIG });
     const { judge, problem } = await openProject(root, { shellCommandReader: unread });
     expect(problem).toBeNull();
@@ -46,6 +47,32 @@ describe("openProject — what a host's composition root calls", () => {
     expect<unknown>(refused).toEqual({ kind: "refuse", reason: "bounded/project refused write (modify) generated/a.ts: Generated", redirect: "Change the generator's input" });
     expect((await judge({ kind: "tool-use", role: null, tool: "read", effects: [{ kind: "read", path: "a.ts" }] })).kind).toBe("allow");
     expect(log(root).map((line) => line.verdict.kind)).toEqual(["refuse", "allow"]);
+  });
+
+  test("records in .bounded/log.jsonl and leaves a project's existing .bounded/guard-log.jsonl as it was", async () => {
+    const root = project({ "bounded.config.ts": CONFIG });
+    mkdirSync(join(root, ".bounded"));
+    const old = join(root, ".bounded", "guard-log.jsonl");
+    writeFileSync(old, '{"earlier":true}\n');
+    const { judge } = await openProject(root, { shellCommandReader: unread });
+    await judge({ kind: "session-start", role: null });
+    expect(readFileSync(old, "utf8")).toBe('{"earlier":true}\n');
+    expect(log(root).length).toBe(1);
+  });
+
+  test("records in the boundedLog a host passes, and writes neither .bounded/log.jsonl nor .bounded/guard-log.jsonl", async () => {
+    const root = project({ "bounded.config.ts": CONFIG });
+    const recorded: Decision[] = [];
+    const boundedLog: BoundedLog = {
+      record: async (decision) => {
+        recorded.push(decision);
+      },
+    };
+    const { judge } = await openProject(root, { boundedLog, shellCommandReader: unread });
+    await judge({ kind: "session-start", role: null });
+    expect(recorded.length).toBe(1);
+    expect(existsSync(join(root, ".bounded", "log.jsonl"))).toBe(false);
+    expect(existsSync(join(root, ".bounded", "guard-log.jsonl"))).toBe(false);
   });
 
   test("an event that cannot be read is refused and recorded", async () => {

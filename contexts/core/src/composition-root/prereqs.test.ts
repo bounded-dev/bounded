@@ -43,7 +43,7 @@ const writeSrc = { kind: "tool-use", role: "builder", tool: "edit", effects: [{ 
 const review = (callId: string) => ({ kind: "tool-use", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }], callId });
 const reviewed = (callId: string, finished: boolean) => ({ ...review(callId), kind: "tool-result", ok: true, delegatedAgentRuns: [{ finished }] });
 const log = (root: string): { verdict: { kind: string }; note?: string }[] =>
-  readFileSync(join(root, ".bounded", "guard-log.jsonl"), "utf8")
+  readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")
     .split("\n")
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line));

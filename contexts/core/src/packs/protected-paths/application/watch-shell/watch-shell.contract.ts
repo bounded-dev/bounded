@@ -39,7 +39,7 @@ export interface WatchShell {
   verify(result: ToolResult): Promise<DriftReport>;
 }
 
-// Out ports: exactly what this feature needs (with the judge-event feature's GuardLog, Clock and DecisionIds).
+// Out ports: exactly what this feature needs (with the judge-event feature's BoundedLog, Clock and DecisionIds).
 /**
  * The project's files: hashing those the rules watch (a rule's match ignores
  * case, its except does not), what a commit holds, copies of files, and

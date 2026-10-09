@@ -41,7 +41,7 @@ export interface Wiring {
 
 /**
  * Judges with the project's bounded.config.ts: the core composes its packs,
- * decides and records the decision in .bounded/guard-log.jsonl. Its refusal
+ * decides and records the decision in .bounded/log.jsonl. Its refusal
  * names the refusing pack and effect. Anything openProject or the judge
  * throws or rejects with reaches the hook, which denies.
  */
@@ -56,7 +56,7 @@ export const afterToolFromConfig: AfterTool = async (result, { projectRoot }) =>
   return { message };
 };
 
-/** Records a refusal the hook made itself in the project's guard log. */
+/** Records a refusal the hook made itself in the project's Bounded log. */
 export const recordFromConfig: RecordRefusal = async (refusal, { projectRoot }) => (await open(projectRoot)).refuse(refusal);
 
 /** The hook for one process: stdin text in, stdout text out. */

@@ -1,6 +1,8 @@
 # 2026-008: Every decision is recorded in the guard log, and an unrecorded decision fails closed
 
 **Status:** accepted. Named the guard log by ADR 2026-013 (was: decision log).
+Superseded by [ADR 2026-022](2026-022-bounded-log.md): the guard log is the
+Bounded log, in `.bounded/log.jsonl`.
 
 ## Decision
 

@@ -16,7 +16,7 @@ import {
   ToolUse,
   Verdict,
 } from "bounded/domain";
-import type { Clock, GuardLog } from "./project-lifecycle.contract.ts";
+import type { Clock, BoundedLog } from "./project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "./project-lifecycle.handler.ts";
 
 const packId = packIdsFor("test-packs");
@@ -26,7 +26,7 @@ const ids = { next: (() => {
   return () => parsed(DecisionId.parse(`d-${++n}`));
 })() };
 
-class Log implements GuardLog {
+class Log implements BoundedLog {
   readonly decisions: Decision[] = [];
   async record(decision: Decision): Promise<void> {
     this.decisions.push(decision);
@@ -40,7 +40,7 @@ function parsed<T>(result: { ok: true; value: T } | { ok: false; error: string }
 const call = parsed(ToolUse.parse({ role: "builder", tool: "shell", callId: "c1", effects: [{ kind: "execute", command: "make" }] }));
 const result = parsed(ToolResult.parse({ role: "builder", tool: "shell", callId: "c1", ok: true, effects: [{ kind: "execute", command: "make" }] }));
 
-function lifecycle(packs: readonly BasePack[], log: GuardLog = new Log()) {
+function lifecycle(packs: readonly BasePack[], log: BoundedLog = new Log()) {
   const composition = parsed(Composition.compose([corePack, ...packs], [corePack, ...packs]));
   const ports = parsed(Ports.forProject("/work/project", []));
   return { handler: new ProjectLifecycleHandler(composition, ports, log, clock, { ids }), composition, ports };
@@ -126,7 +126,7 @@ describe("ProjectLifecycleHandler — after a tool ran", () => {
   });
 
   test("a record that cannot be written is swallowed: the message still reaches the host", async () => {
-    const failing: GuardLog = { record: async () => { throw new Error("disk full"); } };
+    const failing: BoundedLog = { record: async () => { throw new Error("disk full"); } };
     const { handler } = lifecycle([after(a, [async () => ({ message: "Restored", record: { verdict: Verdict.refuse("changed", "restore"), refusedBy: null, note: "n" } })])], failing);
     expect(await handler.after(result)).toEqual({ message: "Restored" });
   });

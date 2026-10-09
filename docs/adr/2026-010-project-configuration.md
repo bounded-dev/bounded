@@ -11,7 +11,9 @@ depend on. Amended by
 [ADR 2026-020](2026-020-shell-command-reading.md): `openProject(root,
 options)` requires `shellCommandReader`, prepared when the project opens,
 with which the judge reads every shell command; an untyped caller that
-omits it still gets a judge, which judges every command unread.
+omits it still gets a judge, which judges every command unread. Amended by
+[ADR 2026-022](2026-022-bounded-log.md): the default log is
+`<root>/.bounded/log.jsonl`, the Bounded log.
 
 ## Decision
 

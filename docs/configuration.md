@@ -123,8 +123,8 @@ refuses it. `shellCommandReader` is required; bounded's own is
 `bounded/shell-command-reader`.
 
 The judge decides each event with the composed packs and records the decision
-in `<root>/.bounded/guard-log.jsonl` (see [the guard log](guard-log.md)).
-A host may pass its own `configSource`, `guardLog`, `clock` or `recordWithinMs`.
+in `<root>/.bounded/log.jsonl` (see [the Bounded log](bounded-log.md)).
+A host may pass its own `configSource`, `boundedLog`, `clock` or `recordWithinMs`.
 
 ## When the configuration cannot be used
 

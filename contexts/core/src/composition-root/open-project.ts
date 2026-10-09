@@ -1,13 +1,13 @@
-import { type GuardLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge } from "bounded/application";
+import { type BoundedLog, OpenProjectCommand, OpenProjectHandler, type ProjectConfigSource, type ProjectJudge } from "bounded/application";
 import type { Clock, ShellCommandReader } from "bounded/application";
-import { CheckedProjectConfigSource, FileSystemProjectConfigSource, FileSystemProjectGuardLogs, RandomDecisionIds, SystemClock } from "bounded/adapters";
+import { CheckedProjectConfigSource, FileSystemProjectConfigSource, FileSystemProjectBoundedLogs, RandomDecisionIds, SystemClock } from "bounded/adapters";
 import { AdapterRefusal, type PortProvision, Verdict } from "bounded/domain";
 
 /** What a host may replace; everything else has a default. */
 export interface OpenProjectOptions {
   readonly configSource?: ProjectConfigSource;
-  /** The project's guard log; by default `<root>/.bounded/guard-log.jsonl`. */
-  readonly guardLog?: GuardLog;
+  /** The project's Bounded log; by default `<root>/.bounded/log.jsonl`. */
+  readonly boundedLog?: BoundedLog;
   readonly clock?: Clock;
   readonly recordWithinMs?: number;
   /** How long each pack's work on opening may take before the project opens without it; 5 seconds by default. */
@@ -35,9 +35,9 @@ export async function openProject(projectRoot: string, givenOptions: OpenProject
   try {
     const command = OpenProjectCommand.parse({ projectRoot });
     if (!command.ok) return refusingAll(`This project cannot be opened: ${command.error}`, "Pass the project's absolute root directory to openProject", command.error);
-    const { guardLog } = options;
-    const guardLogs = guardLog === undefined ? new FileSystemProjectGuardLogs() : { forProject: () => guardLog };
-    const handler = new OpenProjectHandler(new CheckedProjectConfigSource(options.configSource ?? new FileSystemProjectConfigSource()), guardLogs, options.clock ?? new SystemClock(), {
+    const { boundedLog } = options;
+    const boundedLogs = boundedLog === undefined ? new FileSystemProjectBoundedLogs() : { forProject: () => boundedLog };
+    const handler = new OpenProjectHandler(new CheckedProjectConfigSource(options.configSource ?? new FileSystemProjectConfigSource()), boundedLogs, options.clock ?? new SystemClock(), {
       ...(options.recordWithinMs === undefined ? {} : { recordWithinMs: options.recordWithinMs }),
       ...(options.prepareWithinMs === undefined ? {} : { prepareWithinMs: options.prepareWithinMs }),
       ...(options.ports === undefined ? {} : { ports: options.ports }),

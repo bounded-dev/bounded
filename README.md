@@ -32,9 +32,9 @@ hosts:
   unchanged since; only a run the host says finished counts
   ([ADR 2026-019](docs/adr/2026-019-prereqs-pack.md),
   [its README](contexts/core/src/packs/prereqs/README.md)).
-- **The guard log**: every decision, and every refusal a host adapter
-  makes itself, recorded in `.bounded/guard-log.jsonl`
-  ([docs/guard-log.md](docs/guard-log.md)).
+- **The Bounded log**: every decision, and every refusal a host adapter
+  makes itself, recorded in `.bounded/log.jsonl`
+  ([docs/bounded-log.md](docs/bounded-log.md)).
 - **Configuration**: `bounded.config.ts` selects packs; `openProject(root,
   { ports, shellCommandReader })` gives the judge hosts ask, and refuses
   everything when the configuration is broken
@@ -79,7 +79,7 @@ hosts:
 - **Decisions are recorded.** The judge-event feature decides an event and
   records the decision through an asynchronous log (in memory, or a JSON-lines
   file); if the decision cannot be recorded in time, the action is refused
-  ([docs/guard-log.md](docs/guard-log.md), ADR 2026-008).
+  ([docs/bounded-log.md](docs/bounded-log.md), ADR 2026-022).
 
 - **Configuration.** A project selects its packs in `bounded.config.ts` with
   `defineConfig`; host adapters call `openProject(root, { ports:

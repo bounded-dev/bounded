@@ -1,8 +1,8 @@
 import type { OpenedProject, ToolResult, ToolUse, Verdict } from "bounded/domain";
-import type { DecisionIds } from "../../guard-log/judge-event/judge-event.contract.ts";
+import type { DecisionIds } from "../../bounded-log/judge-event/judge-event.contract.ts";
 
 // Out ports this feature shares with judge-event: declared there, listed here so this contract names every port the feature needs.
-export type { Clock, DecisionIds, GuardLog } from "../../guard-log/judge-event/judge-event.contract.ts";
+export type { Clock, DecisionIds, BoundedLog } from "../../bounded-log/judge-event/judge-event.contract.ts";
 
 /** What the after-tool checks have to tell the agent: their messages joined, or null when none has one. */
 export interface AfterToolOutcome {

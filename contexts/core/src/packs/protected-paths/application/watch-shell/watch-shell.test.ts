@@ -109,7 +109,7 @@ class FakeSnapshots implements ShellSnapshots {
   }
 }
 
-/** What the core records of each report the handler returns, as the guard log would hold it. */
+/** What the core records of each report the handler returns, as the Bounded log would hold it. */
 class FakeLog {
   readonly decisions: Decision[] = [];
 }

@@ -2,11 +2,11 @@
 export { SystemClock } from "./clock/clock.ts";
 export { InMemoryComposePacksCatalog } from "./compose-packs-catalog/compose-packs-catalog.ts";
 export { RandomDecisionIds } from "./decision-ids/decision-ids.ts";
-export { FileSystemGuardLog } from "./guard-log/guard-log.ts";
+export { FileSystemBoundedLog } from "./bounded-log/bounded-log.ts";
 export { NodeModulesHostInstallerSource } from "./host-installer-source/host-installer-source.ts";
 export { CheckedProjectConfigSource } from "./project-config-source/checked-project-config-source.ts";
 export { FileSystemProjectConfigSource } from "./project-config-source/file-system-project-config-source.ts";
-export { FileSystemProjectGuardLogs } from "./project-guard-logs/project-guard-logs.ts";
+export { FileSystemProjectBoundedLogs } from "./project-bounded-logs/project-bounded-logs.ts";
 export { FileSystemProjectSetupFiles } from "./project-setup-files/project-setup-files.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
