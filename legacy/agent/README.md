@@ -1,6 +1,6 @@
 # bounded
 
-The CLI for [the Bounded Harness](https://github.com/bounded-dev/the-bounded-harness),
+The CLI for [the Bounded Harness](https://github.com/bounded-dev/bounded),
 a harness for coding agents. Bounded gives an agent a structured way to turn a
 request into working software, then checks the result with rules the agent
 cannot simply talk past. It supports [pi](https://pi.dev) and Claude Code, and
@@ -31,11 +31,11 @@ build and the commit it came from.
 
 ## Learn more
 
-See the [project README](https://github.com/bounded-dev/the-bounded-harness#readme)
+See the [project README](https://github.com/bounded-dev/bounded#readme)
 for how a Bounded project works, and
-[the vision](https://github.com/bounded-dev/the-bounded-harness/blob/main/docs/VISION.md)
+[the vision](https://github.com/bounded-dev/bounded/blob/main/docs/VISION.md)
 for where it is going.
 
 ## License
 
-[MIT](https://github.com/bounded-dev/the-bounded-harness/blob/main/LICENSE)
+[MIT](https://github.com/bounded-dev/bounded/blob/main/LICENSE)

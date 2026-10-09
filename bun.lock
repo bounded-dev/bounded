@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "the-bounded-harness",
+      "name": "bounded-workspace",
       "devDependencies": {
         "@biomejs/biome": "2.5.15",
         "@types/bun": "1.3.14",

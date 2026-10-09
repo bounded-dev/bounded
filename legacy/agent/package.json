@@ -5,12 +5,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bounded-dev/the-bounded-harness.git",
+    "url": "git+https://github.com/bounded-dev/bounded.git",
     "directory": "agent"
   },
-  "homepage": "https://github.com/bounded-dev/the-bounded-harness#readme",
+  "homepage": "https://github.com/bounded-dev/bounded#readme",
   "bugs": {
-    "url": "https://github.com/bounded-dev/the-bounded-harness/issues"
+    "url": "https://github.com/bounded-dev/bounded/issues"
   },
   "type": "module",
   "bin": {

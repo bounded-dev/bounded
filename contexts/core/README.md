@@ -115,6 +115,6 @@ suite every reader runs, `bounded/testing/shell-command-reader-conformance`
 ## More
 
 The design, the configuration, the packs and the decisions behind them are in
-the repository: <https://github.com/bounded-dev/the-bounded-harness>.
+the repository: <https://github.com/bounded-dev/bounded>.
 
 MIT licence.

@@ -19,7 +19,7 @@ import { gitHubSettings, gitHubTracker, resolveGitHubAtInit } from "../trackers/
 const REPO = process.env["BOUNDED_GITHUB_IT_REPO"];
 const PROJECT = process.env["BOUNDED_GITHUB_IT_PROJECT"];
 /** Repositories this test must never write to. */
-const PROTECTED = new Set(["bounded-dev/the-bounded-harness"]);
+const PROTECTED = new Set(["bounded-dev/bounded"]);
 
 describe.skipIf(REPO === undefined || PROJECT === undefined)("GitHub tracker against a scratch repository", () => {
   test("init resolves the board; an issue walks every status, takes and loses a label, and closes", () => {

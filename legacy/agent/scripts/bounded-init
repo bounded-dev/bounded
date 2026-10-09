@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # bounded-init — make a freshly cloned Bounded Harness live on this machine.
 #
-#   git clone git@github.com:bounded-dev/the-bounded-harness.git
-#   cd the-bounded-harness && agent/scripts/bounded-init
+#   git clone git@github.com:bounded-dev/bounded.git
+#   cd bounded && agent/scripts/bounded-init
 #
 # Does everything the README used to ask you to do by hand:
 #

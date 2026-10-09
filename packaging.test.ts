@@ -81,7 +81,7 @@ describe("bounded, the one published package", () => {
     expect(manifest.version).toBe(VERSION);
     expect(readFileSync(join(ROOT, "LICENSE"), "utf8")).toStartWith("MIT License");
     expect(manifest.license).toBe("MIT");
-    expect(manifest.repository).toEqual({ type: "git", url: "git+https://github.com/bounded-dev/the-bounded-harness.git", directory: "contexts/core" });
+    expect(manifest.repository).toEqual({ type: "git", url: "git+https://github.com/bounded-dev/bounded.git", directory: "contexts/core" });
     expect((manifest.description ?? "").length).toBeGreaterThan(10);
     expect(manifest.engines).toEqual({ node: ">=22.18" });
     expect(manifest.files).toEqual(expect.arrayContaining(["dist", "src"]));
@@ -171,7 +171,7 @@ describe("bounded, the one published package", () => {
     const readme = readFileSync(join(CORE, "README.md"), "utf8");
     expect(readme).toContain("npx bounded init");
     expect(readme).toContain("pathGate.points.protectedPaths");
-    expect(readme).toContain("https://github.com/bounded-dev/the-bounded-harness");
+    expect(readme).toContain("https://github.com/bounded-dev/bounded");
   });
 
   test("its README says the adapter export paths are internal: they serve the hosts bounded carries, not a project's configuration", () => {
