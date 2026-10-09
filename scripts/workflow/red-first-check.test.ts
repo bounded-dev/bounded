@@ -1,23 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compareCases, extractTestCases, fixtureRunners, isRunnableTestPath, isTestPath, main, parseJunit, parseSupersessions, redCases } from "./red-first-check.ts";
+import { compareCases, extractTestCases, FIXTURE_RUNNERS, fixtureRunners, isRunnableTestPath, isTestPath, main, parseJunit, parseSupersessions, redCases } from "./red-first-check.ts";
 
 describe("red-first-check paths", () => {
   test("test files, test support and fixtures may be in a red commit; nothing else", () => {
-    expect(isTestPath("contexts/core/src/a.test.ts")).toBe(true);
-    expect(isTestPath("contexts/core/src/a.store.test-support.ts")).toBe(true);
-    expect(isTestPath("contexts/core/test/fixtures/bad.ts")).toBe(true);
-    expect(isTestPath("contexts/core/src/a.ts")).toBe(false);
+    expect(isTestPath("src/core/a.test.ts")).toBe(true);
+    expect(isTestPath("src/core/a.store.test-support.ts")).toBe(true);
+    expect(isTestPath("src/core/test/fixtures/bad.ts")).toBe(true);
+    expect(isTestPath("src/core/a.ts")).toBe(false);
     expect(isTestPath("package.json")).toBe(false);
     expect(isTestPath("superseded-tests.json")).toBe(true);
   });
 
   test("a change to the compile-time fixtures also runs the test that compiles them", () => {
-    expect(fixtureRunners(["contexts/core/test/fixtures/compile-time/rejected.ts", "a.test.ts"])).toEqual(["compile-time.test.ts"]);
-    expect(fixtureRunners(["contexts/core/test/fixtures/other/x.ts"])).toEqual([]);
+    expect(fixtureRunners(["src/test/fixtures/compile-time/rejected.ts", "a.test.ts"])).toEqual(["src/test/compile-time.test.ts"]);
+    expect(fixtureRunners(["src/core/test/fixtures/other/x.ts"])).toEqual([]);
+  });
+
+  test("every fixture runner's test exists in the repository", () => {
+    const repoRoot = join(import.meta.dir, "..", "..");
+    expect(FIXTURE_RUNNERS.length).toBeGreaterThan(0);
+    for (const runner of FIXTURE_RUNNERS) expect([runner.test, existsSync(join(repoRoot, runner.test))]).toEqual([runner.test, true]);
   });
 
   test("only test files outside fixture directories are runnable", () => {
