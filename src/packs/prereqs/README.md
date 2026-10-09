@@ -75,8 +75,8 @@ export default defineConfig({
   "$OUT"`), a write outside the project (`/tmp/x`, `~/x`, `../x`,
   `src/../../x`; never
   `/dev/null`, `/dev/stdout`, `/dev/stderr` or `/dev/fd/<n>`), unresolved
-  code, or a program named by a variable. Once the requirement holds, every
-  such command is allowed.
+  code, or a run whose program's name only the shell can resolve
+  (`$TOOL x`). Once the requirement holds, every such command is allowed.
 - `require` is a delegation to an agent that succeeded, matched exactly
   against the agent the host says it ran, as it resolved the requested name.
   A request spelled "Plan-Reviewer" that Claude Code ran as plan-reviewer
@@ -152,6 +152,18 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
 - **A reviewer's verdict.** "Succeeded" is the tool result's `ok`, not what
   the reviewer concluded.
 - **Cycles across rules**, which make an action unreachable.
+- **Expansions inside an argument or input to a program the reader does
+  not interpret, until `shell-reader-coverage`.** Such a program (named by
+  its path, as `/bin/bash`, `/bin/sh` or `/usr/bin/env`, and `ssh`,
+  `watch`, `su -c`, `script -c`, `time`, `coproc`) is given text; the
+  rule's program is found there only where its name is written out. These
+  are allowed while the requirement is unmet: `/bin/bash -c 'terra$()form
+  apply'`, `` ssh host 'terra``form apply' ``, `watch 'terra${x}form
+  apply'`, `su -c $'\x74erraform apply'`, `script -c "$(echo … | base64
+  -d)"`, `time $TF apply`, `coproc $TF apply`, `/usr/bin/env "$TF" apply`,
+  `/bin/sh <<< 'terraform apply'`, `cat commands.txt | xargs /usr/bin/env`.
+  A program named by a variable is refused only where it is the run's own
+  name (`$TF apply`, `sudo $TF apply`).
 - **What a prefix does not match.** It matches a run's first positional
   words, in order, past options only: under `"make deploy"`,
   `make clean deploy` (which builds the deploy target too) does not count.

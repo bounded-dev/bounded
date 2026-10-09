@@ -205,7 +205,18 @@ when written; keep it current (AGENTS.md, "Working with the user").
     argument or write only the shell can resolve, a write outside the
     project, unresolved code, and, under an execute rule, any run passing
     the rule's program as an argument (`echo terraform`, a commit message
-    naming it).
+    naming it). A program named by a variable is refused only as a run's
+    own name (`$TF apply`).
+  - Until `shell-reader-coverage`, an execute rule does not see its program
+    reached through an expansion inside an argument or input to a program
+    the reader does not interpret (one named by its path such as
+    `/bin/bash` or `/usr/bin/env`, `ssh`, `watch`, `su -c`, `script -c`,
+    `time`, `coproc`): `/bin/bash -c 'terra$()form apply'`,
+    `watch 'terra${x}form apply'`, `su -c $'\x74erraform apply'`,
+    `script -c "$(… | base64 -d)"`, `time $TF apply`, `coproc $TF apply`,
+    `/usr/bin/env "$TF" apply`, `/bin/sh <<< 'terraform apply'`,
+    `cat commands.txt | xargs /usr/bin/env` are allowed while the
+    requirement is unmet (ADR 2026-019, "Limits").
   - Drift never watches `.bounded/`, so records forged by a shell command
     the protected-paths pack does not see are kept: the records rest on the protected-paths pack's
     `.bounded/**` rule.

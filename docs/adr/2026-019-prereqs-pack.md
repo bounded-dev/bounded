@@ -306,6 +306,22 @@ pi-subagents' project agent directory), which give role identity.
   name stands as an argument), not seen to run; PowerShell is read as bash;
   a range bash 3.2 keeps literal and bash 4 expands may shift a later
   word's position.
+- **Execute rules, until `shell-reader-coverage`: an expansion inside an
+  argument or input to a program the reader does not interpret is not
+  seen.** A program the reader does not interpret (one named by its path
+  such as `/bin/bash`, `/bin/sh` or `/usr/bin/env`, and `ssh`, `watch`,
+  `su -c`, `script -c`, `time`, `coproc`) is given its arguments and input
+  as text; the pack finds the rule's program in that text only where its
+  name is written out. Where only the shell would assemble it, it is not
+  found, and the command is allowed while the requirement is unmet:
+  `/bin/bash -c 'terra$()form apply'`, `` ssh host 'terra``form apply' ``,
+  `watch 'terra${x}form apply'`, `su -c $'\x74erraform apply'`,
+  `script -c "$(echo … | base64 -d)"`, `time $TF apply`, `coproc $TF
+  apply`, `/usr/bin/env "$TF" apply`, `/bin/sh <<< 'terraform apply'` and
+  `cat commands.txt | xargs /usr/bin/env`. `shell-reader-coverage` gives
+  such an argument, here-string, piped input or xargs input role `code`,
+  so the pack refuses each as cannot see, and interprets `/bin/bash`,
+  `/bin/sh` and `/usr/bin/env` by their path.
 - **Write rules, until `shell-reader-coverage`** (named, so they are not
   mistaken for seen): in-place edits (`sed -i`, `perl -i`); what programs
   and scripts write themselves; package runners (`npx`, `bunx`, `pnpm exec`,
@@ -319,11 +335,15 @@ pi-subagents' project agent directory), which give role identity.
   too.)
 - A delegation made from the shell (`claude -p --agent …`) is not one.
 - **Over-refusal while a requirement is missing:** commands bounded cannot
-  read through (awk programs, `python -c`, `eval`, `| sh`, programs named
-  by a variable, writes to a path in a variable or outside the project)
+  read through (awk programs, `python -c`, `eval`, `| sh`, a program whose
+  name is unresolved, such as `$TF apply` or `sudo $TF apply`, writes to a
+  path in a variable or outside the project)
   under any execute or write rule; any run passing an execute rule's
   program as an argument (`echo terraform`, `which terraform`, a commit
-  message naming it).
+  message naming it). A program named by a variable is refused only where
+  the reading lists it as a run whose name is unresolved; given as an
+  argument to a program the reader does not interpret (`time $TF`,
+  `coproc $TF`, `/usr/bin/env "$TF"`), it is not refused yet (above).
 - **ABA:** files edited and restored between the delegation and its result
   compare equal, so the run counts.
 - Records are per project root; teammates and isolated runs of a required

@@ -180,6 +180,25 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
     for (const command of commands) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
+  test("limit, until shell-reader-coverage: terraform reached through an expansion inside an argument or input to a program the reader does not interpret is not seen", async () => {
+    const { shell } = await opened();
+    // Today's outcome, asserted so that shell-reader-coverage supersedes this case knowingly: each is allowed while the rule is unmet.
+    for (const command of [
+      "/bin/bash -c 'terra$()form apply'",
+      "ssh host 'terra``form apply'",
+      "watch 'terra$" + "{x}form apply'", // the shell's ${x}, kept out of a template placeholder's look
+      "su -c $'\\x74erraform apply'",
+      'script -c "$(echo dGVycmFmb3JtIGFwcGx5 | base64 -d)"',
+      "time $TF apply",
+      "coproc $TF apply",
+      '/usr/bin/env "$TF" apply',
+      "/bin/sh <<< 'terraform apply'",
+      "cat commands.txt | xargs /usr/bin/env",
+    ]) {
+      expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    }
+  });
+
   test("limit: a script run through a shell, or sourced, is not seen to run; it is refused only because its name stands as an argument", async () => {
     const { shell } = await opened();
     const direct = await shell("./deploy.sh");
