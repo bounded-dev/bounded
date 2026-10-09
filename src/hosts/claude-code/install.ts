@@ -1,4 +1,4 @@
-// Installing the hook: bounded's PreToolUse, PostToolUse and PostToolUseFailure entries merged into a project's
+// Installing the hook: bounded's PreToolUse, PostToolUse, PostToolUseFailure and SubagentStop entries merged into a project's
 // .claude/settings.json object. Pure; the caller reads and writes the file.
 import type { Result } from "bounded/domain";
 import { isRecord } from "./json.ts";
@@ -14,8 +14,20 @@ export const HOOK_TIMEOUT_SECONDS = 30;
  * inside a group, so a comment or a ';' in it cannot escape the wrapper.
  */
 const failClosed = (command: string): string => `{\n${command}\n} || { echo "bounded hook failed" >&2; exit 2; }`;
-/** The forms earlier versions installed: replaced, never left beside the current one. */
-const olderForms = (command: string): readonly string[] => [command, `${command} || { echo "bounded hook failed" >&2; exit 2; }`];
+/** The wrapper earlier versions installed. */
+const oldWrapper = (command: string): string => `${command} || { echo "bounded hook failed" >&2; exit 2; }`;
+
+/**
+ * The form installed for `event`: wrapped to fail closed before and after a
+ * tool call; the bare command when a subagent stops, where exit 2 would block
+ * the stop and keep the subagent running, and there is nothing to refuse
+ * (ADR 2026-025).
+ */
+const installedForm = (command: string, event: HookEvent): string => (event === "SubagentStop" ? command : failClosed(command));
+
+/** The forms earlier versions installed for `event`: replaced, never left beside the current one. */
+const olderForms = (command: string, event: HookEvent): readonly string[] =>
+  event === "SubagentStop" ? [failClosed(command), oldWrapper(command)] : [command, oldWrapper(command)];
 
 const quote = (word: string): string => `'${word.replaceAll("'", `'\\''`)}'`;
 
@@ -37,8 +49,8 @@ export const BUNDLED_HOOK = "node_modules/bounded/dist/hosts/claude-code/hook.js
  */
 export const PROJECT_HOOK_COMMAND = `node "$CLAUDE_PROJECT_DIR/${BUNDLED_HOOK}"`;
 
-/** The hook events bounded is installed for: before every call to judge it, after it to undo what it changed. */
-type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure";
+/** The hook events bounded is installed for: before every call to judge it, after it to undo what it changed, and when a subagent stops to record its run's finish. */
+type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "SubagentStop";
 
 /** Whether a hook entry is ours: it runs `command` as a command hook for every tool. */
 function isOurs(entry: unknown, command: string): boolean {
@@ -47,9 +59,9 @@ function isOurs(entry: unknown, command: string): boolean {
   return Array.isArray(hooks) && hooks.some((hook) => isRecord(hook) && hook.type === "command" && hook.command === command);
 }
 
-/** The entries with every hook running an older form of `command` removed, and entries left empty dropped. */
-function withoutOlder(entries: readonly unknown[], command: string): unknown[] {
-  const older = olderForms(command);
+/** The entries with every hook running an older form of `command` for `event` removed, and entries left empty dropped. */
+function withoutOlder(entries: readonly unknown[], command: string, event: HookEvent): unknown[] {
+  const older = olderForms(command, event);
   const isOlder = (hook: unknown): boolean => isRecord(hook) && hook.type === "command" && typeof hook.command === "string" && older.includes(hook.command);
   return entries.flatMap((entry) => {
     if (!isRecord(entry) || !Array.isArray(entry.hooks) || !entry.hooks.some(isOlder)) return [entry];
@@ -58,10 +70,10 @@ function withoutOlder(entries: readonly unknown[], command: string): unknown[] {
   });
 }
 
-/** The events bounded is installed for: before every call, after it, and after it failed (a command exiting non-zero). */
-const EVENTS: readonly HookEvent[] = ["PreToolUse", "PostToolUse", "PostToolUseFailure"];
+/** The events bounded is installed for: before every call, after it, after it failed (a command exiting non-zero), and when a subagent stops. */
+const EVENTS: readonly HookEvent[] = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop"];
 
-/** The settings with bounded's hook running `command` before every tool call, after it and after its failure. Idempotent; everything else is kept. */
+/** The settings with bounded's hook running `command` before every tool call, after it, after its failure and when a subagent stops. Idempotent; everything else is kept. */
 export function withHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
   let out: { settings: Settings; changed: boolean } = { settings: settings as Settings, changed: false };
   for (const event of EVENTS) {
@@ -88,19 +100,19 @@ export function isBoundedHook(hook: unknown): boolean {
 
 /**
  * The settings with bounded's hooks running `command` before every tool call,
- * after it and after its failure, and every other bounded hook without a
+ * after it, after its failure and when a subagent stops, and every other bounded hook without a
  * role (one pointing at another path, as after the project moved) removed.
  * Idempotent; everything else is kept.
  */
 export function withProjectHooks(settings: unknown, command: string): Result<{ settings: Settings; changed: boolean }> {
   if (!isRecord(settings) || !isRecord(settings.hooks)) return withHooks(settings, command);
-  const installed = failClosed(command);
-  const isStale = (hook: unknown): boolean => isBoundedHook(hook) && isRecord(hook) && hook.command !== installed;
   let stripped = false;
   const hooks: Record<string, unknown> = { ...settings.hooks };
   for (const event of EVENTS) {
     const entries = hooks[event];
     if (!Array.isArray(entries)) continue;
+    const installed = installedForm(command, event);
+    const isStale = (hook: unknown): boolean => isBoundedHook(hook) && isRecord(hook) && hook.command !== installed;
     hooks[event] = entries.flatMap((entry) => {
       if (!isRecord(entry) || !Array.isArray(entry.hooks) || !entry.hooks.some(isStale)) return [entry];
       stripped = true;
@@ -122,8 +134,8 @@ export function withHook(settings: unknown, command: string, event: HookEvent = 
   if (!isRecord(hooks)) return { ok: false, error: ".claude/settings.json's 'hooks' is not an object" };
   const entries = hooks[event] ?? [];
   if (!Array.isArray(entries)) return { ok: false, error: `.claude/settings.json's 'hooks.${event}' is not a list` };
-  const installed = failClosed(command);
-  const kept = withoutOlder(entries, command);
+  const installed = installedForm(command, event);
+  const kept = withoutOlder(entries, command, event);
   const replaced = kept.length !== entries.length || kept.some((entry, at) => entry !== entries[at]);
   if (!replaced && kept.some((entry) => isOurs(entry, installed))) return { ok: true, value: { settings, changed: false } };
   const ours = { matcher: "", hooks: [{ type: "command", command: installed, timeout: HOOK_TIMEOUT_SECONDS }] };
