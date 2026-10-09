@@ -12,7 +12,7 @@ const error = (raw: unknown): string => {
 describe("PendingAgentRun", () => {
   test("a pending run names its run, the call that started it, when it was seen to start, and the starts it carries", () => {
     const parsed = PendingAgentRun.parse(pending);
-    expect(parsed.ok && parsed.value.toJSON()).toEqual(pending);
+    expect<unknown>(parsed.ok && parsed.value.toJSON()).toEqual(pending);
     expect(parsed.ok && parsed.value.agentRunId.value).toBe("a6eef1505a0b443a2");
     expect(parsed.ok && parsed.value.callId.value).toBe("toolu_1");
     expect(parsed.ok && parsed.value.startedAt.value).toBe("2026-10-09T12:00:00.000Z");
