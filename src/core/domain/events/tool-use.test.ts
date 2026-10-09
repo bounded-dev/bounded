@@ -3,7 +3,9 @@ import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { ToolUse } from "./tool-use.ts";
 
 const edit = { role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }] };
-const run = { role: null, tool: "shell", effects: [{ kind: "execute", command: "make build" }] };
+/** A read reading's wire form: bounded's reading of a command that runs tool-a from the project root, touching no file. */
+const READ = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
+const run = { role: null, tool: "shell", effects: [{ kind: "execute", command: "make build", reading: READ }] };
 const grep = { role: null, tool: "search", effects: [{ kind: "list", root: "src", filter: "*.ts" }, { kind: "read", path: "src" }] };
 
 
@@ -51,6 +53,12 @@ describe("ToolUse — boundaries", () => {
     );
     expect(error({ ...edit, effects: [{ kind: "read", path: "/etc/hosts" }] })).toBe("Effect 1 of 1: Path '/etc/hosts' is absolute. Give it relative to the project root, such as 'src/a.ts'");
     expect(error({ ...edit, effects: ["src/a.ts"] })).toBe("Effect 1 of 1: An effect has kind read, list, write, execute, fetch, delegate or invoke");
+  });
+
+  test("a tool use whose execute effect has no reading is refused at the boundary", () => {
+    const unread = ToolUse.parse({ role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }] });
+    expect(unread.ok).toBe(false);
+    expect(unread.ok ? "" : unread.error).toContain("An execute effect is { kind, command, cwd?, reading }");
   });
 
   test("refuses something that is not a tool use", () => {

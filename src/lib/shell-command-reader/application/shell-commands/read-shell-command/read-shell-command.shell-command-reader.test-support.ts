@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Command, ProjectPath, ShellCommandReading } from "bounded/domain";
-import type { ShellCommandReader } from "./judge-event.contract.ts";
+import type { ShellCommandReader } from "./read-shell-command.contract.ts";
 
 // The conformance suite every ShellCommandReader runs (published as
 // bounded/testing/shell-command-reader-conformance, ADR 2026-020). It names
@@ -22,7 +22,7 @@ const made = <T>(parsed: { ok: true; value: T } | { ok: false; error: string }):
   return parsed.value;
 };
 
-/** What `reader` makes of `command`, run from `cwd`, parsed as the judge parses it; a reading that was not read fails the test with its why. */
+/** What `reader` makes of `command`, run from `cwd`, parsed as ReadShellCommand parses it; a reading that was not read fails the test with its why. */
 async function readingOf(reader: ShellCommandReader, projectRoot: string, command: string, cwd: string | null = null) {
   const reading = made(ShellCommandReading.parse(await reader.read(projectRoot, made(Command.parse(command)), cwd === null ? null : made(ProjectPath.parse(cwd)))));
   if (reading.outcome !== "read") throw new Error(`the command was not read: ${reading.why}`);

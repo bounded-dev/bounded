@@ -330,18 +330,11 @@ describe("the protected-paths pack — what it does not judge in this slice", ()
 describe("the protected-paths pack — shell commands, judged from bounded's reading", () => {
   const env = rules("a", { match: ".env", deny: ["read"], redirect: "Ask a maintainer for the value", file: true });
   const generated = rules("b", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
-  const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project) and a shell command reader, and reinstall bounded's dependencies if its parser cannot load; shell commands are refused until then";
+  const UNREAD_REDIRECT = "Reinstall bounded's dependencies if its shell parser cannot load, then retry; shell commands are refused until the host adapter can read them";
   /** A read reading of a command that touches `fileEffects` and leaves `unresolved` unresolved. */
   const reading = (fileEffects: object[], unresolved: object[] = []) => ({ outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects, unresolved });
-  const execute = (command: string, given?: object) => ({ kind: "execute", command, ...(given === undefined ? {} : { reading: given }) });
-
-  test("a shell command bounded did not read is refused, saying so", () => {
-    expect(decide([], [execute("ls")], "shell")).toMatchObject({
-      kind: "refuse",
-      reason: "bounded/protected-paths refused execute `ls`: the protected-paths pack cannot check shell commands: bounded did not read this command; openProject's judge, given a shell command reader, reads every command",
-      redirect: UNREAD_REDIRECT,
-    });
-  });
+  /** An execute effect carrying the reading the host adapter gave it: always one. */
+  const execute = (command: string, given: object) => ({ kind: "execute", command, reading: given });
 
   test("an unread command is refused with the reader's why", () => {
     expect(decide([env], [execute("ls", { outcome: "unread", why: "bounded's shell parser could not load (main.wasm is missing)" })], "shell")).toMatchObject({

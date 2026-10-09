@@ -74,3 +74,5 @@ export const isolatedText: DelegateEffectJSON = { kind: "delegate", agent: "revi
 export const finishedText: ToolResultJSON = { role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "a" }], ok: true, delegatedAgentRuns: [{ finished: "yes" }] }; // rejected: Type 'string' is not assignable to type 'boolean'
 // 7. A reading of a shell command was read or unread: nothing else.
 export const maybeRead: ExecuteEffectJSON = { kind: "execute", command: "ls", reading: { outcome: "maybe" } }; // rejected: Type '"maybe"' is not assignable to type
+// 8. An execute always carries the reading the host adapter built for its command (ADR 2026-020): it cannot be left out.
+export const unreadExecute: ExecuteEffectJSON = { kind: "execute", command: "ls" }; // rejected: Property 'reading' is missing

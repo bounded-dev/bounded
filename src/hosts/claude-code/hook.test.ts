@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { type ToolResult, Verdict } from "bounded/domain";
+import { type ShellCommandReadingJSON, type ToolResult, Verdict } from "bounded/domain";
+import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import type { PathResolver, ToolUse } from "./event.ts";
 import { type AdapterRefusal, type AfterTool, type Decide, respond, runHook } from "./hook.ts";
 
@@ -10,8 +11,11 @@ const deny = (reason: string, redirect: string): string =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `${reason}\n${redirect}` } });
 
 const paths: PathResolver = { resolve: (raw) => ({ ok: true, value: { path: raw.replace(/^\/p\/?/, "") || ".", exists: true } }) };
+/** The reading the stand-in reader gives every command: one running tool-a from the project root. */
+const READ: ShellCommandReadingJSON = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
+const readShellCommand: ReadShellCommand = { prepare: async () => {}, read: async () => READ };
 const stdin = (tool_name: string, tool_input: Record<string, unknown>): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name, tool_input, cwd: "/p", session_id: "s" });
-const hook = (decide: Decide, role: string | null = null) => ({ projectRoot: "/p", role, decide, paths, deadlineMs: 1000 });
+const hook = (decide: Decide, role: string | null = null) => ({ projectRoot: "/p", role, decide, paths, readShellCommand, deadlineMs: 1000 });
 const recording =
   (seen: ToolUse[]): Decide =>
   (event) => {
@@ -52,7 +56,27 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
     };
     const out = await runHook(after("Bash", { command: "./regenerate.sh" }), { ...hook(recording([])), afterTool });
     expect(JSON.parse(out)).toEqual({ decision: "block", reason: "This command changed protected files, and they were restored: generated/a.ts was modified." });
-    expect(wireOf(results[0])).toEqual({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "toolu_1" });
+    expect(wireOf(results[0])).toEqual({ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: ".", reading: READ }], ok: true, callId: "toolu_1" });
+  });
+
+  test("a PostToolUse for a Bash call reaches afterTool with its execute effect's reading", async () => {
+    const results: ToolResult[] = [];
+    const asked: unknown[] = [];
+    const reading: ReadShellCommand = {
+      prepare: async () => {},
+      read: async (input) => {
+        asked.push(input);
+        return READ;
+      },
+    };
+    const afterTool: AfterTool = async (result) => {
+      results.push(result);
+      return { message: null };
+    };
+    expect(await runHook(after("Bash", { command: "./regenerate.sh" }), { ...hook(recording([])), readShellCommand: reading, afterTool })).toBe("");
+    expect(asked).toEqual([{ projectRoot: "/p", command: "./regenerate.sh", cwd: "." }]);
+    const [effect] = results[0]?.effects ?? [];
+    expect(effect?.kind === "execute" && effect.reading.toJSON()).toEqual(READ);
   });
 
   test("a PostToolUse with nothing undone, or no afterTool, answers nothing", async () => {
@@ -192,6 +216,18 @@ describe("runHook: stdin to stdout, fail closed", () => {
     const out = await runHook(stdin("Read", { file_path: "/p/a" }), { ...hook(() => new Promise<Verdict>(() => {})), deadlineMs: 50 });
     expect(out).toBe(deny("bounded did not decide within 50 ms", "Retry the call; if it keeps timing out, report it to the maintainers of bounded"));
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  test("a Bash call whose read never settles is denied at the hook's deadline", async () => {
+    let asked = false;
+    const hanging: ReadShellCommand = { prepare: async () => {}, read: () => new Promise(() => {}) };
+    const decide: Decide = () => {
+      asked = true;
+      return Verdict.allow;
+    };
+    const out = await runHook(stdin("Bash", { command: "ls" }), { ...hook(decide), readShellCommand: hanging, deadlineMs: 50 });
+    expect(out).toBe(deny("bounded did not decide within 50 ms", "Retry the call; if it keeps timing out, report it to the maintainers of bounded"));
+    expect(asked).toBe(false);
   });
 
   test("decide is told the project it decides for", async () => {

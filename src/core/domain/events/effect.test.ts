@@ -5,7 +5,9 @@ import { describeEffect, Effect } from "./effect.ts";
 const read = { kind: "read", path: "src/a.ts" };
 const list = { kind: "list", root: "src", filter: "*.ts" };
 const write = { kind: "write", path: "src/a.ts", change: "modify" };
-const execute = { kind: "execute", command: "make build" };
+/** A read reading's wire form: bounded's reading of a command that runs tool-a from the project root, touching no file. */
+const READ = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
+const execute = { kind: "execute", command: "make build", reading: READ };
 const fetch = { kind: "fetch", url: "https://example.com/a" };
 const delegate = { kind: "delegate", agent: "explore" };
 const invoke = { kind: "invoke", name: "mcp__docs__search" };
@@ -35,27 +37,26 @@ describe("Effect — the seven kinds", () => {
   });
 
   test("an execute names its command exactly as given; tabs and line breaks are allowed, NUL and other control characters are not", () => {
-    expect(wireOf(Effect.parse({ kind: "execute", command: " make\n\tbuild " }))).toEqual({ ok: true, value: { kind: "execute", command: " make\n\tbuild ", cwd: null } });
-    expect(error({ kind: "execute", command: " " })).toBe("An execute effect must name the command it runs");
-    expect(error({ kind: "execute", command: "rm a\0b" })).toBe("A command must not contain a NUL character");
-    expect(error({ kind: "execute", command: "echo \u001b[31m" })).toBe("A command must not contain control characters other than tab and line breaks");
+    expect(wireOf(Effect.parse({ kind: "execute", command: " make\n\tbuild ", reading: READ }))).toEqual({ ok: true, value: { kind: "execute", command: " make\n\tbuild ", cwd: null, reading: READ } });
+    expect(error({ kind: "execute", command: " ", reading: READ })).toBe("An execute effect must name the command it runs");
+    expect(error({ kind: "execute", command: "rm a\0b", reading: READ })).toBe("A command must not contain a NUL character");
+    expect(error({ kind: "execute", command: "echo \u001b[31m", reading: READ })).toBe("A command must not contain control characters other than tab and line breaks");
   });
 
   test("an execute may name the project directory it runs in, normalised; outside the project is refused", () => {
-    expect(wireOf(Effect.parse({ kind: "execute", command: "make", cwd: "./apps//web" }))).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: "apps/web" } });
-    expect(wireOf(Effect.parse({ kind: "execute", command: "make", cwd: null }))).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null } });
-    expect(error({ kind: "execute", command: "make", cwd: "../elsewhere" })).toBe("Path '../elsewhere' climbs out of the project with '..'. Only paths inside the project can be checked");
-    expect(error({ kind: "execute", command: "make", cwd: "/tmp" })).toBe("Path '/tmp' is absolute. Give it relative to the project root, such as 'src/a.ts'");
+    expect(wireOf(Effect.parse({ kind: "execute", command: "make", cwd: "./apps//web", reading: READ }))).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: "apps/web", reading: READ } });
+    expect(wireOf(Effect.parse({ kind: "execute", command: "make", cwd: null, reading: READ }))).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null, reading: READ } });
+    expect(error({ kind: "execute", command: "make", cwd: "../elsewhere", reading: READ })).toBe("Path '../elsewhere' climbs out of the project with '..'. Only paths inside the project can be checked");
+    expect(error({ kind: "execute", command: "make", cwd: "/tmp", reading: READ })).toBe("Path '/tmp' is absolute. Give it relative to the project root, such as 'src/a.ts'");
   });
 
-  test("an execute may carry bounded's reading of its command; without one its reading is null and its wire form has none", () => {
-    const reading = { outcome: "read", programs: [{ name: { kind: "literal", text: "make" }, arguments: [], workingDirectory: "." }], fileEffects: [{ effect: { kind: "read", path: "Makefile" } }], unresolved: [] };
-    const carried = Effect.parse({ kind: "execute", command: "make", reading });
-    expect(carried.ok && carried.value.kind === "execute" && carried.value.reading?.outcome).toBe("read");
-    expect(wireOf(carried)).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null, reading } });
-    const plain = Effect.parse({ kind: "execute", command: "make" });
-    expect(plain.ok && plain.value.kind === "execute" && plain.value.reading).toBeNull();
-    expect(plain.ok && Object.keys(plain.value.toJSON())).toEqual(["kind", "command", "cwd"]);
+  test("an execute carries bounded's reading of its command, required: without one it is refused", () => {
+    const carried = Effect.parse({ kind: "execute", command: "make", reading: READ });
+    expect(carried.ok && carried.value.kind === "execute" && carried.value.reading.outcome).toBe("read");
+    expect(wireOf(carried)).toEqual({ ok: true, value: { kind: "execute", command: "make", cwd: null, reading: READ } });
+    expect(carried.ok && Object.keys(carried.value.toJSON())).toEqual(["kind", "command", "cwd", "reading"]);
+    expect(error({ kind: "execute", command: "make" })).toBe("An execute effect is { kind, command, cwd?, reading }");
+    expect(error({ kind: "execute", command: "make", cwd: "app" })).toBe("An execute effect is { kind, command, cwd?, reading }");
     expect(error({ kind: "execute", command: "make", reading: { outcome: "maybe" } })).toBe("A shell command reading is { outcome: 'read', programs, fileEffects, unresolved } or { outcome: 'unread', why }");
   });
 
@@ -111,7 +112,7 @@ describe("Effect — nonsense is refused", () => {
     expect(error({ kind: "read", path: "a", command: "cat a" })).toBe("A read effect is { kind, path }");
     expect(error({ kind: "read" })).toBe("A read effect is { kind, path }");
     expect(error({ kind: "write", path: "a" })).toBe("A write effect is { kind, path, change }");
-    expect(error({ kind: "execute", command: "ls", path: "a" })).toBe("An execute effect is { kind, command, cwd?, reading? }");
+    expect(error({ kind: "execute", command: "ls", path: "a", reading: READ })).toBe("An execute effect is { kind, command, cwd?, reading }");
     expect(error({ kind: "list", path: "a" })).toBe("A list effect is { kind, root, filter? }");
     expect(error({ kind: "fetch", url: "https://a", path: "x" })).toBe("A fetch effect is { kind, url }");
     expect(error({ kind: "delegate" })).toBe("A delegate effect is { kind, agent, isolated?, finishUnreported? }");

@@ -624,7 +624,18 @@ describe("architecture", () => {
     expect(manifest.name).toBe("bounded-shell-command-reader");
     expect(manifest.private).toBe(true);
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "bounded"]);
-    expect(Object.keys(manifest.exports ?? {})).toEqual(["./adapters"]);
+    expect(Object.keys(manifest.exports ?? {})).toEqual(["./adapters", "./application", "./shell-command-reading"]);
+  });
+
+  test("the core declares no shell command reader: its port, contract and options are the reader's own library's", async () => {
+    const naming = /\bShellCommandReader\b|\bshellCommandReader\b/;
+    const coreSources = files.filter((path) => path.startsWith("src/core/") && !/\.test(-support)?\.ts$/.test(path));
+    expect(coreSources.length).toBeGreaterThan(0);
+    const declaring: string[] = [];
+    for (const path of coreSources) if (naming.test(await Bun.file(`${ROOT}/${path}`).text())) declaring.push(path);
+    expect(declaring).toEqual([]);
+    const contract = await Bun.file(`${ROOT}/src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.contract.ts`).text();
+    expect(contract).toMatch(/@implementedBy TreeSitterShellCommandReader\s*\n\s*\*\/\s*\nexport interface ShellCommandReader\b/);
   });
 
   test("no file of the core imports tree-sitter; bounded depends on it for its dist only, at the reader's version", async () => {
@@ -680,7 +691,11 @@ describe("architecture", () => {
 
   test("a context's layers import each other through its export path for the layer, or by relative path when its package exports none for it", () => {
     const reader = "src/lib/shell-command-reader/adapters/out/shell-command-reader/x.ts";
-    expect(byName.get("bounded-shell-command-reader")?.exports).toEqual({ "./adapters": "./adapters/out/index.ts" });
+    expect(byName.get("bounded-shell-command-reader")?.exports).toEqual({
+      "./adapters": "./adapters/out/index.ts",
+      "./application": "./application/index.ts",
+      "./shell-command-reading": "./composition-root/shell-command-reading.ts",
+    });
     expect(contextImportViolations(reader, 'import { describeShellCommand } from "../../../domain/shell-command.ts";\n')).toEqual([]);
     const core = "src/core/adapters/out/x/x.ts";
     expect(contextImportViolations(core, 'import { Verdict } from "../../../domain/index.ts";\n')).toEqual([`${core}:1 imports "../../../domain/index.ts" — import another layer through the package's export path`]);
