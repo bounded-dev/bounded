@@ -2,7 +2,10 @@
 
 **Status:** accepted (the maintainer's decision of the name and of the
 release, and a reviewed plan). Ships in `bounded` 3.3.0. Renames what ADR
-2026-009 named; that ADR and the others keep their wording.
+2026-009 named; that ADR and the others keep their wording. Amended by
+[ADR 2026-024](2026-024-src-layout.md) (src layout): the former-name scan
+reads `src/**/*.ts`, `src/**/package.json`, `src/**/tsconfig*.json`,
+`scripts/**/*.ts` and the root's `*.ts` and `tsconfig*.json`.
 
 ## Context
 

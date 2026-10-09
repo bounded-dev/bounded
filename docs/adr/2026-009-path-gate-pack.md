@@ -15,6 +15,10 @@ command from the reading the judge gives its execute effect, and declares
 no path-kinds or shell-parser port.
 Renamed by [ADR 2026-021](2026-021-protected-paths-rename.md): the pack is
 `bounded/protected-paths`, `protectedPathsPack`, in `src/packs/protected-paths/`.
+Amended by [ADR 2026-024](2026-024-src-layout.md) (src layout): the pack is
+the repository's `src/packs/protected-paths/`, and the tests that may import
+it are those under a context's `composition-root/`
+(`src/core/composition-root/`).
 
 ## Decision
 

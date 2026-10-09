@@ -13,7 +13,9 @@ options)` requires `shellCommandReader`, prepared when the project opens,
 with which the judge reads every shell command; an untyped caller that
 omits it still gets a judge, which judges every command unread. Amended by
 [ADR 2026-022](2026-022-bounded-log.md): the default log is
-`<root>/.bounded/log.jsonl`, the Bounded log.
+`<root>/.bounded/log.jsonl`, the Bounded log. Amended by
+[ADR 2026-024](2026-024-src-layout.md) (src layout): the composition root
+is `src/core/composition-root/`.
 
 ## Decision
 

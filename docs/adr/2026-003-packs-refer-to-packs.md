@@ -1,6 +1,6 @@
 # 2026-003: Packs refer to each other as objects; strict typing is binding
 
-**Status:** accepted. Supersedes the typing parts of ADR 2026-002. Its id and selection parts (labels, selection by label, string ids) are superseded by [ADR 2026-004](2026-004-namespaced-pack-ids.md).
+**Status:** accepted. Supersedes the typing parts of ADR 2026-002. Its id and selection parts (labels, selection by label, string ids) are superseded by [ADR 2026-004](2026-004-namespaced-pack-ids.md). Amended by [ADR 2026-024](2026-024-src-layout.md) (src layout): the rejected fixtures are in `src/test/fixtures/compile-time/`.
 
 ## Decision
 

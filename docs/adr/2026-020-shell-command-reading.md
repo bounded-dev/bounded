@@ -5,7 +5,10 @@ reviews, and the orchestrator's decisions on the maintainer's behalf).
 Item (i), `parsed-shell-commands`, of a two-part split; (ii),
 `prereqs-execute`, gives `bounded/prereqs` `before: { execute }` and shell
 writes. Ships in `bounded` 3.2.0 (see "Release"). Amends ADRs 2026-006,
-2026-009, 2026-010, 2026-013, 2026-016 and 2026-017.
+2026-009, 2026-010, 2026-013, 2026-016 and 2026-017. Amended by
+[ADR 2026-024](2026-024-src-layout.md) (src layout): the reader's context
+is `src/lib/shell-command-reader`, its layers directly in it, with no inner
+`src/`.
 
 ## Context
 
