@@ -59,21 +59,45 @@ names no tool or language (AGENTS.md). It can own the shape.
     program without `-f`; short options cluster as getopt reads them, as in
     `perl -ne` or `python3 -Bc`, a value-taking letter ending the cluster;
     *amended by `prereqs-execute`:* `(standard input)`, the code a shell
-    (`sh`, `bash`, `zsh`, `dash`, `ksh`) reads from its standard input:
-    when it has neither `-c` nor a script operand, has `s` anywhere in a
-    short option cluster (`-s`, `-es`), has a script operand of `-` or of a
-    path that normalises (repeated slashes and `.` segments collapsed) to
-    `/dev/stdin`, `/dev/fd/<digits>` or `/proc/self/fd/0`, or has a long
-    option bounded does not know (it may have taken any word, so standard
-    input is reported, failing closed). Its options are walked as getopt
-    walks them: a cluster letter by letter (`c` runs its operand as code;
-    `o` and `O` take the rest of the word, or the next word when they end
-    it, so `bash -euo pipefail` has no script); `--rcfile` and
-    `--init-file` take the next word or `=value`, a file read at startup;
-    bash's other long options take none; `--` ends the options. Every
-    operand is still read as written. Examples: `echo … | sh`,
-    `bash <<EOF`, `curl … | bash`, `bash -euo pipefail <<< …`; a heredoc
-    fed to a shell is not parsed as code).
+    (`sh`, `bash`, `zsh`, `dash`, `ksh`) reads from its standard input.
+    **A shell's options are read every way the shells read them, and the
+    union judged** (the strictest reading wins, as for xargs). Recorded
+    from the shells themselves (bash 3.2.57 and zsh 5.9 on macOS, with its
+    `/bin/sh`; bash 5.3 and its image's busybox-style `sh`; dash 0.5.12 and
+    ksh93 20240113, with Debian's dash as `sh`):
+    - a short option cluster is read letter by letter: `c` makes the first
+      operand code, `s` reads standard input, anywhere in the cluster;
+    - bash's `o` and `O`, and dash's `o`, each take the next whole word and
+      the cluster goes on (`bash -oe pipefail` reads standard input,
+      `bash -oc posix 'echo CODE'` runs CODE, `bash -oo errexit pipefail`
+      takes both words);
+    - zsh's and ksh's `o` take the rest of the word, or the next word when
+      `o` ends the cluster (`zsh -euo pipefail`);
+    - zsh's `O` is a flag (`zsh -Oc 'echo CODE'` runs CODE, `zsh -Os x`
+      reads standard input with `x` as `$1`); dash and ksh refuse `-O`;
+    - in every one, `-` before an operand ends the options and the operand
+      is the script (`bash - script.sh` runs `script.sh`); `-` alone is
+      the script, standard input; `--` ends the options.
+
+    bash's `o`/`O`, dash's, and zsh's and ksh's readings are applied to the
+    shell so named; for `sh` or a shell named any other way every reading
+    is taken. Each fork is charged to the work budget and memoised.
+    `--rcfile` and `--init-file` take the next word or `=value`, a file
+    read at startup; bash's other long options take none. A long option
+    bounded does not know, and ksh's `-R` (a value option taking a file),
+    may have taken any word: standard input is reported, failing closed.
+
+    A reading runs code from standard input when it has no script, `s` in
+    a cluster, or a script operand that may be standard input, failing
+    closed: `-`; a path under `/dev/` or `/proc/` (`/dev/stdin`,
+    `/dev/fd/<n>`, `/proc/self/fd/0`, `/proc/thread-self/fd/0`, however
+    spelt); a path with a `..` segment; or one that names no project path
+    from where the command runs (`/opt/x.sh`, `../../dev/stdin`). Every
+    operand is still read as written. An operand only the shell can resolve
+    (`bash "$S"`, `bash ~/x.sh`, `bash <(…)`) is not, until
+    `shell-every-reading`. Examples: `echo … | sh`, `bash <<EOF`,
+    `curl … | bash`, `bash -euo pipefail <<< …`, `bash -oe pipefail <<< …`;
+    a heredoc fed to a shell is not parsed as code).
     A token tree-sitter inserted to recover from an error (the missing
     command after `cat a |`) is never a literal word: it is an unresolved
     word named `(a token the parser inserted to recover)`, and any other

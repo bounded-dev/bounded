@@ -140,9 +140,9 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
       const reading = await read(command);
       expect<unknown>({ command, fileEffects: reading.fileEffects, unresolved: reading.unresolved }).toEqual({ command, fileEffects, unresolved: [...before, { text: "(standard input)", role: "code" }] });
     }
-    // Another operand is a script file, read as before; /dev/fd/x is no descriptor.
+    // Another operand inside the project is a script file, read as before; anything under /dev/ may be a descriptor (fail closed).
     expect((await read("bash ./-x")).unresolved).toEqual([]);
-    expect((await read("bash /dev/fd/x")).unresolved).toEqual([{ text: "/dev/fd/x", role: "read" }]);
+    expect((await read("bash /dev/fd/x")).unresolved).toEqual([{ text: "/dev/fd/x", role: "read" }, { text: "(standard input)", role: "code" }]);
   });
 
   test("a shell's options are walked as getopt walks them: a cluster letter by letter, o and O taking a value, known long options with theirs; an unknown long option fails closed (final review)", async () => {
@@ -173,12 +173,55 @@ describe("TreeSitterShellCommandReader — bounded's reading of a shell command"
     expect(unknown.fileEffects).toEqual([{ effect: { kind: "read", path: "script.sh" } }]);
   });
 
-  test("every spelling of standard input as a shell's script is one: -, /dev/stdin, /dev/fd/<n> and /proc/self/fd/0, normalised; file effects as written (final review)", async () => {
-    for (const operand of ["//dev/stdin", "/dev/./stdin", "/dev//fd/0", "/proc/self/fd/0", "/dev/fd/3"]) {
+  test("a shell's script operand that may be its standard input counts as it, failing closed: under /dev/ or /proc/, outside the project, or climbing with ..; file effects as written (final review)", async () => {
+    const STDIN = { text: "(standard input)", role: "code" } as const;
+    for (const operand of ["//dev/stdin", "/dev/./stdin", "/dev//fd/0", "/proc/self/fd/0", "/dev/fd/3", "/dev/stdinx", "/proc/self/fd/1", "/proc/thread-self/fd/0", "/dev/../dev/stdin", "/opt/x.sh"]) {
       const reading = await read(`bash ${operand}`);
-      expect({ operand, unresolved: reading.unresolved }).toEqual({ operand, unresolved: [{ text: operand, role: "read" }, { text: "(standard input)", role: "code" }] });
+      expect({ operand, unresolved: reading.unresolved }).toEqual({ operand, unresolved: [{ text: operand, role: "read" }, STDIN] });
     }
-    for (const operand of ["/dev/stdinx", "/proc/self/fd/1", "/dev/fd/"]) expect({ operand, unresolved: (await read(`bash ${operand}`)).unresolved }).toEqual({ operand, unresolved: [{ text: operand, role: "read" }] });
+    // Climbing out of the project: read as written, and standard input.
+    const climbing = await read("bash ../../../../../../../../../../dev/stdin");
+    expect(climbing.unresolved).toEqual([{ text: "../../../../../../../../../../dev/stdin", role: "read" }, STDIN]);
+    // A .. segment that stays inside the project is read as the path it names, and still counts (it may climb through a link).
+    const inside = await read("bash scripts/../x.sh");
+    expect(inside.fileEffects).toEqual([{ effect: { kind: "read", path: "x.sh" } }]);
+    expect(inside.unresolved).toEqual([STDIN]);
+    // A plain path in the project is a script, not standard input.
+    for (const operand of ["x.sh", "scripts/x.sh", "./x.sh"]) expect({ operand, unresolved: (await read(`bash ${operand}`)).unresolved }).toEqual({ operand, unresolved: [] });
+  });
+
+  test("- before an operand ends the options and the operand is the script; a lone - is standard input (final review)", async () => {
+    const script = await read("bash - script.sh");
+    expect(script.fileEffects).toEqual([{ effect: { kind: "read", path: "script.sh" } }]);
+    expect(script.unresolved).toEqual([]);
+    expect((await read("bash - script.sh arg")).fileEffects).toEqual([{ effect: { kind: "read", path: "script.sh" } }]);
+    expect((await read("bash -")).unresolved).toEqual([{ text: "(standard input)", role: "code" }]);
+  });
+
+  test("a shell's o and O are read every way a shell reads them, and the union judged: bash and dash take the next word and go on, zsh and ksh's o the rest of the word, zsh's O is a flag (recorded, final review)", async () => {
+    const STDIN = { text: "(standard input)", role: "code" } as const;
+    // Standard input, in some shell's reading.
+    for (const command of ["bash -oe pipefail", "bash -oo errexit pipefail", "bash -os pipefail", "sh -oe errexit", "zsh -Os x", "ksh -opipefail", "dash -oe pipefail"]) {
+      expect({ command, stdin: (await read(command)).unresolved.some((part) => part.text === STDIN.text) }).toEqual({ command, stdin: true });
+    }
+    // Code, in some shell's reading: the operand is parsed and walked.
+    for (const command of ["zsh -Oc 'cat a.txt'", "bash -oc posix 'cat a.txt'", "sh -oc posix 'cat a.txt'"]) {
+      const reading = await read(command);
+      // sh, read every way, also runs posix as code in one reading (o as a flag, c given).
+      expect({ command, reads: reading.fileEffects.some(({ effect }) => effect.kind === "read" && effect.path === "a.txt"), runsCat: reading.programs.some((program) => program.name.text === "cat") }).toEqual({
+        command,
+        reads: true,
+        runsCat: true,
+      });
+    }
+    // bash's grammar alone: -oe pipefail takes pipefail as -o's value, so no script is read.
+    expect((await read("bash -oe pipefail")).fileEffects).toEqual([]);
+    // zsh's grammar alone: -O is a flag, so x is $1 and standard input is read.
+    expect((await read("zsh -Os x")).unresolved).toEqual([STDIN]);
+    // ksh's -R names a file bounded does not track: fails closed.
+    expect((await read("ksh -R f script.sh")).unresolved).toContainEqual(STDIN);
+    // An unknown shell is read every way.
+    expect((await read("sh -Oc 'cat a.txt'")).fileEffects).toContainEqual({ effect: { kind: "read", path: "a.txt" } });
   });
 
   test("listing a replace string, a found path or standard input as unresolved leaves every file effect as written", async () => {

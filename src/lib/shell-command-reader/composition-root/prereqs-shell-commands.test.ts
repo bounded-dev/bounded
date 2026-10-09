@@ -196,12 +196,31 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
       "bash /proc/self/fd/0 <<< 'terraform apply'",
       "bash //dev/stdin <<< 'terraform apply'",
       "bash /dev/./stdin <<< 'terraform apply'",
+      // The fifth final review's: o and O read every way the shells read them (recorded), and standard input failing closed.
+      "zsh -Os x <<< 'terraform apply'",
+      "bash -oe pipefail <<< 'terraform apply'",
+      "bash -oo errexit pipefail <<< 'terraform apply'",
+      "bash -os pipefail <<< 'terraform apply'",
+      "sh -oe errexit <<< 'terraform apply'",
+      "bash /dev/../dev/stdin <<< 'terraform apply'",
+      "bash ../../../../../../../../../../dev/stdin <<< 'terraform apply'",
+      "bash /proc/self/fd/3 3<<< 'terraform apply'",
+      "bash /proc/thread-self/fd/0 <<< 'terraform apply'",
     ]) {
       const verdict = await shell(command);
       expect({ command, cannotSee: reasonOf(verdict).includes("bounded cannot see whether it runs 'terraform apply': it runs code bounded cannot read ('(standard input)')"), redirect: redirectOf(verdict) }).toEqual({
         command,
         cannotSee: true,
         redirect: APPLY_REDIRECT,
+      });
+    }
+    // Code a shell runs in some shell's reading of its options: parsed and walked, so its unresolved program name is seen.
+    for (const command of ["zsh -Oc 'terra$()form apply'", "bash -oc posix 'terra$()form apply'"]) {
+      const verdict = await shell(command);
+      expect({ command, cannotSee: reasonOf(verdict).includes("bounded cannot see whether it runs 'terraform apply': it runs a program whose name only the shell can resolve"), redirect: redirectOf(verdict) }).toEqual({
+        command,
+        cannotSee: true,
+        redirect: `${APPLY_REDIRECT} (or, if this command does not run 'terraform apply', write it so that bounded can read it: no words only the shell can resolve where a program, its leading arguments or a written path stand)`,
       });
     }
   });

@@ -328,8 +328,9 @@ pi-subagents' project agent directory), which give role identity.
   `/bin/sh` and `/usr/bin/env` by their path. Until then the same holds of
   code read from standard input by a program other than a shell named
   `sh`, `bash`, `zsh`, `dash` or `ksh` (which report it as code: given no
-  script, `s` in an option cluster, a script operand of `-`, `/dev/stdin`,
-  `/dev/fd/<n>` or `/proc/self/fd/0` however spelt, or a long option
+  script, `s` in an option cluster in any shell's reading of its options,
+  a script operand that may be standard input (`-`, under `/dev/` or
+  `/proc/`, with a `..` segment, or naming no project path), or an option
   bounded does not know; ADR 2026-020): `sudo -s`/`sudo -i` and `doas -s` with no command,
   `source /dev/stdin` and `. /dev/stdin` (each fed by `<<<` or a heredoc),
   and `trap 'terra$()form apply' EXIT`.

@@ -1,5 +1,5 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning, MAX_NESTING, newWorkBudget, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
+import { commandMeaning, MAX_NESTING, newWorkBudget, STANDARD_INPUT, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
 import type { MeaningChange } from "./command-meanings.contract.ts";
 import type { ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
 
@@ -243,6 +243,9 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       }
     }
     for (const word of meaning.unresolved) unresolved.push({ text: word.text, role: "code" });
+    // A shell's script naming no project path from here may be its standard input (a link to /dev/stdin): fail closed.
+    const outside = (meaning.standardInputUnlessInProject ?? []).some((word) => word.kind === "literal" && pathOf(word.text, scope) === undefined);
+    if (outside) unresolved.push({ text: STANDARD_INPUT.text, role: "code" });
     for (const ran of meaning.runs) {
       // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
       const inherited = ran.replace === undefined && ran.trailing === true;

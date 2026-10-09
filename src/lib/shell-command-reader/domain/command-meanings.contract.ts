@@ -46,6 +46,13 @@ export interface CommandMeaning {
   readonly scripts: readonly ShellWord[];
   /** Operands naming a path in the repository as <rev>:<path>: the path is read, relative to the repository's root, or to where the command runs when it starts with ./ or ../. */
   readonly repositoryReads: readonly ShellWord[];
+  /**
+   * A shell's script operands that are its standard input unless they name
+   * a project path from where the command runs (`bash /opt/x.sh` may be a
+   * link to /dev/stdin): then `(standard input)` code is reported, failing
+   * closed. They are read as written either way.
+   */
+  readonly standardInputUnlessInProject?: readonly ShellWord[];
   /** Words only the shell, or the command at run time, can make sense of (eval's code, env -S's trailing words). */
   readonly unresolved: readonly ShellWord[];
   /** Where later commands run: a directory, or null when it cannot be known (cd -, cd alone, popd). */
