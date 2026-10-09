@@ -167,7 +167,7 @@ describe("Composition — every refusal names the pack, the extension point and 
       [definePack({ id: packId("b") }), definePack({ id: packId("b") }), definePack({ id: packId("a") }), definePack({ id: packId("a") })], [],
       "Two available packs have the id 'test-packs/a'. An id names one pack in selections and messages: give each pack its own"],
     ["an available pack whose id is not a pack id", [untypedPack({ id: "Bad Label" })], [],
-      "Available pack 'Bad Label' has an invalid id: Pack id 'Bad Label' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'. Give it an id from packIdsFor(...)"],
+      "Available pack 'Bad Label' has an invalid id: Pack id 'Bad Label' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/protected-paths'. Give it an id from packIdsFor(...)"],
     ["a point declared on another pack's behalf", [untypedPack({ id: "test-packs/bad", points: { stolen: words } })], [],
       malformed(`its points must each be declared with point(...) ${COPY}`)],
     ["a point declared without a check", [untypedPack({ id: "test-packs/bad", points: { loose: point({ description: "No check" } as never) } })], [],

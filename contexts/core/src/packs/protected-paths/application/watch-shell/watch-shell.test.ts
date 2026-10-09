@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Composition, contribution, corePack, Decision, DecisionId, definePack, point, type Result, ToolResult, ToolUse } from "bounded/domain";
-import { pathGateId } from "../../domain/path-gate-id.ts";
+import { protectedPathsId } from "../../domain/protected-paths-id.ts";
 import type { ProtectedPathJSON } from "../../domain/protected-path.contract.ts";
 import { ProtectedPath } from "../../domain/protected-path.ts";
 import type { WatchedChange, WatchedPath } from "../../domain/watched-path.contract.ts";
@@ -115,11 +115,11 @@ class FakeLog {
 }
 
 /**
- * A stand-in for the path gate: a pack with its id whose protected paths are
- * only what a test contributes (none of the path gate's own rules), so each
+ * A stand-in for the protected-paths pack: a pack with its id whose protected paths are
+ * only what a test contributes (none of the protected-paths pack's own rules), so each
  * test watches exactly the paths it names.
  */
-const gate = definePack({ id: pathGateId, points: { protectedPaths: point({ description: "Protected paths", check: ProtectedPath.parse }) } });
+const gate = definePack({ id: protectedPathsId, points: { protectedPaths: point({ description: "Protected paths", check: ProtectedPath.parse }) } });
 const protectedPaths = gate.points.protectedPaths;
 
 /** A watched path as a test names it: what it matches, the changes it forbids (every one unless said), why, and what to do instead. */
@@ -141,7 +141,7 @@ function watching(local: string, watched: readonly Watching[]): Composition {
   return composed.value;
 }
 
-/** The handler, recording each report's record as the core would, naming the path gate. */
+/** The handler, recording each report's record as the core would, naming the protected-paths pack. */
 function recorded(handler: WatchShellHandler, log: FakeLog): WatchShell {
   return {
     snapshot: (call) => handler.snapshot(call),
@@ -151,7 +151,7 @@ function recorded(handler: WatchShellHandler, log: FakeLog): WatchShell {
         const { verdict, refusedBy, note } = report.record;
         const id = DecisionId.parse(`d-${log.decisions.length + 1}`);
         if (!id.ok) throw new Error(id.error);
-        log.decisions.push(Decision.of(id.value, clock.now(), given, { verdict, refusedBy: refusedBy === null ? null : { packId: pathGateId, effect: refusedBy.effect } }, note));
+        log.decisions.push(Decision.of(id.value, clock.now(), given, { verdict, refusedBy: refusedBy === null ? null : { packId: protectedPathsId, effect: refusedBy.effect } }, note));
       }
       return report;
     },
@@ -284,7 +284,7 @@ describe("WatchShellHandler — after a shell command", () => {
     expect(log.decisions.length).toBe(1);
     expect(log.decisions[0]?.event).toBe("tool-result");
     expect(log.decisions[0]?.note).toBe("changed by a shell command; restored");
-    expect<unknown>(log.decisions[0]?.verdict).toEqual({ kind: "refuse", reason: check.message, redirect: RULES_REDIRECT, pack: "bounded/path-gate", effect: "execute `make`" });
+    expect<unknown>(log.decisions[0]?.verdict).toEqual({ kind: "refuse", reason: check.message, redirect: RULES_REDIRECT, pack: "bounded/protected-paths", effect: "execute `make`" });
   });
 
   test("a restore that fails is reported loudly and recorded", async () => {

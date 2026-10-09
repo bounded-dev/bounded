@@ -1,6 +1,6 @@
 // The legitimate forms of path rules. Compiles without errors.
 import { contribution, defineConfig, definePack } from "bounded/domain";
-import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
+import { protectedPathsPack, type ProtectedPathJSON } from "bounded/protected-paths";
 import { packId } from "./packs.ts";
 
 // A rule is written as its wire form, an object literal; the point's check makes the ProtectedPath.
@@ -8,9 +8,9 @@ const generated: ProtectedPathJSON = { match: "packages/db/**", except: ["packag
 
 export const project = definePack({
   id: packId("project"),
-  dependsOn: [pathGate],
+  dependsOn: [protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       generated,
       { match: "**/.env*", deny: ["read", "create", "modify", "delete"], redirect: "Ask a maintainer for the value" },
       { match: "infra/**", deny: ["delete"], redirect: "Open a change for the platform team" },
@@ -18,5 +18,5 @@ export const project = definePack({
   ],
 });
 
-// A configuration that lists only the path gate: the path gate brings in the core.
-export const pathGateOnly = defineConfig({ packs: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, [generated])] });
+// A configuration that lists only the protected-paths pack: the protected-paths pack brings in the core.
+export const protectedPathsOnly = defineConfig({ packs: [protectedPathsPack], contributes: [contribution(protectedPathsPack.points.protectedPaths, [generated])] });

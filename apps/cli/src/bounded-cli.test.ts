@@ -43,6 +43,18 @@ describe("bounded-cli: the bounded command, in its own app", () => {
     expect(ran.stdout).toMatch(/restart/i);
   });
 
+  test("init's report and the usage name the protected-paths pack, and the report does not miscount its default rules", async () => {
+    const formerName = new RegExp(["path", "gate"].join("[-\\s_]?"), "i");
+    const ran = await runBoundedCli(["init", "--no-install"], project());
+    expect(ran.exitCode).toBe(0);
+    expect(ran.stdout).toContain("it selects the protected-paths pack, which brings in the core");
+    expect(ran.stdout).not.toContain("two default rules");
+    expect(ran.stdout).not.toMatch(formerName);
+    const usage = await runBoundedCli([], project());
+    expect(usage.stderr).toContain("the protected-paths pack");
+    expect(usage.stderr).not.toMatch(formerName);
+  });
+
   test("init refuses a project that already has a configuration, changing nothing", async () => {
     const root = project({ "bounded.config.js": "export default 1;\n" });
     const ran = await runBoundedCli(["init"], root);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ProtectedPath } from "bounded/path-gate";
+import { ProtectedPath } from "bounded/protected-paths";
 
 const rule = { match: "packages/db/**", deny: ["modify", "delete"], redirect: "Change the schema instead" };
 

@@ -1,6 +1,6 @@
 import { type Clock, type GuardLog, JudgeEventHandler } from "bounded/application";
 import { type BasePack, Composition, corePack, DecisionTime, type ProjectPath, type Verdict } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 import { type PathKind, TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
 
 /** The project root the shell tests judge their commands in. */
@@ -15,13 +15,13 @@ const clock: Clock = { now: () => time.value };
 const log: GuardLog = { record: async () => {} };
 
 /**
- * The core, the path gate and `packs`, judged as openProject's judge judges:
+ * The core, the protected-paths pack and `packs`, judged as openProject's judge judges:
  * each shell command read by bounded's shell command reader, with `paths`
  * saying what is at a path (the root a directory, anything not given
  * absent), then the guards. Gives a way to judge a call.
  */
 export async function opened(packs: readonly BasePack[], paths: PathsForTest = {}): Promise<(effects: readonly object[], tool?: string) => Promise<Verdict>> {
-  const all = [corePack, pathGate, ...packs];
+  const all = [corePack, protectedPathsPack, ...packs];
   const composed = Composition.compose(all, all);
   if (!composed.ok) throw new Error(composed.error);
   const pathKindOf = (_projectRoot: string, { value: path }: ProjectPath): PathKind | undefined => {

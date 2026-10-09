@@ -115,7 +115,7 @@ export function watchedFilesConformance(name: string, fixture: (committed: Reado
       expect(hashed.value["src/b.ts"]?.rules).toBeUndefined();
     });
 
-    test("a rule's match ignores case, as the path gate's does; its except does not", async () => {
+    test("a rule's match ignores case, as the protected-paths pack's does; its except does not", async () => {
       const { files, write } = await fixture(committed);
       await write("Docs/Guide.md", "g");
       await write("Docs/keep.md", "k");

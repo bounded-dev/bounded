@@ -1,4 +1,4 @@
-import { ProtectedPath } from "bounded/path-gate";
+import { ProtectedPath } from "bounded/protected-paths";
 import { valueObjectLaws } from "../../../domain/shared/value-object.laws.test-support.ts";
 
 const rule = { match: "packages/db/**", deny: ["modify", "delete"], redirect: "Change the schema instead" };

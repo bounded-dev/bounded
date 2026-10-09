@@ -30,7 +30,7 @@ describe("AvailablePacks — the packs a selection may choose from", () => {
     ["a copy of a pack", [{ ...a }], notBuilt("test-packs/a")],
     ["something that is not a pack at all", [null], notBuilt("null")],
     ["a pack whose id is not a pack id", [untypedPack({ id: "Bad Label" })],
-      "Available pack 'Bad Label' has an invalid id: Pack id 'Bad Label' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'. Give it an id from packIdsFor(...)"],
+      "Available pack 'Bad Label' has an invalid id: Pack id 'Bad Label' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/protected-paths'. Give it an id from packIdsFor(...)"],
     ["two packs with the same id, reported in id order", [definePack({ id: packId("b") }), b, definePack({ id: packId("a") }), a],
       "Two available packs have the id 'test-packs/a'. An id names one pack in selections and messages: give each pack its own"],
   ];

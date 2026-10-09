@@ -10,11 +10,11 @@ import { join, resolve } from "node:path";
 const CORE = resolve(import.meta.dir, "../../../contexts/core");
 /** A configuration keeping agents off git's hooks, as the one `bounded init` writes does. */
 const CONFIG = `import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({
-  packs: [pathGate],
+  packs: [protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       { match: ".git/hooks/**", deny: ["create", "modify", "delete"], why: "git runs these hooks later, outside Bounded's view", redirect: "Ask a person to add or change git hooks; describe the check you need" },
     ]),
   ],

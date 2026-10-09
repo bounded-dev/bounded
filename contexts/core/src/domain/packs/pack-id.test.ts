@@ -2,29 +2,29 @@ import { describe, expect, test } from "bun:test";
 import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { PackId, packIdsFor } from "./pack-id.ts";
 
-const FORM = "must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'";
+const FORM = "must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/protected-paths'";
 
 
 describe("PackId — boundaries", () => {
   test("an id is the npm package name and the pack's local id", () => {
-    const pathGate: "bounded/path-gate" = packIdsFor("bounded")("path-gate").value;
-    expect(pathGate).toBe("bounded/path-gate");
+    const protectedPathsPack: "bounded/protected-paths" = packIdsFor("bounded")("protected-paths").value;
+    expect(protectedPathsPack).toBe("bounded/protected-paths");
     expect(packIdsFor("@acme/rules")("web-2").value).toBe("@acme/rules/web-2");
   });
 
   test("two ids made apart are equal by their text", () => {
     expect(packIdsFor("bounded")("core").equals(packIdsFor("bounded")("core"))).toBe(true);
-    expect(packIdsFor("bounded")("core").equals(packIdsFor("bounded")("path-gate"))).toBe(false);
+    expect(packIdsFor("bounded")("core").equals(packIdsFor("bounded")("protected-paths"))).toBe(false);
   });
 
   test("parse accepts an unscoped or scoped package with a lowercase-hyphen local id", () => {
-    for (const raw of ["bounded/core", "bounded/path-gate", "@acme/rules/web-2", "my.pkg/a"]) {
+    for (const raw of ["bounded/core", "bounded/protected-paths", "@acme/rules/web-2", "my.pkg/a"]) {
       expect(wireOf(PackId.parse(raw))).toEqual({ ok: true, value: raw });
     }
   });
 
   test("parse refuses anything else with a reason that names it and shows the form", () => {
-    expect(PackId.parse("bounded/Path-Gate")).toEqual({ ok: false, error: `Pack id 'bounded/Path-Gate' ${FORM}` });
+    expect(PackId.parse("bounded/Protected-Paths")).toEqual({ ok: false, error: `Pack id 'bounded/Protected-Paths' ${FORM}` });
     for (const raw of ["", "core", "bounded/", "/core", "bounded/a/b", "@acme/core", "@acme//x", "Bounded/core", "bounded/a--b", "bounded/a.b", "bounded/a_b", "bounded/-a"]) {
       expect(PackId.parse(raw).ok).toBe(false);
     }

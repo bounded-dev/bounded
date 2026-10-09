@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { type BasePack, contribution, definePack, packIdsFor, Verdict } from "bounded/domain";
-import { pathGate, type ProtectedPathJSON } from "bounded/path-gate";
-import { opened, type PathsForTest, ROOT } from "./path-gate-shell-commands.test-support.ts";
+import { protectedPathsPack, type ProtectedPathJSON } from "bounded/protected-paths";
+import { opened, type PathsForTest, ROOT } from "./protected-paths-shell-commands.test-support.ts";
 
-// The path gate's guard on shell commands, end to end: bounded's shell
+// The protected-paths pack's guard on shell commands, end to end: bounded's shell
 // command reader parses a command into a syntax tree and translates it into
-// what it reads, lists and writes (ADR 2026-020); the path gate judges each
+// what it reads, lists and writes (ADR 2026-020); the protected-paths pack judges each
 // exactly as a file tool's would be.
 const packId = packIdsFor("test-packs");
 
-/** A pack, test-packs/a, that contributes `given` to the path gate's point. */
+/** A pack, test-packs/a, that contributes `given` to the protected-paths pack's point. */
 const rules = (local: "a" | "b", ...given: ProtectedPathJSON[]): BasePack => {
-  const contributes = [contribution(pathGate.points.protectedPaths, given)];
-  return local === "a" ? definePack({ id: packId("a"), dependsOn: [pathGate], contributes }) : definePack({ id: packId("b"), dependsOn: [pathGate], contributes });
+  const contributes = [contribution(protectedPathsPack.points.protectedPaths, given)];
+  return local === "a" ? definePack({ id: packId("a"), dependsOn: [protectedPathsPack], contributes }) : definePack({ id: packId("b"), dependsOn: [protectedPathsPack], contributes });
 };
 const reason = (verdict: Verdict): string => (verdict.kind === "refuse" ? verdict.reason : "allowed");
 const env = rules("a", { match: ".env", deny: ["read"], redirect: "Ask a maintainer for the value", file: true });
@@ -23,7 +23,7 @@ async function shellWith(packs: readonly BasePack[], paths: PathsForTest = {}) {
   return (command: string, cwd: string | null = null) => decide([{ kind: "execute", command, cwd }]);
 }
 
-describe("read by bounded's shell command reader — the path gate — shell commands that name read-protected paths (best effort)", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — shell commands that name read-protected paths (best effort)", () => {
   test("a command naming the protected file is refused, however it spells the path", async () => {
     const shell = await shellWith([env]);
     for (const command of ["cat ./.env", "cat .env", 'less "./.env"', "less './.env'", "grep KEY .env", "source .env && run", "cp .env /tmp/x", "env $(cat .env | xargs) node app.js", "node --env-file=.env app.js"]) {
@@ -42,7 +42,7 @@ describe("read by bounded's shell command reader — the path gate — shell com
     const shell = await shellWith([env]);
     expect(await shell("cat ./.env")).toMatchObject({
       kind: "refuse",
-      reason: "bounded/path-gate refused execute `cat ./.env`: this command reads '.env' — the rule '.env' from test-packs/a denies read of '.env'",
+      reason: "bounded/protected-paths refused execute `cat ./.env`: this command reads '.env' — the rule '.env' from test-packs/a denies read of '.env'",
       redirect: "Ask a maintainer for the value",
     });
   });
@@ -73,7 +73,7 @@ describe("read by bounded's shell command reader — the path gate — shell com
     const generated = rules("a", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
     const run = await shellWith([generated], { "generated/a.ts": "file" });
     expect(await run("echo x > generated/a.ts")).toMatchObject({ kind: "refuse", redirect: "Change the generator's input" });
-    expect(reason(await run("echo x >> generated/a.ts"))).toStartWith("bounded/path-gate refused execute `echo x >> generated/a.ts`: this command writes 'generated/a.ts' — the rule 'generated/**' from test-packs/a denies ");
+    expect(reason(await run("echo x >> generated/a.ts"))).toStartWith("bounded/protected-paths refused execute `echo x >> generated/a.ts`: this command writes 'generated/a.ts' — the rule 'generated/**' from test-packs/a denies ");
     expect(await run("cat generated/a.ts > out.txt")).toBe(Verdict.allow);
     const shell = await shellWith([env]);
     expect((await shell("sort < .env")).kind).toBe("refuse");
@@ -115,7 +115,7 @@ describe("read by bounded's shell command reader — the path gate — shell com
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — where a shell command runs from: cd, pushd and their scope", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — where a shell command runs from: cd, pushd and their scope", () => {
   test("a cd takes later commands with it; one that cannot be known leaves later relative paths unresolved", async () => {
     const shell = await shellWith([env], { sub: "directory" });
     const refused = ["cd sub && cat ../.env", "cd sub; cat ../.env", "pushd sub && cat ../.env", "builtin cd sub && cat ../.env", "command cd sub && cat ../.env", "cd sub && cd .. && cat .env"];
@@ -141,7 +141,7 @@ describe("read by bounded's shell command reader — the path gate — where a s
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — what each command does with its arguments", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — what each command does with its arguments", () => {
   test("echo, printf, test and [ take text, not paths; listing commands list; git add stages", async () => {
     const shell = await shellWith([env]);
     for (const command of ["echo .env", "printf '%s' .env", "test -f .env", "[ -f .env ]", "[[ -f .env ]]", "true .env", "ls .env", "find . -name .env", "tree .", "git add .env"]) {
@@ -151,7 +151,7 @@ describe("read by bounded's shell command reader — the path gate — what each
 
   test("ls, find and tree are judged as listings, by the list guard", async () => {
     const shell = await shellWith([rules("a", { match: "secrets/**", deny: ["list"], redirect: "Do not look there" })]);
-    expect(reason(await shell("ls secrets"))).toStartWith("bounded/path-gate refused execute `ls secrets`: this command lists 'secrets' — the rule 'secrets/**' from test-packs/a denies list");
+    expect(reason(await shell("ls secrets"))).toStartWith("bounded/protected-paths refused execute `ls secrets`: this command lists 'secrets' — the rule 'secrets/**' from test-packs/a denies list");
     expect((await shell("find secrets -type f")).kind).toBe("refuse");
     expect((await shell("ls")).kind).toBe("refuse");
     expect(await shell("tree docs")).toBe(Verdict.allow);
@@ -234,7 +234,7 @@ describe("read by bounded's shell command reader — the path gate — what each
     const verdict = await shell(command);
     expect(performance.now() - started).toBeLessThan(2000);
     expect(reason(verdict)).toBe(
-      `bounded/path-gate refused execute \`${command}\`: the path gate cannot check shell commands: the command is too complex to read within bounded's work budget (200000 steps): its words could be read too many ways, or it nests too deep`,
+      `bounded/protected-paths refused execute \`${command}\`: the protected-paths pack cannot check shell commands: the command is too complex to read within bounded's work budget (200000 steps): its words could be read too many ways, or it nests too deep`,
     );
     // Its own fix: split or simplify the command.
     expect(verdict.kind === "refuse" && verdict.redirect).toBe(
@@ -253,7 +253,7 @@ describe("read by bounded's shell command reader — the path gate — what each
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — redirections", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — redirections", () => {
   const migrations = rules("a", { match: "migrations/**", deny: ["modify", "delete"], redirect: "Add a new migration instead" });
   const generated = rules("a", { match: "src/generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
 
@@ -284,7 +284,7 @@ describe("read by bounded's shell command reader — the path gate — redirecti
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — absolute paths", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — absolute paths", () => {
   test("an absolute path inside the project is judged as the project path; outside, it is unresolved", async () => {
     const shell = await shellWith([env]);
     expect((await shell(`cat ${ROOT}/.env`)).kind).toBe("refuse");
@@ -293,7 +293,7 @@ describe("read by bounded's shell command reader — the path gate — absolute 
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — what the shell would read through braces, nested shells, git and other commands", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — what the shell would read through braces, nested shells, git and other commands", () => {
   const generated = rules("b", { match: "generated/**", deny: ["create", "modify", "delete"], redirect: "Change the generator's input" });
 
   test("brace expansion is expanded, not taken as a path", async () => {
@@ -342,7 +342,7 @@ describe("read by bounded's shell command reader — the path gate — what the 
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — commands that run another command", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — commands that run another command", () => {
   test("sudo, doas, env, timeout, nice, nohup, stdbuf and ionice run the rest as a command, nested shells included", async () => {
     const shell = await shellWith([env]);
     const refused = [
@@ -363,7 +363,7 @@ describe("read by bounded's shell command reader — the path gate — commands 
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — wrappers that set where or what their command runs", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — wrappers that set where or what their command runs", () => {
   test("env -S runs its string as a nested command line", async () => {
     const shell = await shellWith([env]);
     for (const command of ["env -S 'cat .env'", "env -S'cat .env'", "env --split-string='cat .env'"]) expect([command, (await shell(command)).kind]).toEqual([command, "refuse"]);
@@ -380,7 +380,7 @@ describe("read by bounded's shell command reader — the path gate — wrappers 
   });
 });
 
-describe("read by bounded's shell command reader — the path gate — git -C and short options with an attached value", () => {
+describe("read by bounded's shell command reader — the protected-paths pack — git -C and short options with an attached value", () => {
   const secret = rules("b", { match: "sub/secret", deny: ["read", "delete"], redirect: "Leave sub/secret alone" });
 
   test("git -C dir runs git from dir, as cd dir && git does: its paths are judged from there", async () => {

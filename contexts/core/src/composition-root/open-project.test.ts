@@ -4,11 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlink
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Composition, Verdict } from "bounded/domain";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { openProject } from "./open-project.ts";
 import { fixedShellCommandReader, readingOf, UNREAD_SAMPLE } from "./shell-command-reader.test-support.ts";
 
-/** Commands read as unread: these tests do not run shell commands through the path gate. */
+/** Commands read as unread: these tests do not run shell commands through the protected-paths pack. */
 const unread = fixedShellCommandReader(UNREAD_SAMPLE);
 /** The drift tests' command, read as running ./regenerate.sh and naming no file. */
 const regenerating = fixedShellCommandReader(readingOf("./regenerate.sh"));
@@ -101,10 +101,10 @@ export default defineConfig({
 
   test("a shell command that changes a watched file is undone after it runs, reported and recorded", async () => {
     const watching = `import { contribution, corePack, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({
-  packs: [corePack, pathGate],
-  contributes: [contribution(pathGate.points.protectedPaths, [{ match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
+  packs: [corePack, protectedPathsPack],
+  contributes: [contribution(protectedPathsPack.points.protectedPaths, [{ match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
 });
 `;
     const root = project({ "bounded.config.ts": watching });
@@ -115,7 +115,7 @@ export default defineConfig({
     git("init", "--quiet");
     git("add", "-A");
     git("commit", "--quiet", "-m", "base");
-    const { judge, afterTool } = await openProject(root, { ports: pathGatePortProvisions(), shellCommandReader: regenerating });
+    const { judge, afterTool } = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: regenerating });
     const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_1" };
     expect((await judge(shell)).kind).toBe("allow");
     writeFileSync(join(root, "generated", "a.ts"), "tampered\n");
@@ -138,10 +138,10 @@ export default defineConfig({
     const WEIRD = "we\nird.ts";
     async function watched(files: Record<string, string>) {
       const config = `import { contribution, corePack, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({
-  packs: [corePack, pathGate],
-  contributes: [contribution(pathGate.points.protectedPaths, [{ match: "generated/*.ts", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
+  packs: [corePack, protectedPathsPack],
+  contributes: [contribution(protectedPathsPack.points.protectedPaths, [{ match: "generated/*.ts", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" }])],
 });
 `;
       const root = project({ "bounded.config.ts": config });
@@ -152,7 +152,7 @@ export default defineConfig({
       git("init", "--quiet");
       git("add", "-A");
       git("commit", "--quiet", "-m", "base");
-      const opened = await openProject(root, { ports: pathGatePortProvisions(), shellCommandReader: regenerating });
+      const opened = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: regenerating });
       const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_weird" };
       expect((await opened.judge(shell)).kind).toBe("allow");
       return { root, after: () => opened.afterTool({ ...shell, kind: "tool-result", ok: true }) };
@@ -180,20 +180,20 @@ export default defineConfig({
     });
   });
 
-  test("a configuration that lists only the path gate brings in the core: its rules are enforced", async () => {
+  test("a configuration that lists only the protected-paths pack brings in the core: its rules are enforced", async () => {
     const config = `import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({
-  packs: [pathGate],
+  packs: [protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       { match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input instead" },
     ]),
   ],
 });
 `;
     const root = realpathSync(project({ "bounded.config.ts": config }));
-    const { judge, problem } = await openProject(root, { ports: pathGatePortProvisions(), shellCommandReader: unread });
+    const { judge, problem } = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: unread });
     expect(problem).toBeNull();
     const edit = (path: string) => judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
     const refused = await edit("generated/a.ts");
@@ -209,16 +209,16 @@ export default defineConfig({
 
   test("an untyped caller that omits the shell command reader gets every shell command refused, saying the host passes one", async () => {
     const config = `import { corePack, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
-export default defineConfig({ packs: [corePack, pathGate] });
+import { protectedPathsPack } from "bounded/protected-paths";
+export default defineConfig({ packs: [corePack, protectedPathsPack] });
 `;
     const root = realpathSync(project({ "bounded.config.ts": config }));
     const untyped = openProject as (root: string, options?: object) => ReturnType<typeof openProject>;
-    const { judge, problem } = await untyped(root, { ports: pathGatePortProvisions() });
+    const { judge, problem } = await untyped(root, { ports: protectedPathsPortProvisions() });
     expect(problem).toBeNull();
     const verdict = await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], callId: "call-1" });
     expect(verdict.kind === "refuse" && verdict.reason).toBe(
-      "bounded/path-gate refused execute `ls`: the path gate cannot check shell commands: this project was opened without a shell command reader: the host passes one to openProject",
+      "bounded/protected-paths refused execute `ls`: the protected-paths pack cannot check shell commands: this project was opened without a shell command reader: the host passes one to openProject",
     );
   });
 
