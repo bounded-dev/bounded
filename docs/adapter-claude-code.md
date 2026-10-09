@@ -146,7 +146,7 @@ saying why, which the protected-paths pack refuses. Each hook is a new
 process, so its first read waits for the grammar: at most 5 seconds of
 preparation, then 2 seconds of reading, within the 20-second deadline.
 
-Two more seams, both optional, are passed beside `decide` (`main.ts` passes
+Three more seams, all optional, are passed beside `decide` (`main.ts` passes
 the `...FromConfig` ones, which open the project the same way):
 
 - `record(refusal, project)`: every deny the hook makes itself (unreadable
@@ -167,15 +167,49 @@ the `...FromConfig` ones, which open the project the same way):
   past the deadline, the answer says so and asks for the files to be checked
   against version control: never silence; the failure is also recorded.
   Without `afterTool`, `PostToolUse` answers nothing.
-- An Agent or Task result says whether the agent's run finished, as the
+- An Agent or Task result says what became of the agent's run, as the
   core's `delegatedAgentRuns` (one entry, for its one delegate effect; ADR
-  2026-019): finished only when `tool_response.status` is `"completed"` and
-  `harnessNoteCount` is a number equal to 0. A background run answers
-  `async_launched` at launch, and a run stopped at its turn limit answers
-  `completed` with `harnessNoteCount: 1`; anything else, or a missing count,
-  is not finished, and a `PostToolUseFailure` never is. Any other `isolation`
-  than `"worktree"` refuses the call. `run_in_background` is not read: in fork
-  mode it does not say what happens.
+  2026-019, ADR 2026-025), built by `delegatedAgentRunOf`:
+  - `finished` only when `tool_response.status` is `"completed"` and
+    `harnessNoteCount` is a number equal to 0. A run stopped at its turn
+    limit answers `completed` with `harnessNoteCount: 1`; anything else, or a
+    missing count, is not finished, and a `PostToolUseFailure` never is
+    (`{ finished: false }`).
+  - `agentRunId`, from `agentId`, for a `completed` or `async_launched`
+    response.
+  - `finishReportedLater: true` only for `async_launched` with `isAsync:
+    true` and an `agentId`: a background run, whose SubagentStop comes later.
+  - `resolvedAgent`, from `agentType`, for a finished run: the agent Claude
+    Code ran, as it resolved `subagent_type`. The delegate effect keeps the
+    requested name.
+
+  Any other `isolation` than `"worktree"` refuses the call.
+  `run_in_background` is not read: in fork mode it does not say what
+  happens.
+- `recordAgentRunFinish(finish, project)`: a `SubagentStop` is a delegated
+  run's finish (ADR 2026-025). The hook hands the project's
+  `recordAgentRunFinish` the core's wire form, `{ kind: "agent-run-finished",
+  role, agent: agent_type, agentRunId: agent_id, ranToEnd: null }` (Claude
+  Code does not say how the run ended; a missing field is sent as null, so
+  the core records it as unreadable). An empty `agent_type` sends nothing.
+  `stop_hook_active`, `background_tasks` and `last_assistant_message` are not
+  read. The answer is always empty, within the deadline, whatever happens,
+  even without `CLAUDE_PROJECT_DIR`: a deny means nothing there, and a block
+  would keep the subagent running. Without `recordAgentRunFinish`,
+  `SubagentStop` answers nothing.
+
+  The orders Claude Code 2.1.294 was captured sending (payloads pinned,
+  scrubbed, in `src/hosts/claude-code/test/fixtures/agent-responses/`, read
+  by the tests and never imported): a background run's launch result
+  (`async_launched`) comes before its SubagentStop, whose `agent_id` is the
+  launch's `agentId`; a foreground run's SubagentStop comes before its
+  `completed` result. A requested "Plan-Reviewer" runs and reports
+  plan-reviewer; a definition named "Mixed-Case" requested as "mixed-case"
+  reports "Mixed-Case". A run stopped at its turn limit, foreground or
+  background, and a background run stopped with TaskStop fire no
+  SubagentStop, so they never count. Not captured, so unknown: a user
+  interrupt (Esc), an API-error end (if either fires SubagentStop, the run
+  counts), Ctrl+B on a foreground run, and an empty `agent_type`.
 - A call that fails (a Bash command exiting non-zero, a tool that errors)
   reaches `PostToolUseFailure`, not `PostToolUse`, so `echo x > protected;
   exit 1` would otherwise escape the check. It is checked the same way, as a
@@ -210,17 +244,21 @@ write the result back when `changed`. `hookCommand({ bun, main, role })`
 builds that command with every path shell-quoted, such as
 `'bun' '/path/to/src/hosts/claude-code/main.ts' --role 'builder'`. Claude Code runs hooks with its own `PATH`, so
 either make sure `bun` is on it or give bun's absolute path in the command.
-`withHooks` installs the same command for `PreToolUse`, `PostToolUse` and
-`PostToolUseFailure`
+`withHooks` installs the same command for `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure` and `SubagentStop`
 (`withHook(settings, command, event)` does one event, `PreToolUse` by
-default). Each gets one entry with an empty matcher (every tool),
-the fail-closed wrapper and the timeout, and keeps every other setting and
-hook. The wrapper puts the command on its own line inside a group (`{`, a
+default). Each gets one entry with an empty matcher (every tool), the
+timeout, and its installed form, and keeps every other setting and hook. The
+tool events run the command in the fail-closed wrapper; `SubagentStop` runs
+the bare command, since exit 2 there would block the stop and keep the
+subagent running (ADR 2026-025). `bounded update` adds `SubagentStop` to an
+install made before it, and says to restart Claude Code. The wrapper puts the command on its own line inside a group (`{`, a
 newline, the command, a newline, then
 `} || { echo "bounded hook failed" >&2; exit 2; }`), so a comment or `;` in
 the command cannot escape it. A hook running an older form of the
-same command (unwrapped, or the earlier one-line wrapper) is removed and
-replaced rather than left beside the new one. An existing entry counts as already installed only when it runs the
-same wrapped command as a `command` hook for every tool (matcher `""`, `"*"`
-or none). It refuses settings with `disableAllHooks: true`, where no hook
+same command for its event (on a tool event, unwrapped or the earlier
+one-line wrapper; on `SubagentStop`, either wrapper) is removed and replaced
+rather than left beside the new one. An existing entry counts as already installed only when it runs the
+event's installed form as a `command` hook for every tool (matcher `""`,
+`"*"` or none). It refuses settings with `disableAllHooks: true`, where no hook
 would run.

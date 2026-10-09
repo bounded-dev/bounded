@@ -4,7 +4,10 @@
 and a plan amendment from captured Claude Code payloads). Ships in `bounded` 3.2.0,
 with ADR 2026-018. Amends ADR 2026-006: a delegate effect carries
 call-side facts, and a tool result carries result-side facts about the runs
-its delegate effects started.
+its delegate effects started. Amended by [ADR 2026-025](2026-025-agent-run-finish.md) (3.3.0): a run whose finish
+the host reports later counts at that finish, so the interim limit below is
+gone; `require` matches the agent the host resolved, exactly, in both
+orders; `pending` is a status; and the records gain run starts.
 
 ## Decision
 
@@ -68,7 +71,11 @@ its delegate effects started.
   let "Builder" past a rule before "builder". `require` stays exact: a run
   recorded under another spelling does not count. Both fail closed. A rule
   whose `before` folds to its required agent is refused as requiring the
-  action it comes before.
+  action it comes before. *Amended by ADR 2026-025:* `require` is matched
+  exactly against the agent the host resolved the requested name to, not the
+  requested name, so a requested "Plan-Reviewer" that ran plan-reviewer
+  counts; a delegation is a candidate when its requested name folds to the
+  required agent.
 - **A delegation some rule requires** is refused at the call when it is
   isolated ("Run <agent> without isolation, on the project's own files": a
   worktree branches from the default branch, so the agent would review other
@@ -165,6 +172,10 @@ positive marker on the result counts exactly the runs seen to end.
   Starts are `<root>/.bounded/prereqs/started/calls/<sha256 of the call
   id>.json`, written whole (a temporary file renamed), kept a day and swept
   on save. The guard log keeps an audit record of each recorded run.
+  *Amended by ADR 2026-025:* a run whose finish the host reports later has
+  its starts moved to `<root>/.bounded/prereqs/started/runs/<sha256 of the
+  run id>.json`, stamped with when they were kept, kept seven days and swept
+  on save.
 - **The two ports**, each with an adapter, an in-memory double and a
   conformance suite: `FileSetFingerprints` (`FileSystemFileSetFingerprints`:
   a walk of only the directories a pattern's fixed leading path can lead to,
@@ -188,6 +199,8 @@ pi-subagents' project agent directory), which give role identity.
   where fork mode runs every subagent in the background, a requirement can
   be met only with background subagents disabled
   (`CLAUDE_CODE_FORK_SUBAGENT=0` or `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`).
+  *Replaced by ADR 2026-025:* a background run counts at its SubagentStop;
+  a run whose finish never comes (turn limit, TaskStop) never counts.
 - **On pi, no requirement can be met until item 1c:** no pi run is marked
   finished; every entry says `finishNeverReported` (see "The hosts'
   mappings").
@@ -209,12 +222,7 @@ pi-subagents' project agent directory), which give role identity.
 
 ## Future work
 
-- **`prereqs-run-finish`:** a host-neutral finish event, named for an agent
-  run with no reference to delegation (so a top-level session started as an
-  agent can become a source later without changing it), with a run id on
-  `delegatedAgentRuns` entries, a per-run start store and a `pending` status
-  ("started at T; wait for its finish"). It amends ADR 2026-005 and ADR
-  2026-008, and is gated on a capture of Claude Code's SubagentStop payloads.
+- **`prereqs-run-finish`:** done in ADR 2026-025 (3.3.0).
 - **`prereqs-pi-async`:** pi-subagents' asynchronous completion, mapped to
   that event.
 - **`before: { execute }`** and shell writes, once shell commands are parsed

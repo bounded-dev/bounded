@@ -6,7 +6,10 @@ points and dispatch over a composition are in
 [ADR 2026-007](2026-007-guards-over-a-composition.md). The first deviation
 below (frozen plain objects with type-only brands, branded strings) is
 superseded by [ADR 2026-012](2026-012-value-objects-are-classes.md): value
-objects are classes, as in the example.
+objects are classes, as in the example. Amended by [ADR 2026-025](2026-025-agent-run-finish.md): beside the
+closed vocabulary of events the guards judge, the core has one observation,
+`AgentRunFinished` (a delegated agent run's finish), which no guard sees and
+nothing can refuse.
 
 ## Decision
 

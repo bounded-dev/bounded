@@ -1,7 +1,8 @@
 # The Bounded log
 
 Every decision Bounded makes goes to the Bounded log: every event's decision,
-every refusal a host adapter makes itself, and the packs' after-tool reports.
+every refusal a host adapter makes itself, and the packs' after-tool reports
+and reports on agent runs' finishes.
 Every event a host asks about is judged and recorded. The judge-event feature
 (`src/core/application/bounded-log/judge-event/`) decides the event with
 the composed guards (`decideEvent`), then records one **decision** through the
@@ -45,6 +46,25 @@ protected-paths pack was called the path gate before 3.3.0
 ([ADR 2026-021](adr/2026-021-protected-paths-rename.md)), so older records
 name `bounded/path-gate` and newer ones `bounded/protected-paths`. Nothing
 bounded keeps reads a pack id back from the log.
+
+## An agent run's finish
+
+When a delegated agent run the host started finishes (Claude Code's
+SubagentStop), the host hands it to the project's `recordAgentRunFinish`
+(ADR 2026-025). It is an observation, not an event: nothing can refuse it,
+and only what packs report on it is recorded. A finish no pack reports on
+writes no line. Each report is a line with `event: "agent-run-finished"`,
+the session's role, `tool: null` and no effects. Its note names the agent,
+the run and whether it ran to its end, then the pack's note:
+
+```json
+{"id":"…","time":"…","event":"agent-run-finished","role":null,"tool":null,"effects":[],"verdict":{"kind":"allow"},"note":"plan-reviewer's run a6eef1505a0b443a2 finished (ran to its end: not said): plan-reviewer's run a6eef1505a0b443a2 recorded as a prerequisite over '.agent-state/*/plan.md'"}
+```
+
+A pack's refusal names the pack, with `effect: null`, and its reason names
+the agent and the run. A finish the host sent that cannot be read is
+recorded as `invalid`. A line that cannot be written is let go: there is no
+verdict to enforce.
 
 ## When the log fails
 

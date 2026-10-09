@@ -237,9 +237,10 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   and dispatch. It holds no opinion about any application and names no
   programming language, framework, tool or agent host. The core's own pack,
   `bounded/core`, is the only place it declares extension points: one guards
-  point per event kind, and a group with one point per effect kind (ADR
-  2026-007, ADR 2026-013). Gates contribute
-  guards there and never handle one effect versus many.
+  point per event kind, a group with one point per effect kind, and the
+  lifecycle points `onProjectOpen`, `beforeTool`, `afterTool` and
+  `onAgentRunFinish` (ADR 2026-007, ADR 2026-013, ADR 2026-025). Gates
+  contribute guards there and never handle one effect versus many.
 - **Packs own content.** A pack declares its own extension points and
   gives values to its own points and contributes to points of packs it lists
   in `dependsOn` (pack objects, so imports are the dependency graph).
@@ -271,7 +272,8 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
 - **The core runs packs' asynchronous lifecycle checks around tool calls;
   packs get adapters through ports the host provides (ADR 2026-013).** Hosts
   call `judge` before a tool call and `afterTool` after it, passing the call
-  id, pass the shipped packs' ports to `openProject` (the protected-paths
+  id, and `recordAgentRunFinish` when an agent run they started finishes
+  (ADR 2026-025); they pass the shipped packs' ports to `openProject` (the protected-paths
   pack's ports undo what shell commands change in the files it protects, ADR
   2026-011), and build each execute effect's reading with
   `bounded/shell-command-reader`.
