@@ -2,6 +2,8 @@ import type { toolResultBrand } from "./tool-result.contract.ts";
 import { own, readSafely, show } from "../shared/read.ts";
 import type { Result } from "../shared/result.ts";
 import { sameWire, wireFormOf } from "../shared/wire.ts";
+import { AgentName } from "./agent-name.ts";
+import { AgentRunId } from "./agent-run-id.ts";
 import type { CallId } from "./call-id.contract.ts";
 import type { Effect } from "./effect.contract.ts";
 import type { Role } from "./role.contract.ts";
@@ -61,7 +63,7 @@ class ToolResultImpl implements Contract.ToolResult {
     return {
       ...json,
       ...(this.callId === undefined ? {} : { callId: this.callId.value }),
-      ...(this.delegatedAgentRuns === undefined ? {} : { delegatedAgentRuns: this.delegatedAgentRuns.map(({ finished, finishNeverReported }) => (finishNeverReported === true ? { finished, finishNeverReported } : { finished })) }),
+      ...(this.delegatedAgentRuns === undefined ? {} : { delegatedAgentRuns: this.delegatedAgentRuns.map(runJSON) }),
     };
   }
 }
@@ -69,7 +71,49 @@ class ToolResultImpl implements Contract.ToolResult {
 const RUNS = "A tool result's delegatedAgentRuns is a list of { finished } entries, one per delegate effect";
 const RUN = "A tool result's delegatedAgentRuns entry is { finished }, with finished true or false";
 const NEVER = "A tool result's delegatedAgentRuns entry may say finishNeverReported: true, and only when finished is false";
+const LATER = "A tool result's delegatedAgentRuns entry may say finishReportedLater: true, and only when finished is false, it gives the run's agentRunId and it does not say finishNeverReported";
+/** The keys an entry may have. */
+const ENTRY_KEYS: readonly string[] = ["finished", "finishNeverReported", "agentRunId", "finishReportedLater", "resolvedAgent"];
 const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+
+/** An entry's wire form: each optional field only when given. */
+function runJSON(run: Contract.DelegatedAgentRun): Contract.DelegatedAgentRunJSON {
+  return {
+    finished: run.finished,
+    ...(run.finishNeverReported === true ? { finishNeverReported: true as const } : {}),
+    ...(run.agentRunId === undefined ? {} : { agentRunId: run.agentRunId.value }),
+    ...(run.finishReportedLater === true ? { finishReportedLater: true as const } : {}),
+    ...(run.resolvedAgent === undefined ? {} : { resolvedAgent: run.resolvedAgent.value }),
+  };
+}
+
+/** One entry, checked: its keys, its flags and the value objects it names. */
+function delegatedAgentRunOf(entry: unknown): Result<Contract.DelegatedAgentRun> {
+  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return { ok: false, error: RUN };
+  const keys = Object.keys(entry);
+  const finished = own(entry, "finished");
+  if (keys.some((key) => !ENTRY_KEYS.includes(key)) || typeof finished !== "boolean") return { ok: false, error: RUN };
+  const never = own(entry, "finishNeverReported");
+  if (keys.includes("finishNeverReported") && (never !== true || finished)) return { ok: false, error: NEVER };
+  const rawRunId = own(entry, "agentRunId");
+  const agentRunId = rawRunId === undefined ? undefined : AgentRunId.parse(rawRunId);
+  if (agentRunId !== undefined && !agentRunId.ok) return { ok: false, error: `A tool result's delegatedAgentRuns entry's agentRunId: ${agentRunId.error}` };
+  const later = own(entry, "finishReportedLater");
+  if (keys.includes("finishReportedLater") && (later !== true || finished || agentRunId === undefined || never === true)) return { ok: false, error: LATER };
+  const rawResolved = own(entry, "resolvedAgent");
+  const resolvedAgent = rawResolved === undefined ? undefined : AgentName.parse(rawResolved);
+  if (resolvedAgent !== undefined && !resolvedAgent.ok) return { ok: false, error: `A tool result's delegatedAgentRuns entry's resolvedAgent: ${resolvedAgent.error}` };
+  return {
+    ok: true,
+    value: Object.freeze({
+      finished,
+      ...(never === true ? { finishNeverReported: true as const } : {}),
+      ...(agentRunId === undefined ? {} : { agentRunId: agentRunId.value }),
+      ...(later === true ? { finishReportedLater: true as const } : {}),
+      ...(resolvedAgent === undefined ? {} : { resolvedAgent: resolvedAgent.value }),
+    }),
+  };
+}
 
 /** What the host says of each delegated run, checked against the number of delegate effects; undefined when it says nothing. */
 function delegatedAgentRunsOf(raw: unknown, delegates: number): Result<readonly Contract.DelegatedAgentRun[] | undefined> {
@@ -78,13 +122,9 @@ function delegatedAgentRunsOf(raw: unknown, delegates: number): Result<readonly 
   if (!Array.isArray(raw)) return { ok: false, error: RUNS };
   const runs: Contract.DelegatedAgentRun[] = [];
   for (const entry of raw) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return { ok: false, error: RUN };
-    const keys = Object.keys(entry);
-    const finished = own(entry, "finished");
-    const never = own(entry, "finishNeverReported");
-    if (keys.some((key) => key !== "finished" && key !== "finishNeverReported") || typeof finished !== "boolean") return { ok: false, error: RUN };
-    if (keys.includes("finishNeverReported") && (never !== true || finished)) return { ok: false, error: NEVER };
-    runs.push(Object.freeze(never === true ? { finished, finishNeverReported: true as const } : { finished }));
+    const run = delegatedAgentRunOf(entry);
+    if (!run.ok) return run;
+    runs.push(run.value);
   }
   if (runs.length !== delegates) {
     return { ok: false, error: `A tool result's delegatedAgentRuns has one entry per delegate effect: ${counted(delegates, "effect", "effects")}, ${counted(runs.length, "entry", "entries")}` };

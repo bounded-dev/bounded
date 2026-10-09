@@ -1,4 +1,6 @@
 import type { Result } from "../shared/result.ts";
+import type { AgentName } from "./agent-name.contract.ts";
+import type { AgentRunId } from "./agent-run-id.contract.ts";
 import type { CallId } from "./call-id.contract.ts";
 import type { Effect } from "./effect.contract.ts";
 import type { Role } from "./role.contract.ts";
@@ -9,9 +11,10 @@ export declare const toolResultBrand: unique symbol;
 
 /**
  * What the host says, on a result, about the run one delegate effect started
- * (ADR 2026-019): whether that agent's run finished. Only a host that saw
- * the run end says true; a run returned at launch (a background run) is not
- * finished.
+ * (ADR 2026-019, ADR 2026-025): whether that agent's run finished. Only a
+ * host that saw the run end says true; a run returned at launch (a background
+ * run) is not finished. Each optional field is present only when the host
+ * says it.
  */
 export interface DelegatedAgentRun {
   readonly finished: boolean;
@@ -21,6 +24,25 @@ export interface DelegatedAgentRun {
    * with `finished: false`; present only when true.
    */
   readonly finishNeverReported?: true;
+  /** The run's id, when the host gives one: its finish, reported later, names the same id. */
+  readonly agentRunId?: AgentRunId;
+  /**
+   * This run goes on after this result, and the host reports its finish
+   * later, as an agent run's finish with this `agentRunId`: only with
+   * `finished: false` and an `agentRunId`, never with `finishNeverReported`.
+   */
+  readonly finishReportedLater?: true;
+  /** The agent the host actually ran, as it resolved the requested name (the delegate effect's agent stays the requested one). */
+  readonly resolvedAgent?: AgentName;
+}
+
+/** A delegated run's entry as written: its ids and names as text, each optional field only when given. */
+export interface DelegatedAgentRunJSON {
+  readonly finished: boolean;
+  readonly finishNeverReported?: true;
+  readonly agentRunId?: string;
+  readonly finishReportedLater?: true;
+  readonly resolvedAgent?: string;
 }
 
 /**
@@ -50,7 +72,7 @@ export interface ToolResultJSON extends Omit<ToolUseJSON, "kind"> {
   readonly kind?: "tool-result";
   readonly ok: boolean;
   /** Written by toJSON only when given. */
-  readonly delegatedAgentRuns?: readonly DelegatedAgentRun[];
+  readonly delegatedAgentRuns?: readonly DelegatedAgentRunJSON[];
 }
 
 export interface ToolResultFactory {

@@ -1,4 +1,4 @@
-import { AfterToolReport, type Composition, corePack, Decision, DecisionTime, type OpenedProject, type LifecycleContext, type Ports, type ToolResult, type ToolUse, Verdict } from "bounded/domain";
+import { AfterToolReport, type AgentRunFinished, AgentRunFinishReport, type Composition, corePack, Decision, DecisionTime, type OpenedProject, type LifecycleContext, type Ports, type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { defaultDecisionIds, nextDecisionId } from "../../bounded-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, Clock, DecisionIds, BoundedLog, ProjectLifecycle, ProjectLifecycleOptions } from "./project-lifecycle.contract.ts";
 
@@ -94,8 +94,34 @@ export class ProjectLifecycleHandler implements ProjectLifecycle {
     return { message: messages.length === 0 ? null : messages.join("\n\n") };
   }
 
-  /** Record a decision on the result; one that cannot be written changes nothing more: the message already says what happened. */
-  private async record(result: ToolResult, verdict: Verdict, refusedBy: Parameters<typeof Decision.of>[3]["refusedBy"], note: string): Promise<void> {
+  async recordAgentRunFinish(finish: AgentRunFinished): Promise<void> {
+    const checks = this.composition.entries(corePack.points.onAgentRunFinish);
+    if (!checks.ok) {
+      await this.record(finish, Verdict.refuse(`The checks on an agent run's finish cannot be read: ${checks.error}`, "Select a single copy of the core pack with the packs that contribute them"), null, "could not be handled");
+      return;
+    }
+    const run = `${finish.agent.value}'s run ${finish.agentRunId.value}`;
+    for (const { fromPackId, value: check } of checks.value) {
+      const pack = fromPackId.value;
+      let report: AgentRunFinishReport | string;
+      try {
+        const parsed = AgentRunFinishReport.parse(await check(finish, this.context));
+        report = parsed.ok ? parsed.value : parsed.error;
+      } catch (thrown) {
+        report = text(thrown);
+      }
+      if (typeof report === "string") {
+        await this.record(finish, Verdict.refuse(`${pack} could not handle the finish of ${run}: ${report}`, `Report this to the maintainers of ${pack}`), { packId: fromPackId, effect: null }, "could not be handled");
+        continue;
+      }
+      if (report.record === null) continue;
+      const { verdict, note } = report.record;
+      await this.record(finish, verdict, verdict.kind === "refuse" ? { packId: fromPackId, effect: null } : null, note);
+    }
+  }
+
+  /** Record a decision on the result or finish; one that cannot be written changes nothing more: the message already says what happened. */
+  private async record(result: ToolResult | AgentRunFinished, verdict: Verdict, refusedBy: Parameters<typeof Decision.of>[3]["refusedBy"], note: string): Promise<void> {
     try {
       const time = DecisionTime.parse(this.clock.now());
       if (!time.ok) return;

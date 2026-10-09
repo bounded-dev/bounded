@@ -51,6 +51,8 @@ function refusingAll(reason: string, redirect: string, problem: string): Project
   return Object.freeze({
     judge: async () => refusal,
     afterTool: async () => ({ message: null }),
+    // A finish carries no verdict to enforce: nothing is recorded for a project that cannot be opened.
+    recordAgentRunFinish: async () => {},
     refuse: async (given: unknown) => {
       const parsed = AdapterRefusal.parse(given);
       return parsed.ok ? parsed.value.verdict : refusal;

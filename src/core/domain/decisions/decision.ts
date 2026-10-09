@@ -1,5 +1,6 @@
 import type { decisionBrand } from "./decision.contract.ts";
 import type { AdapterRefusal } from "./adapter-refusal.contract.ts";
+import type { AgentRunFinished } from "../events/agent-run-finished.contract.ts";
 import { describeEffect } from "../events/effect.ts";
 import type { Event } from "../events/event.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
@@ -78,7 +79,20 @@ class DecisionImpl implements Contract.Decision {
     return typeof raw === "object" && raw !== null && #made in raw;
   }
 
-  static of(id: DecisionIdType, time: string, event: Event | ToolResult, judgement: Judgement, note?: string): Decision {
+  static of(id: DecisionIdType, time: string, event: Event | ToolResult | AgentRunFinished, judgement: Judgement, note?: string): Decision {
+    if (event.kind === "agent-run-finished") {
+      const prefix = `${event.agent.value}'s run ${event.agentRunId.value} finished (ran to its end: ${event.ranToEnd === null ? "not said" : event.ranToEnd ? "yes" : "no"})`;
+      return new DecisionImpl({
+        id,
+        time,
+        event: event.kind,
+        role: event.role === null ? null : event.role.value,
+        tool: null,
+        effects: [],
+        verdict: verdictOf(judgement.verdict, judgement.refusedBy),
+        note: bounded(note === undefined ? prefix : `${prefix}: ${note}`),
+      });
+    }
     const tool = event.kind === "session-start" ? null : event;
     return new DecisionImpl({
       id,
@@ -137,7 +151,7 @@ class DecisionImpl implements Contract.Decision {
 }
 
 const FORM = "A decision is a recorded line: { id, time, event, role, tool, effects, verdict, note, host? }";
-const EVENTS: readonly Contract.DecisionEvent[] = ["tool-use", "session-start", "tool-result", "invalid", "adapter"];
+const EVENTS: readonly Contract.DecisionEvent[] = ["tool-use", "session-start", "tool-result", "agent-run-finished", "invalid", "adapter"];
 const isText = (raw: unknown): raw is string => typeof raw === "string";
 const textOrNull = (raw: unknown): raw is string | null => raw === null || typeof raw === "string";
 

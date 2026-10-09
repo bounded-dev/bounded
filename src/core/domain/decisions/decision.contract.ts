@@ -1,4 +1,5 @@
 import type { AdapterRefusal } from "./adapter-refusal.contract.ts";
+import type { AgentRunFinished } from "../events/agent-run-finished.contract.ts";
 import type { Event } from "../events/event.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { ToolKind } from "../events/tool-use.contract.ts";
@@ -15,8 +16,13 @@ export type RecordedVerdict =
   | { readonly kind: "allow" }
   | { readonly kind: "refuse"; readonly reason: string; readonly redirect: string; readonly pack: string | null; readonly effect: string | null };
 
-/** What a decision records about its event: its kind ("tool-result" after a tool ran), "invalid" for an event that could not be read, "adapter" for a call the host adapter refused. */
-export type DecisionEvent = Event["kind"] | ToolResult["kind"] | "invalid" | "adapter";
+/**
+ * What a decision records about its event: its kind ("tool-result" after a
+ * tool ran, "agent-run-finished" when a delegated run finished, ADR 2026-025),
+ * "invalid" for an event that could not be read, "adapter" for a call the
+ * host adapter refused.
+ */
+export type DecisionEvent = Event["kind"] | ToolResult["kind"] | AgentRunFinished["kind"] | "invalid" | "adapter";
 
 /**
  * One decision on one event, for the Bounded log: its record is text, as it
@@ -32,12 +38,17 @@ export interface Decision {
   readonly time: string;
   readonly event: DecisionEvent;
   readonly role: string | null;
-  /** The tool kind of a tool use; null for a session start. */
+  /** The tool kind of a tool use; null for a session start or an agent run's finish. */
   readonly tool: ToolKind | null;
-  /** Each effect of a tool use, described ("write (modify) src/a.ts"); none for a session start. */
+  /** Each effect of a tool use, described ("write (modify) src/a.ts"); none for a session start or an agent run's finish. */
   readonly effects: readonly string[];
   readonly verdict: RecordedVerdict;
-  /** Null for a decision; for a follow-up, why it supersedes the earlier record with its id. */
+  /**
+   * Null for a decision, or the note it was given; for a follow-up, why it
+   * supersedes the earlier record with its id. A decision on an agent run's
+   * finish always has one, naming the agent, the run and whether it ran to
+   * its end, then the pack's note.
+   */
   readonly note: string | null;
   /** For a call the host adapter refused before the core saw an event: the host's tool name and a summary of its input. */
   readonly host?: { readonly tool: string; readonly input: string };
@@ -59,8 +70,12 @@ export interface DecisionJSON {
 }
 
 export interface DecisionFactory {
-  /** The decision `id` on `event`, judged as `judgement`, at `time`, with an optional note. */
-  of(id: DecisionId, time: string, event: Event | ToolResult, judgement: Judgement, note?: string): Decision;
+  /**
+   * The decision `id` on `event`, judged as `judgement`, at `time`, with an
+   * optional note. On an agent run's finish, the note begins "<agent>'s run
+   * <id> finished (ran to its end: yes|no|not said)", then ": <note>".
+   */
+  of(id: DecisionId, time: string, event: Event | ToolResult | AgentRunFinished, judgement: Judgement, note?: string): Decision;
   /** The decision `id` on an event that could not be read: always a refusal. */
   invalid(id: DecisionId, time: string, refusal: Verdict): Decision;
   /** The decision `id` on a call the host adapter refused itself: always a refusal. */

@@ -1,7 +1,9 @@
 import type { Composition } from "../composition/composition.contract.ts";
+import type { AgentRunFinished } from "../events/agent-run-finished.contract.ts";
 import type { EffectByKind, EffectKind } from "../events/effect.contract.ts";
 import type { ToolResult } from "../events/tool-result.contract.ts";
 import type { AfterToolReport } from "../lifecycle/after-tool-report.contract.ts";
+import type { AgentRunFinishReport } from "../lifecycle/agent-run-finish-report.contract.ts";
 import type { Ports } from "../lifecycle/ports.contract.ts";
 import type { Verdict } from "../verdicts/verdict.contract.ts";
 import type { SessionStart } from "../events/session-start.contract.ts";
@@ -39,6 +41,14 @@ export type BeforeTool = (call: ToolUse, context: LifecycleContext) => Promise<V
 /** After a tool ran: check what it did. Every after-tool check runs; what each reports is recorded and told to the agent. */
 export type AfterTool = (result: ToolResult, context: LifecycleContext) => Promise<AfterToolReport>;
 
+/**
+ * When a delegated agent run has finished, as the host saw it (ADR 2026-025):
+ * an observation, which nothing can refuse. Every finish check runs; the
+ * record each reports is written to the Bounded log, and nothing is told to
+ * any agent.
+ */
+export type AgentRunFinishHandler = (finish: AgentRunFinished, context: LifecycleContext) => Promise<AgentRunFinishReport>;
+
 /** The core pack's id. */
 export type CoreId = PackId<"bounded/core">;
 
@@ -63,6 +73,8 @@ export type CorePackPoints = {
   readonly afterTool: ExtensionPoint<AfterTool, CoreId>;
   /** Once, when a project opens: prepare what guards need. */
   readonly onProjectOpen: ExtensionPoint<ProjectOpenHandler, CoreId>;
+  /** When a delegated agent run has finished: asynchronous checks; the records they report are written to the Bounded log. */
+  readonly onAgentRunFinish: ExtensionPoint<AgentRunFinishHandler, CoreId>;
 };
 
 /** The core pack: its id and its points. */

@@ -6,7 +6,7 @@ import type { EffectGuard, Guard } from "../guards/dispatch.contract.ts";
 import { point, pointGroup } from "../packs/pack.ts";
 import { packIdsFor } from "../packs/pack-id.ts";
 import type { Result } from "../shared/result.ts";
-import type { AfterTool, BeforeTool, ProjectOpenHandler } from "./core.contract.ts";
+import type { AfterTool, AgentRunFinishHandler, BeforeTool, ProjectOpenHandler } from "./core.contract.ts";
 import type * as Contract from "./guard-points.contract.ts";
 
 /**
@@ -45,4 +45,9 @@ export const afterToolPoint: Contract.AfterToolPoint = point({ description: "Asy
 export const onProjectOpenPoint: Contract.OnProjectOpenPoint = point({
   description: "What a pack does once when a project opens, before any event is judged, such as loading what its guards need",
   check: functionOf<ProjectOpenHandler>,
+});
+
+export const onAgentRunFinishPoint: Contract.OnAgentRunFinishPoint = point({
+  description: "Asynchronous checks run when a delegated agent run has finished; the records they report are written to the Bounded log",
+  check: functionOf<AgentRunFinishHandler>,
 });
