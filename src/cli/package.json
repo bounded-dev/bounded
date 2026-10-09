@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "bounded": "./src/main.ts"
+    "bounded": "./main.ts"
   },
   "dependencies": {
     "bounded": "workspace:*"

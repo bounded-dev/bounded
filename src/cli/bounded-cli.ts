@@ -1,6 +1,6 @@
 // The `bounded` command: `bounded init` and `bounded update`, wired to the
 // core's file-system and node_modules adapters. Its source is this app,
-// apps/cli; it ships inside the one `bounded` package as its bin,
+// src/cli; it ships inside the one `bounded` package as its bin,
 // dist/cli.js, compiled for node by bounded's prepack, beside the host
 // adapters it installs (ADR 2026-016).
 //
@@ -98,7 +98,7 @@ function readJson(path: string): Json {
   return parsed;
 }
 
-/** This CLI's version: from bounded's package.json when bundled (dist/cli.js), from apps/cli's in source; they are released in lockstep. */
+/** This CLI's version: from bounded's package.json, bundled (dist/cli.js) or in source (src/package.json, beside src/cli; ADR 2026-024). */
 function ownVersion(): string {
   const version = readJson(fileURLToPath(new URL("../package.json", import.meta.url))).version;
   return typeof version === "string" ? version : "(unknown version)";
@@ -312,7 +312,7 @@ function fromTarballs(from: string, packages: readonly { name: string; dev: bool
   try {
     tarballs = readdirSync(from);
   } catch {
-    return { ok: false, error: `${from} cannot be read: pass --from a directory holding bounded's packed tarball (bun pm pack in contexts/core)` };
+    return { ok: false, error: `${from} cannot be read: pass --from a directory holding bounded's packed tarball (bun pm pack in src)` };
   }
   const wanted: Wanted[] = [];
   for (const { name, dev } of packages) {

@@ -4,13 +4,15 @@
 //
 // - The library: every export path whose `default` condition is under dist/
 //   and that has a `bun` (TypeScript source) target is built from it, in one
-//   code-split build mirroring src/ in dist/, so code two entry points share
+//   code-split build mirroring src/ in dist/ (src/core/domain/index.ts is
+//   dist/core/domain/index.js, ADR 2026-024), so code two entry points share
 //   is one module, as in the source.
 // - The code bounded carries from private workspace packages: the CLI (its
-//   bin) and the host adapters, private apps in source, and bounded's shell
-//   command reader, the private context bounded-shell-command-reader, built
-//   as the export bounded/shell-command-reader (ADR 2026-020). The list lives
-//   here and in the package's export paths, never in the core's code.
+//   bin, src/cli) and the host adapters (src/hosts), private apps in source,
+//   and bounded's shell command reader, the private context
+//   bounded-shell-command-reader (src/lib/shell-command-reader), built as the
+//   export bounded/shell-command-reader (ADR 2026-020). The list lives here
+//   and in the package's export paths, never in the core's code.
 // Every package import stays external: `bounded/*` resolves through the
 // package's own export paths, and anything else must be one of bounded's
 // dependencies, so the tree-sitter grammar and the rest load from node_modules.
@@ -21,18 +23,19 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import type { BunPlugin } from "bun";
 
+/** bounded's directory, src/: its manifest, this build and the sources it ships (ADR 2026-024). */
 const HERE = import.meta.dir;
-const APPS = join(HERE, "..", "..", "apps");
-const READER = join(HERE, "..", "shell-command-reader");
-const READER_ENTRY = join(READER, "src", "adapters", "out", "index.ts");
+const HOSTS = join(HERE, "hosts");
+const READER = join(HERE, "lib", "shell-command-reader");
+const READER_ENTRY = join(READER, "adapters", "out", "index.ts");
 
 /** What bounded carries from private packages: each entry point, where it goes, and whether it is run as a program. */
 const CARRIED: readonly { readonly entry: string; readonly out: string; readonly program?: true }[] = [
-  { entry: join(APPS, "cli", "src", "main.ts"), out: "dist/cli.js", program: true },
-  { entry: join(APPS, "claude-code", "src", "main.ts"), out: "dist/hosts/claude-code/hook.js", program: true },
-  { entry: join(APPS, "claude-code", "src", "host-installer.ts"), out: "dist/hosts/claude-code/host-installer.js" },
-  { entry: join(APPS, "pi", "src", "index.ts"), out: "dist/hosts/pi/index.js" },
-  { entry: join(APPS, "pi", "src", "host-installer.ts"), out: "dist/hosts/pi/host-installer.js" },
+  { entry: join(HERE, "cli", "main.ts"), out: "dist/cli.js", program: true },
+  { entry: join(HOSTS, "claude-code", "main.ts"), out: "dist/hosts/claude-code/hook.js", program: true },
+  { entry: join(HOSTS, "claude-code", "host-installer.ts"), out: "dist/hosts/claude-code/host-installer.js" },
+  { entry: join(HOSTS, "pi", "index.ts"), out: "dist/hosts/pi/index.js" },
+  { entry: join(HOSTS, "pi", "host-installer.ts"), out: "dist/hosts/pi/host-installer.js" },
   { entry: READER_ENTRY, out: "dist/shell-command-reader/index.js" },
 ];
 
@@ -82,21 +85,22 @@ const privatePackageExports: BunPlugin = {
 
 /**
  * The declarations a consumer's tsc reads (dist/types, each export path's
- * `types`): emitted from the sources by tsc (tsconfig.types.json, the core's
- * src and the shell command reader's entry, under their common root
- * contexts/), placed so the core's src is dist/types and the reader's is
- * dist/types/shell-command-reader, with an index there, and each relative
- * `.ts` specifier rewritten to `.js`, as a consumer's tsc resolves
- * declarations without allowImportingTsExtensions.
+ * `types`): emitted from the sources by tsc (tsconfig.types.json: the
+ * core's, the shipped packs' and the shell command reader's entry, under
+ * src/), placed so src/ is dist/types (dist/types/core, dist/types/packs)
+ * and the reader's is dist/types/shell-command-reader, with an index there,
+ * and each relative `.ts` specifier rewritten to `.js`, as a consumer's tsc
+ * resolves declarations without allowImportingTsExtensions.
  */
 async function buildDeclarations(): Promise<void> {
   const emittedRoot = join(HERE, "dist", "types-emitted");
   const tsc = Bun.resolveSync("typescript/bin/tsc", HERE);
   const emitted = Bun.spawnSync([process.execPath, tsc, "-p", join(HERE, "tsconfig.types.json")], { cwd: HERE, stdout: "pipe", stderr: "pipe" });
   if (emitted.exitCode !== 0) throw new Error(`bounded's declarations could not be emitted:\n${emitted.stdout.toString()}${emitted.stderr.toString()}`);
-  await rename(join(emittedRoot, basename(HERE), "src"), join(HERE, "dist", "types"));
-  await rename(join(emittedRoot, basename(READER), "src"), join(HERE, "dist", "types", "shell-command-reader"));
-  await rm(emittedRoot, { recursive: true, force: true });
+  await rename(emittedRoot, join(HERE, "dist", "types"));
+  const emittedLibraries = join(HERE, "dist", "types", relative(HERE, dirname(READER)));
+  await rename(join(emittedLibraries, basename(READER)), join(HERE, "dist", "types", "shell-command-reader"));
+  await rm(emittedLibraries, { recursive: true, force: true });
   for await (const path of new Bun.Glob("dist/types/**/*.d.ts").scan({ cwd: HERE })) {
     const file = join(HERE, path);
     const text = await Bun.file(file).text();
@@ -119,7 +123,7 @@ export async function buildDist(): Promise<void> {
   const library = Object.values(manifest.exports).flatMap((target) => (typeof target === "object" && target.default?.startsWith("./dist/") && target.bun !== undefined ? [target] : []));
   const built = await Bun.build({
     entrypoints: library.map((target) => join(HERE, target.bun ?? "")),
-    root: join(HERE, "src"),
+    root: HERE,
     outdir: join(HERE, "dist"),
     target: "node",
     format: "esm",
@@ -131,7 +135,7 @@ export async function buildDist(): Promise<void> {
 
   for (const { entry, out, program } of CARRIED) {
     // Split, so an entry's dynamic imports stay dynamic: the Claude Code hook's bootstrap loads everything
-    // inside its try, so a missing module is a deny, not a crash before it (apps/claude-code/src/main.ts).
+    // inside its try, so a missing module is a deny, not a crash before it (src/hosts/claude-code/main.ts).
     await mkdir(dirname(join(HERE, out)), { recursive: true });
     const carried = await Bun.build({
       entrypoints: [entry],

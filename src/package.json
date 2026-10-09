@@ -6,7 +6,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bounded-dev/bounded.git",
-    "directory": "contexts/core"
+    "directory": "src"
   },
   "engines": {
     "node": ">=22.18"
@@ -20,13 +20,16 @@
   "files": [
     "dist",
     "README.md",
-    "src",
-    "!src/**/*.test.ts",
-    "!src/{adapters,composition-root,domain,packs}/**/*.test-support.ts",
-    "!src/application/{composition,lifecycle,project-config}/**/*.test-support.ts",
-    "!src/application/bounded-log/**/*.{clock,decision-ids,bounded-log,in-memory-bounded-log}.test-support.ts",
-    "!src/application/project-setup/**/*{-source,-files}.test-support.ts",
-    "!src/**/fixtures/**"
+    "core",
+    "packs",
+    "!{core,packs}/**/*.test.ts",
+    "!core/{adapters,composition-root,domain}/**/*.test-support.ts",
+    "!packs/**/*.test-support.ts",
+    "!core/application/{composition,lifecycle,project-config}/**/*.test-support.ts",
+    "!core/application/bounded-log/**/*.{clock,decision-ids,bounded-log,in-memory-bounded-log}.test-support.ts",
+    "!core/application/project-setup/**/*{-source,-files}.test-support.ts",
+    "!{core,packs}/**/fixtures/**",
+    "!core/test/**"
   ],
   "dependencies": {
     "@vscode/tree-sitter-wasm": "0.3.1",
@@ -35,46 +38,46 @@
   },
   "exports": {
     "./domain": {
-      "bun": "./src/domain/index.ts",
-      "types": "./dist/types/domain/index.d.ts",
-      "default": "./dist/domain/index.js"
+      "bun": "./core/domain/index.ts",
+      "types": "./dist/types/core/domain/index.d.ts",
+      "default": "./dist/core/domain/index.js"
     },
     "./application": {
-      "bun": "./src/application/index.ts",
-      "types": "./dist/types/application/index.d.ts",
-      "default": "./dist/application/index.js"
+      "bun": "./core/application/index.ts",
+      "types": "./dist/types/core/application/index.d.ts",
+      "default": "./dist/core/application/index.js"
     },
     "./testing/host-installer-conformance": {
-      "bun": "./src/application/project-setup/init-project/init-project.host-installer.test-support.ts",
-      "types": "./src/application/project-setup/init-project/init-project.host-installer.test-support.ts"
+      "bun": "./core/application/project-setup/init-project/init-project.host-installer.test-support.ts",
+      "types": "./core/application/project-setup/init-project/init-project.host-installer.test-support.ts"
     },
     "./adapters": {
-      "bun": "./src/adapters/out/index.ts",
-      "types": "./dist/types/adapters/out/index.d.ts",
-      "default": "./dist/adapters/out/index.js"
+      "bun": "./core/adapters/out/index.ts",
+      "types": "./dist/types/core/adapters/out/index.d.ts",
+      "default": "./dist/core/adapters/out/index.js"
     },
     "./open-project": {
-      "bun": "./src/composition-root/open-project.ts",
-      "types": "./dist/types/composition-root/open-project.d.ts",
-      "default": "./dist/composition-root/open-project.js"
+      "bun": "./core/composition-root/open-project.ts",
+      "types": "./dist/types/core/composition-root/open-project.d.ts",
+      "default": "./dist/core/composition-root/open-project.js"
     },
     "./prereqs": {
-      "bun": "./src/packs/prereqs/index.ts",
+      "bun": "./packs/prereqs/index.ts",
       "types": "./dist/types/packs/prereqs/index.d.ts",
       "default": "./dist/packs/prereqs/index.js"
     },
     "./prereqs/adapters": {
-      "bun": "./src/packs/prereqs/adapters/out/index.ts",
+      "bun": "./packs/prereqs/adapters/out/index.ts",
       "types": "./dist/types/packs/prereqs/adapters/out/index.d.ts",
       "default": "./dist/packs/prereqs/adapters/out/index.js"
     },
     "./protected-paths": {
-      "bun": "./src/packs/protected-paths/index.ts",
+      "bun": "./packs/protected-paths/index.ts",
       "types": "./dist/types/packs/protected-paths/index.d.ts",
       "default": "./dist/packs/protected-paths/index.js"
     },
     "./protected-paths/adapters": {
-      "bun": "./src/packs/protected-paths/adapters/out/index.ts",
+      "bun": "./packs/protected-paths/adapters/out/index.ts",
       "types": "./dist/types/packs/protected-paths/adapters/out/index.d.ts",
       "default": "./dist/packs/protected-paths/adapters/out/index.js"
     },
@@ -83,8 +86,8 @@
       "default": "./dist/shell-command-reader/index.js"
     },
     "./testing/shell-command-reader-conformance": {
-      "bun": "./src/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts",
-      "types": "./src/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts"
+      "bun": "./core/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts",
+      "types": "./core/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts"
     },
     "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",
     "./hosts/pi": "./dist/hosts/pi/index.js",

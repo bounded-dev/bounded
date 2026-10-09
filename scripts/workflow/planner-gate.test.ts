@@ -17,10 +17,10 @@ describe("planner-gate writes", () => {
   });
 
   test("refuses a write anywhere else, naming the path", () => {
-    const decision = write("contexts/core/src/x.ts");
+    const decision = write("src/core/x.ts");
     expect(decision.allow).toBe(false);
     expect(!decision.allow && decision.reason).toBe(
-      "planner-gate: the planner writes only its plan under .agent-state/<item>/, not contexts/core/src/x.ts",
+      "planner-gate: the planner writes only its plan under .agent-state/<item>/, not src/core/x.ts",
     );
   });
 

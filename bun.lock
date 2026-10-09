@@ -11,43 +11,7 @@
         "typescript": "5.9.3",
       },
     },
-    "apps/claude-code": {
-      "name": "bounded-claude-code",
-      "version": "3.3.0",
-      "bin": {
-        "bounded-claude-code": "./src/main.ts",
-      },
-      "dependencies": {
-        "bounded": "workspace:*",
-        "bounded-shell-command-reader": "workspace:*",
-        "picomatch": "4.0.7",
-      },
-      "devDependencies": {
-        "@types/picomatch": "4.0.3",
-      },
-    },
-    "apps/cli": {
-      "name": "bounded-cli",
-      "version": "3.3.0",
-      "bin": {
-        "bounded": "./src/main.ts",
-      },
-      "dependencies": {
-        "bounded": "workspace:*",
-      },
-      "devDependencies": {
-        "bounded-shell-command-reader": "workspace:*",
-      },
-    },
-    "apps/pi": {
-      "name": "bounded-pi",
-      "version": "3.3.0",
-      "dependencies": {
-        "bounded": "workspace:*",
-        "bounded-shell-command-reader": "workspace:*",
-      },
-    },
-    "contexts/core": {
+    "src": {
       "name": "bounded",
       "version": "3.3.0",
       "bin": {
@@ -59,7 +23,43 @@
         "zod": "4.6.4",
       },
     },
-    "contexts/shell-command-reader": {
+    "src/cli": {
+      "name": "bounded-cli",
+      "version": "3.3.0",
+      "bin": {
+        "bounded": "./main.ts",
+      },
+      "dependencies": {
+        "bounded": "workspace:*",
+      },
+      "devDependencies": {
+        "bounded-shell-command-reader": "workspace:*",
+      },
+    },
+    "src/hosts/claude-code": {
+      "name": "bounded-claude-code",
+      "version": "3.3.0",
+      "bin": {
+        "bounded-claude-code": "./main.ts",
+      },
+      "dependencies": {
+        "bounded": "workspace:*",
+        "bounded-shell-command-reader": "workspace:*",
+        "picomatch": "4.0.7",
+      },
+      "devDependencies": {
+        "@types/picomatch": "4.0.3",
+      },
+    },
+    "src/hosts/pi": {
+      "name": "bounded-pi",
+      "version": "3.3.0",
+      "dependencies": {
+        "bounded": "workspace:*",
+        "bounded-shell-command-reader": "workspace:*",
+      },
+    },
+    "src/lib/shell-command-reader": {
       "name": "bounded-shell-command-reader",
       "version": "3.3.0",
       "dependencies": {
@@ -95,15 +95,15 @@
 
     "@vscode/tree-sitter-wasm": ["@vscode/tree-sitter-wasm@0.3.1", "", {}, "sha512-RJFoomET6FajjG511fmQxeBQfU6M24a0aFZPqpid+ttIxanWf1VGytBG0UmsGjt07qmIPJS8U31D+aecuCucsQ=="],
 
-    "bounded": ["bounded@workspace:contexts/core"],
+    "bounded": ["bounded@workspace:src"],
 
-    "bounded-claude-code": ["bounded-claude-code@workspace:apps/claude-code"],
+    "bounded-claude-code": ["bounded-claude-code@workspace:src/hosts/claude-code"],
 
-    "bounded-cli": ["bounded-cli@workspace:apps/cli"],
+    "bounded-cli": ["bounded-cli@workspace:src/cli"],
 
-    "bounded-pi": ["bounded-pi@workspace:apps/pi"],
+    "bounded-pi": ["bounded-pi@workspace:src/hosts/pi"],
 
-    "bounded-shell-command-reader": ["bounded-shell-command-reader@workspace:contexts/shell-command-reader"],
+    "bounded-shell-command-reader": ["bounded-shell-command-reader@workspace:src/lib/shell-command-reader"],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 

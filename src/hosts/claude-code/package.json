@@ -5,10 +5,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./host-installer": "./src/host-installer.ts"
+    "./host-installer": "./host-installer.ts"
   },
   "bin": {
-    "bounded-claude-code": "./src/main.ts"
+    "bounded-claude-code": "./main.ts"
   },
   "dependencies": {
     "bounded": "workspace:*",

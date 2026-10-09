@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./adapters": "./src/adapters/out/index.ts"
+    "./adapters": "./adapters/out/index.ts"
   },
   "dependencies": {
     "@vscode/tree-sitter-wasm": "0.3.1",

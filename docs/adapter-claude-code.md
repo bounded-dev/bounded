@@ -1,6 +1,6 @@
 # The Claude Code adapter
 
-`apps/claude-code` (a private workspace app, shipped in `bounded` as its `dist/hosts/claude-code/`; ADR 2026-016) is the host adapter for
+`src/hosts/claude-code` (a private workspace app, shipped in `bounded` as its `dist/hosts/claude-code/`; ADR 2026-016) is the host adapter for
 Claude Code. Claude Code runs it before every tool call as a `PreToolUse`
 hook; it turns the call into a host-neutral tool-use event, asks bounded for
 a verdict and answers in Claude Code's words. It is an app: it holds no rules
@@ -8,18 +8,20 @@ of its own and imports the core only through its export paths.
 
 ## Reading order (about 10 minutes)
 
-1. `src/translate.ts` — the hook's stdin read and checked (`readPayload`),
+Every file below is in `src/hosts/claude-code/`.
+
+1. `translate.ts` — the hook's stdin read and checked (`readPayload`),
    then every Claude Code tool mapped to a tool kind and its effects, with
    paths still as Claude Code wrote them (`translate`). Pure.
-2. `src/event.ts` — the `PathResolver` port, and `toToolUse`, which resolves
+2. `event.ts` — the `PathResolver` port, and `toToolUse`, which resolves
    every path through the port and builds the core's `ToolUse` with its parse.
-3. `src/paths.ts` — the port's file-system adapter: how a path is judged by
+3. `paths.ts` — the port's file-system adapter: how a path is judged by
    where it really lands.
-4. `src/hook.ts` — one call from stdin to stdout, under a deadline, and how it
+4. `hook.ts` — one call from stdin to stdout, under a deadline, and how it
    fails closed.
-5. `src/composition-root.ts`, `src/run.ts`, then `src/main.ts` — the wiring,
+5. `composition-root.ts`, `run.ts`, then `main.ts` — the wiring,
    the host, and the bootstrap Claude Code runs.
-6. `src/install.ts` — merging the hook into `.claude/settings.json`.
+6. `install.ts` — merging the hook into `.claude/settings.json`.
 7. `test/main.e2e.test.ts` — the hook run as Claude Code runs it.
 
 ## The tool map
@@ -168,11 +170,11 @@ the `...FromConfig` ones, which open the project the same way):
 
 `bounded init` and `bounded update` install the hook for you (README,
 "Installing"). They run the installer bounded carries for Claude Code
-(`bounded/hosts/claude-code/host-installer`, from `src/host-installer.ts`;
+(`bounded/hosts/claude-code/host-installer`, from `src/hosts/claude-code/host-installer.ts`;
 [ADR 2026-015](adr/2026-015-host-installers.md)). It installs
 `PROJECT_HOOK_COMMAND`,
 `node "$CLAUDE_PROJECT_DIR/node_modules/bounded/dist/hosts/claude-code/hook.js"`:
-the hook `src/main.ts`, compiled for Node at pack time, so no bun is needed,
+the hook `src/hosts/claude-code/main.ts`, compiled for Node at pack time, so no bun is needed,
 through `withProjectHooks`. Claude Code sets `CLAUDE_PROJECT_DIR` to the
 project's root for every hook, so a committed `.claude/settings.json` works
 in every checkout, wherever it is. `withProjectHooks` first removes every
@@ -184,10 +186,10 @@ duplicated. Settings that exist but cannot be read, or are not JSON, are
 refused and left alone.
 
 To install by hand, read `.claude/settings.json` (or `{}`), pass it to
-`withHooks(settings, command)` with the command that runs `src/main.ts`, and
+`withHooks(settings, command)` with the command that runs `src/hosts/claude-code/main.ts`, and
 write the result back when `changed`. `hookCommand({ bun, main, role })`
 builds that command with every path shell-quoted, such as
-`'bun' '/path/to/apps/claude-code/src/main.ts' --role 'builder'`. Claude Code runs hooks with its own `PATH`, so
+`'bun' '/path/to/src/hosts/claude-code/main.ts' --role 'builder'`. Claude Code runs hooks with its own `PATH`, so
 either make sure `bun` is on it or give bun's absolute path in the command.
 `withHooks` installs the same command for `PreToolUse`, `PostToolUse` and
 `PostToolUseFailure`
