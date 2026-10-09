@@ -13,8 +13,8 @@ const BEFORE = "A rule's before names one action: { delegate: <agent> }, { write
 const NOT_BEFORE: Contract.BeforeMatch = Object.freeze({ kind: "not-before" });
 /** Paths that are never project paths, so a write there blocks no write rule. */
 const DEVICE_PATH = /^\/dev\/(null|stdout|stderr|fd\/\d+)$/;
-/** A write's text bounded can read but not place in the project: outside it, as written, with nothing only the shell can expand. */
-const OUTSIDE_PROJECT = /^(\/|~|\.\.)/;
+/** A write's text bounded can read but not place in the project: outside it, as written (absolute, home, or climbing with a .. segment), with nothing only the shell can expand. */
+const OUTSIDE_PROJECT = /^(\/|~)|(^|\/)\.\.(\/|$)/;
 const SHELL_EXPANDS = /[$`*?[]/;
 
 /**

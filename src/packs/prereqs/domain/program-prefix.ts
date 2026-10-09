@@ -35,6 +35,8 @@ function check(raw: unknown): Result<Fields> {
   if (program.includes("=")) return refuse("the program holds '=', so the shell would read the word as an assignment, not a program");
   if (RESERVED.has(program)) return refuse(`'${program}' is a word of the shell's own grammar, not a program`);
   if (program.startsWith("-")) return refuse("the program starts with '-', so it is an option, not a program");
+  const home = leadingArguments.find((word) => word.startsWith("~"));
+  if (home !== undefined) return refuse(`'${home}' starts with '~', which the shell expands to a home directory`);
   const option = leadingArguments.find((word) => word.startsWith("-"));
   if (option !== undefined) return refuse(`'${option}' starts with '-': a rule names its program and subcommand words, never an option`);
   return { ok: true, value: { program, leadingArguments: Object.freeze(leadingArguments) } };
@@ -42,6 +44,22 @@ function check(raw: unknown): Result<Fields> {
 
 /** A name as the program it runs: its last path segment, case folded. */
 const programName = (text: string): string => (text.split("/").at(-1) ?? text).toLowerCase();
+
+/**
+ * Whether an argument's text, as written or literal, names `program` (case
+ * folded) anywhere it could stand: its quote and backslash characters
+ * deleted, then split at every character that cannot be part of a
+ * program's name or path (anything but letters, digits, '.', '_', '+', '-'
+ * and '/'), each piece compared by its last path segment. So
+ * `cd infra;terraform apply`, `"terraform" apply` and
+ * `"terraform apply $X"` name terraform; `terraform-docs` does not.
+ */
+const namesProgram = (text: string, program: string): boolean => {
+  const bare = text.replace(/["'\\]/g, "");
+  // A program whose name holds another character (make@2) is looked for anywhere in the text: over-matching only fails closed.
+  if (/[^a-z0-9._+-]/.test(program)) return bare.toLowerCase().includes(program);
+  return bare.split(/[^A-Za-z0-9._+\-/]+/).some((piece) => piece !== "" && programName(piece) === program);
+};
 
 /** One way of reading a run's arguments so far: how many of the prefix's words are found, whether `--` ended the options, and whether the next word is an option's value. */
 interface Reading {
@@ -138,7 +156,7 @@ class ProgramPrefixImpl implements Contract.ProgramPrefix {
     const code = reading.unresolved.find((part) => part.role === "code");
     if (code !== undefined) return { kind: "cannot-see", why: `it runs code bounded cannot read ('${code.text}')`, fix: "none" };
     for (const run of reading.programs) {
-      const passed = run.arguments.find((argument) => argument.kind === "literal" && argument.text.split(/\s+/).some((piece) => piece !== "" && programName(piece) === program));
+      const passed = run.arguments.find((argument) => namesProgram(argument.text, program));
       if (passed !== undefined) return { kind: "cannot-see", why: `it passes '${passed.text}' to ${run.name.text}, which may run ${this.program}`, fix: "none" };
     }
     return { kind: "does-not-run" };

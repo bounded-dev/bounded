@@ -40,8 +40,10 @@ export interface ProgramPrefix {
    * matches wins. Otherwise it cannot be seen when, first found in this
    * order: the reading is unread; a program's name is unresolved; a run of
    * the program reaches an unresolved argument before every word is found;
-   * code is unresolved; a run passes the program as an argument (or a word
-   * of one), so it may run it. Else it does not run.
+   * code is unresolved; a run's argument, resolved or not, names the
+   * program (its quotes and backslashes deleted, split at every character
+   * that cannot be part of a program's name or path, a piece's last path
+   * segment is the program), so it may run it. Else it does not run.
    */
   matchIn(reading: ShellCommandReading): ProgramPrefixMatch;
   equals(other: ProgramPrefix): boolean;
@@ -53,8 +55,9 @@ export interface ProgramPrefixFactory {
    * A frozen prefix, its spaces tidied, or why the value is not one: not
    * text, empty, holding whitespace other than a space or a control
    * character, longer than 1000 characters, more than 16 words, holding a
-   * character the shell would read, a program named by a path, holding '~'
-   * or '=', a word of the shell's own grammar, or an option. Never throws.
+   * character the shell would read, a program named by a path or holding
+   * '~' or '=', a word of the shell's own grammar, a word starting with '~',
+   * or an option. Never throws.
    */
   parse(raw: unknown): Result<ProgramPrefix>;
 }

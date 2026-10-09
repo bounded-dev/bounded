@@ -60,13 +60,20 @@ export default defineConfig({
   - `eval …`, `python3 -c …`, `… | sh`, `bash <<EOF`: code bounded cannot
     read (only the rule's redirect);
   - `echo terraform`, `ssh host terraform apply`, `/usr/bin/env terraform
-    apply`, `bash deploy.sh`: a run passing the program as an argument may
-    run it (only the rule's redirect);
+    apply`, `bash deploy.sh`, `/bin/bash -c 'cd infra;terraform apply'`,
+    `watch "terraform apply $FLAGS"`: a run passing the program in an
+    argument may run it (only the rule's redirect). Every argument is
+    looked at, words only the shell can resolve included: its quotes and
+    backslashes deleted, split at every character that cannot be part of a
+    program's name or path (anything but letters, digits, `.`, `_`, `+`,
+    `-` and `/`), each piece compared by its last path segment, ignoring
+    case (`terraform-docs` is another program);
   - an unread command: it could not be read (reinstall bounded's
     dependencies, or split or simplify the command).
 
   Under a write rule: a write only the shell can resolve (`echo x >
-  "$OUT"`), a write outside the project (`/tmp/x`, `~/x`, `../x`; never
+  "$OUT"`), a write outside the project (`/tmp/x`, `~/x`, `../x`,
+  `src/../../x`; never
   `/dev/null`, `/dev/stdout`, `/dev/stderr` or `/dev/fd/<n>`), unresolved
   code, or a program named by a variable. Once the requirement holds, every
   such command is allowed.
@@ -145,9 +152,15 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
 - **A reviewer's verdict.** "Succeeded" is the tool result's `ok`, not what
   the reviewer concluded.
 - **Cycles across rules**, which make an action unreachable.
+- **What a prefix does not match.** It matches a run's first positional
+  words, in order, past options only: under `"make deploy"`,
+  `make clean deploy` (which builds the deploy target too) does not count.
+  A git alias defined on the command line (`git -c alias.x=push x`) evades
+  a `"git push"` rule, as does any alias the program itself expands.
 - **What a shell command's reading does not show.** What programs and
-  scripts do themselves (an execute rule catches it only where the rule's
-  program stands as an argument); aliases and functions from the host's
+  scripts run from elsewhere (an execute rule catches what a listed run is
+  given only where the rule's program's name stands in one of its
+  arguments); aliases and functions from the host's
   shell (`tf apply`); git's `!` aliases; a program named `terraform.exe`; a
   script run through a shell or sourced (refused as cannot see, since its
   name stands as an argument, not seen to run); PowerShell, read as bash.

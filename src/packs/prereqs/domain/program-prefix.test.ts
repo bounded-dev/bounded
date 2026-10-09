@@ -200,6 +200,31 @@ describe("ProgramPrefix — a program and its leading arguments, as a rule's bef
     expect(matched([passes])).toMatchObject({ why: "it passes 'terraform' to echo, which may run terraform" });
   });
 
+  test("the program passed inside an argument is found past quotes, backslashes, separators and unresolved words (final review, B1)", () => {
+    const cases: readonly (readonly [Run, string])[] = [
+      [run("/bin/bash", ["-c", "cd infra;terraform apply"]), "it passes 'cd infra;terraform apply' to /bin/bash, which may run terraform"],
+      [run("/bin/sh", ["-c", '"terraform" apply']), "it passes '\"terraform\" apply' to /bin/sh, which may run terraform"],
+      [run("/bin/sh", ["-c", "\\terraform apply"]), "it passes '\\terraform apply' to /bin/sh, which may run terraform"],
+      [run("ssh", ["host", "cd infra&&terraform apply"]), "it passes 'cd infra&&terraform apply' to ssh, which may run terraform"],
+      [run("watch", [unresolved('"terraform apply $FLAGS"')]), "it passes '\"terraform apply $FLAGS\"' to watch, which may run terraform"],
+      [run("/bin/sh", ["-c", unresolved('"terraform apply $X"')]), "it passes '\"terraform apply $X\"' to /bin/sh, which may run terraform"],
+      [run("/bin/sh", ["-c", "(/opt/bin/Terraform apply)"]), "it passes '(/opt/bin/Terraform apply)' to /bin/sh, which may run terraform"],
+      [run("/bin/sh", ["-c", "x=1 terraform apply"]), "it passes 'x=1 terraform apply' to /bin/sh, which may run terraform"],
+    ];
+    for (const [given, why] of cases) expect(matched([given])).toEqual({ kind: "cannot-see", why, fix: "none" });
+    // Characters that can be part of a program's name still are: these name other programs.
+    for (const argument of ["terraform-docs", "terraform.exe", "terraform_1", "terraform+x", "my-terraform"]) expect({ argument, kind: kindOf([run("echo", [argument])]) }).toEqual({ argument, kind: "does-not-run" });
+    // A prefix matches the first positional words, past options only (a stated limit): make clean deploy is not make deploy.
+    expect(kindOf([run("make", ["clean", "deploy"])], prefix("make deploy"))).toBe("does-not-run");
+    // A program whose name holds another character is looked for anywhere in the text.
+    expect(kindOf([run("sh", ["-c", "cd x;make@2 build"])], prefix("make@2"))).toBe("cannot-see");
+  });
+
+  test("a word starting with '~' is refused wherever it stands, since the shell expands it (final review)", () => {
+    expect(error("git push ~origin")).toBe(`${PREFIX_ERROR}'~origin' starts with '~', which the shell expands to a home directory`);
+    expect(error("git push o~x")).toBe("accepted");
+  });
+
   test("a run beats what cannot be seen", () => {
     const match = terraformApply.matchIn(reading([run(unresolved("$TF")), run("echo", ["terraform"]), run("terraform", ["apply"])], [{ text: "(standard input)", role: "code" }]));
     expect(match.kind).toBe("runs");

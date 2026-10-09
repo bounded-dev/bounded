@@ -159,6 +159,27 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
     for (const command of commands) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
+  test("terraform passed inside an argument is found past quotes, separators and unresolved words (final review, B1)", async () => {
+    const { shell, reviewedByAll } = await opened();
+    const commands = [
+      "/bin/bash -c 'cd infra;terraform apply'",
+      "/bin/sh -c '\"terraform\" apply'",
+      "ssh host 'cd infra&&terraform apply'",
+      'watch "terraform apply $FLAGS"',
+      '/bin/sh -c "terraform apply $X"',
+      "time terraform apply",
+      "coproc terraform apply",
+    ];
+    for (const command of commands) {
+      const verdict = await shell(command);
+      expect({ command, refused: reasonOf(verdict).includes("terraform apply"), redirect: redirectOf(verdict) }).toEqual({ command, refused: true, redirect: APPLY_REDIRECT });
+    }
+    // tree-sitter reads time and coproc as programs named so, given terraform as an argument: cannot see.
+    for (const command of commands) expect({ command, cannotSee: reasonOf(await shell(command)).includes("bounded cannot see whether it runs 'terraform apply'") }).toEqual({ command, cannotSee: true });
+    await reviewedByAll();
+    for (const command of commands) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  });
+
   test("limit: a script run through a shell, or sourced, is not seen to run; it is refused only because its name stands as an argument", async () => {
     const { shell } = await opened();
     const direct = await shell("./deploy.sh");

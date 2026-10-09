@@ -26,7 +26,7 @@ function setup(rules: readonly PrerequisiteRuleJSON[] = [beforeSrc], files: Read
   return { fingerprints, records, handler: new CheckPrerequisitesHandler(composed(rules), fingerprints, records) };
 }
 
-function use(tool: "subagent" | "edit" | "read" | "shell",effects: readonly EffectJSON[], callId?: string): ToolUse {
+function use(tool: "subagent" | "edit" | "read" | "shell", effects: readonly EffectJSON[], callId?: string): ToolUse {
   const parsed = ToolUse.parse({ kind: "tool-use", role: null, tool, effects, ...(callId === undefined ? {} : { callId }) });
   if (!parsed.ok) throw new Error(parsed.error);
   return parsed.value;

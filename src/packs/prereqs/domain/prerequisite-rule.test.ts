@@ -281,7 +281,7 @@ describe("PrerequisiteRule — before an execute, and shell writes (ADR 2026-019
   test("a write bounded cannot place in the project is one it cannot see, with its own why; the device paths are exempt", () => {
     const src = rule(beforeSrc);
     const writing = (text: string) => src.matchBefore(shell(`echo x > ${text}`, [ran("echo", ["x"])], [], [{ text, role: "write" }]));
-    for (const text of ["/tmp/x", "~/x", "../x", "/dev/sda", "/dev/fd/x"]) {
+    for (const text of ["/tmp/x", "~/x", "../x", "/dev/sda", "/dev/fd/x", "src/../../x"]) {
       expect(writing(text)).toEqual({ kind: "cannot-see", why: `it writes a path bounded cannot place in the project ('${text}')`, fix: "inside-project" });
     }
     for (const text of ['"$OUT"', "/tmp/$X", "~/`x`", "/tmp/*.log", "/tmp/a?", "/tmp/[ab]"]) {

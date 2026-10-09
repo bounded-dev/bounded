@@ -66,7 +66,7 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
   character the shell would read (`' " \ $ * ? [ ] { } ( ) < > | ; & #` or
   the backquote), names its program by a path, holds `~` or `=` in its
   program, names a word of the shell's own grammar (`time`, `if`, `!` …) as
-  its program, or starts a word with `-`.
+  its program, or starts a word with `-` or `~`.
 - **It is matched against the execute effect's reading**: a program run
   whose name, or the last segment of its path, is the program ignoring case
   (`/usr/local/bin/terraform`, `Terraform`), whose arguments give the
@@ -95,7 +95,7 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
   | execute | unresolved code (`eval`, `python -c`, a shell reading its standard input) | `it runs code bounded cannot read ('<text>')` | nothing: only the rule's redirect |
   | execute | a run passing the rule's program as an argument, or a word of one | `it passes '<argument>' to <run>, which may run <program>` | nothing |
   | write | an unresolved write | `it writes a path only the shell can resolve ('<text>')` | write the command so that bounded can read it |
-  | write | a write outside the project (`/tmp/x`, `~/x`, `../x`), as written | `it writes a path bounded cannot place in the project ('<text>')` | leave out its writes outside the project |
+  | write | a write outside the project (`/tmp/x`, `~/x`, `../x`, `src/../../x`: absolute, home, or with a `..` segment), as written | `it writes a path bounded cannot place in the project ('<text>')` | leave out its writes outside the project |
   | write | unresolved code, then an unresolved program name | as for execute | as for execute |
 
   Every unresolved write, code or program name counts against every write
@@ -106,9 +106,18 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
 - **A run passing the rule's program as an argument cannot be seen through**
   (the orchestrator's decision for the maintainer): `/usr/bin/env terraform
   apply`, `ssh host terraform apply`, `watch terraform apply`,
-  `bash deploy.sh`. It deliberately over-refuses (`echo terraform`,
-  `which terraform`, a commit message naming it), only while the
-  requirement is unmet.
+  `bash deploy.sh`. Every argument of every listed run is looked at, words
+  only the shell can resolve included, as written: its quote and backslash
+  characters are deleted, it is split at every character that cannot be
+  part of a program's name or path (anything but letters, digits, `.`,
+  `_`, `+`, `-` and `/`), and each piece's last path segment is compared
+  with the program, ignoring case. So `/bin/bash -c 'cd infra;terraform
+  apply'`, `/bin/sh -c '"terraform" apply'`, `ssh host 'cd
+  infra&&terraform apply'` and `watch "terraform apply $FLAGS"` are caught;
+  `terraform-docs` and `terraform.exe` are other programs. A program whose
+  name holds another character (`make@2`) is looked for anywhere in the
+  text. It deliberately over-refuses (`echo terraform`, `which terraform`,
+  a commit message naming it), only while the requirement is unmet.
 - **The refusal** keeps its head (missing, stale, never met, or pending as
   ADR 2026-025 words it) and says `This call would <what>`: `execute
   \`<command>\`[ in <cwd>], which runs '<program> <words>'` or `…, which
@@ -280,9 +289,18 @@ pi-subagents' project agent directory), which give role identity.
   the patterns, including one created during a run; any other link is
   ignored. A FIFO, socket or device the patterns match refuses too (fail
   closed); one they do not match is ignored.
-- **Execute rules** see only what the reading lists. What programs and
-  scripts do themselves is caught only where the rule's program appears as
-  an argument. Not seen: aliases and functions from the host's shell
+- **Execute rules** see only what the reading lists. What a listed run
+  does with its arguments is caught only where the rule's program's name
+  stands in one of its arguments, as a piece of it between characters that
+  cannot be part of a program's name (see "Before an execute, and shell
+  writes"); what a program or script runs from elsewhere (a file, its
+  configuration, the network) is not seen. A prefix matches the run's
+  first positional words, in order, past options only: under
+  `"make deploy"`, `make deploy` and `make -j4 deploy` count, but
+  `make clean deploy`, which builds the deploy target too, does not. A git
+  alias defined on the command line (`git -c alias.x=push x`) evades a
+  `"git push"` rule, as does any alias or subcommand name the program
+  itself expands. Not seen: aliases and functions from the host's shell
   snapshot (`tf apply`); git's `!` aliases; a program named `terraform.exe`;
   a script run through a shell, or sourced, is refused as cannot see (its
   name stands as an argument), not seen to run; PowerShell is read as bash;
