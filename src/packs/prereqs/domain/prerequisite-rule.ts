@@ -2,6 +2,7 @@ import type { prerequisiteRuleBrand } from "./prerequisite-rule.contract.ts";
 import { AgentName, type Effect, own, point, type Result, readSafely, sameWire, wireFormOf } from "bounded/domain";
 import { checkFilePattern, pathMatcherOf } from "./file-set.ts";
 import type { FileSetFingerprint } from "./file-set-fingerprint.contract.ts";
+import type { PendingAgentRun } from "./pending-agent-run.contract.ts";
 import type { PrerequisiteRecord } from "./prerequisite-record.contract.ts";
 import type * as Contract from "./prerequisite-rule.contract.ts";
 import { hasExactly, requirementKeyOf } from "./prerequisite-start.ts";
@@ -127,6 +128,10 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
     return sameAgent(agent, this.requiredAgent());
   }
 
+  mayResolveToRequiredAgent(requested: AgentName): boolean {
+    return anySpelling(requested, this.requiredAgent());
+  }
+
   requirementKey(): string {
     return requirementKeyOf(this.requiredAgent(), this.unchangedSince);
   }
@@ -135,12 +140,19 @@ class PrerequisiteRuleImpl implements Contract.PrerequisiteRule {
     return this.before.delegate !== undefined ? `before delegating to '${this.before.delegate.value}'` : `before write '${this.before.write}'`;
   }
 
-  status(records: readonly PrerequisiteRecord[], current: FileSetFingerprint): Contract.PrerequisiteStatus {
+  status(records: readonly PrerequisiteRecord[], current: FileSetFingerprint, pendingRuns: readonly PendingAgentRun[] = []): Contract.PrerequisiteStatus {
     if (current.isEmpty()) return "missing";
     const key = this.requirementKey();
     const relevant = records.filter((record) => record.requirementKey() === key);
-    if (relevant.length === 0) return "missing";
-    return relevant.some((record) => record.fingerprint.equals(current)) ? "holds" : "stale";
+    if (relevant.some((record) => record.fingerprint.equals(current))) return "holds";
+    if (this.pendingRun(pendingRuns, current) !== undefined) return "pending";
+    return relevant.length === 0 ? "missing" : "stale";
+  }
+
+  pendingRun(pendingRuns: readonly PendingAgentRun[], current: FileSetFingerprint): PendingAgentRun | undefined {
+    if (current.isEmpty()) return undefined;
+    const key = this.requirementKey();
+    return pendingRuns.find((run) => run.starts.some((start) => start.requirementKey() === key && start.fingerprint.equals(current)));
   }
 
   equals(other: Contract.PrerequisiteRule): boolean {

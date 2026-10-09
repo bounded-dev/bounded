@@ -1,6 +1,6 @@
 import { contribution, corePack, definePack } from "bounded/domain";
 import { fileSetFingerprintsPort, prerequisiteRecordsPort } from "./application/check-prerequisites/check-prerequisites.contract.ts";
-import { checkBeforeTool, recordAfterTool } from "./application/check-prerequisites/check-prerequisites.lifecycle.ts";
+import { checkBeforeTool, recordAfterTool, recordRunAtFinish } from "./application/check-prerequisites/check-prerequisites.lifecycle.ts";
 import { prereqsId } from "./domain/prereqs-id.ts";
 import { rulesPoint } from "./domain/prerequisite-rule.ts";
 import type { Prereqs } from "./prereqs.contract.ts";
@@ -11,14 +11,20 @@ import type { Prereqs } from "./prereqs.contract.ts";
  * agent, or a write a pattern matches), a delegation to another agent must
  * have succeeded over files that have not changed since. Its checks around
  * tool calls refuse an action whose prerequisite does not hold, and record a
- * delegation the host says finished, that succeeded, over files unchanged
- * while it ran. The agent never claims anything; the harness observes. What
- * a host must provide is its ports section.
+ * delegation the host says finished, as the required agent, that succeeded,
+ * over files unchanged while it ran; a run whose finish the host reports
+ * later is recorded at that finish (ADR 2026-025). The agent never claims
+ * anything; the harness observes. What a host must provide is its ports
+ * section.
  */
 export const prereqs: Prereqs = definePack({
   id: prereqsId,
   dependsOn: [corePack],
   points: { rules: rulesPoint },
-  contributes: [contribution(corePack.points.beforeTool, [checkBeforeTool]), contribution(corePack.points.afterTool, [recordAfterTool])],
+  contributes: [
+    contribution(corePack.points.beforeTool, [checkBeforeTool]),
+    contribution(corePack.points.afterTool, [recordAfterTool]),
+    contribution(corePack.points.onAgentRunFinish, [recordRunAtFinish]),
+  ],
   ports: { fileSetFingerprints: fileSetFingerprintsPort, prerequisiteRecords: prerequisiteRecordsPort },
 });

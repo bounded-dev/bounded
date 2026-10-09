@@ -10,7 +10,9 @@ export type { PrerequisiteRecordFactory } from "./domain/prerequisite-record.con
 export { PrerequisiteRecord } from "./domain/prerequisite-record.ts";
 export type { PrerequisiteStartFactory } from "./domain/prerequisite-start.contract.ts";
 export { PrerequisiteStart } from "./domain/prerequisite-start.ts";
-export type { CheckPrerequisites, FileSetFingerprintJSON, FileSetFingerprints, PrerequisiteRecordJSON, PrerequisiteRecords, PrerequisiteStartJSON } from "./application/check-prerequisites/check-prerequisites.contract.ts";
+export type { PendingAgentRunFactory } from "./domain/pending-agent-run.contract.ts";
+export { PendingAgentRun } from "./domain/pending-agent-run.ts";
+export type { CheckPrerequisites, FileSetFingerprintJSON, FileSetFingerprints, PendingAgentRunJSON, PrerequisiteRecordJSON, PrerequisiteRecords, PrerequisiteStartJSON } from "./application/check-prerequisites/check-prerequisites.contract.ts";
 export { fileSetFingerprintsPort, prerequisiteRecordsPort } from "./application/check-prerequisites/check-prerequisites.contract.ts";
 
 // Everything exported here is frozen, so code loaded later cannot patch it.
