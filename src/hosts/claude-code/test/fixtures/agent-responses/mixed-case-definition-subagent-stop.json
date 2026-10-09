@@ -1,0 +1,18 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000007",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000007.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000007",
+  "permission_mode": "default",
+  "agent_id": "acee49bcfda1435ac",
+  "agent_type": "Mixed-Case",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000007/subagents/agent-acee49bcfda1435ac.jsonl",
+  "last_assistant_message": "done",
+  "background_tasks": [],
+  "session_crons": []
+}

@@ -3,7 +3,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { openProject } from "./open-project.ts";
 
@@ -38,7 +37,8 @@ function project(config: string): string {
 
 const writeSrc = { kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "src/a.ts", change: "modify" }], callId: "w1" };
 const review = (callId: string) => ({ kind: "tool-use", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }], callId });
-const reviewed = (callId: string, finished: boolean) => ({ ...review(callId), kind: "tool-result", ok: true, delegatedAgentRuns: [{ finished }] });
+/** The result of a review: a finished run names the agent the host ran, as Claude Code reports an exact request (ADR 2026-025). */
+const reviewed = (callId: string, finished: boolean) => ({ ...review(callId), kind: "tool-result", ok: true, delegatedAgentRuns: [finished ? { finished, resolvedAgent: "plan-reviewer" } : { finished }] });
 const log = (root: string): { verdict: { kind: string }; note?: string }[] =>
   readFileSync(join(root, ".bounded", "log.jsonl"), "utf8")
     .split("\n")
@@ -62,15 +62,6 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
     expect(log(root).map((line) => line.verdict.kind)).toEqual(["refuse", "allow", "allow", "allow", "refuse"]);
     expect(log(root)[2]?.note).toContain("plan-reviewer");
     expect(existsSync(join(root, ".bounded", "prereqs", "records.jsonl"))).toBe(true);
-  });
-
-  test("a background launch records nothing, and afterTool says why", async () => {
-    const root = project(PREREQS);
-    const { judge, afterTool } = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
-    expect((await judge(review("c1"))).kind).toBe("allow");
-    const told = await afterTool(reviewed("c1", false));
-    expect(told.message).toContain("plan-reviewer's run was not seen to finish (it may still be running in the background)");
-    expect((await judge(writeSrc)).kind).toBe("refuse");
   });
 
   test("opening without the ports refuses every event naming bounded/prereqs and fileSetFingerprints", async () => {

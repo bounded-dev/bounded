@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { type ShellCommandReadingJSON, ToolResult, Verdict } from "bounded/domain";
 import { ReadShellCommandHandler, type ShellCommandReader } from "bounded-shell-command-reader/application";
 import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
-import { afterToolFromConfig, composeHook, DEADLINE_MS, DRAIN_MS, decideFromConfig, recordFromConfig } from "./composition-root.ts";
+import { afterToolFromConfig, composeHook, DEADLINE_MS, DRAIN_MS, decideFromConfig, recordAgentRunFinishFromConfig, recordFromConfig } from "./composition-root.ts";
 import type { ToolUse } from "./event.ts";
 import type { Decide } from "./hook.ts";
 import { HOOK_TIMEOUT_SECONDS } from "./install.ts";
@@ -192,5 +192,32 @@ describe("composeHook: the hook wired to the file system, the environment and ar
 
   test("the deadline and the drain after the answer both end before Claude Code's timeout for the hook", () => {
     expect(DEADLINE_MS + DRAIN_MS).toBeLessThan(HOOK_TIMEOUT_SECONDS * 1000 - 2000);
+  });
+
+  test("composeHook hands a SubagentStop to recordAgentRunFinish with the project's root", async () => {
+    const seen: { finish: unknown; projectRoot: string }[] = [];
+    const hook = composeHook({
+      env: { CLAUDE_PROJECT_DIR: root },
+      argv: ["--role", "builder"],
+      decide: recording([]),
+      recordAgentRunFinish: async (finish, project) => void seen.push({ finish, projectRoot: project.projectRoot }),
+    });
+    const stop = JSON.stringify({ hook_event_name: "SubagentStop", agent_id: "a1", agent_type: "plan-reviewer", stop_hook_active: false, cwd: root });
+    expect(await hook(stop)).toBe("");
+    expect(seen).toEqual([{ finish: { kind: "agent-run-finished", role: "builder", agent: "plan-reviewer", agentRunId: "a1", ranToEnd: null }, projectRoot: root }]);
+  });
+
+  test("without CLAUDE_PROJECT_DIR, a SubagentStop is answered with nothing, not a deny", async () => {
+    const stop = JSON.stringify({ hook_event_name: "SubagentStop", agent_id: "a1", agent_type: "plan-reviewer", stop_hook_active: false });
+    for (const env of [{}, { CLAUDE_PROJECT_DIR: "relative/dir" }]) expect(await composeHook({ env, argv: [], decide: () => Verdict.allow })(stop)).toBe("");
+    expect(await composeHook({ env: { CLAUDE_PROJECT_DIR: root }, argv: ["--role"], decide: () => Verdict.allow })(stop)).toBe("");
+    // A tool call is still denied.
+    expect(reasonOf(await composeHook({ env: {}, argv: [], decide: () => Verdict.allow })(write(root)))).toStartWith("CLAUDE_PROJECT_DIR is not set");
+  });
+
+  test("recordAgentRunFinishFromConfig hands the finish to the project's judge, which records nothing in a project without a configuration", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bounded-cc-finish-"));
+    expect(await recordAgentRunFinishFromConfig({ kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: "a1", ranToEnd: null }, { projectRoot: project })).toBeUndefined();
+    expect(existsSync(join(project, ".bounded", "log.jsonl"))).toBe(false);
   });
 });

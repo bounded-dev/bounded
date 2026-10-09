@@ -2,6 +2,8 @@
 // an error whose message contains <reason>, and no other line may fail.
 import {
   type AgentName,
+  type AgentRunFinishedJSON,
+  type DelegatedAgentRunJSON,
   type CallId,
   type DelegateEffectJSON,
   type ExecuteEffectJSON,
@@ -76,3 +78,6 @@ export const finishedText: ToolResultJSON = { role: null, tool: "subagent", effe
 export const maybeRead: ExecuteEffectJSON = { kind: "execute", command: "ls", reading: { outcome: "maybe" } }; // rejected: Type '"maybe"' is not assignable to type
 // 8. An execute always carries the reading the host adapter built for its command (ADR 2026-020): it cannot be left out.
 export const unreadExecute: ExecuteEffectJSON = { kind: "execute", command: "ls" }; // rejected: Property 'reading' is missing
+// 9. An agent run's finish says whether it ran to its end with true, false or null, never text; a finish reported later is only ever true.
+export const ranToEndText: AgentRunFinishedJSON = { role: null, agent: "plan-reviewer", agentRunId: "a1", ranToEnd: "yes" }; // rejected: Type 'string' is not assignable to type 'boolean | null'
+export const notLater: DelegatedAgentRunJSON = { finished: false, agentRunId: "a1", finishReportedLater: false }; // rejected: Type 'false' is not assignable to type 'true'

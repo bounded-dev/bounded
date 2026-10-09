@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { type ShellCommandReadingJSON, type ToolResult, Verdict } from "bounded/domain";
 import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import type { PathResolver, ToolUse } from "./event.ts";
-import { type AdapterRefusal, type AfterTool, type Decide, respond, runHook } from "./hook.ts";
+import { type AdapterRefusal, type AfterTool, type Decide, type RecordAgentRunFinish, respond, runHook } from "./hook.ts";
 
 /** A value's wire form: its JSON, parsed. */
 const wireOf = (value: unknown): unknown => JSON.parse(JSON.stringify(value) ?? "null");
@@ -128,15 +130,6 @@ describe("runHook: the call's id, refusals the adapter makes, and PostToolUse", 
     expect(wireOf(result)).toEqual({ kind: "tool-result", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }], ok: true, callId: "toolu_1", delegatedAgentRuns: [{ finished: true }] });
   });
 
-  test("a launched Agent response reaches afterTool with its run not finished", async () => {
-    const result = await agentAfter(after("Agent", { subagent_type: "plan-reviewer", prompt: "review" }, { tool_response: { status: "async_launched", isAsync: true, agentId: "a1" } }));
-    expect(result?.ok).toBe(true);
-    expect(result?.delegatedAgentRuns).toEqual([{ finished: false }]);
-    // A run stopped at its turn limit says completed, with a harness note: not finished either.
-    const limited = await agentAfter(after("Agent", { subagent_type: "plan-reviewer", prompt: "review" }, { tool_response: { status: "completed", harnessNoteCount: 1, content: [] } }));
-    expect(limited?.delegatedAgentRuns).toEqual([{ finished: false }]);
-  });
-
   test("a PostToolUseFailure for Agent reaches afterTool with its run not finished", async () => {
     const failed = JSON.stringify({ hook_event_name: "PostToolUseFailure", tool_name: "Agent", tool_input: { subagent_type: "plan-reviewer", prompt: "review" }, tool_use_id: "toolu_1", error: "interrupted", cwd: "/p" });
     const result = await agentAfter(failed);
@@ -250,5 +243,107 @@ describe("runHook: stdin to stdout, fail closed", () => {
       return Verdict.allow;
     }));
     expect(projects).toEqual([{ projectRoot: "/p" }]);
+  });
+});
+
+describe("runHook: agent runs, from captured Claude Code 2.1.294 payloads", () => {
+  /** A captured payload (test/fixtures/agent-responses/README.md), read as Claude Code sends it on stdin; never imported. */
+  const captured = (name: string): string => readFileSync(join(import.meta.dir, "test", "fixtures", "agent-responses", name), "utf8");
+  /** The tool result afterTool is given for `stdin`. */
+  const resultFor = async (stdin: string): Promise<ToolResult | undefined> => {
+    const results: ToolResult[] = [];
+    await runHook(stdin, { ...hook(recording([])), afterTool: async (result) => {
+      results.push(result);
+      return { message: null };
+    } });
+    return results[0];
+  };
+  /** What recordAgentRunFinish is given for `stdin`, and the answer. */
+  const finishFor = async (stdin: string, role: string | null = null): Promise<{ out: string; finishes: unknown[]; roots: string[] }> => {
+    const finishes: unknown[] = [];
+    const roots: string[] = [];
+    const recordAgentRunFinish: RecordAgentRunFinish = async (finish, project) => {
+      finishes.push(finish);
+      roots.push(project.projectRoot);
+    };
+    const out = await runHook(stdin, { ...hook(recording([]), role), recordAgentRunFinish });
+    return { out, finishes, roots };
+  };
+  const stop = (fields: Record<string, unknown>): string => JSON.stringify({ ...JSON.parse(captured("background-subagent-stop.json")), ...fields });
+
+  test("a background launch reaches afterTool with its run's finish reported later, as its agentId", async () => {
+    const result = await resultFor(captured("background-post-tool-use.json"));
+    expect(result?.ok).toBe(true);
+    expect(result?.callId?.value).toBe("toolu_01AW2ttSVfJ4u3ZpwBztUbJR");
+    expect(wireOf(result?.delegatedAgentRuns)).toEqual([{ finished: false, agentRunId: "a6eef1505a0b443a2", finishReportedLater: true }]);
+    expect(wireOf(result?.effects)).toEqual([{ kind: "delegate", agent: "plan-reviewer" }]);
+  });
+
+  test("a foreground completion reaches afterTool finished, with its run's id and the agent the host ran", async () => {
+    const result = await resultFor(captured("foreground-post-tool-use.json"));
+    expect(result?.ok).toBe(true);
+    expect(wireOf(result?.delegatedAgentRuns)).toEqual([{ finished: true, agentRunId: "a77aed0a7efde7aee", resolvedAgent: "plan-reviewer" }]);
+  });
+
+  test("a run stopped at its turn limit reaches afterTool not finished, with no later finish", async () => {
+    const result = await resultFor(captured("turn-limited-post-tool-use.json"));
+    expect(wireOf(result?.delegatedAgentRuns)).toEqual([{ finished: false, agentRunId: "ab428aba50349fc91" }]);
+    // Without an agentId, the entry says only that the run did not finish.
+    const handWritten = JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Agent", tool_input: { subagent_type: "plan-reviewer", prompt: "review" }, tool_response: { status: "completed", harnessNoteCount: 1, content: [] }, tool_use_id: "toolu_1", cwd: "/p" });
+    expect(wireOf((await resultFor(handWritten))?.delegatedAgentRuns)).toEqual([{ finished: false }]);
+  });
+
+  test("a turn-limited background launch maps exactly as any launch", async () => {
+    const result = await resultFor(captured("turn-limited-background-post-tool-use.json"));
+    expect(wireOf(result?.delegatedAgentRuns)).toEqual([{ finished: false, agentRunId: "ac601063c0425defd", finishReportedLater: true }]);
+  });
+
+  test("a case-folded call keeps the requested name on the delegation, and reports the resolved one", async () => {
+    const foreground = await resultFor(captured("case-folded-foreground-post-tool-use.json"));
+    expect(wireOf(foreground?.effects)).toEqual([{ kind: "delegate", agent: "Plan-Reviewer" }]);
+    expect(wireOf(foreground?.delegatedAgentRuns)).toEqual([{ finished: true, agentRunId: "ade9718fcccf40d18", resolvedAgent: "plan-reviewer" }]);
+    const background = await finishFor(captured("case-folded-background-subagent-stop.json"));
+    expect(background.finishes).toEqual([{ kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: "a200fbb5b748e07d4", ranToEnd: null }]);
+  });
+
+  test("the resolved name is the definition's own", async () => {
+    const result = await resultFor(captured("mixed-case-definition-post-tool-use.json"));
+    expect(wireOf(result?.effects)).toEqual([{ kind: "delegate", agent: "mixed-case" }]);
+    expect(wireOf(result?.delegatedAgentRuns)).toEqual([{ finished: true, agentRunId: "acee49bcfda1435ac", resolvedAgent: "Mixed-Case" }]);
+    const { finishes } = await finishFor(captured("mixed-case-definition-subagent-stop.json"));
+    expect(finishes).toEqual([{ kind: "agent-run-finished", role: null, agent: "Mixed-Case", agentRunId: "acee49bcfda1435ac", ranToEnd: null }]);
+  });
+
+  test("a SubagentStop reaches recordAgentRunFinish as the run's finish, and the answer is empty", async () => {
+    const { out, finishes, roots } = await finishFor(captured("background-subagent-stop.json"), "builder");
+    expect(out).toBe("");
+    expect(finishes).toEqual([{ kind: "agent-run-finished", role: "builder", agent: "plan-reviewer", agentRunId: "a6eef1505a0b443a2", ranToEnd: null }]);
+    expect(roots).toEqual(["/p"]);
+  });
+
+  test("a SubagentStop with an empty agent_type sends no finish and answers nothing", async () => {
+    const { out, finishes } = await finishFor(stop({ agent_type: "" }));
+    expect(out).toBe("");
+    expect(finishes).toEqual([]);
+  });
+
+  test("a SubagentStop missing its agent_id is passed on with a null run id", async () => {
+    const { agent_id: _id, ...rest } = JSON.parse(captured("background-subagent-stop.json"));
+    const { out, finishes } = await finishFor(JSON.stringify(rest));
+    expect(out).toBe("");
+    expect(finishes).toEqual([{ kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: null, ranToEnd: null }]);
+  });
+
+  test("a SubagentStop whose handling does not finish within the deadline answers nothing at the deadline", async () => {
+    const started = performance.now();
+    const out = await runHook(captured("background-subagent-stop.json"), { ...hook(recording([])), deadlineMs: 50, recordAgentRunFinish: () => new Promise(() => {}) });
+    expect(out).toBe("");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("a SubagentStop whose handling rejects, or with no recordAgentRunFinish wired, answers nothing", async () => {
+    const rejecting = await runHook(captured("background-subagent-stop.json"), { ...hook(recording([])), recordAgentRunFinish: async () => { throw new Error("boom"); } });
+    expect(rejecting).toBe("");
+    expect(await runHook(captured("background-subagent-stop.json"), hook(recording([])))).toBe("");
   });
 });

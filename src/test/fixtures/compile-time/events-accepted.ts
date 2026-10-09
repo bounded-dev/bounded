@@ -1,5 +1,6 @@
 // The legitimate forms of events, verdicts and guards. Compiles without errors.
-import { type DelegateEffectJSON, dispatch, type Event, type ExecuteEffectJSON, type Guard, type SessionStart, type ShellCommandReadingJSON, type ToolResultJSON, type ToolUse, Verdict } from "bounded/domain";
+import { type AgentRunFinishedJSON, type AgentRunFinishReport, contribution, corePack, type DelegatedAgentRunJSON, type DelegateEffectJSON, definePack, dispatch, type Event, type ExecuteEffectJSON, type Guard, type SessionStart, type ShellCommandReadingJSON, type ToolResultJSON, type ToolUse, Verdict } from "bounded/domain";
+import { packId } from "./packs.ts";
 
 declare const toolUse: ToolUse;
 declare const start: SessionStart;
@@ -40,3 +41,16 @@ export const programsRead: Guard<ToolUse> = (event) =>
   event.effects.some((effect) => effect.kind === "execute" && effect.reading.outcome === "read" && effect.reading.programs.some((program) => program.name.text === "terraform"))
     ? Verdict.refuse("Runs terraform", "Ask the platform team")
     : Verdict.allow;
+// An agent run's finish names the session's role, the agent the host ran, the run's id, and whether it ran to its end (null: the host does not say).
+export const agentRunFinished: AgentRunFinishedJSON = { kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: "a6eef1505a0b443a2", ranToEnd: null };
+// A result's entry may name its run, the agent the host ran, and say the run's finish is reported later.
+export const launchedRun: DelegatedAgentRunJSON = { finished: false, agentRunId: "a1", finishReportedLater: true };
+export const completedRun: DelegatedAgentRunJSON = { finished: true, agentRunId: "a1", resolvedAgent: "plan-reviewer" };
+export const launched: ToolResultJSON = { role: null, tool: "subagent", effects: [flagged], ok: true, delegatedAgentRuns: [launchedRun] };
+// A pack observes a run's finish through the core's onAgentRunFinish point, reporting a record or none.
+const recorded: AgentRunFinishReport = { record: { verdict: Verdict.allow, note: "recorded" } };
+export const finishWatcher = definePack({
+  id: packId("finish-watcher"),
+  dependsOn: [corePack],
+  contributes: [contribution(corePack.points.onAgentRunFinish, [async (finish) => (finish.ranToEnd === false ? { record: null } : recorded)])],
+});

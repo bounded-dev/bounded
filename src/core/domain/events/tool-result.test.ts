@@ -54,7 +54,7 @@ describe("ToolResult", () => {
     expect(ToolResult.parse({ ...done, delegatedAgentRuns: [] })).toEqual({ ok: false, error: "A tool result without a delegate effect has no delegatedAgentRuns" });
     expect(ToolResult.parse({ ...done, delegatedAgentRuns: [{ finished: true }] }).ok).toBe(false);
     expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }, { finished: "yes" }] })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns entry is { finished }, with finished true or false" });
-    expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }, { finished: true, agentRunId: "x" }] }).ok).toBe(false);
+    expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }, { finished: true, runId: "x" }] }).ok).toBe(false);
     expect(ToolResult.parse({ ...two, delegatedAgentRuns: { finished: true } })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns is a list of { finished } entries, one per delegate effect" });
   });
 
@@ -66,6 +66,40 @@ describe("ToolResult", () => {
     const never = "A tool result's delegatedAgentRuns entry may say finishNeverReported: true, and only when finished is false";
     expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: true, finishNeverReported: true }] })).toEqual({ ok: false, error: never });
     expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, finishNeverReported: false }] })).toEqual({ ok: false, error: never });
+  });
+
+  test("an entry may name its agent's run, the agent the host ran, and say the run's finish is reported later", () => {
+    const one = { kind: "tool-result", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }], ok: true, callId: "c1" };
+    const launched = ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, agentRunId: "a1", finishReportedLater: true }] });
+    expect(wireOf(launched)).toEqual({ ok: true, value: { ...one, delegatedAgentRuns: [{ finished: false, agentRunId: "a1", finishReportedLater: true }] } });
+    expect(launched.ok && launched.value.delegatedAgentRuns?.[0]?.agentRunId?.value).toBe("a1");
+    const completed = ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: true, agentRunId: "a1", resolvedAgent: "plan-reviewer" }] });
+    expect(wireOf(completed)).toEqual({ ok: true, value: { ...one, delegatedAgentRuns: [{ finished: true, agentRunId: "a1", resolvedAgent: "plan-reviewer" }] } });
+    expect(completed.ok && completed.value.delegatedAgentRuns?.[0]?.resolvedAgent?.value).toBe("plan-reviewer");
+    // toJSON writes each field only when given.
+    const plain = ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: true }] });
+    expect(plain.ok && plain.value.toJSON().delegatedAgentRuns).toEqual([{ finished: true }]);
+    const limited = ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, agentRunId: "a1" }] });
+    expect(limited.ok && limited.value.toJSON().delegatedAgentRuns).toEqual([{ finished: false, agentRunId: "a1" }]);
+  });
+
+  test("finishReportedLater is only true, only for a run not finished, only with its run's id, and never with finishNeverReported", () => {
+    const one = { kind: "tool-result", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }], ok: true, callId: "c1" };
+    const later = "A tool result's delegatedAgentRuns entry may say finishReportedLater: true, and only when finished is false, it gives the run's agentRunId and it does not say finishNeverReported";
+    expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, agentRunId: "a1", finishReportedLater: false }] })).toEqual({ ok: false, error: later });
+    expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: true, agentRunId: "a1", finishReportedLater: true }] })).toEqual({ ok: false, error: later });
+    expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, finishReportedLater: true }] })).toEqual({ ok: false, error: later });
+    expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, agentRunId: "a1", finishReportedLater: true, finishNeverReported: true }] })).toEqual({ ok: false, error: later });
+  });
+
+  test("an entry's agentRunId and resolvedAgent are checked, naming the field", () => {
+    const one = { kind: "tool-result", role: null, tool: "subagent", effects: [{ kind: "delegate", agent: "plan-reviewer" }], ok: true, callId: "c1" };
+    expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: true, agentRunId: "" }] })).toEqual({
+      ok: false,
+      error: "A tool result's delegatedAgentRuns entry's agentRunId: An agent run id is non-empty text without control characters, at most 256 characters",
+    });
+    const blank = ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: true, resolvedAgent: " " }] });
+    expect(blank.ok ? "" : blank.error).toStartWith("A tool result's delegatedAgentRuns entry's resolvedAgent: ");
   });
 
   test("a tool result's execute effects carry their reading, as a tool use's do", () => {

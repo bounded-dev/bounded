@@ -257,4 +257,10 @@ export default defineConfig({
     const refused = await shell(UNREAD_SAMPLE);
     expect(refused.kind === "refuse" && refused.reason).toBe(`bounded/project refused execute \`ls\`: ${UNREAD_SAMPLE.why}`);
   });
+
+  test("a judge for a root that cannot be opened records nothing for an agent run's finish, and never rejects", async () => {
+    const judge = await openProject("relative");
+    expect(judge.problem).not.toBeNull();
+    expect(await judge.recordAgentRunFinish({ kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: "a1", ranToEnd: null })).toBeUndefined();
+  });
 });

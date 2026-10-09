@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HOOK_TIMEOUT_SECONDS, hookCommand, isBoundedHook, withHook, withHooks } from "./install.ts";
+import { HOOK_TIMEOUT_SECONDS, hookCommand, isBoundedHook, withHook, withHooks, withProjectHooks } from "./install.ts";
 
 const COMMAND = "bun /opt/bounded/apps/claude-code/src/main.ts";
 // If the command cannot run at all (bun missing, a crash before main), exit 2 blocks the call.
@@ -8,6 +8,8 @@ const WRAPPED = `{\n${COMMAND}\n} || { echo "bounded hook failed" >&2; exit 2; }
 // The wrapper an earlier version installed.
 const OLD_WRAPPED = `${COMMAND} || { echo "bounded hook failed" >&2; exit 2; }`;
 const ours = { matcher: "", hooks: [{ type: "command", command: WRAPPED, timeout: HOOK_TIMEOUT_SECONDS }] };
+// When a subagent stops, the bare command: exit 2 there would keep the subagent running (ADR 2026-025).
+const oursBare = { matcher: "", hooks: [{ type: "command", command: COMMAND, timeout: HOOK_TIMEOUT_SECONDS }] };
 
 describe("withHook: bounded's PreToolUse hook merged into .claude/settings.json", () => {
   test("adds the hook to empty settings", () => {
@@ -62,14 +64,37 @@ describe("withHook: bounded's PreToolUse hook merged into .claude/settings.json"
 describe("withHooks: the same command before and after every tool call", () => {
   test("a settings file with only the earlier two events gains PostToolUseFailure", () => {
     const earlier = { hooks: { PreToolUse: [ours], PostToolUse: [ours] } };
-    expect(withHooks(earlier, COMMAND)).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours] } }, changed: true } });
+    expect(withHooks(earlier, COMMAND)).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours], SubagentStop: [oursBare] } }, changed: true } });
   });
 
-  test("installs the hook before every tool call, after it, and after its failure, idempotently", () => {
-    const both = withHooks({}, COMMAND);
-    expect(both).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours] } }, changed: true } });
-    if (!both.ok) throw new Error(both.error);
-    expect(withHooks(both.value.settings, COMMAND)).toEqual({ ok: true, value: { settings: both.value.settings, changed: false } });
+  test("installs the hook before every tool call, after it, after its failure and when a subagent stops, idempotently; the subagent hook runs the bare command", () => {
+    const all = withHooks({}, COMMAND);
+    expect(all).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours], SubagentStop: [oursBare] } }, changed: true } });
+    if (!all.ok) throw new Error(all.error);
+    expect(withHooks(all.value.settings, COMMAND)).toEqual({ ok: true, value: { settings: all.value.settings, changed: false } });
+    expect(withProjectHooks(all.value.settings, COMMAND)).toEqual({ ok: true, value: { settings: all.value.settings, changed: false } });
+  });
+
+  test("an install from before SubagentStop gains it, and nothing else changes", () => {
+    const theirs = { matcher: "Bash", hooks: [{ type: "command", command: "lint" }] };
+    const before = { model: "opus", hooks: { PreToolUse: [theirs, ours], PostToolUse: [ours], PostToolUseFailure: [ours], Stop: [theirs] } };
+    expect(withHooks(before, COMMAND)).toEqual({ ok: true, value: { settings: { ...before, hooks: { ...before.hooks, SubagentStop: [oursBare] } }, changed: true } });
+    expect(withProjectHooks(before, COMMAND)).toEqual({ ok: true, value: { settings: { ...before, hooks: { ...before.hooks, SubagentStop: [oursBare] } }, changed: true } });
+  });
+
+  test("a SubagentStop entry wrapped to exit 2, or in the older wrapper, is replaced by the bare command; a bare one is left as it is", () => {
+    const rest = { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours] };
+    for (const command of [WRAPPED, OLD_WRAPPED]) {
+      const wrapped = { hooks: { ...rest, SubagentStop: [{ matcher: "", hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_SECONDS }] }] } };
+      expect(withHooks(wrapped, COMMAND)).toEqual({ ok: true, value: { settings: { hooks: { ...rest, SubagentStop: [oursBare] } }, changed: true } });
+    }
+    const bare = { hooks: { ...rest, SubagentStop: [oursBare] } };
+    expect(withHooks(bare, COMMAND)).toEqual({ ok: true, value: { settings: bare, changed: false } });
+  });
+
+  test("a bare-command entry on a tool event is still replaced by the wrapped form", () => {
+    const bareEverywhere = { hooks: { PreToolUse: [oursBare], PostToolUse: [oursBare], PostToolUseFailure: [oursBare], SubagentStop: [oursBare] } };
+    expect(withHooks(bareEverywhere, COMMAND)).toEqual({ ok: true, value: { settings: { hooks: { PreToolUse: [ours], PostToolUse: [ours], PostToolUseFailure: [ours], SubagentStop: [oursBare] } }, changed: true } });
   });
 
   test("refuses what withHook refuses", () => {

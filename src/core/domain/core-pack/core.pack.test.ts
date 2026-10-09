@@ -11,7 +11,7 @@ describe("corePack — the core's own pack", () => {
   test("is bounded/core, depends on nothing, and declares exactly its contract's points", () => {
     expect(corePack.id.value).toBe("bounded/core");
     expect(corePack.dependsOn).toEqual([]);
-    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onProjectOpen", "sessionStartGuards", "toolUseGuards"]);
+    expect(Object.keys(corePack.points).sort()).toEqual(["afterTool", "beforeTool", "effectGuards", "onAgentRunFinish", "onProjectOpen", "sessionStartGuards", "toolUseGuards"]);
   });
 
   test("effectGuards has one point per effect kind Effect.parse accepts", () => {

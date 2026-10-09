@@ -1,0 +1,30 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000004",
+  "transcript_path": "/home/user/.claude/projects/project/00000000-0000-4000-8000-000000000004.jsonl",
+  "cwd": "/project",
+  "prompt_id": "00000000-0000-4000-9000-000000000004",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Run turn-limited agent",
+    "prompt": "go",
+    "subagent_type": "turn-limited"
+  },
+  "tool_response": {
+    "isAsync": true,
+    "status": "async_launched",
+    "agentId": "ac601063c0425defd",
+    "description": "Run turn-limited agent",
+    "resolvedModel": "claude-haiku-5-5",
+    "prompt": "go",
+    "outputFile": "/tmp/claude/project/00000000-0000-4000-8000-000000000004/tasks/ac601063c0425defd.output",
+    "canReadOutputFile": true,
+    "canContinueAgent": true
+  },
+  "tool_use_id": "toolu_01SDuQUUPmSa86VGmN2V9rUJ",
+  "duration_ms": 4
+}

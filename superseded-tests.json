@@ -6013,5 +6013,41 @@
       "case": "bounded, the one published package > its tarball holds dist/, the core's and the packs' sources, the published reader suite and its contract, README.md, LICENSE and package.json: nothing else of the libraries', the hosts' or the cli's sources, nor the repository's tests"
     },
     "reason": "the published reader conformance suite and the contract it imports ship from the library (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/hosts/claude-code/hook.test.ts",
+    "case": "runHook: the call's id, refusals the adapter makes, and PostToolUse > a launched Agent response reaches afterTool with its run not finished",
+    "successor": {
+      "file": "src/hosts/claude-code/hook.test.ts",
+      "case": "runHook: agent runs, from captured Claude Code 2.1.294 payloads > a background launch reaches afterTool with its run's finish reported later, as its agentId"
+    },
+    "reason": "a background launch now names its run and says its finish is reported later, so the finish can be paired with it (ADR 2026-025); the turn-limited half moves to 'a run stopped at its turn limit…'"
+  },
+  {
+    "file": "src/hosts/claude-code/install.test.ts",
+    "case": "withHooks: the same command before and after every tool call > installs the hook before every tool call, after it, and after its failure, idempotently",
+    "successor": {
+      "file": "src/hosts/claude-code/install.test.ts",
+      "case": "withHooks: the same command before and after every tool call > installs the hook before every tool call, after it, after its failure and when a subagent stops, idempotently; the subagent hook runs the bare command"
+    },
+    "reason": "bounded's hook is also installed for SubagentStop, unwrapped, since exit 2 there would keep a subagent running (ADR 2026-025)"
+  },
+  {
+    "file": "src/packs/prereqs/application/check-prerequisites/check-prerequisites.test.ts",
+    "case": "CheckPrerequisites — an action needs a delegation to have succeeded over unchanged files > a delegation result that does not say the run finished records nothing",
+    "successor": {
+      "file": "src/packs/prereqs/application/check-prerequisites/check-prerequisites.test.ts",
+      "case": "check-prerequisites — the resolved agent and runs that finish after their result (ADR 2026-025) > a delegation result that does not say the run finished, nor that its finish is reported later, records nothing, and says no later finish will be reported"
+    },
+    "reason": "background runs now count at their finish, so the message no longer suggests the run may still be running; it says no later finish will be reported (ADR 2026-025)"
+  },
+  {
+    "file": "src/core/composition-root/prereqs.test.ts",
+    "case": "bounded/prereqs end to end: openProject with the pack's adapters > a background launch records nothing, and afterTool says why",
+    "successor": {
+      "file": "src/core/composition-root/prereqs-agent-run-finish.test.ts",
+      "case": "bounded/prereqs end to end: runs that finish after their result (ADR 2026-025) > a result neither finished nor reported later records nothing, and afterTool says no later finish will be reported"
+    },
+    "reason": "a real background launch now moves its start to the run (ADR 2026-025); a result with no finish to come keeps the reworded message"
   }
 ]

@@ -151,3 +151,108 @@ export default defineConfig({
     }
   });
 });
+
+describe("main.ts as a Claude Code SubagentStop hook, from captured Claude Code 2.1.294 payloads", () => {
+  /** A captured payload (fixtures/agent-responses/README.md), its cwd set to `project`. */
+  const captured = (name: string, project: string): string => JSON.stringify({ ...JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "agent-responses", name), "utf8")), cwd: project });
+
+  /** A git project selecting bounded/prereqs: a write under src/ needs `agent` to have succeeded over the current plan.md. */
+  function prereqsProject(agent: string): string {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cc-finish-")));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(join(APP, "..", ".."), join(project, "node_modules", "bounded"), "dir");
+    mkdirSync(join(project, "src"));
+    writeFileSync(join(project, "src", "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(project, "plan.md"), "the plan\n");
+    writeFileSync(join(project, ".gitignore"), "node_modules/\n.bounded/\n");
+    writeFileSync(
+      join(project, "bounded.config.ts"),
+      `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { prereqs } from "bounded/prereqs";
+export default defineConfig({
+  packs: [corePack, prereqs],
+  contributes: [contribution(prereqs.points.rules, [{ before: { write: "src/**" }, require: { delegate: "${agent}", succeeded: true }, unchangedSince: ["plan.md"], redirect: "Have ${agent} review the current plan" }])],
+});
+`,
+    );
+    spawnSync("git", ["init", "--quiet"], { cwd: project });
+    return project;
+  }
+  const writeSrc = (project: string): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: join(project, "src", "a.ts"), content: "x" }, cwd: project, tool_use_id: "toolu_write" });
+  const hookIn = (project: string) => (stdin: string) => run("main.ts", stdin, APP, 10_000, project);
+  const reasonOf = (stdout: string): string => (stdout === "" ? "allowed" : JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason);
+
+  test("a SubagentStop answers nothing and exits 0, even in a project without bounded.config.ts", async () => {
+    const { stdout, exitCode } = await run("main.ts", captured("background-subagent-stop.json", root));
+    expect(stdout).toBe("");
+    expect(exitCode).toBe(0);
+  });
+
+  test("with bounded/prereqs: a background review, launched and then finished, lets the write through", async () => {
+    const project = prereqsProject("plan-reviewer");
+    try {
+      const hook = hookIn(project);
+      expect(reasonOf((await hook(writeSrc(project))).stdout)).toContain("has not succeeded");
+      expect((await hook(captured("background-pre-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("background-post-tool-use.json", project))).stdout).toBe("");
+      expect(reasonOf((await hook(writeSrc(project))).stdout)).toContain("started at");
+      const stop = await hook(captured("background-subagent-stop.json", project));
+      expect(stop.stdout).toBe("");
+      expect(stop.exitCode).toBe(0);
+      expect((await hook(writeSrc(project))).stdout).toBe("");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("with bounded/prereqs: a review requested as Plan-Reviewer counts once plan-reviewer finishes, in the background and in the foreground", async () => {
+    const background = prereqsProject("plan-reviewer");
+    const foreground = prereqsProject("plan-reviewer");
+    try {
+      const later = hookIn(background);
+      expect((await later(captured("case-folded-background-pre-tool-use.json", background))).stdout).toBe("");
+      expect((await later(captured("case-folded-background-post-tool-use.json", background))).stdout).toBe("");
+      expect((await later(captured("case-folded-background-subagent-stop.json", background))).stdout).toBe("");
+      expect((await later(writeSrc(background))).stdout).toBe("");
+
+      const now = hookIn(foreground);
+      expect((await now(captured("case-folded-foreground-pre-tool-use.json", foreground))).stdout).toBe("");
+      // The foreground order: the finish comes before the completed result.
+      expect((await now(captured("case-folded-foreground-subagent-stop.json", foreground))).stdout).toBe("");
+      expect((await now(captured("case-folded-foreground-post-tool-use.json", foreground))).stdout).toBe("");
+      expect((await now(writeSrc(foreground))).stdout).toBe("");
+    } finally {
+      rmSync(background, { recursive: true, force: true });
+      rmSync(foreground, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("with bounded/prereqs: a turn-limited background run never lets the write through", async () => {
+    const project = prereqsProject("turn-limited");
+    try {
+      const hook = hookIn(project);
+      expect((await hook(captured("turn-limited-background-pre-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("turn-limited-background-post-tool-use.json", project))).stdout).toBe("");
+      // Claude Code sends no SubagentStop for a run stopped at its turn limit.
+      expect(reasonOf((await hook(writeSrc(project))).stdout)).toContain("started at");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("with bounded/prereqs: a background run stopped with TaskStop never lets the write through", async () => {
+    const project = prereqsProject("slow");
+    try {
+      const hook = hookIn(project);
+      expect((await hook(captured("task-stopped-pre-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("task-stopped-post-tool-use.json", project))).stdout).toBe("");
+      expect((await hook(captured("task-stopped-task-stop-post-tool-use.json", project))).stdout).toBe("");
+      // Claude Code sends no SubagentStop for a run stopped with TaskStop.
+      const verdict = reasonOf((await hook(writeSrc(project))).stdout);
+      expect(verdict).toContain("started at");
+      expect(verdict).not.toBe("allowed");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  }, 60_000);
+});

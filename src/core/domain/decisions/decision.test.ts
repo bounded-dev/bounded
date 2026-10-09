@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AgentRunFinished } from "../events/agent-run-finished.ts";
 import { SessionStart } from "../events/session-start.ts";
 import { ToolResult } from "../events/tool-result.ts";
 import { ToolUse } from "../events/tool-use.ts";
@@ -158,6 +159,40 @@ describe("Decision", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     expect(Decision.adapter(id("d-15"), TIME, refusal({ role: null, hostToolName: "X", input: cyclic, reason: "r", redirect: "d" })).host?.input).toBe("an input that cannot be shown");
+  });
+
+  test("a decision on an agent run's finish has no tool and no effects, and its note names the agent, the run and whether it ran to its end", () => {
+    const finish = AgentRunFinished.parse({ role: null, agent: "plan-reviewer", agentRunId: "a6eef1505a0b443a2", ranToEnd: null });
+    if (!finish.ok) throw new Error(finish.error);
+    const note = "plan-reviewer's run a6eef1505a0b443a2 recorded as a prerequisite over '.agent-state/*/plan.md'";
+    const allowed = Decision.of(id("d-17"), TIME, finish.value, { verdict: Verdict.allow, refusedBy: null }, note);
+    expect(wireOf(allowed)).toEqual({
+      id: "d-17",
+      time: TIME,
+      event: "agent-run-finished",
+      role: null,
+      tool: null,
+      effects: [],
+      verdict: { kind: "allow" },
+      note: `plan-reviewer's run a6eef1505a0b443a2 finished (ran to its end: not said): ${note}`,
+    });
+    const ended = AgentRunFinished.parse({ role: "builder", agent: "plan-reviewer", agentRunId: "a2", ranToEnd: false });
+    if (!ended.ok) throw new Error(ended.error);
+    const refused = Decision.of(id("d-18"), TIME, ended.value, { verdict: Verdict.refuse("plan-reviewer's run a2 did not run to its end", "Run it again"), refusedBy: { packId: gate, effect: null } }, "not recorded");
+    expect(wireOf(refused)).toEqual({
+      id: "d-18",
+      time: TIME,
+      event: "agent-run-finished",
+      role: "builder",
+      tool: null,
+      effects: [],
+      verdict: { kind: "refuse", reason: "plan-reviewer's run a2 did not run to its end", redirect: "Run it again", pack: "test-packs/gate", effect: null },
+      note: "plan-reviewer's run a2 finished (ran to its end: no): not recorded",
+    });
+    for (const decision of [allowed, refused]) {
+      const read = Decision.parse(JSON.parse(JSON.stringify(decision)));
+      expect(read.ok && JSON.stringify(read.value)).toBe(JSON.stringify(decision));
+    }
   });
 
   test("is plain, frozen, serialisable data", () => {
