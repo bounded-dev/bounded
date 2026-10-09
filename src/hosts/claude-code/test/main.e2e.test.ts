@@ -113,6 +113,42 @@ export default defineConfig({ packs: [corePack, noGenerated] });
     }
   });
 
+  test("with bounded/prereqs: a Bash terraform apply is denied naming the rule, and terraform plan is allowed", async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cc-execute-")));
+    try {
+      mkdirSync(join(project, "node_modules"));
+      symlinkSync(join(APP, "..", ".."), join(project, "node_modules", "bounded"), "dir");
+      mkdirSync(join(project, "infra"));
+      writeFileSync(join(project, "infra", "main.tf"), "terraform {}\n");
+      writeFileSync(join(project, ".gitignore"), "node_modules/\n.bounded/\n");
+      writeFileSync(
+        join(project, "bounded.config.ts"),
+        `import { contribution, corePack, defineConfig } from "bounded/domain";
+import { prereqs } from "bounded/prereqs";
+export default defineConfig({
+  packs: [corePack, prereqs],
+  contributes: [contribution(prereqs.points.rules, [{ before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" }])],
+});
+`,
+      );
+      spawnSync("git", ["init", "--quiet"], { cwd: project });
+      const bash = (command: string): string => JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: project, session_id: "s", tool_use_id: "toolu_bash" });
+
+      const refused = await run("main.ts", bash("terraform apply"), APP, 10_000, project);
+      expect(refused.exitCode).toBe(0);
+      const reason: string = JSON.parse(refused.stdout).hookSpecificOutput.permissionDecisionReason;
+      expect(reason).toContain("bounded/prereqs.rules: bounded/project's rule before executing 'terraform apply'");
+      expect(reason).toContain("This call would execute `terraform apply`, which runs 'terraform apply'");
+      expect(reason).toContain("Have infra-reviewer review the current infra/ changes");
+
+      const allowed = await run("main.ts", bash("terraform plan"), APP, 10_000, project);
+      expect(allowed.stdout).toBe("");
+      expect(allowed.exitCode).toBe(0);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   test("with a real bounded.config.ts under git: a command that changes a protected file and then fails is caught after the failure, and the file restored", async () => {
     const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-cc-drift-")));
     try {

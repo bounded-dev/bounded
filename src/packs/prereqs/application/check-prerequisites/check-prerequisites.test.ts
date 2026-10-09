@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type AfterToolReport, AgentRunFinished, type Composition, contribution, corePack, defineConfig, type EffectJSON, ToolResult, ToolUse, type Verdict } from "bounded/domain";
+import { type AfterToolReport, AgentRunFinished, type Composition, contribution, corePack, defineConfig, type EffectJSON, Ports, ToolResult, ToolUse, type Verdict } from "bounded/domain";
 import type { PrerequisiteRuleJSON } from "../../domain/prerequisite-rule.contract.ts";
 import { prereqs } from "../../prereqs.pack.ts";
 import { CheckPrerequisitesHandler } from "./check-prerequisites.handler.ts";
+import { checkBeforeTool, recordAfterTool } from "./check-prerequisites.lifecycle.ts";
 import { InMemoryFileSetFingerprints } from "./check-prerequisites.in-memory-file-set-fingerprints.test-support.ts";
 import { InMemoryPrerequisiteRecords } from "./check-prerequisites.in-memory-prerequisite-records.test-support.ts";
 import { callIdOf } from "./check-prerequisites.prerequisite-records.test-support.ts";
@@ -25,7 +26,7 @@ function setup(rules: readonly PrerequisiteRuleJSON[] = [beforeSrc], files: Read
   return { fingerprints, records, handler: new CheckPrerequisitesHandler(composed(rules), fingerprints, records) };
 }
 
-function use(tool: "subagent" | "edit" | "read", effects: readonly EffectJSON[], callId?: string): ToolUse {
+function use(tool: "subagent" | "edit" | "read" | "shell",effects: readonly EffectJSON[], callId?: string): ToolUse {
   const parsed = ToolUse.parse({ kind: "tool-use", role: null, tool, effects, ...(callId === undefined ? {} : { callId }) });
   if (!parsed.ok) throw new Error(parsed.error);
   return parsed.value;
@@ -549,5 +550,148 @@ describe("check-prerequisites — the resolved agent and runs that finish after 
       expect(await records.readStartedForRuns()).toEqual([]);
       expect(reasonOf(await handler.before(writeTo("src/a.ts")))).toContain("has not succeeded");
     }
+  });
+});
+
+const beforeApply: PrerequisiteRuleJSON = { before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" };
+const INFRA_FILES = { "infra/main.tf": "", [PLAN]: "plan v1\n", "src/a.ts": "" };
+/** A word only the shell can resolve, as the reader reports it. */
+const unresolvedWord = (text: string) => ({ kind: "unresolved" as const, text });
+type Word = string | ReturnType<typeof unresolvedWord>;
+const wordOf = (word: Word) => (typeof word === "string" ? { kind: "literal" as const, text: word } : word);
+const ran = (name: Word, args: readonly Word[] = []) => ({ name: wordOf(name), arguments: args.map(wordOf), workingDirectory: "." });
+type Part = { readonly text: string; readonly role: "read" | "list" | "write" | "directory" | "code" };
+/** A shell call running `command`, read as running `programs`, writing `writes` and leaving `parts` unresolved. */
+const shellCall = (command: string, programs: readonly ReturnType<typeof ran>[], writes: readonly string[] = [], parts: readonly Part[] = []): ToolUse =>
+  use("shell", [{ kind: "execute", command, reading: { outcome: "read", programs, fileEffects: writes.map((path) => ({ effect: { kind: "write", path, change: "modify" } })), unresolved: parts } }], "x1");
+const unreadCall = (command: string, why: string, cause?: "too-complex"): ToolUse => use("shell", [{ kind: "execute", command, reading: { outcome: "unread", why, ...(cause === undefined ? {} : { cause }) } }], "x1");
+const runsApply = (action = "run 'terraform apply'") => ({
+  readable: ` (or, if this command does not ${action}, write it so that bounded can read it: no words only the shell can resolve where a program, its leading arguments or a written path stand)`,
+  reinstall: ` (or, if this command does not ${action}, reinstall bounded's dependencies if its shell parser cannot load, then retry)`,
+  simplify: ` (or, if this command does not ${action}, split it into simpler commands, or simplify it, and run each on its own)`,
+  insideProject: ` (or, if this command does not ${action}, leave out its writes outside the project)`,
+});
+const APPLY = runsApply();
+const WRITE_SRC = runsApply("write a path 'src/**' matches");
+const terraformApply = () => shellCall("terraform apply", [ran("terraform", ["apply"])]);
+const tfApply = () => shellCall("$TF apply", [ran(unresolvedWord("$TF"), ["apply"])]);
+
+describe("CheckPrerequisites — before an execute, and shell writes (ADR 2026-019, amended)", () => {
+  test("a command that runs the rule's program and words is refused until the required delegation has succeeded, and allowed after", async () => {
+    const { handler } = setup([beforeApply], INFRA_FILES);
+    const call = shellCall("terraform apply -auto-approve", [ran("terraform", ["apply", "-auto-approve"])]);
+    const verdict = await handler.before(call);
+    expect(reasonOf(verdict)).toStartWith("bounded/prereqs.rules:");
+    expect(reasonOf(verdict)).toContain("before executing 'terraform apply'");
+    expect(reasonOf(verdict)).toContain("has not succeeded");
+    expect(reasonOf(verdict)).toContain("This call would execute `terraform apply -auto-approve`, which runs 'terraform apply'");
+    expect(redirectOf(verdict)).toBe(beforeApply.redirect);
+    await run(handler, "infra-reviewer");
+    expect(reasonOf(await handler.before(call))).toBe("allowed");
+  });
+
+  test("a shell command writing a path a write rule matches is refused as a file tool's write is, naming the write", async () => {
+    const { handler } = setup([beforeSrc], INFRA_FILES);
+    const verdict = await handler.before(shellCall("echo x > src/a.ts", [ran("echo", ["x"])], ["src/a.ts"]));
+    expect(reasonOf(verdict)).toStartWith("bounded/prereqs.rules: bounded/project's rule before write 'src/**'");
+    expect(reasonOf(verdict)).toEndWith("This call would execute `echo x > src/a.ts`, which writes 'src/a.ts'");
+    expect(redirectOf(verdict)).toBe(beforeSrc.redirect);
+  });
+
+  test("a command bounded cannot see through is refused while the rule does not hold, saying it cannot see, why, and what would let it see", async () => {
+    const { handler } = setup([beforeApply], INFRA_FILES);
+    const cannotSee = "and bounded cannot see whether it runs 'terraform apply': ";
+    const named = await handler.before(tfApply());
+    expect(reasonOf(named)).toContain(`This call would execute \`$TF apply\`, ${cannotSee}it runs a program whose name only the shell can resolve ('$TF')`);
+    expect(redirectOf(named)).toBe(`${beforeApply.redirect}${APPLY.readable}`);
+    const input = await handler.before(shellCall("echo apply | xargs terraform", [ran("echo", ["apply"]), ran("xargs", ["terraform"]), ran("terraform", [unresolvedWord("(input)")])]));
+    expect(reasonOf(input)).toContain(`${cannotSee}'(input)', which only the shell can resolve, stands before terraform's argument 'apply' could be found`);
+    expect(redirectOf(input)).toBe(`${beforeApply.redirect}${APPLY.readable}`);
+    const code = await handler.before(shellCall('sh -c "$X"', [ran("sh", ["-c", unresolvedWord('"$X"')])], [], [{ text: '"$X"', role: "code" }]));
+    expect(reasonOf(code)).toContain(`${cannotSee}it runs code bounded cannot read ('"$X"')`);
+    expect(redirectOf(code)).toBe(beforeApply.redirect);
+    const passed = await handler.before(shellCall("echo terraform", [ran("echo", ["terraform"])]));
+    expect(reasonOf(passed)).toContain(`${cannotSee}it passes 'terraform' to echo, which may run terraform`);
+    expect(redirectOf(passed)).toBe(beforeApply.redirect);
+  });
+
+  test("an unread command's redirect follows its cause", async () => {
+    const { handler } = setup([beforeApply], INFRA_FILES);
+    const parser = await handler.before(unreadCall("terraform apply", "bounded's shell parser could not load (x)"));
+    expect(reasonOf(parser)).toContain("This call would execute `terraform apply`, and bounded cannot see whether it runs 'terraform apply': the command could not be read (bounded's shell parser could not load (x))");
+    expect(redirectOf(parser)).toBe(`${beforeApply.redirect}${APPLY.reinstall}`);
+    const complex = await handler.before(unreadCall("terraform apply", "the command is too complex", "too-complex"));
+    expect(redirectOf(complex)).toBe(`${beforeApply.redirect}${APPLY.simplify}`);
+  });
+
+  test("a write only the shell can name, or one bounded cannot place in the project, is refused under a write rule; the device paths are not", async () => {
+    const { handler } = setup([beforeSrc], INFRA_FILES);
+    const named = await handler.before(shellCall('echo x > "$OUT"', [ran("echo", ["x"])], [], [{ text: '"$OUT"', role: "write" }]));
+    expect(reasonOf(named)).toContain("and bounded cannot see whether it writes a path 'src/**' matches: it writes a path only the shell can resolve ('\"$OUT\"')");
+    expect(redirectOf(named)).toBe(`${beforeSrc.redirect}${WRITE_SRC.readable}`);
+    const outside = await handler.before(shellCall("echo x > /tmp/x", [ran("echo", ["x"])], [], [{ text: "/tmp/x", role: "write" }]));
+    expect(reasonOf(outside)).toContain("it writes a path bounded cannot place in the project ('/tmp/x')");
+    expect(redirectOf(outside)).toBe(`${beforeSrc.redirect}${WRITE_SRC.insideProject}`);
+    expect(reasonOf(await handler.before(shellCall("ls 2>/dev/null", [ran("ls")], [], [{ text: "/dev/null", role: "write" }])))).toBe("allowed");
+    expect(reasonOf(await handler.before(shellCall("echo x > /dev/stderr", [ran("echo", ["x"])], [], [{ text: "/dev/stderr", role: "write" }])))).toBe("allowed");
+  });
+
+  test("a pending run's refusal keeps its head and redirect, with this item's tail", async () => {
+    const { handler, records } = setup([beforeApply], INFRA_FILES);
+    records.now = "2026-10-09T10:00:00.000Z";
+    await launched(handler, "infra-reviewer");
+    const head =
+      "bounded/prereqs.rules: bounded/project's rule before executing 'terraform apply' requires a delegation to infra-reviewer that succeeded over the current 'infra/**', and infra-reviewer's run started at 2026-10-09T10:00:00.000Z has not finished yet: wait for its finish.";
+    const wait = "Wait for infra-reviewer's run started at 2026-10-09T10:00:00.000Z to finish (it is recorded when it does); if it stopped without finishing, Have infra-reviewer review the current infra/ changes";
+    const runs = await handler.before(terraformApply());
+    expect(reasonOf(runs)).toBe(`${head} This call would execute \`terraform apply\`, which runs 'terraform apply'`);
+    expect(redirectOf(runs)).toBe(wait);
+    const unseen = await handler.before(tfApply());
+    expect(reasonOf(unseen)).toBe(`${head} This call would execute \`$TF apply\`, and bounded cannot see whether it runs 'terraform apply': it runs a program whose name only the shell can resolve ('$TF')`);
+    expect(redirectOf(unseen)).toBe(`${wait}${APPLY.readable}`);
+  });
+
+  test("once the rule holds, a command it cannot see through is allowed", async () => {
+    const apply = setup([beforeApply], INFRA_FILES);
+    await run(apply.handler, "infra-reviewer");
+    for (const call of [tfApply(), shellCall("echo terraform", [ran("echo", ["terraform"])]), unreadCall("terraform apply", "the parser could not load")]) expect(reasonOf(await apply.handler.before(call))).toBe("allowed");
+    const src = setup([beforeSrc], INFRA_FILES);
+    await run(src.handler);
+    expect(reasonOf(await src.handler.before(shellCall('echo x > "$OUT"', [ran("echo", ["x"])], [], [{ text: '"$OUT"', role: "write" }])))).toBe("allowed");
+  });
+
+  test("a command that neither runs the rule's program and words, passes it, nor writes a matching path is allowed, whatever the rule's state", async () => {
+    const { handler, fingerprints, records } = setup([beforeApply, beforeSrc], INFRA_FILES);
+    for (const call of [
+      shellCall("terraform plan", [ran("terraform", ["plan"])]),
+      shellCall("echo x > docs/a.md", [ran("echo", ["x"])], ["docs/a.md"]),
+      shellCall('cat "$X"', [ran("cat", [unresolvedWord('"$X"')])], [], [{ text: '"$X"', role: "read" }]),
+    ]) {
+      expect(reasonOf(await handler.before(call))).toBe("allowed");
+    }
+    expect(fingerprints.calls).toBe(0);
+    expect(records.calls).toBe(0);
+  });
+
+  test("rules are checked in contribution order across a call's effects and readings: the first that does not hold refuses", async () => {
+    const both = () => shellCall("terraform apply && echo x > src/a.ts", [ran("terraform", ["apply"]), ran("echo", ["x"])], ["src/a.ts"]);
+    const applyFirst = setup([beforeApply, beforeSrc], INFRA_FILES);
+    expect(redirectOf(await applyFirst.handler.before(both()))).toBe(beforeApply.redirect);
+    await run(applyFirst.handler, "infra-reviewer");
+    expect(redirectOf(await applyFirst.handler.before(both()))).toBe(beforeSrc.redirect);
+    await run(applyFirst.handler, "plan-reviewer", "c2");
+    expect(reasonOf(await applyFirst.handler.before(both()))).toBe("allowed");
+    expect(redirectOf(await setup([beforeSrc, beforeApply], INFRA_FILES).handler.before(both()))).toBe(beforeSrc.redirect);
+  });
+
+  test("without the pack's ports, a command a rule cannot see through is refused before the call, and its result records nothing", async () => {
+    const ports = Ports.forProject("/work/project", []);
+    if (!ports.ok) throw new Error(ports.error);
+    const context = { composition: composed([beforeApply]), ports: ports.value };
+    const verdict = await checkBeforeTool(tfApply(), context);
+    expect(reasonOf(verdict)).toStartWith("bounded/prereqs.rules: prerequisites cannot be checked: ");
+    expect(redirectOf(verdict)).toBe("Open the project with bounded/prereqs's ports (prereqsPortProvisions()); until then actions that need a prerequisite are refused");
+    expect((await checkBeforeTool(shellCall("terraform plan", [ran("terraform", ["plan"])]), context)).kind).toBe("allow");
+    expect(await recordAfterTool(resultOf(tfApply(), true), context)).toEqual({ message: null, record: null });
   });
 });

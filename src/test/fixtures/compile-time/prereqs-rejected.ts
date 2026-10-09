@@ -12,8 +12,10 @@ declare const reviewer: AgentName;
 
 // A rule requires a delegation that succeeded: a failed one is no prerequisite.
 export const failed: PrerequisiteRuleJSON = { before: { delegate: "builder" }, require: { delegate: "plan-reviewer", succeeded: false }, unchangedSince, redirect }; // rejected: Type 'false' is not assignable to type 'true'
-// A rule comes before a delegation or a write; an execute is not matched yet.
-export const execute: PrerequisiteRuleJSON = { before: { execute: "terraform apply" }, require: required, unchangedSince, redirect }; // rejected: 'execute' does not exist in type
+// A rule comes before one action: an execute with a write is two.
+export const executeAndWrite: PrerequisiteRuleJSON = { before: { execute: "terraform apply", write: "src/**" }, require: required, unchangedSince, redirect }; // rejected: Type 'string' is not assignable to type 'undefined'
+// An execute is one string: the program's words, separated by spaces.
+export const executeWords: PrerequisiteRuleJSON = { before: { execute: ["terraform", "apply"] }, require: required, unchangedSince, redirect }; // rejected: Type 'string[]' is not assignable to type 'string'
 // A rule comes before one action.
 export const both: PrerequisiteRuleJSON = { before: { delegate: "a", write: "b" }, require: required, unchangedSince, redirect }; // rejected: Type 'string' is not assignable to type 'undefined'
 // A rule names at least one file that must not change.
