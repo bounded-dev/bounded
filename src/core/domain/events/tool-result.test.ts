@@ -2,14 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { wireOf } from "../shared/value-object.laws.test-support.ts";
 import { ToolResult } from "./tool-result.ts";
 
-const done = { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make" }], ok: true, callId: "toolu_1" };
+/** A read reading's wire form: bounded's reading of a command that runs tool-a from the project root, touching no file. */
+const READ = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
+const done = { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", reading: READ }], ok: true, callId: "toolu_1" };
 
 
 describe("ToolResult", () => {
   test("a tool result is a finished tool use: who, which tool, its effects, the call id and whether it succeeded", () => {
     expect(wireOf(ToolResult.parse(done))).toEqual({
       ok: true,
-      value: { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", cwd: null }], ok: true, callId: "toolu_1" },
+      value: { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", cwd: null, reading: READ }], ok: true, callId: "toolu_1" },
     });
     const failed = ToolResult.parse({ ...done, ok: false });
     expect(failed.ok && failed.value.ok).toBe(false);
@@ -66,12 +68,13 @@ describe("ToolResult", () => {
     expect(ToolResult.parse({ ...one, delegatedAgentRuns: [{ finished: false, finishNeverReported: false }] })).toEqual({ ok: false, error: never });
   });
 
-  test("a tool result's execute effects carry no reading", () => {
-    const reading = { outcome: "unread", why: "the parser could not load" };
-    expect(ToolResult.parse({ ...done, effects: [{ kind: "execute", command: "make", reading }] })).toEqual({
-      ok: false,
-      error: "A tool result's execute effects carry no reading: bounded reads a command only when it judges it",
+  test("a tool result's execute effects carry their reading, as a tool use's do", () => {
+    expect(wireOf(ToolResult.parse({ ...done, effects: [{ kind: "execute", command: "make", reading: READ }] }))).toEqual({
+      ok: true,
+      value: { kind: "tool-result", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", cwd: null, reading: READ }], ok: true, callId: "toolu_1" },
     });
+    const without = ToolResult.parse({ ...done, effects: [{ kind: "execute", command: "make" }] });
+    expect(without.ok ? "" : without.error).toContain("An execute effect is { kind, command, cwd?, reading }");
   });
 
   test("is frozen", () => {

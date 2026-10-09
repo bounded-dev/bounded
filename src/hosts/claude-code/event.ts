@@ -1,6 +1,10 @@
-// The step that resolves a translated call's paths and builds the core's
-// host-neutral tool-use event from it, through the core's own parse.
+// The step that resolves a translated call's paths, reads its shell commands
+// and builds the core's host-neutral tool-use event from it, through the
+// core's own parse. The adapter is trusted code: it builds each execute
+// effect's reading from the model's tool input with bounded's reader, and the
+// core checks the reading's shape (ADR 2026-020).
 import { type EffectJSON, ProjectPath, type Refuse, type Result, Role, ToolUse, Verdict } from "bounded/domain";
+import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import type { HostCall } from "./translate.ts";
 
 export type { ToolUse } from "bounded/domain";
@@ -16,14 +20,23 @@ export interface Resolving {
   /** The directory relative host paths are resolved against. */
   readonly cwd: string;
   readonly paths: PathResolver;
+  /** The project's root, an absolute path: each shell command is read in it. */
+  readonly projectRoot: string;
+  /** Reads each shell command into the reading its execute effect carries; it never rejects. */
+  readonly readShellCommand: ReadShellCommand;
   /** The host's id for the call, when it gives one. */
   readonly callId?: string;
 }
 
 type Resolved = Result<{ path: string; exists: boolean }, Refuse>;
 
-/** The translated call as the core's event, every path resolved and checked; any refused path refuses the call. */
-export function toToolUse(call: HostCall, { role, cwd, paths, callId }: Resolving): Result<ToolUse, Refuse> {
+/**
+ * The translated call as the core's event, every path resolved and checked
+ * and every shell command read; any refused path refuses the call. A command
+ * that cannot be read still reaches the core, with an unread reading saying
+ * why, which a pack that needs it refuses.
+ */
+export async function toToolUse(call: HostCall, { role, cwd, paths, projectRoot, readShellCommand, callId }: Resolving): Promise<Result<ToolUse, Refuse>> {
   let checkedRole: Role | null = null;
   if (role !== null) {
     const parsed = Role.parse(role);
@@ -52,7 +65,9 @@ export function toToolUse(call: HostCall, { role, cwd, paths, callId }: Resolvin
     } else if (effect.kind === "execute") {
       const found = effect.cwd === undefined ? null : resolve(effect.cwd);
       if (found !== null && !found.ok) return found;
-      effects.push({ kind: "execute", command: effect.command, cwd: found === null ? null : found.value.path });
+      const directory = found === null ? null : found.value.path;
+      const reading = await readShellCommand.read({ projectRoot, command: effect.command, cwd: directory });
+      effects.push({ kind: "execute", command: effect.command, cwd: directory, reading });
     } else effects.push({ ...effect });
   }
   // The core checks and freezes the event; a refusal here is the adapter's mistake.

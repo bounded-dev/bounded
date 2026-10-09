@@ -1,7 +1,9 @@
-// A pi tool call as a host-neutral tool use. Pure, given the locator: all
-// file-system knowledge (rewriting, links, existence) comes through `locate`.
-import type { Result } from "bounded/domain";
-import { type EffectJSON, type ToolKind, type ToolUse, toolUse } from "./event.ts";
+// A pi tool call as a host-neutral call: its tool kind and effects, each
+// checked as the core checks it, an execute's before the extension reads its
+// command (event.ts). Pure, given the locator: all file-system knowledge
+// (rewriting, links, existence) comes through `locate`.
+import { Command, Effect, type Result } from "bounded/domain";
+import type { PiCall, PiEffectJSON, ToolKind } from "./event.ts";
 import type { Locate, Located } from "./pi-path.ts";
 import { subagentEffects } from "./subagent.ts";
 
@@ -12,9 +14,9 @@ export interface PiToolCall {
 }
 
 type Input = Readonly<Record<string, unknown>>;
-type Translation = Result<{ tool: ToolKind; effects: EffectJSON[] }>;
+type Translation = Result<{ tool: ToolKind; effects: PiEffectJSON[] }>;
 
-const done = (tool: ToolKind, ...effects: EffectJSON[]): Translation => ({ ok: true, value: { tool, effects } });
+const done = (tool: ToolKind, ...effects: PiEffectJSON[]): Translation => ({ ok: true, value: { tool, effects } });
 
 /**
  * pi's built-in tools and the web tools. Their paths start at the session's
@@ -37,14 +39,14 @@ function builtIn(toolName: string, input: Input, cwd: string, locate: Locate): T
     return path.ok ? locate(path.value, cwd, use) : path;
   };
   /** The directory a search tool lists, the session's when it names none, with its file-name filter. */
-  const listing = (filterField?: string): Result<{ root: Located; effect: EffectJSON }> => {
+  const listing = (filterField?: string): Result<{ root: Located; effect: PiEffectJSON }> => {
     const path = text("path");
     if (!path.ok) return path;
     const root = locate(path.value ?? ".", cwd);
     if (!root.ok) return root;
     const filter = filterField === undefined ? undefined : text(filterField);
     if (filter !== undefined && !filter.ok) return filter;
-    const effect: EffectJSON = { kind: "list", root: root.value.path.value, filter: filter?.value?.trim() ? filter.value : null };
+    const effect: PiEffectJSON = { kind: "list", root: root.value.path.value, filter: filter?.value?.trim() ? filter.value : null };
     return { ok: true, value: { root: root.value, effect } };
   };
 
@@ -100,13 +102,22 @@ function translateInput(toolName: string, input: Input, cwd: string, locate: Loc
   return builtIn(toolName, input, cwd, locate) ?? done("other", { kind: "invoke", name: toolName });
 }
 
-/** The tool use a pi tool call makes, or why it cannot be translated. Never throws. */
-export function translate(call: PiToolCall, cwd: string, locate: Locate): Result<ToolUse> {
+/** Why `effect`, the `index`th of `count`, is not one the core accepts, or undefined; an execute's command is checked, its reading is added later. */
+function refusalOf(effect: PiEffectJSON, index: number, count: number): string | undefined {
+  const checked = effect.kind === "execute" ? Command.parse(effect.command) : Effect.parse(effect);
+  return checked.ok ? undefined : `Effect ${index + 1} of ${count}: ${checked.error}`;
+}
+
+/** The call a pi tool call makes, its effects checked as the core checks them, or why it cannot be translated. Never throws. */
+export function translate(call: PiToolCall, cwd: string, locate: Locate): Result<PiCall> {
   try {
     const input = call.input;
     if (typeof input !== "object" || input === null || Array.isArray(input)) return { ok: false, error: `pi's ${call.toolName} call has no input object` };
     const translated = translateInput(call.toolName, input as Input, cwd, locate);
-    return translated.ok ? toolUse(null, translated.value.tool, translated.value.effects) : translated;
+    if (!translated.ok) return translated;
+    const { tool, effects } = translated.value;
+    const refusal = effects.map((effect, index) => refusalOf(effect, index, effects.length)).find((why) => why !== undefined);
+    return refusal === undefined ? { ok: true, value: { tool, effects } } : { ok: false, error: refusal };
   } catch (error) {
     return { ok: false, error: `pi's ${call.toolName} call could not be read: ${error instanceof Error ? error.message : String(error)}` };
   }

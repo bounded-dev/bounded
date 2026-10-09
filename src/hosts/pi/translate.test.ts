@@ -17,7 +17,8 @@ const fake: Locate = (raw, base) => {
 };
 // Results are compared with plain objects, in their wire form, so they are typed as unknown values.
 const pi = (toolName: string, input: unknown, cwd = ROOT): Result<unknown> => JSON.parse(JSON.stringify(translate({ toolName, input }, cwd, fake)));
-const use = (tool: string, ...effects: unknown[]) => ({ ok: true as const, value: { kind: "tool-use", role: null, tool, effects } });
+/** A translated call: its tool kind and effects, an execute's still without the reading the extension adds when it builds the tool use. */
+const use = (tool: string, ...effects: unknown[]) => ({ ok: true as const, value: { tool, effects } });
 const refusal = (result: ReturnType<typeof pi>): string => (result.ok ? "allowed" : result.error);
 
 describe("translate — pi's tools as host-neutral tool uses", () => {

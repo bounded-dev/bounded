@@ -152,7 +152,7 @@ snapshot expires.
 
 The protected-paths pack reads the project's files and keeps snapshots through two
 ports, `watchedFiles` and `shellSnapshots`, which a host supplies when it
-opens a project: `openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader })`
+opens a project: `openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] })`
 (`bounded/protected-paths/adapters`, which gives every port the protected-paths pack uses;
 tests use the in-memory doubles beside each port, ADR 2026-017). A host
 that selects the protected-paths pack without them refuses every event, saying what to

@@ -45,11 +45,12 @@ export interface ExecuteEffect extends EffectOf<"execute", ExecuteEffectJSON> {
   readonly cwd: ProjectPath | null;
   /**
    * What bounded made of the command (ADR 2026-020): the programs it runs,
-   * the files it reads, lists and writes, and what could not be resolved.
-   * The judge reads every command before guards run, replacing any reading
-   * the host sent; null when the effect was not built by the judge.
+   * the files it reads, lists and writes, and what could not be resolved, or
+   * that it could not be read and why. Always present: the host adapter,
+   * trusted code, builds it from the model's tool input with bounded's
+   * reader, and the core checks its shape.
    */
-  readonly reading: ShellCommandReading | null;
+  readonly reading: ShellCommandReading;
 }
 
 /** Reaches the network. */
@@ -113,8 +114,8 @@ export interface ExecuteEffectJSON {
   readonly kind: "execute";
   readonly command: string;
   readonly cwd?: string | null;
-  /** Written by toJSON only when the effect has a reading. */
-  readonly reading?: ShellCommandReadingJSON;
+  /** The reading the host adapter built for the command: required. */
+  readonly reading: ShellCommandReadingJSON;
 }
 export interface FetchEffectJSON {
   readonly kind: "fetch";

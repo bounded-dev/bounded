@@ -1,9 +1,9 @@
 import type { Composition, EffectGuard, ExecuteEffect, ListEffect, ReadEffect, WriteEffect } from "bounded/domain";
 
 // The protected-paths pack judges calls: reads, listings and writes against its
-// protected paths, and shell commands by what the core's reading of them
-// (ADR 2026-020) says they read, list and write. It needs no port of its own
-// for that: the judge reads every command before the guards run.
+// protected paths, and shell commands by what their reading (ADR 2026-020)
+// says they read, list and write. It needs no port of its own for that: every
+// execute effect carries the reading the host adapter built for its command.
 
 // What this feature contributes to the core: a guard per effect kind it judges.
 /** Judges a read against the protected paths. */

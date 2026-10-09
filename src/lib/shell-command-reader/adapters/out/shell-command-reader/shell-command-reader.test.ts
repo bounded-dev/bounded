@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, ProjectPath, ShellCommandReading } from "bounded/domain";
-import { shellCommandReaderConformance } from "bounded/testing/shell-command-reader-conformance";
+import { shellCommandReaderConformance } from "../../../application/shell-commands/read-shell-command/read-shell-command.shell-command-reader.test-support.ts";
 import { TreeSitterShellCommandReader } from "./shell-command-reader.ts";
 
 shellCommandReaderConformance("TreeSitterShellCommandReader", async ({ files, dirs }) => {

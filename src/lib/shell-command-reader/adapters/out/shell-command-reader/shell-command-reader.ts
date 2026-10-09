@@ -1,4 +1,4 @@
-import type { ShellCommandReader } from "bounded/application";
+import type { ShellCommandReader } from "bounded-shell-command-reader/application";
 import { Command, type ProjectPath, type ShellCommandReadingJSON, type ShellCommandWordJSON } from "bounded/domain";
 import type { PathKind, ShellWord } from "../../../domain/shell-command.contract.ts";
 import { describeShellCommand } from "../../../domain/shell-command.ts";

@@ -36,19 +36,22 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - **The protected-paths pack** (`bounded/protected-paths`, [slice 3](slice-3.md),
   [ADR 2026-009](adr/2026-009-path-gate-pack.md)): deny-only protected
   paths on reads, listings and writes; a shell guard that judges the files
-  a command names from the core's reading of it; [drift](drift.md)
+  a command names from the reading its execute effect carries; [drift](drift.md)
   ([ADR 2026-011](adr/2026-011-drift.md)), which puts back what a shell
   command changed in protected files.
-- **Shell commands read once, in the core's judge**
-  ([ADR 2026-020](adr/2026-020-shell-command-reading.md)): before any guard
-  runs, the judge reads every execute effect's command through the host's
-  `ShellCommandReader` and the effect carries the reading (the programs it
-  runs, the files it reads, lists and writes, and what only the shell could
-  resolve). The reader, tree-sitter-bash and the table of what commands do
-  with their words are a private context, `bounded-shell-command-reader`
-  (`src/lib/shell-command-reader`), built into `bounded` as
-  `bounded/shell-command-reader`; both hosts pass it to `openProject`, and
-  its conformance suite is published as
+- **Shell commands read once, by the host adapter**
+  ([ADR 2026-020](adr/2026-020-shell-command-reading.md), corrected in
+  3.3.0): the host adapter, trusted code, reads every execute effect's
+  command from the model's tool input when it builds the core's event, and
+  the effect carries the reading (the programs it runs, the files it reads,
+  lists and writes, and what only the shell could resolve), required, its
+  shape checked by the core. The reader, tree-sitter-bash and the table of
+  what commands do with their words are a private context,
+  `bounded-shell-command-reader` (`src/lib/shell-command-reader`), built
+  into `bounded` as `bounded/shell-command-reader`
+  (`openShellCommandReading`); both hosts prepare it once and read with it,
+  for each call and again for its result, within their decision deadlines,
+  and its conformance suite is published as
   `bounded/testing/shell-command-reader-conformance`.
 - **The prerequisites pack** (`bounded/prereqs`,
   [ADR 2026-019](adr/2026-019-prereqs-pack.md), [its README](../src/packs/prereqs/README.md)),
@@ -251,6 +254,15 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - **A synchronously busy guard can overrun the Claude Code hook deadline.**
   The adapter's deadline bounds asynchronous work only
   ([Claude Code adapter](adapter-claude-code.md)).
+- **A pi shell call can wait on the reader's grammar loading.** pi prepares
+  the shell command reader at session start; a call made before that
+  finishes waits for it (up to 5 s), and is blocked, never let through, only
+  if loading outruns pi's 3 s decision deadline. A preparation that never
+  settles is cached and never retried, so every later shell call in that pi
+  process waits up to 5 s for it and is blocked. Claude Code's
+  first read in each hook process waits for the grammar within its 20 s
+  deadline ([ADR 2026-020](adr/2026-020-shell-command-reading.md), "Reading
+  in the host adapter").
 - **Architecture rules guard against mistakes, not deliberate bypass**
   ([ADR 2026-013](adr/2026-013-restructure.md), rules R1 to R7). Spreading a
   genuine instance (`{ ...pack }`) is the one way past the compiler; the
@@ -299,7 +311,21 @@ when written; keep it current (AGENTS.md, "Working with the user").
     `BoundedLog` and `ProjectBoundedLogs`), `openProject`'s `guardLog`
     option (now `boundedLog`) and `bounded/adapters`' `FileSystemGuardLog`
     and `FileSystemProjectGuardLogs` (now `FileSystemBoundedLog` and
-    `FileSystemProjectBoundedLogs`). `--from <dir>` stays only for installing a
+    `FileSystemProjectBoundedLogs`). 3.3.0 also corrects ADR 2026-020: the
+    host adapter reads each shell command, not the core's judge, breaking
+    what 3.2.0 published, with no aliases: `bounded/application`'s
+    `ShellCommandReader` (now `bounded/shell-command-reader`'s),
+    `openProject`'s and `OpenProjectHandler`'s `shellCommandReader` option,
+    `JudgeEventHandler`'s `shellCommandReader`, `projectRoot` and
+    `readWithinMs` options and its `DEFAULT_READ_WITHIN_MS` are gone;
+    `ExecuteEffect.reading` is never null and `ExecuteEffectJSON.reading` is
+    required; `bounded/hosts/pi`'s `translate` gives the call before its
+    readings, and its `piExtension` (`ExtensionOptions`) requires a
+    `readShellCommand`. Its behaviour breaks too:
+    a host that sends an execute effect without a reading, as every 3.2.0
+    host did, has each such call refused as an event that cannot be read and
+    recorded as invalid, and a tool result's execute effects must now carry a
+    reading, where 3.2.0 refused one. `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn

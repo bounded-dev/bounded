@@ -8,7 +8,12 @@ writes. Ships in `bounded` 3.2.0 (see "Release"). Amends ADRs 2026-006,
 2026-009, 2026-010, 2026-013, 2026-016 and 2026-017. Amended by
 [ADR 2026-024](2026-024-src-layout.md) (src layout): the reader's context
 is `src/lib/shell-command-reader`, its layers directly in it, with no inner
-`src/`.
+`src/`. **Corrected in 3.3.0 (item `host-side-reading`), not superseded:**
+the host adapter, trusted code, builds each execute effect's reading from
+the model's tool input, the untrusted part, with bounded's reader. The core
+requires the reading and checks its shape. The sections below state the
+decision as corrected; "Release" keeps what 3.2.0 shipped and lists the
+correction's changes under 3.3.0.
 
 ## Context
 
@@ -24,9 +29,9 @@ names no tool or language (AGENTS.md). It can own the shape.
 
 ### The shape: a field of the execute effect
 
-- **An execute effect carries `reading: ShellCommandReading | null`**, a
-  value object (`contexts/core/src/domain/events/shell-command-reading.*`)
-  with two outcomes: `{ outcome: "read", programs, fileEffects, unresolved }`
+- **An execute effect carries a required `reading: ShellCommandReading`**,
+  a value object (`src/core/domain/events/shell-command-reading.*`) with
+  two outcomes: `{ outcome: "read", programs, fileEffects, unresolved }`
   or `{ outcome: "unread", why, cause? }`, where a reader that can tell says
   what made the command unreadable when the command itself is to blame
   (`too-complex`).
@@ -97,9 +102,10 @@ names no tool or language (AGENTS.md). It can own the shape.
     zero or below, and a zero-padded range with a negative end; also a
     range past the integers held exactly, and any word that would expand
     to more than 256 words.
-  - **Reading is bounded in time, because the reader is synchronous:** the
-    judge's `readWithinMs` cannot stop it, and a hook that ran out of time
-    would let the call through. Each bound below makes the command **unread**
+  - **Reading is bounded in time, because the reader is synchronous:**
+    `ReadShellCommand`'s `readWithinMs` (see "Reading in the host adapter")
+    cannot stop it, and a hook that ran out of time would let the call
+    through. Each bound below makes the command **unread**
     with cause `too-complex` (never a reduced reading), which the path gate
     refuses, telling the agent to split or simplify the command:
     - **The backstop, a deadline of 1,000 ms per read on a monotonic clock**
@@ -178,9 +184,9 @@ names no tool or language (AGENTS.md). It can own the shape.
   - **The cause.** An unread reading carries `cause: "too-complex"` only
     when the command itself is to blame. The parser returning no tree is a
     failure of the parser, not of the command, so it carries no cause, as
-    the judge's own unread readings do (no reader, one that failed or was
-    too slow, an answer that could not be used): they keep the redirect to
-    open the project with a reader and reinstall bounded's dependencies.
+    `ReadShellCommand`'s own unread readings do (a reader that failed or was
+    too slow, an answer that could not be used, an input that is no
+    command): they keep the redirect to reinstall bounded's dependencies.
   - Nothing is guessed (AGENTS.md).
 - **Why a field, not more effects of the tool use.** ADR 2026-006's effects
   are what the call does, as the host describes it; a command's files are
@@ -194,70 +200,105 @@ names no tool or language (AGENTS.md). It can own the shape.
   list and write guard points.** It would change the path gate's messages,
   judge each file twice, and lose the existence note, which belongs to the
   command.
-- **On the wire `reading` is optional**, and null in the domain when absent;
-  `toJSON` writes it only when there is one, so stored and host-sent
-  executes keep their shape (ADR 2026-012).
+- **On the wire `reading` is required.** `Effect.parse` refuses an execute
+  without one ("An execute effect is { kind, command, cwd?, reading }") and
+  checks the one it is given with `ShellCommandReading.parse`; `toJSON`
+  always writes it. Nothing stored holds an execute's wire form (the
+  Bounded log records effects described as text, ADR 2026-022), so no
+  stored data changes shape (ADR 2026-012).
+- **Tool results carry readings too.** An effect has one shape, so a tool
+  result's execute effects carry a reading as a tool use's do. The host
+  adapter builds a result's effects as it built the call's, from the same
+  tool input, so it reads the command again after the call: **a result's
+  reading may differ from the call's** (the files it names may now exist).
 
-### Reading in the judge
+### Reading in the host adapter
 
-- **The judge reads every execute effect before guards and `beforeAllow`
-  run**, through the port `ShellCommandReader` (declared in
-  `judge-event.contract.ts`, re-exported by `open-project.contract.ts` and
-  the application barrel): `prepare()` loads what reading needs; `read(projectRoot,
-  command, cwd)` gives the reading's wire form, parsed by
-  `ShellCommandReading.parse`, and rejects when it cannot read. The event is
-  rebuilt through `ToolUse.parse`; **a reading the host sent is replaced,
-  never trusted**. A handler refusing every event reads nothing.
-  `dispatchEvent` (and `decideEvent`) trust whatever reading an execute
-  carries: only the judge replaces it, so hosts must judge through the
-  judge-event feature (`openProject`'s judge), never dispatch a host's event
-  themselves.
-- **`readWithinMs` (2000 by default) bounds reading the whole event**: every
-  execute of a call is read at once, and each still unread at the bound is
-  unread, timed out. A synchronous throw from `read` or `prepare` is handled
+- **The trust model.** The host adapter is trusted code; the model's tool
+  input is the untrusted part, and what is judged. So the host adapter
+  reads every execute effect's command with bounded's reader when it
+  translates the host's payload into the core's event, and puts the reading
+  on the effect; the core checks the reading's shape and judges with it as
+  given.
+- **`ReadShellCommand`**, the reader library's in port
+  (`src/lib/shell-command-reader/application/shell-commands/read-shell-command/`),
+  is what a host calls. `prepare()` starts the reader's preparation once and
+  never rejects: a preparation that fails, throws or never settles is let
+  go, and reading works unprepared or says why it cannot.
+  `read({ projectRoot, command, cwd })` gives the reading's wire form and
+  never rejects: an input that is no command (a blank command, a directory
+  outside the project, a relative root) is unread with its parse error, and
+  the reader is not asked; otherwise the reader's answer is parsed by
+  `ShellCommandReading.parse`. A synchronous throw from the reader is handled
   as a rejection.
-- **The whys, exactly:** no reader: "this project was opened without a shell
-  command reader: the host passes one to openProject"; a rejection: its
-  message (the tree-sitter reader's is "bounded's shell parser could not load
-  (<cause>)"); an answer that is not a reading: "the shell command reader
-  gave a reading that cannot be used: <error>"; too slow: "reading the
-  command did not finish within <n> ms (timed out)". The core never refuses
-  for an unread reading; a pack that needs one refuses (fail closed).
-- **Tool results carry no reading**: `ToolResult.parse` refuses one ("A tool
-  result's execute effects carry no reading: bounded reads a command only
-  when it judges it"), and results are never read.
+- **Two bounds.** `readWithinMs` (2000 by default) bounds the reader's work
+  on one command; each command of a call is read under it. A read started
+  while the reader's preparation is in flight first waits for it, up to
+  `prepareWithinMs` (5000 by default, the packs' own bound for their work
+  when a project opens), before its own bound starts. Each bound that is not
+  a finite number of milliseconds above zero is a RangeError.
+- **The whys, exactly:** a rejection: its message (the tree-sitter reader's
+  is "bounded's shell parser could not load (<cause>)"); an answer that is
+  not a reading: "the shell command reader gave a reading that cannot be
+  used: <error>"; too slow: "reading the command did not finish within <n>
+  ms (timed out)".
+- **The cold start.** Claude Code runs each hook in a new process, so its
+  first read waits for the grammar: at most `prepareWithinMs` (5 s) then
+  `readWithinMs` (2 s), within the hook's 20 s deadline. pi prepares at
+  session start, so its calls normally find the grammar loaded; a call made
+  while loading still runs waits for it (up to `prepareWithinMs`) and is
+  blocked (fail closed) only if loading outruns pi's 3 s decision deadline.
+  A preparation that never settles is cached and never retried, so every
+  later shell call in that pi process waits up to 5 s for it and is blocked.
+- **The host's decision deadline covers the whole call**: reading its
+  commands and deciding, on both hosts, as before the correction.
+- **The core's part.** `Effect.parse` requires the reading and checks its
+  shape. An execute without one makes the event one that cannot be read:
+  the judge refuses it ("The host sent an event that cannot be read: …") and
+  records it as invalid. The judge passes readings through untouched, and
+  the core never refuses for an unread reading; a pack that needs one
+  refuses (fail closed).
 
-### The untagged port and R2 across contexts
+### The reader's port
 
-`ShellCommandReader` is untagged, as `HostInstaller` is, so the core's
-sources name no reader. R2 (`implementedByViolations`) lets an out adapter
-in another context implement an untagged port of an application contract
-only when the port's suite (`suitePathOf`) exists beside the contract and a
-test beside the adapter imports it through an export path of the declaring
-package. An untagged port implemented in its own context is still refused.
+`ShellCommandReader` (`prepare()`, `read(projectRoot, command, cwd)`) is
+declared in the reader library's `read-shell-command.contract.ts`, the out
+port of `ReadShellCommand`, and tagged `@implementedBy
+TreeSitterShellCommandReader`, so R2 holds it as any tagged port: its
+adapter runs its conformance suite. The core declares no reader. R2's
+provision for an adapter in another context implementing an untagged port
+of an application contract (`implementedByViolations`: the port's suite,
+`suitePathOf`, beside the contract, and a test beside the adapter importing
+it through an export path of the declaring package) is kept, and has no
+user now. An untagged port implemented in its own context is still refused.
 
 ### The reader's context
 
-- **`contexts/shell-command-reader`, package `bounded-shell-command-reader`
+- **`src/lib/shell-command-reader`, package `bounded-shell-command-reader`
   (private, at the lockstep version)** owns the bash syntax tree and its
   walk, the command-meanings table (an opinion about tools, kept out of the
-  core package), tree-sitter (`@vscode/tree-sitter-wasm`, pinned), and
-  `TreeSitterShellCommandReader`. The core keeps only the port, the shape and
-  the wiring, so "the core names no tool" stays literally true. Rejected: the
-  reader in the core's own `adapters/out/`, and a carve-out inside the core
-  package.
-- **Layout:** `src/domain/` (pure, importing only `bounded/domain`):
+  core package), tree-sitter (`@vscode/tree-sitter-wasm`, pinned),
+  `TreeSitterShellCommandReader`, its `ShellCommandReader` port and the
+  `ReadShellCommand` feature. The core keeps only the shape, so "the core
+  names no tool" stays literally true. Rejected: the reader in the core's
+  own `adapters/out/`, and a carve-out inside the core package.
+- **Layout:** `domain/` (pure, importing only `bounded/domain`):
   `shell-command.*` (the syntax-tree types and `describeShellCommand`) and
-  `command-meanings.*`; `src/adapters/out/shell-command-reader/`: the class,
-  and helpers exporting only functions and types (`bash-syntax-tree.ts`,
-  the grammar loaded once per process and a synchronous parse;
-  `brace-expansion.ts`; `path-kinds.ts`); `src/composition-root/`: end-to-end
-  tests only; no application layer. The constructor takes
-  `{ pathKindOf?, loadGrammar? }`.
-- **One export, `./adapters`.** Its adapters reach its own domain by
-  relative path: a context's layers import each other through the package's
-  export path for the layer when it has one, and this package exports none
-  for its domain (the architecture test's import rule says so).
+  `command-meanings.*`; `application/shell-commands/read-shell-command/`:
+  the feature's contract, command, handler and the port's conformance
+  suite; `adapters/out/shell-command-reader/`: the class, and helpers
+  exporting only functions and types (`bash-syntax-tree.ts`, the grammar
+  loaded once per process and a synchronous parse; `brace-expansion.ts`;
+  `path-kinds.ts`); `composition-root/shell-command-reading.ts`:
+  `openShellCommandReading`, and the end-to-end tests. The adapter's
+  constructor takes `{ pathKindOf?, loadGrammar? }`.
+- **Three exports:** `./adapters`, `./application` and
+  `./shell-command-reading` (the composition root). Its adapters reach its
+  own domain by relative path: a context's layers import each other through
+  the package's export path for the layer when it has one, and this package
+  exports none for its domain (the architecture test's import rule says
+  so). Hosts import values only from `./shell-command-reading` in their
+  non-test code; their tests may import `./application`.
 - The grammar hangs a redirection after `a && b` (or `a | b`) on the whole
   list; the reader gives it to the last command, as the shell does, so
   `cd sub && echo x > out.txt` writes `sub/out.txt`.
@@ -266,56 +307,77 @@ package. An untagged port implemented in its own context is still refused.
 
 - `bounded` publishes the reader as `./shell-command-reader`
   (`{ types, default }`, only in dist, like `./hosts/*`), built by
-  `build-dist.ts` from the private context with `bounded/*` and
-  `@vscode/tree-sitter-wasm` external, its declarations emitted by
-  `tsconfig.types.json` (which gains the context's adapter entry) and placed
-  at `dist/types/shell-command-reader/`. Third-party hosts keep the shell
-  reading bounded's hosts have.
+  `build-dist.ts` from the reader's composition root,
+  `composition-root/shell-command-reading.ts`: `openShellCommandReading`,
+  `ReadShellCommandHandler`, `ReadShellCommandCommand`,
+  `TreeSitterShellCommandReader` and their types. Third-party hosts read
+  shell commands as bounded's hosts do.
+- **Building the reader's entry,** its imports of its own package's export
+  paths (`bounded-shell-command-reader/application`, `/adapters`) resolve to
+  their sources, so they are built in; `bounded/*` and
+  `@vscode/tree-sitter-wasm` stay external.
 - **The hosts reach it through that export, not by inlining.** In source they
-  import `bounded-shell-command-reader/adapters`; build-dist keeps every bare
-  specifier external and maps that one private export path, by a plugin, to a
-  module re-exporting `bounded/shell-command-reader`'s values. dist holds one
-  copy of the reader, and its import check still refuses any other private
-  package.
+  import `bounded-shell-command-reader/shell-command-reading`; build-dist
+  keeps every bare specifier external and maps that one private export path,
+  by a plugin, to a module re-exporting `bounded/shell-command-reader`'s
+  values. dist holds one copy of the reader, and its import check still
+  refuses any other private package.
+- **Declarations** are emitted by `tsconfig.types.json`, which names the
+  reader's composition root, and placed at `dist/types/shell-command-reader/`
+  with an index re-rooted from it. Each `bounded-shell-command-reader/<path>`
+  specifier in them is rewritten to the relative path of that export's
+  declaration, so no published declaration names the private package.
 - `bounded` keeps `@vscode/tree-sitter-wasm` as a dependency, for that dist
-  file; no file under `contexts/core/src` imports it.
+  file; no file under `src/core` or `src/packs` imports it.
 
 ### The published suite
 
-The suite every reader runs, `judge-event.shell-command-reader.test-support.ts`,
-is published as `bounded/testing/shell-command-reader-conformance`
-(`{ bun, types }`): the port is public with a published reader, and a host
-with another shell, or a third party, writes its own reader and must run
-it, as with the host-installer suite. It names only made-up programs. The
-tarball keeps it by narrowing the guard-log test-support exclusion.
+The suite every reader runs,
+`read-shell-command.shell-command-reader.test-support.ts` in the reader's
+`read-shell-command` feature, is published as
+`bounded/testing/shell-command-reader-conformance` (`{ bun, types }`): the
+port is public with a published reader, and a host with another shell, or a
+third party, writes its own reader and must run it, as with the
+host-installer suite. It names only made-up programs. bounded's tarball
+ships that file and the contract it imports its port from, and nothing else
+of the library's sources.
 
 ### The hosts' wiring
 
-- `openProject(root, options)` requires `shellCommandReader` (a
-  compile-time line rejects leaving it out); the feature's option stays
-  optional. An untyped caller that omits it, or the options entirely, still
-  gets a judge, never a throw: every command is judged unread.
-- `OpenProjectHandler` prepares the reader alongside `lifecycle.open`, under
-  `prepareWithinMs` or `ProjectLifecycleHandler.DEFAULT_PREPARE_WITHIN_MS`,
-  and lets a failure go: reading works unprepared, or says why it cannot.
-- Both hosts open with `{ ports: [...pathGatePortProvisions(),
-  ...prereqsPortProvisions()], shellCommandReader }`, one module-level
-  `TreeSitterShellCommandReader` each. `apps/claude-code` and `apps/pi`
-  depend on the private package; `apps/cli` has it as a devDependency, for
-  a test. An app's tests may import its devDependencies; its other files may
-  not ("… (devDependencies serve its tests only)").
+- `openProject(root, options)` takes no reader; its options may be left out.
+  Both hosts open with `{ ports: [...protectedPathsPortProvisions(),
+  ...prereqsPortProvisions()] }`.
+- **Claude Code.** The composition root holds one module-level
+  `openShellCommandReading()`; `composeHook` takes an optional
+  `readShellCommand` (that one by default) and starts its `prepare()` once,
+  without waiting. `toToolUse` reads each execute effect after resolving its
+  directory. PreToolUse reads inside the hook's deadline; PostToolUse starts
+  its deadline before translating and reading the call again.
+- **pi.** `translate` stays synchronous and pure, given the locator: it
+  gives the call's tool kind and effects, an execute's before its reading.
+  The extension takes a required `readShellCommand` (the composition root's
+  module-level `shellCommandReading`, passed by `bounded(root)`), starts its
+  `prepare()` at each session start without waiting, reads and decides each
+  call inside one decision deadline, and reads a finished call again before
+  its after-tool check, under the same deadline.
+- A host that cannot read gets an unread reading with its why, never an
+  omitted one, and the protected-paths pack refuses it.
+- The Claude Code and pi hosts depend on the private package; the cli has
+  it as a devDependency, for a test. An app's tests may import its
+  devDependencies; its other files may not ("… (devDependencies serve its
+  tests only)").
 
 ### The path gate
 
-It loses its `pathKinds` and `shellParser` ports, its `onProjectOpen` work,
-`shell-check.ts`, and its shell-command and command-meanings domain files
-and adapters; `pathGatePortProvisions()` gives two provisions. Its execute
-guard judges from `effect.reading`: reads, then lists, then writes, with
-today's messages. A null reading is refused ("the path gate cannot check
-shell commands: bounded did not read this command; openProject's judge,
-given a shell command reader, reads every command"), an unread one with its
-why; both redirect to opening the project with openProject and a reader.
-Drift (ADR 2026-011) is untouched.
+(Now the protected-paths pack, ADR 2026-021.) It loses its `pathKinds` and
+`shellParser` ports, its `onProjectOpen` work, `shell-check.ts`, and its
+shell-command and command-meanings domain files and adapters; its port
+provisions are two. Its execute guard judges from `effect.reading`, always
+present: reads, then lists, then writes, with today's messages. An unread
+reading is refused with its why; with no cause, its redirect is "Reinstall
+bounded's dependencies if its shell parser cannot load, then retry; shell
+commands are refused until the host adapter can read them", and a
+`too-complex` one keeps its own. Drift (ADR 2026-011) is untouched.
 
 ### The test moves
 
@@ -382,14 +444,40 @@ every moved or replaced case is recorded in `superseded-tests.json`.
 - **Behaviour:** a host built without the reader refuses every shell command
   where the path gate is selected.
 
+### 3.3.0 (the correction)
+
+3.3.0 is unreleased; the correction ships in it, with no aliases:
+
+- **API breaks:**
+  - `bounded/application`'s `ShellCommandReader` is gone: the port is
+    `bounded/shell-command-reader`'s, with `ReadShellCommand`,
+    `ReadShellCommandHandler` and `openShellCommandReading`;
+  - `openProject`'s `shellCommandReader` option is gone, and its options may
+    be left out; `OpenProjectHandler`'s (`bounded/application`) is gone too;
+  - `JudgeEventHandler`'s `shellCommandReader`, `projectRoot` and
+    `readWithinMs` options and its `DEFAULT_READ_WITHIN_MS` are gone;
+  - `ExecuteEffect.reading` is never null, and `ExecuteEffectJSON.reading`
+    is required;
+  - `bounded/hosts/pi`'s `translate` gives the call before its readings
+    (`PiCall`), and `piExtension` (its `ExtensionOptions`) takes a required
+    `readShellCommand`.
+- **Behaviour breaks:**
+  - a host that sends an execute effect without a reading, as every 3.2.0
+    host did, has each such call refused as an event that cannot be read,
+    and recorded as invalid;
+  - a tool result's execute effects must now carry a reading too, where
+    3.2.0 refused one.
+
 ## Consequences
 
 - The lockstep versions are five: `bounded`, the three apps and
-  `contexts/shell-command-reader` (docs/releasing.md).
-- ADR 2026-006: an execute effect carries a reading; results carry none.
+  the reader's context (docs/releasing.md).
+- ADR 2026-006: an execute effect carries a required reading, built by the
+  host adapter; results carry one too, read again after the call.
 - ADR 2026-009: shell parsing moves to the reader's context; the path gate
-  judges from the reading.
-- ADR 2026-010: `openProject` requires a shell command reader.
+  judges from the reading the host adapter gave the execute effect.
+- ADR 2026-010: `openProject` takes no reader: the host adapter builds each
+  command's reading.
 - ADR 2026-013: the path gate's ports are watched files and shell snapshots.
 - ADR 2026-016: build-dist carries the reader's context and maps its export
   path; the export list gains `./shell-command-reader` and

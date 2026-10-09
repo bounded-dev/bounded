@@ -1,10 +1,11 @@
-// One hook call, stdin to stdout. PreToolUse: read, translate, resolve,
-// decide, answer. It fails closed: whatever goes wrong is a deny, never an
+// One hook call, stdin to stdout. PreToolUse: read, translate, resolve, read
+// each shell command, decide, answer, all within the hook's deadline. It fails closed: whatever goes wrong is a deny, never an
 // empty answer, which Claude Code would read as allow; a deny the hook makes
 // itself is also recorded. PostToolUse and PostToolUseFailure (a call that
 // failed, such as a command exiting 1): the finished call is checked after
 // the fact, and what bounded undid, or could not check, is told to Claude.
 import { type Refuse, type Result, ToolResult, Verdict } from "bounded/domain";
+import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import { type PathResolver, type ToolUse, toToolUse } from "./event.ts";
 import { isRecord } from "./json.ts";
 import { agentRunFinished, type Payload, readPayload, translate } from "./translate.ts";
@@ -39,7 +40,9 @@ export interface Hook {
   readonly role: string | null;
   readonly decide: Decide;
   readonly paths: PathResolver;
-  /** How long decide may take before the call is denied: below Claude Code's timeout for the hook. */
+  /** Reads each shell command into the reading its execute effect carries (ADR 2026-020). */
+  readonly readShellCommand: ReadShellCommand;
+  /** How long reading the call's shell commands and deciding may take before the call is denied: below Claude Code's timeout for the hook. */
   readonly deadlineMs: number;
   /** Checks a finished call; without it, PostToolUse and PostToolUseFailure answer nothing. */
   readonly afterTool?: AfterTool;
@@ -77,10 +80,11 @@ export async function runHook(stdin: string, hook: Hook): Promise<string> {
   }
 }
 
-async function verdictFor(stdin: string, { projectRoot, role, decide, paths }: Hook, refused: (verdict: Refuse) => Refuse): Promise<Verdict> {
+async function verdictFor(stdin: string, hook: Hook, refused: (verdict: Refuse) => Refuse): Promise<Verdict> {
+  const { projectRoot, decide } = hook;
   const payload = readPayload(stdin);
   if (!payload.ok) return refused(payload.error);
-  const event = toolUseOf(payload.value, { projectRoot, role, paths });
+  const event = await toolUseOf(payload.value, hook);
   if (!event.ok) return refused(event.error);
   // decide may be untyped code: hold what it returns to the verdict's form.
   const verdict: Result<Verdict> = Verdict.parse(await decide(event.value, { projectRoot }));
@@ -102,25 +106,30 @@ async function afterToolUse(stdin: string, hook: Hook, event: "PostToolUse" | "P
   if (afterTool === undefined) return "";
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const payload = readPayload(stdin, event);
-    if (!payload.ok) throw new Error(payload.error.reason);
-    const use = toolUseOf(payload.value, hook);
-    const response = peek(stdin, "tool_response");
-    // An Agent call's run finished only when its response says so; a failure never says so.
-    const delegates = use.ok ? use.value.effects.filter((effect) => effect.kind === "delegate").length : 0;
-    const finished = event === "PostToolUse" && agentRunFinished(response);
-    const result = ToolResult.parse({
-      ...(use.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: payload.value.tool_name }] }),
-      kind: "tool-result",
-      ok: event === "PostToolUse" && !(isRecord(response) && response.success === false),
-      ...(payload.value.callId === undefined ? {} : { callId: payload.value.callId }),
-      ...(delegates === 0 ? {} : { delegatedAgentRuns: Array.from({ length: delegates }, () => ({ finished })) }),
-    });
-    if (!result.ok) throw new Error(result.error);
+    // The deadline covers reading the call's shell commands again as well as the check.
     const late = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`no answer within ${deadlineMs} ms`)), deadlineMs);
     });
-    const checked = await Promise.race([afterTool(result.value, { projectRoot }), late]);
+    const check = async (): Promise<{ readonly message: string | null }> => {
+      const payload = readPayload(stdin, event);
+      if (!payload.ok) throw new Error(payload.error.reason);
+      // The result's commands are read again, after the call: the files they name may now exist.
+      const use = await toolUseOf(payload.value, hook);
+      const response = peek(stdin, "tool_response");
+      // An Agent call's run finished only when its response says so; a failure never says so.
+      const delegates = use.ok ? use.value.effects.filter((effect) => effect.kind === "delegate").length : 0;
+      const finished = event === "PostToolUse" && agentRunFinished(response);
+      const result = ToolResult.parse({
+        ...(use.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: payload.value.tool_name }] }),
+        kind: "tool-result",
+        ok: event === "PostToolUse" && !(isRecord(response) && response.success === false),
+        ...(payload.value.callId === undefined ? {} : { callId: payload.value.callId }),
+        ...(delegates === 0 ? {} : { delegatedAgentRuns: Array.from({ length: delegates }, () => ({ finished })) }),
+      });
+      if (!result.ok) throw new Error(result.error);
+      return afterTool(result.value, { projectRoot });
+    };
+    const checked = await Promise.race([check(), late]);
     return checked.message === null ? "" : tell(event, checked.message);
   } catch (thrown) {
     const reason = `bounded could not check protected files after this call: ${message(thrown)}. Check them against version control.`;
@@ -131,10 +140,10 @@ async function afterToolUse(stdin: string, hook: Hook, event: "PostToolUse" | "P
   }
 }
 
-function toolUseOf(payload: Payload, { projectRoot, role, paths }: Pick<Hook, "projectRoot" | "role" | "paths">): Result<ToolUse, Refuse> {
+async function toolUseOf(payload: Payload, { projectRoot, role, paths, readShellCommand }: Pick<Hook, "projectRoot" | "role" | "paths" | "readShellCommand">): Promise<Result<ToolUse, Refuse>> {
   const call = translate(payload);
   if (!call.ok) return call;
-  return toToolUse(call.value, { role, cwd: payload.cwd ?? projectRoot, paths, ...(payload.callId === undefined ? {} : { callId: payload.callId }) });
+  return toToolUse(call.value, { role, cwd: payload.cwd ?? projectRoot, paths, projectRoot, readShellCommand, ...(payload.callId === undefined ? {} : { callId: payload.callId }) });
 }
 
 /** Hands `verdict` to the hook's recorder, without waiting or letting it fail the answer, and returns it. */

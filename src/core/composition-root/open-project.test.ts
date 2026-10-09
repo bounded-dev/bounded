@@ -7,12 +7,7 @@ import type { BoundedLog } from "bounded/application";
 import { Composition, type Decision, Verdict } from "bounded/domain";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { openProject } from "./open-project.ts";
-import { fixedShellCommandReader, readingOf, UNREAD_SAMPLE } from "./shell-command-reader.test-support.ts";
-
-/** Commands read as unread: these tests do not run shell commands through the protected-paths pack. */
-const unread = fixedShellCommandReader(UNREAD_SAMPLE);
-/** The drift tests' command, read as running ./regenerate.sh and naming no file. */
-const regenerating = fixedShellCommandReader(readingOf("./regenerate.sh"));
+import { readingOf, UNREAD_SAMPLE } from "./shell-command-reading-samples.test-support.ts";
 
 const CORE = resolve(import.meta.dir, "../..");
 // Snapshots go to the user's state directory: a temporary one here.
@@ -41,7 +36,7 @@ const log = (root: string): { event: string; verdict: { kind: string } }[] =>
 describe("openProject — what a host's composition root calls", () => {
   test("judges events with the project's bounded.config.ts and records them in .bounded/log.jsonl", async () => {
     const root = project({ "bounded.config.ts": CONFIG });
-    const { judge, problem } = await openProject(root, { shellCommandReader: unread });
+    const { judge, problem } = await openProject(root);
     expect(problem).toBeNull();
     const refused = await judge({ kind: "tool-use", role: "builder", tool: "edit", effects: [{ kind: "write", path: "generated/a.ts", change: "modify" }] });
     expect<unknown>(refused).toEqual({ kind: "refuse", reason: "bounded/project refused write (modify) generated/a.ts: Generated", redirect: "Change the generator's input" });
@@ -54,7 +49,7 @@ describe("openProject — what a host's composition root calls", () => {
     mkdirSync(join(root, ".bounded"));
     const old = join(root, ".bounded", "guard-log.jsonl");
     writeFileSync(old, '{"earlier":true}\n');
-    const { judge } = await openProject(root, { shellCommandReader: unread });
+    const { judge } = await openProject(root);
     await judge({ kind: "session-start", role: null });
     expect(readFileSync(old, "utf8")).toBe('{"earlier":true}\n');
     expect(log(root).length).toBe(1);
@@ -68,7 +63,7 @@ describe("openProject — what a host's composition root calls", () => {
         recorded.push(decision);
       },
     };
-    const { judge } = await openProject(root, { boundedLog, shellCommandReader: unread });
+    const { judge } = await openProject(root, { boundedLog });
     await judge({ kind: "session-start", role: null });
     expect(recorded.length).toBe(1);
     expect(existsSync(join(root, ".bounded", "log.jsonl"))).toBe(false);
@@ -77,14 +72,14 @@ describe("openProject — what a host's composition root calls", () => {
 
   test("an event that cannot be read is refused and recorded", async () => {
     const root = project({ "bounded.config.ts": CONFIG });
-    const { judge } = await openProject(root, { shellCommandReader: unread });
+    const { judge } = await openProject(root);
     expect((await judge("not an event")).kind).toBe("refuse");
     expect(log(root).map((line) => line.event)).toEqual(["invalid"]);
   });
 
   test("a project with a broken configuration refuses every event and records why", async () => {
     const root = project({ "bounded.config.ts": "export default 42;\n" });
-    const { judge, problem } = await openProject(root, { shellCommandReader: unread });
+    const { judge, problem } = await openProject(root);
     expect(problem).toBe("bounded.config.ts must export default defineConfig({ packs: [...] }); its default export is a number");
     const verdict = await judge({ kind: "session-start", role: null });
     expect(verdict.kind === "refuse" && verdict.reason).toBe(`This project's configuration cannot be used: ${problem}`);
@@ -93,14 +88,14 @@ describe("openProject — what a host's composition root calls", () => {
 
   test("never rejects: a bound that cannot be used gives a judge that refuses everything", async () => {
     const root = project({ "bounded.config.ts": CONFIG });
-    const { judge, problem } = await openProject(root, { recordWithinMs: 0, shellCommandReader: unread });
+    const { judge, problem } = await openProject(root, { recordWithinMs: 0 });
     expect(problem).toBe("recordWithinMs must be a finite number of milliseconds above zero");
     expect((await judge({ kind: "session-start", role: null })).kind).toBe("refuse");
   });
 
   test("never rejects: a configuration source that returns no result gives a judge that refuses everything, and records it", async () => {
     const root = project({});
-    const { judge, problem } = await openProject(root, { configSource: { load: async () => null as never }, shellCommandReader: unread });
+    const { judge, problem } = await openProject(root, { configSource: { load: async () => null as never } });
     expect(problem).toBe("the configuration source returned no result");
     expect((await judge({ kind: "session-start", role: null })).kind).toBe("refuse");
     expect(log(root).map((line) => line.verdict.kind)).toEqual(["refuse"]);
@@ -118,7 +113,7 @@ export default defineConfig({
 });
 `;
     const root = project({ "bounded.config.ts": tampering });
-    const { judge, problem } = await openProject(root, { shellCommandReader: unread });
+    const { judge, problem } = await openProject(root);
     expect(problem).toBeNull();
     const verdict = await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path: "a.ts", change: "modify" }] });
     expect(verdict.kind).toBe("refuse");
@@ -142,8 +137,8 @@ export default defineConfig({
     git("init", "--quiet");
     git("add", "-A");
     git("commit", "--quiet", "-m", "base");
-    const { judge, afterTool } = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: regenerating });
-    const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_1" };
+    const { judge, afterTool } = await openProject(root, { ports: protectedPathsPortProvisions() });
+    const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", reading: readingOf("./regenerate.sh") }], callId: "toolu_1" };
     expect((await judge(shell)).kind).toBe("allow");
     writeFileSync(join(root, "generated", "a.ts"), "tampered\n");
     writeFileSync(join(root, "generated", "new.ts"), "created\n");
@@ -179,8 +174,8 @@ export default defineConfig({
       git("init", "--quiet");
       git("add", "-A");
       git("commit", "--quiet", "-m", "base");
-      const opened = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: regenerating });
-      const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh" }], callId: "toolu_weird" };
+      const opened = await openProject(root, { ports: protectedPathsPortProvisions() });
+      const shell = { kind: "tool-use", role: "builder", tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", reading: readingOf("./regenerate.sh") }], callId: "toolu_weird" };
       expect((await opened.judge(shell)).kind).toBe("allow");
       return { root, after: () => opened.afterTool({ ...shell, kind: "tool-result", ok: true }) };
     }
@@ -220,7 +215,7 @@ export default defineConfig({
 });
 `;
     const root = realpathSync(project({ "bounded.config.ts": config }));
-    const { judge, problem } = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: unread });
+    const { judge, problem } = await openProject(root, { ports: protectedPathsPortProvisions() });
     expect(problem).toBeNull();
     const edit = (path: string) => judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
     const refused = await edit("generated/a.ts");
@@ -229,38 +224,37 @@ export default defineConfig({
   });
 
   test("a root that is not an absolute path gives a judge that refuses everything", async () => {
-    const { judge, problem } = await openProject("relative/root", { shellCommandReader: unread });
+    const { judge, problem } = await openProject("relative/root");
     expect(problem).toBe("A project root is an absolute directory path, such as /home/me/project");
     expect((await judge({ kind: "session-start", role: null })).kind).toBe("refuse");
   });
 
-  test("an untyped caller that omits the shell command reader gets every shell command refused, saying the host passes one", async () => {
+  test("a shell command without a reading is refused as an event that cannot be read, and recorded", async () => {
     const config = `import { corePack, defineConfig } from "bounded/domain";
 import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({ packs: [corePack, protectedPathsPack] });
 `;
     const root = realpathSync(project({ "bounded.config.ts": config }));
-    const untyped = openProject as (root: string, options?: object) => ReturnType<typeof openProject>;
-    const { judge, problem } = await untyped(root, { ports: protectedPathsPortProvisions() });
+    const { judge, problem } = await openProject(root, { ports: protectedPathsPortProvisions() });
     expect(problem).toBeNull();
     const verdict = await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], callId: "call-1" });
-    expect(verdict.kind === "refuse" && verdict.reason).toBe(
-      "bounded/protected-paths refused execute `ls`: the protected-paths pack cannot check shell commands: this project was opened without a shell command reader: the host passes one to openProject",
-    );
+    expect(verdict.kind === "refuse" && verdict.reason.startsWith("The host sent an event that cannot be read: ")).toBe(true);
+    expect(log(root).map((line) => [line.event, line.verdict.kind])).toEqual([["invalid", "refuse"]]);
   });
 
-  test("an untyped caller that omits the options entirely gets a judge, not a throw, and every shell command refused", async () => {
+  test("openProject's options may be left out: the judge decides each command with the reading the host gave", async () => {
     const config = `import { contribution, corePack, defineConfig, Verdict } from "bounded/domain";
 export default defineConfig({
   packs: [corePack],
-  contributes: [contribution(corePack.points.effectGuards.execute, [(effect) => (effect.reading?.outcome === "unread" ? Verdict.refuse(effect.reading.why, "Pass a shell command reader") : Verdict.allow)])],
+  contributes: [contribution(corePack.points.effectGuards.execute, [(effect) => (effect.reading.outcome === "unread" ? Verdict.refuse(effect.reading.why, "Read the command first") : Verdict.allow)])],
 });
 `;
     const root = realpathSync(project({ "bounded.config.ts": config }));
-    const untyped = openProject as (root: string, options?: object) => ReturnType<typeof openProject>;
-    const { judge, problem } = await untyped(root);
+    const { judge, problem } = await openProject(root);
     expect(problem).toBeNull();
-    const verdict = await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls" }], callId: "call-1" });
-    expect(verdict.kind === "refuse" && verdict.reason).toBe("bounded/project refused execute `ls`: this project was opened without a shell command reader: the host passes one to openProject");
+    const shell = (reading: object) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", reading }], callId: "call-1" });
+    expect((await shell(readingOf("ls"))).kind).toBe("allow");
+    const refused = await shell(UNREAD_SAMPLE);
+    expect(refused.kind === "refuse" && refused.reason).toBe(`bounded/project refused execute \`ls\`: ${UNREAD_SAMPLE.why}`);
   });
 });

@@ -16,7 +16,7 @@ describe("corePack — the core's own pack", () => {
 
   test("effectGuards has one point per effect kind Effect.parse accepts", () => {
     const kinds = ["read", "list", "write", "execute", "fetch", "delegate", "invoke"];
-    const samples = [{ path: "a" }, { root: "a" }, { path: "a", change: "create" }, { command: "ls" }, { url: "https://x.test" }, { agent: "helper" }, { name: "skill" }];
+    const samples = [{ path: "a" }, { root: "a" }, { path: "a", change: "create" }, { command: "ls", reading: { outcome: "unread", why: "the parser could not load" } }, { url: "https://x.test" }, { agent: "helper" }, { name: "skill" }];
     expect(kinds.map((kind, i) => Effect.parse({ kind, ...samples[i] }).ok)).toEqual(kinds.map(() => true));
     expect(Effect.parse({ kind: "teleport" }).ok).toBe(false);
     expect(Object.keys(corePack.points.effectGuards).sort()).toEqual([...kinds].sort());

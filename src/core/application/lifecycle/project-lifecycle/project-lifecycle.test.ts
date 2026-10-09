@@ -37,8 +37,8 @@ function parsed<T>(result: { ok: true; value: T } | { ok: false; error: string }
   if (!result.ok) throw new Error(result.error);
   return result.value;
 }
-const call = parsed(ToolUse.parse({ role: "builder", tool: "shell", callId: "c1", effects: [{ kind: "execute", command: "make" }] }));
-const result = parsed(ToolResult.parse({ role: "builder", tool: "shell", callId: "c1", ok: true, effects: [{ kind: "execute", command: "make" }] }));
+const call = parsed(ToolUse.parse({ role: "builder", tool: "shell", callId: "c1", effects: [{ kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } }] }));
+const result = parsed(ToolResult.parse({ role: "builder", tool: "shell", callId: "c1", ok: true, effects: [{ kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } }] }));
 
 function lifecycle(packs: readonly BasePack[], log: BoundedLog = new Log()) {
   const composition = parsed(Composition.compose([corePack, ...packs], [corePack, ...packs]));

@@ -7,6 +7,6 @@
     "rootDir": ".",
     "outDir": "dist/types-emitted"
   },
-  "include": ["core/**/*.ts", "packs/**/*.ts", "lib/shell-command-reader/adapters/out/index.ts"],
+  "include": ["core/**/*.ts", "packs/**/*.ts", "lib/shell-command-reader/composition-root/shell-command-reading.ts"],
   "exclude": ["**/*.test.ts", "**/*.test-support.ts", "**/fixtures/**", "core/test/**"]
 }

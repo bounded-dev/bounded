@@ -60,9 +60,8 @@ feature keep their names.
   with `JudgeEventCommand.parse`, and `execute` takes the parsed command. Input
   that is not a command is refused by `judge` without throwing and recorded
   as an `invalid` decision.
-- **Shell commands are read before judging** (ADR 2026-020): judge-event
-  reads each execute effect's command through the `ShellCommandReader` port
-  before the guards run.
+- **Execute effects arrive with their reading** (ADR 2026-020): the host
+  adapter builds it, and the judge decides with it as given.
 - **A decision is plain data** (ADR 2026-008): time, event kind, role, tool,
   the effects described and the verdict; a refusal names the refusing pack and
   effect.

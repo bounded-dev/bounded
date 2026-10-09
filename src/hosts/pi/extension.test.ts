@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ToolResult, Verdict } from "bounded/domain";
+import { type ShellCommandReadingJSON, type ToolResult, Verdict } from "bounded/domain";
+import { ReadShellCommandHandler, type ShellCommandReader } from "bounded-shell-command-reader/application";
+import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import type { ToolUse } from "./event.ts";
 import { type AdapterRefusal, type ProjectJudgeForPi, type ExtensionOptions, type LoadJudge, type Pi, type PiHandler, piExtension } from "./extension.ts";
 import { bounded } from "./index.ts";
@@ -41,9 +43,21 @@ const noGenerated: ProjectJudgeForPi = async (event) => {
 const loads = (decide: ProjectJudgeForPi): LoadJudge => async () => decide;
 const never = <T>(): Promise<T> => new Promise<T>(() => {});
 
-async function started(load: LoadJudge, deadlines: Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs" | "composeBackoffMs"> = {}) {
+/** The reading the stand-in reader gives every command: one running tool-a from the project root. */
+const READ: ShellCommandReadingJSON = { outcome: "read", programs: [{ name: { kind: "literal", text: "tool-a" }, arguments: [], workingDirectory: "." }], fileEffects: [], unresolved: [] };
+/** What the stand-in reader was asked to read, in order. */
+const reads: unknown[] = [];
+const readShellCommand: ReadShellCommand = {
+  prepare: async () => {},
+  read: async (input) => {
+    reads.push(input);
+    return READ;
+  },
+};
+
+async function started(load: LoadJudge, deadlines: Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs" | "composeBackoffMs"> = {}, reader: ReadShellCommand = readShellCommand) {
   const fake = fakePi();
-  piExtension({ projectRoot: project, load, home: "/home/agent", ...deadlines })(fake.pi);
+  piExtension({ projectRoot: project, load, readShellCommand: reader, home: "/home/agent", ...deadlines })(fake.pi);
   await fake.start();
   return fake;
 }
@@ -51,7 +65,7 @@ async function started(load: LoadJudge, deadlines: Pick<ExtensionOptions, "deadl
 describe("piExtension — end to end through a fake pi", () => {
   test("registers for session_start, tool_call and tool_result only", () => {
     const fake = fakePi();
-    piExtension({ projectRoot: project, load: loads(noGenerated) })(fake.pi);
+    piExtension({ projectRoot: project, load: loads(noGenerated), readShellCommand })(fake.pi);
     expect([...fake.handlers.keys()].sort()).toEqual(["session_start", "tool_call", "tool_result"]);
   });
 
@@ -90,7 +104,69 @@ describe("piExtension — end to end through a fake pi", () => {
   test("a shell call's execute effect carries the session's directory, project-relative", async () => {
     const fake = await started(loads(noGenerated));
     await fake.call("bash", { command: "ls" }, { cwd: join(project, "generated") });
-    expect(wireOf(seen.at(-1))).toEqual({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "generated" }], callId: "1" });
+    expect(wireOf(seen.at(-1))).toEqual({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "ls", cwd: "generated", reading: READ }], callId: "1" });
+  });
+
+  test("a shell call's tool use carries the reading the reader gave, read from the project's root and the session's directory", async () => {
+    const fake = await started(loads(noGenerated));
+    reads.length = 0;
+    expect(await fake.call("bash", { command: "ls" }, { cwd: join(project, "generated") })).toBeUndefined();
+    expect(reads).toEqual([{ projectRoot: project, command: "ls", cwd: "generated" }]);
+    const [effect] = seen.at(-1)?.effects ?? [];
+    expect(effect?.kind === "execute" && effect.reading.toJSON()).toEqual(READ);
+  });
+
+  test("the reader's preparation starts at each session start, without holding the session up", async () => {
+    let prepared = 0;
+    const counting: ReadShellCommand = {
+      prepare: () => {
+        prepared++;
+        return never();
+      },
+      read: async () => READ,
+    };
+    const fake = await started(loads(noGenerated), {}, counting);
+    expect(prepared).toBe(1);
+    await fake.start();
+    expect(prepared).toBe(2);
+  });
+
+  test("a shell call made while the reader still prepares waits for it and is allowed when preparing ends within the deadline", async () => {
+    let prepared = false;
+    const loading: ShellCommandReader = {
+      prepare: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            prepared = true;
+            resolve();
+          }, 100),
+        ),
+      read: async () => {
+        if (!prepared) throw new Error("read before the grammar loaded");
+        return READ;
+      },
+    };
+    const fake = await started(loads(noGenerated), { deadlineMs: 1000 }, new ReadShellCommandHandler(loading, { readWithinMs: 50 }));
+    expect(await fake.call("bash", { command: "ls" })).toBeUndefined();
+    const [effect] = seen.at(-1)?.effects ?? [];
+    expect(effect?.kind === "execute" && effect.reading.toJSON()).toEqual(READ);
+  });
+
+  test("reading and deciding share the decision's deadline", async () => {
+    let decided = false;
+    const hanging: ReadShellCommand = { prepare: async () => {}, read: () => never() };
+    const fake = await started(
+      loads(async () => {
+        decided = true;
+        return Verdict.allow;
+      }),
+      { deadlineMs: 50 },
+      hanging,
+    );
+    const result = await fake.call("bash", { command: "ls" });
+    expect(result).toMatchObject({ block: true });
+    expect((result as { reason: string }).reason).toContain("bounded did not decide within 50 ms on pi's bash call");
+    expect(decided).toBe(false);
   });
 
   test("an allowed call's input is frozen, so a later handler cannot change what was judged", async () => {
@@ -115,7 +191,39 @@ describe("piExtension — after a tool ran, and refusals the adapter makes", () 
       return { message: null };
     } }));
     expect(await fake.finished("bash", { command: "./regenerate.sh" })).toBeUndefined();
-    expect(wireOf(results)).toEqual([{ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: "." }], ok: true, callId: "1" }]);
+    expect(wireOf(results)).toEqual([{ kind: "tool-result", role: null, tool: "shell", effects: [{ kind: "execute", command: "./regenerate.sh", cwd: ".", reading: READ }], ok: true, callId: "1" }]);
+  });
+
+  test("a finished shell call reaches afterTool with its execute effect's reading", async () => {
+    const results: ToolResult[] = [];
+    const fake = await started(withExtras({ afterTool: async (result) => {
+      results.push(result);
+      return { message: null };
+    } }));
+    reads.length = 0;
+    expect(await fake.finished("bash", { command: "./regenerate.sh" })).toBeUndefined();
+    expect(reads).toEqual([{ projectRoot: project, command: "./regenerate.sh", cwd: "." }]);
+    const [effect] = results[0]?.effects ?? [];
+    expect(effect?.kind === "execute" && effect.reading.toJSON()).toEqual(READ);
+  });
+
+  test("a finished shell call whose re-read never settles is told, at the decision's deadline", async () => {
+    let checked = false;
+    const hanging: ReadShellCommand = { prepare: async () => {}, read: () => never() };
+    const fake = await started(
+      withExtras({
+        afterTool: async () => {
+          checked = true;
+          return { message: null };
+        },
+      }),
+      { deadlineMs: 50 },
+      hanging,
+    );
+    const result = (await fake.finished("bash", { command: "ls" })) as { content: { text: string }[]; isError: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content.at(-1)?.text).toContain("bounded could not check protected files after this call: no answer within 50 ms");
+    expect(checked).toBe(false);
   });
 
   test("what afterTool undid is added to the result pi gives the agent, marked as an error", async () => {
@@ -233,7 +341,7 @@ describe("piExtension — fails closed", () => {
 
   test("a tool call before any session start is blocked", async () => {
     const fake = fakePi();
-    piExtension({ projectRoot: project, load: loads(noGenerated) })(fake.pi);
+    piExtension({ projectRoot: project, load: loads(noGenerated), readShellCommand })(fake.pi);
     blocked(await fake.call("read", { path: "a.ts" }), "before the session started");
   });
 

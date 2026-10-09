@@ -75,7 +75,7 @@ host installer never contributes to a pack.
   missing from `<root>/node_modules` (an omitted devDependency, or a
   workspace that hoists packages elsewhere), or when a package's
   `./host-installer` does not export a valid installer.
-- An installer's answer is untrusted output from another package. The
+- An installer's answer is unchecked output from another package; the
   source parses it before the core uses it.
 - If installation ever needs per-project choices (which hosts, which
   roles), they come from the command line or the host adapter packages, not

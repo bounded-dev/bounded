@@ -1,12 +1,16 @@
-// End to end: a host opens a project with the protected-paths pack's ports and bounded's
-// shell command reader, as the hosts bounded carries do (ADR 2026-020).
+// End to end: a host opens a project with the protected-paths pack's ports,
+// and reads each shell command with bounded's shell command reader before
+// judging it, as the hosts bounded carries do (ADR 2026-020).
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
-import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
+import { openShellCommandReading } from "./shell-command-reading.ts";
+
+/** The reading every command in these tests is read with, as a host reads it. */
+const shellCommandReading = openShellCommandReading();
 
 const CORE = resolve(import.meta.dir, "../../..");
 // Snapshots go to the user's state directory: a temporary one here.
@@ -21,8 +25,7 @@ function project(files: Record<string, string>): string {
   return root;
 }
 
-describe("openProject with bounded's shell command reader", () => {
-  test("openProject, given a shell command reader, reads each command before the protected-paths pack judges it: reads by absolute path, and redirects judged by whether the file exists", async () => {
+describe("openProject with bounded's shell command reader", () => {  test("a host reads each command with openShellCommandReading before the protected-paths pack judges it: reads by absolute path, and redirects judged by whether the file exists", async () => {
     const config = `import { corePack, defineConfig, contribution } from "bounded/domain";
 import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({
@@ -39,10 +42,13 @@ export default defineConfig({
     mkdirSync(join(root, "migrations"));
     writeFileSync(join(root, "migrations", "0001_init.sql"), "create table a;");
     writeFileSync(join(root, ".env"), "KEY=1");
-    const { judge, problem } = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: new TreeSitterShellCommandReader() });
+    const { judge, problem } = await openProject(root, { ports: protectedPathsPortProvisions() });
     expect(problem).toBeNull();
     let calls = 0;
-    const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: `call-${++calls}` });
+    const shell = async (command: string) => {
+      const reading = await shellCommandReading.read({ projectRoot: root, command, cwd: null });
+      return judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null, reading }], callId: `call-${++calls}` });
+    };
     expect(await shell(`cat ${join(root, ".env")}`)).toMatchObject({ kind: "refuse", redirect: "Ask a maintainer for the value" });
     expect((await shell("cat /etc/hosts")).kind).toBe("allow");
     expect((await shell("echo 'create table b;' > migrations/0002_add.sql")).kind).toBe("allow");
@@ -64,9 +70,12 @@ export default defineConfig({
 });
 `;
     const root = project({ "bounded.config.ts": config });
-    const { judge, problem } = await openProject(root, { shellCommandReader: new TreeSitterShellCommandReader() });
+    const { judge, problem } = await openProject(root);
     expect(problem).toBeNull();
-    const shell = (command: string, callId: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command }], callId });
+    const shell = async (command: string, callId: string) => {
+      const reading = await shellCommandReading.read({ projectRoot: root, command, cwd: null });
+      return judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, reading }], callId });
+    };
     expect((await shell("tool-a x", "call-1")).kind).toBe("allow");
     expect(await shell("tool-b x", "call-2")).toMatchObject({ kind: "refuse", reason: "bounded/project refused execute `tool-b x`: Only tool-a runs here" });
   });

@@ -26,7 +26,7 @@ const rocketflare = definePack({
 
 const selected = [corePack, protectedPathsPack, rocketflare];
 const composed = Composition.compose(selected, selected);
-// Shell commands carry the reading the judge gives them (ADR 2026-020): the protected-paths pack judges from it, so no project needs opening here.
+// Shell commands carry the reading the host adapter builds for them (ADR 2026-020): the protected-paths pack judges from it, so no project needs opening here.
 
 function judge(tool: string, effects: object[]): Verdict {
   if (!composed.ok) throw new Error(composed.error);

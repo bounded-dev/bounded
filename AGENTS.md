@@ -70,7 +70,8 @@ src/                    bounded             the published package: package.json,
     protected-paths/                        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
     prereqs/                                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
   lib/
-    shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands: implements the core's ShellCommandReader;
+    shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands, for the host adapters: ReadShellCommand,
+                                            its ShellCommandReader port and TreeSitterShellCommandReader;
                                             published as bounded/shell-command-reader (private: built into bounded's dist/; ADR 2026-020)
   hosts/
     claude-code/        bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
@@ -174,7 +175,7 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   `adapters/out/<port>/`; every adapter class implementing a port is named
   in that port's tag; the port's suite is exactly
   `<feature>.<port>.test-support.ts` and a test beside each named class runs
-  it. An untagged port (`HostInstaller`, `ShellCommandReader`) may be
+  it. An untagged port (`HostInstaller`) may be
   implemented by an adapter in another context only when a test beside it
   runs the port's suite through the declaring package's export path (ADR
   2026-020). An in-memory test double is
@@ -270,13 +271,16 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
 - **The core runs packs' asynchronous lifecycle checks around tool calls;
   packs get adapters through ports the host provides (ADR 2026-013).** Hosts
   call `judge` before a tool call and `afterTool` after it, passing the call
-  id, and pass the shipped packs' ports and the shell command reader to
-  `openProject` (the protected-paths pack's ports undo what shell commands change in
-  the files it protects, ADR 2026-011).
-- **An execute effect carries the core's reading of its command (ADR
+  id, pass the shipped packs' ports to `openProject` (the protected-paths
+  pack's ports undo what shell commands change in the files it protects, ADR
+  2026-011), and build each execute effect's reading with
+  `bounded/shell-command-reader`.
+- **An execute effect carries a required reading of its command (ADR
   2026-020)**: the programs it runs, the files it reads, lists and writes,
-  and what could not be resolved, made by `bounded-shell-command-reader`
-  through the core's `ShellCommandReader` port, so packs never parse shell.
+  and what could not be resolved, or why it could not be read. The host
+  adapter, trusted code, makes it from the model's tool input with
+  `bounded-shell-command-reader`; the core checks its shape, so packs never
+  parse shell.
 - If a change needs the core to learn a technology's name or an opinion, it is
   in the wrong place: put it in a pack and give the core a mechanism.
 

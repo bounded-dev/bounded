@@ -26,7 +26,7 @@ export const mixed: Verdict = dispatch([noGenerated, withContext], toolUse, { pr
 // A delegation says on the call whether it is isolated and whether its finish goes unreported; a result says, per delegate effect, whether its run finished.
 export const flagged: DelegateEffectJSON = { kind: "delegate", agent: "reviewer", isolated: true, finishUnreported: true };
 export const finished: ToolResultJSON = { role: null, tool: "subagent", effects: [flagged], ok: true, delegatedAgentRuns: [{ finished: true }] };
-// An execute may carry bounded's reading of its command: the programs it runs, the files it reads, lists and writes, and what could not be resolved.
+// An execute carries bounded's reading of its command, required: the programs it runs, the files it reads, lists and writes, and what could not be resolved.
 export const reading: ShellCommandReadingJSON = {
   outcome: "read",
   programs: [{ name: { kind: "literal", text: "cat" }, arguments: [{ kind: "unresolved", text: "$X" }], workingDirectory: "." }],
@@ -37,6 +37,6 @@ export const unread: ShellCommandReadingJSON = { outcome: "unread", why: "the pa
 export const executed: ExecuteEffectJSON = { kind: "execute", command: "cat .env $X", reading };
 // Guards read a reading's programs once its outcome says it was read.
 export const programsRead: Guard<ToolUse> = (event) =>
-  event.effects.some((effect) => effect.kind === "execute" && effect.reading?.outcome === "read" && effect.reading.programs.some((program) => program.name.text === "terraform"))
+  event.effects.some((effect) => effect.kind === "execute" && effect.reading.outcome === "read" && effect.reading.programs.some((program) => program.name.text === "terraform"))
     ? Verdict.refuse("Runs terraform", "Ask the platform team")
     : Verdict.allow;

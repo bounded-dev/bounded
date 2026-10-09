@@ -164,7 +164,7 @@ const rules = watching("rules", [
 ]);
 const composition = rules;
 
-const shell = { role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make" }], callId: "c1" };
+const shell = { role: "builder", tool: "shell", effects: [{ kind: "execute", command: "make", reading: { outcome: "unread", why: "the parser could not load" } }], callId: "c1" };
 function use(raw: object): ToolUse {
   const parsed = ToolUse.parse(raw);
   if (!parsed.ok) throw new Error(parsed.error);

@@ -1,11 +1,13 @@
 {
   "name": "bounded-shell-command-reader",
   "version": "3.3.0",
-  "description": "Bounded's shell command reader, in source: reads a shell command with tree-sitter's bash grammar for the core's ShellCommandReader port. Not published: bounded's prepack builds it into bounded as bounded/shell-command-reader (ADR 2026-020)",
+  "description": "Bounded's shell command reader, in source: reads a shell command with tree-sitter's bash grammar through its own ShellCommandReader port, for the host adapters, which put each reading on the execute effect they build. Not published: bounded's prepack builds it into bounded as bounded/shell-command-reader (ADR 2026-020)",
   "private": true,
   "type": "module",
   "exports": {
-    "./adapters": "./adapters/out/index.ts"
+    "./adapters": "./adapters/out/index.ts",
+    "./application": "./application/index.ts",
+    "./shell-command-reading": "./composition-root/shell-command-reading.ts"
   },
   "dependencies": {
     "@vscode/tree-sitter-wasm": "0.3.1",

@@ -1,11 +1,14 @@
-// The pi extension: composes the project's guards at session start, then
-// turns every tool call into a tool use, decides it and answers pi. Anything
-// it cannot read, translate or decide in time blocks the call: it fails
-// closed, and records the block when the project can. After a tool ran, the
-// project checks it, and what it undid is added to the result the agent sees.
+// The pi extension: composes the project's guards and starts preparing the
+// shell command reader at session start, then turns every tool call into a
+// tool use, reading its shell commands (ADR 2026-020), decides it and
+// answers pi. Anything it cannot read, translate or decide in time blocks
+// the call: it fails closed, and records the block when the project can.
+// After a tool ran, the project checks it, and what it undid is added to the
+// result the agent sees.
 import { isAbsolute } from "node:path";
-import { ToolResult, ToolUse as Use, Verdict } from "bounded/domain";
-import type { ToolUse } from "./event.ts";
+import { ToolResult, Verdict } from "bounded/domain";
+import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
+import { type ToolUse, toolUse } from "./event.ts";
 import { locator } from "./pi-path.ts";
 import { translate } from "./translate.ts";
 
@@ -54,9 +57,11 @@ export interface ExtensionOptions {
   /** The project's root directory. */
   readonly projectRoot: string;
   readonly load: LoadJudge;
+  /** Reads each shell command into the reading its execute effect carries: bounded's reader in the composition root. */
+  readonly readShellCommand: ReadShellCommand;
   /** The home directory pi expands '~' to; the user's by default. */
   readonly home?: string;
-  /** How long deciding one call may take before the call is blocked. 3 seconds by default. */
+  /** How long reading one call's shell commands and deciding it may take before the call is blocked. 3 seconds by default. */
   readonly deadlineMs?: number;
   /** How long composing may take before the waiting calls are blocked. 15 seconds by default. */
   readonly composeDeadlineMs?: number;
@@ -107,7 +112,7 @@ function record(decide: ProjectJudgeForPi, event: unknown, reason: string, redir
 }
 
 /** The extension pi loads: `(pi) => void`, given the project and its composition root. */
-export function piExtension({ projectRoot, load, home, deadlineMs = 3000, composeDeadlineMs = 15000, composeBackoffMs = 30000 }: ExtensionOptions): (pi: Pi) => void {
+export function piExtension({ projectRoot, load, readShellCommand, home, deadlineMs = 3000, composeDeadlineMs = 15000, composeBackoffMs = 30000 }: ExtensionOptions): (pi: Pi) => void {
   const locate = locator(projectRoot, home);
   return (pi) => {
     let started = false;
@@ -121,12 +126,14 @@ export function piExtension({ projectRoot, load, home, deadlineMs = 3000, compos
         (error): Composed => ({ ok: false, error: message(error), timedOut: error instanceof TimedOut }),
       );
 
-    // Composition starts here and is awaited by the calls that need it, so a
-    // slow composition never delays the session itself.
+    // Composition and the shell command reader's preparation start here; calls
+    // await what they need, so neither ever delays the session itself.
     pi.on("session_start", async () => {
       started = true;
       retryAt = undefined;
       composed = compose();
+      // Never rejects; a call made while it still runs waits for it within the reader's bounds and the call's deadline.
+      void readShellCommand.prepare();
       return undefined;
     });
 
@@ -160,10 +167,18 @@ export function piExtension({ projectRoot, load, home, deadlineMs = 3000, compos
           if (typeof cwd !== "string" || !isAbsolute(cwd)) return blocked(`bounded could not read pi's context for the ${toolName} call: its cwd is not an absolute directory`, "Report this to the maintainers of bounded-pi");
           const translated = translate({ toolName, input }, cwd, locate);
           if (!translated.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${translated.error}`, "Use paths inside the project, spelled plainly, and the tool's documented arguments");
-          const use = Use.parse({ ...translated.value.toJSON(), ...callIdOf(event) });
-          if (!use.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${use.error}`, "Report this to the maintainers of bounded-pi");
-          const decided = await within(() => project.decide(use.value), deadlineMs, `bounded did not decide within ${deadlineMs} ms on pi's ${toolName} call`);
-          const verdict = Verdict.parse(decided);
+          const call = translated.value;
+          // Reading the call's shell commands and deciding share the decision's deadline.
+          const outcome = await within(
+            async (): Promise<{ readonly unusable: string } | { readonly decided: unknown }> => {
+              const use = await toolUse(null, call, { projectRoot, readShellCommand, ...callIdOf(event) });
+              return use.ok ? { decided: await project.decide(use.value) } : { unusable: use.error };
+            },
+            deadlineMs,
+            `bounded did not decide within ${deadlineMs} ms on pi's ${toolName} call`,
+          );
+          if ("unusable" in outcome) return blocked(`bounded cannot check pi's ${toolName} call: ${outcome.unusable}`, "Report this to the maintainers of bounded-pi");
+          const verdict = Verdict.parse(outcome.decided);
           if (!verdict.ok) return blocked(`bounded's decision for the ${toolName} call is not a verdict: ${verdict.error}`, "Report this to the maintainers of the project's packs");
           return verdict.value.kind === "refuse" ? block(verdict.value.reason, verdict.value.redirect) : undefined;
         } catch (error) {
@@ -184,20 +199,25 @@ export function piExtension({ projectRoot, load, home, deadlineMs = 3000, compos
       try {
         const [toolName, cwd] = [field(event, "toolName"), field(context, "cwd")];
         if (typeof toolName !== "string" || toolName === "") throw new Error("pi's tool result names no tool");
-        const use = typeof cwd === "string" && isAbsolute(cwd) ? translate({ toolName, input: field(event, "input") }, cwd, locate) : undefined;
-        // No subagent result says its agents' runs finished (ADR 2026-019): even with async: false,
-        // pi-subagents' forceTopLevelAsync can run them in the background, and a timed-out child may
-        // leave isError unset. Until pi's completion is observed, no run is marked finished.
-        const delegations = use?.ok ? use.value.effects.filter((effect) => effect.kind === "delegate") : [];
-        const result = ToolResult.parse({
-          ...(use?.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
-          kind: "tool-result",
-          ok: field(event, "isError") !== true,
-          ...callIdOf(event),
-          ...(delegations.length === 0 ? {} : { delegatedAgentRuns: delegations.map(() => ({ finished: false, finishNeverReported: true })) }),
-        });
-        if (!result.ok) throw new Error(result.error);
-        told = (await within(() => afterTool(result.value), deadlineMs, `no answer within ${deadlineMs} ms`)).message;
+        // Reading the result's shell commands again, after the call (the files they name may now exist), and the check share the deadline.
+        const checked = async (): Promise<{ readonly message: string | null }> => {
+          const call = typeof cwd === "string" && isAbsolute(cwd) ? translate({ toolName, input: field(event, "input") }, cwd, locate) : undefined;
+          const use = call?.ok ? await toolUse(null, call.value, { projectRoot, readShellCommand, ...callIdOf(event) }) : undefined;
+          // No subagent result says its agents' runs finished (ADR 2026-019): even with async: false,
+          // pi-subagents' forceTopLevelAsync can run them in the background, and a timed-out child may
+          // leave isError unset. Until pi's completion is observed, no run is marked finished.
+          const delegations = use?.ok ? use.value.effects.filter((effect) => effect.kind === "delegate") : [];
+          const result = ToolResult.parse({
+            ...(use?.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
+            kind: "tool-result",
+            ok: field(event, "isError") !== true,
+            ...callIdOf(event),
+            ...(delegations.length === 0 ? {} : { delegatedAgentRuns: delegations.map(() => ({ finished: false, finishNeverReported: true })) }),
+          });
+          if (!result.ok) throw new Error(result.error);
+          return afterTool(result.value);
+        };
+        told = (await within(checked, deadlineMs, `no answer within ${deadlineMs} ms`)).message;
       } catch (error) {
         told = `bounded could not check protected files after this call: ${message(error)}. Check them against version control.`;
         record(decide, event, told, "Check the protected files against version control");

@@ -8,7 +8,7 @@ export type {
 export { ComposePacksCommand } from "./composition/compose-packs/compose-packs.command.ts";
 export { ComposePacksHandler } from "./composition/compose-packs/compose-packs.handler.ts";
 
-export type { AdapterRefusalInput, Clock, DecisionIds, BoundedLog, JudgeEvent, JudgeEventCommandFactory, JudgeEventInput, ShellCommandReader } from "./bounded-log/judge-event/judge-event.contract.ts";
+export type { AdapterRefusalInput, Clock, DecisionIds, BoundedLog, JudgeEvent, JudgeEventCommandFactory, JudgeEventInput } from "./bounded-log/judge-event/judge-event.contract.ts";
 export { JudgeEventCommand } from "./bounded-log/judge-event/judge-event.command.ts";
 export { JudgeEventHandler } from "./bounded-log/judge-event/judge-event.handler.ts";
 

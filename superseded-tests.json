@@ -5809,5 +5809,209 @@
       "case": "composeHook: the hook wired to the file system, the environment and argv > recordFromConfig records the adapter's own refusal in the project's Bounded log"
     },
     "reason": "renamed: the guard log is the Bounded log, ADR 2026-022"
+  },
+  {
+    "file": "src/core/domain/events/effect.test.ts",
+    "case": "Effect — the seven kinds > an execute may carry bounded's reading of its command; without one its reading is null and its wire form has none",
+    "successor": {
+      "file": "src/core/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute carries bounded's reading of its command, required: without one it is refused"
+    },
+    "reason": "an execute effect's reading is required: the host adapter builds it from the model's tool input and the core checks its shape (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/domain/events/tool-result.test.ts",
+    "case": "ToolResult > a tool result's execute effects carry no reading",
+    "successor": {
+      "file": "src/core/domain/events/tool-result.test.ts",
+      "case": "ToolResult > a tool result's execute effects carry their reading, as a tool use's do"
+    },
+    "reason": "an effect has one shape, so a tool result's execute effects carry a reading too, re-read by the host adapter after the call (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > every execute effect is read by the project's reader before guards run, and guards see the reading",
+    "successor": {
+      "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+      "case": "JudgeEventHandler — shell commands, as the host read them > an execute effect's reading reaches the guards as the host sent it, and the decision is recorded once"
+    },
+    "reason": "the host adapter reads each command; the guards see the reading it built (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > a reading the host sent is replaced, never trusted",
+    "successor": null,
+    "reason": "reversed by the correction of ADR 2026-020: the host adapter is trusted code and builds the reading from the model's tool input; the core checks its shape and never replaces it (JudgeEventHandler — shell commands, as the host read them > an execute effect's reading reaches the guards as the host sent it, and the decision is recorded once)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > without a reader, every execute is judged unread, saying the host passes one",
+    "successor": {
+      "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+      "case": "JudgeEventHandler — shell commands, as the host read them > an execute effect without a reading is refused as an event that cannot be read, and recorded as invalid"
+    },
+    "reason": "an execute effect without a reading is an event that cannot be read (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > a reader that rejects leaves the command unread, saying why",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > a reader that rejects leaves the command unread, saying why"
+    },
+    "reason": "reading moved to the library the hosts use, ReadShellCommand (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > a reader that throws instead of rejecting leaves the command unread, saying why",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > a reader that throws instead of rejecting leaves the command unread, saying why"
+    },
+    "reason": "reading moved to the library the hosts use, ReadShellCommand (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > a reader that does not answer within readWithinMs leaves the command unread, saying it timed out",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > a reader that does not answer within readWithinMs leaves the command unread, saying it timed out"
+    },
+    "reason": "reading moved to the library the hosts use, ReadShellCommand (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > readWithinMs bounds the whole event, not each read",
+    "successor": null,
+    "reason": "each command is read through ReadShellCommand under readWithinMs (ReadShellCommandHandler > a reader that does not answer within readWithinMs leaves the command unread, saying it timed out), all within the host's decision deadline (the Claude Code hook's and the pi extension's deadline tests); there is no event-wide read"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > a reading the reader gives that cannot be used leaves the command unread",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > a reading the reader gives that cannot be used leaves the command unread"
+    },
+    "reason": "reading moved to the library the hosts use, ReadShellCommand (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > beforeAllow sees the read event",
+    "successor": {
+      "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+      "case": "JudgeEventHandler — shell commands, as the host read them > beforeAllow sees the event as the host sent it, reading and all"
+    },
+    "reason": "the event reaches beforeAllow as the host sent it, reading and all (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > a handler refusing everything reads no command",
+    "successor": null,
+    "reason": "the judge reads no command at all: the host adapter reads each one (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/bounded-log/judge-event/judge-event.test.ts",
+    "case": "JudgeEventHandler — reading shell commands > a reader without the project's root is refused when the handler is made",
+    "successor": null,
+    "reason": "the judge takes neither a reader nor a project root (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler — the shell command reader > the shell command reader is prepared when the project opens, alongside the packs' work, and given each command with the project's root",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > reads the command with the reader, given the project's root, the command and its directory, and gives the reading's wire form"
+    },
+    "reason": "hosts prepare the library's ReadShellCommand once and give each command its project root; openProject takes no reader (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler — the shell command reader > a reader whose preparation fails or hangs does not stop the project opening",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > prepare never rejects: a reader whose prepare rejects, throws or never settles is let go, and reading still works"
+    },
+    "reason": "preparing is the library's and never rejects, nor holds a read up past prepareWithinMs (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler — the shell command reader > a reader whose prepare throws instead of rejecting does not stop the project opening",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > prepare never rejects: a reader whose prepare rejects, throws or never settles is let go, and reading still works"
+    },
+    "reason": "preparing is the library's and never rejects, nor holds a read up past prepareWithinMs (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/application/project-config/open-project/open-project.test.ts",
+    "case": "OpenProjectHandler — the shell command reader > without prepareWithinMs, the reader's preparation is bounded by the packs' default",
+    "successor": {
+      "file": "src/lib/shell-command-reader/application/shell-commands/read-shell-command/read-shell-command.test.ts",
+      "case": "ReadShellCommandHandler > a read waits for a preparation in flight, up to prepareWithinMs, before its own readWithinMs starts"
+    },
+    "reason": "the library's prepareWithinMs defaults to the packs' 5000 ms and bounds how long a read waits for preparation (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/composition-root/open-project.test.ts",
+    "case": "openProject — what a host's composition root calls > an untyped caller that omits the shell command reader gets every shell command refused, saying the host passes one",
+    "successor": {
+      "file": "src/core/composition-root/open-project.test.ts",
+      "case": "openProject — what a host's composition root calls > a shell command without a reading is refused as an event that cannot be read, and recorded"
+    },
+    "reason": "openProject takes no reader; a command without a reading is refused at the boundary (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/core/composition-root/open-project.test.ts",
+    "case": "openProject — what a host's composition root calls > an untyped caller that omits the options entirely gets a judge, not a throw, and every shell command refused",
+    "successor": {
+      "file": "src/core/composition-root/open-project.test.ts",
+      "case": "openProject — what a host's composition root calls > openProject's options may be left out: the judge decides each command with the reading the host gave"
+    },
+    "reason": "openProject's options are optional again: the judge decides each command with the reading the host gave (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/packs/protected-paths/application/judge-calls/judge-calls.test.ts",
+    "case": "the protected-paths pack — shell commands, judged from bounded's reading > a shell command bounded did not read is refused, saying so",
+    "successor": {
+      "file": "src/core/domain/events/effect.test.ts",
+      "case": "Effect — the seven kinds > an execute carries bounded's reading of its command, required: without one it is refused"
+    },
+    "reason": "an execute effect always carries a reading, so the pack's branch for a missing one is gone (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/open-project-shell-commands.test.ts",
+    "case": "openProject with bounded's shell command reader > openProject, given a shell command reader, reads each command before the protected-paths pack judges it: reads by absolute path, and redirects judged by whether the file exists",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/open-project-shell-commands.test.ts",
+      "case": "openProject with bounded's shell command reader > a host reads each command with openShellCommandReading before the protected-paths pack judges it: reads by absolute path, and redirects judged by whether the file exists"
+    },
+    "reason": "the host reads each command with openShellCommandReading before judging; openProject takes no reader (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/hosts/claude-code/composition-root.test.ts",
+    "case": "composeHook: the hook wired to the file system, the environment and argv > decideFromConfig reads shell commands: the project's execute guard sees the programs bounded read",
+    "successor": {
+      "file": "src/hosts/claude-code/composition-root.test.ts",
+      "case": "composeHook: the hook wired to the file system, the environment and argv > the hook reads shell commands with bounded's reader: the project's execute guard sees the programs bounded read"
+    },
+    "reason": "the hook reads each command, not the project's judge (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/hosts/pi/composition-root.test.ts",
+    "case": "composeProject — never fails open, whatever openProject or its judge does > the default open reads shell commands: the project's execute guard sees the programs bounded read",
+    "successor": {
+      "file": "src/hosts/pi/composition-root.test.ts",
+      "case": "composeProject — never fails open, whatever openProject or its judge does > the extension reads shell commands with bounded's reader: the project's execute guard sees the programs bounded read"
+    },
+    "reason": "the extension reads each command, not the project's judge (ADR 2026-020, corrected)"
+  },
+  {
+    "file": "src/test/packaging.test.ts",
+    "case": "bounded, the one published package > its tarball holds dist/, the core's and the packs' sources, README.md, LICENSE and package.json: nothing of the hosts', the cli's or the libraries' sources, nor the repository's tests",
+    "successor": {
+      "file": "src/test/packaging.test.ts",
+      "case": "bounded, the one published package > its tarball holds dist/, the core's and the packs' sources, the published reader suite and its contract, README.md, LICENSE and package.json: nothing else of the libraries', the hosts' or the cli's sources, nor the repository's tests"
+    },
+    "reason": "the published reader conformance suite and the contract it imports ship from the library (ADR 2026-020, corrected)"
   }
 ]
