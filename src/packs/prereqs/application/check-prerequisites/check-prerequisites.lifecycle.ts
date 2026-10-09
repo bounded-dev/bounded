@@ -1,5 +1,6 @@
 import type { AfterTool, AgentRunFinishHandler, BeforeTool, Effect, LifecycleContext } from "bounded/domain";
 import { Verdict } from "bounded/domain";
+import type { PrerequisiteRule } from "../../domain/prerequisite-rule.contract.ts";
 import { rulesIn } from "../../domain/prerequisite-rule.ts";
 import { fileSetFingerprintsPort, prerequisiteRecordsPort } from "./check-prerequisites.contract.ts";
 import { CheckPrerequisitesHandler } from "./check-prerequisites.handler.ts";
@@ -20,20 +21,30 @@ function handler({ composition, ports }: LifecycleContext): CheckPrerequisitesHa
   return new CheckPrerequisitesHandler(composition, fingerprints.value, records.value);
 }
 
-/** Whether any rule concerns these effects, so a missing port matters; rules that cannot be read concern everything, failing closed. */
-function concerns({ composition }: LifecycleContext, effects: readonly Effect[]): boolean {
+/**
+ * Whether any rule concerns these effects, so a missing port matters; rules
+ * that cannot be read concern everything, failing closed. Before a call, an
+ * action a rule comes before, or may (a command it cannot see through, so it
+ * is refused rather than allowed), and a delegation it may need; after one,
+ * only a delegation: no other result records anything.
+ */
+function concerns({ composition }: LifecycleContext, effects: readonly Effect[], moment: "before" | "after"): boolean {
   const point = rulesIn(composition);
   if (point === undefined) return false;
   const rules = composition.entries(point);
   if (!rules.ok) return true;
-  return rules.value.some(({ value: rule }) => effects.some((effect) => rule.comesBefore(effect) || (effect.kind === "delegate" && rule.mayResolveToRequiredAgent(effect.agent))));
+  const gates = (rule: PrerequisiteRule, effect: Effect): boolean => {
+    if (effect.kind === "delegate" && (rule.comesBefore(effect) || rule.mayResolveToRequiredAgent(effect.agent))) return true;
+    return moment === "before" && rule.matchBefore(effect).kind !== "not-before";
+  };
+  return rules.value.some(({ value: rule }) => effects.some((effect) => gates(rule, effect)));
 }
 
 /** Before a tool call runs: refuse an action whose prerequisite does not hold, and keep the start of a delegation some rule requires. */
 export const checkBeforeTool: BeforeTool = async (call, context) => {
   const check = handler(context);
   if (typeof check !== "string") return check.before(call);
-  if (!concerns(context, call.effects)) return Verdict.allow;
+  if (!concerns(context, call.effects, "before")) return Verdict.allow;
   return Verdict.refuse(`${PREFIX} prerequisites cannot be checked: ${check}`, NO_PORTS);
 };
 
@@ -41,7 +52,7 @@ export const checkBeforeTool: BeforeTool = async (call, context) => {
 export const recordAfterTool: AfterTool = async (result, context) => {
   const check = handler(context);
   if (typeof check !== "string") return check.after(result);
-  if (!concerns(context, result.effects)) return { message: null, record: null };
+  if (!concerns(context, result.effects, "after")) return { message: null, record: null };
   const message = `${PREFIX} prerequisites cannot be recorded after this call: ${check}`;
   const effect = result.effects.find((given) => given.kind === "delegate") ?? null;
   return { message, record: { verdict: Verdict.refuse(message, NO_PORTS), refusedBy: { effect }, note: "a prerequisite could not be recorded" } };

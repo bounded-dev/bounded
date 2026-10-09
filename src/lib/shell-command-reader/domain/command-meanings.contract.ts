@@ -30,8 +30,15 @@ export interface CommandMeaning {
      * unresolved part.
      */
     readonly input?: true;
-    /** xargs's replace string (-I, -i, --replace, BSD -J): the input stands where it is written, which is reported; every word is still judged as written. */
+    /**
+     * A replace string (xargs's -I, -i, --replace, BSD -J; find -exec's {}):
+     * what replaces it stands where it is written, which is reported, and
+     * each word holding it is listed in the run's words as `replacedBy`;
+     * every word is still judged as written.
+     */
     readonly replace?: ShellWord;
+    /** What stands where the replace string is written: xargs's input, (input), when not given; find's found path, (found path). */
+    readonly replacedBy?: ShellWord;
     /** The run's words are the last of the command's (a wrapper's, builtin's or git -C's), so words appended to the command, such as xargs's input, are appended to it. */
     readonly trailing?: true;
   }[];

@@ -169,6 +169,11 @@ function moves(args: readonly ShellWord[]): CommandMeaning {
   return meaning({ location: { to: to === undefined || text === "-" || /^[+-]\d+$/.test(text ?? "") ? null : to } });
 }
 
+/** The path find -exec's command is given where {} stands, as one word only the run can resolve. */
+export const FOUND_PATH: ShellWord = Object.freeze({ kind: "unresolved", text: "(found path)", commands: Object.freeze([]) });
+/** find -exec's replace string. */
+const FOUND_PATH_REPLACE: ShellWord = Object.freeze({ kind: "literal", text: "{}" });
+
 /** find: its leading operands are listed (where it runs when none); -exec and its kin run a command. */
 function find(args: readonly ShellWord[]): CommandMeaning {
   const roots: ShellWord[] = [];
@@ -178,13 +183,14 @@ function find(args: readonly ShellWord[]): CommandMeaning {
     if (text !== undefined && (text.startsWith("-") || text === "(" || text === "!")) break;
     roots.push(args[index] as ShellWord);
   }
-  const ran: { name: ShellWord; args: ShellWord[] }[] = [];
+  const ran: { name: ShellWord; args: ShellWord[]; replace: ShellWord; replacedBy: ShellWord }[] = [];
   for (; index < args.length; index++) {
     if (!["-exec", "-execdir", "-ok", "-okdir"].includes(literal(args[index]) ?? "")) continue;
     const words: ShellWord[] = [];
     for (index++; index < args.length && ![";", "+"].includes(literal(args[index]) ?? ""); index++) words.push(args[index] as ShellWord);
     const [name, ...rest] = words;
-    if (name !== undefined) ran.push({ name, args: rest });
+    // {} is a replace string whose stand-in is the path find found: listed and reported where it stands; every word is still judged as written.
+    if (name !== undefined) ran.push({ name, args: rest, replace: FOUND_PATH_REPLACE, replacedBy: FOUND_PATH });
   }
   return meaning({ lists: roots.length === 0 ? [here] : roots, runs: ran });
 }
@@ -219,19 +225,31 @@ function git(args: readonly ShellWord[]): CommandMeaning {
   return meaning({ reads: readsOf(rest), repositoryReads });
 }
 
-/** A shell: with -c, its first operand is code it runs; else it reads the script it is given. */
+/** The code a shell reads from its standard input, as one word only the run can resolve. */
+export const STANDARD_INPUT: ShellWord = Object.freeze({ kind: "unresolved", text: "(standard input)", commands: Object.freeze([]) });
+
+/**
+ * A shell: with -c, its first operand is code it runs; else it reads the
+ * script it is given. Given neither, or given -s, it runs code from its
+ * standard input, which only the run can resolve (a heredoc fed to it is not
+ * parsed as code).
+ */
 function shell(args: readonly ShellWord[]): CommandMeaning {
   let runsCode = false;
+  let readsStandardInput = false;
   const rest: ShellWord[] = [];
   for (let index = 0; index < args.length; index++) {
     const text = literal(args[index]);
     if (text === "-o" || text === "+o" || text === "-O" || text === "+O") index++;
-    else if (text !== undefined && /^[-+][a-zA-Z]+$/.test(text)) runsCode ||= text.includes("c");
-    else if (text?.startsWith("--") !== true) rest.push(args[index] as ShellWord);
+    else if (text !== undefined && /^[-+][a-zA-Z]+$/.test(text)) {
+      runsCode ||= text.includes("c");
+      readsStandardInput ||= text === "-s";
+    } else if (text?.startsWith("--") !== true) rest.push(args[index] as ShellWord);
   }
   const [first] = rest;
-  if (first === undefined) return NONE;
-  return runsCode ? meaning({ scripts: [first] }) : meaning({ reads: [first] });
+  if (runsCode) return first === undefined ? NONE : meaning({ scripts: [first] });
+  const standardInput = first === undefined || readsStandardInput ? [STANDARD_INPUT] : [];
+  return meaning({ reads: first === undefined ? [] : [first], unresolved: standardInput });
 }
 
 /** dd: if= is read, of= is written; its other operands are settings. */
