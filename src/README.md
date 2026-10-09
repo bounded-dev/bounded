@@ -107,26 +107,44 @@ option is `boundedLog`, `bounded/adapters` no longer exports
 `FileSystemGuardLog` and `FileSystemProjectGuardLogs` (now
 `FileSystemBoundedLog` and `FileSystemProjectBoundedLogs`), and decisions
 go to `.bounded/log.jsonl`; an existing `.bounded/guard-log.jsonl` is left
-as it was.
+as it was. 3.3.0 also corrects how shell commands are read (the
+repository's ADR 2026-020, corrected): the host adapter reads each one, not
+the core's judge, breaking what 3.2.0 published, with no aliases:
+`bounded/application` no longer exports `ShellCommandReader` (now
+`bounded/shell-command-reader`'s), `openProject` takes no
+`shellCommandReader`, `JudgeEventHandler` takes no `shellCommandReader`,
+`projectRoot` or `readWithinMs` and has no `DEFAULT_READ_WITHIN_MS`,
+`ExecuteEffect.reading` is never null and `ExecuteEffectJSON.reading` is
+required, and `bounded/hosts/pi`'s `translate` gives the call before its
+readings. A host that sends an execute effect without a reading, as every
+3.2.0 host did, has each such call refused as an event that cannot be read
+and recorded as invalid; a tool result's execute effects must now carry a
+reading too.
 
 A host other than the two this package carries opens a project with the
-shell command reader bounded publishes:
+ports its packs need, and reads each shell command with the reader bounded
+publishes, putting the reading on the execute effect it builds:
 
 ```ts
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
-import { TreeSitterShellCommandReader } from "bounded/shell-command-reader";
+import { openShellCommandReading } from "bounded/shell-command-reader";
 
-const shellCommandReader = new TreeSitterShellCommandReader();
-const project = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+const project = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
+const shellCommandReading = openShellCommandReading();
+void shellCommandReading.prepare();
+const reading = await shellCommandReading.read({ projectRoot: root, command, cwd: null });
+const verdict = await project.judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null, reading }] });
 ```
 
-Without a reader every shell command is read as unread, and the protected-paths pack
-refuses it. A host with a shell of its own may write its own reader of the
-core's `ShellCommandReader` port (`bounded/application`); its tests run the
-suite every reader runs, `bounded/testing/shell-command-reader-conformance`
-(under bun's test runner).
+An execute effect without a reading is refused; one whose command could not
+be read carries why, and the protected-paths pack refuses it. A host with a
+shell of its own may write its own reader of the `ShellCommandReader` port
+(`bounded/shell-command-reader`, which gives `ReadShellCommandHandler` to
+read with it); its tests run the suite every reader runs,
+`bounded/testing/shell-command-reader-conformance` (under bun's test
+runner).
 
 ## More
 

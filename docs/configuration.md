@@ -97,30 +97,45 @@ about every event:
 import { openProject } from "bounded/open-project";
 import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
-import { TreeSitterShellCommandReader } from "bounded/shell-command-reader";
 
 // The ports the selected packs declare: here every port of the protected-paths pack (its files and snapshots on disk)
-// and of the prerequisites pack (its fingerprints of the project's files, its records); and the reader of shell commands.
-const shellCommandReader = new TreeSitterShellCommandReader();
-const project = await openProject("/absolute/path/to/project", { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+// and of the prerequisites pack (its fingerprints of the project's files, its records).
+const project = await openProject("/absolute/path/to/project", { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] });
 if (project.problem !== null) console.error(project.problem);
 const verdict = await project.judge(eventFromTheHost);
 ```
 
 Before judging anything, `openProject` runs what each selected pack
 contributes to the core's `onProjectOpen` point, given the project's root,
-its composition and the ports the host provides, and prepares the shell
-command reader alongside (it loads its grammar). A pack, or a reader, whose
-preparation fails does not stop the project opening: its own guards refuse
-what they cannot check. Every port a selected pack declares must be
-provided, or every event is refused, naming the pack, the port and the fix.
+its composition and the ports the host provides. A pack whose work on
+opening fails does not stop the project opening: its own guards refuse what
+they cannot check. Every port a selected pack declares must be provided, or
+every event is refused, naming the pack, the port and the fix.
 
-The judge reads every shell command first: an execute effect carries the
-reading, the programs it runs, the files it reads, lists and writes, and
-what only the shell could resolve (ADR 2026-020); a reading the host sent is
-replaced. A command that could not be read carries why, and the protected-paths pack
-refuses it. `shellCommandReader` is required; bounded's own is
-`bounded/shell-command-reader`.
+Every execute effect carries a reading of its command, which the host
+adapter builds when it translates the host's tool call (ADR 2026-020): the
+programs it runs, the files it reads, lists and writes, and what only the
+shell could resolve, or why it could not be read. The host adapter is
+trusted code, and the model's tool input is what it reads; the core
+requires the reading, checks its shape and judges with it as given. An
+execute effect without one is an event that cannot be read: it is refused
+and recorded as invalid. A command that could not be read carries why, and
+the protected-paths pack refuses it.
+
+A third-party host reads its shell commands with the reader bounded
+publishes, as bounded's own hosts do:
+
+```ts
+import { openShellCommandReading } from "bounded/shell-command-reader";
+
+// Once per process: bounded's reader, its grammar loaded once; start preparing it, without waiting.
+const shellCommandReading = openShellCommandReading();
+void shellCommandReading.prepare();
+
+// For each execute effect, when the host builds the core's event (never rejects: unread, saying why, when it cannot read).
+const reading = await shellCommandReading.read({ projectRoot: "/absolute/path/to/project", command: "make build", cwd: null });
+const verdict = await project.judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command: "make build", cwd: null, reading }] });
+```
 
 The judge decides each event with the composed packs and records the decision
 in `<root>/.bounded/log.jsonl` (see [the Bounded log](bounded-log.md)).

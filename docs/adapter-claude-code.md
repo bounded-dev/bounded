@@ -14,7 +14,8 @@ Every file below is in `src/hosts/claude-code/`.
    then every Claude Code tool mapped to a tool kind and its effects, with
    paths still as Claude Code wrote them (`translate`). Pure.
 2. `event.ts` — the `PathResolver` port, and `toToolUse`, which resolves
-   every path through the port and builds the core's `ToolUse` with its parse.
+   every path through the port, reads every shell command, and builds the
+   core's `ToolUse` with its parse.
 3. `paths.ts` — the port's file-system adapter: how a path is judged by
    where it really lands.
 4. `hook.ts` — one call from stdin to stdout, under a deadline, and how it
@@ -93,9 +94,10 @@ after the hook answers); the hook judges the state it sees.
   missing `CLAUDE_PROJECT_DIR`, a decide that throws, rejects or returns no
   verdict: all refuse.
 - `decide` is asynchronous (the core's judging awaits the Bounded log). If
-  it has not settled within 20 seconds the call is refused. The deadline
-  bounds asynchronous work only: a decide that is busy synchronously holds
-  the process and can still overrun it.
+  reading the call's shell commands and deciding have not settled within 20
+  seconds the call is refused. The deadline bounds asynchronous work only: a
+  decide that is busy synchronously holds the process and can still overrun
+  it.
 - Claude Code proceeds when a hook exits with anything but 0 or 2, so the
   hook never relies on its own exit code to refuse. `main.ts` is a bootstrap
   with no static imports: it loads the rest inside a `try`, so a missing
@@ -115,7 +117,7 @@ after the hook answers); the hook judges the state it sees.
 `composeHook({ env, argv, decide })` is the composition root; `decide` is the
 seam, and it is told the project (`{ projectRoot }`, from
 `CLAUDE_PROJECT_DIR`). `main.ts` passes `decideFromConfig`, which calls the
-core's `openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader })` (`bounded/open-project`, with every port of the protected-paths pack, from `bounded/protected-paths/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`, and the one `TreeSitterShellCommandReader` of the process, from `bounded-shell-command-reader/adapters`, built into bounded as `bounded/shell-command-reader`, ADR 2026-020) and then
+core's `openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()] })` (`bounded/open-project`, with every port of the protected-paths pack, from `bounded/protected-paths/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`) and then
 `judge(event)`: the core composes the packs `bounded.config.ts` selects,
 decides, and records the decision in `.bounded/log.jsonl`. A refusal
 from the core already names the refusing pack and effect (`test-packs/no-generated
@@ -130,6 +132,20 @@ Events are the core's `ToolUse`, built with `ToolUse.parse`, so the adapter
 cannot hand the core a shape it does not accept. Claude Code's `tool_use_id`,
 when given, is the event's `callId`.
 
+Shell commands are read here, in the host adapter (ADR 2026-020): the
+adapter is trusted code, and the model's tool input is what it reads and the
+core judges. The composition root holds one `openShellCommandReading()` of
+the process (`bounded-shell-command-reader/shell-command-reading`, built
+into bounded as `bounded/shell-command-reader`); `composeHook` takes it as
+an optional `readShellCommand` (tests inject their own) and starts its
+`prepare()` once, without waiting. `toToolUse` reads each execute effect's
+command from the project's root and the command's resolved directory, and
+the effect carries the reading. A command the reader cannot read (its
+grammar failing to load, too slow, too complex) carries an unread reading
+saying why, which the protected-paths pack refuses. Each hook is a new
+process, so its first read waits for the grammar: at most 5 seconds of
+preparation, then 2 seconds of reading, within the 20-second deadline.
+
 Two more seams, both optional, are passed beside `decide` (`main.ts` passes
 the `...FromConfig` ones, which open the project the same way):
 
@@ -140,8 +156,10 @@ the `...FromConfig` ones, which open the project the same way):
   input. It is not awaited: a recording that fails or hangs never changes or
   delays the deny. Refusals from the core are already recorded by its judge.
 - `afterTool(result, project)`: on `PostToolUse` the finished call becomes the
-  core's `ToolResult` (translated as before the call; a call that cannot be
-  translated is an `invoke` of its tool name, so it is still checked) and the
+  core's `ToolResult` (translated as before the call, its shell commands read
+  again, under the deadline, so a result's reading may differ from the
+  call's; a call that cannot be translated is an `invoke` of its tool name,
+  so it is still checked) and the
   project's `afterTool` undoes what a shell command changed in watched files
   (see [drift.md](drift.md)). When it says something was undone, the hook
   answers `{"decision":"block","reason":"<message>"}`, which Claude Code shows

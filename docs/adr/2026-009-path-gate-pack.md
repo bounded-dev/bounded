@@ -10,9 +10,9 @@ shell parser); it no longer contributes to a core `watchedPaths` point, it
 watches what it protects through the core's `beforeTool`/`afterTool`.
 Amended by [ADR 2026-020](2026-020-shell-command-reading.md): shell
 parsing (the syntax tree, the command-meanings table, tree-sitter) moves to
-the private context `bounded-shell-command-reader`; the path gate judges a
-command from the reading the judge gives its execute effect, and declares
-no path-kinds or shell-parser port.
+the private context `bounded-shell-command-reader`; the pack judges a
+command from the reading the host adapter gave its execute effect (ADR
+2026-020, corrected), and declares no path-kinds or shell-parser port.
 Renamed by [ADR 2026-021](2026-021-protected-paths-rename.md): the pack is
 `bounded/protected-paths`, `protectedPathsPack`, in `src/packs/protected-paths/`.
 Amended by [ADR 2026-024](2026-024-src-layout.md) (src layout): the pack is
