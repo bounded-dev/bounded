@@ -17,7 +17,7 @@ const runsShell = (call: ToolUse | ToolResult): boolean => call.effects.some((ef
 /** The feature for this project, or why its ports cannot be had; only a shell command meeting watched rules needs them. */
 function handler({ composition, ports }: LifecycleContext): WatchShellHandler | string {
   const protectedPaths = protectedPathsIn(composition);
-  if (protectedPaths === undefined) return "the path gate is not selected";
+  if (protectedPaths === undefined) return "the protected-paths pack is not selected";
   const files = ports.get(watchedFilesPort);
   if (!files.ok) return files.error;
   const snapshots = ports.get(shellSnapshotsPort);

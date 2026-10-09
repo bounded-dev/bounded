@@ -1,7 +1,7 @@
-// The path gate (slice 3): an ordinary pack shipped in the `bounded` package.
+// The protected-paths pack (slice 3): an ordinary pack shipped in the `bounded` package.
 // It depends only on the core's public exports; the core never imports it.
-export type { PathGate, PathGateId, PathGatePoints, PathGatePorts } from "./path-gate.contract.ts";
-export { pathGate } from "./path-gate.pack.ts";
+export type { ProtectedPathsPack, ProtectedPathsId, ProtectedPathsPackPoints, ProtectedPathsPackPorts } from "./protected-paths.contract.ts";
+export { protectedPathsPack } from "./protected-paths.pack.ts";
 export type { PathAccess, ProtectedPathFactory, ProtectedPathJSON } from "./domain/protected-path.contract.ts";
 export { ProtectedPath } from "./domain/protected-path.ts";
 export type { DriftReport, FileChange, Kept, RestoreFrom, ShellSnapshots, Snapshot, SnapshotFile, SnapshotJSON, WatchedFile, WatchedFiles, WatchedHashes, WatchShell } from "./application/watch-shell/watch-shell.contract.ts";

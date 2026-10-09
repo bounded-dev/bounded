@@ -349,7 +349,7 @@ export type ProtectedPath = Contract.ProtectedPath;
 export const ProtectedPath: Contract.ProtectedPathFactory = ProtectedPathImpl;
 
 /**
- * The path gate's point, as declared in its pack: deny-only path rules. The
+ * The protected-paths pack's point, as declared in its pack: deny-only path rules. The
  * pack ships none of its own (ADR 2026-009): selected with no rules, it
  * protects nothing. The defaults that keep agents off the project's
  * guardrails (`**\/bounded.config.*` and `.bounded/**`) are in the
@@ -361,5 +361,5 @@ export const protectedPathsPoint = point({
   values: [],
 });
 
-/** The path gate's protected paths in a composition: the point its pack made from protectedPathsPoint, or undefined when it is not selected. */
+/** The protected-paths pack's protected paths in a composition: the point its pack made from protectedPathsPoint, or undefined when it is not selected. */
 export const protectedPathsIn: Contract.ProtectedPathsIn = (composition) => composition.pointDeclaredBy(protectedPathsPoint);

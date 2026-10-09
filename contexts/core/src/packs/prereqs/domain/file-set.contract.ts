@@ -5,7 +5,7 @@ export type FilePatternField = "unchangedSince" | "before.write";
 
 /**
  * The project files a list of checked patterns names. Patterns are matched
- * as the path gate matches a rule's `match`: ignoring case, seeing dotfiles;
+ * as the protected-paths pack matches a rule's `match`: ignoring case, seeing dotfiles;
  * a pattern without a glob covers everything under it. Bounded's own state
  * (`.bounded`), `node_modules` and `.git`, at any depth, are never in it.
  */
@@ -18,7 +18,7 @@ export interface FileSet {
 }
 
 /**
- * A pattern from `field` of a rule, checked as the path gate checks its
+ * A pattern from `field` of a rule, checked as the protected-paths pack checks its
  * patterns and tidied (NFC, no './', no empty parts), or why it is not one:
  * not text, empty, absolute, climbing with '..', negated, with parentheses, a
  * '/' or '**' inside a group, more than three wildcards in one part, not a
@@ -34,7 +34,7 @@ export type FileSetOf = (patterns: readonly string[]) => FileSet;
 
 /**
  * Whether a project-relative path matches a checked pattern exactly as the
- * path gate matches a rule's `match`: ignoring case, seeing dotfiles, a
+ * protected-paths pack matches a rule's `match`: ignoring case, seeing dotfiles, a
  * glob-free pattern covering everything under it. Nothing is excluded: this
  * is how a rule's `before.write` meets a write, wherever it is.
  */

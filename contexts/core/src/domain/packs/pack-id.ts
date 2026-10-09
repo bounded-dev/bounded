@@ -26,7 +26,7 @@ class PackIdImpl<Text extends string = string> implements Contract.PackId<Text> 
     const text = raw;
     if (typeof text !== "string") return { ok: false, error: "A pack id must be a string" };
     if (!ID.test(text)) {
-      return { ok: false, error: `Pack id '${text}' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'` };
+      return { ok: false, error: `Pack id '${text}' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/protected-paths'` };
     }
     return { ok: true, value: new PackIdImpl(text) };
   }

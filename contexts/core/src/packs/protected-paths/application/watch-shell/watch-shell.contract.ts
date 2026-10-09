@@ -1,5 +1,5 @@
 import { type AfterToolReport, portKeysFor, type Result, type ToolResult, type ToolUse, type Verdict } from "bounded/domain";
-import { pathGateId } from "../../domain/path-gate-id.ts";
+import { protectedPathsId } from "../../domain/protected-paths-id.ts";
 import type { Snapshot, WatchedFile } from "../../domain/snapshot.contract.ts";
 import type { WatchedPath } from "../../domain/watched-path.contract.ts";
 
@@ -21,7 +21,7 @@ export interface FileChange {
 /**
  * What a shell command did to watched files: none, or the changes, whether
  * they were undone, what to tell the agent, and what to record in the guard
- * log (the core records it, naming the path gate).
+ * log (the core records it, naming the protected-paths pack).
  */
 export interface DriftReport {
   readonly changed: readonly FileChange[];
@@ -82,8 +82,8 @@ export interface WatchShellOptions {
   readonly limits?: { readonly perFile: number; readonly total: number };
 }
 
-// The path gate's ports for this feature: a host provides them through openProject({ ports }).
+// The protected-paths pack's ports for this feature: a host provides them through openProject({ ports }).
 /** The project's watched files. */
-export const watchedFilesPort = portKeysFor(pathGateId)<WatchedFiles>("watchedFiles");
+export const watchedFilesPort = portKeysFor(protectedPathsId)<WatchedFiles>("watchedFiles");
 /** Where shell snapshots are kept between a call and its result. */
-export const shellSnapshotsPort = portKeysFor(pathGateId)<ShellSnapshots>("shellSnapshots");
+export const shellSnapshotsPort = portKeysFor(protectedPathsId)<ShellSnapshots>("shellSnapshots");

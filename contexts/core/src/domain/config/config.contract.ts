@@ -30,8 +30,8 @@ export interface ConfigSpec<Packs extends readonly BasePack[]> {
 
 export interface ConfigFactory {
   /**
-   * `export default defineConfig({ packs: [pathGate], contributes: [...] })`
-   * in bounded.config.ts: the path gate brings in `corePack`, which is listed
+   * `export default defineConfig({ packs: [protectedPathsPack], contributes: [...] })`
+   * in bounded.config.ts: the protected-paths pack brings in `corePack`, which is listed
    * only to contribute to its points.
    */
   defineConfig<const Packs extends readonly BasePack[]>(

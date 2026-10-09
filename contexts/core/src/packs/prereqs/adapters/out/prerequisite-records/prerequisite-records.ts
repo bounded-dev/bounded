@@ -18,7 +18,7 @@ const missing =(thrown: unknown): boolean => typeof thrown === "object" && throw
 
 /**
  * The pack's records and starts in the project, under `.bounded/prereqs/`,
- * where the path gate's rule for `.bounded/**` keeps agents off them.
+ * where the protected-paths pack's rule for `.bounded/**` keeps agents off them.
  * Records are `records.jsonl`: each appended as one whole line in one write
  * to a file opened for appending. A torn last line (a write cut short) is
  * ignored when read; the next append ends it with a marker first, so it stays

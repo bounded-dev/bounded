@@ -4,7 +4,7 @@ Guardrails for AI coding agents. Bounded judges every tool call an agent
 makes (Claude Code or pi), before it runs, against the packs a project
 selects. A refusal names the rule, the pack that contributed it, and what to
 do instead. Every decision is recorded in `.bounded/guard-log.jsonl`. The
-path gate pack refuses reads, listings and writes of the paths a project
+protected-paths pack refuses reads, listings and writes of the paths a project
 protects, including those a shell command names, and puts back what a shell
 command changed in them.
 
@@ -19,7 +19,7 @@ npx bounded init
 ```
 
 This adds `bounded` as a devDependency. It writes `bounded.config.ts`,
-selecting the path gate, which brings in the core, with default rules that keep agents
+selecting the protected-paths pack, which brings in the core, with default rules that keep agents
 off this configuration, `.bounded/`, Claude Code's settings, pi's loader,
 Bounded's installed code and git's hooks and config. It installs the hooks of the agent hosts the
 project uses (`.claude/`, `.pi/`, or `--host claude-code`, `--host pi`).
@@ -33,12 +33,12 @@ Then add your own rules beside the defaults:
 ```ts
 // bounded.config.ts
 import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 
 export default defineConfig({
-  packs: [pathGate],
+  packs: [protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       // ...init's default rules...
       { match: "secrets/**", deny: ["read", "create", "modify", "delete"], why: "secrets are kept by people", redirect: "Ask a maintainer for the value you need" },
     ]),
@@ -57,11 +57,11 @@ Claude Code's sandbox mode. Known ways round it:
 
 - drift does not watch `node_modules` or `.git`, so what a command changes
   there is not put back;
-- commands the path gate does not recognise as writing, such as `sed -i`,
+- commands the protected-paths pack does not recognise as writing, such as `sed -i`,
   `perl -i`, `node -e` and `python -c`;
-- `git config …` and `git -c core.hooksPath=…`, which the path gate sees as
+- `git config …` and `git -c core.hooksPath=…`, which the protected-paths pack sees as
   reads, so they get past the rules on git's hooks and config;
-- paths the path gate cannot resolve (variables, globs), which it allows;
+- paths the protected-paths pack cannot resolve (variables, globs), which it allows;
 - user-level settings outside the project, such as `~/.claude/settings.json`;
 - writes delayed into the background, after the tool call is judged;
 - drift's snapshots, kept in a state directory the user (and so the agent)
@@ -70,11 +70,13 @@ Claude Code's sandbox mode. Known ways round it:
 ## Export paths
 
 A configuration imports `bounded/domain` and the packs it selects, such as
-`bounded/path-gate` and `bounded/prereqs`. The adapter export paths,
-`bounded/adapters`, `bounded/path-gate/adapters` and
+`bounded/protected-paths` and `bounded/prereqs`. The adapter export paths,
+`bounded/adapters`, `bounded/protected-paths/adapters` and
 `bounded/prereqs/adapters`, are internal: they serve the hooks for Claude
 Code and pi that this package carries and its `bounded` command, and may
-change in any release. 3.1.0 deliberately breaks what 3.0.0 published, in a
+change in any release.
+
+3.1.0 deliberately breaks what 3.0.0 published, in a
 minor release because 3.0.0 was about an hour old with no users: it replaced
 3.0.0's `bounded/adapters/{file-system,in-memory,system}` and
 `bounded/path-gate/adapters/{file-system,in-memory,tree-sitter}`, removed
@@ -91,22 +93,28 @@ repository's ADR 2026-020): `openProject` requires a `shellCommandReader`,
 `pathGatePortProvisions()` gives two provisions, and `bounded/path-gate`
 no longer exports `PathKind`, `PathKinds`, `ShellCheck`, `ShellParser`,
 `pathKindsPort` or `shellParserPort` (nor its adapters
-`TreeSitterShellParser` and `FileSystemPathKinds`).
+`TreeSitterShellParser` and `FileSystemPathKinds`). 3.3.0 renames the path
+gate the protected-paths pack (the repository's ADR 2026-021):
+`bounded/path-gate` and `bounded/path-gate/adapters` are now
+`bounded/protected-paths` and `bounded/protected-paths/adapters`, and
+`pathGate` and `pathGatePortProvisions` are `protectedPathsPack` and
+`protectedPathsPortProvisions`; the old names are removed, with nothing kept
+for them.
 
 A host other than the two this package carries opens a project with the
 shell command reader bounded publishes:
 
 ```ts
 import { openProject } from "bounded/open-project";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { TreeSitterShellCommandReader } from "bounded/shell-command-reader";
 
 const shellCommandReader = new TreeSitterShellCommandReader();
-const project = await openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+const project = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
 ```
 
-Without a reader every shell command is read as unread, and the path gate
+Without a reader every shell command is read as unread, and the protected-paths pack
 refuses it. A host with a shell of its own may write its own reader of the
 core's `ShellCommandReader` port (`bounded/application`); its tests run the
 suite every reader runs, `bounded/testing/shell-command-reader-conformance`

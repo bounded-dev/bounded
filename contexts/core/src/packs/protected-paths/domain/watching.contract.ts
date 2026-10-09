@@ -1,7 +1,7 @@
 import type { WatchedPath } from "./watched-path.contract.ts";
 
 // How watched paths meet files, for every WatchedFiles adapter: a rule's
-// match ignores case, as the path gate's does, so a protected file cannot be
+// match ignores case, as the protected-paths pack's does, so a protected file cannot be
 // dodged by its case on a case-insensitive file system; its except is exact,
 // so a carve-out never grows. Version control's and bounded's own
 // directories are never watched, nor anything inside node_modules: drift

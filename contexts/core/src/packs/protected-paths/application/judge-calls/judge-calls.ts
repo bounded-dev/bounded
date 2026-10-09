@@ -1,10 +1,10 @@
 import { type Composition, type ListEffect, type UnreadShellCommandCause, Verdict, type WriteEffect } from "bounded/domain";
-import { pathGateId } from "../../domain/path-gate-id.ts";
+import { protectedPathsId } from "../../domain/protected-paths-id.ts";
 import type { ProtectedPath } from "../../domain/protected-path.contract.ts";
 import { protectedPathsIn } from "../../domain/protected-path.ts";
 import type * as Contract from "./judge-calls.contract.ts";
 
-// The path gate's guards: reads, listings and writes judged against its
+// The protected-paths pack's guards: reads, listings and writes judged against its
 // protected paths, and shell commands by what the core's reading of them
 // says they read, list and write (ADR 2026-020). Each reads the protected
 // paths from the composition it is given.
@@ -19,9 +19,9 @@ type Denial = { readonly what: string; readonly redirect?: string } | undefined;
  */
 function firstDenial(composition: Composition, denies: (rule: ProtectedPath) => Denial): Verdict {
   const point = protectedPathsIn(composition);
-  const rules = point === undefined ? { ok: false as const, error: `${pathGateId.value} is not selected` } : composition.entries(point);
+  const rules = point === undefined ? { ok: false as const, error: `${protectedPathsId.value} is not selected` } : composition.entries(point);
   if (!rules.ok) {
-    return Verdict.refuse(`The protected paths cannot be read: ${rules.error}`, `Select ${pathGateId.value} with the packs that contribute rules`);
+    return Verdict.refuse(`The protected paths cannot be read: ${rules.error}`, `Select ${protectedPathsId.value} with the packs that contribute rules`);
   }
   for (const { fromPackId, value: rule } of rules.value) {
     const denial = denies(rule);
@@ -57,7 +57,7 @@ function readDenial(rule: ProtectedPath, path: string): Denial {
  * from a file tool or a shell command, is judged by. Deleting a directory
  * deletes everything under it, so a delete is also refused when the path
  * could hold a path a rule denies delete for (see `contains`); deleting '.'
- * always is, since the path gate's own rules cover '.bounded/**' in every
+ * always is, since the protected-paths pack's own rules cover '.bounded/**' in every
  * project.
  */
 function writeDenial(rule: ProtectedPath, path: string, change: WriteEffect["change"]): Denial {
@@ -98,7 +98,7 @@ export const judgeList: Contract.JudgeList = (effect, composition) => firstDenia
 
 export const judgeWrite: Contract.JudgeWrite = (effect, composition) => firstDenial(composition, (rule) => writeDenial(rule, effect.path.value, effect.change));
 
-const UNCHECKED = "the path gate cannot check shell commands";
+const UNCHECKED = "the protected-paths pack cannot check shell commands";
 const UNREAD_REDIRECT = "Open the project with openProject (bounded/open-project) and a shell command reader, and reinstall bounded's dependencies if its parser cannot load; shell commands are refused until then";
 /** The redirect for each cause a reader gives: what would let the command be read. */
 const UNREAD_REDIRECTS: Readonly<Record<UnreadShellCommandCause, string>> = Object.freeze({

@@ -3,7 +3,7 @@ import type { WatchedPathJSON } from "./watched-path.contract.ts";
 import { WatchedPath } from "./watched-path.ts";
 import { WRITES } from "./protected-path.ts";
 
-/** Whether a pattern's last part is a literal name, which the path gate reads as covering everything under it too (but for a file rule). */
+/** Whether a pattern's last part is a literal name, which the protected-paths pack reads as covering everything under it too (but for a file rule). */
 const endsInName = (match: string): boolean => !/[*?[\]{}]/.test(match.split("/").at(-1) ?? "");
 
 export const watchedRulesOf: Contract.WatchedRulesOf = (composition, protectedPaths) => {
@@ -14,7 +14,7 @@ export const watchedRulesOf: Contract.WatchedRulesOf = (composition, protectedPa
   for (const { value: rule } of rules.value) {
     if (!WRITES.some((change) => rule.deny.includes(change)) || rule.match === ".bounded" || rule.match.startsWith(".bounded/")) continue;
     const changes = WRITES.filter((change) => rule.deny.includes(change));
-    const watched = { except: rule.except, changes, why: rule.why ?? `the path gate protects '${rule.match}'`, redirect: rule.redirect };
+    const watched = { except: rule.except, changes, why: rule.why ?? `the protected-paths pack protects '${rule.match}'`, redirect: rule.redirect };
     const forms: WatchedPathJSON[] = endsInName(rule.match) && rule.file !== true ? [{ match: rule.match, ...watched }, { match: `${rule.match}/**`, ...watched }] : [{ match: rule.match, ...watched }];
     for (const form of forms) {
       const parsed = WatchedPath.parse(form);

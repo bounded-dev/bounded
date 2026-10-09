@@ -76,8 +76,8 @@ export const USAGE = `Usage:
   bounded init [--host <host>]... [--from <dir>]     first install: add bounded at this CLI's version, from the npm registry or
                                                      from its tarball in <dir>, then set it up for the hosts named
                                                      (by default the hosts whose directory exists: .claude/, .pi/)
-  bounded init --no-install [--host <host>]...       set bounded up: the configuration (the core, the path gate and its default
-                                                     rules), and the hooks of the hosts named or found
+  bounded init --no-install [--host <host>]...       set bounded up: the configuration (the protected-paths pack, which
+                                                     brings in the core, and its default rules), and the hooks of the hosts named or found
   bounded update [--from <dir>]                      upgrade bounded to its latest from the npm registry, or from its tarball
                                                      in <dir>, then refresh the hooks
   bounded update --no-upgrade                        refresh the hooks of the hosts found to point at the installed version
@@ -141,7 +141,7 @@ const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.m
 function reportText(report: SetupReport, setupKind: SetupKind): string {
   const version = ownVersion();
   const lines = [`bounded ${version}`];
-  if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the core and the path gate, with two default rules protecting the configuration and .bounded/; add your own rules there.`);
+  if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the protected-paths pack, which brings in the core, with default rules protecting the project's guardrails (this configuration, .bounded/, the hosts' hooks, bounded's installed code, and git's hooks and config); add your own rules there.`);
   for (const host of report.hosts) {
     if (host.skippedBecause !== null) lines.push(`${host.host}: skipped (${host.skippedBecause})`);
     else if (host.changedPaths.length > 0) lines.push(`${host.host}: updated ${host.changedPaths.join(", ")}`);

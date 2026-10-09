@@ -1,7 +1,7 @@
 import picomatch from "picomatch";
 import type * as Contract from "./file-set.contract.ts";
 
-// Patterns are checked and matched as the path gate checks and matches a
+// Patterns are checked and matched as the protected-paths pack checks and matches a
 // rule's `match` (its pattern rules are repeated here: a shipped pack never
 // imports another), with one rule of this pack's own: no pattern may name
 // Bounded's state, `.bounded`, which records prerequisites.

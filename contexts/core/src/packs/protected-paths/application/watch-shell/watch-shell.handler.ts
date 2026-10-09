@@ -115,7 +115,7 @@ export class WatchShellHandler implements WatchShell {
     return (path) => this.files.rulesWatching(paths, path);
   }
 
-  /** The watched paths from the composed protected paths, each watched for the path gate. */
+  /** The watched paths from the composed protected paths, each watched for the protected-paths pack. */
   private rules(): readonly Rule[] {
     const watched = watchedRulesOf(this.composition, this.protectedPaths);
     if (!watched.ok) throw new Error(watched.error);
@@ -276,7 +276,7 @@ export class WatchShellHandler implements WatchShell {
   }
 }
 
-/** What to record of a check after a shell command: a refusal naming the path gate and the command when a rule is known. */
+/** What to record of a check after a shell command: a refusal naming the protected-paths pack and the command when a rule is known. */
 function record(result: ToolResult, message: string, rule: Rule | undefined, note: string): DriftReport["record"] {
   const effect = result.effects.find((e): e is ExecuteEffect => e.kind === "execute") ?? null;
   return { verdict: Verdict.refuse(message, rule?.rule.redirect ?? CHECK_REDIRECT), refusedBy: rule === undefined ? null : { effect }, note };

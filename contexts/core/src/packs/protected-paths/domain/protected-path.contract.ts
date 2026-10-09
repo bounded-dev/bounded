@@ -66,5 +66,5 @@ export interface ProtectedPathFactory {
   parse(raw: unknown): Result<ProtectedPath>;
 }
 
-/** The path gate's protected paths in a composition, found by the declaration the pack made its point from: how its own code reads them without importing the pack. Undefined when the path gate is not selected. */
+/** The protected-paths pack's protected paths in a composition, found by the declaration the pack made its point from: how its own code reads them without importing the pack. Undefined when the protected-paths pack is not selected. */
 export type ProtectedPathsIn = (composition: Composition) => ExtensionPoint<ProtectedPath, PackId> | undefined;

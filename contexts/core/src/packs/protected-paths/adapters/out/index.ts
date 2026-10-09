@@ -1,5 +1,5 @@
-// bounded/path-gate/adapters: the path gate's out adapters, one folder per port (ADR 2026-017), for hosts' composition roots.
-export { pathGatePortProvisions } from "./port-provisions.ts";
+// bounded/protected-paths/adapters: the protected-paths pack's out adapters, one folder per port (ADR 2026-017), for hosts' composition roots.
+export { protectedPathsPortProvisions } from "./port-provisions.ts";
 export { FileSystemShellSnapshots } from "./shell-snapshots/shell-snapshots.ts";
 export { stateDirFor, stateHomeFor } from "./state-directory.ts";
 export { FileSystemWatchedFiles } from "./watched-files/watched-files.ts";

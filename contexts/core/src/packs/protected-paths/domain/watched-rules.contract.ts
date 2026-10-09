@@ -9,11 +9,11 @@ export interface Watched {
 }
 
 /**
- * What the path gate protects from writes, as watched paths for its check
+ * What the protected-paths pack protects from writes, as watched paths for its check
  * around shell commands: every rule that denies a create, modify or delete,
  * with its own exceptions (a literal name also covers what is under it), in
- * pack order, each watched for the path gate. Never `.bounded/`: bounded
- * writes its own state there while judging. Without the path gate selected,
+ * pack order, each watched for the protected-paths pack. Never `.bounded/`: bounded
+ * writes its own state there while judging. Without the protected-paths pack selected,
  * nothing; rules that cannot be read make the watched rules unreadable, so
  * callers fail closed.
  */
