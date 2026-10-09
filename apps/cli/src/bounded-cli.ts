@@ -141,7 +141,7 @@ const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.m
 function reportText(report: SetupReport, setupKind: SetupKind): string {
   const version = ownVersion();
   const lines = [`bounded ${version}`];
-  if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the protected-paths pack, which brings in the core, with default rules protecting the project's guardrails (this configuration, .bounded/, the hosts' hooks, bounded's installed code, and git's hooks and config); add your own rules there.`);
+  if (report.configWritten !== null) lines.push(`Wrote ${report.configWritten}: it selects the protected-paths pack, which brings in the core, with default rules protecting the project's guardrails (see the comments in ${report.configWritten}); add your own rules there.`);
   for (const host of report.hosts) {
     if (host.skippedBecause !== null) lines.push(`${host.host}: skipped (${host.skippedBecause})`);
     else if (host.changedPaths.length > 0) lines.push(`${host.host}: updated ${host.changedPaths.join(", ")}`);

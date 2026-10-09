@@ -55,15 +55,19 @@ changed (ADR 2026-013, drift). Its one extension point is already called
   `bounded/protected-paths` ([the guard log](../guard-log.md)). Drift's
   snapshots are named by a hash of the call id and hold no pack id, nor do
   its quarantine or the prerequisites pack's records. Nothing is migrated.
-- **No code names the old pack.** An architecture test scans the code
-  (`.ts` and `package.json` under `contexts/` and `apps/`, and the root's
-  `.ts`) for the old name in any case and spelling, so a branch written
-  before the rename fails loudly when it is merged. Docs, ADRs, `legacy/`
+- **No code names the old pack.** An architecture test reads the code, one
+  line at a time: `.ts` files under `contexts/`, `apps/` and `scripts/` and
+  at the root, the `package.json` of each context and app, and every
+  `tsconfig*.json` (none under `node_modules/` or `dist/`). A line fails it
+  when it holds the words "path" and "gate", in any case, joined by nothing
+  or by one of `-`, `_`, `.`, `/` or a space, so a branch written before the
+  rename fails loudly when it is merged. It does not catch the two words
+  wrapped across lines, as prose in a comment may be. Docs, ADRs, `legacy/`
   and `superseded-tests.json` keep history and are not scanned.
 - **Release.** 3.3.0 removes `bounded/path-gate` and
   `bounded/path-gate/adapters` with no compatibility kept (no alias, no
   tombstone, no upgrade hint), since 3.x has no users; a configuration
-  written for 3.2.0 imports the new names.
+  written for 3.2.0 must be changed to import the new names.
 
 ## Consequences
 
