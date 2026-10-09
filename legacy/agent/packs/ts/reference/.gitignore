@@ -1,6 +1,0 @@
-# This directory is a worked-example project read in place and gate-verified in
-# CI against a throwaway copy (packs/ts/scripts/reference-component.test.ts).
-# Nothing a gate run or a vitest run drops here belongs in the record.
-node_modules/
-.bounded/
-scratch/

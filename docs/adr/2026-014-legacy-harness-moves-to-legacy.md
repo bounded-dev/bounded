@@ -1,6 +1,7 @@
 # 2026-014: The legacy harness moves to legacy/
 
-**Status:** accepted.
+**Status:** accepted. Amended by [ADR 2026-023](2026-023-legacy-harness-moves-out.md):
+the original harness has left `legacy/` for its own private repository.
 
 ## Decision
 

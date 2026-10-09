@@ -1,7 +1,4 @@
-# The legacy harness under legacy/ is read-only reference: never tested here.
 [test]
-pathIgnorePatterns = ["legacy/**"]
-
 # bounded's dist/ (JavaScript for node, ADR 2026-016) is built before the tests: its export paths and the
 # packaging tests point at it.
 preload = ["./test-preload.ts"]

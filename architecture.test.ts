@@ -522,7 +522,7 @@ describe("architecture", () => {
     // Built from its parts, so this test does not name it either: the two
     // words in any case, joined by nothing or by one of - _ . / or a space,
     // within one line (prose wrapped across lines is not caught). Code only:
-    // the docs, the ADRs, legacy/ and superseded-tests.json keep history.
+    // the docs, the ADRs and superseded-tests.json keep history.
     const formerName = new RegExp(["path", "gate"].join("[-\\s_./]?"), "i");
     const allowed: readonly string[] = [];
     const code = [

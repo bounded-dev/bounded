@@ -1,4 +1,0 @@
-import { test, expect } from "bun:test";
-const fixture = { id: "fixture-id-value", payload: "hidden-payload" };
-test("logs", () => { console.error("error: dump " + JSON.stringify(fixture)); console.error("(fail) target"); });
-test("target", () => { expect(1).toBe(2); });

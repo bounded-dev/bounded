@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="1" assertions="1" failures="0" skipped="0" time="0.006097">
-  <testsuite name="contexts/pm/src/domain/fine.test.ts" file="contexts/pm/src/domain/fine.test.ts" tests="1" assertions="1" failures="0" skipped="0" time="0" hostname="ci-host">
-    <testcase name="a healthy test" classname="" time="0.000038" file="contexts/pm/src/domain/fine.test.ts" line="3" assertions="1" />
-  </testsuite>
-</testsuites>

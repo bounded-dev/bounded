@@ -1,9 +1,0 @@
-import { expect, test } from "bun:test";
-import { composeApp } from "./composition-root.ts";
-
-test("the web app's router creates a note and lists it", async () => {
-  const caller = composeApp().createCaller({});
-  await caller.notes.create({ text: "Buy milk" });
-  const listed = await caller.notes.list();
-  expect(listed).toHaveLength(1);
-});

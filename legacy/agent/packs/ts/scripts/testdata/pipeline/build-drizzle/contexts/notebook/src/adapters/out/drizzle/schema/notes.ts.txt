@@ -1,8 +1,0 @@
-import { serial, text, uuid } from "drizzle-orm/pg-core";
-import { notebook } from "./notebook.schema.ts";
-
-export const notes = notebook.table("notes", {
-  id: uuid("id").primaryKey(),
-  text: text("text").notNull(),
-  position: serial("position").notNull(),
-});

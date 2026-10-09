@@ -1,6 +1,0 @@
-{
-  "type": "module",
-  "scripts": {
-    "build": "bun build {{entries}} --outdir dist --target node"
-  }
-}

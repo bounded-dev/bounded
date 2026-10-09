@@ -1,8 +1,0 @@
-import { expect, test } from "bun:test";
-
-test("passes before the module throws", () => {
-  expect(1).toBe(1);
-});
-
-const hiddenTopLevelValue = "top-level-secret";
-throw new Error(`module failed while loading ${hiddenTopLevelValue}`);

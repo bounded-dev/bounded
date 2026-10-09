@@ -6,11 +6,13 @@ mechanism by which packs (selectable bundles of behaviour) extend one another.
 
 ## The legacy harness
 
-The original Bounded harness, which this code supersedes, is kept read-only
-in [legacy/](legacy/README.md): not built or tested, there for its decisions
-(ADRs `LEG-2026-NNN`) and dogfood records. This code was developed as
-`bounded-core` and merged into this repository with both histories kept
-([ADR 2026-014](docs/adr/2026-014-legacy-harness-moves-to-legacy.md)).
+The original Bounded harness, which this code supersedes, is kept for
+reference in the private repository `bounded-dev/bounded-legacy`, with its
+own history: its decisions (ADRs `LEG-2026-NNN`) and dogfood records. This
+code was developed as `bounded-core` and merged into this repository
+([ADR 2026-014](docs/adr/2026-014-legacy-harness-moves-to-legacy.md)); the
+original harness later moved out to its own repository
+([ADR 2026-023](docs/adr/2026-023-legacy-harness-moves-out.md)).
 
 ## Status
 

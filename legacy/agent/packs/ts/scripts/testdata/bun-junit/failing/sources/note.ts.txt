@@ -1,4 +1,0 @@
-export function parseNote(raw: string): string {
-  if (raw === "ok") return raw;
-  throw new Error(`Not implemented: parseNote`);
-}

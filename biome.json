@@ -6,8 +6,7 @@
 			"!**/node_modules",
 			"!**/fixtures",
 			"!**/dist",
-			"!**/.agent-state",
-			"!legacy"
+			"!**/.agent-state"
 		]
 	},
 	"formatter": { "enabled": false },
