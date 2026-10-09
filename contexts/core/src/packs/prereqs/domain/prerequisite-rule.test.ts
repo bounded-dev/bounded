@@ -111,7 +111,7 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(rule(beforeBuilder).describeBefore()).toBe("before delegating to 'builder'");
   });
 
-  test("a before.write rule over node_modules or .git comes before a write there, as the path gate matches", () => {
+  test("a before.write rule over node_modules or .git comes before a write there, as the protected-paths pack matches", () => {
     // The final review's repro: such a rule parsed but never fired.
     const overDependencies = rule({ ...beforeSrc, before: { write: "node_modules/**" } });
     expect(overDependencies.comesBefore(effect({ kind: "write", path: "node_modules/left-pad/index.js", change: "modify" }))).toBe(true);

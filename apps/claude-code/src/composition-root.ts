@@ -6,7 +6,7 @@
 // bounded.config.ts and ask the core's judge; tests inject their own.
 import { Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
 import { type AfterTool, type Decide, type RecordRefusal, respond, runHook } from "./hook.ts";
@@ -15,8 +15,8 @@ import { projectPaths } from "./paths.ts";
 /** The shell command reader every project this process opens reads its commands with: its grammar loads once. */
 const shellCommandReader = new TreeSitterShellCommandReader();
 
-/** Opens a project with the adapters this host provides: the path gate's and the prerequisites pack's, on disk, and bounded's shell command reader. */
-const open = (projectRoot: string) => openProject(projectRoot, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+/** Opens a project with the adapters this host provides: the protected-paths pack's and the prerequisites pack's, on disk, and bounded's shell command reader. */
+const open = (projectRoot: string) => openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
 
 /**
  * How long bounded may take to decide, then how long work still pending after

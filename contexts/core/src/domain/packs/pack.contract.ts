@@ -162,7 +162,7 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
   };
 } & (Dependencies extends readonly []
     ? unknown
-    : { readonly dependsOn: PackListRules<Dependencies, "list dependsOn as a tuple of packs, such as [core, pathGate]", "list each dependency once", "each dependency is a pack with an exact id"> });
+    : { readonly dependsOn: PackListRules<Dependencies, "list dependsOn as a tuple of packs, such as [corePack, protectedPathsPack]", "list each dependency once", "each dependency is a pack with an exact id"> });
 
 /**
  * A list of packs the compiler can see pack by pack: a tuple (else `Tuple`),

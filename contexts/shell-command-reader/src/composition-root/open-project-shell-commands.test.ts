@@ -1,11 +1,11 @@
-// End to end: a host opens a project with the path gate's ports and bounded's
+// End to end: a host opens a project with the protected-paths pack's ports and bounded's
 // shell command reader, as the hosts bounded carries do (ADR 2026-020).
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openProject } from "bounded/open-project";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
 
 const CORE = resolve(import.meta.dir, "../../../core");
@@ -22,13 +22,13 @@ function project(files: Record<string, string>): string {
 }
 
 describe("openProject with bounded's shell command reader", () => {
-  test("openProject, given a shell command reader, reads each command before the path gate judges it: reads by absolute path, and redirects judged by whether the file exists", async () => {
+  test("openProject, given a shell command reader, reads each command before the protected-paths pack judges it: reads by absolute path, and redirects judged by whether the file exists", async () => {
     const config = `import { corePack, defineConfig, contribution } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({
-  packs: [corePack, pathGate],
+  packs: [corePack, protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       { match: ".env", file: true, deny: ["read"], redirect: "Ask a maintainer for the value" },
       { match: "migrations/**", deny: ["modify", "delete"], redirect: "Add a new migration instead" },
     ]),
@@ -39,7 +39,7 @@ export default defineConfig({
     mkdirSync(join(root, "migrations"));
     writeFileSync(join(root, "migrations", "0001_init.sql"), "create table a;");
     writeFileSync(join(root, ".env"), "KEY=1");
-    const { judge, problem } = await openProject(root, { ports: pathGatePortProvisions(), shellCommandReader: new TreeSitterShellCommandReader() });
+    const { judge, problem } = await openProject(root, { ports: protectedPathsPortProvisions(), shellCommandReader: new TreeSitterShellCommandReader() });
     expect(problem).toBeNull();
     let calls = 0;
     const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: `call-${++calls}` });

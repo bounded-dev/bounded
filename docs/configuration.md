@@ -19,7 +19,7 @@ export default defineConfig({
 });
 ```
 
-Most projects protect paths with the path gate rather than writing guards.
+Most projects protect paths with the protected-paths pack rather than writing guards.
 A rule's `deny` names each kind it denies (`read`, `list`, `create`,
 `modify`, `delete`); there is no shorthand, so a rule says exactly what it
 stops:
@@ -27,12 +27,12 @@ stops:
 ```ts
 // bounded.config.ts
 import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 
 export default defineConfig({
-  packs: [pathGate],
+  packs: [protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       {
         match: "generated/**",
         deny: ["create", "modify", "delete"],
@@ -47,14 +47,14 @@ export default defineConfig({
 
 The selection is the listed packs and every pack they depend on,
 transitively ([ADR 2026-018](adr/2026-018-selection-brings-in-dependencies.md)):
-the path gate depends on the core, so listing `pathGate` brings `corePack`
+the protected-paths pack depends on the core, so listing `protectedPathsPack` brings `corePack`
 in. List a dependency only to contribute to its points.
 
 A project can also require that an action waits for a review: the
 prerequisites pack, `bounded/prereqs`, refuses an action until a delegation
 to a named agent has succeeded over files that have not changed since
 ([its README](../contexts/core/src/packs/prereqs/README.md), ADR 2026-019).
-It relies on the path gate keeping agents off its records and the agents'
+It relies on the protected-paths pack keeping agents off its records and the agents'
 definitions, so list both (each brings in the core), and keep these rules: `bounded init`'s
 `.bounded/**`, and the project's agent definitions (`.claude/agents/**` for
 Claude Code; pi-subagents' project agent directory for pi):
@@ -62,13 +62,13 @@ Claude Code; pi-subagents' project agent directory for pi):
 ```ts
 // bounded.config.ts
 import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 import { prereqs } from "bounded/prereqs";
 
 export default defineConfig({
-  packs: [pathGate, prereqs],
+  packs: [protectedPathsPack, prereqs],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       // ...init's default rules, .bounded/** among them...
       { match: ".claude/agents", deny: ["create", "modify", "delete"], why: "agent definitions say who each agent is", redirect: "Ask a maintainer to change an agent's definition" },
     ]),
@@ -83,7 +83,7 @@ The project acts as one more pack, `bounded/project`, that depends on every
 listed pack. So its contributions follow the same rules as any pack's: a
 contribution to a point of a pack the project does not list does not
 compile, and is refused when the configuration is used, even when the pack
-is brought in by another: list it (`[corePack, pathGate]` to contribute
+is brought in by another: list it (`[corePack, protectedPathsPack]` to contribute
 guards to the core's points). The list must be a tuple of distinct packs,
 not a widened list. Two different copies of one pack in the selection (two
 copies of a package, say) are refused, naming where each comes from.
@@ -95,14 +95,14 @@ about every event:
 
 ```ts
 import { openProject } from "bounded/open-project";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { TreeSitterShellCommandReader } from "bounded/shell-command-reader";
 
-// The ports the selected packs declare: here every port of the path gate (its files and snapshots on disk)
+// The ports the selected packs declare: here every port of the protected-paths pack (its files and snapshots on disk)
 // and of the prerequisites pack (its fingerprints of the project's files, its records); and the reader of shell commands.
 const shellCommandReader = new TreeSitterShellCommandReader();
-const project = await openProject("/absolute/path/to/project", { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+const project = await openProject("/absolute/path/to/project", { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
 if (project.problem !== null) console.error(project.problem);
 const verdict = await project.judge(eventFromTheHost);
 ```
@@ -118,7 +118,7 @@ provided, or every event is refused, naming the pack, the port and the fix.
 The judge reads every shell command first: an execute effect carries the
 reading, the programs it runs, the files it reads, lists and writes, and
 what only the shell could resolve (ADR 2026-020); a reading the host sent is
-replaced. A command that could not be read carries why, and the path gate
+replaced. A command that could not be read carries why, and the protected-paths pack
 refuses it. `shellCommandReader` is required; bounded's own is
 `bounded/shell-command-reader`.
 
@@ -143,7 +143,7 @@ Add `.bounded/` to the project's `.gitignore`.
 `bounded.config.ts` runs code inside the process that judges every action, so
 it decides what is allowed. The core freezes everything it exports, so a
 configuration cannot patch it, but the configuration itself, and every file it
-imports, must be protected from the agent. The path gate ships no rules of
+imports, must be protected from the agent. The protected-paths pack ships no rules of
 its own; the configuration `bounded init` writes contributes a default rule
 protecting `bounded.config.*` (and one protecting `.bounded/`), which a
 configuration written by hand should keep (ADR 2026-009). Files the configuration imports should be protected too

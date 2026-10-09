@@ -1,7 +1,7 @@
 {
   "name": "bounded",
-  "version": "3.2.0",
-  "description": "Bounded: guardrails for AI coding agents. Typed packs and extension points, the path gate, and hooks for Claude Code and pi, with the bounded command to set a project up",
+  "version": "3.3.0",
+  "description": "Bounded: guardrails for AI coding agents. Typed packs and extension points, the protected-paths pack, and hooks for Claude Code and pi, with the bounded command to set a project up",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -58,16 +58,6 @@
       "types": "./dist/types/composition-root/open-project.d.ts",
       "default": "./dist/composition-root/open-project.js"
     },
-    "./path-gate": {
-      "bun": "./src/packs/path-gate/index.ts",
-      "types": "./dist/types/packs/path-gate/index.d.ts",
-      "default": "./dist/packs/path-gate/index.js"
-    },
-    "./path-gate/adapters": {
-      "bun": "./src/packs/path-gate/adapters/out/index.ts",
-      "types": "./dist/types/packs/path-gate/adapters/out/index.d.ts",
-      "default": "./dist/packs/path-gate/adapters/out/index.js"
-    },
     "./prereqs": {
       "bun": "./src/packs/prereqs/index.ts",
       "types": "./dist/types/packs/prereqs/index.d.ts",
@@ -77,6 +67,16 @@
       "bun": "./src/packs/prereqs/adapters/out/index.ts",
       "types": "./dist/types/packs/prereqs/adapters/out/index.d.ts",
       "default": "./dist/packs/prereqs/adapters/out/index.js"
+    },
+    "./protected-paths": {
+      "bun": "./src/packs/protected-paths/index.ts",
+      "types": "./dist/types/packs/protected-paths/index.d.ts",
+      "default": "./dist/packs/protected-paths/index.js"
+    },
+    "./protected-paths/adapters": {
+      "bun": "./src/packs/protected-paths/adapters/out/index.ts",
+      "types": "./dist/types/packs/protected-paths/adapters/out/index.d.ts",
+      "default": "./dist/packs/protected-paths/adapters/out/index.js"
     },
     "./shell-command-reader": {
       "types": "./dist/types/shell-command-reader/index.d.ts",

@@ -7,7 +7,7 @@
 // extension's own blocks.
 import { type ToolResult, type ToolUse, Verdict } from "bounded/domain";
 import { openProject } from "bounded/open-project";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
 import type { AdapterRefusal, ProjectJudgeForPi } from "./extension.ts";
@@ -19,14 +19,14 @@ const shellCommandReader = new TreeSitterShellCommandReader();
 
 /**
  * Opens the project at `root` (absolute) with the adapters this host
- * provides (the path gate's and the prerequisites pack's, on disk, and
+ * provides (the protected-paths pack's and the prerequisites pack's, on disk, and
  * bounded's shell command reader) and decides each event with its judge,
  * which records every decision.
  */
 export async function composeProject(root: string, open: typeof openProject = openProject): Promise<ProjectJudgeForPi> {
   let project: Awaited<ReturnType<typeof openProject>>;
   try {
-    project = await open(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    project = await open(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
   } catch (error) {
     const refusal = Verdict.refuse(`bounded could not open the project: ${message(error)}`, "Fix the project's bounded setup, then start a new pi session");
     return async () => refusal;

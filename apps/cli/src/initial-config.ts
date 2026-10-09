@@ -1,11 +1,11 @@
-// The configuration `bounded init` writes: live, selecting the path gate
+// The configuration `bounded init` writes: live, selecting the protected-paths pack
 // (which brings in the core), with the default rules that keep agents off the project's
-// guardrails. The path gate ships no rules of its own (ADR 2026-009), so the
+// guardrails. The protected-paths pack ships no rules of its own (ADR 2026-009), so the
 // defaults live here, where the project can see and change them. Content is
 // the CLI's: the core's init feature writes whatever text it is given.
 
 export const INITIAL_CONFIG = `// Bounded's configuration for this project, written by \`bounded init\`.
-// It selects the path gate, which brings in the core. The seven rules below are defaults:
+// It selects the protected-paths pack, which brings in the core. The seven rules below are defaults:
 // they keep agents from changing this configuration, Bounded's own state in
 // .bounded/, the hooks that run Bounded (Claude Code's settings files, any of
 // which could turn hooks off, and pi's loader), Bounded's installed code, and
@@ -15,12 +15,12 @@ export const INITIAL_CONFIG = `// Bounded's configuration for this project, writ
 // project, is not covered. Bounded discourages agents and records what they
 // do; it is not a security boundary: pair it with your host's sandbox.
 import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 
 export default defineConfig({
-  packs: [pathGate],
+  packs: [protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       {
         match: "**/bounded.config.*",
         deny: ["create", "modify", "delete"],

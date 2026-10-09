@@ -2,4 +2,4 @@ import { textValueLaws, valueObjectLaws } from "../shared/value-object.laws.test
 import { PackId } from "./pack-id.ts";
 
 valueObjectLaws("PackId", PackId, ["bounded/core", "@acme/rules/web-2"], ["core", "bounded/", "Bounded/core", "bounded/a--b"]);
-textValueLaws("PackId", PackId, [["bounded/path-gate", "bounded/path-gate"], ["my.pkg/a", "my.pkg/a"]]);
+textValueLaws("PackId", PackId, [["bounded/protected-paths", "bounded/protected-paths"], ["my.pkg/a", "my.pkg/a"]]);

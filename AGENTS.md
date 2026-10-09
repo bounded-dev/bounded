@@ -57,7 +57,7 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 ```
 contexts/
   core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
-    src/packs/path-gate/              the path gate (slice 3): a pack shipped in bounded, exported as bounded/path-gate
+    src/packs/protected-paths/        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
     src/packs/prereqs/                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
   shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands: implements the core's ShellCommandReader;
                                      published as bounded/shell-command-reader (private: built into bounded's dist/; ADR 2026-020)
@@ -101,7 +101,7 @@ src/
                           for its class; each runs its port's conformance suite in a test beside it
   adapters/out/index.ts   the out adapters' barrel, the package's `adapters` export path (ADR 2026-017)
   composition-root/       the context's composition root: openProject, which host adapters call (ADR 2026-010)
-  packs/<name>/           a pack shipped in the context's package, such as path-gate/ (ADR 2026-009)
+  packs/<name>/           a pack shipped in the context's package, such as protected-paths/ (ADR 2026-009)
 ```
 
 Rules, enforced by `architecture.test.ts` unless stated:
@@ -248,7 +248,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   packs get adapters through ports the host provides (ADR 2026-013).** Hosts
   call `judge` before a tool call and `afterTool` after it, passing the call
   id, and pass the shipped packs' ports and the shell command reader to
-  `openProject` (the path gate's ports undo what shell commands change in
+  `openProject` (the protected-paths pack's ports undo what shell commands change in
   the files it protects, ADR 2026-011).
 - **An execute effect carries the core's reading of its command (ADR
   2026-020)**: the programs it runs, the files it reads, lists and writes,

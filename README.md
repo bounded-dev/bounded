@@ -21,10 +21,10 @@ hosts:
 - **Slices 1 to 3.** Packs, typed extension points, contributions and
   composition ([docs/slice-1.md](docs/slice-1.md)); host-neutral events made
   of precise effects, verdicts, guards and dispatch over a composition
-  ([docs/slice-2.md](docs/slice-2.md)); the path gate, the first pack
+  ([docs/slice-2.md](docs/slice-2.md)); the protected-paths pack, the first pack
   ([docs/slice-3.md](docs/slice-3.md)). Each guide has a reading order and a
   worked example.
-- **The path gate** (`bounded/path-gate`): deny-only rules on reads,
+- **The protected-paths pack** (`bounded/protected-paths`): deny-only rules on reads,
   listings and writes, file rules, honest redirects, and protection of the
   project's own configuration ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)).
 - **The prerequisites pack** (`bounded/prereqs`, in 3.2.0): an
@@ -83,30 +83,30 @@ hosts:
 
 - **Configuration.** A project selects its packs in `bounded.config.ts` with
   `defineConfig`; host adapters call `openProject(root, { ports:
-  [...pathGatePortProvisions(), ...prereqsPortProvisions()],
+  [...protectedPathsPortProvisions(), ...prereqsPortProvisions()],
   shellCommandReader })` and ask its judge about every event. A broken
   configuration refuses everything
   ([docs/configuration.md](docs/configuration.md), ADR 2026-010).
 
 - **Shell commands are read by the judge.** Before any guard runs, the judge
   reads every execute effect's command through the host's
-  `ShellCommandReader` and the effect carries the reading; the path gate
+  `ShellCommandReader` and the effect carries the reading; the protected-paths pack
   judges from it, and a command that could not be read is refused. The
   reader, tree-sitter's bash grammar and the table of what commands do with
   their words live in a private context, `bounded-shell-command-reader`,
   published as `bounded/shell-command-reader`, so the core names no shell
   ([ADR 2026-020](docs/adr/2026-020-shell-command-reading.md)).
 
-- **Drift.** What the path gate protects from writes is snapshotted before
+- **Drift.** What the protected-paths pack protects from writes is snapshotted before
   every allowed shell command and put back after it if it changed them, with
   a message for the agent and a record; what a command created is moved
   aside, never deleted. The core runs it through its `beforeTool` and
-  `afterTool` lifecycle points; the host supplies the path gate's port
-  provisions (`pathGatePortProvisions`, from `bounded/path-gate/adapters`) to
+  `afterTool` lifecycle points; the host supplies the protected-paths pack's port
+  provisions (`protectedPathsPortProvisions`, from `bounded/protected-paths/adapters`) to
   `openProject` ([docs/drift.md](docs/drift.md), ADR 2026-011,
   ADR 2026-013, ADR 2026-017).
 
-- **The path gate** (`bounded/path-gate`) is an ordinary pack. Packs and
+- **The protected-paths pack** (`bounded/protected-paths`) is an ordinary pack. Packs and
   projects contribute deny-only rules to its `protectedPaths` point (a
   glob, its own exceptions, what it denies, a redirect); its guards refuse
   reads, listings and writes a rule denies, naming the rule and the pack
@@ -120,7 +120,7 @@ described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
 
 ## Installing
 
-One package, `bounded`, carries everything: the library, the path gate, the
+One package, `bounded`, carries everything: the library, the protected-paths pack, the
 `bounded` command and the hooks for Claude Code and pi. It runs on Node 22.18
 or later (which loads `bounded.config.ts` by stripping its types), with npm,
 pnpm, yarn or bun. Bun is needed only to build and publish Bounded itself.
@@ -136,9 +136,9 @@ manager. That is the lockfile's, else `package.json`'s `packageManager`, else
 the one running npx. It then hands over to the `bounded` it installed, which
 does two things.
 
-- **It writes `bounded.config.ts`**, selecting the path gate (which brings
+- **It writes `bounded.config.ts`**, selecting the protected-paths pack (which brings
   in the core).
-  The path gate ships no rules of its own
+  The protected-paths pack ships no rules of its own
   ([ADR 2026-009](docs/adr/2026-009-path-gate-pack.md)). The configuration
   `init` writes contributes seven default rules. Agents may not change:
   - `bounded.config.*`;
@@ -162,11 +162,11 @@ does two things.
   Claude Code's sandbox mode. Known ways round it:
   - drift does not watch `node_modules` or `.git`, so what a command changes
     there is not put back;
-  - commands the path gate does not recognise as writing, such as
+  - commands the protected-paths pack does not recognise as writing, such as
     `sed -i`, `perl -i`, `node -e` and `python -c`;
-  - `git config …` and `git -c core.hooksPath=…`, which the path gate sees
+  - `git config …` and `git -c core.hooksPath=…`, which the protected-paths pack sees
     as reads, so they get past the rules on git's hooks and config;
-  - paths the path gate cannot resolve (variables, globs), which it allows;
+  - paths the protected-paths pack cannot resolve (variables, globs), which it allows;
   - user-level settings outside the project, such as
     `~/.claude/settings.json`;
   - writes delayed into the background, after the tool call is judged;
@@ -184,18 +184,18 @@ Restart (or start) the hosts' sessions afterwards, as `init` says, so they
 load the hooks.
 
 The first thing to do after `init` is to add your own rules beside the
-defaults, in the `contribution(pathGate.points.protectedPaths, [...])` that
+defaults, in the `contribution(protectedPathsPack.points.protectedPaths, [...])` that
 `init` wrote. For example, to keep agents out of `secrets/`:
 
 ```ts
 // bounded.config.ts, as init wrote it, with one rule added
 import { contribution, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 
 export default defineConfig({
-  packs: [pathGate],
+  packs: [protectedPathsPack],
   contributes: [
-    contribution(pathGate.points.protectedPaths, [
+    contribution(protectedPathsPack.points.protectedPaths, [
       // ...init's seven default rules...
       { match: "secrets/**", deny: ["read", "create", "modify", "delete"], why: "secrets are kept by people", redirect: "Ask a maintainer for the value you need" },
     ]),

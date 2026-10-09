@@ -1,6 +1,6 @@
 {
   "name": "bounded-shell-command-reader",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Bounded's shell command reader, in source: reads a shell command with tree-sitter's bash grammar for the core's ShellCommandReader port. Not published: bounded's prepack builds it into bounded as bounded/shell-command-reader (ADR 2026-020)",
   "private": true,
   "type": "module",

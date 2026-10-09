@@ -3,11 +3,11 @@
 // The first install runs `npx -p <dir>/bounded-<v>.tgz bounded init --from
 // <dir>` before the project has any bounded package; it adds bounded and
 // hands over to the installed bounded, which writes the configuration (the
-// core, the path gate and its two default rules) and installs the hooks of
+// protected-paths pack, which brings in the core, and its default rules) and installs the hooks of
 // the hosts found. After that, `npx bounded update --from` runs the project's
 // own bin, upgrades, and hands over to the newer bounded it installs. Under
 // npm with no bun on PATH, the installed Claude Code hook, run by node as
-// Claude Code runs it, judges calls with the path gate.
+// Claude Code runs it, judges calls with the protected-paths pack.
 // The registry path is unit-tested with a stub runner (bounded-cli.registry.test.ts).
 import { describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -85,7 +85,7 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-e2e-tarball-")));
     packBounded(join(scratch, "release"));
     const listed = mustRun(["tar", "-tzf", tarball(join(scratch, "release"), VERSION)], scratch).split("\n");
-    for (const entry of ["dist/cli.js", "dist/hosts/claude-code/hook.js", "dist/hosts/claude-code/host-installer.js", "dist/hosts/pi/index.js", "dist/hosts/pi/host-installer.js", "dist/domain/index.js", "dist/packs/path-gate/index.js"]) {
+    for (const entry of ["dist/cli.js", "dist/hosts/claude-code/hook.js", "dist/hosts/claude-code/host-installer.js", "dist/hosts/pi/index.js", "dist/hosts/pi/host-installer.js", "dist/domain/index.js", "dist/packs/protected-paths/index.js"]) {
       expect(listed).toContain(`package/${entry}`);
     }
     mustRun(["tar", "-xzf", tarball(join(scratch, "release"), VERSION)], scratch);
@@ -128,7 +128,7 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
     expect(init.stdout).toContain("claude-code: updated .claude/settings.json");
     expect(init.stdout).toContain("pi: updated .pi/extensions/bounded/index.ts");
     const config = readFileSync(join(project, "bounded.config.ts"), "utf8");
-    expect(config).toContain("packs: [pathGate],");
+    expect(config).toContain("packs: [protectedPathsPack],");
     expect(config).toContain('match: "**/bounded.config.*"');
     expect(config).toContain('match: ".bounded/**"');
     const settingsText = readFileSync(join(project, ".claude", "settings.json"), "utf8");
@@ -175,7 +175,7 @@ describe("npx bounded end to end, from the one bounded tarball, under node", () 
   }, 300_000);
 
   test.skipIf(Bun.which("npm") === null)(
-    "under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the path gate judges with init's default rules and a project rule; then update --from",
+    "under npm with no bun on PATH (skipped when npm is not installed): init installs the hook, which node runs as Claude Code does and the protected-paths pack judges with init's default rules and a project rule; then update --from",
     () => {
       const scratch = realpathSync(mkdtempSync(join(tmpdir(), "bounded-e2e-npm-")));
       const first = join(scratch, "release-1");

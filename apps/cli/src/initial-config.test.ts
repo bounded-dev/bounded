@@ -1,12 +1,12 @@
-// The configuration `bounded init` writes: live, selecting the path gate
-// (which brings in the core) with the two default rules that keep agents off the project's
-// guardrails (the path gate ships no rules of its own, ADR 2026-009).
+// The configuration `bounded init` writes: live, selecting the protected-paths pack
+// (which brings in the core) with the default rules that keep agents off the project's
+// guardrails (the protected-paths pack ships no rules of its own, ADR 2026-009).
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openProject } from "bounded/open-project";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
 import { INITIAL_CONFIG } from "./initial-config.ts";
@@ -27,10 +27,10 @@ function project(): string {
 const edit = (path: string) => ({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change: "modify" }] });
 
 describe("bounded init's configuration", () => {
-  test("selects the path gate, which brings in the core, contributing the two default rules with their reasons, under a comment saying they may be changed", () => {
+  test("selects the protected-paths pack, which brings in the core, contributing its default rules with their reasons, under a comment saying they may be changed", () => {
     expect(INITIAL_CONFIG).toContain('import { contribution, defineConfig } from "bounded/domain";');
-    expect(INITIAL_CONFIG).toContain('import { pathGate } from "bounded/path-gate";');
-    expect(INITIAL_CONFIG).toContain("packs: [pathGate],");
+    expect(INITIAL_CONFIG).toContain('import { protectedPathsPack } from "bounded/protected-paths";');
+    expect(INITIAL_CONFIG).toContain("packs: [protectedPathsPack],");
     expect(INITIAL_CONFIG).not.toContain("corePack");
     expect(INITIAL_CONFIG).toContain('match: "**/bounded.config.*"');
     expect(INITIAL_CONFIG).toContain('match: ".bounded/**"');
@@ -42,9 +42,16 @@ describe("bounded init's configuration", () => {
     expect(INITIAL_CONFIG).toContain("README");
   });
 
+  test("names the protected-paths pack only by its current name (ADR 2026-021)", () => {
+    // The former name, built from its parts so this file does not spell it.
+    const formerName = new RegExp(["path", "gate"].join("[-\\s_./]?"), "i");
+    expect(INITIAL_CONFIG).toContain("the protected-paths pack");
+    expect(INITIAL_CONFIG).not.toMatch(formerName);
+  });
+
   test("is a working configuration: an agent's edit of it, or of .bounded/, is refused; other edits are allowed", async () => {
     const root = project();
-    const { judge, problem } = await openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    const { judge, problem } = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
     expect(problem).toBeNull();
     const refused = await judge(edit("bounded.config.ts"));
     expect(refused.kind).toBe("refuse");
@@ -59,7 +66,7 @@ describe("bounded init's configuration", () => {
     expect(INITIAL_CONFIG).toContain("Ask a person to change Claude Code's settings");
     expect(INITIAL_CONFIG).toContain('match: ".pi/extensions/bounded/**"');
     expect(INITIAL_CONFIG).toContain('match: "node_modules/bounded/**"');
-    const { judge } = await openProject(project(), { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    const { judge } = await openProject(project(), { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
     for (const path of [".claude/settings.json", ".claude/settings.local.json", ".pi/extensions/bounded/index.ts", "node_modules/bounded/dist/hosts/claude-code/hook.js"]) {
       for (const change of ["create", "modify", "delete"] as const) {
         expect((await judge({ kind: "tool-use", role: null, tool: "edit", effects: [{ kind: "write", path, change }] })).kind).toBe("refuse");
@@ -77,7 +84,7 @@ describe("bounded init's configuration", () => {
     expect(INITIAL_CONFIG).toContain('match: ".git/config"');
     expect(INITIAL_CONFIG).toContain("git runs these hooks later, outside Bounded's view");
     expect(INITIAL_CONFIG).toContain("core.hooksPath");
-    const { judge, problem } = await openProject(project(), { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    const { judge, problem } = await openProject(project(), { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
     expect(problem).toBeNull();
     const byRule = (verdict: { kind: string; reason?: string }, rule: string) => [verdict.kind, verdict.kind === "refuse" && verdict.reason?.includes(`the rule '${rule}' from bounded/project`)];
     for (const [path, rule] of [[".git/hooks/pre-commit", ".git/hooks/**"], [".git/config", ".git/config"]] as const) {
@@ -100,7 +107,7 @@ describe("bounded init's configuration", () => {
   });
 
   test("a shell write to git's hooks or config is refused by the git rules themselves, naming them", async () => {
-    const { judge } = await openProject(project(), { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    const { judge } = await openProject(project(), { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
     const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" });
     for (const [command, rule] of [
       ["echo x > .git/hooks/pre-commit", ".git/hooks/**"],
@@ -114,7 +121,7 @@ describe("bounded init's configuration", () => {
   });
 
   test("a copy through xargs into git's hooks is refused by the git rule: its input never takes the literal destination out of judgement", async () => {
-    const { judge } = await openProject(project(), { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    const { judge } = await openProject(project(), { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
     let calls = 0;
     const shell = (command: string) => judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: `call-${++calls}` });
     for (const command of ["ls | xargs -I % cp % .git/hooks/pre-commit", "ls | xargs -I{} cp {} .git/hooks/pre-commit", "echo x | xargs cp notes.txt .git/hooks/pre-commit"]) {
@@ -123,9 +130,9 @@ describe("bounded init's configuration", () => {
     }
   });
 
-  test("a known way round the git rules, pinned so it stays documented: the path gate sees `git config core.hooksPath …` as reads, and allows it", async () => {
+  test("a known way round the git rules, pinned so it stays documented: the protected-paths pack sees `git config core.hooksPath …` as reads, and allows it", async () => {
     expect(INITIAL_CONFIG).not.toContain("git -c");
-    const { judge } = await openProject(project(), { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
+    const { judge } = await openProject(project(), { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader });
     const command = "git config core.hooksPath tools/hooks";
     expect((await judge({ kind: "tool-use", role: null, tool: "shell", effects: [{ kind: "execute", command, cwd: null }], callId: "call-1" })).kind).toBe("allow");
   });

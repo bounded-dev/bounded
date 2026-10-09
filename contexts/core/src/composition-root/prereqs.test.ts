@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { pathGatePortProvisions } from "bounded/path-gate/adapters";
+import { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";
 import { prereqsPortProvisions } from "bounded/prereqs/adapters";
 import { openProject } from "./open-project.ts";
 import { fixedShellCommandReader, UNREAD_SAMPLE } from "./shell-command-reader.test-support.ts";
@@ -69,7 +69,7 @@ describe("bounded/prereqs end to end: openProject with the pack's adapters", () 
 
   test("a background launch records nothing, and afterTool says why", async () => {
     const root = project(PREREQS);
-    const { judge, afterTool } = await openProject(root, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader: unread });
+    const { judge, afterTool } = await openProject(root, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader: unread });
     expect((await judge(review("c1"))).kind).toBe("allow");
     const told = await afterTool(reviewed("c1", false));
     expect(told.message).toContain("plan-reviewer's run was not seen to finish (it may still be running in the background)");

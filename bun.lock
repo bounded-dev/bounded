@@ -13,7 +13,7 @@
     },
     "apps/claude-code": {
       "name": "bounded-claude-code",
-      "version": "3.2.0",
+      "version": "3.3.0",
       "bin": {
         "bounded-claude-code": "./src/main.ts",
       },
@@ -28,7 +28,7 @@
     },
     "apps/cli": {
       "name": "bounded-cli",
-      "version": "3.2.0",
+      "version": "3.3.0",
       "bin": {
         "bounded": "./src/main.ts",
       },
@@ -41,7 +41,7 @@
     },
     "apps/pi": {
       "name": "bounded-pi",
-      "version": "3.2.0",
+      "version": "3.3.0",
       "dependencies": {
         "bounded": "workspace:*",
         "bounded-shell-command-reader": "workspace:*",
@@ -49,7 +49,7 @@
     },
     "contexts/core": {
       "name": "bounded",
-      "version": "3.2.0",
+      "version": "3.3.0",
       "bin": {
         "bounded": "dist/cli.js",
       },
@@ -61,7 +61,7 @@
     },
     "contexts/shell-command-reader": {
       "name": "bounded-shell-command-reader",
-      "version": "3.2.0",
+      "version": "3.3.0",
       "dependencies": {
         "@vscode/tree-sitter-wasm": "0.3.1",
         "bounded": "workspace:*",

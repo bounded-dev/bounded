@@ -482,21 +482,21 @@ describe("architecture", () => {
   test("the core is a workspace package exporting each of its layers", () => {
     const core = byName.get("bounded");
     expect(core?.dir).toBe("contexts/core");
-    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./path-gate", "./path-gate/adapters", "./prereqs", "./prereqs/adapters", "./shell-command-reader", "./testing/host-installer-conformance", "./testing/shell-command-reader-conformance"]);
+    expect(Object.keys(core?.exports ?? {}).sort()).toEqual(["./adapters", "./application", "./domain", "./hosts/claude-code/host-installer", "./hosts/pi", "./hosts/pi/host-installer", "./open-project", "./prereqs", "./prereqs/adapters", "./protected-paths", "./protected-paths/adapters", "./shell-command-reader", "./testing/host-installer-conformance", "./testing/shell-command-reader-conformance"]);
   });
 
   test("the out adapters are grouped by the port each serves: no technology folders", () => {
     const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
     expect(foldersUnder("contexts/core/src/adapters/out")).toEqual(["clock", "compose-packs-catalog", "decision-ids", "guard-log", "host-installer-source", "project-config-source", "project-guard-logs", "project-setup-files"]);
-    expect(foldersUnder("contexts/core/src/packs/path-gate/adapters/out")).toEqual(["shell-snapshots", "watched-files"]);
+    expect(foldersUnder("contexts/core/src/packs/protected-paths/adapters/out")).toEqual(["shell-snapshots", "watched-files"]);
     expect(foldersUnder("contexts/core/src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records"]);
   });
 
   test("in-memory test doubles are test support beside the ports they stand in for", async () => {
     const doubles = [
       "contexts/core/src/application/guard-log/judge-event/judge-event.in-memory-guard-log",
-      "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-shell-snapshots",
-      "contexts/core/src/packs/path-gate/application/watch-shell/watch-shell.in-memory-watched-files",
+      "contexts/core/src/packs/protected-paths/application/watch-shell/watch-shell.in-memory-shell-snapshots",
+      "contexts/core/src/packs/protected-paths/application/watch-shell/watch-shell.in-memory-watched-files",
       "contexts/core/src/packs/prereqs/application/check-prerequisites/check-prerequisites.in-memory-file-set-fingerprints",
       "contexts/core/src/packs/prereqs/application/check-prerequisites/check-prerequisites.in-memory-prerequisite-records",
     ];
@@ -514,8 +514,37 @@ describe("architecture", () => {
     expect(pi?.dependencies).toContain("bounded-shell-command-reader");
   });
 
-  test("the path gate is a pack shipped in the bounded package, in its own directory", () => {
-    expect(byName.get("bounded")?.exports["./path-gate"]).toBe("./src/packs/path-gate/index.ts");
+  test("the protected-paths pack is a pack shipped in the bounded package, in its own directory", () => {
+    expect(byName.get("bounded")?.exports["./protected-paths"]).toBe("./src/packs/protected-paths/index.ts");
+  });
+
+  test("no code names the protected-paths pack by the name it had before ADR 2026-021", async () => {
+    // Built from its parts, so this test does not name it either: the two
+    // words in any case, joined by nothing or by one of - _ . / or a space,
+    // within one line (prose wrapped across lines is not caught). Code only:
+    // the docs, the ADRs, legacy/ and superseded-tests.json keep history.
+    const formerName = new RegExp(["path", "gate"].join("[-\\s_./]?"), "i");
+    const allowed: readonly string[] = [];
+    const code = [
+      ...["contexts/**/*.ts", "contexts/*/package.json", "contexts/**/tsconfig*.json", "apps/**/*.ts", "apps/*/package.json", "apps/**/tsconfig*.json", "scripts/**/*.ts"].flatMap((pattern) => [
+        ...new Glob(pattern).scanSync({ cwd: ROOT }),
+      ]),
+      ...new Glob("*.ts").scanSync({ cwd: ROOT }),
+      ...new Glob("tsconfig*.json").scanSync({ cwd: ROOT }),
+    ].filter((path) => !path.split("/").some((segment) => segment === "node_modules" || segment === "dist"));
+    expect(code).toContain("contexts/core/src/packs/protected-paths/protected-paths.pack.ts");
+    expect(code).toContain("scripts/workflow/red-first-check.ts");
+    expect(code).toContain("tsconfig.json");
+    expect(code).toContain("contexts/core/tsconfig.types.json");
+    const naming: string[] = [];
+    for (const path of code.sort()) {
+      if (allowed.includes(path)) continue;
+      const lines = (await Bun.file(`${ROOT}/${path}`).text()).split("\n");
+      lines.forEach((line, index) => {
+        if (formerName.test(line)) naming.push(`${path}:${index + 1}`);
+      });
+    }
+    expect(naming).toEqual([]);
   });
 
   test("prereqs is a pack shipped in the bounded package, in its own directory", () => {
@@ -603,7 +632,7 @@ describe("architecture", () => {
   test("the shipped-pack rule: only a pack's own directory imports it, and it depends only on the core's public exports", () => {
     const core = byName.get("bounded");
     if (core === undefined) throw new Error("no core context");
-    const gate = "contexts/core/src/packs/path-gate/gate.ts";
+    const gate = "contexts/core/src/packs/protected-paths/gate.ts";
     const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
     expect(shippedPackViolations(gate, imports("bounded/domain", "./rule.ts", "picomatch"), core)).toEqual([]);
     expect(shippedPackViolations(gate, imports("bounded/application", "../../domain/index.ts", "node:fs"), core)).toEqual([
@@ -611,15 +640,15 @@ describe("architecture", () => {
       `${gate}:1 imports "../../domain/index.ts" — a shipped pack reaches the core through \`bounded/domain\` only`,
       `${gate}:1 imports "node:fs" — a shipped pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do`,
     ]);
-    expect(shippedPackViolations("contexts/core/src/domain/guards/x.ts", imports("bounded/path-gate", "../../packs/path-gate/index.ts"), core)).toEqual([
-      'contexts/core/src/domain/guards/x.ts:1 imports "bounded/path-gate" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
-      'contexts/core/src/domain/guards/x.ts:1 imports "../../packs/path-gate/index.ts" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
+    expect(shippedPackViolations("contexts/core/src/domain/guards/x.ts", imports("bounded/protected-paths", "../../packs/protected-paths/index.ts"), core)).toEqual([
+      'contexts/core/src/domain/guards/x.ts:1 imports "bounded/protected-paths" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
+      'contexts/core/src/domain/guards/x.ts:1 imports "../../packs/protected-paths/index.ts" — only a pack\'s own directory imports it: the core and other packs never depend on a shipped pack',
     ]);
-    expect(shippedPackViolations("contexts/core/src/composition-root/end-to-end.test.ts", imports("bounded/path-gate"), core)).toEqual([]);
-    expect(shippedPackViolations("contexts/core/src/composition-root/root.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
-    expect(shippedPackViolations("contexts/core/src/packs/other/x.test.ts", imports("bounded/path-gate"), core)).toHaveLength(1);
+    expect(shippedPackViolations("contexts/core/src/composition-root/end-to-end.test.ts", imports("bounded/protected-paths"), core)).toEqual([]);
+    expect(shippedPackViolations("contexts/core/src/composition-root/root.ts", imports("bounded/protected-paths"), core)).toHaveLength(1);
+    expect(shippedPackViolations("contexts/core/src/packs/other/x.test.ts", imports("bounded/protected-paths"), core)).toHaveLength(1);
     // Inside a pack: a small hexagon.
-    const at = (file: string) => `contexts/core/src/packs/path-gate/${file}`;
+    const at = (file: string) => `contexts/core/src/packs/protected-paths/${file}`;
     expect(shippedPackViolations(at("adapters/out/watched-files/files.ts"), imports("node:fs", "../../../domain/rule.ts", "../../../application/feature/feature.contract.ts", "./other.ts"), core)).toEqual([]);
     expect(shippedPackViolations(at("domain/rule.ts"), imports("node:fs"), core)).toEqual([`${at("domain/rule.ts")}:1 imports "node:fs" — a shipped pack uses only libraries its package declares, and does no I/O; only its adapters/out/ do`]);
     expect(shippedPackViolations(at("application/feature/feature.ts"), imports("../../adapters/out/watched-files/files.ts"), core)).toEqual([`${at("application/feature/feature.ts")}:1 imports "../../adapters/out/watched-files/files.ts" — a pack's application may not import its adapters`]);

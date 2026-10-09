@@ -113,7 +113,7 @@ after the hook answers); the hook judges the state it sees.
 `composeHook({ env, argv, decide })` is the composition root; `decide` is the
 seam, and it is told the project (`{ projectRoot }`, from
 `CLAUDE_PROJECT_DIR`). `main.ts` passes `decideFromConfig`, which calls the
-core's `openProject(projectRoot, { ports: [...pathGatePortProvisions(), ...prereqsPortProvisions()], shellCommandReader })` (`bounded/open-project`, with every port of the path gate, from `bounded/path-gate/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`, and the one `TreeSitterShellCommandReader` of the process, from `bounded-shell-command-reader/adapters`, built into bounded as `bounded/shell-command-reader`, ADR 2026-020) and then
+core's `openProject(projectRoot, { ports: [...protectedPathsPortProvisions(), ...prereqsPortProvisions()], shellCommandReader })` (`bounded/open-project`, with every port of the protected-paths pack, from `bounded/protected-paths/adapters`, and of the prerequisites pack, from `bounded/prereqs/adapters`, and the one `TreeSitterShellCommandReader` of the process, from `bounded-shell-command-reader/adapters`, built into bounded as `bounded/shell-command-reader`, ADR 2026-020) and then
 `judge(event)`: the core composes the packs `bounded.config.ts` selects,
 decides, and records the decision in `.bounded/guard-log.jsonl`. A refusal
 from the core already names the refusing pack and effect (`test-packs/no-generated

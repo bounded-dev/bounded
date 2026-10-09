@@ -11,12 +11,12 @@ describe("ComposePacksCommand laws", () => {
   });
 
   test("validates each id through PackId, in order", () => {
-    const result = ComposePacksCommand.parse({ listedPackIds: ["bounded/path-gate", "bounded/core"] });
-    expect(result.ok && result.value.listedPackIds.map((id) => id.value)).toEqual(["bounded/path-gate", "bounded/core"]);
+    const result = ComposePacksCommand.parse({ listedPackIds: ["bounded/protected-paths", "bounded/core"] });
+    expect(result.ok && result.value.listedPackIds.map((id) => id.value)).toEqual(["bounded/protected-paths", "bounded/core"]);
     expect(ComposePacksCommand.parse({ listedPackIds: [] }).ok).toBe(true);
     expect(ComposePacksCommand.parse({ listedPackIds: ["bounded/core", "Bad", "../x"] })).toEqual({
       ok: false,
-      error: "Pack id 'Bad' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/path-gate'",
+      error: "Pack id 'Bad' must be an npm package name, '/', and lowercase words joined by hyphens, such as 'bounded/protected-paths'",
     });
   });
 

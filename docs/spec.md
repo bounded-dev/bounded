@@ -1,4 +1,4 @@
-# Bounded core: extension points and the path gate
+# Bounded core: extension points and the protected-paths pack
 
 ## What this is
 
@@ -74,10 +74,10 @@ agent is doing, and a way for packs to subscribe to it.
   translates the verdict back. It depends on the event vocabulary only, so a
   new gate needs no host change and an unselected gate is never run.
 
-## Part 3: the path gate (the first pack)
+## Part 3: the protected-paths pack (the first pack)
 
-The path gate is a pack, not part of the core. It decides whether an agent's
-action on a file path is allowed.
+The protected-paths pack (first called the path gate) is a pack, not part of
+the core. It decides whether an agent's action on a file path is allowed.
 
 - It declares extension points through which other packs and the project
   contribute path rules: **protected paths**, and **role path rules** (what each

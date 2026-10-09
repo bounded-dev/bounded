@@ -1,5 +1,9 @@
 # Slice 3: the path gate
 
+> The path gate is now the protected-paths pack, `bounded/protected-paths`
+> ([ADR 2026-021](adr/2026-021-protected-paths-rename.md)); this slice keeps
+> the names it was built with.
+
 Slice 3 builds the protected paths of Part 3 of [the spec](spec.md) as an
 ordinary pack, `bounded/path-gate`, shipped in the `bounded` package and
 imported from `bounded/path-gate`. Role path rules come later. All code is in

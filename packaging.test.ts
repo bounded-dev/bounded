@@ -12,7 +12,7 @@ import { PRIVATE_PACKAGE_EXPORTS, unknownDistImport } from "./contexts/core/buil
 
 const ROOT = import.meta.dir;
 const CORE = join(ROOT, "contexts/core");
-const VERSION = "3.2.0";
+const VERSION = "3.3.0";
 const CONFORMANCE = "src/application/project-setup/init-project/init-project.host-installer.test-support.ts";
 /** The conformance suites bounded publishes for other packages' tests (bounded/testing/*): the only test support in its tarball. */
 const PUBLISHED_TEST_SUPPORT = [CONFORMANCE, "src/application/guard-log/judge-event/judge-event.shell-command-reader.test-support.ts"];
@@ -146,9 +146,9 @@ describe("bounded, the one published package", () => {
 
   test("the bin and the Claude Code hook start with node, and the library loads under node from dist/", () => {
     for (const file of RUN_BY_PATH) expect(readFileSync(join(CORE, file), "utf8").startsWith("#!/usr/bin/env node")).toBe(true);
-    const loaded = Bun.spawnSync(["node", "--input-type=module", "-e", 'const d = await import("bounded/domain"); const g = await import("bounded/path-gate"); console.log(typeof d.defineConfig, g.pathGate.id.value)'], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
+    const loaded = Bun.spawnSync(["node", "--input-type=module", "-e", 'const d = await import("bounded/domain"); const g = await import("bounded/protected-paths"); console.log(typeof d.defineConfig, g.protectedPathsPack.id.value)'], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
     expect(loaded.stderr.toString()).toBe("");
-    expect(loaded.stdout.toString().trim()).toBe("function bounded/path-gate");
+    expect(loaded.stdout.toString().trim()).toBe("function bounded/protected-paths");
   });
 
   test("the built Claude Code hook keeps its crash-safe bootstrap: nothing is imported before its try, so a missing module is a deny", () => {
@@ -165,20 +165,20 @@ describe("bounded, the one published package", () => {
     expect(hook).toMatch(/await import\(|import\("/);
   });
 
-  test("ships a README saying what Bounded is, how to start, and a path gate rule, linking to the repository's docs", () => {
+  test("ships a README saying what Bounded is, how to start, and a protected-paths rule, linking to the repository's docs", () => {
     expect(manifestOf("contexts/core").files).toContain("README.md");
     expect(packed).toContain("README.md");
     const readme = readFileSync(join(CORE, "README.md"), "utf8");
     expect(readme).toContain("npx bounded init");
-    expect(readme).toContain("pathGate.points.protectedPaths");
+    expect(readme).toContain("protectedPathsPack.points.protectedPaths");
     expect(readme).toContain("https://github.com/bounded-dev/bounded");
   });
 
   test("its README says the adapter export paths are internal: they serve the hosts bounded carries, not a project's configuration", () => {
     const exports = Object.keys(manifestOf("contexts/core").exports ?? {});
-    expect(exports.filter((path) => path.includes("adapters"))).toEqual(["./adapters", "./path-gate/adapters", "./prereqs/adapters"]);
+    expect(exports.filter((path) => path.includes("adapters"))).toEqual(["./adapters", "./prereqs/adapters", "./protected-paths/adapters"]);
     const readme = readFileSync(join(CORE, "README.md"), "utf8");
-    const internal = readme.split("\n\n").find((paragraph) => paragraph.includes("`bounded/adapters`") && paragraph.includes("`bounded/path-gate/adapters`") && paragraph.includes("`bounded/prereqs/adapters`"));
+    const internal = readme.split("\n\n").find((paragraph) => paragraph.includes("`bounded/adapters`") && paragraph.includes("`bounded/protected-paths/adapters`") && paragraph.includes("`bounded/prereqs/adapters`"));
     expect(internal).toBeDefined();
     expect(internal ?? "").toContain("internal");
   });
@@ -191,19 +191,19 @@ describe("bounded, the one published package", () => {
     expect(Bun.spawnSync(["tar", "-xzf", join(into, `bounded-${VERSION}.tgz`), "-C", join(consumer, "node_modules", "bounded"), "--strip-components=1"]).exitCode).toBe(0);
     for (const dependency of ["zod", "picomatch", "@vscode"]) symlinkSync(join(ROOT, "node_modules", dependency), join(consumer, "node_modules", dependency));
     // A configuration as a project writes it, and the strict-typing rule (AGENTS.md): a contribution to a point of a pack the project does not select must not compile.
-    const imports = 'import { contribution, corePack, defineConfig } from "bounded/domain";\nimport { pathGate } from "bounded/path-gate";\n';
+    const imports = 'import { contribution, corePack, defineConfig } from "bounded/domain";\nimport { protectedPathsPack } from "bounded/protected-paths";\n';
     const rule = '[{ match: "secrets/**", deny: ["read"], redirect: "Ask" }]';
-    writeFileSync(join(consumer, "accepted.ts"), `${imports}export default defineConfig({ packs: [corePack, pathGate], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\n`);
-    writeFileSync(join(consumer, "rejected.ts"), `${imports}export default defineConfig({ packs: [corePack], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\n`);
+    writeFileSync(join(consumer, "accepted.ts"), `${imports}export default defineConfig({ packs: [corePack, protectedPathsPack], contributes: [contribution(protectedPathsPack.points.protectedPaths, ${rule})] });\n`);
+    writeFileSync(join(consumer, "rejected.ts"), `${imports}export default defineConfig({ packs: [corePack], contributes: [contribution(protectedPathsPack.points.protectedPaths, ${rule})] });\n`);
     // Other compile-time rules survive too: a rule value of the wrong type (no deny) is refused.
-    writeFileSync(join(consumer, "wrong-value.ts"), `${imports}export default defineConfig({ packs: [corePack, pathGate], contributes: [contribution(pathGate.points.protectedPaths, [{ match: "secrets/**", redirect: "Ask" }])] });\n`);
-    // A configuration that lists only the path gate, which brings in the core; the project still contributes only to points of packs it lists.
-    writeFileSync(join(consumer, "brought-in-accepted.ts"), `${imports}const config = defineConfig({ packs: [pathGate], contributes: [contribution(pathGate.points.protectedPaths, ${rule})] });\nexport const listed = config.listedPacks;\nexport default config;\n`);
-    writeFileSync(join(consumer, "brought-in-rejected.ts"), `${imports}export default defineConfig({ packs: [pathGate], contributes: [contribution(corePack.points.effectGuards.write, [])] });\n`);
+    writeFileSync(join(consumer, "wrong-value.ts"), `${imports}export default defineConfig({ packs: [corePack, protectedPathsPack], contributes: [contribution(protectedPathsPack.points.protectedPaths, [{ match: "secrets/**", redirect: "Ask" }])] });\n`);
+    // A configuration that lists only the protected-paths pack, which brings in the core; the project still contributes only to points of packs it lists.
+    writeFileSync(join(consumer, "brought-in-accepted.ts"), `${imports}const config = defineConfig({ packs: [protectedPathsPack], contributes: [contribution(protectedPathsPack.points.protectedPaths, ${rule})] });\nexport const listed = config.listedPacks;\nexport default config;\n`);
+    writeFileSync(join(consumer, "brought-in-rejected.ts"), `${imports}export default defineConfig({ packs: [protectedPathsPack], contributes: [contribution(corePack.points.effectGuards.write, [])] });\n`);
     // A third-party host opening a project with the reader bounded publishes, its declarations reaching the core's port.
     writeFileSync(
       join(consumer, "host-accepted.ts"),
-      'import { openProject } from "bounded/open-project";\nimport { pathGatePortProvisions } from "bounded/path-gate/adapters";\nimport { TreeSitterShellCommandReader } from "bounded/shell-command-reader";\nexport const judge = openProject("/p", { ports: pathGatePortProvisions(), shellCommandReader: new TreeSitterShellCommandReader() });\n',
+      'import { openProject } from "bounded/open-project";\nimport { protectedPathsPortProvisions } from "bounded/protected-paths/adapters";\nimport { TreeSitterShellCommandReader } from "bounded/shell-command-reader";\nexport const judge = openProject("/p", { ports: protectedPathsPortProvisions(), shellCommandReader: new TreeSitterShellCommandReader() });\n',
     );
     writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "consumer", type: "module" }));
     /** The consumer's tsc over `files`, with a typical strict tsconfig and `options`. */

@@ -121,10 +121,10 @@ export default defineConfig({ packs: [corePack, noGenerated] });
       writeFileSync(
         join(project, "bounded.config.ts"),
         `import { contribution, corePack, defineConfig } from "bounded/domain";
-import { pathGate } from "bounded/path-gate";
+import { protectedPathsPack } from "bounded/protected-paths";
 export default defineConfig({
-  packs: [corePack, pathGate],
-  contributes: [contribution(pathGate.points.protectedPaths, [{ match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input" }])],
+  packs: [corePack, protectedPathsPack],
+  contributes: [contribution(protectedPathsPack.points.protectedPaths, [{ match: "generated/**", deny: ["create", "modify", "delete"], why: "generated/ is written by the generator", redirect: "Change the generator's input" }])],
 });
 `,
       );

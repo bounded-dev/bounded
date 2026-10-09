@@ -19,9 +19,9 @@ One JSON object per decision, plain and serialisable:
   "effects": ["read src/a.ts", "write (modify) generated/api.ts"],
   "verdict": {
     "kind": "refuse",
-    "reason": "bounded/path-gate refused write (modify) generated/api.ts: generated files are written by the generator",
+    "reason": "bounded/protected-paths refused write (modify) generated/api.ts: generated files are written by the generator",
     "redirect": "Change the generator's input instead",
-    "pack": "bounded/path-gate",
+    "pack": "bounded/protected-paths",
     "effect": "write (modify) generated/api.ts"
   },
   "note": null
@@ -32,7 +32,11 @@ Every decision has an `id`. An allowed decision's verdict is `{ "kind": "allow" 
 `tool: null` and no effects. A command's description includes the directory
 it runs in, when the host gave one ("execute `make` in apps/web"). `pack` and `effect` are null when no pack's guard
 refused (for example, when the core pack is not selected); `effect` is null
-for a whole-call refusal.
+for a whole-call refusal. A pack is named by its id as it was when the decision was recorded: the
+protected-paths pack was called the path gate before 3.3.0
+([ADR 2026-021](adr/2026-021-protected-paths-rename.md)), so older records
+name `bounded/path-gate` and newer ones `bounded/protected-paths`. Nothing
+bounded keeps reads a pack id back from the log.
 
 ## When the log fails
 

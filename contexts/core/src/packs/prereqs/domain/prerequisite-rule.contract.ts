@@ -37,7 +37,7 @@ export interface PrerequisiteRule {
   readonly require: { readonly delegate: AgentName; readonly succeeded: true };
   readonly unchangedSince: readonly [string, ...string[]];
   readonly redirect: string;
-  /** Whether the rule comes before `effect`: a delegation to its agent (in any case, ignoring surrounding spaces: every spelling a host may resolve to it), or a write to a path its pattern matches (ignoring case, as the path gate). */
+  /** Whether the rule comes before `effect`: a delegation to its agent (in any case, ignoring surrounding spaces: every spelling a host may resolve to it), or a write to a path its pattern matches (ignoring case, as the protected-paths pack). */
   comesBefore(effect: Effect): boolean;
   /** The agent whose delegation the rule requires. */
   requiredAgent(): AgentName;
@@ -59,7 +59,7 @@ export interface PrerequisiteRuleFactory {
    * one: not { before, require, unchangedSince, redirect }; a before that is
    * not one delegation or write (an execute is not matched yet); a require
    * that is not a delegation that succeeded, or is the action it comes
-   * before; patterns the path gate would refuse, or inside .bounded; a
+   * before; patterns the protected-paths pack would refuse, or inside .bounded; a
    * redirect that is blank, holds control characters or is over 1000
    * characters. Never throws.
    */
