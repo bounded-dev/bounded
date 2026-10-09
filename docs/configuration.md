@@ -74,6 +74,8 @@ export default defineConfig({
     ]),
     contribution(prereqs.points.rules, [
       { before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" },
+      // A program and its leading arguments, matched against each shell command's reading.
+      { before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" },
     ]),
   ],
 });

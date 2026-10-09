@@ -7,7 +7,9 @@ call-side facts, and a tool result carries result-side facts about the runs
 its delegate effects started. Amended by [ADR 2026-025](2026-025-agent-run-finish.md) (3.3.0): a run whose finish
 the host reports later counts at that finish, so the interim limit below is
 gone; `require` matches the agent the host resolved, exactly, in both
-orders; `pending` is a status; and the records gain run starts.
+orders; `pending` is a status; and the records gain run starts. Amended by
+`prereqs-execute` (3.3.0): `before: { execute }`, and shell writes, judged
+from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading.md)).
 
 ## Decision
 
@@ -21,7 +23,7 @@ orders; `pending` is a status; and the records gain run starts.
 - **A rule** is the wire form
 
   ```ts
-  { before: { delegate: string } | { write: string },
+  { before: { delegate: string } | { write: string } | { execute: string },
     require: { delegate: string, succeeded: true },
     unchangedSince: [string, ...string[]],
     redirect: string }
@@ -31,8 +33,8 @@ orders; `pending` is a status; and the records gain run starts.
   over the files `unchangedSince` names, as they are now. It is not a phase
   or a state machine, and there is no "mark done" tool: the agent never
   claims anything; the harness observes. `before` is pinned so exactly one
-  of `delegate` and `write` compiles; `before: { execute }` is refused at
-  compile time and by parse (not matched yet); `redirect`, not `fix`, as in
+  of `delegate`, `write` and `execute` compiles (see "Before an execute, and
+  shell writes"); `redirect`, not `fix`, as in
   every Bounded refusal. A rule requiring the action it comes before is
   refused; cycles across rules are not detected.
 - **Patterns are checked as the path gate checks its patterns** (repeated in
@@ -52,6 +54,73 @@ orders; `pending` is a status; and the records gain run starts.
   synchronous and cannot await a port (ADR 2026-013); the pack's work needs
   its two ports. Its `beforeTool` refusals are recorded with
   `refusedBy: null`, as every `beforeTool` refusal is today.
+
+### Before an execute, and shell writes (amended by `prereqs-execute`, 3.3.0)
+
+- **`before: { execute: "terraform apply" }`** names a program and its
+  subcommand words, as the program receives them, separated by spaces. It
+  is parsed once into the pack's value object `ProgramPrefix`. No quoting,
+  shell syntax or option is interpreted: the text is refused when it is not
+  text, empty, holds whitespace other than a space or a control character,
+  is longer than 1000 characters or has more than 16 words, holds a
+  character the shell would read (`' " \ $ * ? [ ] { } ( ) < > | ; & #` or
+  the backquote), names its program by a path, holds `~` or `=` in its
+  program, names a word of the shell's own grammar (`time`, `if`, `!` …) as
+  its program, or starts a word with `-`.
+- **It is matched against the execute effect's reading**: a program run
+  whose name, or the last segment of its path, is the program ignoring case
+  (`/usr/local/bin/terraform`, `Terraform`), whose arguments give the
+  rule's words, exactly and case-sensitively. Wrappers and nested shells
+  count through the reading's `programs`, which lists the runs the reader
+  knows (`sudo`, `env`, `timeout`, `bash -c`, `find -exec`, `xargs`).
+- **Option words before the rule's words are read every plausible way**
+  (the orchestrator's decision for the maintainer, consistent with ADR
+  2026-020's xargs rule): a literal option word is skipped, and one without
+  `=` may take the next word as its value; `--` ends the options. So
+  `terraform -chdir=infra apply` and `git -C sub push` count, and
+  `git --no-pager log push` counts too (over-matching only fails closed).
+- **`before: { write }` also matches the writes in an execute effect's
+  reading**, with the same matcher as a file tool's write.
+- **Where the reading cannot show what the command does, the rule cannot
+  see, and refuses while it does not hold.** A definite match (a run, a
+  write) wins over what cannot be seen, so the refusal names what the
+  command certainly does. Once the requirement holds, the action is allowed
+  whatever the command does. The cases, first found in this order:
+
+  | Rule | Case | why | Redirect adds |
+  | --- | --- | --- | --- |
+  | any | an unread reading | `the command could not be read (<why>)` | reinstall bounded's dependencies; for `too-complex`, split or simplify the command |
+  | execute | an unresolved program name (`$TF`, xargs's `(input)`) | `it runs a program whose name only the shell can resolve ('<text>')` | write the command so that bounded can read it |
+  | execute | an unresolved argument reached before every rule word is found, whatever its first character | `'<text>', which only the shell can resolve, stands before <run>'s argument '<word>' could be found` | the same |
+  | execute | unresolved code (`eval`, `python -c`, a shell reading its standard input) | `it runs code bounded cannot read ('<text>')` | nothing: only the rule's redirect |
+  | execute | a run passing the rule's program as an argument, or a word of one | `it passes '<argument>' to <run>, which may run <program>` | nothing |
+  | write | an unresolved write | `it writes a path only the shell can resolve ('<text>')` | write the command so that bounded can read it |
+  | write | a write outside the project (`/tmp/x`, `~/x`, `../x`), as written | `it writes a path bounded cannot place in the project ('<text>')` | leave out its writes outside the project |
+  | write | unresolved code, then an unresolved program name | as for execute | as for execute |
+
+  Every unresolved write, code or program name counts against every write
+  pattern: the pack cannot know what it names. Writes to `/dev/null`,
+  `/dev/stdout`, `/dev/stderr` and `/dev/fd/<digits>` are never project
+  paths and block nothing. Unresolved reads, listings and directories are
+  not writes.
+- **A run passing the rule's program as an argument cannot be seen through**
+  (the orchestrator's decision for the maintainer): `/usr/bin/env terraform
+  apply`, `ssh host terraform apply`, `watch terraform apply`,
+  `bash deploy.sh`. It deliberately over-refuses (`echo terraform`,
+  `which terraform`, a commit message naming it), only while the
+  requirement is unmet.
+- **The refusal** keeps its head (missing, stale, never met, or pending as
+  ADR 2026-025 words it) and says `This call would <what>`: `execute
+  \`<command>\`[ in <cwd>], which runs '<program> <words>'` or `…, which
+  writes '<path>'`, or, where it cannot see, `execute \`<command>\`, and
+  bounded cannot see whether it runs '<program> <words>' | writes a path
+  '<pattern>' matches: <why>`. The redirect is the rule's (or, pending, the
+  wait), followed by what would let bounded see (` (or, if this command does
+  not <action>, …)`) as in the table.
+- **A delegation rule is never before a shell command**, read or not.
+- **Without the pack's ports**, a command a rule may come before, or cannot
+  see through, is refused before the call; an execute's result records
+  nothing.
 
 ### When a rule holds
 
@@ -211,8 +280,32 @@ pi-subagents' project agent directory), which give role identity.
   the patterns, including one created during a run; any other link is
   ignored. A FIFO, socket or device the patterns match refuses too (fail
   closed); one they do not match is ignored.
-- `before.write` matches file tools' writes only, not writes a shell command
-  makes.
+- **Execute rules** see only what the reading lists. What programs and
+  scripts do themselves is caught only where the rule's program appears as
+  an argument. Not seen: aliases and functions from the host's shell
+  snapshot (`tf apply`); git's `!` aliases; a program named `terraform.exe`;
+  a script run through a shell, or sourced, is refused as cannot see (its
+  name stands as an argument), not seen to run; PowerShell is read as bash;
+  a range bash 3.2 keeps literal and bash 4 expands may shift a later
+  word's position.
+- **Write rules, until `shell-reader-coverage`** (named, so they are not
+  mistaken for seen): in-place edits (`sed -i`, `perl -i`); what programs
+  and scripts write themselves; package runners (`npx`, `bunx`, `pnpm exec`,
+  `yarn dlx`, `uvx`); a program named by its path (`/bin/rm`,
+  `/usr/bin/env rm`); `time` and `coproc`; the other standard-input forms
+  (`bash -`, a cluster holding `s`, `/dev/stdin`, `/dev/fd/*`, an unresolved
+  script operand, `.`/`source`, `sudo -s`/`-i`); `-execdir`/`-okdir` read
+  from where `find` runs; `trap`'s code and `alias` values; git's writing
+  subcommands (`checkout`, `restore`, `apply`, `stash`, `reset`, `clone`),
+  read as reads. (In-place edits and programs' own writes remain after it
+  too.)
+- A delegation made from the shell (`claude -p --agent …`) is not one.
+- **Over-refusal while a requirement is missing:** commands bounded cannot
+  read through (awk programs, `python -c`, `eval`, `| sh`, programs named
+  by a variable, writes to a path in a variable or outside the project)
+  under any execute or write rule; any run passing an execute rule's
+  program as an argument (`echo terraform`, `which terraform`, a commit
+  message naming it).
 - **ABA:** files edited and restored between the delegation and its result
   compare equal, so the run counts.
 - Records are per project root; teammates and isolated runs of a required
@@ -225,8 +318,10 @@ pi-subagents' project agent directory), which give role identity.
 - **`prereqs-run-finish`:** done in ADR 2026-025 (3.3.0).
 - **`prereqs-pi-async`:** pi-subagents' asynchronous completion, mapped to
   that event.
-- **`before: { execute }`** and shell writes, once shell commands are parsed
-  for it.
+- **`require: { execute }`**: a command that ran to success over unchanged
+  files as a prerequisite. Not trivial: the pack would have to observe a
+  command's success, a new kind of start and record, and a result-side fact
+  the core does not carry.
 - **A status widget** for Claude Code, listing each rule's requirement as
   holds, stale or missing, derived from the same records.
 

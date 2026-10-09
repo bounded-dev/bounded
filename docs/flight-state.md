@@ -58,7 +58,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - **The prerequisites pack** (`bounded/prereqs`,
   [ADR 2026-019](adr/2026-019-prereqs-pack.md), [its README](../src/packs/prereqs/README.md)),
   shipping in 3.2.0: a project's rules make an action (a
-  delegation to an agent, or a file tool's write a pattern matches) wait
+  delegation to an agent, or a file tool's write a pattern matches; from
+  3.3.0 also a shell command that runs a program with its leading
+  arguments, `before: { execute: "terraform apply" }`, or whose reading
+  writes a matching path) wait
   until a delegation to another agent has succeeded over files unchanged
   since. Its records and starts are in `.bounded/prereqs/`; its two ports
   are provided by both hosts. The core's delegate effect carries `isolated`
@@ -156,7 +159,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   (`python -c`, `node -e`, `awk`, `perl -e`: reported as unresolved code),
   in-place edits (`sed -i`, `perl -i`), what a script file or program opens
   itself, and brace expansion in a command name (`{cat,.env}`). PowerShell
-  (pi's `powershell` tool) is read as bash. What it cannot resolve the
+  (pi's `powershell` tool) is read as bash. Its `programs` lists only the
+  runs it knows, not every program a command runs (ADR 2026-020, "Limits");
+  from 3.3.0 a word holding xargs's replace string is listed as `(input)`,
+  `find -exec`'s `{}` as `(found path)`, and a shell reading its standard
+  input (`… | sh`, `bash <<EOF`) reports `(standard input)` as unresolved
+  code. What it cannot resolve the
   protected-paths pack allows. A copy or move whose sources are unknown records no
   write into its destination directory (`xargs cp -t dir` without a replace
   string, `cp $X dir/`), so
@@ -183,9 +191,21 @@ when written; keep it current (AGENTS.md, "Working with the user").
       directory.
     - `env -S $S rm x`: read as nothing; lost: `rm x` and its delete of `x`.
 - **The prerequisites pack's limits** ([ADR 2026-019](adr/2026-019-prereqs-pack.md), [ADR 2026-025](adr/2026-025-agent-run-finish.md)):
-  - `before: { write }` matches file tools' writes only; a shell command's
-    writes are not matched yet, though the core now carries them in each
-    execute effect's reading (item `prereqs-execute`).
+  - `before: { execute }` and `before: { write }` see a shell command only
+    through its reading: what programs and scripts do themselves, aliases
+    and functions, git's `!` aliases, a program named `terraform.exe`, a
+    script run through a shell or sourced (refused as cannot see, not seen
+    to run), and PowerShell (read as bash) are not seen. Until
+    `shell-reader-coverage`, write rules do not see in-place edits, package
+    runners, a program named by its path, `time`, `coproc`, the other
+    standard-input forms, `-execdir`/`-okdir`'s directory, `trap` and
+    `alias` values, nor git's writing subcommands (ADR 2026-019, "Limits").
+  - While a requirement is missing, what bounded cannot see through is
+    refused (over-refusal, by decision): an unread command, a program,
+    argument or write only the shell can resolve, a write outside the
+    project, unresolved code, and, under an execute rule, any run passing
+    the rule's program as an argument (`echo terraform`, a commit message
+    naming it).
   - Drift never watches `.bounded/`, so records forged by a shell command
     the protected-paths pack does not see are kept: the records rest on the protected-paths pack's
     `.bounded/**` rule.
@@ -347,7 +367,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
     `agent-run-finished` Bounded log kind, three optional result-entry
     fields, Claude Code's SubagentStop hook (`bounded update` installs it),
     and a method `ProjectJudge` now requires, `recordAgentRunFinish`, which
-    `openProject` builds. `--from <dir>` stays only for installing a
+    `openProject` builds. 3.3.0 also gives `bounded/prereqs`
+    `before: { execute }` and shell writes (ADR 2026-019, amended),
+    additively (`ProgramPrefix` and its types, `PrerequisiteRule`'s
+    `matchBefore`), and changes what a reading's `programs` lists for xargs
+    replace strings and `find -exec`'s `{}` (ADR 2026-020, amended).
+    `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
     (`pnpm.overrides`), the tarball for bun (`overrides`) and yarn
@@ -403,9 +428,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
 - A file-backed pack catalog (only the in-memory catalog exists).
 - The prerequisites pack's next items (ADR 2026-019, "Future work"):
   pi-subagents' asynchronous completion (`prereqs-pi-async`, mapped to the
-  agent run finish of ADR 2026-025), `before: { execute }` with shell writes
-  (`prereqs-execute`, item (ii) of ADR 2026-020: matched against each
-  execute effect's reading, refusing where it cannot see), and a Claude
+  agent run finish of ADR 2026-025), `require: { execute }`, and a Claude
   Code status widget listing each requirement as holds, stale or missing.
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.

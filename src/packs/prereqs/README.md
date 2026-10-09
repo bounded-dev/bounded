@@ -1,7 +1,8 @@
 # bounded/prereqs: an action needs a prerequisite
 
 A pack shipped in `bounded` 3.2.0 ([ADR 2026-019](../../../docs/adr/2026-019-prereqs-pack.md));
-it counts runs at their finish from 3.3.0 ([ADR 2026-025](../../../docs/adr/2026-025-agent-run-finish.md)).
+it counts runs at their finish from 3.3.0 ([ADR 2026-025](../../../docs/adr/2026-025-agent-run-finish.md)),
+and from 3.3.0 judges shell commands from their reading ([ADR 2026-020](../../../docs/adr/2026-020-shell-command-reading.md)).
 A rule says that before an action, a delegation to an agent must have
 succeeded over files that have not changed since. It is not a phase or a
 state machine, and there is no "mark done" tool: the agent never claims
@@ -23,8 +24,7 @@ export default defineConfig({
       { before: { delegate: "builder" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan" },
       { before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" },
       { before: { delegate: "test-writer" }, require: { delegate: "spec-reviewer", succeeded: true }, unchangedSince: ["spec.md", "src/**/*.contract.ts"], redirect: "Have spec-reviewer review the current spec and contracts" },
-      // Not yet: `before: { execute }` does not compile, and is refused at composition.
-      // { before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" },
+      { before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" },
     ]),
   ],
 });
@@ -32,8 +32,44 @@ export default defineConfig({
 
 - `before` is one action: `{ delegate: <agent> }` (a delegation to that
   agent in any spelling: ignoring case and surrounding spaces, since a host
-  may resolve another spelling to the same agent) or `{ write: <pattern> }`
-  (a file tool's write to a path the pattern matches).
+  may resolve another spelling to the same agent), `{ write: <pattern> }`
+  (a file tool's write to a path the pattern matches, or a shell command
+  whose reading writes one), or `{ execute: "<program> <words>" }` (a shell
+  command that runs the program with those leading arguments; from 3.3.0).
+- An execute rule names a program and its subcommand words, separated by
+  spaces, as the program receives them: no quoting, shell syntax, path or
+  option (`"terraform apply"`, `"git push"`, `"make"`). It is matched
+  against the reading the host made of each shell command: a program run
+  named so, or whose path ends so, ignoring case (`/usr/local/bin/terraform`),
+  whose arguments give the words exactly, after any options
+  (`terraform -chdir=infra apply` and `git -C sub push` count; an option
+  may take the next word as its value, so `git --no-pager log push` counts
+  too). Wrapped and nested runs count (`sudo`, `env`, `timeout`,
+  `bash -c '…'`, `find -exec`, `xargs`).
+- **Where the pack cannot see what a shell command does, it refuses while
+  the rule does not hold**, saying it cannot see and why, and how to let it
+  see. A command that certainly does what the rule comes before is refused
+  for that instead. For example, under the execute rule above:
+  - `$TF apply`: "This call would execute `$TF apply`, and bounded cannot
+    see whether it runs 'terraform apply': it runs a program whose name
+    only the shell can resolve ('$TF')", redirect the rule's, then " (or,
+    if this command does not run 'terraform apply', write it so that
+    bounded can read it: …)";
+  - `terraform $CMD`, `echo apply | xargs terraform`: an argument only the
+    shell can resolve stands before 'apply' could be found;
+  - `eval …`, `python3 -c …`, `… | sh`, `bash <<EOF`: code bounded cannot
+    read (only the rule's redirect);
+  - `echo terraform`, `ssh host terraform apply`, `/usr/bin/env terraform
+    apply`, `bash deploy.sh`: a run passing the program as an argument may
+    run it (only the rule's redirect);
+  - an unread command: it could not be read (reinstall bounded's
+    dependencies, or split or simplify the command).
+
+  Under a write rule: a write only the shell can resolve (`echo x >
+  "$OUT"`), a write outside the project (`/tmp/x`, `~/x`, `../x`; never
+  `/dev/null`, `/dev/stdout`, `/dev/stderr` or `/dev/fd/<n>`), unresolved
+  code, or a program named by a variable. Once the requirement holds, every
+  such command is allowed.
 - `require` is a delegation to an agent that succeeded, matched exactly
   against the agent the host says it ran, as it resolved the requested name.
   A request spelled "Plan-Reviewer" that Claude Code ran as plan-reviewer
@@ -109,8 +145,23 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
 - **A reviewer's verdict.** "Succeeded" is the tool result's `ok`, not what
   the reviewer concluded.
 - **Cycles across rules**, which make an action unreachable.
-- **Shell writes:** `before: { write }` matches file tools only; a shell
-  command writing under `src/` is not matched.
+- **What a shell command's reading does not show.** What programs and
+  scripts do themselves (an execute rule catches it only where the rule's
+  program stands as an argument); aliases and functions from the host's
+  shell (`tf apply`); git's `!` aliases; a program named `terraform.exe`; a
+  script run through a shell or sourced (refused as cannot see, since its
+  name stands as an argument, not seen to run); PowerShell, read as bash.
+  Until `shell-reader-coverage`, write rules also miss in-place edits
+  (`sed -i`), package runners (`npx`, `bunx`), a program named by its path
+  (`/bin/rm`), `time`, `coproc`, other standard-input forms (`bash -`),
+  `-execdir`'s directory, `trap` and `alias` values, and git's writing
+  subcommands (`git checkout`, `git restore`). A delegation run from the
+  shell (`claude -p --agent …`) is not seen as one.
+- **Over-refusal, by decision:** while a requirement is missing, commands
+  bounded cannot read through are refused under any execute or write rule,
+  and under an execute rule so is any run naming its program as an
+  argument (`echo terraform`, `which terraform`, a commit message naming
+  it).
 - **Patterns that match no file:** such a requirement can never be met, and
   says so.
 - **Symbolic links:** a link is never followed. A link to a directory the
