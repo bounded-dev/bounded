@@ -1,8 +1,8 @@
 import { AdapterRefusal, type Composition, Decision, DecisionId, DecisionTime, decideEvent, type Event, type ExecuteEffect, type Judgement, ShellCommandReading, ToolUse, Verdict } from "bounded/domain";
 import { JudgeEventCommand as JudgeEventCommandFactory } from "./judge-event.command.ts";
-import type { AdapterRefusalInput, Clock, DecisionIds, GuardLog, JudgeEvent, JudgeEventCommand, JudgeEventOptions, ShellCommandReader } from "./judge-event.contract.ts";
+import type { AdapterRefusalInput, Clock, DecisionIds, BoundedLog, JudgeEvent, JudgeEventCommand, JudgeEventOptions, ShellCommandReader } from "./judge-event.contract.ts";
 
-const UNRECORDED_REDIRECT = "Make the guard log writable; until decisions can be recorded, every action is refused";
+const UNRECORDED_REDIRECT = "Make the Bounded log writable; until decisions can be recorded, every action is refused";
 const LATE_NOTE = "not recorded in time; enforced: refuse";
 
 function text(thrown: unknown): string {
@@ -96,7 +96,7 @@ export class JudgeEventHandler implements JudgeEvent {
    */
   constructor(
     composition: Composition | null,
-    private readonly log: GuardLog,
+    private readonly log: BoundedLog,
     private readonly clock: Clock,
     options: JudgeEventOptions = {},
   ) {

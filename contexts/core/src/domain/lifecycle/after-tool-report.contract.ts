@@ -4,7 +4,7 @@ import type { Verdict } from "../verdicts/verdict.contract.ts";
 
 /**
  * What an after-tool check found: a `message` for the agent (null when
- * there is nothing to say), and a `record` the core writes to the guard log
+ * there is nothing to say), and a `record` the core writes to the Bounded log
  * as a decision on the result, naming the contributing pack when
  * `refusedBy` is given.
  */

@@ -19,7 +19,7 @@ export type RecordedVerdict =
 export type DecisionEvent = Event["kind"] | ToolResult["kind"] | "invalid" | "adapter";
 
 /**
- * One decision on one event, for a guard log: its record is text, as it
+ * One decision on one event, for the Bounded log: its record is text, as it
  * was decided. Every text field is at most 4,096 characters, longer text
  * shortened saying so. When two records share an id, the later one says what
  * was enforced (see `note`), so a decision is a value, not an entity.
@@ -45,7 +45,7 @@ export interface Decision {
   toJSON(): DecisionJSON;
 }
 
-/** A decision as one line of a guard log. */
+/** A decision as one line of the Bounded log. */
 export interface DecisionJSON {
   readonly id: string;
   readonly time: string;

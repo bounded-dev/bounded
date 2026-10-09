@@ -54,7 +54,7 @@ describe("FileSystemWatchedFiles", () => {
   test("never looks inside .bounded, where bounded keeps its own state", async () => {
     const root = repository({ "a.ts": "a" });
     mkdirSync(join(root, ".bounded"));
-    writeFileSync(join(root, ".bounded", "guard-log.jsonl"), "{}\n");
+    writeFileSync(join(root, ".bounded", "log.jsonl"), "{}\n");
     const hashed = await filesAt(root).hash([rule("**")]);
     expect(hashed.ok && Object.keys(hashed.value).every((path) => !path.startsWith(".bounded/"))).toBe(true);
     expect(hashed.ok && Object.keys(hashed.value)).toContain("a.ts");

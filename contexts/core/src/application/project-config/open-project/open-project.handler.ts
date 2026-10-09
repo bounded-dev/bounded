@@ -1,9 +1,9 @@
 import { AdapterRefusal, type Composition, Ports, type Result, ToolResult, Verdict } from "bounded/domain";
-import type { AdapterRefusalInput, JudgeEvent } from "../../guard-log/judge-event/judge-event.contract.ts";
-import { attempt, JudgeEventHandler } from "../../guard-log/judge-event/judge-event.handler.ts";
+import type { AdapterRefusalInput, JudgeEvent } from "../../bounded-log/judge-event/judge-event.contract.ts";
+import { attempt, JudgeEventHandler } from "../../bounded-log/judge-event/judge-event.handler.ts";
 import type { AfterToolOutcome, ProjectLifecycle } from "../../lifecycle/project-lifecycle/project-lifecycle.contract.ts";
 import { ProjectLifecycleHandler } from "../../lifecycle/project-lifecycle/project-lifecycle.handler.ts";
-import type { Clock, DecisionIds, GuardLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectGuardLogs, ProjectJudge, ShellCommandReader } from "./open-project.contract.ts";
+import type { Clock, DecisionIds, BoundedLog, OpenProject, OpenProjectCommand, OpenProjectOptions, ProjectConfigSource, ProjectBoundedLogs, ProjectJudge, ShellCommandReader } from "./open-project.contract.ts";
 
 const NOTHING: AfterToolOutcome = Object.freeze({ message: null });
 
@@ -20,14 +20,14 @@ function text(thrown: unknown): string {
 export class OpenProjectHandler implements OpenProject {
   constructor(
     private readonly configSource: ProjectConfigSource,
-    private readonly guardLogs: ProjectGuardLogs,
+    private readonly boundedLogs: ProjectBoundedLogs,
     private readonly clock: Clock,
     private readonly options: OpenProjectOptions = {},
   ) {}
 
   /** Never rejects: whatever goes wrong, the judge refuses every event (and records it, when the log can be opened). */
   async execute(command: OpenProjectCommand): Promise<ProjectJudge> {
-    let log: GuardLog | undefined;
+    let log: BoundedLog | undefined;
     try {
       const root = command.projectRoot;
       log = this.logFor(root);
@@ -89,7 +89,7 @@ export class OpenProjectHandler implements OpenProject {
   }
 
   /** A judge that refuses every event with `problem`, recording it if it can. */
-  private refusing(log: GuardLog | undefined, problem: string): ProjectJudge {
+  private refusing(log: BoundedLog | undefined, problem: string): ProjectJudge {
     const refusal = Verdict.refuse(`This project's configuration cannot be used: ${problem}`, FIX);
     try {
       if (log !== undefined) return this.judge(new JudgeEventHandler(null, log, this.clock, { refuseEverything: refusal, ...this.idsOption() }), problem);
@@ -116,9 +116,9 @@ export class OpenProjectHandler implements OpenProject {
   }
 
   /** The project's log; one that cannot be opened refuses every record, so nothing is allowed unrecorded. */
-  private logFor(root: string): GuardLog {
+  private logFor(root: string): BoundedLog {
     try {
-      return this.guardLogs.forProject(root);
+      return this.boundedLogs.forProject(root);
     } catch (thrown) {
       const why = text(thrown);
       return {

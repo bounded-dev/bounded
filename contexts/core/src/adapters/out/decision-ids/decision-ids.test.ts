@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decisionIdsConformance } from "../../../application/guard-log/judge-event/judge-event.decision-ids.test-support.ts";
+import { decisionIdsConformance } from "../../../application/bounded-log/judge-event/judge-event.decision-ids.test-support.ts";
 import { RandomDecisionIds } from "./decision-ids.ts";
 
 decisionIdsConformance("RandomDecisionIds", () => new RandomDecisionIds());

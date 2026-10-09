@@ -1,6 +1,6 @@
 import { AfterToolReport, type Composition, corePack, Decision, DecisionTime, type OpenedProject, type LifecycleContext, type Ports, type ToolResult, type ToolUse, Verdict } from "bounded/domain";
-import { defaultDecisionIds, nextDecisionId } from "../../guard-log/judge-event/judge-event.handler.ts";
-import type { AfterToolOutcome, Clock, DecisionIds, GuardLog, ProjectLifecycle, ProjectLifecycleOptions } from "./project-lifecycle.contract.ts";
+import { defaultDecisionIds, nextDecisionId } from "../../bounded-log/judge-event/judge-event.handler.ts";
+import type { AfterToolOutcome, Clock, DecisionIds, BoundedLog, ProjectLifecycle, ProjectLifecycleOptions } from "./project-lifecycle.contract.ts";
 
 function text(thrown: unknown): string {
   try {
@@ -32,7 +32,7 @@ export class ProjectLifecycleHandler implements ProjectLifecycle {
   constructor(
     private readonly composition: Composition,
     ports: Ports,
-    private readonly log: GuardLog,
+    private readonly log: BoundedLog,
     private readonly clock: Clock,
     options: ProjectLifecycleOptions = {},
   ) {

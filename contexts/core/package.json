@@ -24,7 +24,7 @@
     "!src/**/*.test.ts",
     "!src/{adapters,composition-root,domain,packs}/**/*.test-support.ts",
     "!src/application/{composition,lifecycle,project-config}/**/*.test-support.ts",
-    "!src/application/guard-log/**/*.{clock,decision-ids,guard-log,in-memory-guard-log}.test-support.ts",
+    "!src/application/bounded-log/**/*.{clock,decision-ids,bounded-log,in-memory-bounded-log}.test-support.ts",
     "!src/application/project-setup/**/*{-source,-files}.test-support.ts",
     "!src/**/fixtures/**"
   ],
@@ -83,8 +83,8 @@
       "default": "./dist/shell-command-reader/index.js"
     },
     "./testing/shell-command-reader-conformance": {
-      "bun": "./src/application/guard-log/judge-event/judge-event.shell-command-reader.test-support.ts",
-      "types": "./src/application/guard-log/judge-event/judge-event.shell-command-reader.test-support.ts"
+      "bun": "./src/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts",
+      "types": "./src/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts"
     },
     "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",
     "./hosts/pi": "./dist/hosts/pi/index.js",

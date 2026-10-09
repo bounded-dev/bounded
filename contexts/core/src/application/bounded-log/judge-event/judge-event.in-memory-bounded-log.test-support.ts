@@ -1,8 +1,8 @@
-import type { GuardLog } from "./judge-event.contract.ts";
+import type { BoundedLog } from "./judge-event.contract.ts";
 import type { Decision } from "bounded/domain";
 
-/** Decisions kept in memory, in the order recorded: a test double of GuardLog, for tests only (ADR 2026-017). */
-export class InMemoryGuardLog implements GuardLog {
+/** Decisions kept in memory, in the order recorded: a test double of BoundedLog, for tests only (ADR 2026-017). */
+export class InMemoryBoundedLog implements BoundedLog {
   private readonly kept: Decision[] = [];
 
   async record(decision: Decision): Promise<void> {

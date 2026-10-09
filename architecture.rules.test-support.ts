@@ -117,7 +117,7 @@ export function adapterContractViolations(files: readonly SourceFile[], barrels:
   return out;
 }
 
-/** A type's name in kebab case: `GuardLog` → `guard-log`, `SystemClock` → `system-clock`. */
+/** A type's name in kebab case: `BoundedLog` → `bounded-log`, `SystemClock` → `system-clock`. */
 export const kebab = (name: string): string =>
   name
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")

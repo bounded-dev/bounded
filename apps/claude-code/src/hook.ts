@@ -18,7 +18,7 @@ export interface Project {
 /** What bounded decides about one event; the core's judging is asynchronous. The composition root supplies it. */
 export type Decide = (event: ToolUse, project: Project) => Verdict | Promise<Verdict>;
 
-/** A refusal the hook made itself, before the core judged anything: what the project's guard log records. */
+/** A refusal the hook made itself, before the core judged anything: what the project's Bounded log records. */
 export interface AdapterRefusal {
   readonly hostToolName: string;
   readonly reason: string;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clockConformance } from "../../../application/guard-log/judge-event/judge-event.clock.test-support.ts";
+import { clockConformance } from "../../../application/bounded-log/judge-event/judge-event.clock.test-support.ts";
 import { SystemClock } from "./clock.ts";
 
 clockConformance("SystemClock", () => new SystemClock());

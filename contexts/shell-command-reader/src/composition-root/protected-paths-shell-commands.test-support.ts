@@ -1,4 +1,4 @@
-import { type Clock, type GuardLog, JudgeEventHandler } from "bounded/application";
+import { type Clock, type BoundedLog, JudgeEventHandler } from "bounded/application";
 import { type BasePack, Composition, corePack, DecisionTime, type ProjectPath, type Verdict } from "bounded/domain";
 import { protectedPathsPack } from "bounded/protected-paths";
 import { type PathKind, TreeSitterShellCommandReader } from "bounded-shell-command-reader/adapters";
@@ -12,7 +12,7 @@ export type PathsForTest = Readonly<Record<string, PathKind | "unknown">>;
 const time = DecisionTime.parse("2026-10-07T12:00:00.000Z");
 if (!time.ok) throw new Error(time.error);
 const clock: Clock = { now: () => time.value };
-const log: GuardLog = { record: async () => {} };
+const log: BoundedLog = { record: async () => {} };
 
 /**
  * The core, the protected-paths pack and `packs`, judged as openProject's judge judges:

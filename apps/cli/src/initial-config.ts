@@ -30,7 +30,7 @@ export default defineConfig({
       {
         match: ".bounded/**",
         deny: ["create", "modify", "delete"],
-        why: "Bounded's own state and guard log",
+        why: "Bounded's own state and log",
         redirect: "Leave .bounded/ to Bounded; ask a person if its state looks wrong",
       },
       {

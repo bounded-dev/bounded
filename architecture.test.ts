@@ -724,7 +724,7 @@ describe("architecture", () => {
   });
 
   test("R1: an out adapter implements a port an application contract declares, and its file exports nothing else", () => {
-    const barrel = { path: "contexts/x/src/application/index.ts", text: 'export type { Clock } from "./guard-log/judge/judge.contract.ts";\n' };
+    const barrel = { path: "contexts/x/src/application/index.ts", text: 'export type { Clock } from "./bounded-log/judge/judge.contract.ts";\n' };
     const barrels = new Map([["x/application", barrelContracts(barrel)]]);
     const good = { path: "contexts/x/src/adapters/out/clock/clock.ts", text: 'import type { Clock } from "x/application";\nexport class SystemClock implements Clock { now() { return ""; } }\n' };
     const bare = { path: "contexts/x/src/adapters/out/clock/other.ts", text: "export class Other { now() { return \"\"; } }\n" };
@@ -735,7 +735,7 @@ describe("architecture", () => {
   });
 
   test("R1: an out adapter sits in adapters/out/<its port>/, in <port>.ts, or in a file named for its class when the port has several", () => {
-    const barrel = { path: "contexts/x/src/application/index.ts", text: 'export type { Clock } from "./guard-log/judge/judge.contract.ts";\n' };
+    const barrel = { path: "contexts/x/src/application/index.ts", text: 'export type { Clock } from "./bounded-log/judge/judge.contract.ts";\n' };
     const barrels = new Map([["x/application", barrelContracts(barrel)]]);
     const adapter = (path: string, name = "SystemClock") => ({ path, text: `import type { Clock } from "x/application";\nexport class ${name} implements Clock { now() { return ""; } }\n` });
     const out = "contexts/x/src/adapters/out";

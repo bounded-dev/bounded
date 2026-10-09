@@ -19,7 +19,7 @@ describe("watching — how watched paths meet files", () => {
   });
 
   test("bounded's own state, version control and dependencies are never watched", () => {
-    expect([".bounded/guard-log.jsonl", "a/.git/x", "node_modules/p/x.lock"].map(isOwnState)).toEqual([true, true, true]);
+    expect([".bounded/log.jsonl", ".bounded/guard-log.jsonl", "a/.git/x", "node_modules/p/x.lock"].map(isOwnState)).toEqual([true, true, true, true]);
     expect(watcher(rules)("node_modules/p/x.lock")).toEqual([]);
   });
 

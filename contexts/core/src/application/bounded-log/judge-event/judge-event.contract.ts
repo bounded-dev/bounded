@@ -54,9 +54,9 @@ export type AdapterRefusalInput = AdapterRefusalJSON;
 /**
  * Where decisions are kept, append-only. Asynchronous, so it can be a file
  * today and a remote service later.
- * @implementedBy FileSystemGuardLog
+ * @implementedBy FileSystemBoundedLog
  */
-export interface GuardLog {
+export interface BoundedLog {
   record(decision: Decision): Promise<void>;
 }
 
