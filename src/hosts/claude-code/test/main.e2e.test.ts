@@ -138,7 +138,7 @@ export default defineConfig({
       expect(refused.exitCode).toBe(0);
       const reason: string = JSON.parse(refused.stdout).hookSpecificOutput.permissionDecisionReason;
       expect(reason).toContain("bounded/prereqs.rules: bounded/project's rule before executing 'terraform apply'");
-      expect(reason).toContain("This call would execute `terraform apply`, which runs 'terraform apply'");
+      expect(reason).toContain("This call would execute `terraform apply` in ., which runs 'terraform apply'");
       expect(reason).toContain("Have infra-reviewer review the current infra/ changes");
 
       const allowed = await run("main.ts", bash("terraform plan"), APP, 10_000, project);

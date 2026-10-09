@@ -15,9 +15,9 @@ const error = (raw: unknown): string => {
 };
 
 /** A word only the shell can resolve, as the reader reports it. */
-const unresolved = (text: string) => ({ kind: "unresolved", text });
+const unresolved = (text: string) => ({ kind: "unresolved" as const, text });
 type Word = string | ReturnType<typeof unresolved>;
-const wordOf = (word: Word) => (typeof word === "string" ? { kind: "literal", text: word } : word);
+const wordOf = (word: Word) => (typeof word === "string" ? { kind: "literal" as const, text: word } : word);
 /** A program run: its name and arguments, each literal unless given as unresolved(…). */
 const run = (name: Word, args: readonly Word[] = []) => ({ name: wordOf(name), arguments: args.map(wordOf), workingDirectory: "." });
 type Run = ReturnType<typeof run>;

@@ -4,6 +4,7 @@ import { FileSetFingerprint } from "./file-set-fingerprint.ts";
 import { PendingAgentRun } from "./pending-agent-run.ts";
 import { PrerequisiteRecord } from "./prerequisite-record.ts";
 import { PrerequisiteRule } from "./prerequisite-rule.ts";
+import type { CannotSeeFix } from "./program-prefix.contract.ts";
 
 const beforeBuilder = { before: { delegate: "builder" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan" };
 const beforeSrc = { before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" };
@@ -226,7 +227,7 @@ describe("PrerequisiteRule — before an execute, and shell writes (ADR 2026-019
 
   test("a rule before an execute cannot see through an unread command, an unresolved program, argument or code, or a run passing its program, and is never before a file tool's write or a delegation", () => {
     const apply = rule(beforeApply);
-    const cases: readonly (readonly [Effect, string, string])[] = [
+    const cases: readonly (readonly [Effect, string, CannotSeeFix])[] = [
       [unreadShell("terraform apply", "bounded's shell parser could not load (x)"), "the command could not be read (bounded's shell parser could not load (x))", "reinstall"],
       [unreadShell("terraform apply", "the command is too complex", "too-complex"), "the command could not be read (the command is too complex)", "simplify"],
       [shell("$TF apply", [ran(unresolvedWord("$TF"), ["apply"])]), "it runs a program whose name only the shell can resolve ('$TF')", "readable"],
@@ -258,7 +259,7 @@ describe("PrerequisiteRule — before an execute, and shell writes (ADR 2026-019
 
   test("a rule before a write cannot see through an unread command, an unresolved write, code or an unresolved program name; unresolved reads, listings and directories are not writes", () => {
     const src = rule(beforeSrc);
-    const cases: readonly (readonly [Effect, string, string])[] = [
+    const cases: readonly (readonly [Effect, string, CannotSeeFix])[] = [
       [unreadShell("echo x > src/a.ts", "the parser could not load"), "the command could not be read (the parser could not load)", "reinstall"],
       [unreadShell("echo x > src/a.ts", "too complex", "too-complex"), "the command could not be read (too complex)", "simplify"],
       [shell('echo x > "$OUT"', [ran("echo", ["x"])], [], [{ text: '"$OUT"', role: "write" }]), "it writes a path only the shell can resolve ('\"$OUT\"')", "readable"],

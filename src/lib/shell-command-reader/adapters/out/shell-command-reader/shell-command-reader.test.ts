@@ -31,8 +31,8 @@ async function read(command: string, options: { readonly cwd?: string; readonly 
 }
 const names = async (command: string) => (await read(command)).programs.map((program) => program.name.text);
 /** The file effects of `ls | xargs -I{} rm .git/hooks/{}` and of `find . -name x -exec cat .env {} \;`, as read before replace strings and found paths were listed as unresolved (prereqs-execute). */
-const PINNED_HOOKS = [{ effect: { kind: "list", root: ".", filter: null } }, { effect: { kind: "write", path: ".git/hooks/{}", change: "delete" } }];
-const PINNED_FIND = [{ effect: { kind: "read", path: ".env" } }, { effect: { kind: "read", path: "{}" } }, { effect: { kind: "list", root: ".", filter: null } }];
+const PINNED_HOOKS = [{ effect: { kind: "list", root: ".", filter: null } }, { effect: { kind: "write", path: ".git/hooks/{}", change: "delete" } }] as const;
+const PINNED_FIND = [{ effect: { kind: "read", path: ".env" } }, { effect: { kind: "read", path: "{}" } }, { effect: { kind: "list", root: ".", filter: null } }] as const;
 
 describe("TreeSitterShellCommandReader — bounded's reading of a shell command", () => {
   test("the reading lists every program it runs, nested and wrapped ones included, and none of its own stand-ins", async () => {
