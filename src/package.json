@@ -1,0 +1,97 @@
+{
+  "name": "bounded",
+  "version": "3.3.0",
+  "description": "Bounded: guardrails for AI coding agents. Typed packs and extension points, the protected-paths pack, and hooks for Claude Code and pi, with the bounded command to set a project up",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bounded-dev/bounded.git",
+    "directory": "src"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "bounded": "dist/cli.js"
+  },
+  "scripts": {
+    "prepack": "bun build-dist.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "core",
+    "packs",
+    "!{core,packs}/**/*.test.ts",
+    "!core/{adapters,composition-root,domain}/**/*.test-support.ts",
+    "!packs/**/*.test-support.ts",
+    "!core/application/{composition,lifecycle,project-config}/**/*.test-support.ts",
+    "!core/application/bounded-log/**/*.{clock,decision-ids,bounded-log,in-memory-bounded-log}.test-support.ts",
+    "!core/application/project-setup/**/*{-source,-files}.test-support.ts",
+    "!{core,packs}/**/fixtures/**",
+    "!core/test/**"
+  ],
+  "dependencies": {
+    "@vscode/tree-sitter-wasm": "0.3.1",
+    "picomatch": "4.0.7",
+    "zod": "4.6.4"
+  },
+  "exports": {
+    "./domain": {
+      "bun": "./core/domain/index.ts",
+      "types": "./dist/types/core/domain/index.d.ts",
+      "default": "./dist/core/domain/index.js"
+    },
+    "./application": {
+      "bun": "./core/application/index.ts",
+      "types": "./dist/types/core/application/index.d.ts",
+      "default": "./dist/core/application/index.js"
+    },
+    "./testing/host-installer-conformance": {
+      "bun": "./core/application/project-setup/init-project/init-project.host-installer.test-support.ts",
+      "types": "./core/application/project-setup/init-project/init-project.host-installer.test-support.ts"
+    },
+    "./adapters": {
+      "bun": "./core/adapters/out/index.ts",
+      "types": "./dist/types/core/adapters/out/index.d.ts",
+      "default": "./dist/core/adapters/out/index.js"
+    },
+    "./open-project": {
+      "bun": "./core/composition-root/open-project.ts",
+      "types": "./dist/types/core/composition-root/open-project.d.ts",
+      "default": "./dist/core/composition-root/open-project.js"
+    },
+    "./prereqs": {
+      "bun": "./packs/prereqs/index.ts",
+      "types": "./dist/types/packs/prereqs/index.d.ts",
+      "default": "./dist/packs/prereqs/index.js"
+    },
+    "./prereqs/adapters": {
+      "bun": "./packs/prereqs/adapters/out/index.ts",
+      "types": "./dist/types/packs/prereqs/adapters/out/index.d.ts",
+      "default": "./dist/packs/prereqs/adapters/out/index.js"
+    },
+    "./protected-paths": {
+      "bun": "./packs/protected-paths/index.ts",
+      "types": "./dist/types/packs/protected-paths/index.d.ts",
+      "default": "./dist/packs/protected-paths/index.js"
+    },
+    "./protected-paths/adapters": {
+      "bun": "./packs/protected-paths/adapters/out/index.ts",
+      "types": "./dist/types/packs/protected-paths/adapters/out/index.d.ts",
+      "default": "./dist/packs/protected-paths/adapters/out/index.js"
+    },
+    "./shell-command-reader": {
+      "types": "./dist/types/shell-command-reader/index.d.ts",
+      "default": "./dist/shell-command-reader/index.js"
+    },
+    "./testing/shell-command-reader-conformance": {
+      "bun": "./core/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts",
+      "types": "./core/application/bounded-log/judge-event/judge-event.shell-command-reader.test-support.ts"
+    },
+    "./hosts/claude-code/host-installer": "./dist/hosts/claude-code/host-installer.js",
+    "./hosts/pi": "./dist/hosts/pi/index.js",
+    "./hosts/pi/host-installer": "./dist/hosts/pi/host-installer.js"
+  },
+  "type": "module"
+}

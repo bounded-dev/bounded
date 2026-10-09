@@ -26,7 +26,7 @@ Bun is the runtime, package manager and test runner.
 | `bun run check` | The whole check: `typecheck`, `lint`, `test` |
 | `bun run typecheck` | `tsc` over every workspace, strict |
 | `bun run lint` | Biome's linter |
-| `bun run test` | `bun test`: unit, law, conformance, architecture, compile-time, packaging and end-to-end tests. A preload (`test-preload.ts`) first builds `bounded`'s `dist/` (`contexts/core/build-dist.ts`), the JavaScript for Node its export paths and bin point at. The end-to-end test (`apps/cli/test/bounded-cli.e2e.test.ts`) packs `bounded`, runs `npx` on the tarball and installs it with bun and with npm, one run with no bun on `PATH` (fetching libraries unless npm's and bun's caches have them, so it may need the network); expect `bun run check` to take up to about 3 minutes |
+| `bun run test` | `bun test`: unit, law, conformance, architecture, compile-time, packaging and end-to-end tests. A preload (`test-preload.ts`) first builds `bounded`'s `dist/` (`src/build-dist.ts`), the JavaScript for Node its export paths and bin point at. The end-to-end test (`src/cli/test/bounded-cli.e2e.test.ts`) packs `bounded`, runs `npx` on the tarball and installs it with bun and with npm, one run with no bun on `PATH` (fetching libraries unless npm's and bun's caches have them, so it may need the network); expect `bun run check` to take up to about 3 minutes |
 
 `bun run check` must be green before any commit that is not a red commit.
 The workspace uses bun's hoisted linker (`bunfig.toml`, ADR 2026-016).
@@ -55,30 +55,47 @@ Every non-trivial change follows [the development lifecycle](docs/development-wo
 
 ## Layout
 
-```
-contexts/
-  core/          bounded             the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
-    src/packs/protected-paths/        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
-    src/packs/prereqs/                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
-  shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands: implements the core's ShellCommandReader;
-                                     published as bounded/shell-command-reader (private: built into bounded's dist/; ADR 2026-020)
-apps/
-  claude-code/   bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
-  pi/            bounded-pi          the pi host adapter (docs/adapter-pi.md)
-  cli/           bounded-cli         the `bounded` command: init and update
-                                     (all three private: bounded's prepack bundles them into bounded's dist/; ADR 2026-016)
-contexts/core/build-dist.ts          bounded's build for Node: the library, the CLI, the host adapters and the shell command reader (ADRs 2026-016, 2026-020)
-architecture.test.ts                 the layer and dependency rules, as a test
-compile-time.test.ts                 proves an undeclared contribution does not compile
-docs/adr/                            decisions, including every deviation from the layout below
-scripts/workflow/                    the lifecycle's two scripts
-```
-
-Each context is a workspace package with this source layout, adapted from the
-Bounded harness's hexagonal worked example:
+Everything the repository builds and ships is under `src/` (ADR 2026-024);
+the root keeps only project files (`package.json`, the tsconfigs,
+`biome.json`, `bunfig.toml`, `bun.lock`, `test-preload.ts`,
+`superseded-tests.json`, `.gitignore`, this file, `CLAUDE.md`, the README,
+the licence, `.claude/`, `docs/` and `scripts/`).
 
 ```
-src/
+src/                    bounded             the published package: package.json, build-dist.ts (its build for Node: the library,
+                                            the CLI, the host adapters and the shell command reader; ADRs 2026-016, 2026-020),
+                                            tsconfig.types.json, README.md and LICENSE; its build output is src/dist/
+  core/                                     the mechanism: packs and composition (slice 1), events, verdicts and dispatch (slice 2)
+  packs/
+    protected-paths/                        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
+    prereqs/                                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
+  lib/
+    shell-command-reader/  bounded-shell-command-reader  the bash reader of shell commands: implements the core's ShellCommandReader;
+                                            published as bounded/shell-command-reader (private: built into bounded's dist/; ADR 2026-020)
+  hosts/
+    claude-code/        bounded-claude-code the Claude Code host adapter (docs/adapter-claude-code.md)
+    pi/                 bounded-pi          the pi host adapter (docs/adapter-pi.md)
+  cli/                  bounded-cli         the `bounded` command: init and update
+                                            (all three private: bounded's prepack bundles them into bounded's dist/; ADR 2026-016)
+  test/                                     the repository's tests: architecture.test.ts (the layer and dependency rules, as a
+                                            test), compile-time.test.ts (proves an undeclared contribution does not compile,
+                                            with its fixtures in fixtures/compile-time/) and packaging.test.ts
+docs/adr/                                   decisions, including every deviation from the layout below
+scripts/workflow/                           the lifecycle's two scripts
+```
+
+The workspaces are `src` (bounded), `src/lib/*`, `src/hosts/*` and
+`src/cli`, each with its own `package.json`, under a private root. A
+**context** is the core (`src/core`, in the package `bounded`) or a library
+(`src/lib/<name>`, its own package); an **app** is a host
+(`src/hosts/<name>`) or the cli (`src/cli`). A unit's `test/` folder holds
+its end-to-end tests and fixtures, outside its layers. A unit's source sits
+directly in its directory: there is no inner `src/`.
+
+Each context has this layout in its directory, adapted from the Bounded
+harness's hexagonal worked example:
+
+```
   domain/                 concepts and rules; no I/O, no library but zod
     shared/result.ts      Result<T, E>: every expected failure
     <area>/<concept>.contract.ts   interface <Name> + <Name>Factory (types only)
@@ -101,13 +118,19 @@ src/
                           for its class; each runs its port's conformance suite in a test beside it
   adapters/out/index.ts   the out adapters' barrel, the package's `adapters` export path (ADR 2026-017)
   composition-root/       the context's composition root: openProject, which host adapters call (ADR 2026-010)
-  packs/<name>/           a pack shipped in the context's package, such as protected-paths/ (ADR 2026-009)
+  test/                   end-to-end tests and fixtures, outside the layers
 ```
 
-Rules, enforced by `architecture.test.ts` unless stated:
+A shipped pack is bounded's, in `src/packs/<name>/` (ADR 2026-009); a
+`packs/` folder inside a context is no layer.
 
+Rules, enforced by `src/test/architecture.test.ts` unless stated:
+
+- **Every file belongs to one unit:** a layer of a context, a shipped pack's
+  own directory, an app, or a unit's `test/`; every library, host and the
+  cli has its own `package.json`.
 - **Dependencies point inwards:** domain <- application <- adapters <- composition-root;
-  a shipped pack (`packs/<name>/`) depends on the domain only.
+  a shipped pack (`src/packs/<name>/`) depends on the domain only.
   An adapter imports its own context's (or pack's) domain, application and
   out adapters; never another pack's.
 - **Domain and application do no I/O** and import no library but zod.
@@ -115,15 +138,15 @@ Rules, enforced by `architecture.test.ts` unless stated:
   export paths** (`bounded/domain`), domain files by relative path. A layer
   the package exports no path for (bounded-shell-command-reader's domain,
   ADR 2026-020) is imported by relative path.
-- **Apps** (`apps/<name>/src`) are programs built on the contexts, such as
+- **Apps** (`src/hosts/<name>`, `src/cli`) are programs built on the contexts, such as
   host adapters. They may do I/O and use libraries, reach a context only
   through its export paths and declared dependencies, and never import
   another app.
 - **A context imports another context only when its `package.json` declares
   it as a dependency**, and only through that package's export paths. The
   core depends on nothing and never imports a pack.
-- **Apps** (`apps/*`) host contexts: no layers, no rules of their own. An app
-  imports its own files by relative path, a context only through its export
+- **Apps** host contexts: no layers, no rules of their own. An app
+  imports its own files by relative path (never its `test/`), a context only through its export
   paths and only when its `package.json` declares it, and never another app.
   An app's tests may import its devDependencies; its other files may not.
 - **Value objects are classes, as in the worked example (ADR 2026-012).**
@@ -157,8 +180,8 @@ Rules, enforced by `architecture.test.ts` unless stated:
   2026-020). An in-memory test double is
   `<feature>.in-memory-<port>.test-support.ts` in its port's feature
   directory, run through the port's suite by a test beside it. No
-  production file (under `contexts/*/src` or `apps/*/src`, not a test, test
-  support or fixture) imports a `*.test-support.ts`, by relative path or
+  production file (any file of a context, a shipped pack or an app, not a
+  test, test support, fixture or a unit's `test/`) imports a `*.test-support.ts`, by relative path or
   through an export path, with no exemption: test support published for
   others goes through `exports`, which the ban does not touch. R3: every
   domain concept (in `domain/`, and a pack's `domain/`) is
@@ -197,8 +220,8 @@ Rules, enforced by `architecture.test.ts` unless stated:
 - **A shipped pack is an ordinary pack** (ADR 2026-009): its code under
   `src/packs/<name>/` imports only the package's `domain` export path, its
   own directory and libraries the package declares, and does no I/O; nothing
-  outside that directory imports it but tests under the composition root
-  (`src/composition-root/`), so the core never depends on a pack.
+  outside that directory imports it but tests under a context's composition
+  root (`src/core/composition-root/`), so the core never depends on a pack.
 - **Pack ids root at their own package**: every `packIdsFor(...)` call in a
   workspace's source names that workspace's package.json `name`.
 - Generic types, function-valued contributions and synchronous reads are
@@ -235,7 +258,7 @@ Rules, enforced by `architecture.test.ts` unless stated:
   object.
   Composition repeats every rule at run time for untyped data. A change that
   loosens a rule, or adds one, comes with a rejected fixture line stating
-  its reason (`contexts/core/test/fixtures/compile-time/`) and a run-time
+  its reason (`src/test/fixtures/compile-time/`) and a run-time
   refusal test.
 - **Every decision is recorded (ADR 2026-022).** Hosts judge events through
   the judge-event feature, which records each decision; a decision that

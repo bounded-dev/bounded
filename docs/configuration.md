@@ -53,7 +53,7 @@ in. List a dependency only to contribute to its points.
 A project can also require that an action waits for a review: the
 prerequisites pack, `bounded/prereqs`, refuses an action until a delegation
 to a named agent has succeeded over files that have not changed since
-([its README](../contexts/core/src/packs/prereqs/README.md), ADR 2026-019).
+([its README](../src/packs/prereqs/README.md), ADR 2026-019).
 It relies on the protected-paths pack keeping agents off its records and the agents'
 definitions, so list both (each brings in the core), and keep these rules: `bounded init`'s
 `.bounded/**`, and the project's agent definitions (`.claude/agents/**` for

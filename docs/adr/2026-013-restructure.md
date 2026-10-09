@@ -13,6 +13,10 @@ parser are gone, its shell check with them); R2 lets an adapter in another
 context implement an untagged port when a test beside it runs the port's
 suite through the declaring package's export path. Amended by
 [ADR 2026-022](2026-022-bounded-log.md): the guard log is the Bounded log.
+Amended by [ADR 2026-024](2026-024-src-layout.md) (src layout): R1–R7 read
+a path's unit (the core, a library, a shipped pack in `src/packs/<name>/`,
+or an app) as that ADR defines it, and the composition root is
+`src/core/composition-root/`.
 
 ## Decision
 

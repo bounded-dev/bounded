@@ -33,7 +33,7 @@ hosts:
   action waits until a delegation to a named agent has succeeded over files
   unchanged since; only a run the host says finished counts
   ([ADR 2026-019](docs/adr/2026-019-prereqs-pack.md),
-  [its README](contexts/core/src/packs/prereqs/README.md)).
+  [its README](src/packs/prereqs/README.md)).
 - **The Bounded log**: every decision, and every refusal a host adapter
   makes itself, recorded in `.bounded/log.jsonl`
   ([docs/bounded-log.md](docs/bounded-log.md)).
@@ -52,7 +52,7 @@ hosts:
 - **Host adapters**: Claude Code hooks (PreToolUse, PostToolUse,
   PostToolUseFailure; [docs/adapter-claude-code.md](docs/adapter-claude-code.md))
   and a pi extension (tool_call, tool_result;
-  [docs/adapter-pi.md](docs/adapter-pi.md)), in `apps/`.
+  [docs/adapter-pi.md](docs/adapter-pi.md)), in `src/hosts/`.
 
 ## Design in brief
 
@@ -117,7 +117,7 @@ hosts:
   protect the project's Bounded configuration, `.bounded/`, the files that
   run Bounded and git's hooks and config (ADR 2026-009).
 
-The code lives in `contexts/core` (the `bounded` package), in the layered layout
+The code lives in `src/` (the `bounded` package, ADR 2026-024), in the layered layout
 described in [AGENTS.md](AGENTS.md). Decisions are in [docs/adr/](docs/adr/).
 
 ## Installing
@@ -236,7 +236,7 @@ is still the legacy 2.x
 ([ADR 2026-014](docs/adr/2026-014-legacy-harness-moves-to-legacy.md)):
 
 ```sh
-(cd contexts/core && bun pm pack --destination /tmp/bounded)   # its prepack builds dist/
+(cd src && bun pm pack --destination /tmp/bounded)            # its prepack builds dist/
 npx -p /tmp/bounded/bounded-<version>.tgz bounded init --from /tmp/bounded
 npx bounded update --from /tmp/bounded                         # later, with a newer tarball there
 ```

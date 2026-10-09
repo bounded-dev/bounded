@@ -2,7 +2,10 @@
 
 **Status:** accepted (the maintainer's decision of the name and of the
 release, and a reviewed plan). Ships in `bounded` 3.3.0. Renames what ADR
-2026-009 named; that ADR and the others keep their wording.
+2026-009 named; that ADR and the others keep their wording. Amended by
+[ADR 2026-024](2026-024-src-layout.md) (src layout): the former-name scan
+reads `src/**/*.ts`, `src/**/package.json`, `src/**/tsconfig*.json`,
+`scripts/**/*.ts` and the root's `*.ts` and `tsconfig*.json`.
 
 ## Context
 
@@ -52,7 +55,7 @@ changed (ADR 2026-013, drift). Its one extension point is already called
   `bounded/protected-paths refused …`.
 - **Records.** Nothing bounded keeps reads a pack id back. The guard log is
   append-only, so its older records name `bounded/path-gate` and newer ones
-  `bounded/protected-paths` ([the guard log](../guard-log.md)). Drift's
+  `bounded/protected-paths` ([the guard log](../bounded-log.md)). Drift's
   snapshots are named by a hash of the call id and hold no pack id, nor do
   its quarantine or the prerequisites pack's records. Nothing is migrated.
 - **No code names the old pack.** An architecture test reads the code, one

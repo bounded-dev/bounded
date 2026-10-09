@@ -1,6 +1,8 @@
 # 2026-015: Host installers are found by package export, outside pack composition
 
-**Status:** accepted.
+**Status:** accepted. Amended by [ADR 2026-024](2026-024-src-layout.md)
+(src layout): the conformance suite sits in
+`src/core/application/project-setup/init-project/`.
 
 ## Decision
 

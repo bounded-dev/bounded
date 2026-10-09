@@ -109,7 +109,7 @@ tree.
   exist, run and pass at the head, and each record is printed as a note for
   the reviewer to judge. A red commit may delete a test file only when every
   case in it is recorded. A red commit that changes the compile-time
-  fixtures also runs `compile-time.test.ts`, which must fail at the red commit.
+  fixtures also runs `src/test/compile-time.test.ts`, which must fail at the red commit.
   A record is refused when its case still exists at the head, when a case
   names itself as its successor, when the successor is a computed title (a
   table of cases generated in a loop), when the successor makes fewer

@@ -37,7 +37,7 @@
 // head, and each record is printed as a note. A red commit may itself carry
 // that file, delete test paths, and delete a test file when every case in it
 // is recorded. A red commit that changes fixtures under fixtures/compile-time/
-// also runs compile-time.test.ts at the red commit, which must fail there.
+// also runs src/test/compile-time.test.ts at the red commit, which must fail there.
 // A record may change only in test-only commits after the red commit; a
 // merge that adds no record neither parent had passes, and any
 // other merge counts by the paths it changed itself (differing from every
@@ -102,8 +102,8 @@ export function isTestPath(path: string): boolean {
 }
 
 /** Fixture directories whose files are exercised by a test elsewhere: a change to them runs that test too. */
-const FIXTURE_RUNNERS: readonly { readonly fixtures: string; readonly test: string }[] = [
-  { fixtures: "/fixtures/compile-time/", test: "compile-time.test.ts" },
+export const FIXTURE_RUNNERS: readonly { readonly fixtures: string; readonly test: string }[] = [
+  { fixtures: "/fixtures/compile-time/", test: "src/test/compile-time.test.ts" },
 ];
 
 /** The tests that exercise fixtures among `paths`. */

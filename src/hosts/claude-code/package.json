@@ -1,0 +1,21 @@
+{
+  "name": "bounded-claude-code",
+  "version": "3.3.0",
+  "description": "Bounded's Claude Code host adapter, in source. Not published: bounded's prepack bundles it into bounded (ADR 2026-016)",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./host-installer": "./host-installer.ts"
+  },
+  "bin": {
+    "bounded-claude-code": "./main.ts"
+  },
+  "dependencies": {
+    "bounded": "workspace:*",
+    "bounded-shell-command-reader": "workspace:*",
+    "picomatch": "4.0.7"
+  },
+  "devDependencies": {
+    "@types/picomatch": "4.0.3"
+  }
+}

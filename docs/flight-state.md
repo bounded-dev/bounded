@@ -6,7 +6,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
 
 ## 1. What exists
 
-- **The core** (`contexts/core`, workspace package `bounded`): packs, typed
+- **The core** (`src/core`, in the workspace package `bounded` at `src`, ADR 2026-024): packs, typed
   extension points and composition ([slice 1](slice-1.md), ADRs
   [2026-002](adr/2026-002-typed-extension-points.md) to
   [2026-004](adr/2026-004-namespaced-pack-ids.md)); host-neutral events made
@@ -46,12 +46,12 @@ when written; keep it current (AGENTS.md, "Working with the user").
   runs, the files it reads, lists and writes, and what only the shell could
   resolve). The reader, tree-sitter-bash and the table of what commands do
   with their words are a private context, `bounded-shell-command-reader`
-  (`contexts/shell-command-reader`), built into `bounded` as
+  (`src/lib/shell-command-reader`), built into `bounded` as
   `bounded/shell-command-reader`; both hosts pass it to `openProject`, and
   its conformance suite is published as
   `bounded/testing/shell-command-reader-conformance`.
 - **The prerequisites pack** (`bounded/prereqs`,
-  [ADR 2026-019](adr/2026-019-prereqs-pack.md), [its README](../contexts/core/src/packs/prereqs/README.md)),
+  [ADR 2026-019](adr/2026-019-prereqs-pack.md), [its README](../src/packs/prereqs/README.md)),
   shipping in 3.2.0: a project's rules make an action (a
   delegation to an agent, or a file tool's write a pattern matches) wait
   until a delegation to another agent has succeeded over files unchanged
@@ -59,14 +59,14 @@ when written; keep it current (AGENTS.md, "Working with the user").
   are provided by both hosts. The core's delegate effect carries `isolated`
   and `finishUnreported`, and a tool result `delegatedAgentRuns`: only a run
   the host says finished counts.
-- **Host adapters** in `apps/`: [Claude Code](adapter-claude-code.md) hooks
+- **Host adapters** in `src/hosts/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
 - **One package, `bounded` 3.3.0, ready to publish; 3.2.0 is published**
   (issue #65, first slice;
   [ADR 2026-016](adr/2026-016-cli-app.md)). It carries the library, the protected-paths
-  pack, the `bounded` command (source `apps/cli`) and the Claude Code and pi
-  adapters (sources `apps/claude-code`, `apps/pi`). The three apps are
-  private, and `bounded`'s prepack (`contexts/core/build-dist.ts`) compiles
+  pack, the `bounded` command (source `src/cli`) and the Claude Code and pi
+  adapters (sources `src/hosts/claude-code`, `src/hosts/pi`). The three apps are
+  private, and `bounded`'s prepack (`src/build-dist.ts`) compiles
   them with the library to JavaScript for Node in `dist/`. Nothing needs bun
   at run time (Node 22.18 or later). The publish itself waits for review:
   [releasing](releasing.md).
@@ -109,7 +109,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - `bounded.config.ts` loads under Node whatever the project's `"type"`
     (a load hook), and a Node that cannot strip types fails closed with
     what to do.
-  - The end-to-end test (`apps/cli/test/bounded-cli.e2e.test.ts`) packs
+  - The end-to-end test (`src/cli/test/bounded-cli.e2e.test.ts`) packs
     `bounded` and installs it with bun and with npm. The npm run has no bun
     on `PATH`: it pipes Claude Code payloads through the installed hook
     command under `sh`. The protected-paths pack refuses an edit of the configuration
@@ -117,7 +117,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
     edit, and refuses `echo hi > secrets/x` and
     `echo x > .git/hooks/pre-commit`, which shows tree-sitter loading under
     Node. The bun run sends that Bash call through the installed hook too,
-    and `apps/pi/test/bundle.e2e.test.ts` loads the built pi host under
+    and `src/hosts/pi/test/bundle.e2e.test.ts` loads the built pi host under
     Node: both read the command with `bounded/shell-command-reader`.
 - **A demo project** outside this repository, at `~/dev/bounded-demo` on the
   maintainer's machine: its `DRY-RUNS.md` records runs on both hosts; its
@@ -321,11 +321,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
     that command yet. A project must guard it until a shipped pack does,
     for example by protecting `package.json`, `node_modules/` and the
     lockfile, or by refusing the command, in its rules.
-  - The pack-time build mirrors `src/` in `dist/` (for example
+  - The pack-time build mirrors `src/` in `dist/` (for example `dist/core/domain/index.js` and
     `dist/packs/protected-paths/index.js`). The workspace uses bun's hoisted
     linker: bun mis-resolved the conditionally exported package through
     several workspace symlinks.
-  - In `apps/cli`, installing (package manager detection, running it, the
+  - In `src/cli`, installing (package manager detection, running it, the
     hand-off) is plain code in `bounded-cli.ts` and `package-upgrade.ts`,
     not a feature with ports. Hosts are found only by `.claude/` and `.pi/`.
   - `isBoundedHook` recognises bounded's Claude Code hook by its path, and

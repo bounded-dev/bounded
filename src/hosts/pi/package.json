@@ -1,0 +1,15 @@
+{
+  "name": "bounded-pi",
+  "version": "3.3.0",
+  "description": "Bounded's pi host adapter, in source. Not published: bounded's prepack bundles it into bounded (ADR 2026-016)",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./host-installer": "./host-installer.ts"
+  },
+  "dependencies": {
+    "bounded": "workspace:*",
+    "bounded-shell-command-reader": "workspace:*"
+  }
+}

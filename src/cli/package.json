@@ -1,0 +1,16 @@
+{
+  "name": "bounded-cli",
+  "version": "3.3.0",
+  "description": "The bounded command's source. Not published: bounded's prepack bundles it as bounded's bin (ADR 2026-016)",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bounded": "./main.ts"
+  },
+  "dependencies": {
+    "bounded": "workspace:*"
+  },
+  "devDependencies": {
+    "bounded-shell-command-reader": "workspace:*"
+  }
+}

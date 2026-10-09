@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "rootDir": ".",
+    "outDir": "dist/types-emitted"
+  },
+  "include": ["core/**/*.ts", "packs/**/*.ts", "lib/shell-command-reader/adapters/out/index.ts"],
+  "exclude": ["**/*.test.ts", "**/*.test-support.ts", "**/fixtures/**", "core/test/**"]
+}

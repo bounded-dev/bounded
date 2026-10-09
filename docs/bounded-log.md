@@ -3,7 +3,7 @@
 Every decision Bounded makes goes to the Bounded log: every event's decision,
 every refusal a host adapter makes itself, and the packs' after-tool reports.
 Every event a host asks about is judged and recorded. The judge-event feature
-(`contexts/core/src/application/bounded-log/judge-event/`) decides the event with
+(`src/core/application/bounded-log/judge-event/`) decides the event with
 the composed guards (`decideEvent`), then records one **decision** through the
 `BoundedLog` out port, and returns the verdict the host enforces.
 

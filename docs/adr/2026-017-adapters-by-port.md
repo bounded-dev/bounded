@@ -9,7 +9,10 @@ applies to `DecisionIds`). Amended by
 [ADR 2026-020](2026-020-shell-command-reading.md): `pathGatePortProvisions()`
 gives two provisions (watched files, shell snapshots); `TreeSitterShellParser`
 and `FileSystemPathKinds` are gone, the shell reading now
-`TreeSitterShellCommandReader` in `bounded-shell-command-reader`.
+`TreeSitterShellCommandReader` in `bounded-shell-command-reader`. Amended
+by [ADR 2026-024](2026-024-src-layout.md) (src layout): production files
+are those under `src/{core,packs,lib,hosts,cli}/` but tests, test support,
+fixtures and a unit's `test/`.
 
 ## Decision
 
