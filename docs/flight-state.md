@@ -36,7 +36,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   the minor 3.1.0 because 3.0.0 was about an hour old with no users (the
   ADR's "Release").
 - **The protected-paths pack** (`bounded/protected-paths`, [slice 3](slice-3.md),
-  [ADR 2026-009](adr/2026-009-path-gate-pack.md)): deny-only protected
+  [ADR 2026-009](adr/2026-009-path-gate-pack.md), [its README](../src/packs/protected-paths/README.md)): deny-only protected
   paths on reads, listings and writes; a shell guard that judges the files
   a command names from the reading its execute effect carries; [drift](drift.md)
   ([ADR 2026-011](adr/2026-011-drift.md)), which puts back what a shell
@@ -72,6 +72,18 @@ when written; keep it current (AGENTS.md, "Working with the user").
   reaches the pack through `onAgentRunFinish`, and until then an action
   waiting on it is refused as pending
   ([ADR 2026-025](adr/2026-025-agent-run-finish.md)).
+- **The standard pack structure** (issue #68, step 1;
+  [writing a pack](writing-a-pack.md); ADR 2026-013's R7 and ADR 2026-009,
+  amended by `pack-structure`): every shipped pack has a README with the
+  seven required sections (what it is for, rule shape, workflows it fits,
+  what it observes, what it cannot see, ports, examples), checked by
+  `src/core/composition-root/pack-readmes.test.ts`, and at least one
+  example, `examples/<slug>.config.ts`, a project's configuration that
+  `src/core/composition-root/pack-examples.test.ts` opens as a project's
+  `bounded.config.ts`. Examples ship in the package, without declarations.
+  Not built yet: the catalogue (`bounded.catalog.json`, its build and the
+  package's `bounded` field), issue #68's step 2; until then the README
+  check is a plain line match, not the catalogue build's.
 - **Host adapters** in `src/hosts/`: [Claude Code](adapter-claude-code.md) hooks
   and a [pi](adapter-pi.md) extension.
 - **One package, `bounded` 3.3.0, ready to publish; 3.2.0 is published**

@@ -4,7 +4,7 @@
 // suite, and in-memory doubles are test support no production code
 // imports (R2), every domain concept
 // is a triplet, four files for a value object (R3), every pack a package ships
-// is laid out and bound in an overview file typed by its contract (R7), every feature has a contract its handler implements
+// is laid out, with its README and examples, and bound in an overview file typed by its contract (R7), every feature has a contract its handler implements
 // (R4), the files that route events assert no types (R5), and shape checks
 // live where the shape is owned (R6). Each rule reads
 // source text with the TypeScript parser and is a pure function of the files
@@ -77,7 +77,7 @@ export function unitByPath(path: string): Placement {
       return contextLayer(`src/lib/${name}`, `src/lib/${name}`, rest[0] ?? "", rest.length - 1);
     case "packs":
       if (rest.length === 0) return refused(path, "a shipped pack lives in its own directory, src/packs/<name>/");
-      // A pack's directory has no test/ of its own: R7 (packLayoutViolations) refuses anything but its root files, domain/, application/ and adapters/.
+      // A pack's directory has no test/ of its own: R7 (packLayoutViolations) refuses anything but its root files, domain/, application/, adapters/ and examples/.
       return { ok: true, unit: { kind: "pack", packageDir: "src", sourceRoot: `src/packs/${name}`, layer: "packs" } };
     case "hosts":
       if (rest.length === 0) return refused(path, "a host lives in its own directory, src/hosts/<name>/, with a package.json");
@@ -596,11 +596,16 @@ const packFileOf = (path: string): { readonly dir: string; readonly name: string
   return { dir: within.unit.sourceRoot, name: within.unit.sourceRoot.split("/").at(-1) ?? "", rest: within.inner };
 };
 
+/** A shipped pack's example: `examples/<slug>.config.ts`, one level deep, its slug in kebab case. */
+const EXAMPLE = /^examples\/[a-z0-9]+(-[a-z0-9]+)*\.config\.ts$/;
+
 /**
  * R7, layout: a shipped pack's directory holds exactly its overview
  * (`<name>.pack.ts`), its contract (`<name>.contract.ts`), its index, the
- * overview's test and an optional README, and only the folders `domain/`,
- * `application/` and `adapters/`.
+ * overview's test and its README, and only the folders `domain/`,
+ * `application/`, `adapters/` and `examples/`; `examples/` holds only
+ * `<slug>.config.ts` files, at least one. `paths` lists every file, the
+ * README included.
  */
 export function packLayoutViolations(paths: readonly string[]): string[] {
   const out: string[] = [];
@@ -610,11 +615,16 @@ export function packLayoutViolations(paths: readonly string[]): string[] {
     if (packFile === undefined) continue;
     const { dir, name, rest } = packFile;
     dirs.set(dir, name);
+    if (rest.startsWith("examples/")) {
+      if (!EXAMPLE.test(rest)) out.push(`${path} — a pack's examples are examples/<name>.config.ts files`);
+      continue;
+    }
     const allowed = rest.includes("/") ? ["domain", "application", "adapters"].includes(rest.split("/")[0] ?? "") : [`${name}.pack.ts`, `${name}.contract.ts`, `${name}.pack.test.ts`, "index.ts", "README.md"].includes(rest);
-    if (!allowed) out.push(`${path} — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`);
+    if (!allowed) out.push(`${path} — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`);
   }
   for (const [dir, name] of dirs) {
-    for (const needed of [`${name}.pack.ts`, `${name}.contract.ts`, "index.ts"]) if (!paths.includes(`${dir}/${needed}`)) out.push(`${dir} — a shipped pack has ${needed}`);
+    for (const needed of [`${name}.pack.ts`, `${name}.contract.ts`, "index.ts", "README.md"]) if (!paths.includes(`${dir}/${needed}`)) out.push(`${dir} — a shipped pack has ${needed}`);
+    if (!paths.some((path) => path.startsWith(`${dir}/`) && EXAMPLE.test(path.slice(dir.length + 1)))) out.push(`${dir} — a shipped pack has at least one example, examples/<name>.config.ts`);
   }
   return out;
 }

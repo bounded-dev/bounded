@@ -4,6 +4,7 @@
 // the hosts and the cli) is read with the TypeScript parser.
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as ts from "typescript";
 import {
@@ -133,16 +134,31 @@ function exportLayerOf(context: Context, exportPath: string): Layer | undefined 
  * domain and application; the files at its root its domain, application and
  * root, never its adapters; `adapters/out/` (one folder per port, ADR
  * 2026-017) its domain, application and adapters, never another pack's, and
- * alone may do I/O (`node:*`, never Bun).
+ * alone may do I/O (`node:*`, never Bun). Its `examples/` are projects'
+ * configurations, outside its code: an example imports only the package's
+ * export paths, as a project does, and nothing imports an example, not even
+ * a test (ADR 2026-009).
  */
 const packLayerOf = (file: string): string | undefined => {
   const unit = placedUnitOf(file);
   if (unit?.kind !== "pack") return undefined;
   const rest = file.slice(unit.sourceRoot.length + 1);
   const [first = "", second, third] = rest.split("/");
+  if (first === "examples" && second !== undefined) return "examples";
   if (first === "adapters" && second === "out" && third !== undefined) return "adapters";
   return ["domain", "application"].includes(first) && rest.includes("/") ? first : "root";
 };
+const NOTHING_IMPORTS_AN_EXAMPLE = "nothing imports a pack's example: open it as a project's configuration";
+/**
+ * Any file's imports of a shipped pack's example, by relative path (an
+ * example has no export path): every file of the repository, its tests and
+ * every unit's test/ included, is read for them.
+ */
+function exampleImportViolations(path: string, imports: readonly { spec: string; line: number }[]): string[] {
+  return imports
+    .filter(({ spec }) => spec.startsWith(".") && packLayerOf(new URL(spec, `file:///${path}`).pathname.slice(1)) === "examples")
+    .map(({ spec, line }) => `${path}:${line} imports "${spec}" — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
+}
 /** What each layer of a shipped pack may import of its own pack. */
 const PACK_LAYERS: Readonly<Record<string, readonly string[]>> = { domain: ["domain"], application: ["domain", "application"], root: ["domain", "application", "root"] };
 function shippedPackViolations(path: string, imports: readonly { spec: string; line: number }[], context: Context): string[] {
@@ -162,6 +178,18 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     const exportTarget = exported?.exports[`./${spec.slice((exported?.name.length ?? 0) + 1)}`];
     const file = relative ? new URL(spec, `file:///${path}`).pathname.slice(1) : exportTarget === undefined ? undefined : `${exported?.dir}/${exportTarget.slice(2)}`;
     const into = packDir(file);
+    if (into !== undefined && packLayerOf(file ?? "") === "examples") {
+      out.push(`${at} — ${NOTHING_IMPORTS_AN_EXAMPLE}`);
+      continue;
+    }
+    if (packLayerOf(path) === "examples") {
+      // A project's configuration imports the core's domain and the shipped packs' own paths; the adapters, hosts and testing paths are internal.
+      if (relative || exported !== context || exportTarget === undefined) out.push(`${at} — an example imports only ${context.name}'s export paths, as a project's configuration does`);
+      else if (spec !== `${context.name}/domain` && (into === undefined || file !== `${into}index.ts`)) {
+        out.push(`${at} — an example imports only ${context.name}/domain and the shipped packs' own export paths (${context.name}/<pack>), as a project's configuration does; "${spec}" is not one`);
+      }
+      continue;
+    }
     if (into !== undefined && into !== own && !rootTest) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
     if (own === undefined || isTest) continue;
     const from = packLayerOf(path) ?? "root";
@@ -342,7 +370,8 @@ function contextImportViolations(path: string, text: string): string[] {
   const unit = placedUnitOf(path);
   const context = unit === undefined || unit.kind === "app" ? undefined : contexts.find((c) => c.dir === unit.packageDir);
   const layer = layerOf(path);
-  if (unit === undefined || context === undefined || layer === undefined) return [];
+  // A pack's example imports as a project's configuration does: shippedPackViolations holds it to the package's export paths.
+  if (unit === undefined || context === undefined || layer === undefined || packLayerOf(path) === "examples") return [];
   const isTest = /\.test(-support)?\.ts$/.test(path);
   const shippedPack = layer === "packs";
   const pure = (layer === "domain" || layer === "application" || (shippedPack && packLayerOf(path) !== "adapters")) && !isTest;
@@ -493,6 +522,17 @@ function appImportViolations(path: string, text: string): string[] {
 
 for (const path of appFiles) violations.push(...appImportViolations(path, await Bun.file(`${ROOT}/${path}`).text()));
 
+// No file imports a pack's example: the files above are read for it by shippedPackViolations; every other file (the apps', src/test/ and every unit's test/) is read here.
+const scannedForExampleImports = new Set(files);
+for (const path of [...new Glob("src/**/*.ts").scanSync({ cwd: ROOT, dot: true })].filter((path) => !path.startsWith("src/dist/") && !path.split("/").includes("node_modules") && !scannedForExampleImports.has(path)).sort()) {
+  violations.push(...exampleImportViolations(path, importsOf(path, await Bun.file(`${ROOT}/${path}`).text())));
+}
+
+/** Every file R7 reads: the scan's TypeScript and each shipped pack's other files git tracks (its README), never an untracked or ignored one. */
+function packLayoutPaths(): string[] {
+  return [...files, ...trackedFiles().filter((path) => path.startsWith("src/packs/") && !path.endsWith(".ts"))];
+}
+
 // The contract rules R1–R7 (architecture.rules.test-support.ts): every file of every context and shipped pack, tests included; the test-support import ban reads the apps too.
 const barrels = new Map<string, ReadonlyMap<string, string>>();
 for (const context of contexts) {
@@ -527,7 +567,7 @@ violations.push(
   ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS, contexts),
   ...testDoubleViolations([...contextSources, ...(await Promise.all(appFiles.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() }))))], contexts),
   ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
-  ...packLayoutViolations(files),
+  ...packLayoutViolations(packLayoutPaths()),
   ...packOverviewViolations(contextSources),
   ...featureContractViolations(files, texts),
   ...assertionViolations(contextSources, ASSERTIONS),
@@ -741,6 +781,67 @@ describe("architecture", () => {
     expect(shippedPackViolations(at("adapters/out/watched-files/files.ts"), imports("../../../../other/adapters/out/x/x.ts"), core)).toHaveLength(1);
   });
 
+  test("an example imports bounded's export paths as a project does, never a relative path", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const example = "src/packs/gate/examples/basic.config.ts";
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    expect(shippedPackViolations(example, imports("bounded/domain", "bounded/protected-paths", "bounded/prereqs"), core)).toEqual([]);
+    expect(shippedPackViolations(example, imports("../domain/rule.ts"), core)).toEqual([`${example}:1 imports "../domain/rule.ts" — an example imports only bounded's export paths, as a project's configuration does`]);
+    expect(shippedPackViolations(example, imports("node:fs"), core)).toEqual([`${example}:1 imports "node:fs" — an example imports only bounded's export paths, as a project's configuration does`]);
+  });
+
+  test("nothing imports a pack's example, its own pack's root and tests included", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing imports a pack's example: open it as a project's configuration`];
+    expect(shippedPackViolations("src/packs/gate/index.ts", imports("./examples/x.config.ts"), core)).toEqual(refused("src/packs/gate/index.ts", "./examples/x.config.ts"));
+    expect(shippedPackViolations("src/packs/gate/domain/x.ts", imports("../examples/x.config.ts"), core)).toEqual(refused("src/packs/gate/domain/x.ts", "../examples/x.config.ts"));
+    expect(shippedPackViolations("src/core/composition-root/x.test.ts", imports("../../packs/gate/examples/x.config.ts"), core)).toEqual(refused("src/core/composition-root/x.test.ts", "../../packs/gate/examples/x.config.ts"));
+  });
+
+  test("an example imports only bounded/domain and each shipped pack's own export path, never an internal one", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const example = "src/packs/gate/examples/basic.config.ts";
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    const internal = (spec: string) => `${example}:1 imports "${spec}" — an example imports only bounded/domain and the shipped packs' own export paths (bounded/<pack>), as a project's configuration does; "${spec}" is not one`;
+    for (const spec of ["bounded/prereqs/adapters", "bounded/protected-paths/adapters", "bounded/adapters", "bounded/application", "bounded/testing/host-installer-conformance"]) {
+      expect(shippedPackViolations(example, imports(spec), core)).toEqual([internal(spec)]);
+    }
+  });
+
+  test("nothing imports a pack's example from a repository test or a unit's test/ either", () => {
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing imports a pack's example: open it as a project's configuration`];
+    expect(exampleImportViolations("src/test/x.test.ts", imports("../packs/gate/examples/x.config.ts"))).toEqual(refused("src/test/x.test.ts", "../packs/gate/examples/x.config.ts"));
+    expect(exampleImportViolations("src/hosts/pi/test/x.test.ts", imports("../../../packs/gate/examples/x.config.ts"))).toEqual(refused("src/hosts/pi/test/x.test.ts", "../../../packs/gate/examples/x.config.ts"));
+    expect(exampleImportViolations("src/core/test/x.test.ts", imports("../../packs/gate/index.ts", "bounded/prereqs"))).toEqual([]);
+  });
+
+  test("R7 reads a shipped pack's tracked files only: an untracked or ignored file in its directory is not the pack's", () => {
+    const probe = "src/packs/prereqs/.untracked-r7-probe";
+    writeFileSync(join(ROOT, probe), "");
+    try {
+      const paths = packLayoutPaths();
+      expect(paths).not.toContain(probe);
+      expect(paths).toContain("src/packs/prereqs/README.md");
+      expect(packLayoutViolations(paths)).toEqual([]);
+    } finally {
+      rmSync(join(ROOT, probe), { force: true });
+    }
+  });
+
+  test("the scan covers each shipped pack's examples", () => {
+    const examples = trackedFiles().filter((path) => /^src\/packs\/[^/]+\/examples\/[^/]+\.config\.ts$/.test(path));
+    expect(examples.length).toBeGreaterThan(0);
+    for (const example of examples) {
+      expect(files).toContain(example);
+      expect(packLayerOf(example)).toBe("examples");
+    }
+  });
+
   test("every export path points at a file that exists", async () => {
     for (const context of [...contexts, ...apps]) {
       for (const target of Object.values(context.exportTargets).flat()) expect(await Bun.file(`${ROOT}/${context.dir}/${target}`).exists()).toBe(true);
@@ -913,15 +1014,32 @@ describe("architecture", () => {
     expect(conceptTripletViolations(["src/packs/gate/matching.ts"], new Map())).toEqual([]);
   });
 
-  test("R7: a shipped pack's directory holds its overview, contract, index and their test, and only domain/, application/ and adapters/", () => {
+  test("R7: a shipped pack's directory holds its overview, contract, index, their test and its README at its root, and only domain/, application/, adapters/ and examples/", () => {
     const dir = "src/packs/gate";
-    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/files/files.ts`];
+    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/basic.config.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/files/files.ts`];
     expect(packLayoutViolations(tidy)).toEqual([]);
     expect(packLayoutViolations([...tidy, `${dir}/helpers.ts`, `${dir}/lib/x.ts`])).toEqual([
-      `${dir}/helpers.ts — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`,
-      `${dir}/lib/x.ts — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`,
+      `${dir}/helpers.ts — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`,
+      `${dir}/lib/x.ts — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`,
     ]);
-    expect(packLayoutViolations([`${dir}/index.ts`])).toEqual([`${dir} — a shipped pack has gate.pack.ts`, `${dir} — a shipped pack has gate.contract.ts`]);
+    expect(packLayoutViolations([`${dir}/index.ts`])).toEqual([
+      `${dir} — a shipped pack has gate.pack.ts`,
+      `${dir} — a shipped pack has gate.contract.ts`,
+      `${dir} — a shipped pack has README.md`,
+      `${dir} — a shipped pack has at least one example, examples/<name>.config.ts`,
+    ]);
+  });
+
+  test("R7: a shipped pack has a README and at least one example, examples/<slug>.config.ts, one level deep", () => {
+    const dir = "src/packs/gate";
+    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/keep-secrets-out.config.ts`];
+    expect(packLayoutViolations(tidy)).toEqual([]);
+    expect(packLayoutViolations(tidy.filter((path) => !path.endsWith("README.md")))).toEqual([`${dir} — a shipped pack has README.md`]);
+    expect(packLayoutViolations(tidy.filter((path) => !path.includes("/examples/")))).toEqual([`${dir} — a shipped pack has at least one example, examples/<name>.config.ts`]);
+    expect(packLayoutViolations([...tidy, `${dir}/examples/helpers.ts`, `${dir}/examples/nested/x.config.ts`])).toEqual([
+      `${dir}/examples/helpers.ts — a pack's examples are examples/<name>.config.ts files`,
+      `${dir}/examples/nested/x.config.ts — a pack's examples are examples/<name>.config.ts files`,
+    ]);
   });
 
   test("R7: an overview binds imported names in definePack's sections, in order, typed by its contract", () => {
@@ -933,6 +1051,11 @@ describe("architecture", () => {
     expect(packOverviewViolations([overview("dependsOn: [corePack], id: gateId")])).toEqual([`${path} — an overview's sections are id, dependsOn, points, contributes, ports, in that order (it gives dependsOn, id)`]);
     expect(packOverviewViolations([overview("id: gateId", 'import { files } from "./adapters/out/files/files.ts";\n')])).toEqual([`${path}:5 — an overview imports only its domain/, application/, its contract and bounded/domain, never "./adapters/out/files/files.ts"`]);
     expect(packOverviewViolations([{ path: "src/packs/gate/domain/extra.ts", text: 'import { definePack } from "bounded/domain";\nexport const extra = definePack({ id: x });\n' }])).toEqual(["src/packs/gate/domain/extra.ts:2 — a pack is defined in its overview file, <name>.pack.ts"]);
+  });
+
+  test("R7: an example defines no pack: a pack is defined only in its overview", () => {
+    const example = { path: "src/packs/gate/examples/basic.config.ts", text: 'import { defineConfig, definePack } from "bounded/domain";\nconst extra = definePack({});\nexport default defineConfig({ packs: [extra] });\n' };
+    expect(packOverviewViolations([example])).toEqual(["src/packs/gate/examples/basic.config.ts:2 — a pack is defined in its overview file, <name>.pack.ts"]);
   });
 
   test("R4: a feature has a contract, and its handler implements the in port from it", () => {
