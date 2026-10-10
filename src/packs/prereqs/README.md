@@ -163,10 +163,13 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
 - **A reviewer's verdict.** "Succeeded" is the tool result's `ok`, not what
   the reviewer concluded.
 - **Cycles across rules**, which make an action unreachable.
-- **A literal argument with no shell syntax that a program the reader
-  does not interpret runs as code.** It is read as text, so the rule's
-  program is found there only where its name is written out. One holding
-  shell syntax is code, and refused (below, "Over-refusal").
+- **A glob or brace a program the reader does not interpret expands
+  itself.** A literal argument holding no `$`, backquote, `;`, `&&`, `||`,
+  `|` or newline is read as text, so the rule's program is found there
+  only where its name is written out: `ssh host '/*/bin/terrafor? apply'`, `ssh host '/usr/bin/terra{form,} apply'` are allowed while the requirement is unmet (so that
+  `prettier --write 'src/**'` is not refused). One holding those is code,
+  and refused (below, "Over-refusal"). A `<` from a file into such a
+  program is a read (`ssh host < cmds.txt` is allowed).
 - **What a prefix does not match.** It matches a run's first positional
   words, in order, past options only: under `"make deploy"`,
   `make clean deploy` (which builds the deploy target too) does not count.
@@ -218,7 +221,11 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   or a literal argument holding shell syntax (`$`, `$(`, a backquote, `;`,
   `&&`, `||`, `|`, a newline), which ssh, watch and their kind run as shell
   code: `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`,
-  and `mytool '$HOME'`. `grep '$x' f` and `echo '$HOME'` stay allowed.
+  and `mytool '$HOME'`; standard input given to a group or loop, or a `<`
+  from a process substitution (`while read l; do ssh host; done <<< …`,
+  `ssh host < <(echo …)`); and piped input into `sed` (`| sed …`), which
+  bounded's reader does not interpret. `grep '$x' f` and `echo '$HOME'`
+  stay allowed.
   The common text programs (`cat`, `grep`, `head`, `sort`, `jq` …) are not
   refused for this: `cat a | grep x`, `jq . f.json`, `git log | head` and
   `cat "$F"` are allowed.

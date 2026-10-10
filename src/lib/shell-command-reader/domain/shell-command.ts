@@ -336,8 +336,8 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     // A shell's script naming no project path from here may be its standard input (a link to /dev/stdin): fail closed.
     const outside = (meaning.standardInputUnlessInProject ?? []).some((word) => word.kind === "literal" && pathOf(word.text, scope.at) === undefined);
     if (outside) unresolved.push({ text: STANDARD_INPUT.text, role: "code" });
-    // xargs's runs are its own readings, never written ones: its every-reading rule already reads them.
-    const runsWritten = how.written === true && !(name.kind === "literal" && name.text === "xargs");
+    // xargs's runs (/usr/bin/xargs's too, by its last path segment) are its own readings, never written ones: its every-reading rule already reads them.
+    const runsWritten = how.written === true && !(name.kind === "literal" && (name.text.split("/").at(-1) ?? "").toLowerCase() === "xargs");
     for (const ran of meaning.runs) {
       // xargs's input reaches a trailing run (sudo rm, env -C d cp a) as it reaches the command that runs it.
       const inherited = ran.replace === undefined && ran.trailing === true;
@@ -417,40 +417,53 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     }
   };
 
-  /** Walks `node` from `cell`; `piped` when a pipe feeds it (a pipeline's stage after the first, and every command inside one). */
-  const walk = (node: ShellNode, cell: ScopeCell, piped = false): void => {
+  /**
+   * What feeds a node's standard input that bounded cannot see, from its own
+   * redirections: a here-string, or a `<` from a process substitution
+   * (`< <(…)`). A `<` from a file is a read, judged as one.
+   */
+  const fedBy = (redirects: readonly ShellRedirect[]): ShellWord[] =>
+    redirects.filter(({ operator, target }) => operator === "<<<" || (operator === "<" && target.kind === "unresolved" && target.text.startsWith("<("))).map(({ target }) => target);
+
+  /**
+   * Walks `node` from `cell`; `fed` is what feeds its standard input that
+   * bounded cannot see: a pipe (a pipeline's stage after the first), or a
+   * group's, subshell's or loop's here-string or process substitution, given
+   * to every command inside it (never into a substitution).
+   */
+  const walk = (node: ShellNode, cell: ScopeCell, inherited: readonly ShellWord[] = []): void => {
     if (!spend(budget, 1 + joinedPathCost(cell.current))) return;
     switch (node.kind) {
       case "command": {
         for (const word of [...node.assignments, ...(node.name === null ? [] : [node.name]), ...node.args, ...node.redirects.map((r) => r.target)]) substitutions(word, cell.current);
-        const fed = [...(piped ? [PIPED_INPUT] : []), ...node.redirects.filter((each) => each.operator === "<<<").map((each) => each.target)];
+        const fed = [...inherited, ...fedBy(node.redirects)];
         command(node.name, node.args, cell, { standIn: node.standIn === true, written: true, ...(fed.length === 0 ? {} : { fed }) });
         for (const each of node.redirects) redirect(each, cell.current);
         return;
       }
       case "list": {
         if (node.operator === "&") {
-          walk(node.left, cellAt(cell.current), piped);
-          walk(node.right, cell, piped);
+          walk(node.left, cellAt(cell.current), inherited);
+          walk(node.right, cell, inherited);
         } else if (node.operator === "||") {
           // The right side runs only when the left failed, so from where the left started.
           const before = cell.current;
-          walk(node.left, cell, piped);
+          walk(node.left, cell, inherited);
           const right = cellAt(before);
-          walk(node.right, right, piped);
+          walk(node.right, right, inherited);
           cell.current = sameAt(cell.current.at, before.at) && sameAt(right.current.at, before.at) ? before : scopeAt(null);
         } else {
-          walk(node.left, cell, piped);
-          walk(node.right, cell, piped);
+          walk(node.left, cell, inherited);
+          walk(node.right, cell, inherited);
         }
         return;
       }
       case "pipeline":
-        for (const [index, stage] of node.stages.entries()) walk(stage, cellAt(cell.current), piped || index > 0);
+        for (const [index, stage] of node.stages.entries()) walk(stage, cellAt(cell.current), index > 0 && !inherited.includes(PIPED_INPUT) ? [...inherited, PIPED_INPUT] : inherited);
         return;
       case "subshell": {
         const inside = cellAt(cell.current);
-        for (const inner of node.body) walk(inner, inside, piped);
+        for (const inner of node.body) walk(inner, inside, inherited);
         return;
       }
       case "group":
@@ -458,11 +471,11 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
           substitutions(each.target, cell.current);
           redirect(each, cell.current);
         }
-        for (const inner of node.body) walk(inner, cell, piped);
+        for (const inner of node.body) walk(inner, cell, [...inherited, ...fedBy(node.redirects)]);
         return;
       case "conditional": {
         const maybe = cellAt(cell.current);
-        for (const inner of node.body) walk(inner, maybe, piped);
+        for (const inner of node.body) walk(inner, maybe, inherited);
         if (!sameAt(maybe.current.at, cell.current.at)) cell.current = scopeAt(null);
         return;
       }

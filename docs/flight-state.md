@@ -264,8 +264,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
   - A literal argument holding shell syntax (`$`, a backquote, `;`, `&&`,
     `|`, a newline) given to a program the reader does not interpret is
     code, refused while a requirement is missing
-    (`` ssh host 'terra``form apply' ``, and, the over-refusal,
-    `mytool '$HOME'`; `grep '$x' f` is allowed). A shell's options are read every way the recorded shells
+    (`` ssh host 'terra``form apply' ``, and, the over-refusals,
+    `mytool '$HOME'` and `cat a | sed s/a/b/`; `grep '$x' f` is allowed); so
+    is standard input given to a group or loop, or a `<` from a process
+    substitution (`while read l; do ssh host; done <<< …`). Named limits: a
+    glob or brace such a program expands itself
+    (`ssh host '/*/bin/terrafor? apply'`) and a `<` from a file
+    (`ssh host < cmds.txt`) are allowed. A shell's options are read every way the recorded shells
     read them (bash, dash, zsh, ksh; every way for `sh`), and it reports
     its standard input as code when any reading has no script, `s` in a
     cluster, or a script that may be standard input (`-`, under `/dev/`

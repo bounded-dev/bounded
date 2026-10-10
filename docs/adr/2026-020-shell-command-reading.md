@@ -357,8 +357,11 @@ names no tool or language (AGENTS.md). It can own the shape.
       5.41, macOS's `stat`, `date`, `uniq`, `wc`, `column` and `base64`),
       else against GNU coreutils' and yq's (v4) documentation. A word only
       the shell can resolve given to one of them is read, never code
-      (`grep "$PATTERN" log.txt`). awk, sed, perl, python and the other
-      interpreters, xargs and find are unchanged.
+      (`grep "$PATTERN" log.txt`). awk, perl, python and the other
+      interpreters, xargs and find are unchanged. `sed` is not in the table,
+      so it is a program the reader does not interpret: what reaches it that
+      bounded cannot see is code (`cat a | sed s/a/b/` is refused by
+      `bounded/prereqs` while a rule does not hold, an over-refusal).
     - **What reaches a program the reader does not interpret is code.** A
       program is uninterpreted when the table does not know it, by its name
       or its last path segment, case folded (`CommandMeaning.uninterpreted`;
@@ -375,6 +378,21 @@ names no tool or language (AGENTS.md). It can own the shape.
       `<<< 'x'`); piped input into it (any command in a pipeline stage after
       the first, a group or subshell there included, never a substitution)
       as `(piped input)` code; xargs's input to it with the role `code` too.
+      *Final review, M2:* standard input given to a group, subshell, loop or
+      `if` reaches every command inside it, so a here-string or a `<` from
+      a process substitution there is code too (`{ mytool; } <<< 'x'`,
+      `while read l; do mytool; done <<< 'x'`, `mytool < <(echo x)`,
+      `{ mytool; } < <(echo x)`). As recorded with the repository's
+      tree-sitter-bash, a loop's or an `if`'s here-string is a
+      `herestring_redirect` child outside the `redirect` field (the adapter
+      read only that field, so it was dropped), and after a `{ … }` or
+      `( … )` the grammar recovers from `<<<` as an ERROR `<<` then a
+      `< 'x'` file redirection, which the adapter now reads as the
+      here-string it is, beside the file read the grammar gives. A `<` from
+      a file stays a read, judged as one, never code (`mytool < input.txt`
+      is not refused): a named limit, since what the program makes of the
+      file is not seen. xargs named by its path (`/usr/bin/xargs`) reads its
+      runs as xargs does, by its last path segment.
       What reaches a command a known wrapper runs reaches it as well
       (`cat a | sudo mytool`). Known programs keep their reads:
       `echo "$HOME"`, `cat "$F"`, `cat a | tee b`, `cat a | grep x`,
@@ -412,7 +430,11 @@ names no tool or language (AGENTS.md). It can own the shape.
       reads it as the empty substitution bash runs, so no program named for
       the inserted token is listed (`ssh host "terra$()form apply"` gives
       its word as code, not an unresolved program name). The word holding
-      it is still one only the shell can resolve.
+      it is still one only the shell can resolve. A consequence, inside the
+      limit on git's `!` aliases (below): `git -c "alias.x=!terra$()form
+      apply" x` named a program for the inserted token before, and so was
+      refused by `bounded/prereqs` as a program only the shell can name;
+      now it is allowed while the rule does not hold, as any `!` alias is.
     - **Standard input.** prereqs-execute's readings are kept as they are
       (a shell with neither `-c` nor an operand, or with `-s`; a first
       operand `-`, `/dev/stdin`, `/dev/fd/N`, `/proc/self/fd/0`; the
@@ -915,10 +937,14 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   known); other git subcommands (`merge`, `rebase`, `pull`, `cherry-pick`,
   `revert`, `worktree`, `clean`); text programs beyond the list; aliases
   and functions defined outside the command; heredocs fed to an
-  uninterpreted program (only here-strings and pipes are code); a literal
-  argument with no shell syntax that a program the reader does not
-  interpret still runs as code (`ssh host terraform apply` is seen only as
-  an argument naming terraform); a `{ … }` coproc or `time` body
+  uninterpreted program (only here-strings, pipes and `<` from a process
+  substitution are code; a `<` from a file is a read); **a glob or brace
+  in a literal argument that a program the reader does not interpret
+  expands itself** (*final review, M1*, the orchestrator's decision):
+  `ssh host '/*/bin/terrafor? apply'`, `ssh host '/usr/bin/terra{form,} apply'` may run `terraform apply` on the remote shell; the scan for shell
+  syntax looks for `$`, a backquote, `;`, `&&`, `||`, `|` and newlines
+  only, never `*`, `?`, `[` or `{`, so `prettier --write 'src/**'` and
+  eslint's globs are not refused while a rule does not hold; a `{ … }` coproc or `time` body
   re-joined across the `;` the grammar cuts it at; `sudo -e` (sudoedit).
 - A range with a step of zero gives only the word as written and leaves it
   to the shell: no shell was recorded for it. A nested group whose range's

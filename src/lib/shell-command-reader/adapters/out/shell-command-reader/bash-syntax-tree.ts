@@ -247,6 +247,30 @@ function lastRedirected(node: ShellNode, redirects: readonly ShellRedirect[]): S
   return { kind: "group", body: [node], redirects };
 }
 
+const REDIRECTS = new Set(["file_redirect", "heredoc_redirect", "herestring_redirect"]);
+
+/**
+ * A redirected statement's redirections, in order. As recorded with the
+ * repository's tree-sitter-bash: after a loop or an if, a here-string is a
+ * `herestring_redirect` child outside the `redirect` field
+ * (`while …; done <<< 'x'`), so every redirection child is taken; after a
+ * `{ … }` or `( … )`, the grammar recovers from `<<<` as an ERROR `<<` then a
+ * `< 'x'` file redirection (`{ a; } <<< 'x'`): that is read as the
+ * here-string it is, beside the file redirection the grammar gives (every
+ * reading adds).
+ */
+function statementRedirects(node: Node): ShellRedirect[] {
+  const children = named(node);
+  return children.flatMap((child, index): ShellRedirect[] => {
+    if (REDIRECTS.has(child.type)) return [redirect(child)];
+    const next = children[index + 1];
+    if (child.type === "ERROR" && child.text === "<<" && next?.type === "file_redirect" && redirect(next).operator === "<") {
+      return [{ operator: "<<<", target: { kind: "unresolved", text: `${child.text}${next.text}`, commands: substituted(next) } }];
+    }
+    return [];
+  });
+}
+
 /** Constructs whose insides may or may not run. */
 const CONTROL = new Set(["if_statement", "while_statement", "for_statement", "c_style_for_statement", "case_statement", "function_definition"]);
 /** The parts of those constructs that hold statements. */
@@ -263,7 +287,7 @@ function statementAt(node: Node): ShellNode | undefined {
       return command(node);
     case "redirected_statement": {
       const body = node.childForFieldName("body");
-      const redirects = nonNull(node.childrenForFieldName("redirect")).map(redirect);
+      const redirects = statementRedirects(node);
       if (body === null) return { kind: "command", name: null, args: [], redirects, assignments: [] };
       if (body.type === "command") return command(body, redirects);
       const inner = statement(body);

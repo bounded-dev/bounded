@@ -315,10 +315,12 @@ pi-subagents' project agent directory), which give role identity.
   argument (`bash deploy.sh` under `"deploy.sh"`); a sourced script
   (`. deploy.sh`, `source x.sh`) is code bounded cannot read, refused under
   any rule while it does not hold (*amended by `shell-reader-coverage`*); a
-  literal argument with no shell syntax that a program the reader does not
-  interpret runs as code is read as text, so the rule's program is found
-  only where its name is written out (one holding `$`, a backquote, `;`,
-  `&&`, `|` or a newline is code, below); a script the shell names where its options are
+  literal argument holding no `$`, backquote, `;`, `&&`, `||`, `|` or
+  newline is read as text, so the rule's program is found only where its
+  name is written out, even where a program the reader does not interpret
+  expands a glob or brace in it itself (`ssh host '/*/bin/terrafor? apply'`, `ssh host '/usr/bin/terra{form,} apply'`, a named limit, *final review, M1*); one holding those is
+  code (below); a `<` from a file into such a program is a read, never
+  code (`ssh host < cmds.txt`, a named limit); a script the shell names where its options are
   (`bash "$S"`) is refused as code bounded cannot read, `"$S"` possibly
   holding `-s` (*amended by `shell-every-reading`*), while one named after
   them (`bash -- "$S"`) or substituted
@@ -380,7 +382,12 @@ pi-subagents' project agent directory), which give role identity.
   `cat a | mytool`), or a literal argument holding shell syntax (`$`, `$(`,
   a backquote, `;`, `&&`, `||`, `|`, a newline: `mytool '$HOME'`,
   `` ssh host 'terra``form apply' ``, `watch 'terra${x}form apply'`), which
-  ssh, watch and their kind run as shell code. The common text programs
+  ssh, watch and their kind run as shell code; and standard input given
+  to a group, subshell, loop or `if` (`while read l; do ssh host; done
+  <<< 'terraform apply'`, `{ ssh host; } <<< …`) or a `<` from a process
+  substitution (`ssh host < <(echo terraform apply)`), code as a
+  here-string is (*final review, M2*). `sed` is such a program, so
+  `cat a | sed s/a/b/` is refused too. The common text programs
   (`cat`, `grep`, `head`, `sort`, `jq` …; ADR 2026-020) are not refused for
   this: `cat a | grep x`, `jq . f.json`, `git log | head`, `cat "$F"` and
   `sort -o out.txt in.txt` stay allowed.
