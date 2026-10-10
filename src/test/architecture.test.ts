@@ -956,7 +956,7 @@ describe("architecture", () => {
     expect(conceptTripletViolations(["src/packs/gate/matching.ts"], new Map())).toEqual([]);
   });
 
-  test("R7: a shipped pack's directory holds its overview, contract, index and their test, and only domain/, application/ and adapters/", () => {
+  test("R7: a shipped pack's directory holds its overview, contract, index, their test and its README at its root, and only domain/, application/, adapters/ and examples/", () => {
     const dir = "src/packs/gate";
     const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/basic.config.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/files/files.ts`];
     expect(packLayoutViolations(tidy)).toEqual([]);
