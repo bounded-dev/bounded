@@ -720,8 +720,30 @@ describe("TreeSitterShellCommandReader — a word only the shell can resolve nev
       expect({ command: command.slice(0, 20), fast: performance.now() - started < 1500 }).toEqual({ command: command.slice(0, 20), fast: true });
       expect(reading.fileEffects.length).toBeGreaterThan(0);
     }
-    // Every literal-led suffix is still listed.
-    expect((await read(`"$X" ${"a.txt ".repeat(700)}`)).programs).toHaveLength(701);
+    // Every distinct literal-led suffix is listed, each with at most 16 arguments (second final review, M2).
+    const listed = (await read(`"$X" ${"a.txt ".repeat(700)}`)).programs;
+    expect(listed.map(programLine)).toEqual(expect.arrayContaining([`a.txt [${Array.from({ length: 16 }, () => "a.txt").join(" ")}] @.`, "a.txt [] @."]));
+  }, 30_000);
+
+  test("a listed-only suffix carries at most 16 arguments, and repeats are listed once, so the reading grows linearly with the command (second final review, M2)", async () => {
+    const reading = await read(`"$X" ${"a ".repeat(700)}`);
+    const listedArguments = reading.programs.reduce((count, program) => count + program.arguments.length, 0);
+    expect(listedArguments).toBeLessThan(7000);
+    expect(Math.max(...reading.programs.slice(1).map((program) => program.arguments.length))).toBeLessThanOrEqual(16);
+    // Distinct words: each suffix listed, with its first 16 arguments; the program's own run keeps them all.
+    const files = Array.from({ length: 400 }, (_, index) => `tests/test_${index}.py`);
+    const pytest = await read(`"$PY" -m pytest ${files.join(" ")}`);
+    expect(pytest.programs[0]?.arguments).toHaveLength(402);
+    expect(pytest.programs.slice(1).every((program) => program.arguments.length <= 16)).toBe(true);
+    expect(pytest.programs.map((program) => program.name.text)).toEqual(expect.arrayContaining(["pytest", files[0], files[399]]));
+  });
+
+  test("thirty thousand words after a program only the shell can name come back, read or unread, in under 2 s (second final review, M2)", async () => {
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    const started = performance.now();
+    const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(`"$X" ${"a ".repeat(30_000)}`)), null)));
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(reading.outcome === "read" || !reading.why.includes("within the time")).toBe(true);
   }, 30_000);
 
   test("a directory option the word may be is followed to the next word's directory", async () => {

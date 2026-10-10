@@ -240,6 +240,12 @@ interface WrapperOptions {
   readonly script?: readonly string[];
   /** The wrapper's own name, when a literal script string is also walked through the wrapper itself (env -S). */
   readonly name?: string;
+  /**
+   * Value-taking options bounded read as flags before shell-every-reading
+   * (sudo's -R, -a, -c and their long names; doas's -a): that reading is
+   * kept beside the value one, added, wherever they stand (ADR 2026-020).
+   */
+  readonly readAsFlagsBefore?: readonly string[];
 }
 
 /** The letters of the short options (-u, -C) among `options`. */
@@ -338,7 +344,14 @@ function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
             }
             const directoryOption = longOptionOf(options.directory ?? [], text);
             if (directoryOption !== undefined) at = text === directoryOption ? args[++index] : literalWord(text.slice(directoryOption.length + 1));
-            else if (withValues.includes(text)) index++;
+            else if (withValues.includes(text)) {
+              // A long option read as a flag before (sudo --chroot): that reading is kept, added.
+              if (options.readAsFlagsBefore?.includes(text) === true) {
+                const [next, keptAt, keptLeading] = [index + 1, at, leading];
+                keptReadings.push(() => from(next, keptAt, keptLeading, true));
+              }
+              index++;
+            }
             continue;
           }
           if (text.startsWith("-") && text !== "-") {
@@ -346,9 +359,10 @@ function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
             for (let letter = 1; letter < text.length; letter++) {
               const char = text.charAt(letter);
               if (!valueLetters.includes(char) && !directoryLetters.includes(char) && !scriptLetters.includes(char)) continue;
-              // Read before as a flag, the walk going on at the next word (sudo -Eu root rm: root the command): that reading is kept,
-              // added, since every reading adds. A value letter first in its word was read so before too.
-              if (letter > 1) {
+              // Read before as a flag, the walk going on at the next word (sudo -Eu root rm: root the command; sudo -a rm: rm the
+              // command): that reading is kept, added, since every reading adds. A letter first in its word that bounded took a value
+              // for before (sudo -u, env -C, env -S) was read so before too, and gets no such reading.
+              if (letter > 1 || options.readAsFlagsBefore?.includes(`-${char}`) === true) {
                 const [next, keptAt, keptLeading] = [index + 1, at, leading];
                 keptReadings.push(() => from(next, keptAt, keptLeading, true));
               }
@@ -874,9 +888,9 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[], budget: WorkBu
   popd: () => meaning({ location: { to: null } }),
   sudo: wrapper(
     ["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout", "-R", "--chroot", "-a", "--auth-type", "-c", "--login-class"],
-    { assignments: true, directory: ["-D", "--chdir"] },
+    { assignments: true, directory: ["-D", "--chdir"], readAsFlagsBefore: ["-R", "--chroot", "-a", "--auth-type", "-c", "--login-class"] },
   ),
-  doas: wrapper(["-u", "-C", "-a"]),
+  doas: wrapper(["-u", "-C", "-a"], { readAsFlagsBefore: ["-a"] }),
   env: wrapper(["-u", "--unset"], { assignments: true, directory: ["-C", "--chdir"], script: ["-S", "--split-string"], name: "env" }),
   timeout: wrapper(["-s", "--signal", "-k", "--kill-after"], { leading: 1 }),
   nice: wrapper(["-n", "--adjustment"]),
@@ -931,10 +945,10 @@ export function spend(budget: WorkBudget, steps = 1): boolean {
   return !budget.exhausted;
 }
 
-/** What the command `name` does with `args`, spending from `budget`, the whole command's: a step for the command and one per word. */
 /** Whether the table says what the command `name` does: any other reads its operands and runs nothing it can name. */
 export const isKnownCommand = (name: string): boolean => Object.hasOwn(TABLE, name);
 
+/** What the command `name` does with `args`, spending from `budget`, the whole command's: a step for the command and one per word. */
 export function commandMeaning(name: string, args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
   // Each word costs a step and one per 64 characters; a short option cluster, read for every value it could carry, costs its suffixes' length.
   if (!spend(budget, 1 + args.length + textCost(args) + args.reduce((steps, word) => steps + clusterCost(word), 0))) return NONE;

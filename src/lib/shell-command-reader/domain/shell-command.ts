@@ -36,6 +36,15 @@ interface ScopeCell {
 }
 const cellAt = (scope: Scope): ScopeCell => ({ current: scope });
 
+/**
+ * How many arguments a listed-only suffix reading carries (a word the table
+ * does not know, after a program only the shell can name): its leading
+ * words, as many as a rule may match against (bounded/prereqs' program
+ * prefixes hold at most 16 words); every argument is still in the
+ * program's own run and reading (ADR 2026-020).
+ */
+const LISTED_SUFFIX_ARGUMENTS = 16;
+
 /** Why a command that outgrew its work budget is unread. */
 const TOO_COMPLEX = `the command is too complex to read within bounded's work budget (${WORK_BUDGET_STEPS} steps): its words could be read too many ways, or it nests too deep`;
 /** Why a command whose reading ran out of time is unread. */
@@ -311,20 +320,27 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     if (variableNamed) {
       // Each literal-led suffix of its words, as a command of its own, in a copy: the program may be a wrapper (sudo, env …).
       const suffix = { ...(how.replace === undefined ? {} : { replace: how.replace }), ...(how.replacedBy === undefined ? {} : { replacedBy: how.replacedBy }), written: true };
+      const listedSuffixes = new Set<string>();
       for (let index = 0; index < args.length; index++) {
         const word = args[index] as ShellWord;
         if (word.kind !== "literal") continue;
-        const rest = args.slice(index + 1);
         if (isKnownCommand(word.text) || word.text === "--") {
           // A command the table knows (or one led by --, after which options read as options again) is walked whole, charged its words.
+          const rest = args.slice(index + 1);
           if (!spend(budget, 1 + rest.length)) break;
           nested(() => command(word, rest, cellAt(cell.current), suffix));
           continue;
         }
         // A command the table does not know reads its operands, which the program's own reading of the same words already reads, and
-        // runs nothing it can name: it is listed, charged only what it adds (its name), so a long list of words costs linear work.
-        if (!spend(budget, 1 + textCost([word]) + (how.replace === undefined ? 0 : rest.length))) break;
-        const listed = how.replace === undefined ? rest : (withInputReplaced(rest, how.replace, how.replacedBy ?? XARGS_INPUT) ?? rest);
+        // runs nothing it can name: it is listed with at most LISTED_SUFFIX_ARGUMENTS of its arguments, charged what it stores, so the
+        // work and the reading's size both grow linearly with the command's words.
+        const kept = args.slice(index + 1, index + 1 + LISTED_SUFFIX_ARGUMENTS);
+        if (!spend(budget, 1 + kept.length + textCost([word, ...kept]))) break;
+        const listed = how.replace === undefined ? kept : (withInputReplaced(kept, how.replace, how.replacedBy ?? XARGS_INPUT) ?? kept);
+        // A suffix listed exactly as one before it (a a a … gives a [a …] again and again) adds nothing: listed once.
+        const key = JSON.stringify([word.text, listed.map((each) => [each.kind, each.text])]);
+        if (listedSuffixes.has(key)) continue;
+        listedSuffixes.add(key);
         programs.push({ name: word, arguments: listed, workingDirectory: directoryOf(cell.current) });
       }
     }

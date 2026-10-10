@@ -434,6 +434,10 @@ describe("read by bounded's shell command reader â€” the protected-paths pack â€
     await refusedFor(await shellWith([dotEnv]), ["sudo -Ru rm .env", "sudo -au rm .env", "doas -au rm .env", "sudo -cu rm .env"], ".env");
   });
 
+  test("a value letter bounded read as a flag before keeps that reading, first in its word too (second final review, M1)", async () => {
+    await refusedFor(await shellWith([dotEnv]), ["sudo -a rm .env", "sudo -c rm .env", "sudo -R rm .env", "doas -a rm .env", "sudo --chroot rm .env"], ".env");
+  });
+
   test("a range the reader cannot spell out keeps its word as written, and is judged (final review, M1)", async () => {
     const secrets = rules("a", { match: "secrets/**", deny: ["delete"], redirect: "Leave secrets/ alone" });
     await refusedFor(await shellWith([secrets], { secrets: "directory" }), ["rm secrets/{+1..300}"], "secrets/{+1..300}");

@@ -211,11 +211,16 @@ names no tool or language (AGENTS.md). It can own the shape.
       the cluster. `sudo -Eu root rm .env` runs `rm .env` and
       `env -iu VAR rm x` runs `rm x`; before, `root` and `VAR` were read as
       the command, a fail-open this fixes. That reading is kept beside the
-      new one, added (`root [rm, .env]`), since every reading adds; a value
-      letter first in its word was read so before too. sudo's value letters
-      include `-R` (chroot), `-a` (auth type) and `-c` (login class), and
-      doas's `-a`, so `sudo -Ru rm .env` and `doas -au rm .env` run
-      `rm .env`. Values of options the walk knows
+      new one, added (`root [rm, .env]`), since every reading adds. sudo's
+      value letters include `-R` (chroot), `-a` (auth type) and `-c` (login
+      class), with their long names, and doas's `-a`, so `sudo -Ru rm .env`
+      and `doas -au rm .env` run `rm .env`. bounded read these as flags
+      before, so that reading is kept beside the value one, added, first in
+      their word too: `sudo -a rm .env`, `sudo -R rm .env`,
+      `sudo --chroot rm .env` and `doas -a rm .env` still delete `.env`. A
+      value letter first in its word that bounded already took a value for
+      (`sudo -u`, `env -C`, `env -S`) keeps that one reading, as before.
+      Values of options the walk knows
       are taken as written (`sudo -u "$U" rm x`, `exec -a "$N" rm x`,
       `env -C "$D" cp a b`): no fork there.
     - **`env -S`/`--split-string`.** The string is parsed as code and its
@@ -236,9 +241,20 @@ names no tool or language (AGENTS.md). It can own the shape.
       by a command the table knows, or by `--`, is walked whole, charged
       its words; one led by any other word reads only operands the
       program's own reading of the same words already reads, so it is
-      listed in `programs` and charged only its name: a long list of words
-      costs linear work (`"$X"` before 700 words is read in about 90 ms,
-      `"$PY" -m pytest` with 400 files in about 25 ms).
+      only listed in `programs`, with at most its first 16 arguments, and a
+      suffix listed exactly as one before it is listed once; each is
+      charged what it stores (its name and the arguments kept). So both the
+      work and the reading's size grow linearly with the command's words:
+      at most 17 listed words per word, beside the program's own run, which
+      keeps every argument (`"$X"` before 700 × `a` lists 836 arguments
+      and is read in about 25 ms; `"$PY" -m pytest` with 400 files is read
+      in about 25 ms; 30,000 words come back unread for the budget in
+      about 80 ms). **The 16-argument cap is a decision tied to
+      `bounded/prereqs`' program prefixes, which hold at most 16 words**
+      (ProgramPrefix's limit, ADR 2026-019): a rule can match no more of a
+      run's leading words than that, and every argument is still judged
+      through the program's own run and reading (its argument scan
+      included). A change to that limit changes this cap with it.
       `"$W" rm x`, `"$W" -u root rm x`, `$GIT rm x` and
       `find . -exec "$C" rm x \;` delete `x`; `$TOOL x` lists
       `$TOOL [x]` and `x []`; a chain `$A $A … rm x` gives one reading
