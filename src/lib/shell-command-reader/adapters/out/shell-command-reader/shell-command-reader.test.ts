@@ -1125,6 +1125,24 @@ describe("TreeSitterShellCommandReader — the reader's new readings (every read
     expect((await read("echo $(rm x)")).programs.map(programLine)).toEqual(["rm [x] @.", "echo [$(rm x)] @."]);
   });
 
+  test("a literal argument holding shell syntax, given to a program the reader does not interpret, is code beside today's read; known programs keep their reads", async () => {
+    for (const [command, word] of [
+      ["ssh host 'terra``form apply'", "terra``form apply"],
+      // The shell's ${x}, kept out of a template placeholder's look.
+      ["watch 'a$" + "{x}b'", "a$" + "{x}b"],
+      ["mytool '$HOME'", "$HOME"],
+      ["mytool 'a;b'", "a;b"],
+      ["mytool 'a && b'", "a && b"],
+      ["mytool 'a | b'", "a | b"],
+      ["mytool $'a\\nb'", "a\nb"],
+      ["sudo mytool 'a;b'", "a;b"],
+    ] as const) {
+      const reading = await read(command);
+      expect({ command, code: codeOf(reading), read: reading.fileEffects.some(({ effect }) => effect.kind === "read" && effect.path === word) || reading.unresolved.some((part) => part.role === "read" && part.text === word) }).toEqual({ command, code: [word], read: true });
+    }
+    for (const command of ["mytool 'a b'", "mytool a-b", "echo '$HOME'", "grep '$x' f", "printf '%s;' a", "cat 'a;b'"]) expect({ command, code: codeOf(await read(command)) }).toEqual({ command, code: [] });
+  });
+
   test("what reaches a known wrapper's command reaches it too: piped input and a here-string into sudo's command the table does not know are code", async () => {
     expect(codeOf(await read("sudo mytool <<< 'x'"))).toEqual(["<<< 'x'"]);
     expect(codeOf(await read("cat a | env A=1 mytool"))).toEqual(["(piped input)"]);

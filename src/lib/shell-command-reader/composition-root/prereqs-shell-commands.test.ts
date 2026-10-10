@@ -271,10 +271,27 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
     for (const [command] of forms) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
-  test("limit: terraform reached through a literal argument a program the reader does not interpret may run as code is not seen", async () => {
-    const { shell } = await opened();
-    // A literal word is resolved, so it is read, not code: what ssh's or watch's own shell makes of it is not seen (ADR 2026-020).
-    for (const command of ["ssh host 'terra``form apply'", "watch 'terra$" + "{x}form apply'"]) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  test("a literal argument holding shell syntax, given to a program the reader does not interpret, is code: refused while a rule does not hold; known programs keep their reads", async () => {
+    const { shell, reviewedByAll } = await opened();
+    const code = (word: string) => `bounded cannot see whether it runs 'terraform apply': it runs code bounded cannot read ('${word}')`;
+    const refused: readonly (readonly [string, string])[] = [
+      // ssh, watch and their kind run a literal argument as shell code (ADR 2026-020, amended by shell-reader-coverage).
+      ["ssh host 'terra``form apply'", "terra``form apply"],
+      ["watch 'terra$" + "{x}form apply'", "terra$" + "{x}form apply"],
+      ["ssh host 'cd infra && terraform apply'", "cd infra && terraform apply"],
+      ["watch 'a; b'", "a; b"],
+      ["ssh host 'a | b'", "a | b"],
+      ["ssh host 'a || b'", "a || b"],
+      // A refusal's text has its line breaks made spaces.
+      ["ssh host $'a\\nb'", "a b"],
+      // The over-refusal, stated: a literal '$' given to a program the table does not know.
+      ["mytool '$HOME'", "$HOME"],
+    ];
+    for (const [command, word] of refused) expect({ command, code: reasonOf(await shell(command)).includes(code(word)) }).toEqual({ command, code: true });
+    // Known programs keep their reads; a literal with no shell syntax stays a read.
+    for (const command of ["grep '$x' README", "echo '$HOME'", "mytool 'plain words'", "printf '%s;' a"]) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    await reviewedByAll();
+    for (const [command] of refused) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
   test("limit: a script run through a shell is not seen to run; a sourced one is code bounded cannot read", async () => {
