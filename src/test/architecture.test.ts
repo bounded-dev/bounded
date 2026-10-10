@@ -133,13 +133,17 @@ function exportLayerOf(context: Context, exportPath: string): Layer | undefined 
  * domain and application; the files at its root its domain, application and
  * root, never its adapters; `adapters/out/` (one folder per port, ADR
  * 2026-017) its domain, application and adapters, never another pack's, and
- * alone may do I/O (`node:*`, never Bun).
+ * alone may do I/O (`node:*`, never Bun). Its `examples/` are projects'
+ * configurations, outside its code: an example imports only the package's
+ * export paths, as a project does, and nothing imports an example, not even
+ * a test (ADR 2026-009).
  */
 const packLayerOf = (file: string): string | undefined => {
   const unit = placedUnitOf(file);
   if (unit?.kind !== "pack") return undefined;
   const rest = file.slice(unit.sourceRoot.length + 1);
   const [first = "", second, third] = rest.split("/");
+  if (first === "examples" && second !== undefined) return "examples";
   if (first === "adapters" && second === "out" && third !== undefined) return "adapters";
   return ["domain", "application"].includes(first) && rest.includes("/") ? first : "root";
 };
@@ -162,6 +166,14 @@ function shippedPackViolations(path: string, imports: readonly { spec: string; l
     const exportTarget = exported?.exports[`./${spec.slice((exported?.name.length ?? 0) + 1)}`];
     const file = relative ? new URL(spec, `file:///${path}`).pathname.slice(1) : exportTarget === undefined ? undefined : `${exported?.dir}/${exportTarget.slice(2)}`;
     const into = packDir(file);
+    if (into !== undefined && packLayerOf(file ?? "") === "examples") {
+      out.push(`${at} — nothing imports a pack's example: open it as a project's configuration`);
+      continue;
+    }
+    if (packLayerOf(path) === "examples") {
+      if (relative || exported !== context || exportTarget === undefined) out.push(`${at} — an example imports only ${context.name}'s export paths, as a project's configuration does`);
+      continue;
+    }
     if (into !== undefined && into !== own && !rootTest) out.push(`${at} — only a pack's own directory imports it: the core and other packs never depend on a shipped pack`);
     if (own === undefined || isTest) continue;
     const from = packLayerOf(path) ?? "root";
@@ -342,7 +354,8 @@ function contextImportViolations(path: string, text: string): string[] {
   const unit = placedUnitOf(path);
   const context = unit === undefined || unit.kind === "app" ? undefined : contexts.find((c) => c.dir === unit.packageDir);
   const layer = layerOf(path);
-  if (unit === undefined || context === undefined || layer === undefined) return [];
+  // A pack's example imports as a project's configuration does: shippedPackViolations holds it to the package's export paths.
+  if (unit === undefined || context === undefined || layer === undefined || packLayerOf(path) === "examples") return [];
   const isTest = /\.test(-support)?\.ts$/.test(path);
   const shippedPack = layer === "packs";
   const pure = (layer === "domain" || layer === "application" || (shippedPack && packLayerOf(path) !== "adapters")) && !isTest;
@@ -527,7 +540,8 @@ violations.push(
   ...implementedByViolations(contextSources, barrels, UNTESTED_PORTS, contexts),
   ...testDoubleViolations([...contextSources, ...(await Promise.all(appFiles.map(async (path) => ({ path, text: await Bun.file(`${ROOT}/${path}`).text() }))))], contexts),
   ...conceptTripletViolations(files, texts, NOT_CONCEPTS),
-  ...packLayoutViolations(files),
+  // R7 reads every file of a shipped pack, its README among them, not only its TypeScript.
+  ...packLayoutViolations([...files, ...[...new Glob("src/packs/**/*").scanSync({ cwd: ROOT, dot: true })].filter((path) => !path.endsWith(".ts") && !path.split("/").includes("node_modules"))]),
   ...packOverviewViolations(contextSources),
   ...featureContractViolations(files, texts),
   ...assertionViolations(contextSources, ASSERTIONS),

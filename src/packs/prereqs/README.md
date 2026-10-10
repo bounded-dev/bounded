@@ -3,32 +3,20 @@
 A pack shipped in `bounded` 3.2.0 ([ADR 2026-019](../../../docs/adr/2026-019-prereqs-pack.md));
 it counts runs at their finish from 3.3.0 ([ADR 2026-025](../../../docs/adr/2026-025-agent-run-finish.md)),
 and from 3.3.0 judges shell commands from their reading ([ADR 2026-020](../../../docs/adr/2026-020-shell-command-reading.md)).
-A rule says that before an action, a delegation to an agent must have
-succeeded over files that have not changed since. It is not a phase or a
-state machine, and there is no "mark done" tool: the agent never claims
+## What it is for
+
+Making an agent's work follow the order a project's workflow sets: no
+building before the plan is reviewed, no tests before the spec is
+reviewed, no `terraform apply` before the infrastructure change is
+reviewed. A rule says that before an action, a delegation to an agent must
+have succeeded over files that have not changed since. It is not a phase or
+a state machine, and there is no "mark done" tool: the agent never claims
 anything; the harness observes.
 
-## Rules
+## Rule shape
 
-```ts
-// bounded.config.ts
-import { contribution, defineConfig } from "bounded/domain";
-import { protectedPathsPack } from "bounded/protected-paths";
-import { prereqs } from "bounded/prereqs";
-
-// Each pack brings in the core it depends on (ADR 2026-018).
-export default defineConfig({
-  packs: [protectedPathsPack, prereqs],
-  contributes: [
-    contribution(prereqs.points.rules, [
-      { before: { delegate: "builder" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan" },
-      { before: { write: "src/**" }, require: { delegate: "plan-reviewer", succeeded: true }, unchangedSince: [".agent-state/*/plan.md"], redirect: "Have plan-reviewer review the current plan before editing src/" },
-      { before: { delegate: "test-writer" }, require: { delegate: "spec-reviewer", succeeded: true }, unchangedSince: ["spec.md", "src/**/*.contract.ts"], redirect: "Have spec-reviewer review the current spec and contracts" },
-      { before: { execute: "terraform apply" }, require: { delegate: "infra-reviewer", succeeded: true }, unchangedSince: ["infra/**"], redirect: "Have infra-reviewer review the current infra/ changes" },
-    ]),
-  ],
-});
-```
+Projects contribute rules to the pack's one point, `rules`. A rule is
+`{ before, require, unchangedSince, redirect }`:
 
 - `before` is one action: `{ delegate: <agent> }` (a delegation to that
   agent in any spelling: ignoring case and surrounding spaces, since a host
@@ -50,7 +38,9 @@ export default defineConfig({
   refuses while the rule does not hold**, saying it cannot see and why, and
   how to let it see. What it does not know it cannot see is listed under
   "What it cannot see" below. A command that certainly does what the rule comes before is refused
-  for that instead. For example, under the execute rule above:
+  for that instead. For example, under the rule
+  `{ before: { execute: "terraform apply" }, … }` of
+  `review-infra-before-apply.config.ts`:
   - `$TF apply`: "This call would execute `$TF apply`, and bounded cannot
     see whether it runs 'terraform apply': it runs a program whose name
     only the shell can resolve ('$TF')", redirect the rule's, then " (or,
@@ -96,8 +86,24 @@ export default defineConfig({
   `.git/**` comes before writes there. One inside `.bounded` is refused.
 - `redirect` is what the agent is told to do instead.
 
-Rules with the same requirement (agent and patterns) share records: one
-review of the plan meets both plan-reviewer rules above.
+Rules with the same requirement (agent and patterns) share records: in
+`review-plan-before-building.config.ts`, one review of the plan meets both
+plan-reviewer rules.
+
+## Workflows it fits
+
+- **Plan, review, build:** a reviewer approves the current plan before the
+  builder agent runs or `src/` is edited, and an edit to the plan makes the
+  approval stale.
+- **Spec first:** a reviewer approves the spec and the contracts before a
+  test-writer agent writes tests against them.
+- **Reviewed infrastructure:** a reviewer approves the current `infra/`
+  files before a command runs `terraform apply`, or any other program and
+  subcommand a project names.
+
+Each needs the required agent to be a delegation the host reports the
+finish of: Claude Code's subagents do; on pi, a requirement cannot be met
+yet (see "What it observes").
 
 ## What it observes
 
@@ -253,3 +259,20 @@ Claude Code and pi that `bounded` carries do.
   files a list of patterns names.
 - `prerequisiteRecords` (`PrerequisiteRecords`): the records, the starts
   kept by call id, and the starts kept by run id until the run's finish.
+
+## Examples
+
+Each is a complete `bounded.config.ts`, in `examples/`, opened as a
+project's configuration by the package's tests. Each also selects
+`bounded/protected-paths` and keeps agents off `.bounded/**` and
+`.claude/agents/**` (see "The protection it relies on").
+
+- `review-plan-before-building.config.ts`: before a delegation to
+  builder, and before a write under `src/`, plan-reviewer must have
+  succeeded over the current plan; one review meets both rules.
+- `review-spec-before-tests.config.ts`: before a delegation to
+  test-writer, spec-reviewer must have succeeded over the current spec and
+  contracts.
+- `review-infra-before-apply.config.ts`: before a shell command runs
+  `terraform apply`, infra-reviewer must have succeeded over the current
+  `infra/` files.
