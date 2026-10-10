@@ -14,7 +14,7 @@ export const ADD_A_DEFAULT_CONDITION = "add a `default` condition";
  * The behaviour every PackModules must have; `fixture` is given the export entry for ./demo to write into the package's
  * package.json, or none to keep the fixture's, or, as `exports`, the whole of package.json's exports to write instead.
  */
-export function packModulesConformance(name: string, fixture: (demoExport?: unknown, exports?: unknown) => Promise<PackModulesFixture>): void {
+export function packModulesConformance(name: string, fixture: (demoExport?: unknown, exports?: unknown, main?: string) => Promise<PackModulesFixture>): void {
   describe(`${name} conforms to PackModules`, () => {
     test("loads demo-package/demo and reports its exports' names, demoPack among them", async () => {
       const given = await fixture();
@@ -45,6 +45,13 @@ export function packModulesConformance(name: string, fixture: (demoExport?: unkn
         expect({ exports, loaded: loaded.ok ? "ok" : loaded.error }).toEqual({ exports, loaded: "ok" });
         expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
       }
+    });
+
+    test("loads the package root through main when package.json has no exports, as Node does", async () => {
+      const given = await fixture(undefined, undefined, "./dist/demo/index.js");
+      const loaded = await given.modules.load(given.packageDir, ".");
+      expect(loaded.ok ? "ok" : loaded.error).toBe("ok");
+      expect(loaded.ok && loaded.value.map(({ name }) => name)).toContain("demoPack");
     });
 
     test("refuses a root export with only an import condition, naming `.` and the fix", async () => {

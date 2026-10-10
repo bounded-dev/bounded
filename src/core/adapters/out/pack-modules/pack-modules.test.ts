@@ -4,12 +4,13 @@ import { ADD_A_DEFAULT_CONDITION, packModulesConformance } from "../../../applic
 import { NodePackModules } from "./pack-modules.ts";
 
 /** A copy of the demonstration package whose ./demo export entry is `demoExport`, or whose exports are `exports` (the fixture's when neither is given). */
-const packageWith = (demoExport?: unknown, exports?: unknown): Promise<string> => {
+const packageWith = (demoExport?: unknown, exports?: unknown, main?: string): Promise<string> => {
+  if (main !== undefined) return demoPackage({ manifest: ({ exports: _exports, ...manifest }) => ({ ...manifest, main }) });
   const written = exports ?? (demoExport === undefined ? undefined : { "./demo": demoExport });
   return demoPackage(written === undefined ? {} : { manifest: (manifest) => ({ ...manifest, exports: written }) });
 };
 
-packModulesConformance("NodePackModules", async (demoExport, exports) => ({ modules: new NodePackModules(), packageDir: await packageWith(demoExport, exports) }));
+packModulesConformance("NodePackModules", async (demoExport, exports, main) => ({ modules: new NodePackModules(), packageDir: await packageWith(demoExport, exports, main) }));
 
 describe("NodePackModules", () => {
   test("refuses an import-only entry with the same message under Node as under the test runner's runtime", async () => {

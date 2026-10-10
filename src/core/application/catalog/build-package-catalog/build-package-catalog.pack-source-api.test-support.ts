@@ -197,5 +197,44 @@ export const demoPack: DemoPack = definePack({
       expect(read.value.overview.name).toBe("demoPack");
       expect(read.value.points.map(({ key }) => key)).toEqual(["notes"]);
     });
+
+    test("finds the pack through the module's exports, a renamed re-export included: the overview's const, under the name the index gives it", async () => {
+      const index = `export type { DemoPack } from "./demo.contract.ts";
+export { demoPack as demo } from "./demo.pack.ts";
+`;
+      const given = await fixture({ files: { "packs/demo/index.ts": index } });
+      const read = await given.sourceApi.read({ ...request(given.packageDir), exportName: "demo" });
+      expect(read.ok ? "ok" : read.error).toBe("ok");
+      if (!read.ok) return;
+      expect(read.value.overview.name).toBe("demoPack");
+      expect(read.value.overview.documentation).toStartWith("The demonstration pack, `demo-package/demo`");
+      expect(read.value.points.map(({ key }) => key)).toEqual(["notes"]);
+    });
+
+    test("describes an array, a library generic and a record as they are instantiated, never as the generic declaration", async () => {
+      const points = `${NOTES_POINT}
+  /** Tags. */
+  readonly tags: ExtensionPoint<readonly string[], DemoId>;
+  /** Names by key. */
+  readonly names: ExtensionPoint<Record<string, string>, DemoId>;
+  /** Frozen notes. */
+  readonly frozenNotes: ExtensionPoint<FrozenNote, DemoId>;`;
+      const imports = `import type { NoteJSON } from "./domain/note.contract.ts";
+/** A note whose wire form is a Readonly<NoteJSON>. */
+export interface FrozenNote {
+  readonly __brand: "FrozenNote";
+  equals(other: FrozenNote): boolean;
+  toJSON(): Readonly<NoteJSON>;
+}
+`;
+      const given = await fixture({ files: { "packs/demo/demo.contract.ts": demoContract(points, imports) } });
+      const read = await given.sourceApi.read(request(given.packageDir));
+      expect(read.ok ? "ok" : read.error).toBe("ok");
+      if (!read.ok) return;
+      const schemaOf = (key: string) => read.value.points.find((point) => point.key === key)?.wire?.schema;
+      expect(schemaOf("tags")).toMatchObject({ type: "array", items: { type: "string" } });
+      expect(schemaOf("names")).toMatchObject({ type: "object", additionalProperties: { type: "string" } });
+      expect(JSON.stringify(schemaOf("frozenNotes"))).toContain('"text"');
+    });
   });
 }

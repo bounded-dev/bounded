@@ -172,6 +172,19 @@ describe("bounded catalog build", () => {
     expect(ran.stderr).toStartWith("bounded: demo-package/demo: ");
   });
 
+  test("takes a pack also exported as default by its own name, and a pack re-exported under another name by that name", async () => {
+    const index = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "index.ts"), "utf8");
+    const withDefault = await demoPackage({ files: { "packs/demo/index.ts": `${index}export { demoPack as default } from "./demo.pack.ts";\n` } });
+    const ranDefault = bounded(["catalog", "build"], withDefault);
+    expect(ranDefault.stderr).toBe("");
+    expect(demoEntryIn(withDefault).exportName).toBe("demoPack");
+    const renamed = await demoPackage({ files: { "packs/demo/index.ts": index.replace("export { demoPack } from", "export { demoPack as demo } from") } });
+    const ranRenamed = bounded(["catalog", "build"], renamed);
+    expect(ranRenamed.stderr).toBe("");
+    expect(demoEntryIn(renamed).exportName).toBe("demo");
+    expect(demoEntryIn(renamed).documentation).toStartWith("The demonstration pack, `demo-package/demo`");
+  });
+
   test("refuses a README missing `## Workflows it fits`, naming the pack, the README and the heading, and writes nothing", async () => {
     const readme = readFileSync(join(DEMO_PACKAGE, "packs", "demo", "README.md"), "utf8").replace(/## Workflows it fits\n\n[^\n]*\n\n/, "");
     expect(readme).not.toContain("Workflows it fits");

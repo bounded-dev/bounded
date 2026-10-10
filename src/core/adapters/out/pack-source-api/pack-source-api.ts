@@ -147,11 +147,28 @@ class PackProgram {
     this.checker = program.getTypeChecker();
   }
 
-  /** The pack the overview exports under `exportName`, the name its export path exports it under: its TSDoc and the type it is declared with. */
-  overview(path: string, shown: string, exportName: string): Result<{ readonly name: string; readonly documentation: string; readonly type: TypeScript.Type }> {
-    const { ts } = this;
+  /**
+   * The pack the export path exports under `exportName`: through the pack's index, when it has
+   * one, the export the checker resolves (a renamed re-export followed to its declaration), which
+   * must be an `export const` of the overview; else the overview's `export const` of that name.
+   * Its name in the overview, its TSDoc and the type it is declared with.
+   */
+  overview(path: string, shown: string, exportName: string, indexPath: string | undefined): Result<{ readonly name: string; readonly documentation: string; readonly type: TypeScript.Type }> {
+    const { ts, checker } = this;
     const source = this.program.getSourceFile(path);
     if (source === undefined) return { ok: false, error: `its overview, ${shown}, cannot be read: a pack is defined in <its directory>/<its name>.pack.ts` };
+    const index = indexPath === undefined ? undefined : this.program.getSourceFile(indexPath);
+    const indexSymbol = index === undefined ? undefined : checker.getSymbolAtLocation(index);
+    if (indexSymbol !== undefined) {
+      const exported = checker.getExportsOfModule(indexSymbol).find((symbol) => symbol.getName() === exportName);
+      const target = exported !== undefined && (exported.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(exported) : exported;
+      const declaration = target?.getDeclarations()?.find((node): node is TypeScript.VariableDeclaration => ts.isVariableDeclaration(node));
+      if (declaration === undefined || declaration.getSourceFile() !== source || !ts.isIdentifier(declaration.name)) {
+        return { ok: false, error: `its index does not export \`${exportName}\` as an \`export const\` of its overview, ${shown}: define the pack there, as \`export const <name>: <Type> = definePack({ … })\`, and export it from the index` };
+      }
+      const statement = declaration.parent.parent;
+      return { ok: true, value: { name: declaration.name.text, documentation: tsDocOf(ts, statement) ?? "", type: checker.getTypeAtLocation(declaration.name) } };
+    }
     for (const statement of source.statements) {
       if (!ts.isVariableStatement(statement) || !(ts.getModifiers(statement) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
       for (const declaration of statement.declarationList.declarations) {
@@ -214,7 +231,10 @@ class PackProgram {
    */
   private wireNode(point: TypeScript.Symbol, wireType: TypeScript.Type, toJSON: TypeScript.Symbol | undefined): TypeScript.Node | undefined {
     const { ts } = this;
-    const named = declaredNameOf(wireType) === undefined ? undefined : (wireType.aliasSymbol ?? wireType.getSymbol());
+    // An instantiated generic (readonly string[], Readonly<NoteJSON>, Record<string, string>) is described where it is written, never as its generic declaration.
+    const reference = (wireType.flags & ts.TypeFlags.Object) !== 0 && ((wireType as TypeScript.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0 ? (wireType as TypeScript.TypeReference) : undefined;
+    const instantiated = (wireType.aliasTypeArguments?.length ?? 0) > 0 || (reference !== undefined && this.checker.getTypeArguments(reference).length > 0);
+    const named = instantiated || declaredNameOf(wireType) === undefined ? undefined : (wireType.aliasSymbol ?? wireType.getSymbol());
     const declaration = named?.getDeclarations()?.find((node) => ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node) || ts.isClassDeclaration(node));
     if (declaration !== undefined) return declaration;
     if (toJSON !== undefined) {
@@ -269,14 +289,16 @@ export class TypeScriptPackSourceApi implements PackSourceApi {
     const overviewPath = `${packDir}/${name}.pack.ts`;
     const contractPath = `${packDir}/${name}.contract.ts`;
     // The pack's own files are the program's only roots: the tsconfig gives compiler options, never files.
-    const roots = [overviewPath, contractPath, ...examplePaths].map((path) => join(packageDir, path));
+    const indexPath = join(packageDir, packDir, "index.ts");
+    const hasIndex = ts.sys.fileExists(indexPath);
+    const roots = [overviewPath, contractPath, ...examplePaths].map((path) => join(packageDir, path)).concat(hasIndex ? [indexPath] : []);
     let program: PackProgram;
     try {
       program = new PackProgram(ts, ts.createProgram(roots, { ...options.value, noEmit: true }), generator.value);
     } catch (thrown) {
       return { ok: false, error: `the pack's sources in ${packDir} cannot be compiled: ${message(thrown)}` };
     }
-    const overview = program.overview(join(packageDir, overviewPath), overviewPath, request.exportName);
+    const overview = program.overview(join(packageDir, overviewPath), overviewPath, request.exportName, hasIndex ? indexPath : undefined);
     if (!overview.ok) return overview;
     const points = program.points(overview.value.type);
     if (!points.ok) return points;

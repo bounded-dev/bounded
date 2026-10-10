@@ -51,10 +51,14 @@ export class BuildPackageCatalogHandler implements BuildPackageCatalog {
   private async exportedPack(packageDir: string, listed: ListedPack): Promise<Result<ExportedPack>> {
     const loaded = await this.modules.load(packageDir, listed.exportPath);
     if (!loaded.ok) return loaded;
-    const packs: { readonly exportName: string; readonly pack: BasePack }[] = [];
+    const packs: { exportName: string; readonly pack: BasePack }[] = [];
     for (const { name, value } of loaded.value) {
       const pack = parsePack(value);
-      if (pack.ok && !packs.some((known) => known.pack === pack.value)) packs.push({ exportName: name, pack: pack.value });
+      if (!pack.ok) continue;
+      const known = packs.find((candidate) => candidate.pack === pack.value);
+      // One pack exported under several names is named by one other than `default`, which says nothing.
+      if (known === undefined) packs.push({ exportName: name, pack: pack.value });
+      else if (known.exportName === "default") known.exportName = name;
     }
     const [only, ...more] = packs;
     if (only === undefined) return refused(`${listed.exportPath} exports no pack made with definePack by this copy of bounded: an export path bounded.packs lists exports exactly one pack`);
