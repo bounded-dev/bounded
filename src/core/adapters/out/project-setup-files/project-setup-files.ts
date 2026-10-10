@@ -3,8 +3,7 @@ import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProjectSetupFiles } from "bounded/application";
 import type { Result } from "bounded/domain";
-
-const CONFIG_NAMES = ["bounded.config.ts", "bounded.config.js", "bounded.config.mjs"] as const;
+import { PROJECT_CONFIG_NAMES } from "../project-config-source/project-config-names.ts";
 
 const message = (thrown: unknown): string => (thrown instanceof Error ? thrown.message : String(thrown));
 
@@ -12,14 +11,14 @@ export class FileSystemProjectSetupFiles implements ProjectSetupFiles {
   async configFileNames(projectRoot: string): Promise<Result<readonly string[]>> {
     try {
       const entries = new Set(await readdir(projectRoot));
-      return { ok: true, value: CONFIG_NAMES.filter((name) => entries.has(name)) };
+      return { ok: true, value: PROJECT_CONFIG_NAMES.filter((name) => entries.has(name)) };
     } catch (thrown) {
       return { ok: false, error: `${projectRoot} cannot be read: ${message(thrown)}` };
     }
   }
 
   async createConfig(projectRoot: string, content: string): Promise<Result<string>> {
-    const [name] = CONFIG_NAMES;
+    const [name] = PROJECT_CONFIG_NAMES;
     try {
       // "wx": fail when the file exists, so an existing configuration is never overwritten.
       await writeFile(join(projectRoot, name), content, { flag: "wx" });
