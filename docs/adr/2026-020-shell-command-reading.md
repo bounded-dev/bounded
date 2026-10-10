@@ -16,6 +16,12 @@ decision as corrected; "Release" keeps what 3.2.0 shipped and lists the
 correction's changes under 3.3.0. Amended by `prereqs-execute` (3.3.0):
 xargs's replace string and find's `{}` are listed as unresolved in
 `programs`; a shell reading its standard input reports it as code.
+Amended by `shell-every-reading` (3.3.0): every reading adds; every
+plausible reading wherever a wrapper, a shell, git, `env -S` or a
+variable-named program could hide a command; only runs in the same shell
+share it; short option clusters read as getopt reads them; transfers from
+unknown sources report their write; ranges read every way the recorded
+shells read them (see "Every reading adds").
 
 ## Context
 
@@ -93,9 +99,12 @@ names no tool or language (AGENTS.md). It can own the shape.
     `/dev/fd/<n>`, `/proc/self/fd/0`, `/proc/thread-self/fd/0`, however
     spelt); a path with a `..` segment; or one that names no project path
     from where the command runs (`/opt/x.sh`, `../../dev/stdin`). Every
-    operand is still read as written. An operand only the shell can resolve
-    (`bash "$S"`, `bash ~/x.sh`, `bash <(…)`) is not, until
-    `shell-every-reading`. Examples: `echo … | sh`, `bash <<EOF`,
+    operand is still read as written. *Amended by `shell-every-reading`:*
+    a word only the shell can resolve where the shell's options are
+    (`bash "$S"`, `bash "$X" deploy.sh`) may be a cluster holding `s`, so
+    standard input is reported (see "Every reading adds"); one after the
+    options (`bash -- "$S"`) is still read as written only. Examples:
+    `echo … | sh`, `bash <<EOF`,
     `curl … | bash`, `bash -euo pipefail <<< …`, `bash -oe pipefail <<< …`;
     a heredoc fed to a shell is not parsed as code).
     A token tree-sitter inserted to recover from an error (the missing
@@ -139,6 +148,116 @@ names no tool or language (AGENTS.md). It can own the shape.
     and, for a resolvable word, as the command; the words after it are also
     read as operands. Nothing is ever dropped from judgement because it
     became unresolved.
+  - **Every reading adds** (*amended by `shell-every-reading`*). Today's
+    reading of every literal word is always kept, with its literal
+    directory resolved, and a new reading never replaces, drops or
+    relocates it. A run moves where later commands run only when it runs in
+    the same shell, which the reader marks; every other run, every added
+    reading's included, runs in its own copy of where it started. The
+    strictest verdict over all readings wins. Mechanics:
+    - **The scope.** Where commands run is an immutable scope, made only by
+      `scopeAt(at)`, holding its directory's parts and the characters
+      carrying it costs (`joinedLength`), so that cost is read in O(1),
+      never recounted. The walk passes a cell holding the current scope; a
+      `cd` replaces it; a copy is a new cell with the same scope. The
+      charges are unchanged; only the time is.
+    - **Runs** (`CommandMeaning.runs[]`) carry `sharesShell` (only
+      `builtin`, `command` and `exec`'s own reading: `builtin cd sub; rm x`
+      deletes `sub/x`) and `added` (a run a plausible reading adds beside
+      today's). Every other run runs in a copy: a child process's `cd` never
+      moves the shell, so `env cd sub; rm .env`,
+      `find . -maxdepth 0 -exec cd sub \; ; rm .env` and `xargs cd sub; rm x`
+      delete `./.env` and `./x`. The reader said `sub/.env` and `sub/x`
+      before: fail-opens this fixes.
+    - **ADR 2026-020's xargs rule applies wherever a wrapper, a shell, git,
+      `env -S` or a program named by a variable could hide a command.** A
+      word `W` only the shell can resolve, at index `i` where options
+      stand, is read as: (1) what the walk took it for before (the command
+      for a wrapper, the first operand for a shell, the subcommand for git:
+      today's reading); and, each added, (2) a word that gives the walk
+      nothing (a flag, an assignment, a leading operand such as
+      `timeout`'s duration), the walk going on from `i + 1`; (3) an option
+      taking the next word, from `i + 2`; for a walk with a directory
+      option, (3′) that option, its value `args[i + 1]`, from `i + 2`, from
+      that directory (sudo `-D` and env `-C` from where sudo or env runs,
+      git `-C` from the one before), and (2′) that option with its value
+      attached, from `i + 1`, from nowhere known. The walk's state goes into
+      every reading (a directory an earlier option set, `timeout`'s leading
+      operands left, a shell's `c` and `s`).
+    - **Per command.** Wrappers (`sudo`, `doas`, `env`, `timeout`, `nice`,
+      `nohup`, `stdbuf`, `ionice`): readings 1–3, and 2′ and 3′ for `sudo`
+      and `env`; their forks are memoised by (index, directory, leading
+      operands left), so a wrapper's readings grow with its words, never
+      with their combinations (`env "A=$X"` × 10 `node app.js` is read).
+      `builtin`, `command`, `exec`: readings 1–3, reading 1 sharing the
+      shell. Shells (`sh`, `bash`, `zsh`, `dash`, `ksh`): `W` may also be a
+      cluster that may hold `c` or `s` (reading 2) or an option taking the
+      next word (reading 3), in every state, on top of the getopt walk
+      above; the memo key is the index, the letter and the whole state
+      (`c`, `s`), so a shell gives at most four continuations per word, each
+      charged the words left. The first operand a continuation reaches is
+      code where `c` may be set, else a script file; `(standard input)` is
+      reported where `s` may be set or no operand is reached. So
+      `bash "$X" -c "rm x"` deletes `x` (and still reads `"$X"` as written),
+      `bash "$S" "$1"` reports `"$1"` as code, `bash "$X" deploy.sh` reads
+      `deploy.sh`, runs it as code in one reading and reports
+      `(standard input)`. git: readings 1–3, 2′ and 3′ for a word among its
+      global options (`git $OPTS rm x` deletes `x`; `git "$X" sub rm x`
+      deletes `sub/x`).
+    - **Short clusters, as getopt reads them.** A wrapper's literal short
+      cluster is read letter by letter: a letter that takes a value (the
+      wrapper's short options with a value, its directory and script
+      options) takes the rest of the word, or the next word when it ends
+      the cluster. `sudo -Eu root rm .env` runs `rm .env` and
+      `env -iu VAR rm x` runs `rm x`; before, `root` and `VAR` were read as
+      the command, a fail-open this fixes. Values of options the walk knows
+      are taken as written (`sudo -u "$U" rm x`, `exec -a "$N" rm x`,
+      `env -C "$D" cp a b`): no fork there.
+    - **`env -S`/`--split-string`.** The string is parsed as code and its
+      trailing words reported as code, as before. Added: the trailing words
+      also run as a command of their own (`env -S $S rm x` deletes `x`), and
+      a literal string with no quote, backslash or `${` is split on spaces
+      and walked through env itself, as `env <split> <trailing>`, one
+      nesting level each time, so env's options in it are read as env reads
+      them (`env -S '-i rm' x` deletes `x`; `env -S '-C sub rm' x` deletes
+      `sub/x`); past the nesting bound the command is unread.
+    - **A program only the shell can name** (a command written in the
+      script, a run made from one so written, such as a wrapper's command,
+      or `find -exec`'s command; never xargs's own readings, which its rule
+      already reads) is also walked like an unknown wrapper: every
+      literal-led suffix of its words is a command of its own, run in a
+      copy, each charged its words, and its words are also read as a
+      shell's (`"$SHELL" -c "rm x"`), every way any shell reads them.
+      `"$W" rm x`, `"$W" -u root rm x`, `$GIT rm x` and
+      `find . -exec "$C" rm x \;` delete `x`; `$TOOL x` lists
+      `$TOOL [x]` and `x []`; a chain `$A $A … rm x` gives one reading
+      `rm x`.
+    - **Charged and deduplicated.** Every reading is charged when it is
+      made (its words left), through `commandMeaning`'s budget, and asks
+      the deadline as any charge does. Runs have one dedupe key (the name,
+      each argument, the directory, absent, null or a word, each by kind and
+      text; `trailing`, `input`, the replace string and its stand-in, and
+      `sharesShell`), each key charged its words and their text; where an
+      added run and one that is not share a key, the one that is not is
+      kept. A meaning's scripts, reads and code are deduplicated by kind and
+      text, charged the same way. xargs's dedupe is this one.
+    - **Transfers from sources only the shell can name.** A move's
+      unresolved source is always reported as a `write` (it is deleted),
+      whatever the destination (`mv "$F" notes.txt`, `git mv "$F" …`). A
+      copy or move into a destination that is a directory, or a path whose
+      kind cannot be told, also reports `<destination>/<source as written>`
+      as a `write` (`cp "$X" dir/`: `dir/"$X"`); a destination of unknown
+      kind is still written as a file, as before. Where xargs's input would
+      be such a source, the same: `ls | xargs cp -t dir` reports
+      `dir/(input)`, and a moved input is a `write`. `cp -t "$D" x` already
+      reported `"$D"` as a `write`.
+    - **The protected-paths pack's policy on unresolved parts is kept**: a
+      reading that ends only in an unresolved part (an unresolved program
+      name, unseen code, a write only the shell can name) is allowed there,
+      and refused by `bounded/prereqs` while a rule does not hold (ADR
+      2026-019): `exec "$@"`, `sudo "$@"`, `bash "$SCRIPT"`,
+      `"$CMD" --version`, `bash "$S" "$1"`, `bash "$X" deploy.sh` and
+      `"$W" cd sub && rm x` among them.
   - **Brace expansion is read every way a shell running the command could
     expand it**, so every path either shell could touch is judged. Comma
     lists (`{a,b}`) and ranges expand, nested, left to right; quoted and
@@ -154,6 +273,56 @@ names no tool or language (AGENTS.md). It can own the shape.
     zero or below, and a zero-padded range with a negative end; also a
     range past the integers held exactly, and any word that would expand
     to more than 256 words.
+    *Amended by `shell-every-reading`:* a range gives every word any
+    recorded shell prints, plus the reading before (its words, or its
+    unresolved report, kept). Recorded 2026-10-09 with `/bin/bash -c`
+    (GNU bash 3.2.57), `zsh -f -c` (zsh 5.9) and `docker run --rm bash:5
+    bash -c` (GNU bash 5.3.20, image digest
+    `sha256:61962062d969cb46dfc2bad061d36342406fa485f64f246aa7e95693ca07df1f`),
+    each printing `echo <form>` (bash 3.2.57 / zsh 5.9 / bash 5.3.20):
+    `f{+1..2}`: `f1 f2` / `f{+1..2}` / `f1 f2`; `f{1..+2}`: `f1 f2` /
+    `f{1..+2}` / `f1 f2`; `f{1..5..+2}`: `f{1..5..+2}` / `f{1..5..+2}` /
+    `f1 f3 f5`; `f{+01..03}`: `f1 f2 f3` / `f{+01..03}` /
+    `f001 f002 f003`; `f{1..{2,3}}`: `f1..2 f1..3` / `f{1..2} f{1..3}` /
+    `f{1..2} f{1..3}`; `f{a{b,c}}`: `f{ab} f{ac}` in all three;
+    `f{1..5..2}`: `f{1..5..2}` / `f1 f3 f5` / `f1 f3 f5`; `f{01..03}`:
+    `f1 f2 f3` / `f01 f02 f03` / `f01 f02 f03`; `f{-01..2}`:
+    `f-1 f0 f1 f2` / `f-01 f000 f001 f002` / `f-01 f000 f001 f002`;
+    `f{1..2..-1}`: `f{1..2..-1}` / `f2 f1` / `f1 f2`; `f{a..e..2}`:
+    `f{a..e..2}` / `f{a..e..2}` / `fa fc fe`. Also recorded the same way:
+    `f{-5..05}` gives `f-5 … f-1 f00 f01 … f05` in zsh 5.9 and bash
+    5.3.20, `f{-05..5}` gives `f-05 … f000 … f005` in bash 5.3.20, and
+    `g{x{1,2}}` gives `g{x1} g{x2}` in all three. The rules:
+    - padding is to the wider end's written width, the sign included, with
+      the zeros after a minus (`{-01..2}`: `-01 000 001 002`);
+    - a plus sign: bash reads the number (bash 3.2 neither steps nor pads,
+      so a stepped group stays as written; bash 5 steps and pads to the
+      written width, sign included); zsh keeps the word literal: their
+      union and the word as written;
+    - a negative step: bash 3.2 keeps it literal, bash 5 uses its size, zsh
+      reverses: the words of its size and the word as written, the
+      unresolved report kept; a step of zero is not recorded and stays
+      unresolved only;
+    - a zero-padded negative end: bash 3.2 unpadded, bash 5 and zsh padded:
+      their union, the unresolved report kept;
+    - letter steps: bash 5 steps, bash 3.2 and zsh keep the word literal:
+      both, as before;
+    - a group holding no top-level comma but a nested group and a range's
+      `..` at its own level: bash 3.2's reading (the nested group expanded,
+      the outer braces dropped: `f1..2 f1..3`), bash 5's and zsh's (the
+      outer braces kept as text: `f{1..2} f{1..3}`), and the reading before
+      (the rescan: `f1 f2 f3`). Without that `..`, every recorded shell
+      keeps the outer braces as text, as the reading before does
+      (`g{x{1,2}}`, `f{a{b,c}}`).
+    `expandBraces` gives `{ words, alsoUnresolved } | TOO_COSTLY`:
+    `alsoUnresolved` where the reading before reported the word unresolved
+    or no word can be given; the syntax tree then gives the word as written,
+    unresolved, beside its literal words. `numericOnly` and both range
+    patterns admit `+`, so every group of digits, dots and signs is sliced,
+    however long. Each added word is charged as any pass; the 256-word cap
+    applies to the union. Both words of a padded range count towards it:
+    `f{0001..0128}` (256 words) is read; `f{0001..0129}` (258) and
+    `f{001..200}` (299) are unresolved.
   - **Reading is bounded in time, because the reader is synchronous:**
     `ReadShellCommand`'s `readWithinMs` (see "Reading in the host adapter")
     cannot stop it, and a hook that ran out of time would let the call
@@ -211,7 +380,10 @@ names no tool or language (AGENTS.md). It can own the shape.
       counted without integer overflow), and carrying where a `cd` took
       later commands costs a step per 8 characters of its joined path
       wherever it is copied, joined or compared (so one long directory name
-      costs what as many short ones do); a cost that is not a count of steps spends the
+      costs what as many short ones do; *amended by `shell-every-reading`:*
+      that length is kept with the scope, so asking it is O(1), and a
+      command that spends its budget deep in a `cd` stops costing time); a
+      cost that is not a count of steps spends the
       whole budget. Readings, nested runs and the reports of xargs's input
       all share it, and nothing is kept past it. Why: "the command is too
       complex to read within bounded's work budget (200000 steps): its words
@@ -233,6 +405,19 @@ names no tool or language (AGENTS.md). It can own the shape.
       shell metacharacters and words, up to 65,536 characters (slowest
       53 ms), and 120 balanced nests of brace groups, command substitutions,
       ifs and cases, up to 1,100 deep and 65,536 characters (slowest 46 ms).
+      *Amended by `shell-every-reading`* (one run each): read, `bash` with
+      40 × `"$A"` before `-c 'rm x'` in 2 ms; `$A ` × 200 before `rm x` in
+      4 ms; `env` with ten `"A=$X"` words in 4 ms; `bash` with 20 × `"$A"`
+      before a 370-statement `-c` script, its code parsed once, in 11 ms;
+      six nested `sudo "$A"` in 44 ms. Unread for the budget:
+      `sudo "$A"` × 8 in 34 ms, × 24 in 47 ms (`env` 27 ms, `command`
+      31 ms); a 16,000-level `cd` before 16,000 commands in 66 ms (560 ms
+      before the scope kept its length); 2,000 range groups nested around
+      `{2,3}` in 45 ms (braces). The quoted outcomes above are unchanged. A
+      third seeded fuzz test, 300 commands of wrappers, shells, git and
+      words only the shell can resolve, each read under 250 ms, never
+      throwing and never unread for want of time (slowest 2 ms); the two
+      above, 53 ms and 41 ms.
   - **The cause.** An unread reading carries `cause: "too-complex"` only
     when the command itself is to blame. The parser returning no tree is a
     failure of the parser, not of the command, so it carries no cause, as
@@ -446,34 +631,40 @@ every moved or replaced case is recorded in `superseded-tests.json`.
 - Inline-code scanning does not stop at a script operand: in
   `python3 script.py -c x`, the script's own `-c x` is also reported as
   unresolved code. It errs towards more unresolved parts, never fewer.
-- A transfer whose sources are not written at all, or only the shell can
-  resolve, records no write: `xargs cp -t dir` without a replace string
-  (every source comes from the input, after the written words) and
-  `cp $X dir/` (an unresolved source into a directory) name no file in
-  `dir`, so nothing there is judged. This gap is the transfer reading's,
-  older than this ADR, and not fixed here. The replace-string forms are not
-  in it: `xargs -I{} cp {} .git/hooks/`, its `mv` and `cp -t .git/hooks {}`
-  are judged as written, a write of `.git/hooks/{}`.
-- **An unresolved word hides a literal one; planned: every-plausible-reading,
-  as xargs now does.** Outside xargs, where an unresolved word stands where
-  an option or operand could be, the reader takes it for one reading only,
-  and a literal word after it leaves judgement (each already so before this
-  ADR; a follow-up item):
-  - `sudo "$OPT" rm x`, `doas "$X" rm x`, `env "$X" rm x`,
-    `nice "$N" rm x`, `nohup "$X" rm x`, `stdbuf "$X" rm x`,
-    `ionice "$X" rm x`, `builtin "$X" rm x`, `command "$X" rm x`,
-    `exec "$X" rm x`: read as reads of `rm` and `x` (the unresolved word
-    taken as the program); lost: the delete of `x`. (`timeout $T rm x` is
-    read right: its leading operand is counted.)
-  - `bash "$X" -c "rm x"`, and the same with `sh`, `zsh`, `dash` and `ksh`:
-    read as nothing (the unresolved word taken as the code); lost: the code
-    `rm x`, never walked, and its delete of `x`.
-  - `git $OPTS rm x`: read as reads of `rm` and `x` (no subcommand found);
-    lost: `git rm`'s delete of `x`.
-  - `cp -t "$D" x`: read as a read of `x`; lost: the write into the
-    directory, which only the shell can name.
-  - `env -S $S rm x`: read as nothing (`$S` unresolved code, the words after
-    it only reported as unresolved); lost: `rm x` and its delete of `x`.
+- A write into a directory or from a source only the shell can name
+  (`cp -t "$D" x`, `cp "$X" dir/`, `mv "$F" notes.txt`) is an unresolved
+  `write`, never a file effect: the protected-paths pack allows it, as its
+  policy on unresolved parts is; `bounded/prereqs` refuses it while a write
+  rule does not hold.
+- **An unresolved word hides a literal one, where the readings do not
+  reach** (*rewritten by `shell-every-reading`*, which reads every plausible
+  reading for wrappers, `builtin`/`command`/`exec`, shells, git, `env -S`
+  and programs named by a variable): an unquoted word that splits into more
+  than two option words, or into an option and the command at once, is
+  covered only as far as readings 1–3 (and the shells' and variable-named
+  programs' readings) reach; wrappers and runners the table does not know
+  are read as unknown commands (until `shell-reader-coverage`); a deep chain
+  of wrappers each holding such a word outgrows the budget and is unread
+  (`sudo "$A"` × 6 before a command is read, × 8 is not).
+- **A `cd` the reading cannot place does not relocate later commands**: a
+  `cd` inside an added reading (`"$W" cd sub && rm x`, where `"$W"` may be
+  `builtin`, so the shell would delete `sub/x`), `time cd sub; rm x` and a
+  coproc `{ … }` body's statements read later commands from where they
+  were. Named, pinned fail-opens for the protected-paths pack;
+  `bounded/prereqs` refuses `"$W" cd sub && rm x` while a rule does not
+  hold (its program name only the shell can resolve), and `time` and
+  `coproc` once `shell-reader-coverage` reads them (the coproc body's code
+  part, `time`'s report). Closing them would need a mechanism that
+  multiplies readings at every such `cd`: not taken (the orchestrator's
+  decision, for the maintainer).
+- A range with a step of zero is unresolved only: no shell was recorded
+  for it. A nested group whose range's `..` comes from inside its nested
+  group's words (`f{1{..,x}3}`) gets the reading before (its rescan) and
+  not bash 5's (outer braces kept); its outer group holds no `..` of its own.
+- A literal cluster's value word was read as a wrapper's command before
+  (`sudo -Eu root rm .env` ran `root`); it is now read as getopt reads it,
+  the one place a literal word's earlier reading is replaced, since getopt
+  leaves no doubt there.
 - **What `programs` does not list** (*amended by `prereqs-execute`*; each
   until `shell-reader-coverage` where it fixes it): what programs and
   scripts run themselves; package runners (`npx`, `bunx`, `pnpm exec`,
@@ -529,6 +720,15 @@ every moved or replaced case is recorded in `superseded-tests.json`.
     and recorded as invalid;
   - a tool result's execute effects must now carry a reading too, where
     3.2.0 refused one.
+- **Changed by `shell-every-reading`:** the published conformance suite
+  (`bounded/testing/shell-command-reader-conformance`) case "what only the
+  shell can resolve is unresolved, never guessed" is now "…; a program it
+  names may be a wrapper, so its words also run": `$TOOL x` lists `x []`
+  after `$TOOL [x]`. Readings gain runs and parts (every reading adds), so
+  a pack may refuse what it allowed: `bounded/prereqs` refuses
+  `bash "$SCRIPT"`, `bash "$X" deploy.sh` and `bash "$S" "$1"` while a
+  rule does not hold, and the protected-paths pack refuses the deletes
+  those readings find.
 
 ## Consequences
 

@@ -305,9 +305,12 @@ pi-subagents' project agent directory), which give role identity.
   a script run through a shell, or sourced, is not seen to run: it is
   refused as cannot see only when its name is the rule's program and is
   written out as an argument (`bash deploy.sh`, `. deploy.sh` under
-  `"deploy.sh"`), while a script the shell names (`bash "$S"`) or
-  substitutes (`bash <(curl -s https://example.com/deploy)`) is allowed
-  until `shell-every-reading`; PowerShell is read as bash;
+  `"deploy.sh"`); a script the shell names where its options are
+  (`bash "$S"`) is refused as code bounded cannot read, `"$S"` possibly
+  holding `-s` (*amended by `shell-every-reading`*), while one named after
+  them (`bash -- "$S"`) or substituted
+  (`bash <(curl -s https://example.com/deploy)`) is allowed; PowerShell is
+  read as bash;
   a range bash 3.2 keeps literal and bash 4 expands may shift a later
   word's position.
 - **Execute rules, until `shell-reader-coverage`: an expansion inside an
@@ -356,6 +359,15 @@ pi-subagents' project agent directory), which give role identity.
   the reading lists it as a run whose name is unresolved; given as an
   argument to a program the reader does not interpret (`time $TF`,
   `coproc $TF`, `/usr/bin/env "$TF"`), it is not refused yet (above).
+  *Amended by `shell-every-reading`* (ADR 2026-020): readings add every
+  plausible reading of a word only the shell can resolve, so these are
+  refused too while a rule does not hold: `exec "$@"`, `sudo "$@"`,
+  `"$CMD" --version` (under a write rule as standard input, the program
+  read as a shell given its words), `bash "$SCRIPT"`, `bash "$X" deploy.sh`
+  (standard input), `bash "$S" "$1"` (`"$1"` as code),
+  `"$W" cd sub && rm x` (a `cd` bounded cannot place), and writes only the
+  shell can name (`cp "$X" src/`, `mv "$F" notes.txt`,
+  `ls | xargs cp -t src`).
 - **ABA:** files edited and restored between the delegation and its result
   compare equal, so the run counts.
 - Records are per project root; teammates and isolated runs of a required

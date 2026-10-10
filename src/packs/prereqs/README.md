@@ -181,9 +181,11 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   shell (`tf apply`); git's `!` aliases; a program named `terraform.exe`; a
   script run through a shell or sourced, never seen to run (refused as
   cannot see only when its name is the rule's program, written out as an
-  argument: `bash deploy.sh`; a script the shell names, `bash "$S"`, or
-  substitutes, `bash <(curl -s https://example.com/deploy)`, is allowed
-  until `shell-every-reading`); PowerShell, read as bash.
+  argument: `bash deploy.sh`; a script the shell names where the shell's
+  options are, `bash "$S"`, is refused as code bounded cannot read, since
+  `"$S"` may hold `-s`; one named after the options, `bash -- "$S"`, or
+  substituted, `bash <(curl -s https://example.com/deploy)`, is allowed);
+  PowerShell, read as bash.
   Until `shell-reader-coverage`, write rules miss in-place edits
   (`sed -i`), package runners (`npx`, `bunx`), a program named by its path
   (`/bin/rm`), `time`, `coproc`, other standard-input forms (`sudo -s`),
@@ -194,7 +196,15 @@ finishes, so it cannot meet the requirement yet. This holds until the pack obser
   bounded cannot read through are refused under any execute or write rule,
   and under an execute rule so is any run naming its program as an
   argument (`echo terraform`, `which terraform`, a commit message naming
-  it).
+  it). Since bounded reads every plausible reading of a word only the
+  shell can resolve (ADR 2026-020, amended by `shell-every-reading`), these
+  are refused too: `exec "$@"`, `sudo "$@"` and `"$CMD" --version` (a
+  program only the shell can name, which may also be a shell reading
+  standard input), `bash "$SCRIPT"` and `bash "$X" deploy.sh` (standard
+  input), `bash "$S" "$1"` (`"$1"` may be code), `"$W" cd sub && rm x`
+  (where `"$W"` may be `builtin`, a `cd` bounded cannot place), and a write
+  only the shell can name (`cp "$X" src/`, `mv "$F" notes.txt`,
+  `ls | xargs cp -t src`).
 - **Patterns that match no file:** such a requirement can never be met, and
   says so.
 - **Symbolic links:** a link is never followed. A link to a directory the
