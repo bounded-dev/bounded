@@ -211,6 +211,10 @@ class PackProgram {
     const wireText = checker.typeToString(wireType, undefined, ts.TypeFormatFlags.NoTruncation);
     const node = this.wireNode(symbol, wireType, toJSON);
     if (node === undefined) return { ok: false, error: `the point '${key}' is written as ${wireText}, and where that type is written cannot be found: declare the point as ExtensionPoint<Value, PackId> in the pack's contract` };
+    // Fail closed: a type written in place must be the wire type itself, never a wrapper alias's argument (Wrapped<string> for ExtensionPoint<string[], …>).
+    if (ts.isTypeNode(node) && checker.getTypeFromTypeNode(node) !== wireType) {
+      return { ok: false, error: `the point '${key}' is declared so that its wire type, ${wireText}, is not written where it is declared (${node.getText()} is): declare it as ExtensionPoint<Value, PackId> directly in the pack's contract` };
+    }
     try {
       // A declaration is referenced from the top, as definitions/<its name>; a type written in place is described inline.
       const config = { ...this.generator.DEFAULT_CONFIG, tsProgram: this.program, skipTypeCheck: true, functions: "fail", expose: "export", topRef: !ts.isTypeNode(node), jsDoc: "extended", additionalProperties: false };

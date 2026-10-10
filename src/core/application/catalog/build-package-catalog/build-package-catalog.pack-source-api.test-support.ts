@@ -236,5 +236,19 @@ export interface FrozenNote {
       expect(schemaOf("names")).toMatchObject({ type: "object", additionalProperties: { type: "string" } });
       expect(JSON.stringify(schemaOf("frozenNotes"))).toContain('"text"');
     });
+
+    test("a point declared through a wrapper alias is described as its real wire type, or refused: never as the alias's type argument", async () => {
+      const points = `${NOTES_POINT}
+  /** Lists of labels, declared through a wrapper. */
+  readonly lists: Wrapped<string>;`;
+      const imports = `/** A point of lists of V. */
+export type Wrapped<V> = ExtensionPoint<V[], DemoId>;
+`;
+      const given = await fixture({ files: { "packs/demo/demo.contract.ts": demoContract(points, imports) } });
+      const read = await given.sourceApi.read(request(given.packageDir));
+      if (read.ok) expect(read.value.points.find(({ key }) => key === "lists")?.wire?.schema).toMatchObject({ type: "array", items: { type: "string" } });
+      else expect(read.error).toContain("'lists'");
+      expect(read.ok ? JSON.stringify(read.value.points.find(({ key }) => key === "lists")?.wire?.schema) : "refused").not.toBe(JSON.stringify({ type: "string" }));
+    });
   });
 }

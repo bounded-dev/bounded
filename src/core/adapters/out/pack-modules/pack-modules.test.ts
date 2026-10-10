@@ -13,6 +13,13 @@ const packageWith = (demoExport?: unknown, exports?: unknown, main?: string): Pr
 packModulesConformance("NodePackModules", async (demoExport, exports, main) => ({ modules: new NodePackModules(), packageDir: await packageWith(demoExport, exports, main) }));
 
 describe("NodePackModules", () => {
+  test("refuses a package root with neither exports, main nor index.js, saying to add main or exports", async () => {
+    const packageDir = await demoPackage({ manifest: ({ exports: _exports, ...manifest }) => manifest });
+    const loaded = await new NodePackModules().load(packageDir, ".");
+    expect(loaded.ok).toBe(false);
+    expect(!loaded.ok && loaded.error).toContain("add main or exports");
+  });
+
   test("refuses an import-only entry with the same message under Node as under the test runner's runtime", async () => {
     const packageDir = await packageWith({ import: "./dist/demo/index.js" });
     const here = await new NodePackModules().load(packageDir, "./demo");

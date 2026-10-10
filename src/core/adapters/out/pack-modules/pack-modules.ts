@@ -58,6 +58,7 @@ export class NodePackModules implements PackModules {
     try {
       resolved = createRequire(manifestPath).resolve(specifier);
     } catch (thrown) {
+      if (throughMain) return { ok: false, error: `${name} has no exports, and neither a main nor an index.js resolves (${message(thrown)}): add main or exports to its package.json, naming the pack's built JavaScript` };
       return { ok: false, error: `${specifier} cannot be resolved from ${packageDir} (${message(thrown)}): build the package first, so its export path's target exists` };
     }
     let module: unknown;
