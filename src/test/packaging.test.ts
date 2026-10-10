@@ -187,6 +187,17 @@ describe("bounded, the one published package", () => {
     expect(readme).toContain("https://github.com/bounded-dev/bounded");
   });
 
+  test("ships each shipped pack's README and examples, and emits no declarations for examples", () => {
+    const examples = [...new Bun.Glob("packs/*/examples/*.config.ts").scanSync({ cwd: CORE })].sort();
+    expect(examples.length).toBeGreaterThan(0);
+    expect(packed).toContain("packs/protected-paths/README.md");
+    expect(packed).toContain("packs/prereqs/README.md");
+    for (const example of examples) expect(packed).toContain(example);
+    const declarationsDir = join(CORE, "dist", "types");
+    expect(distFiles(declarationsDir).length).toBeGreaterThan(0);
+    expect(distFiles(declarationsDir).filter((file) => /\/packs\/[^/]+\/examples\//.test(file))).toEqual([]);
+  });
+
   test("its README says the adapter export paths are internal: they serve the hosts bounded carries, not a project's configuration", () => {
     const exports = Object.keys(manifestOf("src").exports ?? {});
     expect(exports.filter((path) => path.includes("adapters"))).toEqual(["./adapters", "./prereqs/adapters", "./protected-paths/adapters"]);

@@ -741,6 +741,35 @@ describe("architecture", () => {
     expect(shippedPackViolations(at("adapters/out/watched-files/files.ts"), imports("../../../../other/adapters/out/x/x.ts"), core)).toHaveLength(1);
   });
 
+  test("an example imports bounded's export paths as a project does, never a relative path", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const example = "src/packs/gate/examples/basic.config.ts";
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    expect(shippedPackViolations(example, imports("bounded/domain", "bounded/protected-paths", "bounded/prereqs"), core)).toEqual([]);
+    expect(shippedPackViolations(example, imports("../domain/rule.ts"), core)).toEqual([`${example}:1 imports "../domain/rule.ts" — an example imports only bounded's export paths, as a project's configuration does`]);
+    expect(shippedPackViolations(example, imports("node:fs"), core)).toEqual([`${example}:1 imports "node:fs" — an example imports only bounded's export paths, as a project's configuration does`]);
+  });
+
+  test("nothing imports a pack's example, its own pack's root and tests included", () => {
+    const core = byName.get("bounded");
+    if (core === undefined) throw new Error("no core context");
+    const imports = (...specs: string[]) => specs.map((spec) => ({ spec, line: 1 }));
+    const refused = (path: string, spec: string) => [`${path}:1 imports "${spec}" — nothing imports a pack's example: open it as a project's configuration`];
+    expect(shippedPackViolations("src/packs/gate/index.ts", imports("./examples/x.config.ts"), core)).toEqual(refused("src/packs/gate/index.ts", "./examples/x.config.ts"));
+    expect(shippedPackViolations("src/packs/gate/domain/x.ts", imports("../examples/x.config.ts"), core)).toEqual(refused("src/packs/gate/domain/x.ts", "../examples/x.config.ts"));
+    expect(shippedPackViolations("src/core/composition-root/x.test.ts", imports("../../packs/gate/examples/x.config.ts"), core)).toEqual(refused("src/core/composition-root/x.test.ts", "../../packs/gate/examples/x.config.ts"));
+  });
+
+  test("the scan covers each shipped pack's examples", () => {
+    const examples = trackedFiles().filter((path) => /^src\/packs\/[^/]+\/examples\/[^/]+\.config\.ts$/.test(path));
+    expect(examples.length).toBeGreaterThan(0);
+    for (const example of examples) {
+      expect(files).toContain(example);
+      expect(packLayerOf(example)).toBe("examples");
+    }
+  });
+
   test("every export path points at a file that exists", async () => {
     for (const context of [...contexts, ...apps]) {
       for (const target of Object.values(context.exportTargets).flat()) expect(await Bun.file(`${ROOT}/${context.dir}/${target}`).exists()).toBe(true);
@@ -915,13 +944,30 @@ describe("architecture", () => {
 
   test("R7: a shipped pack's directory holds its overview, contract, index and their test, and only domain/, application/ and adapters/", () => {
     const dir = "src/packs/gate";
-    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/files/files.ts`];
+    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/gate.pack.test.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/basic.config.ts`, `${dir}/domain/rule.ts`, `${dir}/application/judge/judge.ts`, `${dir}/adapters/out/files/files.ts`];
     expect(packLayoutViolations(tidy)).toEqual([]);
     expect(packLayoutViolations([...tidy, `${dir}/helpers.ts`, `${dir}/lib/x.ts`])).toEqual([
       `${dir}/helpers.ts — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`,
       `${dir}/lib/x.ts — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`,
     ]);
-    expect(packLayoutViolations([`${dir}/index.ts`])).toEqual([`${dir} — a shipped pack has gate.pack.ts`, `${dir} — a shipped pack has gate.contract.ts`]);
+    expect(packLayoutViolations([`${dir}/index.ts`])).toEqual([
+      `${dir} — a shipped pack has gate.pack.ts`,
+      `${dir} — a shipped pack has gate.contract.ts`,
+      `${dir} — a shipped pack has README.md`,
+      `${dir} — a shipped pack has at least one example, examples/<name>.config.ts`,
+    ]);
+  });
+
+  test("R7: a shipped pack has a README and at least one example, examples/<slug>.config.ts, one level deep", () => {
+    const dir = "src/packs/gate";
+    const tidy = [`${dir}/gate.pack.ts`, `${dir}/gate.contract.ts`, `${dir}/index.ts`, `${dir}/README.md`, `${dir}/examples/keep-secrets-out.config.ts`];
+    expect(packLayoutViolations(tidy)).toEqual([]);
+    expect(packLayoutViolations(tidy.filter((path) => !path.endsWith("README.md")))).toEqual([`${dir} — a shipped pack has README.md`]);
+    expect(packLayoutViolations(tidy.filter((path) => !path.includes("/examples/")))).toEqual([`${dir} — a shipped pack has at least one example, examples/<name>.config.ts`]);
+    expect(packLayoutViolations([...tidy, `${dir}/examples/helpers.ts`, `${dir}/examples/nested/x.config.ts`])).toEqual([
+      `${dir}/examples/helpers.ts — a pack's examples are examples/<name>.config.ts files`,
+      `${dir}/examples/nested/x.config.ts — a pack's examples are examples/<name>.config.ts files`,
+    ]);
   });
 
   test("R7: an overview binds imported names in definePack's sections, in order, typed by its contract", () => {
