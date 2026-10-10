@@ -70,6 +70,8 @@ src/                    bounded             the published package: package.json,
     <name>/                                 every shipped pack: its overview, contract, index and their test, domain/, application/, adapters/, and
       README.md                             its README, with the seven required sections (R7; docs/writing-a-pack.md)
       examples/<slug>.config.ts             its examples: projects' configurations, outside its code (ADR 2026-009)
+                                            (bounded's prepack joins them, the READMEs and the packs' contracts into the
+                                            generated, gitignored src/bounded.catalog.json; ADR 2026-026)
     protected-paths/                        the protected-paths pack (slice 3): a pack shipped in bounded, exported as bounded/protected-paths
     prereqs/                                the prerequisites pack (ADR 2026-019): a pack shipped in bounded, exported as bounded/prereqs
   lib/
@@ -215,7 +217,9 @@ Rules, enforced by `src/test/architecture.test.ts` unless stated:
   definePack's sections (id, dependsOn, points, contributes, ports, in that
   order), typed by its contract, with no logic, and imports only its own
   domain/ and application/ (never an adapter). The core's `core.pack.ts`
-  follows the same order and no-logic rules.
+  follows the same order and no-logic rules. The package catalogue build
+  (`bounded catalog build`, ADR 2026-026) applies the same README rules
+  (`PackReadme`), wants at least one titled example, and fails closed.
   Exempt, each named in the test with its
   reason: barrels and the shared kernel (`domain/shared/{result,read,text,wire}.ts`).
 - **Shape checks live in the class that owns the shape (ADR 2026-013).**

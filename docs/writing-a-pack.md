@@ -48,8 +48,11 @@ sections are welcome:
 - `## Examples`: what each example file shows.
 
 A README holds no project configuration (no fenced `defineConfig(`): the
-configuration lives in the examples, where the tests check it.
-`src/core/composition-root/pack-readmes.test.ts` checks all of this.
+configuration lives in the examples, where the tests check it. The package
+catalogue build applies these rules (`PackReadme`, over marked's reading of
+the README) and refuses a README that breaks one;
+`src/core/composition-root/pack-readmes.test.ts` runs the same rules over
+the shipped packs.
 
 ## Examples
 
@@ -82,5 +85,52 @@ export default defineConfig({
 - `src/core/composition-root/pack-examples.test.ts` opens each example as a
   project's `bounded.config.ts`, with the shipped packs' ports, and wants no
   problem: an example that drifts from the API fails the build.
-- Examples ship in the package, so the catalogue (issue #68) can carry
-  them; no declarations are emitted for them.
+- Examples ship in the package, and the package catalogue embeds each
+  verbatim; no declarations are emitted for them.
+
+## The package catalogue
+
+A package that ships packs ships a catalogue of them, `bounded.catalog.json`
+([ADR 2026-026](adr/2026-026-package-catalogue.md)), built by
+`bounded catalog build` in the package's directory. bounded's prepack runs
+it after building `dist/`; a pack's own package runs it the same way, in its
+prepack. It joins each pack object (its id, dependencies, points,
+contributions and ports), the TSDoc of its overview and contract, its
+README and its examples, and fails closed: a missing README section, a
+missing example, a contract that disagrees with the pack object, or a
+missing library is refused, and nothing is written.
+
+- **package.json.** List each export path that exports a pack, with the
+  pack's source directory, in the `bounded` field, list the catalogue in
+  `files`, and add the keyword `bounded-pack`:
+
+  ```json
+  {
+    "keywords": ["bounded-pack"],
+    "files": ["dist", "packs", "bounded.catalog.json"],
+    "scripts": { "prepack": "<your build> && bounded catalog build" },
+    "bounded": { "catalog": "./bounded.catalog.json", "packs": { "./my-pack": "packs/my-pack" } }
+  }
+  ```
+
+  Each listed export path exports exactly one pack, whose id is rooted at
+  the package's name (`packIdsFor("<package name>")`).
+- **The export-entry rule.** The build loads each pack under Node, through
+  the package's own export path. Its entry must have a `default`, `require`
+  or `node` target naming JavaScript (`{ "./my-pack": { "types": "…", "default": "./dist/my-pack/index.js" } }`);
+  an entry with only `import` is refused, asking for a `default`
+  condition. Build the package first.
+- **The libraries.** Install `typescript` (major 5), `ts-json-schema-generator`
+  and `marked` as devDependencies of the package: the build resolves them
+  from it and refuses, naming the one missing.
+- **The tsconfig.** The build reads the package's `tsconfig.json`, found as
+  `tsc` finds it, for its compiler options only; its program is the pack's
+  overview, contract and examples alone. A package with no tsconfig is
+  refused.
+- **The contract.** The pack's type in `<name>.contract.ts` declares its
+  points (`ExtensionPoint<Value, Id>`, each with TSDoc) and ports
+  (`PortKey<Adapter, Id>`), with the same keys as the overview. A point's
+  wire type (a value object's `toJSON` result, or plain data's own type) must
+  have a name, an exported interface or type alias, that
+  ts-json-schema-generator can describe: the catalogue carries its JSON
+  Schema. A point whose values are code carries none.
