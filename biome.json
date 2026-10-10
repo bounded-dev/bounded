@@ -6,7 +6,9 @@
 			"!**/node_modules",
 			"!**/fixtures",
 			"!**/dist",
-			"!**/.agent-state"
+			"!**/.agent-state",
+			"!**/.claude-plugin/types",
+			"!src/hosts/claude-code/prereqs-status-band/types"
 		]
 	},
 	"formatter": { "enabled": false },

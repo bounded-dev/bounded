@@ -1,5 +1,12 @@
 {
   "extends": "./tsconfig.base.json",
   "include": ["*.ts", "scripts/**/*.ts", "src/**/*.ts"],
-  "exclude": ["node_modules", "**/fixtures/**", "src/dist"]
+  "exclude": [
+    "node_modules",
+    "**/fixtures/**",
+    "src/dist",
+    "src/hosts/claude-code/prereqs-status-band/.claude-plugin",
+    "src/hosts/claude-code/prereqs-status-band/types",
+    "src/hosts/claude-code/prereqs-status-band/tests"
+  ]
 }

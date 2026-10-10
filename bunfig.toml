@@ -2,6 +2,9 @@
 # bounded's dist/ (JavaScript for node, ADR 2026-016) is built before the tests: its export paths and the
 # packaging tests point at it.
 preload = ["./test-preload.ts"]
+# The prereqs status band's plugin tests run under `claude plugin test` alone (bun run check:prereqs-status-band,
+# ADR 2026-027): they import claude-code/testing, which only Claude Code provides.
+pathIgnorePatterns = ["src/hosts/claude-code/prereqs-status-band/**"]
 
 [install]
 # One copy of each workspace package at the root (node_modules/bounded), as npm lays a project out: bun resolves a package
