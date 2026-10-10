@@ -29,7 +29,7 @@ export type {
 } from "./packs/pack.contract.ts";
 export { contribution, definePack, keyedPointsOf, parsePack, point, pointGroup } from "./packs/pack.ts";
 
-// The package catalogue (ADR 2026-026).
+// The package catalogue (ADR 2026-029).
 export type {
   CataloguedExampleJSON,
   CataloguedPackJSON,

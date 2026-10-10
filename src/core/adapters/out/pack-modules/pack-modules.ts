@@ -1,4 +1,4 @@
-// The modules a package's export paths name, loaded as Node loads them (ADR 2026-026). The
+// The modules a package's export paths name, loaded as Node loads them (ADR 2026-029). The
 // package's own package.json says what each export path's entry is; an entry with no target
 // Node's require picks (default, require or node) is refused before anything is resolved, so
 // the refusal is the same under every runtime. Otherwise the export path is resolved by

@@ -92,7 +92,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `src/core/composition-root/pack-examples.test.ts` opens as a project's
   `bounded.config.ts`. Examples ship in the package, without declarations.
 - **The package catalogue** (issue #68, step 1 (B);
-  [ADR 2026-026](adr/2026-026-package-catalogue.md),
+  [ADR 2026-029](adr/2026-029-package-catalogue.md),
   [writing a pack](writing-a-pack.md)): `bounded catalog build` writes a
   package's `bounded.catalog.json` (`catalogVersion` 1) from the packs its
   package.json lists in `bounded.packs`: each pack object's id,
@@ -544,11 +544,11 @@ when written; keep it current (AGENTS.md, "Working with the user").
   load time.** The architecture test (`architecture.test.ts`) checks
   bounded's own, and `bounded catalog build` refuses a listed pack whose id
   is not rooted at its package's name
-  ([ADR 2026-026](adr/2026-026-package-catalogue.md)). A pack loaded at run
+  ([ADR 2026-029](adr/2026-029-package-catalogue.md)). A pack loaded at run
   time is still not checked: that belongs to a file-backed pack catalog,
   which does not exist yet
   ([ADR 2026-004](adr/2026-004-namespaced-pack-ids.md)).
-- **The package catalogue's limits** (ADR 2026-026): a point's schema is its
+- **The package catalogue's limits** (ADR 2026-029): a point's schema is its
   compile-time wire shape, so limits only its run-time check enforces are in
   the README and TSDoc; only TypeScript 5 is read, and the schema generator
   must share the package's copy;
@@ -564,7 +564,7 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `toolUseGuards` backstop (the point exists; no pack contributes).
 - Skills, role briefs and instruction projections written at install.
 - Beyond `bounded init`, `bounded update` (see "The install command"
-  below) and `bounded catalog build` (ADR 2026-026), no other command-line
+  below) and `bounded catalog build` (ADR 2026-029), no other command-line
   tool exists: issue #68's discovery commands (`bounded packs`,
   `bounded packs show`, `bounded packs search`), `bounded guide`,
   `bounded pack init` and the website are later steps.

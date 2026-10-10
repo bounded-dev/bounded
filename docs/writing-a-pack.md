@@ -91,7 +91,7 @@ export default defineConfig({
 ## The package catalogue
 
 A package that ships packs ships a catalogue of them, `bounded.catalog.json`
-([ADR 2026-026](adr/2026-026-package-catalogue.md)), built by
+([ADR 2026-029](adr/2026-029-package-catalogue.md)), built by
 `bounded catalog build` in the package's directory. bounded's prepack runs
 it after building `dist/`; a pack's own package runs it the same way, in its
 prepack. It joins each pack object (its id, dependencies, points,

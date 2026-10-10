@@ -20,7 +20,7 @@
 // `bounded update --no-upgrade`.
 //
 // `bounded catalog build`, run in a package's directory, writes the package's
-// catalogue of its packs (ADR 2026-026) with the core's build-package-catalog
+// catalogue of its packs (ADR 2026-029) with the core's build-package-catalog
 // feature; bounded's own prepack runs it after building dist/.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -445,7 +445,7 @@ function initOptions(projectRoot: string, options: readonly string[]): { noInsta
 
 /**
  * `bounded catalog build`, run in a package's directory: builds the package's
- * catalogue of its packs and writes it (ADR 2026-026), or says why not and
+ * catalogue of its packs and writes it (ADR 2026-029), or says why not and
  * writes nothing.
  */
 async function buildCatalog(packageDir: string): Promise<CliRun> {

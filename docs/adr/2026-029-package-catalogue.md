@@ -1,4 +1,4 @@
-# 2026-026: Each package ships a catalogue of its packs, `bounded.catalog.json`, built from the pack objects, their contracts and READMEs
+# 2026-029: Each package ships a catalogue of its packs, `bounded.catalog.json`, built from the pack objects, their contracts and READMEs
 
 **Status:** accepted (issue #68, step 1 (B), `pack-catalogue`; the plan's
 review, and the maintainer's answers to its two open questions, marked

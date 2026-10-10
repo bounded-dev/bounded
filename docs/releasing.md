@@ -29,7 +29,7 @@ an outward action (AGENTS.md).
 3. **Dry-run first.** In `src`, run `bun publish --dry-run`. Its
    prepack (`bun build-dist.ts && node dist/cli.js catalog build`) builds
    `dist/` afresh, then the package catalogue, `bounded.catalog.json`
-   ([ADR 2026-026](adr/2026-026-package-catalogue.md)), with Node. Check the file list:
+   ([ADR 2026-029](adr/2026-029-package-catalogue.md)), with Node. Check the file list:
    - `dist/` (the library, its declarations in `dist/types/`, `dist/cli.js`
      and `dist/hosts/`);
    - `core/` and `packs/`, the core's and the shipped packs' sources, without tests, test support (but

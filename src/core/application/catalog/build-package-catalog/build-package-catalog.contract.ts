@@ -28,7 +28,7 @@ export interface BuiltPackageCatalog {
 
 // In port: what this feature offers.
 /**
- * Build a package's catalogue of its packs (ADR 2026-026): for each pack its
+ * Build a package's catalogue of its packs (ADR 2026-029): for each pack its
  * package.json lists in `bounded.packs`, in id order, load the one pack its
  * export path exports, describe it from the pack object, read its typed API
  * from its contract and TSDoc, its prose from its README and its examples,

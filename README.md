@@ -42,7 +42,7 @@ hosts:
   `bounded.catalog.json`, built by `bounded catalog build` from its pack
   objects, their contracts and TSDoc, their READMEs and their tested
   examples, failing closed; bounded's tarball carries the catalogue of its
-  two packs ([ADR 2026-026](docs/adr/2026-026-package-catalogue.md),
+  two packs ([ADR 2026-029](docs/adr/2026-029-package-catalogue.md),
   [writing a pack](docs/writing-a-pack.md)).
 - **The Bounded log**: every decision, and every refusal a host adapter
   makes itself, recorded in `.bounded/log.jsonl`

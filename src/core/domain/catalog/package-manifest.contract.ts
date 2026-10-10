@@ -23,7 +23,7 @@ export interface PackageManifestJSON {
 
 /**
  * A package's manifest as the package catalogue build reads it (ADR
- * 2026-026): its name and version, the package-relative path its catalogue
+ * 2026-029): its name and version, the package-relative path its catalogue
  * is written to, and each pack it lists in `bounded.packs`, by export path
  * and source directory.
  */

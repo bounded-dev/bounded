@@ -1,4 +1,4 @@
-// The files of a package the package catalogue build reads and writes, on disk, by package-relative path (ADR 2026-026).
+// The files of a package the package catalogue build reads and writes, on disk, by package-relative path (ADR 2026-029).
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { PackageCatalogFiles } from "bounded/application";

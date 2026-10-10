@@ -19,7 +19,7 @@ export interface DescribedPort {
 
 /**
  * What a pack object says about itself, as text, for a package catalogue
- * (ADR 2026-026): its id, the ids of the packs it depends on, the points it
+ * (ADR 2026-029): its id, the ids of the packs it depends on, the points it
  * contributes to, the points it declares and the ports it needs.
  */
 export interface PackDescription {

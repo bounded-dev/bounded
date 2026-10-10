@@ -37,7 +37,7 @@ export interface PackReadmeInput {
 export type RequiredReadmeField = "whatItIsFor" | "ruleShape" | "workflowsItFits" | "whatItObserves" | "whatItCannotSee" | "ports" | "examples";
 
 /**
- * A shipped pack's README, by the standard pack structure (ADR 2026-026):
+ * A shipped pack's README, by the standard pack structure (ADR 2026-029):
  * titled `# <pack id>: <summary>`, with the seven required `##` sections
  * (What it is for, Rule shape, Workflows it fits, What it observes, What it
  * cannot see, Ports, Examples) once each, with a body; Rule shape names

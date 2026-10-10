@@ -3,7 +3,7 @@ import type { Result } from "../shared/result.ts";
 /** The brand only PackageCatalog itself carries: an object literal cannot, so a look-alike does not type-check (ADR 2026-012). Never exported from a barrel. */
 export declare const packageCatalogBrand: unique symbol;
 
-// The package catalogue, version 1 (ADR 2026-026): the contract every reader
+// The package catalogue, version 1 (ADR 2026-029): the contract every reader
 // of `bounded.catalog.json` reads. Within a version, fields are only added,
 // and readers ignore fields they do not know.
 
@@ -108,7 +108,7 @@ export interface PackageCatalogJSON {
 }
 
 /**
- * A package's catalogue of its packs (ADR 2026-026): which packs it exports,
+ * A package's catalogue of its packs (ADR 2026-029): which packs it exports,
  * what each declares and contributes to, the ports a host provides, its
  * README's prose and its examples. Every pack's id is rooted at the
  * package's name, and each id appears once.

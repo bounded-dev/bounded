@@ -1,4 +1,4 @@
-// Markdown split into sections by marked's lexer (ADR 2026-026), the package's own
+// Markdown split into sections by marked's lexer (ADR 2026-029), the package's own
 // devDependency: a heading or code span inside a fenced block is the block's text, never
 // structure. Each heading of level one or two starts a section; deeper headings stay in theirs.
 import type { MarkdownDocument, MarkdownSections } from "bounded/application";

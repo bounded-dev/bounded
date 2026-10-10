@@ -1,5 +1,5 @@
 // A pack's typed public API, read with the TypeScript compiler from the pack's own files (ADR
-// 2026-026): its overview (`<name>.pack.ts`), its contract and its examples are the program's
+// 2026-029): its overview (`<name>.pack.ts`), its contract and its examples are the program's
 // only root files, compiled with the compiler options of the package's tsconfig.json, found as
 // tsc finds it. The overview's exported pack gives its name and TSDoc; the type it is declared
 // with (its contract's) gives each point's value type and TSDoc, and each port's adapter
