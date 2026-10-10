@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PRIVATE_PACKAGE_EXPORTS, unknownDistImport } from "../build-dist.ts";
+import { PREREQS_STATUS_BAND_FILES, PRIVATE_PACKAGE_EXPORTS, unknownDistImport, unlistedBandFile } from "../build-dist.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const CORE = join(ROOT, "src");
@@ -404,6 +404,13 @@ describe("bounded, the one published package", () => {
         expect([file, spec, new URL(spec, `file:///${file}`).pathname.slice(1).startsWith(band)]).toEqual([file, spec, true]);
       }
     }
+  });
+
+  test("build-dist carries the band's listed files only, and refuses a hooks/ file its list does not name", () => {
+    expect(PREREQS_STATUS_BAND_FILES.filter((file) => file.startsWith("tests/") || file.includes(".claude-plugin/types") || file === "tsconfig.json")).toEqual([]);
+    expect(unlistedBandFile(["hooks.json", "register.ts", "engine-subset.ts", "prereqs-status-file.ts", "prereqs-status-band-lines.ts", "project-config-names.ts"])).toBeUndefined();
+    expect(unlistedBandFile(["register.ts", "helper.ts"])).toBe("hooks/helper.ts is in the prereqs status band but not in its file list: add it to the band's file list in build-dist.ts or remove it");
+    expect(readFileSync(join(CORE, "dist/hosts/claude-code/prereqs-status-band/.claude-plugin/plugin.json"), "utf8")).toBe(readFileSync(join(CORE, "hosts/claude-code/prereqs-status-band/.claude-plugin/plugin.json"), "utf8"));
   });
 
   test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {
