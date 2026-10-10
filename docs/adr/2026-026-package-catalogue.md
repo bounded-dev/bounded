@@ -94,12 +94,19 @@ contribution compiles as `Value | WireOf<Value>` (ADRs 2026-003 and
 - plain JSON data: `Value` itself;
 - code (the type is or holds a function): `wire: null`.
 
-`ts-json-schema-generator` generates the schema from the named wire type,
-over the same program (`tsProgram`), with `additionalProperties: false`
-and `functions: "fail"`. A data point whose type the generator cannot
-describe is refused. A wire type with no name (an anonymous object type, a
-primitive) is refused too, asking for a named interface or type alias: the
-generator generates by name.
+`wire.type` is the wire type's text as TypeScript prints it (`PrerequisiteRuleJSON`,
+`string`, `"low" | "high"`). `ts-json-schema-generator` generates the schema
+over the same program, from a node, never by looking a name up (two types
+of one name in the program cannot be confused): the declaration the checker
+resolved the wire type to, when it is declared under a name (an interface,
+type alias, enum or class), referenced from the top as
+`definitions/<name>`; otherwise where the type is written, described
+inline: a value object's `toJSON` return type, or plain data's
+`ExtensionPoint<Value, …>` type argument. So a primitive, a union, or an
+alias TypeScript does not keep (`type Label = string`) is described as it
+stands. The generator runs with `additionalProperties: false` and
+`functions: "fail"`; a data point whose type it cannot describe is
+refused.
 
 Limits only the run-time check enforces (a glob that compiles, a redirect
 of at most 1000 characters) stay in the README's prose and the TSDoc: the
@@ -141,7 +148,8 @@ CLI prints `bounded: <refusal>` and exits 1.
 
 - **The `bounded` field.** A package lists its packs in package.json:
   `"bounded": { "catalog": "./bounded.catalog.json", "packs": { "./prereqs": "packs/prereqs" } }`,
-  each export path that exports a pack with the pack's source directory. It
+  each export path that exports a pack (`.` for the package root) with the
+  pack's source directory. It
   lists `bounded.catalog.json` in `files` and carries the keyword
   `bounded-pack`. A package.json with no `bounded.packs` is refused.
 - **Each listed export path exports exactly one pack**, made by the same
@@ -151,9 +159,11 @@ CLI prints `bounded: <refusal>` and exits 1.
   refuses, before resolving anything, an entry with no `default`, `require`
   or `node` target (a path, or conditions holding one at any depth),
   naming the export path and the fix: add a `default` condition. So the
-  refusal is the same under bun and Node. Otherwise it resolves the export
-  by self-reference (`createRequire(<package>/package.json).resolve("<name>/<subpath>")`)
-  and imports it. Each listed export must resolve to JavaScript through
+  refusal is the same under bun and Node. The package root, `.`, is
+  read from a `.` entry, or from `exports` itself when it is a path or the
+  root's conditions. Otherwise it resolves the export by self-reference
+  (`createRequire(<package>/package.json).resolve(...)`, the bare package
+  name for `.`, `<name>/<subpath>` otherwise) and imports it. Each listed export must resolve to JavaScript through
   those conditions: bounded's own reach `dist/` through `default`.
 - **Library resolution (maintainer: Q2).** `typescript`,
   `ts-json-schema-generator` and `marked` are the catalogued package's own
@@ -164,21 +174,30 @@ CLI prints `bounded: <refusal>` and exits 1.
   none of them as a dependency or peer, so a project that installs bounded
   downloads none of them; bounded's own prepack finds them in the
   workspace's root devDependencies. No adapter imports them statically, and
-  no published declaration names them.
+  no published declaration names them. ts-json-schema-generator must
+  resolve the same copy of `typescript` as the package: it reads the
+  program the build compiled. Another copy is refused, naming both
+  versions and paths.
 - **The tsconfig rule (B2).** The package's `tsconfig.json` is found as
   `tsc` finds it (`ts.findConfigFile`, searching upwards), and only its
   compiler options are taken. The program's root files are the pack's own:
   `<name>.pack.ts`, `<name>.contract.ts` and `examples/*.config.ts`; an
   unrelated file the tsconfig includes, even one with a type error, changes
-  nothing. No tsconfig is refused, naming the file to add.
+  nothing. No tsconfig is refused, naming the file to add. The pack is
+  read from the overview's `export const` named as the export path exports
+  it (the name the module loader found), never the first one.
 - **The TypeScript 5 limit (B5), deliberate.** The reader reads TypeScript
   major 5, the major the tests run with, and refuses any other, naming the
   version it found. A later TypeScript major is a change here, with its
   tests.
-- **TypeScript and Markdown are bounded's authoring formats.** A pack's
-  public API is read from TypeScript, its prose from Markdown. The overview
-  stays mechanical (R7): prose stays in the README, and the build joins
-  the two.
+- **TypeScript and Markdown are bounded's authoring formats; package.json
+  is its transport format.** A pack's public API is read from TypeScript,
+  its prose from Markdown. The overview stays mechanical (R7): prose stays
+  in the README, and the build joins the two. A pack travels as an npm
+  package, so package.json's `exports` and Node's condition rules (which
+  target `require` picks) decide how a pack is found and loaded; the
+  `bounded` field lists which export paths hold packs. `PackModules` keeps
+  them behind a port, as the core's ports keep the file system.
 
 ### Generated, not committed (maintainer)
 
@@ -208,7 +227,10 @@ every project that only uses bounded.
 - The pack-id check now happens at pack time, in the build. A pack whose id
   is not rooted at its package's name still loads at run time: that check
   is still missing.
-- The tests that build bounded's catalogue (`pack-wire-schemas.test.ts`,
-  `bounded-cli.catalog-bounded.test.ts`) write the shared, gitignored
-  `src/bounded.catalog.json`; they rely on `bun test` running files one
-  after another, and each rebuilds it before reading.
+- Four test files write the shared, gitignored `src/bounded.catalog.json`:
+  `src/core/composition-root/pack-wire-schemas.test.ts` and
+  `src/cli/bounded-cli.catalog-bounded.test.ts` (each runs the built CLI's
+  `bounded catalog build` in src/), and `src/test/packaging.test.ts` and
+  `src/cli/test/bounded-cli.e2e.test.ts` (each packs bounded, whose prepack
+  builds it). They rely on `bun test` running files one after another; the
+  two that read it rebuild it first.

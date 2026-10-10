@@ -492,7 +492,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   ([ADR 2026-004](adr/2026-004-namespaced-pack-ids.md)).
 - **The package catalogue's limits** (ADR 2026-026): a point's schema is its
   compile-time wire shape, so limits only its run-time check enforces are in
-  the README and TSDoc; a wire type needs a name; only TypeScript 5 is read;
+  the README and TSDoc; only TypeScript 5 is read, and the schema generator
+  must share the package's copy;
   a pack fetched from git carries no catalogue until it is built there; the
   wire-form lists the schema tests use are copies of the concept tests'
   literals.

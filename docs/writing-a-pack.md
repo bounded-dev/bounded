@@ -113,7 +113,8 @@ missing library is refused, and nothing is written.
   }
   ```
 
-  Each listed export path exports exactly one pack, whose id is rooted at
+  A pack exported from the package root is listed as `"."`. Each listed
+  export path exports exactly one pack, whose id is rooted at
   the package's name (`packIdsFor("<package name>")`).
 - **The export-entry rule.** The build loads each pack under Node, through
   the package's own export path. Its entry must have a `default`, `require`
@@ -122,7 +123,8 @@ missing library is refused, and nothing is written.
   condition. Build the package first.
 - **The libraries.** Install `typescript` (major 5), `ts-json-schema-generator`
   and `marked` as devDependencies of the package: the build resolves them
-  from it and refuses, naming the one missing.
+  from it and refuses, naming the one missing. The generator must share the
+  package's copy of typescript.
 - **The tsconfig.** The build reads the package's `tsconfig.json`, found as
   `tsc` finds it, for its compiler options only; its program is the pack's
   overview, contract and examples alone. A package with no tsconfig is
@@ -130,7 +132,8 @@ missing library is refused, and nothing is written.
 - **The contract.** The pack's type in `<name>.contract.ts` declares its
   points (`ExtensionPoint<Value, Id>`, each with TSDoc) and ports
   (`PortKey<Adapter, Id>`), with the same keys as the overview. A point's
-  wire type (a value object's `toJSON` result, or plain data's own type) must
-  have a name, an exported interface or type alias, that
-  ts-json-schema-generator can describe: the catalogue carries its JSON
-  Schema. A point whose values are code carries none.
+  wire type (a value object's `toJSON` result, or plain data's own type,
+  named or not) must be one ts-json-schema-generator can describe: the
+  catalogue carries its JSON Schema. A point whose values are code carries
+  none. The overview exports the pack under the name its export path
+  exports it.
