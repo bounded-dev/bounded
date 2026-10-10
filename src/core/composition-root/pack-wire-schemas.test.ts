@@ -1,5 +1,5 @@
 // The schemas bounded's package catalogue gives each shipped pack's data
-// point (ADR 2026-026: the compile-time wire shape, generated from the wire
+// point (ADR 2026-029: the compile-time wire shape, generated from the wire
 // type the pack's contract gives) agree with the packs' run-time checks:
 // every wire form the packs' own tests accept validates, every value the
 // shipped examples contribute validates, and what does not compile is

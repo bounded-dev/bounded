@@ -6255,7 +6255,7 @@
       "file": "src/core/composition-root/pack-readmes.test.ts",
       "case": "shipped packs' READMEs > each README's summary is its title's"
     },
-    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-029, pack-catalogue)"
   },
   {
     "file": "src/core/composition-root/pack-readmes.test.ts",
@@ -6264,7 +6264,7 @@
       "file": "src/core/composition-root/pack-readmes.test.ts",
       "case": "shipped packs' READMEs > each shipped pack's README parses with the build's own rules"
     },
-    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-029, pack-catalogue)"
   },
   {
     "file": "src/core/composition-root/pack-readmes.test.ts",
@@ -6273,7 +6273,7 @@
       "file": "src/core/composition-root/pack-readmes.test.ts",
       "case": "shipped packs' READMEs > Rule shape and Ports name every key as inline code, by the lexer's code spans"
     },
-    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-029, pack-catalogue)"
   },
   {
     "file": "src/core/composition-root/pack-readmes.test.ts",
@@ -6282,6 +6282,132 @@
       "file": "src/core/composition-root/pack-readmes.test.ts",
       "case": "shipped packs' READMEs > no README holds a project configuration, by the lexer's fenced code blocks"
     },
-    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-029, pack-catalogue)"
+  },
+  {
+    "file": "src/core/domain/catalog/pack-readme.test.ts",
+    "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-026) > the summary comes from the title; a wrong title is refused, and so is a missing one",
+    "successor": {
+      "file": "src/core/domain/catalog/pack-readme.test.ts",
+      "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-029) > the summary comes from the title; a wrong title is refused, and so is a missing one"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/pack-readme.test.ts",
+    "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-026) > each missing required section is refused, naming the README, the heading and the fix",
+    "successor": {
+      "file": "src/core/domain/catalog/pack-readme.test.ts",
+      "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-029) > each missing required section is refused, naming the README, the heading and the fix"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/pack-readme.test.ts",
+    "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-026) > a blank section body is refused, and so is a heading given twice",
+    "successor": {
+      "file": "src/core/domain/catalog/pack-readme.test.ts",
+      "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-029) > a blank section body is refused, and so is a heading given twice"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/pack-readme.test.ts",
+    "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-026) > other sections are kept, in order, beside the required ones",
+    "successor": {
+      "file": "src/core/domain/catalog/pack-readme.test.ts",
+      "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-029) > other sections are kept, in order, beside the required ones"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/pack-readme.test.ts",
+    "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-026) > a point or port key missing from its section's code spans is refused; plain text naming the key does not count",
+    "successor": {
+      "file": "src/core/domain/catalog/pack-readme.test.ts",
+      "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-029) > a point or port key missing from its section's code spans is refused; plain text naming the key does not count"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/pack-readme.test.ts",
+    "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-026) > a README holds no project configuration: a code block calling defineConfig is refused, pointing to the examples",
+    "successor": {
+      "file": "src/core/domain/catalog/pack-readme.test.ts",
+      "case": "PackReadme — a shipped pack's README, by the required sections (ADR 2026-029) > a README holds no project configuration: a code block calling defineConfig is refused, pointing to the examples"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > a full sample round-trips: its wire form is what was given",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a full sample round-trips: its wire form is what was given"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > a catalogVersion of 2, \"1\", or none at all is refused",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a catalogVersion of 2, \"1\", or none at all is refused"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > a duplicate pack id is refused, naming it",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a duplicate pack id is refused, naming it"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > a pack id not rooted at the package's name is refused, naming both",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a pack id not rooted at the package's name is refused, naming both"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > a missing or blank readme field is refused, naming the field",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a missing or blank readme field is refused, naming the field"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > a pack with no examples is refused",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a pack with no examples is refused"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > unknown fields are ignored: readers of version 1 take what they know",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > unknown fields are ignored: readers of version 1 take what they know"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
+  },
+  {
+    "file": "src/core/domain/catalog/package-catalog.test.ts",
+    "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-026) > a parsed catalogue is frozen, its packs too",
+    "successor": {
+      "file": "src/core/domain/catalog/package-catalog.test.ts",
+      "case": "PackageCatalog — a package's catalogue of its packs (ADR 2026-029) > a parsed catalogue is frozen, its packs too"
+    },
+    "reason": "title only: the package catalogue's ADR is renumbered 2026-026 to 2026-029, since main recorded the prereqs status snapshot as 2026-026 first; the case's body is unchanged (pack-catalogue, merging main)"
   }
 ]

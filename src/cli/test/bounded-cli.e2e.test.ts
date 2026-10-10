@@ -61,7 +61,7 @@ function packRelease(version: string, scratch: string, into: string): void {
   cpSync(CORE, copy, { recursive: true, filter: (source) => !skipped.has(source) && !source.split("/").includes("node_modules") });
   // The build emits declarations with tsc, against the base tsconfig and the workspace's libraries, as in the checkout.
   cpSync(join(REPO, "tsconfig.base.json"), join(scratch, "tsconfig.base.json"));
-  // The prepack's catalogue build reads the packs' types with the compiler options of the tsconfig.json tsc finds, as in the checkout (ADR 2026-026).
+  // The prepack's catalogue build reads the packs' types with the compiler options of the tsconfig.json tsc finds, as in the checkout (ADR 2026-029).
   cpSync(join(REPO, "tsconfig.json"), join(scratch, "tsconfig.json"));
   // The workspace's libraries, with its own packages resolving to the copies, as the checkout's resolve to themselves:
   // bounded, and the private shell command reader the build carries into dist (ADR 2026-020).

@@ -3,7 +3,7 @@
 // seven required headings appear once each, with a body. Its Rule shape
 // names every point key and its Ports every port key as inline code, and no
 // README holds a project configuration: those are the pack's examples.
-// Each README is read as the package catalogue build reads it (ADR 2026-026):
+// Each README is read as the package catalogue build reads it (ADR 2026-029):
 // split into sections by the build's own Markdown reader, MarkedMarkdownSections,
 // and checked by its own rules, PackReadme.
 import { describe, expect, test } from "bun:test";

@@ -51,7 +51,7 @@ const refusal = (raw: unknown): string => {
   return parsed.ok ? "accepted" : parsed.error;
 };
 
-describe("PackageCatalog — a package's catalogue of its packs (ADR 2026-026)", () => {
+describe("PackageCatalog — a package's catalogue of its packs (ADR 2026-029)", () => {
   test("a full sample round-trips: its wire form is what was given", () => {
     const parsed = PackageCatalog.parse(sample);
     expect(parsed.ok).toBe(true);

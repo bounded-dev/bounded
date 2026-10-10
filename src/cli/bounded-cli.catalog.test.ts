@@ -1,4 +1,4 @@
-// `bounded catalog build` (ADR 2026-026): run, as a pack author runs it, by the
+// `bounded catalog build` (ADR 2026-029): run, as a pack author runs it, by the
 // built CLI under Node in a copy of the demonstration package
 // (src/core/test/fixtures/catalog/demo-package/), its pack built to
 // JavaScript with Bun.build, bounded installed as a link to src/ and the

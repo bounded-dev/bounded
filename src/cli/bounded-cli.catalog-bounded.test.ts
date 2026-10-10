@@ -1,4 +1,4 @@
-// bounded's own catalogue (ADR 2026-026): `bounded catalog build`, the built
+// bounded's own catalogue (ADR 2026-029): `bounded catalog build`, the built
 // CLI under Node, run in src/ as bounded's prepack runs it.
 //
 // This test writes the shared, gitignored src/bounded.catalog.json, as do

@@ -32,7 +32,7 @@ const refusal = (raw: Record<string, unknown>): string => {
   return parsed.ok ? "accepted" : parsed.error;
 };
 
-describe("PackReadme — a shipped pack's README, by the required sections (ADR 2026-026)", () => {
+describe("PackReadme — a shipped pack's README, by the required sections (ADR 2026-029)", () => {
   test("the summary comes from the title; a wrong title is refused, and so is a missing one", () => {
     const parsed = PackReadme.parse(input());
     expect(parsed.ok).toBe(true);

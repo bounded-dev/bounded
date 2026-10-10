@@ -12,7 +12,7 @@ export const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../../..");
 export const BOUNDED_DIR = join(REPOSITORY_ROOT, "src");
 /** The fixture the copies are made from. */
 export const DEMO_PACKAGE = join(BOUNDED_DIR, "core", "test", "fixtures", "catalog", "demo-package");
-/** The libraries a pack author installs to build a catalogue (ADR 2026-026). */
+/** The libraries a pack author installs to build a catalogue (ADR 2026-029). */
 export const CATALOGUE_LIBRARIES = ["typescript", "ts-json-schema-generator", "marked"] as const;
 
 export interface DemoPackageOptions {
