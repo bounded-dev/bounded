@@ -182,7 +182,7 @@ describe("runHook: stdin to stdout, fail closed", () => {
       asked = true;
       return Verdict.allow;
     };
-    expect(await runHook("", hook(decide))).toBe(deny("The hook was given no input", "Register bounded's hook for PreToolUse, PostToolUse and PostToolUseFailure, as the install helper does"));
+    expect(await runHook("", hook(decide))).toBe(deny("The hook was given no input", "Register bounded's hook for PreToolUse, PostToolUse, PostToolUseFailure and SubagentStop, as the install helper does"));
     expect(await runHook("{oops", hook(decide))).toStartWith('{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The hook\'s input is not JSON: ');
     expect(await runHook(stdin("Read", {}), hook(decide))).toBe(deny("Claude Code's Read call has no file_path to check", "Retry the call with its file_path given as text"));
     expect(asked).toBe(false);

@@ -66,7 +66,14 @@ describe("defineConfig", () => {
     const wordsCopy = definePack({ id: packId("words"), points: { list: point({ description: "Copy", check: text }) } });
     expect(loose({ packs: [corePack, needsWords], contributes: [contribution(wordsCopy.points.list, ["x"])] }).compose()).toEqual({
       ok: false,
-      error: "The project contributes to extension point 'test-packs/words.list', owned by pack 'test-packs/words', which bounded.config.ts does not list in packs (the selected 'test-packs/words' is another copy, brought in by 'test-packs/needs-words'). Add 'test-packs/words' to packs, or remove the contribution",
+      error: "The project contributes to extension point 'test-packs/words.list', owned by pack 'test-packs/words', which bounded.config.ts does not list in packs (the selected 'test-packs/words' is another copy, brought in by 'test-packs/needs-words'). List the selected 'test-packs/words' in packs and contribute to its point, or remove the contribution",
+    });
+    const followed = defineConfig({ packs: [corePack, needsWords, words], contributes: [contribution(words.points.list, ["x"])] }).compose();
+    if (!followed.ok) throw new Error(followed.error);
+    expect(followed.value.read(words.points.list)).toEqual({ ok: true, value: ["alpha", "x"] });
+    expect(loose({ packs: [corePack, needsWords, wordsCopy], contributes: [contribution(wordsCopy.points.list, ["x"])] }).compose()).toEqual({
+      ok: false,
+      error: TWIN("test-packs/words", "one listed", "one that 'test-packs/needs-words' depends on"),
     });
   });
 

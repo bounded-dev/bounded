@@ -43,7 +43,7 @@ describe("SelectedPacks — the packs a configuration selects", () => {
   });
 
   const refusals: [string, unknown, string][] = [
-    ["something that is not a list", "a", "Compose takes a list of available packs and a list of listed packs"],
+    ["something that is not a list", "a", "Compose takes a list of available packs and a list of the packs to compose"],
     ["a pack not built with definePack", [{ __brand: "Pack", id: "test-packs/plain" }], notBuilt("test-packs/plain")],
     ["something that is not a pack at all", [7], notBuilt("7")],
     ["a pack selected twice", [b, a, b], "Pack 'test-packs/b' is listed twice. List each pack once"],

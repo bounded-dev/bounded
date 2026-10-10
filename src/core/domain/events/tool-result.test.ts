@@ -34,6 +34,7 @@ describe("ToolResult", () => {
   test("has kind tool-result, never another", () => {
     expect(ToolResult.parse({ ...done, kind: "tool-use" })).toEqual({ ok: false, error: "A tool result has kind 'tool-result', not 'tool-use'" });
     for (const raw of [null, "x", []]) expect(ToolResult.parse(raw).ok).toBe(false);
+    expect(ToolResult.parse(null)).toEqual({ ok: false, error: "A tool result is an object: { role, tool, effects, ok, callId?, delegatedAgentRuns? }" });
   });
 
   test("a tool result says, for each delegate effect, whether that agent's run finished", () => {
@@ -53,9 +54,9 @@ describe("ToolResult", () => {
     expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }] })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns has one entry per delegate effect: 2 effects, 1 entry" });
     expect(ToolResult.parse({ ...done, delegatedAgentRuns: [] })).toEqual({ ok: false, error: "A tool result without a delegate effect has no delegatedAgentRuns" });
     expect(ToolResult.parse({ ...done, delegatedAgentRuns: [{ finished: true }] }).ok).toBe(false);
-    expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }, { finished: "yes" }] })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns entry is { finished }, with finished true or false" });
-    expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }, { finished: true, runId: "x" }] }).ok).toBe(false);
-    expect(ToolResult.parse({ ...two, delegatedAgentRuns: { finished: true } })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns is a list of { finished } entries, one per delegate effect" });
+    expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }, { finished: "yes" }] })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns entry is { finished, finishNeverReported?, agentRunId?, finishReportedLater?, resolvedAgent? }, with finished true or false" });
+    expect(ToolResult.parse({ ...two, delegatedAgentRuns: [{ finished: true }, { finished: true, runId: "x" }] })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns entry is { finished, finishNeverReported?, agentRunId?, finishReportedLater?, resolvedAgent? }, with finished true or false" });
+    expect(ToolResult.parse({ ...two, delegatedAgentRuns: { finished: true } })).toEqual({ ok: false, error: "A tool result's delegatedAgentRuns is a list of { finished, finishNeverReported?, agentRunId?, finishReportedLater?, resolvedAgent? } entries, one per delegate effect" });
   });
 
   test("an entry may say the host never reports when that agent's runs finish, only for a run not finished", () => {

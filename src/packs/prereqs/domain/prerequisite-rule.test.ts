@@ -200,6 +200,34 @@ describe("PrerequisiteRule — an action that needs a delegation to have succeed
     expect(reviewed.requiresDelegationTo(agent("Plan-Reviewer"))).toBe(false);
     expect(reviewed.requiresDelegationTo(agent("plan-reviewer"))).toBe(true);
   });
+
+  test("before.delegate folds case by lower-casing, upper-casing, then lower-casing again, so it matches every spelling today's fold matches and more ('straße', 'STRASSE', 'ẞ'); require stays exact", () => {
+    const delegation = (name: string): Effect => effect({ kind: "delegate", agent: name });
+    const before = (name: string): PrerequisiteRule => rule({ ...beforeBuilder, before: { delegate: name } });
+    expect(before("straße").comesBefore(delegation("STRASSE"))).toBe(true);
+    expect(before("straße").comesBefore(delegation("Strasse"))).toBe(true);
+    // The capital sharp s and the sharp s still match each other, and both match "SS".
+    expect(before("ẞ").comesBefore(delegation("ß"))).toBe(true);
+    expect(before("ß").comesBefore(delegation("ẞ"))).toBe(true);
+    expect(before("ẞ").comesBefore(delegation("SS"))).toBe(true);
+    // A rule whose before folds to its required agent requires the action it comes before.
+    expect(error({ ...beforeBuilder, before: { delegate: "STRASSE" }, require: { delegate: "straße", succeeded: true } })).toContain("A rule cannot require the action it comes before");
+    const requiresStrasse = rule({ ...beforeSrc, require: { delegate: "straße", succeeded: true } });
+    expect(requiresStrasse.requiresDelegationTo(agent("STRASSE"))).toBe(false);
+    expect(requiresStrasse.mayResolveToRequiredAgent(agent("STRASSE"))).toBe(true);
+    const requiresCapitalSharpS = rule({ ...beforeSrc, require: { delegate: "ẞ", succeeded: true } });
+    expect(requiresCapitalSharpS.mayResolveToRequiredAgent(agent("ß"))).toBe(true);
+    expect(requiresCapitalSharpS.mayResolveToRequiredAgent(agent("SS"))).toBe(true);
+    // The fold is a function of the lower-cased name: every pair lower-casing alone matches still matches.
+    const unmatchedCodePoints: string[] = [];
+    for (let code = 0; code <= 0xffff; code += 1) {
+      const name = `x${String.fromCharCode(code)}x`;
+      if (!AgentName.parse(name).ok) continue;
+      const parsed = PrerequisiteRule.parse({ ...beforeBuilder, before: { delegate: name } });
+      if (!parsed.ok || !parsed.value.comesBefore(delegation(name.toLowerCase()))) unmatchedCodePoints.push(code.toString(16));
+    }
+    expect(unmatchedCodePoints).toEqual([]);
+  });
 });
 
 /** A word only the shell can resolve, as the reader reports it. */
