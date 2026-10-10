@@ -1,0 +1,25 @@
+{
+  "_source": "pi-subagents 0.52.1, src/runs/foreground/subagent-executor.ts:4492-4495 (a foreground workflow's result: details.runId is the call's id, results the children's SingleResults), compacted as src/shared/utils.ts:435-445 does",
+  "type": "tool_result",
+  "toolCallId": "call-review-2",
+  "toolName": "subagent",
+  "input": { "agent": "plan-reviewer", "task": "Review plans/plan.md", "async": false },
+  "content": [{ "type": "text", "text": "Workflow completed." }],
+  "details": {
+    "mode": "workflow",
+    "runId": "call-review-2",
+    "results": [
+      {
+        "index": 0,
+        "agent": "plan-reviewer",
+        "task": "[prompt redacted]",
+        "exitCode": 0,
+        "usage": { "input": 1200, "output": 300, "cacheRead": 0, "cacheWrite": 0, "cost": 0, "turns": 2 },
+        "finalOutput": "The plan is sound.",
+        "outputState": "present"
+      }
+    ],
+    "chatProgress": { "mode": "off" }
+  },
+  "isError": false
+}

@@ -9,7 +9,9 @@ version bump of its own. Amends [ADR 2026-005](2026-005-events-verdicts-dispatch
 lifecycle point and a judge method), [ADR 2026-019](2026-019-prereqs-pack.md)
 (its interim limit, `require`, its future work and its records) and
 [ADR 2026-022](2026-022-bounded-log.md) (the event kind the Bounded log
-records).
+records). Amended by [ADR 2026-028](2026-028-pi-agent-run-finish.md) (3.3.0):
+pi feeds the same finish from pi-subagents' async completion, and its
+synchronous results say whether their run finished.
 
 ## Context
 
@@ -216,7 +218,10 @@ A `delegatedAgentRuns` entry gains three optional fields, each written by
   counts as having run to its end.
 - **A forged finish:** anything running as the user can pipe a SubagentStop
   payload to the hook, the same-user limit every hook has.
-- **pi** is unchanged: every entry says `finishNeverReported` until item 1c.
+- **pi** is unchanged: every entry says `finishNeverReported` until item 1c. *Replaced by ADR 2026-028:*
+  pi-subagents' `subagent:async-complete` on pi's event bus is the finish of
+  an async run, and a synchronous result says whether its run ran to its end;
+  a completion forged from a result file is pi's main trust gap.
 
 ## Release
 

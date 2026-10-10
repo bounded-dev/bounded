@@ -68,10 +68,13 @@ when written; keep it current (AGENTS.md, "Working with the user").
   and `finishUnreported`, and a tool result `delegatedAgentRuns`: only a run
   the host says finished counts, as the agent the host resolved
   (`require` matches it exactly). From 3.3.0 a background run counts at its
-  finish: the core's `AgentRunFinished`, from Claude Code's SubagentStop,
-  reaches the pack through `onAgentRunFinish`, and until then an action
-  waiting on it is refused as pending
-  ([ADR 2026-025](adr/2026-025-agent-run-finish.md)).
+  finish: the core's `AgentRunFinished`, from Claude Code's SubagentStop
+  and from pi-subagents' `subagent:async-complete` on pi, reaches the pack
+  through `onAgentRunFinish`, and until then an action waiting on it is
+  refused as pending ([ADR 2026-025](adr/2026-025-agent-run-finish.md),
+  [ADR 2026-028](adr/2026-028-pi-agent-run-finish.md)). On pi a resume is a
+  delegation to the agent bounded saw its run launched and finish as, or is
+  refused.
 - **The standard pack structure** (issue #68, step 1;
   [writing a pack](writing-a-pack.md); ADR 2026-013's R7 and ADR 2026-009,
   amended by `pack-structure`): every shipped pack has a README with the
@@ -299,14 +302,24 @@ when written; keep it current (AGENTS.md, "Working with the user").
     empty `agent_type`.
   - A finish can be forged by piping a SubagentStop payload to the hook from
     a shell, as anything running as the user can (see the same-user limits).
-  - On pi no requirement can be met yet: pi-subagents 0.52.1 runs a call in
-    the background unless it says `async: false`
-    (`src/extension/config.ts:150-151`), `forceTopLevelAsync` can override
-    even that (`src/runs/background/top-level-async.ts:7-14`), and a
-    timed-out child may leave `isError` unset
-    (`src/runs/foreground/subagent-executor.ts:3544`). So a pi delegation
-    without `async: false` is refused, and no pi result is counted as
-    finished, until item 1c (`prereqs-pi-async`).
+  - **The main trust gap of pi completion: a completion can be forged from
+    a file. Anything running as the user, the guarded agent's own shell
+    included, can write a result file in pi-subagents' results directory
+    under the OS temp directory, and pi-subagents then reports it as a
+    completion. On pi this can count a pending review early.** It must name
+    a run bounded launched and is waiting on, as the required agent, and
+    counts only over files unchanged since that launch; nothing in pi or
+    pi-subagents authenticates a completion
+    ([ADR 2026-028](adr/2026-028-pi-agent-run-finish.md)).
+  - On pi (pi-subagents 0.52.1, ADR 2026-028), a background run counts at
+    pi-subagents' `subagent:async-complete`, and a foreground run at its
+    result. Their payloads were derived from source, not captured. An
+    interrupted background run is reported as a success, so it counts
+    (another extension, and possibly the user, can interrupt; the guarded
+    agent cannot). A resumed run never counts, and a resume bounded cannot
+    tie to an agent it saw launched and finish is refused; what ties a run
+    is in memory, so after a pi restart or reload every resume of an
+    earlier run is refused, even with no delegate rules.
   - A link is never followed: a link to a directory a rule's
     `unchangedSince` patterns could reach into, or a link whose target
     cannot be examined (a loop, or one behind a directory bounded may not
@@ -514,9 +527,8 @@ when written; keep it current (AGENTS.md, "Working with the user").
   below), no other command-line tool exists.
 - A file-backed pack catalog (only the in-memory catalog exists).
 - The prerequisites pack's next items (ADR 2026-019, "Future work"):
-  pi-subagents' asynchronous completion (`prereqs-pi-async`, mapped to the
-  agent run finish of ADR 2026-025), `require: { execute }`, and a Claude
-  Code status widget listing each requirement as holds, stale or missing.
+  `require: { execute }`, and a Claude Code status widget listing each
+  requirement as holds, stale or missing.
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the Bounded log ([Bounded log](bounded-log.md),

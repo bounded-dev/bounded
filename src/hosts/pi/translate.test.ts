@@ -61,15 +61,15 @@ describe("translate — pi's tools as host-neutral tool uses", () => {
   });
 
   test("subagent delegates to every agent it names, single, parallel or chained", () => {
-    expect(pi("subagent", { agent: "scout", task: "look" })).toEqual(use("subagent", { kind: "delegate", agent: "scout", finishUnreported: true }));
-    expect(pi("subagent", { tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }] })).toEqual(use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }, { kind: "delegate", agent: "b", finishUnreported: true }));
-    expect(pi("subagent", { chain: [{ agent: "planner", task: "x" }] })).toEqual(use("subagent", { kind: "delegate", agent: "planner", finishUnreported: true }));
+    expect(pi("subagent", { agent: "scout", task: "look" })).toEqual(use("subagent", { kind: "delegate", agent: "scout" }));
+    expect(pi("subagent", { tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y" }] })).toEqual(use("subagent", { kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }));
+    expect(pi("subagent", { chain: [{ agent: "planner", task: "x" }] })).toEqual(use("subagent", { kind: "delegate", agent: "planner" }));
   });
 
-  test("a subagent call with async: true delegates with its finish unreported", () => {
-    expect(pi("subagent", { agent: "scout", task: "look", async: true })).toEqual(use("subagent", { kind: "delegate", agent: "scout", finishUnreported: true }));
+  test("a subagent call's delegations are never finishUnreported, whatever its async says; an async that is not true or false is refused", () => {
+    expect(pi("subagent", { agent: "scout", task: "look", async: true })).toEqual(use("subagent", { kind: "delegate", agent: "scout" }));
     expect(pi("subagent", { tasks: [{ agent: "a", task: "x" }, { agent: "b", task: "y", output: "out.md" }], async: true })).toEqual(
-      use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }, { kind: "delegate", agent: "b", finishUnreported: true }, { kind: "write", path: "out.md", change: "create" }),
+      use("subagent", { kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }, { kind: "write", path: "out.md", change: "create" }),
     );
     expect(pi("subagent", { agent: "scout", task: "look", async: false })).toEqual(use("subagent", { kind: "delegate", agent: "scout" }));
     expect(refusal(pi("subagent", { agent: "scout", task: "look", async: "x" }))).toBe("pi's subagent call has an 'async' that is not true or false");
@@ -141,7 +141,7 @@ describe("translate — with the real locator", () => {
 
   test("a subagent's cwd is located before its output path, which starts there", () => {
     const result = JSON.parse(JSON.stringify(translate({ toolName: "subagent", input: { agent: "scout", cwd: "pkg", output: "src/a.ts" } }, project, real)));
-    expect<unknown>(result).toEqual(use("subagent", { kind: "delegate", agent: "scout", finishUnreported: true }, { kind: "write", path: "pkg/src/a.ts", change: "modify" }));
+    expect<unknown>(result).toEqual(use("subagent", { kind: "delegate", agent: "scout" }, { kind: "write", path: "pkg/src/a.ts", change: "modify" }));
   });
 
   test("a write's change comes from whether the file really exists", () => {
@@ -154,7 +154,7 @@ describe("translate — with the real locator", () => {
 describe("translate — pi-subagents' subagent tool, read strictly", () => {
   test("recurses into a chain step's parallel tasks", () => {
     expect(pi("subagent", { chain: [{ agent: "a", task: "x" }, { parallel: [{ agent: "b" }, { agent: "c" }] }] })).toEqual(
-      use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }, { kind: "delegate", agent: "b", finishUnreported: true }, { kind: "delegate", agent: "c", finishUnreported: true }),
+      use("subagent", { kind: "delegate", agent: "a" }, { kind: "delegate", agent: "b" }, { kind: "delegate", agent: "c" }),
     );
   });
 
@@ -172,24 +172,55 @@ describe("translate — pi-subagents' subagent tool, read strictly", () => {
   });
 
   test("an output file is a write, from the call's cwd or the task's own", () => {
-    expect(pi("subagent", { agent: "a", output: "notes/out.md" })).toEqual(use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }, { kind: "write", path: "notes/out.md", change: "create" }));
-    expect(pi("subagent", { tasks: [{ agent: "a", cwd: "src", output: "a.ts" }] })).toEqual(use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }, { kind: "write", path: "src/a.ts", change: "modify" }));
-    expect(pi("subagent", { agent: "a", output: false })).toEqual(use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }));
+    expect(pi("subagent", { agent: "a", output: "notes/out.md" })).toEqual(use("subagent", { kind: "delegate", agent: "a" }, { kind: "write", path: "notes/out.md", change: "create" }));
+    expect(pi("subagent", { tasks: [{ agent: "a", cwd: "src", output: "a.ts" }] })).toEqual(use("subagent", { kind: "delegate", agent: "a" }, { kind: "write", path: "src/a.ts", change: "modify" }));
+    expect(pi("subagent", { agent: "a", output: false })).toEqual(use("subagent", { kind: "delegate", agent: "a" }));
     expect(refusal(pi("subagent", { agent: "a", output: true }))).toBe("pi's subagent call has an 'output' that is not a file path or false");
   });
 
-  test("status and resume are invoked by name; other actions are refused", () => {
+  test("status is invoked by name; other actions but resume are refused", () => {
     expect(pi("subagent", { action: "status" })).toEqual(use("subagent", { kind: "invoke", name: "subagent.status" }));
     expect(pi("subagent", { action: "status", id: "r1", view: "transcript" })).toEqual(use("subagent", { kind: "invoke", name: "subagent.status" }));
-    expect(pi("subagent", { action: "resume", id: "r1", message: "go on" })).toEqual(use("subagent", { kind: "invoke", name: "subagent.resume" }));
     expect(refusal(pi("subagent", { action: "delete", agent: "x" }))).toBe("pi's subagent call uses action 'delete', which bounded does not translate");
+    expect(refusal(pi("subagent", { action: "interrupt", id: "r1" }))).toBe("pi's subagent call uses action 'interrupt', which bounded does not translate");
     expect(refusal(pi("subagent", { action: "status", agent: "a", task: "x" }))).toContain("'task'");
+    // A resume is translated only through a run bounded tied to an agent: with nothing to look it up in, it is refused.
+    expect(refusal(pi("subagent", { action: "resume", id: "r1", message: "go on" }))).toContain("cannot tell which agent");
+  });
+
+  test("a resume is a delegation to the agent the lookup gives, its finish unreported, and still invoked by name; without a tie it is refused with a redirect to start a new run", () => {
+    const lookup = (id: string): string | undefined => (id === "r1" ? "plan-reviewer" : undefined);
+    const resume = (input: Record<string, unknown>, given: ((id: string) => string | undefined) | undefined): unknown =>
+      JSON.parse(JSON.stringify(translate({ toolName: "subagent", input: { action: "resume", message: "go on", ...input } }, ROOT, fake, given)));
+    const tied = use("subagent", { kind: "delegate", agent: "plan-reviewer", finishUnreported: true }, { kind: "invoke", name: "subagent.resume" });
+    expect(resume({ id: "r1" }, lookup)).toEqual(tied);
+    expect(resume({ runId: "r1" }, lookup)).toEqual(tied);
+    expect(resume({ id: "r1", index: 0 }, lookup)).toEqual(tied);
+    const untied: [Record<string, unknown>, ((id: string) => string | undefined) | undefined][] = [
+      [{ id: "r1", index: 1 }, lookup],
+      [{ id: "unknown" }, lookup],
+      [{ id: "r1" }, undefined],
+      [{ id: "r1", runId: "r1" }, lookup],
+      [{ id: "" }, lookup],
+      [{ id: 3 }, lookup],
+      [{ runId: "" }, lookup],
+      [{ runId: null }, lookup],
+    ];
+    for (const [input, given] of untied) {
+      const result = resume(input, given) as { ok: boolean; error?: string; redirect?: string };
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("cannot tell which agent");
+      expect(result.redirect).toStartWith("Start a new run of the agent instead");
+    }
+    const outside = resume({ dir: "../x" }, lookup) as { ok: boolean; error?: string; redirect?: string };
+    expect(outside.error).toContain("outside the project");
+    expect(outside.redirect).toBeUndefined();
   });
 });
 
 describe("translate — the subagent tool's reach", () => {
   test("only project agents are translated: another agentScope is refused", () => {
-    expect(pi("subagent", { agent: "a", agentScope: "project" })).toEqual(use("subagent", { kind: "delegate", agent: "a", finishUnreported: true }));
+    expect(pi("subagent", { agent: "a", agentScope: "project" })).toEqual(use("subagent", { kind: "delegate", agent: "a" }));
     for (const scope of ["user", "both", 3]) {
       expect(refusal(pi("subagent", { agent: "a", agentScope: scope }))).toBe(`pi's subagent call uses agentScope '${scope}'; only 'project' is translated`);
     }

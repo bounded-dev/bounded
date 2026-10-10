@@ -1,0 +1,26 @@
+{
+  "_source": "pi-subagents 0.52.1, src/runs/foreground/execution.ts:1343-1347 (an interrupted child exits 0 with interrupted true); src/runs/foreground/subagent-executor.ts:3476-3481 (returned without isError) and :4492-4495 (the workflow's result)",
+  "type": "tool_result",
+  "toolCallId": "call-review-2",
+  "toolName": "subagent",
+  "input": { "agent": "plan-reviewer", "task": "Review plans/plan.md", "async": false },
+  "content": [{ "type": "text", "text": "Workflow completed." }],
+  "details": {
+    "mode": "workflow",
+    "runId": "call-review-2",
+    "results": [
+      {
+        "index": 0,
+        "agent": "plan-reviewer",
+        "task": "[prompt redacted]",
+        "exitCode": 0,
+        "interrupted": true,
+        "usage": { "input": 1200, "output": 300, "cacheRead": 0, "cacheWrite": 0, "cost": 0, "turns": 2 },
+        "finalOutput": "Interrupted. Waiting for explicit next action.",
+        "outputState": "present"
+      }
+    ],
+    "chatProgress": { "mode": "off" }
+  },
+  "isError": false
+}

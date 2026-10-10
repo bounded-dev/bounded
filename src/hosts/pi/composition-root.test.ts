@@ -99,6 +99,23 @@ describe("composeProject — never fails open, whatever openProject or its judge
     expect(failed.refuse).toBeUndefined();
   });
 
+  test("the decide carries the project's recordAgentRunFinish; an openProject that rejects has none", async () => {
+    const finishes: unknown[] = [];
+    const recording: Open = async () => ({
+      judge: async () => Verdict.allow,
+      afterTool: async () => ({ changed: [], restored: true, message: null }),
+      refuse: async () => Verdict.refuse("refused", "fix it"),
+      recordAgentRunFinish: async (finish) => void finishes.push(finish),
+      problem: null,
+    });
+    const finish = { kind: "agent-run-finished", role: null, agent: "plan-reviewer", agentRunId: "r1", ranToEnd: true };
+    const decide = await composeProject(root, recording);
+    expect(decide.recordAgentRunFinish).toBeDefined();
+    await decide.recordAgentRunFinish?.(finish);
+    expect(finishes).toEqual([finish]);
+    expect((await composeProject(root, rejecting)).recordAgentRunFinish).toBeUndefined();
+  });
+
   test("the default open provides bounded/prereqs's ports", async () => {
     const project = realpathSync(mkdtempSync(join(tmpdir(), "bounded-pi-prereqs-")));
     mkdirSync(join(project, "node_modules"));

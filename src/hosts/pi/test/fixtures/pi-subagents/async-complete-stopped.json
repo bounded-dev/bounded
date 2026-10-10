@@ -1,0 +1,34 @@
+{
+  "_source": "pi-subagents 0.52.1, src/runs/foreground/subagent-executor.ts:4366-4376 (the result file when the run's controller was aborted: state stopped, success false, stopped true, error), as src/runs/background/result-watcher.ts:559-577 emits it on subagent:async-complete",
+  "id": "5b1f0c6e-2d4a-4c8e-9f3b-7a1d2e3c4b5a",
+  "runId": "5b1f0c6e-2d4a-4c8e-9f3b-7a1d2e3c4b5a",
+  "toolCallId": "call-review-1",
+  "agent": "workflow",
+  "mode": "workflow",
+  "success": false,
+  "state": "stopped",
+  "summary": "This operation was aborted",
+  "error": "This operation was aborted",
+  "stopped": true,
+  "results": [
+    {
+      "workflowKey": "main",
+      "agent": "plan-reviewer",
+      "runId": "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4",
+      "output": "",
+      "outputState": "absent",
+      "success": false,
+      "status": "failed",
+      "summary": "",
+      "index": 0
+    }
+  ],
+  "asyncDir": "/tmp/pi-subagents-user/async-subagent-runs/5b1f0c6e-2d4a-4c8e-9f3b-7a1d2e3c4b5a",
+  "cwd": "/project",
+  "sessionId": "/sessions/session.jsonl",
+  "completionOwnerId": "/sessions/session.jsonl",
+  "timestamp": 1760000000000,
+  "durationMs": 42000,
+  "triggerTurn": true,
+  "intercomDelivered": false
+}

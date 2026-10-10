@@ -13,6 +13,11 @@ from the execute effect's reading ([ADR 2026-020](2026-020-shell-command-reading
 Amended by `shell-reader-coverage` (3.3.0): the reader's new readings
 (ADR 2026-020) close the limits it named for execute and write rules, and
 the over-refusals they bring are stated below.
+Amended by [ADR 2026-028](2026-028-pi-agent-run-finish.md) (3.3.0): on pi,
+pi-subagents' async completion and its synchronous results say when a run
+finished, so a requirement can be met on pi; a resume is a delegation to the
+agent bounded tied to its run, or refused; and the redirect for a delegation
+whose finish goes unreported is reworded host-neutrally.
 
 ## Decision
 
@@ -163,8 +168,8 @@ the over-refusals they bring are stated below.
 - **A delegation some rule requires** is refused at the call when it is
   isolated ("Run <agent> without isolation, on the project's own files": a
   worktree branches from the default branch, so the agent would review other
-  files), when its finish goes unreported ("Run <agent> as a run whose
-  finish the host reports (not as a teammate or an asynchronous run)"), or
+  files), when its finish goes unreported ("Run <agent> as a new run whose
+  finish the host reports", reworded host-neutrally by ADR 2026-028), or
   when it has no call id. Otherwise each requirement it can meet has its
   files fingerprinted, and these starts are kept under the call's id.
 - **After the call, only a run the host says finished counts (a positive
@@ -235,6 +240,14 @@ the over-refusals they bring are stated below.
   The call cannot say whether its agents run to their end, and the result
   cannot say so either. **So on pi a requirement cannot be met until item
   1c** (`prereqs-pi-async`, observing pi-subagents' completion).
+  *Replaced by ADR 2026-028:* no run call's delegation is
+  `finishUnreported`; an async launch's result gives its run id, its finish
+  reported later through pi-subagents' `subagent:async-complete` on pi's
+  event bus; a synchronous result says whether its one run ran to its end;
+  and a resume is a delegation to the agent bounded tied to its run,
+  `finishUnreported`, or is refused. (The `forceTopLevelAsync` and timed-out
+  child readings above were also corrected there: `forceTopLevelAsync` only
+  guards one foreground call, and a timed-out child exits 1.)
 
 ### Why not refuse background runs
 
@@ -287,7 +300,8 @@ pi-subagents' project agent directory), which give role identity.
   a run whose finish never comes (turn limit, TaskStop) never counts.
 - **On pi, no requirement can be met until item 1c:** no pi run is marked
   finished; every entry says `finishNeverReported` (see "The hosts'
-  mappings").
+  mappings"). *Replaced by ADR 2026-028:* an async or synchronous pi run
+  counts under the same rules as on Claude Code; a resumed run never counts.
 - **Links and special files make the fingerprint fail, naming them.** A
   link is never followed. One to a directory the patterns could reach into
   (classified by `stat`; a link `stat` cannot examine, other than a missing

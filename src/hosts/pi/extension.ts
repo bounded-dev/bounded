@@ -4,12 +4,14 @@
 // answers pi. Anything it cannot read, translate or decide in time blocks
 // the call: it fails closed, and records the block when the project can.
 // After a tool ran, the project checks it, and what it undid is added to the
-// result the agent sees.
+// result the agent sees. pi-subagents' completions, observed on pi's event
+// bus, are recorded as the finish of the runs they name (ADR 2026-028).
 import { isAbsolute } from "node:path";
-import { ToolResult, Verdict } from "bounded/domain";
+import { type DelegatedAgentRunJSON, ToolResult, Verdict } from "bounded/domain";
 import type { ReadShellCommand } from "bounded-shell-command-reader/shell-command-reading";
 import { type ToolUse, toolUse } from "./event.ts";
 import { locator } from "./pi-path.ts";
+import { ASYNC_COMPLETE_CHANNEL, ObservedSubagentRuns, readCompletion } from "./subagent-runs.ts";
 import { translate } from "./translate.ts";
 
 /** A block the extension made itself, before the project judged anything: what the project's Bounded log records. */
@@ -28,6 +30,8 @@ export interface ProjectJudgeForPi {
   readonly afterTool?: (result: ToolResult) => Promise<{ readonly message: string | null }>;
   /** Records a block the extension made itself. Its outcome never changes or delays the block. */
   readonly refuse?: (refusal: AdapterRefusal) => Promise<unknown>;
+  /** Records a delegated agent run's finish, in the core's wire form (ADR 2026-025): what pi-subagents' completion says (ADR 2026-028). */
+  readonly recordAgentRunFinish?: (finish: unknown) => Promise<unknown>;
 }
 
 /** The composition root's seam: composes the project once and gives its decide. May reject. */
@@ -48,9 +52,19 @@ export interface PiResultPatch {
 /** A handler as pi calls it, and awaits. Event and context are read defensively: they come from the host. */
 export type PiHandler = (event: unknown, context: unknown) => Promise<PiBlock | PiResultPatch | undefined>;
 
+/** A handler on pi's event bus. pi does not await it, and catches what it throws (pi 0.87.1, dist/core/event-bus.js:2-23). */
+export type PiBusHandler = (data: unknown) => Promise<void>;
+
 /** The part of pi's ExtensionAPI this extension uses. */
 export interface Pi {
   on(event: "session_start" | "tool_call" | "tool_result", handler: PiHandler): unknown;
+  /**
+   * pi's event bus, shared by the extensions it loads (dist/core/extensions/types.d.ts:1157-1158).
+   * When absent, no async run's finish is observed, and an async launch says its finish is never reported.
+   */
+  readonly events?: {
+    on(channel: string, handler: PiBusHandler): unknown;
+  };
 }
 
 export interface ExtensionOptions {
@@ -126,6 +140,35 @@ export function piExtension({ projectRoot, load, readShellCommand, home, deadlin
         (error): Composed => ({ ok: false, error: message(error), timedOut: error instanceof TimedOut }),
       );
 
+    /** pi-subagents' runs bounded saw in this load, in memory only: what ties a resume to an agent (ADR 2026-028). */
+    const subagentRuns = new ObservedSubagentRuns();
+    const agentOfRun = (runId: string): string | undefined => subagentRuns.agentOf(runId);
+    /** Whether pi-subagents' completions are observed: only then does an async launch's finish come later. */
+    let completionsObserved = false;
+    // Subscribed once, when the extension loads. pi unsubscribes it when it invalidates this
+    // extension's context, on a reload or a session replacement (dist/core/extensions/loader.js:142-155).
+    if (pi.events !== undefined) {
+      try {
+        pi.events.on(ASYNC_COMPLETE_CHANNEL, async (payload) => {
+          // Read now, before any await, into plain values: nothing done to the shared payload later changes what is recorded.
+          const completion = readCompletion(payload);
+          subagentRuns.completed(completion);
+          const project = started ? composed : undefined;
+          if (completion.finish === undefined || project === undefined) return;
+          try {
+            const current = await project;
+            const recordAgentRunFinish = current.ok ? current.decide.recordAgentRunFinish : undefined;
+            if (recordAgentRunFinish !== undefined) await recordAgentRunFinish(completion.finish);
+          } catch {
+            // Not recorded: a finish carries no verdict to enforce, and pi would only log the failure.
+          }
+        });
+        completionsObserved = true;
+      } catch {
+        // No completion is observed: every async launch says its finish is never reported.
+      }
+    }
+
     // Composition and the shell command reader's preparation start here; calls
     // await what they need, so neither ever delays the session itself.
     pi.on("session_start", async () => {
@@ -165,8 +208,8 @@ export function piExtension({ projectRoot, load, readShellCommand, home, deadlin
           deepFreeze(input);
           if (typeof toolName !== "string") return blocked("bounded could not read pi's tool call: it names no tool", "Report this to the maintainers of bounded-pi");
           if (typeof cwd !== "string" || !isAbsolute(cwd)) return blocked(`bounded could not read pi's context for the ${toolName} call: its cwd is not an absolute directory`, "Report this to the maintainers of bounded-pi");
-          const translated = translate({ toolName, input }, cwd, locate);
-          if (!translated.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${translated.error}`, "Use paths inside the project, spelled plainly, and the tool's documented arguments");
+          const translated = translate({ toolName, input }, cwd, locate, agentOfRun);
+          if (!translated.ok) return blocked(`bounded cannot check pi's ${toolName} call: ${translated.error}`, translated.redirect ?? "Use paths inside the project, spelled plainly, and the tool's documented arguments");
           const call = translated.value;
           // Reading the call's shell commands and deciding share the decision's deadline.
           const outcome = await within(
@@ -191,28 +234,45 @@ export function piExtension({ projectRoot, load, readShellCommand, home, deadlin
 
     // After a tool ran: the project checks it; what it undid, or that checking failed, is added to what the agent sees.
     pi.on("tool_result", async (event, context) => {
+      // The call is translated, and what its result says of a subagent run read and remembered, when the
+      // result arrives, before any await: a completion that follows it then finds the launch (ADR 2026-028).
+      let call: ReturnType<typeof translate> | undefined;
+      let delegatedAgentRuns: DelegatedAgentRunJSON[] | undefined;
+      let unreadable: unknown;
+      try {
+        const [toolName, cwd, input] = [field(event, "toolName"), field(context, "cwd"), field(event, "input")];
+        if (typeof toolName === "string" && toolName !== "" && typeof cwd === "string" && isAbsolute(cwd)) call = translate({ toolName, input }, cwd, locate, agentOfRun);
+        if (call?.ok) {
+          delegatedAgentRuns = subagentRuns.delegatedAgentRuns({
+            delegatedAgents: call.value.effects.flatMap((effect) => (effect.kind === "delegate" ? [effect.agent] : [])),
+            resume: toolName === "subagent" && field(input, "action") === "resume",
+            callId: callIdOf(event).callId,
+            isError: field(event, "isError"),
+            details: field(event, "details"),
+            completionsObserved,
+          });
+        }
+      } catch (error) {
+        unreadable = error;
+      }
       const project = started ? await composed : undefined;
       const decide = project?.ok ? project.decide : undefined;
       const afterTool = decide?.afterTool;
       if (decide === undefined || afterTool === undefined) return undefined;
       let told: string | null;
       try {
-        const [toolName, cwd] = [field(event, "toolName"), field(context, "cwd")];
+        if (unreadable !== undefined) throw unreadable;
+        const toolName = field(event, "toolName");
         if (typeof toolName !== "string" || toolName === "") throw new Error("pi's tool result names no tool");
         // Reading the result's shell commands again, after the call (the files they name may now exist), and the check share the deadline.
         const checked = async (): Promise<{ readonly message: string | null }> => {
-          const call = typeof cwd === "string" && isAbsolute(cwd) ? translate({ toolName, input: field(event, "input") }, cwd, locate) : undefined;
           const use = call?.ok ? await toolUse(null, call.value, { projectRoot, readShellCommand, ...callIdOf(event) }) : undefined;
-          // No subagent result says its agents' runs finished (ADR 2026-019): even with async: false,
-          // pi-subagents' forceTopLevelAsync can run them in the background, and a timed-out child may
-          // leave isError unset. Until pi's completion is observed, no run is marked finished.
-          const delegations = use?.ok ? use.value.effects.filter((effect) => effect.kind === "delegate") : [];
           const result = ToolResult.parse({
             ...(use?.ok ? use.value.toJSON() : { role: null, tool: "other", effects: [{ kind: "invoke", name: toolName }] }),
             kind: "tool-result",
             ok: field(event, "isError") !== true,
             ...callIdOf(event),
-            ...(delegations.length === 0 ? {} : { delegatedAgentRuns: delegations.map(() => ({ finished: false, finishNeverReported: true })) }),
+            ...(use?.ok && delegatedAgentRuns !== undefined ? { delegatedAgentRuns } : {}),
           });
           if (!result.ok) throw new Error(result.error);
           return afterTool(result.value);
