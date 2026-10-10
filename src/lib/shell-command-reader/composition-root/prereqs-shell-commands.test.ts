@@ -477,6 +477,18 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them 
     for (const [command] of refused) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
+  test("a bare exec given a here-string or a < from a process substitution feeds the rest of the shell code: refused while a rule does not hold; a < from a file stays a read (second final review, M1)", async () => {
+    const { shell, reviewedByAll } = await opened();
+    const refused = [
+      ["exec <<< 'terraform apply'; ssh host", code("<<< 'terraform apply'")],
+      ["exec < <(echo terraform apply); ssh host", code("<(echo terraform apply)")],
+    ] as const;
+    for (const [command, part] of refused) expect({ command, part: cannotSeeOf(await shell(command)) }).toEqual({ command, part });
+    expect(reasonOf(await shell("exec < input.txt; mytool"))).toBe("allowed");
+    await reviewedByAll();
+    for (const [command] of refused) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  });
+
   test("limit: a glob or brace a program the reader does not interpret expands itself is not seen (final review, M1)", async () => {
     const { shell } = await opened();
     // ssh's remote shell expands them, so these may run terraform apply; bounded reads a literal word with no '$', backquote, ';',

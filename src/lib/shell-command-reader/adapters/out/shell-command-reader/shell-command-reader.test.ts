@@ -1166,6 +1166,40 @@ describe("TreeSitterShellCommandReader — the reader's new readings (every read
     expect(fromFile.fileEffects).toEqual([{ effect: { kind: "read", path: "input.txt" } }]);
   });
 
+  test("a bare exec given a here-string or a < from a process substitution reports it as code; a < from a file stays a read (second final review, M1)", async () => {
+    expect(codeOf(await read("exec <<< 'x'; mytool"))).toEqual(["<<< 'x'"]);
+    expect(codeOf(await read("exec < <(echo x); mytool"))).toEqual(["<(echo x)"]);
+    // exec running a command gives that command its input, as any command's: a known one keeps its reads.
+    expect(codeOf(await read("exec cat <<< 'x'"))).toEqual([]);
+    const fromFile = await read("exec < input.txt; mytool");
+    expect(codeOf(fromFile)).toEqual([]);
+    expect(fromFile.fileEffects).toEqual([{ effect: { kind: "read", path: "input.txt" } }]);
+  });
+
+  test("an ERROR the grammar leaves in a redirected statement, of no shape the reader knows, is unparsed code (second final review, minor)", async () => {
+    // Recorded with the repository's tree-sitter-bash (@vscode/tree-sitter-wasm 0.3.1), rootNode.toString():
+    //   { a; } <<<< x             => (program (redirected_statement body: (compound_statement (command name: (command_name (word)))) (ERROR) redirect: (file_redirect destination: (word))))
+    //                                the ERROR's text is "<<<"
+    //   while a; do b; done 0<<< x => (program (redirected_statement body: (while_statement …) (ERROR (special_variable_name)) (herestring_redirect (word))))
+    //                                the ERROR's text is " 0"
+    //   { a; } 0<<< x             => (program (ERROR (compound_statement …) (special_variable_name)) (redirected_statement redirect: (herestring_redirect (word))))
+    //                                a top-level ERROR, unparsed as before
+    expect((await read("{ a; } <<<< x")).unresolved).toContainEqual({ text: "<<<", role: "code" });
+    expect((await read("while a; do b; done 0<<< x")).unresolved).toContainEqual({ text: " 0", role: "code" });
+    // The recovery shape it knows is a here-string, not unparsed.
+    expect(codeOf(await read("{ a; } <<< x"))).toEqual(["<<< x"]);
+  });
+
+  test("here-strings on nested groups are read in time linear in the nesting: 400 levels in under 250 ms (second final review, minor)", async () => {
+    let command = "mytool";
+    for (let level = 0; level < 400; level++) command = `{ ${command}; } <<< "$(echo x)"`;
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    const started = performance.now();
+    const reading = made(ShellCommandReading.parse(await reader.read(ROOT, made(Command.parse(command)), null)));
+    const elapsed = performance.now() - started;
+    expect({ fast: elapsed < 250, forTime: reading.outcome === "unread" && reading.why.includes("within the time") }).toEqual({ fast: true, forTime: false });
+  }, 30_000);
+
   test("xargs named by its path reads its runs as xargs does", async () => {
     const byName = (await read('xargs "$W" rm x')).programs.slice(1).map(programLine);
     expect((await read('/usr/bin/xargs "$W" rm x')).programs.slice(1).map(programLine)).toEqual(byName);
