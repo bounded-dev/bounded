@@ -39,6 +39,8 @@ interface Manifest {
   bin?: Record<string, string>;
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
+  keywords?: string[];
+  bounded?: { catalog?: string; packs?: Record<string, string> };
 }
 
 const manifestOf = (dir: string): Manifest => JSON.parse(readFileSync(join(ROOT, dir, "package.json"), "utf8")) as Manifest;
@@ -90,7 +92,22 @@ describe("bounded, the one published package", () => {
     expect(manifest.engines).toEqual({ node: ">=22.18" });
     expect(manifest.files).toEqual(expect.arrayContaining(["dist", "core", "packs"]));
     expect(manifest.bin).toEqual({ bounded: "dist/cli.js" });
-    expect(manifest.scripts?.prepack).toBe("bun build-dist.ts");
+    expect(manifest.scripts?.prepack).toBe("bun build-dist.ts && node dist/cli.js catalog build");
+  });
+
+  test("points to its catalogue from the bounded field, carries the bounded-pack keyword, and lists every shipped pack", () => {
+    const manifest = manifestOf("src");
+    expect(manifest.keywords).toContain("bounded-pack");
+    expect(manifest.files).toContain("bounded.catalog.json");
+    expect(manifest.bounded?.catalog).toBe("./bounded.catalog.json");
+    const shippedPacks = readdirSync(join(CORE, "packs"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+    expect(shippedPacks.length).toBeGreaterThan(0);
+    expect(manifest.bounded?.packs).toEqual(Object.fromEntries(shippedPacks.map((name) => [`./${name}`, `packs/${name}`])));
+    for (const exportPath of Object.keys(manifest.bounded?.packs ?? {})) expect(Object.keys(manifest.exports ?? {})).toContain(exportPath);
+    expect(packed).toContain("bounded.catalog.json");
   });
 
   test("every library export runs from dist/ under node, with declarations for types and its TypeScript source for bun, bun first", () => {
@@ -135,7 +152,7 @@ describe("bounded, the one published package", () => {
 
   test("its tarball holds dist/, the core's and the packs' sources, the published reader suite and its contract, README.md, LICENSE and package.json: nothing else of the libraries', the hosts' or the cli's sources, nor the repository's tests", () => {
     const topLevel = [...new Set(packed.map((file) => file.split("/")[0] ?? ""))].sort();
-    const allowed = ["LICENSE", "README.md", "core", "dist", "lib", "package.json", "packs"];
+    const allowed = ["LICENSE", "README.md", "bounded.catalog.json", "core", "dist", "lib", "package.json", "packs"];
     expect(topLevel.filter((entry) => !allowed.includes(entry))).toEqual([]);
     expect(topLevel).toEqual(allowed);
     expect(packed.filter((file) => file.startsWith("lib/")).sort()).toEqual([...PUBLISHED_LIBRARY_SOURCES].sort());

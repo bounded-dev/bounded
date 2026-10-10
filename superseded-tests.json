@@ -6166,5 +6166,41 @@
       "case": "architecture > R7: a shipped pack's directory holds its overview, contract, index, their test and its README at its root, and only domain/, application/, adapters/ and examples/"
     },
     "reason": "a shipped pack's root holds its required README and its examples/ folder too (ADR 2026-013's R7, amended by pack-structure), so the case's title and the root-file message name them (final review of pack-structure)"
+  },
+  {
+    "file": "src/core/composition-root/pack-readmes.test.ts",
+    "case": "shipped packs' READMEs > each shipped pack's README is titled `# <pack id>: <summary>`",
+    "successor": {
+      "file": "src/core/composition-root/pack-readmes.test.ts",
+      "case": "shipped packs' READMEs > each README's summary is its title's"
+    },
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
+  },
+  {
+    "file": "src/core/composition-root/pack-readmes.test.ts",
+    "case": "shipped packs' READMEs > each shipped pack's README has the seven required sections, each once, with a body",
+    "successor": {
+      "file": "src/core/composition-root/pack-readmes.test.ts",
+      "case": "shipped packs' READMEs > each shipped pack's README parses with the build's own rules"
+    },
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
+  },
+  {
+    "file": "src/core/composition-root/pack-readmes.test.ts",
+    "case": "shipped packs' READMEs > Rule shape names every point key and Ports every port key in inline code",
+    "successor": {
+      "file": "src/core/composition-root/pack-readmes.test.ts",
+      "case": "shipped packs' READMEs > Rule shape and Ports name every key as inline code, by the lexer's code spans"
+    },
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
+  },
+  {
+    "file": "src/core/composition-root/pack-readmes.test.ts",
+    "case": "shipped packs' READMEs > no README holds a project configuration",
+    "successor": {
+      "file": "src/core/composition-root/pack-readmes.test.ts",
+      "case": "shipped packs' READMEs > no README holds a project configuration, by the lexer's fenced code blocks"
+    },
+    "reason": "the README rules now run through the build's own parse: MarkedMarkdownSections splits each README and PackReadme applies the rules the package catalogue build applies (ADR 2026-026, pack-catalogue)"
   }
 ]
