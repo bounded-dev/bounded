@@ -71,6 +71,11 @@ export function read(composition: Composition): readonly number[] {
 // A pack the package ships is typed by its contract: a definition missing a contracted point does not compile.
 export const missingPoint: CorePack = definePack({ id: packIdsFor("bounded")("core"), points: { toolUseGuards: point({ description: "x", check: (raw: unknown) => ({ ok: false as const, error: String(raw) }) }) } }); // rejected: is not assignable to type 'CorePack'
 // A pack is made by definePack: even a complete look-alike lacks the brand only the class carries.
-export const lookAlikePack: BasePack = { __brand: "Pack", id: packId("look-alike"), dependsOn: [], points: {}, contributes: [], ports: {}, problem: undefined }; // rejected: Property '[packBrand]' is missing
+export const lookAlikePack: BasePack = { __brand: "Pack", id: packId("look-alike"), dependsOn: [], points: {}, contributes: [], ports: {}, optionalPorts: {}, problem: undefined }; // rejected: Property '[packBrand]' is missing
 // A pack declares only its own ports.
 export const borrowsPorts = definePack({ id: packId("borrower"), ports: { files: portKeysFor(packId("lender"))("files") } }); // rejected: a pack declares only its own ports
+// Optional ports (ADR 2026-026) are a pack's own too, under camelCase keys, and a port is required or optional, not both.
+export const borrowsOptionalPorts = definePack({ id: packId("optional-borrower"), optionalPorts: { files: portKeysFor(packId("lender"))("files") } }); // rejected: a pack declares only its own ports
+export const dottedOptionalPort = definePack({ id: packId("dotted-optional"), optionalPorts: { "a.b": portKeysFor(packId("dotted-optional"))("files") } }); // rejected: port keys are camelCase words, such as sourceFiles
+const bothFiles = portKeysFor(packId("both"))("files");
+export const requiredAndOptional = definePack({ id: packId("both"), ports: { files: bothFiles }, optionalPorts: { files: bothFiles } }); // rejected: a port is declared required or optional, not both

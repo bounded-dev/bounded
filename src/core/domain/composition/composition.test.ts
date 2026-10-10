@@ -80,6 +80,14 @@ describe("Composition — the ports its packs need", () => {
     expect(composed([b, a, c], [b, a]).requiredPorts()).toEqual([aFiles, bFiles]);
     expect(composed([base], [base]).requiredPorts()).toEqual([]);
   });
+
+  test("requiredPorts() leaves a pack's optional ports out, and the composed pack keeps them", () => {
+    const [files, notes] = [portKeysFor(packId("a"))("files"), portKeysFor(packId("a"))("notes")];
+    const a = definePack({ id: packId("a"), ports: { files }, optionalPorts: { notes } });
+    const composition = composed([a], [a]);
+    expect(composition.requiredPorts()).toEqual([files]);
+    expect(composition.packs[0]?.optionalPorts).toEqual({ notes });
+  });
 });
 
 describe("Composition — reading an extension point", () => {

@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { type AfterToolReport, AgentRunFinished, type Composition, contribution, corePack, defineConfig, type EffectJSON, Ports, ToolResult, ToolUse, type Verdict } from "bounded/domain";
+import { FileSetFingerprint } from "../../domain/file-set-fingerprint.ts";
 import type { PrerequisiteRuleJSON } from "../../domain/prerequisite-rule.contract.ts";
+import { PrerequisiteRule } from "../../domain/prerequisite-rule.ts";
 import { prereqs } from "../../prereqs.pack.ts";
+import { fileSetFingerprintsPort, type PrerequisiteStatusSnapshotJSON, prerequisiteRecordsPort, prerequisiteStatusSnapshotsPort } from "./check-prerequisites.contract.ts";
 import { CheckPrerequisitesHandler } from "./check-prerequisites.handler.ts";
-import { checkBeforeTool, recordAfterTool } from "./check-prerequisites.lifecycle.ts";
+import { checkBeforeTool, recordAfterTool, recordRunAtFinish, writeStatusAfterTool, writeStatusAtFinish } from "./check-prerequisites.lifecycle.ts";
 import { InMemoryFileSetFingerprints } from "./check-prerequisites.in-memory-file-set-fingerprints.test-support.ts";
 import { InMemoryPrerequisiteRecords } from "./check-prerequisites.in-memory-prerequisite-records.test-support.ts";
+import { InMemoryPrerequisiteStatusSnapshots } from "./check-prerequisites.in-memory-prerequisite-status-snapshots.test-support.ts";
 import { callIdOf } from "./check-prerequisites.prerequisite-records.test-support.ts";
 
 const PLAN = ".agent-state/prereqs/plan.md";
@@ -693,5 +697,346 @@ describe("CheckPrerequisites — before an execute, and shell writes (ADR 2026-0
     expect(redirectOf(verdict)).toBe("Open the project with bounded/prereqs's ports (prereqsPortProvisions()); until then actions that need a prerequisite are refused");
     expect((await checkBeforeTool(shellCall("terraform plan", [ran("terraform", ["plan"])]), context)).kind).toBe("allow");
     expect(await recordAfterTool(resultOf(tfApply(), true), context)).toEqual({ message: null, record: null });
+  });
+});
+
+const beforeTestWriter: PrerequisiteRuleJSON = { before: { delegate: "test-writer" }, require: { delegate: "spec-reviewer", succeeded: true }, unchangedSince: ["spec.md", "src/**/*.contract.ts"], redirect: "Have spec-reviewer review the current spec and contracts" };
+/** The four canonical rules, as prereqs.pack.test.ts lists them: three requirements, the first named twice. */
+const CANONICAL: readonly PrerequisiteRuleJSON[] = [beforeBuilder, beforeSrc, beforeTestWriter, { ...beforeApply }];
+const CANONICAL_FILES = { [PLAN]: "plan v1\n", "spec.md": "spec v1\n", "src/a.contract.ts": "export {};\n", "infra/main.tf": "", "src/a.ts": "" };
+type ReadSnapshotJSON = Extract<PrerequisiteStatusSnapshotJSON, { readonly outcome: "read" }>;
+
+/** The key of the requirement `rule` needs, as the rule gives it. */
+function keyOf(rule: PrerequisiteRuleJSON): string {
+  const parsed = PrerequisiteRule.parse(rule);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value.requirementKey();
+}
+
+/** Writes the status snapshot to `snapshots` and gives the last one saved, as its wire form. */
+async function snapshotOf(handler: CheckPrerequisitesHandler, snapshots = new InMemoryPrerequisiteStatusSnapshots()): Promise<PrerequisiteStatusSnapshotJSON | undefined> {
+  await handler.writeStatusSnapshot(snapshots, { withinMs: 2000 });
+  return snapshots.saved.at(-1)?.toJSON();
+}
+
+/** The snapshot written now, which must be read; a test failure when it is not. */
+async function readSnapshot(handler: CheckPrerequisitesHandler): Promise<ReadSnapshotJSON> {
+  const snapshot = await snapshotOf(handler);
+  if (snapshot?.outcome !== "read") throw new Error(`the snapshot is not read: ${JSON.stringify(snapshot)}`);
+  return snapshot;
+}
+
+/** Why the snapshot written now is unread; a test failure when it is read. */
+async function unreadWhy(handler: CheckPrerequisitesHandler): Promise<string> {
+  const snapshot = await snapshotOf(handler);
+  if (snapshot?.outcome !== "unread") throw new Error(`the snapshot is not unread: ${JSON.stringify(snapshot)}`);
+  return snapshot.why;
+}
+
+/** How many files `patterns` match now, as their fingerprint counts them. */
+async function filesMatched(fingerprints: InMemoryFileSetFingerprints, patterns: readonly string[]): Promise<number> {
+  const given = await fingerprints.fingerprint(patterns);
+  const fingerprint = given.ok ? FileSetFingerprint.parse(given.value) : given;
+  if (!fingerprint.ok) throw new Error(fingerprint.error);
+  return fingerprint.value.fileCount;
+}
+
+describe("check-prerequisites — the status snapshot (ADR 2026-026)", () => {
+  test("each requirement once, in the order rules name it, with its status", async () => {
+    const { handler, fingerprints } = setup(CANONICAL, CANONICAL_FILES);
+    await run(handler);
+    await run(handler, "spec-reviewer", "c2");
+    fingerprints.files.set("spec.md", "spec v2\n");
+    const snapshot = await readSnapshot(handler);
+    expect(snapshot.format).toBe("bounded-prereqs-status/1");
+    expect(snapshot.requirements).toEqual([
+      { key: keyOf(beforeBuilder), requiredAgent: "plan-reviewer", unchangedSince: [".agent-state/*/plan.md"], status: "holds", filesMatched: await filesMatched(fingerprints, [".agent-state/*/plan.md"]), pendingRun: null },
+      { key: keyOf(beforeTestWriter), requiredAgent: "spec-reviewer", unchangedSince: ["spec.md", "src/**/*.contract.ts"], status: "stale", filesMatched: await filesMatched(fingerprints, ["spec.md", "src/**/*.contract.ts"]), pendingRun: null },
+      { key: keyOf(beforeApply), requiredAgent: "infra-reviewer", unchangedSince: ["infra/**"], status: "missing", filesMatched: await filesMatched(fingerprints, ["infra/**"]), pendingRun: null },
+    ]);
+    expect(snapshot.requirements.map((requirement) => requirement.filesMatched)).toEqual([1, 2, 1]);
+    expect(snapshot.rules).toEqual(CANONICAL.map((rule) => ({ contributedBy: "bounded/project", before: rule.before, requirementKey: keyOf(rule), allows: rule.require.delegate === "plan-reviewer" })));
+  });
+
+  test("two rules with the same agent and patterns in another order share one requirement", async () => {
+    const first: PrerequisiteRuleJSON = { ...beforeSrc, unchangedSince: ["spec.md", ".agent-state/*/plan.md"] };
+    const second: PrerequisiteRuleJSON = { ...beforeBuilder, unchangedSince: [".agent-state/*/plan.md", "spec.md"] };
+    const { handler } = setup([first, second], CANONICAL_FILES);
+    const snapshot = await readSnapshot(handler);
+    expect(snapshot.requirements).toHaveLength(1);
+    expect(snapshot.requirements[0]?.unchangedSince).toEqual(["spec.md", ".agent-state/*/plan.md"]);
+    expect(snapshot.rules.map((rule) => rule.requirementKey)).toEqual([keyOf(first), keyOf(first)]);
+    expect(keyOf(second)).toBe(keyOf(first));
+  });
+
+  test("a run started and not finished reads pending, with its run and when it started", async () => {
+    const { handler, records } = setup(CANONICAL, CANONICAL_FILES);
+    records.now = "2026-10-09T10:00:00.000Z";
+    await launched(handler, "plan-reviewer", "a6eef1505a0b443a2");
+    const snapshot = await readSnapshot(handler);
+    expect(snapshot.requirements[0]).toMatchObject({ requiredAgent: "plan-reviewer", status: "pending", pendingRun: { agentRunId: "a6eef1505a0b443a2", startedAt: "2026-10-09T10:00:00.000Z" } });
+    expect(snapshot.requirements.slice(1).map((requirement) => [requirement.status, requirement.pendingRun])).toEqual([
+      ["missing", null],
+      ["missing", null],
+    ]);
+    expect(snapshot.rules.map((rule) => rule.allows)).toEqual([false, false, false, false]);
+  });
+
+  test("each rule's allows is what the gate decides, whatever the action's match kind", async () => {
+    // For each rule in CANONICAL's order, actions it comes before, or cannot see through.
+    const actionsOf = (): readonly (readonly ToolUse[])[] => [
+      [delegation("builder", "b1")],
+      [writeTo("src/a.ts"), shellCall("echo x > src/a.ts", [ran("echo", ["x"])], ["src/a.ts"]), shellCall('echo x > "$OUT"', [ran("echo", ["x"])], [], [{ text: '"$OUT"', role: "write" }])],
+      [delegation("test-writer", "t1")],
+      [terraformApply(), tfApply()],
+    ];
+    const reviewAll = async (handler: CheckPrerequisitesHandler) => {
+      await run(handler, "plan-reviewer", "c1");
+      await run(handler, "spec-reviewer", "c2");
+      await run(handler, "infra-reviewer", "c3");
+    };
+    const scenarios: readonly [string, (handler: CheckPrerequisitesHandler, fingerprints: InMemoryFileSetFingerprints) => Promise<void>][] = [
+      ["missing", async () => {}],
+      ["holds", reviewAll],
+      [
+        "stale",
+        async (handler, fingerprints) => {
+          await reviewAll(handler);
+          for (const path of [PLAN, "spec.md", "infra/main.tf"]) fingerprints.files.set(path, "changed\n");
+        },
+      ],
+      [
+        "pending",
+        async (handler) => {
+          await launched(handler, "plan-reviewer", "a1", "c1");
+          await launched(handler, "spec-reviewer", "a2", "c2");
+          await launched(handler, "infra-reviewer", "a3", "c3");
+        },
+      ],
+    ];
+    for (const [status, arrange] of scenarios) {
+      const { handler, fingerprints } = setup(CANONICAL, CANONICAL_FILES);
+      await arrange(handler, fingerprints);
+      const snapshot = await readSnapshot(handler);
+      expect(snapshot.requirements.map((requirement) => requirement.status)).toEqual([status, status, status]);
+      const actions = actionsOf();
+      for (const [index, rule] of snapshot.rules.entries()) {
+        for (const action of actions[index] ?? []) {
+          const allowed = (await handler.before(action)).kind === "allow";
+          expect({ status, rule: index, allowed }).toEqual({ status, rule: index, allowed: rule.allows });
+        }
+      }
+    }
+  });
+
+  test("patterns that match no file read missing, with no file matched", async () => {
+    const { handler } = setup([{ ...beforeSrc, unchangedSince: ["missing/**"] }], CANONICAL_FILES);
+    const snapshot = await readSnapshot(handler);
+    expect(snapshot.requirements).toEqual([{ key: keyOf({ ...beforeSrc, unchangedSince: ["missing/**"] }), requiredAgent: "plan-reviewer", unchangedSince: ["missing/**"], status: "missing", filesMatched: 0, pendingRun: null }]);
+    expect(snapshot.rules.map((rule) => rule.allows)).toEqual([false]);
+  });
+
+  test("reading changes nothing kept: records and pending runs are read once each, and nothing is appended or saved", async () => {
+    const { handler, records } = setup(CANONICAL, CANONICAL_FILES);
+    await run(handler);
+    await launched(handler, "spec-reviewer", "a2", "c2");
+    expect((await handler.before(delegation("infra-reviewer", "c9"))).kind).toBe("allow");
+    const kept = { records: await records.readAll(), runs: await records.readStartedForRuns(), calls: [...records.startedByCall.keys()] };
+    const callsBefore = records.calls;
+    await readSnapshot(handler);
+    expect(records.calls - callsBefore).toBe(2);
+    expect({ records: await records.readAll(), runs: await records.readStartedForRuns(), calls: [...records.startedByCall.keys()] }).toEqual(kept);
+    expect(await records.takeStartedForCall(callIdOf("c9"))).toBeDefined();
+  });
+
+  test("the time is taken before the reading begins, and each requirement is fingerprinted once", async () => {
+    const { handler, fingerprints, records } = setup(CANONICAL, CANONICAL_FILES);
+    const snapshots = new InMemoryPrerequisiteStatusSnapshots();
+    const before = [fingerprints.calls, records.calls];
+    const atNow: number[] = [];
+    snapshots.onNow = () => atNow.push(fingerprints.calls, records.calls);
+    await handler.writeStatusSnapshot(snapshots, { withinMs: 2000 });
+    expect(atNow).toEqual(before);
+    expect(fingerprints.calls - (before[0] ?? 0)).toBe(3);
+    expect(snapshots.saved).toHaveLength(1);
+    expect(snapshots.saved[0]?.readingStartedAt.value).toBe("2026-10-10T12:00:00.000Z");
+  });
+
+  test("a reading that fails is saved unread, naming why", async () => {
+    const lockedRecords = setup(CANONICAL, CANONICAL_FILES);
+    lockedRecords.records.readFailure = "the records are locked";
+    expect(await unreadWhy(lockedRecords.handler)).toBe("bounded/prereqs.rules: the prerequisites recorded so far could not be read: the records are locked");
+
+    const lockedRuns = setup(CANONICAL, CANONICAL_FILES);
+    lockedRuns.records.runReadFailure = "the runs are locked";
+    expect(await unreadWhy(lockedRuns.handler)).toBe("bounded/prereqs.rules: the runs still to finish could not be read: the runs are locked");
+
+    const unreadableFiles = setup(CANONICAL, CANONICAL_FILES);
+    unreadableFiles.fingerprints.failure = "the disk is unreadable";
+    expect(await unreadWhy(unreadableFiles.handler)).toBe(
+      "bounded/prereqs.rules: the files of bounded/project's rule before delegating to 'builder' requires a delegation to plan-reviewer that succeeded over the current '.agent-state/*/plan.md' could not be fingerprinted: the disk is unreadable",
+    );
+
+    const tampered = setup(CANONICAL, CANONICAL_FILES);
+    tampered.records.records.push({ delegate: "plan-reviewer" });
+    expect(await unreadWhy(tampered.handler)).toStartWith("bounded/prereqs.rules: the prerequisites recorded so far could not be read: record 1 is not one: ");
+  });
+
+  test("pending runs are read only when a requirement does not hold by its records: unreadable, they do not stop a reading where every one holds", async () => {
+    const { handler, records } = setup([beforeSrc]);
+    await run(handler);
+    records.runReadFailure = "the runs are locked";
+    const snapshot = await readSnapshot(handler);
+    expect(snapshot.requirements.map((requirement) => requirement.status)).toEqual(["holds"]);
+  });
+
+  test("a reading over its bound is saved unread, and the write still ends on time", async () => {
+    const hanging = { fingerprint: () => new Promise<never>(() => {}) };
+    const handler = new CheckPrerequisitesHandler(composed(CANONICAL), hanging, new InMemoryPrerequisiteRecords());
+    const snapshots = new InMemoryPrerequisiteStatusSnapshots();
+    const started = performance.now();
+    await handler.writeStatusSnapshot(snapshots, { withinMs: 50 });
+    const elapsed = performance.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(45);
+    expect(elapsed).toBeLessThan(50 + 500 + 250);
+    expect(snapshots.saved.map((snapshot) => snapshot.toJSON())).toEqual([
+      { format: "bounded-prereqs-status/1", outcome: "unread", readingStartedAt: "2026-10-10T12:00:00.000Z", why: "bounded/prereqs.rules: reading the status did not finish within 50 ms" },
+    ]);
+  });
+
+  test("a save that never settles is abandoned at its bound; one that rejects is swallowed", async () => {
+    const { handler } = setup(CANONICAL, CANONICAL_FILES);
+    const hangs = new InMemoryPrerequisiteStatusSnapshots();
+    hangs.saveHangs = true;
+    const started = performance.now();
+    await handler.writeStatusSnapshot(hangs, { withinMs: 2000 });
+    expect(performance.now() - started).toBeLessThan(500 + 250);
+    expect(hangs.saved).toHaveLength(1);
+    const rejects = new InMemoryPrerequisiteStatusSnapshots();
+    rejects.saveFailure = "the disk is full";
+    expect(await handler.writeStatusSnapshot(rejects, { withinMs: 2000 })).toBeUndefined();
+    expect(rejects.saved).toHaveLength(1);
+    expect(rejects.kept).toBeUndefined();
+  });
+
+  test("a store time that does not parse saves nothing, and the write never rejects", async () => {
+    const { handler, fingerprints } = setup(CANONICAL, CANONICAL_FILES);
+    for (const time of ["yesterday", undefined, 5, "2026-10-10T12:00:00Z"]) {
+      const snapshots = new InMemoryPrerequisiteStatusSnapshots();
+      snapshots.time = time;
+      expect(await handler.writeStatusSnapshot(snapshots, { withinMs: 2000 })).toBeUndefined();
+      expect(snapshots.saved).toEqual([]);
+    }
+    const throwing = new InMemoryPrerequisiteStatusSnapshots();
+    throwing.nowFailure = "no clock";
+    expect(await handler.writeStatusSnapshot(throwing, { withinMs: 2000 })).toBeUndefined();
+    expect(throwing.saved).toEqual([]);
+    expect(fingerprints.calls).toBe(0);
+  });
+});
+
+/** A lifecycle context over doubles: the pack's two ports, and the snapshot port when `withSnapshots`. */
+function lifecycleWith(rules: readonly PrerequisiteRuleJSON[], files: Readonly<Record<string, string>>, ports: { readonly required?: boolean; readonly snapshots?: boolean } = {}) {
+  const fingerprints = new InMemoryFileSetFingerprints(files);
+  const records = new InMemoryPrerequisiteRecords();
+  const snapshots = new InMemoryPrerequisiteStatusSnapshots();
+  const provisions = [
+    ...(ports.required === false ? [] : [Ports.provide(fileSetFingerprintsPort, () => fingerprints), Ports.provide(prerequisiteRecordsPort, () => records)]),
+    ...(ports.snapshots === false ? [] : [Ports.provide(prerequisiteStatusSnapshotsPort, () => snapshots)]),
+  ];
+  const opened = Ports.forProject("/work/project", provisions);
+  if (!opened.ok) throw new Error(opened.error);
+  return { fingerprints, records, snapshots, context: { composition: composed(rules), ports: opened.value } };
+}
+
+/** The statuses of the snapshot kept, in its file form. */
+function keptStatuses(snapshots: InMemoryPrerequisiteStatusSnapshots): unknown {
+  const kept: unknown = snapshots.kept;
+  const parsed = typeof kept === "object" && kept !== null && "requirements" in kept && Array.isArray(kept.requirements) ? kept.requirements : undefined;
+  return parsed?.map((requirement: { readonly status?: unknown }) => requirement.status);
+}
+
+describe("check-prerequisites — the status snapshot's lifecycle checks (ADR 2026-026)", () => {
+  test("after each tool call, once its records are made, the snapshot is written", async () => {
+    const { snapshots, context } = lifecycleWith([beforeSrc], CANONICAL_FILES);
+    const call = delegation("plan-reviewer");
+    expect((await checkBeforeTool(call, context)).kind).toBe("allow");
+    const result = resultOf(call, true, [true]);
+    expect((await recordAfterTool(result, context)).record?.verdict.kind).toBe("allow");
+    expect(await writeStatusAfterTool(result, context)).toEqual({ message: null, record: null });
+    expect(keptStatuses(snapshots)).toEqual(["holds"]);
+    expect(snapshots.kept).toMatchObject({ projectRoot: "/work/project", outcome: "read" });
+  });
+
+  test("after an agent run's finish, the snapshot is written", async () => {
+    const { snapshots, context } = lifecycleWith([beforeSrc], CANONICAL_FILES);
+    const call = delegation("plan-reviewer");
+    expect((await checkBeforeTool(call, context)).kind).toBe("allow");
+    const launchResult = resultWith(call, true, [launch()]);
+    await recordAfterTool(launchResult, context);
+    await writeStatusAfterTool(launchResult, context);
+    expect(keptStatuses(snapshots)).toEqual(["pending"]);
+    const finish = finishOf("plan-reviewer");
+    expect((await recordRunAtFinish(finish, context)).record?.verdict.kind).toBe("allow");
+    expect(await writeStatusAtFinish(finish, context)).toEqual({ record: null });
+    expect(keptStatuses(snapshots)).toEqual(["holds"]);
+  });
+
+  test("the write checks tell nothing and record nothing, even when the pack's own ports are missing or the save fails", async () => {
+    const result = resultOf(writeTo("docs/a.md"), true);
+    const finish = finishOf("plan-reviewer");
+    const withoutRequired = lifecycleWith([beforeSrc], CANONICAL_FILES, { required: false });
+    expect(await writeStatusAfterTool(result, withoutRequired.context)).toEqual({ message: null, record: null });
+    expect(await writeStatusAtFinish(finish, withoutRequired.context)).toEqual({ record: null });
+    expect(withoutRequired.snapshots.kept).toMatchObject({ outcome: "unread" });
+    const why: unknown = withoutRequired.snapshots.saved.at(-1)?.toJSON();
+    expect(why).toMatchObject({ why: "bounded/prereqs.rules: prerequisites cannot be read: bounded/prereqs needs the port 'fileSetFingerprints', which this host does not provide: pass it to openProject({ ports })" });
+    const failing = lifecycleWith([beforeSrc], CANONICAL_FILES);
+    failing.snapshots.saveFailure = "the disk is full";
+    expect(await writeStatusAfterTool(result, failing.context)).toEqual({ message: null, record: null });
+    expect(await writeStatusAtFinish(finish, failing.context)).toEqual({ record: null });
+  });
+
+  test("verdicts and records are the same with and without the snapshot port", async () => {
+    const scenarios: readonly [string, (context: ReturnType<typeof lifecycleWith>) => Promise<void>][] = [
+      ["missing", async () => {}],
+      [
+        "holds",
+        async ({ context }) => {
+          const call = delegation("plan-reviewer", "c1");
+          await checkBeforeTool(call, context);
+          const result = resultOf(call, true, [true]);
+          await recordAfterTool(result, context);
+          await writeStatusAfterTool(result, context);
+        },
+      ],
+      [
+        "stale",
+        async ({ context, fingerprints }) => {
+          const call = delegation("plan-reviewer", "c1");
+          await checkBeforeTool(call, context);
+          const result = resultOf(call, true, [true]);
+          await recordAfterTool(result, context);
+          await writeStatusAfterTool(result, context);
+          fingerprints.files.set(PLAN, "plan v2\n");
+        },
+      ],
+    ];
+    for (const [status, arrange] of scenarios) {
+      const outcomes: unknown[] = [];
+      for (const snapshots of [true, false]) {
+        const given = lifecycleWith([beforeSrc, beforeBuilder], CANONICAL_FILES, { snapshots });
+        await arrange(given);
+        const write = await checkBeforeTool(writeTo("src/a.ts"), given.context);
+        const review = delegation("plan-reviewer", "c5");
+        const delegated = await checkBeforeTool(review, given.context);
+        const result = resultOf(review, true, [true]);
+        const report = await recordAfterTool(result, given.context);
+        await writeStatusAfterTool(result, given.context);
+        if (snapshots) expect({ status, kept: keptStatuses(given.snapshots) }).toEqual({ status, kept: ["holds"] });
+        outcomes.push(JSON.parse(JSON.stringify({ write, delegated, report })));
+      }
+      expect({ status, outcome: outcomes[0] }).toEqual({ status, outcome: outcomes[1] });
+    }
   });
 });

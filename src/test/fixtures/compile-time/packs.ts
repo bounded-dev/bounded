@@ -1,6 +1,6 @@
 // Packs in their own module, imported by the fixtures that build on them, as
 // real packs are. Compiles without errors.
-import { definePack, packIdsFor, point, type Result } from "bounded/domain";
+import { definePack, packIdsFor, point, portKeysFor, type Result } from "bounded/domain";
 
 export interface Rule {
   readonly paths: readonly string[];
@@ -23,3 +23,12 @@ export const tags = definePack({ id: packId("tags"), points: { names: point({ de
 
 /** Depends on base only; packs below that depend on ext never depend directly on base. */
 export const ext = definePack({ id: packId("ext"), dependsOn: [base] });
+
+/** A pack with a required port and an optional one, both its own (ADR 2026-026). */
+const notedId = packId("noted");
+export const noted = definePack({
+  id: notedId,
+  ports: { sourceFiles: portKeysFor(notedId)<{ read(path: string): string }>("sourceFiles") },
+  optionalPorts: { notes: portKeysFor(notedId)<{ write(note: string): Promise<void> }>("notes") },
+});
+export const notesPort: typeof noted.optionalPorts.notes = noted.optionalPorts.notes;

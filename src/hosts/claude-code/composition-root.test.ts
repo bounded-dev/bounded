@@ -136,6 +136,21 @@ describe("composeHook: the hook wired to the file system, the environment and ar
     expect(verdict.kind === "refuse" && verdict.redirect).toBe("Have plan-reviewer review the current plan before editing src/");
   });
 
+  test("after a tool call, the project's .bounded/prereqs/status.json is written", async () => {
+    const project = mkdtempSync(join(tmpdir(), "bounded-cc-prereqs-status-"));
+    mkdirSync(join(project, "node_modules"));
+    symlinkSync(CORE, join(project, "node_modules", "bounded"), "dir");
+    mkdirSync(join(project, "plans"));
+    writeFileSync(join(project, "plans", "plan.md"), "the plan\n");
+    writeFileSync(join(project, "bounded.config.ts"), PREREQS_CONFIG);
+    const result = ToolResult.parse({ kind: "tool-result", role: null, tool: "read", effects: [{ kind: "read", path: "plans/plan.md" }], ok: true, callId: "toolu_r" });
+    if (!result.ok) throw new Error(result.error);
+    expect(await afterToolFromConfig(result.value, { projectRoot: project })).toEqual({ message: null });
+    const file = join(project, ".bounded", "prereqs", "status.json");
+    expect(existsSync(file)).toBe(true);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ format: "bounded-prereqs-status/1", outcome: "read", projectRoot: project, requirements: [{ requiredAgent: "plan-reviewer", status: "missing" }] });
+  });
+
   test("a Bash call whose reader rejects is judged with an unread reading saying why, and the protected-paths pack refuses it", async () => {
     const project = projectWith(PROTECTED_PATHS_CONFIG, "bounded-cc-unread-");
     const rejecting: ShellCommandReader = {
