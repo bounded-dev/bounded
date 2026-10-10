@@ -147,6 +147,16 @@ read with it); its tests run the suite every reader runs,
 `bounded/testing/shell-command-reader-conformance` (under bun's test
 runner).
 
+## The pack catalogue
+
+This package ships `bounded.catalog.json`, the catalogue of its packs,
+`bounded/prereqs` and `bounded/protected-paths`: each pack's id, what it
+depends on and contributes to, its points (each with the JSON Schema of
+what a configuration writes for it), the ports a host provides, its
+README's sections and its examples. `package.json` points to it from its
+`bounded` field. A package of your own packs builds its catalogue with
+`bounded catalog build` in its directory (the repository's ADR 2026-026).
+
 ## More
 
 The design, the configuration, the packs and the decisions behind them are in

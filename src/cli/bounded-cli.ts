@@ -18,12 +18,18 @@
 // Those two hand-offs are the contract between versions: every version
 // accepts `bounded init --no-install [--host <host>]...` and
 // `bounded update --no-upgrade`.
+//
+// `bounded catalog build`, run in a package's directory, writes the package's
+// catalogue of its packs (ADR 2026-026) with the core's build-package-catalog
+// feature; bounded's own prepack runs it after building dist/.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FileSystemProjectSetupFiles, NodeModulesHostInstallerSource } from "bounded/adapters";
+import { FileSystemPackageCatalogFiles, FileSystemProjectSetupFiles, MarkedMarkdownSections, NodeModulesHostInstallerSource, NodePackModules, TypeScriptPackSourceApi } from "bounded/adapters";
 import {
+  BuildPackageCatalogCommand,
+  BuildPackageCatalogHandler,
   type HostInstaller,
   type HostInstallerSource,
   InitProjectHandler,
@@ -81,6 +87,9 @@ export const USAGE = `Usage:
   bounded update [--from <dir>]                      upgrade bounded to its latest from the npm registry, or from its tarball
                                                      in <dir>, then refresh the hooks
   bounded update --no-upgrade                        refresh the hooks of the hosts found to point at the installed version
+  bounded catalog build                              in a package's directory: write its catalogue of the packs its package.json lists
+                                                     in bounded.packs, where bounded.catalog says (needs typescript,
+                                                     ts-json-schema-generator and marked installed in the package)
 `;
 
 /** The hosts bounded carries an adapter for, found by their directory in the project. */
@@ -434,6 +443,21 @@ function initOptions(projectRoot: string, options: readonly string[]): { noInsta
   return { noInstall, hosts, from };
 }
 
+/**
+ * `bounded catalog build`, run in a package's directory: builds the package's
+ * catalogue of its packs and writes it (ADR 2026-026), or says why not and
+ * writes nothing.
+ */
+async function buildCatalog(packageDir: string): Promise<CliRun> {
+  const command = BuildPackageCatalogCommand.parse({ packageDir });
+  if (!command.ok) return refused(command.error);
+  const built = await new BuildPackageCatalogHandler(new FileSystemPackageCatalogFiles(), new NodePackModules(), new TypeScriptPackSourceApi(), new MarkedMarkdownSections()).execute(command.value);
+  if (!built.ok) return refused(built.error);
+  const ids = built.value.catalog.packs.map(({ id }) => id);
+  return { exitCode: 0, stdout: `Wrote ${built.value.path}: ${ids.length} ${ids.length === 1 ? "pack" : "packs"} (${ids.join(", ")})
+`, stderr: "" };
+}
+
 /** Runs `bounded <args>` in the project at `projectRoot`, running package managers and the installed CLI with `run`. Never throws. */
 export async function runBoundedCli(args: readonly string[], projectRoot: string, run: CommandRunner = spawnRunner): Promise<CliRun> {
   try {
@@ -447,6 +471,7 @@ export async function runBoundedCli(args: readonly string[], projectRoot: string
       if (invalid !== undefined) return refused(`"${invalid}" is not a host name: name a host such as claude-code or pi`);
       return done(await new InitProjectHandler(files, selectedSource(projectRoot, { kind: "hosts", hosts: new Set(hostsFor(projectRoot, parsed.hosts)) }), INITIAL_CONFIG).execute(projectRoot), "init");
     }
+    if (command === "catalog") return options.length === 1 && options[0] === "build" ? await buildCatalog(projectRoot) : usage();
     if (command !== "update") return usage();
     const refreshOnly = options.length === 1 && options[0] === "--no-upgrade";
     const fromDir = options.length === 2 && options[0] === "--from" ? options[1] : undefined;

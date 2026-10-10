@@ -67,7 +67,7 @@ describe("shipped packs' READMEs", () => {
 
   test("each shipped pack's README parses with the build's own rules", async () => {
     expect(SHIPPED_PACKS.size).toBeGreaterThan(0);
-    expect(shippedNames()).toEqual([...SHIPPED_PACKS.keys()]);
+    expect<readonly string[]>(shippedNames()).toEqual([...SHIPPED_PACKS.keys()]);
     for (const name of shippedNames()) {
       const parsed = PackReadme.parse(await readmeInputOf(name));
       expect({ pack: name, error: parsed.ok ? null : parsed.error }).toEqual({ pack: name, error: null });

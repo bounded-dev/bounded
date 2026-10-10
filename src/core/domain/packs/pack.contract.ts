@@ -102,6 +102,12 @@ export interface BasePoint {
   sharesDeclarationWith(other: BasePoint): boolean;
 }
 
+/** A point with the key its pack declares it under: `<key>`, or `<group key>.<member key>` for a group's member. */
+export interface KeyedPoint {
+  readonly key: string;
+  readonly point: BasePoint;
+}
+
 /** An extension point of the pack with id `Owner`, accepting values of type `Value`. */
 export interface ExtensionPoint<Value, Owner extends PackId> extends BasePoint {
   readonly owner: BasePack & { readonly id: Owner };

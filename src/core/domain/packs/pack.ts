@@ -256,4 +256,17 @@ export function pointsOf(pack: Contract.BasePack): Contract.BasePoint[] {
   return points;
 }
 
-export type { BasePack, BasePoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, PointGroup, PointGroupDeclaration, WireOf } from "./pack.contract.ts";
+/**
+ * A pack's points with the keys it declares them under, in declaration
+ * order: a point as its key, a group's members as `<group>.<member>`.
+ */
+export function keyedPointsOf(pack: Contract.BasePack): Contract.KeyedPoint[] {
+  const keyed: Contract.KeyedPoint[] = [];
+  for (const [key, entry] of Object.entries(pack.points)) {
+    if (entry instanceof ExtensionPointImpl) keyed.push(Object.freeze({ key, point: entry }));
+    else if (entry instanceof PointGroupImpl) for (const [member, point] of Object.entries(entry)) if (point instanceof ExtensionPointImpl) keyed.push(Object.freeze({ key: `${key}.${member}`, point }));
+  }
+  return keyed;
+}
+
+export type { BasePack, BasePoint, KeyedPoint, Contributed, Contribution, ExtensionPoint, Pack, PointDeclaration, PointGroup, PointGroupDeclaration, WireOf } from "./pack.contract.ts";

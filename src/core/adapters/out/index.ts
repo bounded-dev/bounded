@@ -8,6 +8,11 @@ export { CheckedProjectConfigSource } from "./project-config-source/checked-proj
 export { FileSystemProjectConfigSource } from "./project-config-source/file-system-project-config-source.ts";
 export { FileSystemProjectBoundedLogs } from "./project-bounded-logs/project-bounded-logs.ts";
 export { FileSystemProjectSetupFiles } from "./project-setup-files/project-setup-files.ts";
+// The package catalogue build's (ADR 2026-026); each loads its libraries from the package it catalogues.
+export { FileSystemPackageCatalogFiles } from "./package-catalog-files/package-catalog-files.ts";
+export { MarkedMarkdownSections } from "./markdown-sections/markdown-sections.ts";
+export { NodePackModules } from "./pack-modules/pack-modules.ts";
+export { TypeScriptPackSourceApi } from "./pack-source-api/pack-source-api.ts";
 
 // Everything exported here is frozen, a function's or class's prototype too,
 // so code loaded later (a project's configuration, a pack) cannot patch it.

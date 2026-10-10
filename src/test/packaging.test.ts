@@ -362,6 +362,24 @@ describe("bounded, the one published package", () => {
     expect(ran.stdout.toString().trim()).toBe("read");
   });
 
+  test("no published declaration under dist/types/core/ imports a library the catalogue build loads from the package it catalogues", () => {
+    const declarations = distFiles(join(CORE, "dist", "types", "core")).filter((file) => file.endsWith(".d.ts"));
+    expect(declarations.length).toBeGreaterThan(0);
+    const buildLibraries = ["typescript", "ts-json-schema-generator", "marked"];
+    const importing = declarations.filter((file) => importsIn(readFileSync(file, "utf8")).some((spec) => buildLibraries.some((library) => spec === library || spec.startsWith(`${library}/`))));
+    expect(importing.map((file) => file.slice(CORE.length + 1))).toEqual([]);
+    expect(readFileSync(join(CORE, "dist", "types", "core", "adapters", "out", "pack-source-api", "pack-source-api.d.ts"), "utf8")).toContain("TypeScriptPackSourceApi");
+  });
+
+  test("packed, its manifest has no peerDependencies: the catalogue build's libraries are the catalogued package's devDependencies", () => {
+    const into = mkdtempSync(join(tmpdir(), "bounded-packaging-peers-"));
+    const ran = Bun.spawnSync(["bun", "pm", "pack", "--destination", into, "--quiet"], { cwd: CORE, stdout: "pipe", stderr: "pipe" });
+    expect(ran.exitCode).toBe(0);
+    const inTarball = JSON.parse(Bun.spawnSync(["tar", "-xzOf", join(into, `bounded-${VERSION}.tgz`), "package/package.json"]).stdout.toString()) as Manifest & { peerDependencies?: Record<string, string> };
+    expect(inTarball.peerDependencies).toBeUndefined();
+    expect(Object.keys(inTarball.dependencies ?? {}).sort()).toEqual(["@vscode/tree-sitter-wasm", "picomatch", "zod"]);
+  });
+
   test("packed, its manifest names the version, the bin and bounded's three runtime dependencies, with no workspace:* left", () => {
     const into = mkdtempSync(join(tmpdir(), "bounded-packaging-"));
     const ran = Bun.spawnSync(["bun", "pm", "pack", "--destination", into, "--quiet"], { cwd: CORE, stdout: "pipe", stderr: "pipe" });

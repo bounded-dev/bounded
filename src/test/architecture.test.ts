@@ -593,7 +593,7 @@ describe("architecture", () => {
 
   test("the out adapters are grouped by the port each serves: no technology folders", () => {
     const foldersUnder = (dir: string) => [...new Set([...new Glob(`${dir}/*/*`).scanSync({ cwd: ROOT, onlyFiles: true })].map((path) => path.slice(dir.length + 1).split("/")[0] ?? ""))].sort();
-    expect(foldersUnder("src/core/adapters/out")).toEqual(["bounded-log", "clock", "compose-packs-catalog", "decision-ids", "host-installer-source", "project-bounded-logs", "project-config-source", "project-setup-files"]);
+    expect(foldersUnder("src/core/adapters/out")).toEqual(["bounded-log", "clock", "compose-packs-catalog", "decision-ids", "host-installer-source", "markdown-sections", "pack-modules", "pack-source-api", "package-catalog-files", "project-bounded-logs", "project-config-source", "project-setup-files"]);
     expect(foldersUnder("src/packs/protected-paths/adapters/out")).toEqual(["shell-snapshots", "watched-files"]);
     expect(foldersUnder("src/packs/prereqs/adapters/out")).toEqual(["file-set-fingerprints", "prerequisite-records"]);
   });
