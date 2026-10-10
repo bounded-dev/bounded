@@ -99,8 +99,10 @@ contribution compiles as `Value | WireOf<Value>` (ADRs 2026-003 and
 over the same program, from a node, never by looking a name up (two types
 of one name in the program cannot be confused): the declaration the checker
 resolved the wire type to, when it is declared under a name (an interface,
-type alias, enum or class), referenced from the top as
-`definitions/<name>`; otherwise where the type is written, described
+type alias, enum or class) and is not an instantiation of a generic,
+referenced from the top as `definitions/<name>`; otherwise (`readonly
+string[]`, `Readonly<NoteJSON>`, `Record<string, string>`, a type with no
+name) where the type is written, described
 inline: a value object's `toJSON` return type, or plain data's
 `ExtensionPoint<Value, …>` type argument. So a primitive, a union, or an
 alias TypeScript does not keep (`type Label = string`) is described as it
@@ -161,7 +163,8 @@ CLI prints `bounded: <refusal>` and exits 1.
   naming the export path and the fix: add a `default` condition. So the
   refusal is the same under bun and Node. The package root, `.`, is
   read from a `.` entry, or from `exports` itself when it is a path or the
-  root's conditions. Otherwise it resolves the export by self-reference
+  root's conditions; a package with no `exports` loads its root through
+  `main`, as Node's require does. Otherwise it resolves the export by self-reference
   (`createRequire(<package>/package.json).resolve(...)`, the bare package
   name for `.`, `<name>/<subpath>` otherwise) and imports it. Each listed export must resolve to JavaScript through
   those conditions: bounded's own reach `dist/` through `default`.
@@ -183,9 +186,13 @@ CLI prints `bounded: <refusal>` and exits 1.
   compiler options are taken. The program's root files are the pack's own:
   `<name>.pack.ts`, `<name>.contract.ts` and `examples/*.config.ts`; an
   unrelated file the tsconfig includes, even one with a type error, changes
-  nothing. No tsconfig is refused, naming the file to add. The pack is
-  read from the overview's `export const` named as the export path exports
-  it (the name the module loader found), never the first one.
+  nothing. No tsconfig is refused, naming the file to add. The pack's
+  `index.ts` is a root too, when it has one: the name the module loader
+  found the pack under is looked up among the index's exports by the
+  checker, and a re-export, renamed or not, is followed to its declaration,
+  which must be an `export const` of the overview. A pack with no index is
+  found by that name among the overview's own exports. A pack exported
+  under several names is named by one other than `default`.
 - **The TypeScript 5 limit (B5), deliberate.** The reader reads TypeScript
   major 5, the major the tests run with, and refuses any other, naming the
   version it found. A later TypeScript major is a change here, with its

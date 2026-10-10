@@ -120,7 +120,8 @@ missing library is refused, and nothing is written.
   the package's own export path. Its entry must have a `default`, `require`
   or `node` target naming JavaScript (`{ "./my-pack": { "types": "…", "default": "./dist/my-pack/index.js" } }`);
   an entry with only `import` is refused, asking for a `default`
-  condition. Build the package first.
+  condition. A package with no `exports` may list its root, `.`, which
+  loads through `main`. Build the package first.
 - **The libraries.** Install `typescript` (major 5), `ts-json-schema-generator`
   and `marked` as devDependencies of the package: the build resolves them
   from it and refuses, naming the one missing. The generator must share the
@@ -135,5 +136,5 @@ missing library is refused, and nothing is written.
   wire type (a value object's `toJSON` result, or plain data's own type,
   named or not) must be one ts-json-schema-generator can describe: the
   catalogue carries its JSON Schema. A point whose values are code carries
-  none. The overview exports the pack under the name its export path
-  exports it.
+  none. The pack is an `export const` of its overview; its index may
+  re-export it under any name.
