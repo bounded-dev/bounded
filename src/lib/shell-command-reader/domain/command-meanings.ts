@@ -275,6 +275,9 @@ function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
     const scripts: ShellWord[] = [];
     const unresolved: ShellWord[] = [];
     const seen = new Set<string>();
+    // The memo key leaves out whether a reading is added: a state's runs are marked by the first walk to reach it. That is today's
+    // reading wherever today's reading reaches it, because the walk is depth-first and takes today's reading first at every fork
+    // (the command, or timeout's leading operand), and the readings a cluster keeps from before run only once today's walk is done.
     const from = (start: number, directory: ShellWord | null | undefined, leadingLeft: number, added: boolean): void => {
       const key = `${start}/${directory === undefined ? "absent" : directory === null ? "null" : wordKey(directory)}/${leadingLeft}`;
       if (seen.has(key)) return;
@@ -303,61 +306,73 @@ function wrapper(withValues: readonly string[], options: WrapperOptions = {}) {
           ran.push({ name: literalWord(options.name), args: [...split, ...trailing], ...marks(), added: true });
         }
       };
-      for (let index = start; index < args.length; index++) {
-        const word = args[index] as ShellWord;
-        const text = literal(word);
-        if (text === undefined) {
-          // Only the shell can resolve it: every way it could be read, today's first.
-          if (leading > 0) from(index + 1, at, leading - 1, added);
-          else run(index);
-          // It gives nothing; or it is the directory option with its value attached, from nowhere known.
-          from(index + 1, at, leading, true);
-          if (options.directory !== undefined) from(index + 1, null, leading, true);
-          // It takes the next word; or it is the directory option, the next word its value.
-          from(index + 2, at, leading, true);
-          const value = args[index + 1];
-          if (options.directory !== undefined && value !== undefined) from(index + 2, value, leading, true);
-          return;
-        }
-        if (text === "--") {
-          run(index + 1);
-          return;
-        }
-        if (text.startsWith("--")) {
-          const scriptOption = longOptionOf(options.script ?? [], text);
-          if (scriptOption !== undefined) {
-            if (text === scriptOption) script(args[index + 1], index + 2);
-            else script(literalWord(text.slice(scriptOption.length + 1)), index + 1);
+      /** Readings the walk kept from before a cluster was read as getopt reads it, made once this walk is done. */
+      const keptReadings: (() => void)[] = [];
+      const walkWords = (): void => {
+        for (let index = start; index < args.length; index++) {
+          const word = args[index] as ShellWord;
+          const text = literal(word);
+          if (text === undefined) {
+            // Only the shell can resolve it: every way it could be read, today's first.
+            if (leading > 0) from(index + 1, at, leading - 1, added);
+            else run(index);
+            // It gives nothing; or it is the directory option with its value attached, from nowhere known.
+            from(index + 1, at, leading, true);
+            if (options.directory !== undefined) from(index + 1, null, leading, true);
+            // It takes the next word; or it is the directory option, the next word its value.
+            from(index + 2, at, leading, true);
+            const value = args[index + 1];
+            if (options.directory !== undefined && value !== undefined) from(index + 2, value, leading, true);
             return;
           }
-          const directoryOption = longOptionOf(options.directory ?? [], text);
-          if (directoryOption !== undefined) at = text === directoryOption ? args[++index] : literalWord(text.slice(directoryOption.length + 1));
-          else if (withValues.includes(text)) index++;
-          continue;
-        }
-        if (text.startsWith("-") && text !== "-") {
-          // A short cluster, as getopt reads it.
-          for (let letter = 1; letter < text.length; letter++) {
-            const char = text.charAt(letter);
-            if (!valueLetters.includes(char) && !directoryLetters.includes(char) && !scriptLetters.includes(char)) continue;
-            const rest = text.slice(letter + 1);
-            const value = rest === "" ? args[++index] : literalWord(rest);
-            if (scriptLetters.includes(char)) {
-              script(value, index + 1);
+          if (text === "--") {
+            run(index + 1);
+            return;
+          }
+          if (text.startsWith("--")) {
+            const scriptOption = longOptionOf(options.script ?? [], text);
+            if (scriptOption !== undefined) {
+              if (text === scriptOption) script(args[index + 1], index + 2);
+              else script(literalWord(text.slice(scriptOption.length + 1)), index + 1);
               return;
             }
-            if (directoryLetters.includes(char)) at = value;
-            break;
+            const directoryOption = longOptionOf(options.directory ?? [], text);
+            if (directoryOption !== undefined) at = text === directoryOption ? args[++index] : literalWord(text.slice(directoryOption.length + 1));
+            else if (withValues.includes(text)) index++;
+            continue;
           }
-          continue;
+          if (text.startsWith("-") && text !== "-") {
+            // A short cluster, as getopt reads it.
+            for (let letter = 1; letter < text.length; letter++) {
+              const char = text.charAt(letter);
+              if (!valueLetters.includes(char) && !directoryLetters.includes(char) && !scriptLetters.includes(char)) continue;
+              // Read before as a flag, the walk going on at the next word (sudo -Eu root rm: root the command): that reading is kept,
+              // added, since every reading adds. A value letter first in its word was read so before too.
+              if (letter > 1) {
+                const [next, keptAt, keptLeading] = [index + 1, at, leading];
+                keptReadings.push(() => from(next, keptAt, keptLeading, true));
+              }
+              const rest = text.slice(letter + 1);
+              const value = rest === "" ? args[++index] : literalWord(rest);
+              if (scriptLetters.includes(char)) {
+                script(value, index + 1);
+                return;
+              }
+              if (directoryLetters.includes(char)) at = value;
+              break;
+            }
+            continue;
+          }
+          if (options.assignments === true && /^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) continue;
+          if (leading > 0) leading--;
+          else {
+            run(index);
+            return;
+          }
         }
-        if (options.assignments === true && /^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) continue;
-        if (leading > 0) leading--;
-        else {
-          run(index);
-          return;
-        }
-      }
+      };
+      walkWords();
+      for (const reading of keptReadings) reading();
     };
     from(0, undefined, options.leading ?? 0, false);
     return meaning({ runs: withoutRepeatedRuns(ran, budget), scripts: withoutRepeatedWords(scripts, budget), unresolved: withoutRepeatedWords(unresolved, budget) });
@@ -857,8 +872,11 @@ const TABLE: Readonly<Record<string, (args: readonly ShellWord[], budget: WorkBu
   cd: moves,
   pushd: moves,
   popd: () => meaning({ location: { to: null } }),
-  sudo: wrapper(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout"], { assignments: true, directory: ["-D", "--chdir"] }),
-  doas: wrapper(["-u", "-C"]),
+  sudo: wrapper(
+    ["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-r", "--role", "-t", "--type", "-U", "--other-user", "-T", "--command-timeout", "-R", "--chroot", "-a", "--auth-type", "-c", "--login-class"],
+    { assignments: true, directory: ["-D", "--chdir"] },
+  ),
+  doas: wrapper(["-u", "-C", "-a"]),
   env: wrapper(["-u", "--unset"], { assignments: true, directory: ["-C", "--chdir"], script: ["-S", "--split-string"], name: "env" }),
   timeout: wrapper(["-s", "--signal", "-k", "--kill-after"], { leading: 1 }),
   nice: wrapper(["-n", "--adjustment"]),
@@ -914,6 +932,9 @@ export function spend(budget: WorkBudget, steps = 1): boolean {
 }
 
 /** What the command `name` does with `args`, spending from `budget`, the whole command's: a step for the command and one per word. */
+/** Whether the table says what the command `name` does: any other reads its operands and runs nothing it can name. */
+export const isKnownCommand = (name: string): boolean => Object.hasOwn(TABLE, name);
+
 export function commandMeaning(name: string, args: readonly ShellWord[], budget: WorkBudget): CommandMeaning {
   // Each word costs a step and one per 64 characters; a short option cluster, read for every value it could carry, costs its suffixes' length.
   if (!spend(budget, 1 + args.length + textCost(args) + args.reduce((steps, word) => steps + clusterCost(word), 0))) return NONE;

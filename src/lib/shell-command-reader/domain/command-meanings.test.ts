@@ -68,8 +68,9 @@ describe("commandMeaning — a word only the shell can resolve where a wrapper's
   });
 
   test("a short cluster ending in a value-taking letter takes the next word, as getopt reads it", () => {
-    expect(runsOf(commandMeaning("sudo", words("-Eu", "root", "rm", ".env"), newWorkBudget()))).toEqual(["rm [.env]"]);
-    expect(runsOf(commandMeaning("env", words("-iu", "VAR", "rm", "x"), newWorkBudget()))).toEqual(["rm [x]"]);
+    // The reading before, the value word taken for the command, is kept beside it, added (final review, M2).
+    expect(runsOf(commandMeaning("sudo", words("-Eu", "root", "rm", ".env"), newWorkBudget()))).toEqual(["rm [.env]", "+root [rm, .env]"]);
+    expect(runsOf(commandMeaning("env", words("-iu", "VAR", "rm", "x"), newWorkBudget()))).toEqual(["rm [x]", "+VAR [rm, x]"]);
     // A value-taking letter before the cluster's end takes the rest of the word.
     expect(runsOf(commandMeaning("sudo", words("-uroot", "rm", "x"), newWorkBudget()))).toEqual(["rm [x]"]);
   });

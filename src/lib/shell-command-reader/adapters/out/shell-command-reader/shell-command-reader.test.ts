@@ -707,6 +707,23 @@ describe("TreeSitterShellCommandReader — a word only the shell can resolve nev
     expect(deletesOf(await read("env -iu VAR rm x"))).toEqual(["x"]);
   });
 
+  test("a cluster read as getopt reads it keeps the reading before beside it (final review, M2)", async () => {
+    // The parent took root for the command; that run is kept, added.
+    expect((await read("sudo -Eu root rm .env")).programs.map(programLine)).toEqual(["sudo [-Eu root rm .env] @.", "rm [.env] @.", "root [rm .env] @."]);
+    for (const command of ["sudo -Ru rm .env", "sudo -au rm .env", "sudo -cu rm .env", "doas -au rm .env"]) expect({ command, deletes: deletesOf(await read(command)) }).toEqual({ command, deletes: [".env"] });
+  });
+
+  test("a long list of words after a program only the shell can name is read: its suffixes cost what each adds (final review, M3)", async () => {
+    for (const command of [`"$X" ${"a.txt ".repeat(700)}`, `"$PY" -m pytest ${Array.from({ length: 400 }, (_, index) => `tests/test_${index}.py`).join(" ")}`]) {
+      const started = performance.now();
+      const reading = await read(command);
+      expect({ command: command.slice(0, 20), fast: performance.now() - started < 1500 }).toEqual({ command: command.slice(0, 20), fast: true });
+      expect(reading.fileEffects.length).toBeGreaterThan(0);
+    }
+    // Every literal-led suffix is still listed.
+    expect((await read(`"$X" ${"a.txt ".repeat(700)}`)).programs).toHaveLength(701);
+  }, 30_000);
+
   test("a directory option the word may be is followed to the next word's directory", async () => {
     for (const command of ['env "$X" sub rm x', 'sudo "$X" sub rm x', 'git "$X" sub rm x']) {
       expect({ command, deletes: deletesOf(await readIn(command, ["sub"])) }).toEqual({ command, deletes: expect.arrayContaining(["sub/x"]) });
@@ -846,13 +863,16 @@ describe("TreeSitterShellCommandReader — a word only the shell can resolve nev
       ["cp a.txt dir/", ["cp [a.txt dir/] @."], ["read a.txt", "write dir create"], []],
       ["mv a.txt b.txt", ["mv [a.txt b.txt] @."], ["read a.txt", "write a.txt delete", "write b.txt create"], []],
     ];
+    // A form with no word only the shell can resolve gets no added reading: it is read exactly as before (final review, minor).
+    const unchanged = new Set(["sudo apt-get update", "env FOO=1 node app.js", "nice -n 10 make", "git -C sub status", "bash -c 'echo hi'", "timeout 5 sleep 1", "command -v node", "cp a.txt dir/", "mv a.txt b.txt"]);
     for (const [command, programs, fileEffects, unresolved] of before) {
       const reading = await read(command);
+      const exact = unchanged.has(command);
       expect({ command, programs: reading.programs.map(programLine), fileEffects: reading.fileEffects.map(effectLine), unresolved: reading.unresolved.map(partLine) }).toEqual({
         command,
-        programs: expect.arrayContaining([...programs]),
-        fileEffects: expect.arrayContaining([...fileEffects]),
-        unresolved: expect.arrayContaining([...unresolved]),
+        programs: exact ? [...programs] : expect.arrayContaining([...programs]),
+        fileEffects: exact ? [...fileEffects] : expect.arrayContaining([...fileEffects]),
+        unresolved: exact ? [...unresolved] : expect.arrayContaining([...unresolved]),
       });
     }
   });
@@ -911,7 +931,20 @@ describe("TreeSitterShellCommandReader — a range or a nested group gives every
 
   test("a zero-padded range's padded and unpadded words both count towards 256", async () => {
     expect(deletesOf(await read("rm f{0001..0128}"))).toHaveLength(256);
-    for (const word of ["f{0001..0129}", "f{001..200}"]) expect({ word, ...(await deleted(`rm ${word}`)) }).toEqual({ word, deletes: [], unresolved: [{ text: word, role: "write" }] });
+    // Past the cap the word is left to the shell, and kept as written beside it (final review, M1).
+    for (const word of ["f{0001..0129}", "f{001..200}"]) expect({ word, ...(await deleted(`rm ${word}`)) }).toEqual({ word, deletes: [word], unresolved: [{ text: word, role: "write" }] });
+  });
+
+  test("a range or a nested group the reader cannot spell out keeps its word as written, beside the unresolved report (final review, M1)", async () => {
+    // The reviewer's repro: the parent read f{+1..300} as the literal word it is in zsh 5.9; past 256 words it is still that word.
+    for (const word of ["f{+1..300}", "f{1..300}", "f{1..5..0}", "f{+001..200}", "f{99999999999999999999..1}"]) {
+      expect({ word, ...(await deleted(`rm ${word}`)) }).toEqual({ word, deletes: [word], unresolved: [{ text: word, role: "write" }] });
+    }
+    // A nested group whose added readings pass 256 words keeps the reading before (here 200 words), and leaves the word to the shell too.
+    const nested = await deleted("rm f{1..{a,b}}{1..100}");
+    expect(nested.deletes).toHaveLength(200);
+    expect(nested.deletes).toEqual(expect.arrayContaining(["f{1..a}1", "f{1..b}100"]));
+    expect(nested.unresolved).toEqual([{ text: "f{1..{a,b}}{1..100}", role: "write" }]);
   });
 
   test("a deep nest of range-like groups is bounded and quick", async () => {

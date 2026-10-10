@@ -35,8 +35,13 @@ export interface BraceExpansion {
   readonly alsoUnresolved: boolean;
 }
 
-/** No word can be given: only the shell can make sense of the text. */
-const UNRESOLVED: BraceExpansion = Object.freeze({ words: Object.freeze([]), alsoUnresolved: true });
+/**
+ * No word can be spelt out: the text (escaped, a group in it kept as
+ * written) is still a word, as a shell that leaves the group alone gives it,
+ * and only the shell can make sense of it too. Never a bare unresolved
+ * report: the literal word stays judged.
+ */
+const asWritten = (text: string): BraceExpansion => ({ words: [text], alsoUnresolved: true });
 
 /** What rangeWords gives for a group that is no range. */
 const NOT_A_RANGE = "not-a-range" as const;
@@ -105,24 +110,25 @@ function sequence(from: number, to: number, size: number): number[] {
  * Where the reading before this one left the group unresolved (a negative
  * step, a zero-padded range with a negative end), it still does
  * (alsoUnresolved). A step of zero (not recorded), an end or step past the
- * integers held exactly, or more than MAX_WORDS words is unresolved alone.
+ * integers held exactly, or more than MAX_WORDS words gives the group as
+ * written, and leaves it to the shell too.
  */
 function rangeWords(inside: string): BraceExpansion | typeof NOT_A_RANGE {
   const numbers = NUMERIC_RANGE.exec(inside);
   const letters = numbers === null ? LETTER_RANGE.exec(inside) : null;
   const parts = numbers ?? letters;
   if (parts === null) return NOT_A_RANGE;
+  const written = escaped(`{${inside}}`);
   const [, fromText = "", toText = "", stepText] = parts;
   const [from, to] = numbers !== null ? [Number(fromText), Number(toText)] : [fromText.charCodeAt(0), toText.charCodeAt(0)];
   const step = stepText === undefined ? 1 : Number(stepText);
-  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || !Number.isSafeInteger(step) || step === 0) return UNRESOLVED;
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || !Number.isSafeInteger(step) || step === 0) return asWritten(written);
   const size = Math.abs(step);
-  if (Math.floor(Math.abs(to - from) / size) >= MAX_WORDS) return UNRESOLVED;
-  const written = escaped(`{${inside}}`);
+  if (Math.floor(Math.abs(to - from) / size) >= MAX_WORDS) return asWritten(written);
   const words = new Set<string>();
   if (numbers === null) {
-    // A negative letter step is not recorded: unresolved, as before.
-    if (step < 0) return UNRESOLVED;
+    // A negative letter step is not recorded: unresolved, as before, and the group as written.
+    if (step < 0) return asWritten(written);
     for (const value of sequence(from, to, size)) words.add(escaped(String.fromCharCode(value)));
     if (stepText !== undefined) words.add(written);
     return { words: [...words], alsoUnresolved: false };
@@ -166,21 +172,28 @@ function numericOnly(text: string, from: number, to: number): boolean {
   return dots;
 }
 
-/** The union of `readings`, each made in turn, repeats dropped; past MAX_WORDS words, unresolved. */
+/**
+ * The union of `readings`, each made in turn, repeats dropped. The first is
+ * the reading before this one's: past MAX_WORDS words, it alone is kept,
+ * and the text is left to the shell too, so the added readings never cost
+ * it its words.
+ */
 function union(readings: readonly (() => BraceExpansion | typeof TOO_COSTLY)[]): BraceExpansion | typeof TOO_COSTLY {
   const words: string[] = [];
   const seen = new Set<string>();
   let alsoUnresolved = false;
+  let first: BraceExpansion | undefined;
   for (const reading of readings) {
     const expanded = reading();
     if (expanded === TOO_COSTLY) return expanded;
+    first ??= expanded;
     alsoUnresolved ||= expanded.alsoUnresolved;
     for (const word of expanded.words) {
       if (seen.has(word)) continue;
       seen.add(word);
       words.push(word);
     }
-    if (words.length > MAX_WORDS) return UNRESOLVED;
+    if (words.length > MAX_WORDS) return { words: first.words, alsoUnresolved: true };
   }
   return { words, alsoUnresolved };
 }
@@ -245,7 +258,8 @@ function expandPass(text: string, groups: Map<number, Group>, charge: (steps: nu
       if (expanded === TOO_COSTLY) return expanded;
       alsoUnresolved ||= expanded.alsoUnresolved;
       words.push(...expanded.words);
-      if (words.length > MAX_WORDS) return UNRESOLVED;
+      // Past the cap the text is kept as written, a word still judged, and left to the shell too.
+      if (words.length > MAX_WORDS) return withOtherReadings(asWritten(text));
     }
     return withOtherReadings({ words, alsoUnresolved });
   }

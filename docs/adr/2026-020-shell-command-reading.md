@@ -210,7 +210,12 @@ names no tool or language (AGENTS.md). It can own the shape.
       options) takes the rest of the word, or the next word when it ends
       the cluster. `sudo -Eu root rm .env` runs `rm .env` and
       `env -iu VAR rm x` runs `rm x`; before, `root` and `VAR` were read as
-      the command, a fail-open this fixes. Values of options the walk knows
+      the command, a fail-open this fixes. That reading is kept beside the
+      new one, added (`root [rm, .env]`), since every reading adds; a value
+      letter first in its word was read so before too. sudo's value letters
+      include `-R` (chroot), `-a` (auth type) and `-c` (login class), and
+      doas's `-a`, so `sudo -Ru rm .env` and `doas -au rm .env` run
+      `rm .env`. Values of options the walk knows
       are taken as written (`sudo -u "$U" rm x`, `exec -a "$N" rm x`,
       `env -C "$D" cp a b`): no fork there.
     - **`env -S`/`--split-string`.** The string is parsed as code and its
@@ -223,11 +228,17 @@ names no tool or language (AGENTS.md). It can own the shape.
       `sub/x`); past the nesting bound the command is unread.
     - **A program only the shell can name** (a command written in the
       script, a run made from one so written, such as a wrapper's command,
-      or `find -exec`'s command; never xargs's own readings, which its rule
-      already reads) is also walked like an unknown wrapper: every
-      literal-led suffix of its words is a command of its own, run in a
-      copy, each charged its words, and its words are also read as a
-      shell's (`"$SHELL" -c "rm x"`), every way any shell reads them.
+      or `find -exec`'s command; not one xargs runs, nor one run by a
+      wrapper xargs runs: see "Limits") is also walked like an unknown
+      wrapper: every literal-led suffix of its words is a command of its
+      own, run in a copy, and its words are also read as a shell's
+      (`"$SHELL" -c "rm x"`), every way any shell reads them. A suffix led
+      by a command the table knows, or by `--`, is walked whole, charged
+      its words; one led by any other word reads only operands the
+      program's own reading of the same words already reads, so it is
+      listed in `programs` and charged only its name: a long list of words
+      costs linear work (`"$X"` before 700 words is read in about 90 ms,
+      `"$PY" -m pytest` with 400 files in about 25 ms).
       `"$W" rm x`, `"$W" -u root rm x`, `$GIT rm x` and
       `find . -exec "$C" rm x \;` delete `x`; `$TOOL x` lists
       `$TOOL [x]` and `x []`; a chain `$A $A … rm x` gives one reading
@@ -301,8 +312,8 @@ names no tool or language (AGENTS.md). It can own the shape.
       union and the word as written;
     - a negative step: bash 3.2 keeps it literal, bash 5 uses its size, zsh
       reverses: the words of its size and the word as written, the
-      unresolved report kept; a step of zero is not recorded and stays
-      unresolved only;
+      unresolved report kept; a step of zero is not recorded: the group is
+      kept as written and left to the shell;
     - a zero-padded negative end: bash 3.2 unpadded, bash 5 and zsh padded:
       their union, the unresolved report kept;
     - letter steps: bash 5 steps, bash 3.2 and zsh keep the word literal:
@@ -322,7 +333,14 @@ names no tool or language (AGENTS.md). It can own the shape.
     however long. Each added word is charged as any pass; the 256-word cap
     applies to the union. Both words of a padded range count towards it:
     `f{0001..0128}` (256 words) is read; `f{0001..0129}` (258) and
-    `f{001..200}` (299) are unresolved.
+    `f{001..200}` (299) are unresolved. *Final review:* a word the reader
+    cannot spell out (past 256 words, a step of zero, an end past the
+    integers held exactly, `f{+1..300}`) is never a bare unresolved
+    report: the word as written is kept, judged as a literal word as zsh
+    (and before this item, the reader) gives a plus-signed group, and left
+    to the shell beside it; where a nested group's added readings take the
+    union past 256 words, the reading before is kept alone, with the word
+    left to the shell too (`rm f{1..{a,b}}{1..100}` deletes its 200 words).
   - **Reading is bounded in time, because the reader is synchronous:**
     `ReadShellCommand`'s `readWithinMs` (see "Reading in the host adapter")
     cannot stop it, and a hook that ran out of time would let the call
@@ -657,14 +675,18 @@ every moved or replaced case is recorded in `superseded-tests.json`.
   part, `time`'s report). Closing them would need a mechanism that
   multiplies readings at every such `cd`: not taken (the orchestrator's
   decision, for the maintainer).
-- A range with a step of zero is unresolved only: no shell was recorded
-  for it. A nested group whose range's `..` comes from inside its nested
-  group's words (`f{1{..,x}3}`) gets the reading before (its rescan) and
-  not bash 5's (outer braces kept); its outer group holds no `..` of its own.
-- A literal cluster's value word was read as a wrapper's command before
-  (`sudo -Eu root rm .env` ran `root`); it is now read as getopt reads it,
-  the one place a literal word's earlier reading is replaced, since getopt
-  leaves no doubt there.
+- A range with a step of zero gives only the word as written and leaves it
+  to the shell: no shell was recorded for it. A nested group whose range's
+  `..` comes from inside its nested group's words (`f{1{..,x}3}`) gets the
+  reading before (its rescan) and not bash 5's (outer braces kept); its
+  outer group holds no `..` of its own.
+- A program only the shell can name that xargs runs, or that a wrapper
+  xargs runs runs (`xargs sudo "$W" rm x`), is not walked like an unknown
+  wrapper: the variable-named reading applies to commands written in the
+  script only. xargs's own every-reading rule covers a word only the shell
+  can resolve among xargs's options, and the wrapper's forks cover its own
+  options (`sudo "$W" rm x` still gives `rm [x]`), but the suffixes of the
+  variable-named program's words are not read there.
 - **What `programs` does not list** (*amended by `prereqs-execute`*; each
   until `shell-reader-coverage` where it fixes it): what programs and
   scripts run themselves; package runners (`npx`, `bunx`, `pnpm exec`,

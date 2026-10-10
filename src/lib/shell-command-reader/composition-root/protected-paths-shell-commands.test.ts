@@ -430,6 +430,15 @@ describe("read by bounded's shell command reader â€” the protected-paths pack â€
     await refusedFor(shell, commands, "x");
   });
 
+  test("a cluster led by sudo's -R or -a, or doas's -a, takes the rest of its word, so the command after it is read (final review, M2)", async () => {
+    await refusedFor(await shellWith([dotEnv]), ["sudo -Ru rm .env", "sudo -au rm .env", "doas -au rm .env", "sudo -cu rm .env"], ".env");
+  });
+
+  test("a range the reader cannot spell out keeps its word as written, and is judged (final review, M1)", async () => {
+    const secrets = rules("a", { match: "secrets/**", deny: ["delete"], redirect: "Leave secrets/ alone" });
+    await refusedFor(await shellWith([secrets], { secrets: "directory" }), ["rm secrets/{+1..300}"], "secrets/{+1..300}");
+  });
+
   test("a short cluster ending in a value-taking letter is read as getopt reads it", async () => {
     await refusedFor(await shellWith([dotEnv]), ["sudo -Eu root rm .env"], ".env");
     await refusedFor(await shellWith([x]), ["env -iu VAR rm x"], "x");

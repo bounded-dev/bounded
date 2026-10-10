@@ -1,5 +1,5 @@
 import { ProjectPath } from "bounded/domain";
-import { commandMeaning, FOUND_PATH, MAX_NESTING, mergeMeanings, newWorkBudget, STANDARD_INPUT, shellArgumentsMeaning, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
+import { commandMeaning, FOUND_PATH, isKnownCommand, MAX_NESTING, mergeMeanings, newWorkBudget, STANDARD_INPUT, shellArgumentsMeaning, spend, textCost, WORK_BUDGET_STEPS, XARGS_INPUT } from "./command-meanings.ts";
 import type { CommandMeaning, MeaningChange } from "./command-meanings.contract.ts";
 import type { PathKind, ShellCommandEffects, ShellNode, ShellPlace, ShellProgram, ShellRedirect, ShellWord, ShellWrite, UnresolvedWord, WorkBudget } from "./shell-command.contract.ts";
 
@@ -52,13 +52,23 @@ const joinedPathCost = (scope: Scope): number => Math.floor(scope.joinedLength /
  * among which the input stands as `input` (xargs's XARGS_INPUT after them,
  * or where a replace string is; find's FOUND_PATH where {} is): where the
  * table puts the input word, followed into a command the command runs. Only
- * a report: the words are judged as written, never these.
+ * a report: the words are judged as written, never these. `withMeaning`
+ * is given the meaning the table gives the command, when it is looked up,
+ * so a caller that needs it too does not look it up, nor pay for it, again.
  */
-function inputRoles(name: ShellWord, words: readonly ShellWord[], budget: WorkBudget, input: ShellWord = XARGS_INPUT, depth = 0): UnresolvedWord["role"][] {
+function inputRoles(
+  name: ShellWord,
+  words: readonly ShellWord[],
+  budget: WorkBudget,
+  input: ShellWord = XARGS_INPUT,
+  depth = 0,
+  withMeaning: (meaning: CommandMeaning) => void = () => {},
+): UnresolvedWord["role"][] {
   if (!spend(budget, 1 + words.length)) return [];
   if (name === input) return ["code"];
   if (name.kind !== "literal" || depth > 8) return ["code"];
   const meaning = commandMeaning(name.text, words, budget);
+  withMeaning(meaning);
   const has = (words: readonly ShellWord[]): boolean => words.includes(input);
   const roles: UnresolvedWord["role"][] = [];
   if (has(meaning.reads) || has(meaning.repositoryReads) || meaning.transfers.some((transfer) => has(transfer.sources))) roles.push("read");
@@ -206,14 +216,21 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
     const replaced = charged && how.replace !== undefined ? withInputReplaced([name, ...args], how.replace, replacedBy) : undefined;
     const [listedName = name, ...listedArgs] = replaced ?? [name, ...args];
     if (how.standIn !== true) programs.push({ name: listedName, arguments: how.input === true ? [...listedArgs, XARGS_INPUT] : listedArgs, workingDirectory: directoryOf(scope) });
-    if (how.input === true) for (const role of inputRoles(name, [...args, XARGS_INPUT], budget)) unresolved.push({ text: XARGS_INPUT.text, role });
+    let withInput: CommandMeaning | undefined;
+    if (how.input === true) {
+      const roles = inputRoles(name, [...args, XARGS_INPUT], budget, XARGS_INPUT, 0, (meaning) => {
+        withInput = meaning;
+      });
+      for (const role of roles) unresolved.push({ text: XARGS_INPUT.text, role });
+    }
     if (charged) {
       const [inputName = name, ...inputArgs] = replaced ?? [replacedBy];
       const roles = inputName === name && !inputArgs.includes(replacedBy) ? [] : inputRoles(inputName, inputArgs, budget, replacedBy);
       for (const role of roles) unresolved.push({ text: replacedBy.text, role });
     }
     // Where xargs's input would be a source of a copy or move into a directory, or a path of unknown kind, it is written there too.
-    if (how.input === true && name.kind === "literal") intoDestinations(commandMeaning(name.text, [...args, XARGS_INPUT], budget).transfers, XARGS_INPUT, scope);
+    // The meaning is the one the input's roles were read from: looked up, and charged, once.
+    if (withInput !== undefined) intoDestinations(withInput.transfers, XARGS_INPUT, scope);
     // A program whose name only the shell can resolve, written in the script (or run from one so written), may be a wrapper or a shell:
     // its words are also read as a shell's arguments here, and every literal-led suffix of them as a command, below (ADR 2026-020).
     const variableNamed = how.written === true && how.standIn !== true && name.kind === "unresolved" && name !== XARGS_INPUT && name !== FOUND_PATH;
@@ -297,8 +314,18 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
       for (let index = 0; index < args.length; index++) {
         const word = args[index] as ShellWord;
         if (word.kind !== "literal") continue;
-        if (!spend(budget, 1 + args.length - index)) break;
-        nested(() => command(word, args.slice(index + 1), cellAt(cell.current), suffix));
+        const rest = args.slice(index + 1);
+        if (isKnownCommand(word.text) || word.text === "--") {
+          // A command the table knows (or one led by --, after which options read as options again) is walked whole, charged its words.
+          if (!spend(budget, 1 + rest.length)) break;
+          nested(() => command(word, rest, cellAt(cell.current), suffix));
+          continue;
+        }
+        // A command the table does not know reads its operands, which the program's own reading of the same words already reads, and
+        // runs nothing it can name: it is listed, charged only what it adds (its name), so a long list of words costs linear work.
+        if (!spend(budget, 1 + textCost([word]) + (how.replace === undefined ? 0 : rest.length))) break;
+        const listed = how.replace === undefined ? rest : (withInputReplaced(rest, how.replace, how.replacedBy ?? XARGS_INPUT) ?? rest);
+        programs.push({ name: word, arguments: listed, workingDirectory: directoryOf(cell.current) });
       }
     }
     if (meaning.location !== undefined) {
@@ -313,7 +340,10 @@ export function describeShellCommand(script: readonly ShellNode[], place: ShellP
    * own name, so that write is reported, unresolved (ADR 2026-020).
    */
   const into = (to: ProjectPath, kind: PathKind | undefined, source: ShellWord): void => {
-    if ((kind === "directory" || kind === undefined) && spend(budget)) unresolved.push({ text: to.value === "." ? source.text : `${to.value}/${source.text}`, role: "write" });
+    if (kind !== "directory" && kind !== undefined) return;
+    const text = to.value === "." ? source.text : `${to.value}/${source.text}`;
+    // A step, and one more per 64 characters of the text it reports.
+    if (spend(budget, 1 + (text.length >> 6))) unresolved.push({ text, role: "write" });
   };
 
   /** The transfers whose sources hold `input` (xargs's), each into its destination when that resolves from `scope`. */

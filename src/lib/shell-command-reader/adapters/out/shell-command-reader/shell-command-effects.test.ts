@@ -99,10 +99,10 @@ describe("read by bounded's shell command reader — describeShellCommand: a par
 });
 
 describe("read by bounded's shell command reader — describeShellCommand: braces, nested shells and repository paths, as the shell reads them", () => {
-  test("brace expansion of literals gives each word; braces inside quotes are text", () => {
+  test("brace expansion of literals gives each word; braces inside quotes are text; a range past the cap is kept as written and left to the shell", () => {
     expect(described("cat {.env,x} a{1..3}b '{q,r}' \"{s,t}\"").reads).toEqual([".env", "x", "a1b", "a2b", "a3b", "{q,r}", "{s,t}"]);
     expect(described("cat a{c..e}").reads).toEqual(["ac", "ad", "ae"]);
-    expect(described("cat {1..100000}").reads).toEqual([]);
+    expect(described("cat {1..100000}")).toMatchObject({ reads: ["{1..100000}"], unresolved: ["{1..100000}"] });
   });
 
   test("a shell given code with -c runs it as a nested command line, in a shell of its own", () => {
