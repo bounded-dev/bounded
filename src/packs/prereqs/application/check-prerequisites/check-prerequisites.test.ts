@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type AfterToolReport, AgentRunFinished, type Composition, contribution, corePack, defineConfig, type EffectJSON, Ports, ToolResult, ToolUse, type Verdict } from "bounded/domain";
 import { FileSetFingerprint } from "../../domain/file-set-fingerprint.ts";
-import type { PrerequisiteRuleJSON } from "../../domain/prerequisite-rule.contract.ts";
+import type { PrerequisiteRuleJSON, PrerequisiteStatus } from "../../domain/prerequisite-rule.contract.ts";
 import { PrerequisiteRule } from "../../domain/prerequisite-rule.ts";
 import { prereqs } from "../../prereqs.pack.ts";
 import { fileSetFingerprintsPort, type PrerequisiteStatusSnapshotJSON, prerequisiteRecordsPort, prerequisiteStatusSnapshotsPort } from "./check-prerequisites.contract.ts";
@@ -795,7 +795,7 @@ describe("check-prerequisites — the status snapshot (ADR 2026-026)", () => {
       await run(handler, "spec-reviewer", "c2");
       await run(handler, "infra-reviewer", "c3");
     };
-    const scenarios: readonly [string, (handler: CheckPrerequisitesHandler, fingerprints: InMemoryFileSetFingerprints) => Promise<void>][] = [
+    const scenarios: readonly [PrerequisiteStatus, (handler: CheckPrerequisitesHandler, fingerprints: InMemoryFileSetFingerprints) => Promise<void>][] = [
       ["missing", async () => {}],
       ["holds", reviewAll],
       [
@@ -995,6 +995,14 @@ describe("check-prerequisites — the status snapshot's lifecycle checks (ADR 20
     failing.snapshots.saveFailure = "the disk is full";
     expect(await writeStatusAfterTool(result, failing.context)).toEqual({ message: null, record: null });
     expect(await writeStatusAtFinish(finish, failing.context)).toEqual({ record: null });
+  });
+
+  test("without the snapshot port, the write checks touch no port", async () => {
+    const { fingerprints, records, context } = lifecycleWith([beforeSrc], CANONICAL_FILES, { snapshots: false });
+    expect(await writeStatusAfterTool(resultOf(writeTo("docs/a.md"), true), context)).toEqual({ message: null, record: null });
+    expect(await writeStatusAtFinish(finishOf("plan-reviewer"), context)).toEqual({ record: null });
+    expect(fingerprints.calls).toBe(0);
+    expect(records.calls).toBe(0);
   });
 
   test("verdicts and records are the same with and without the snapshot port", async () => {

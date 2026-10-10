@@ -21,6 +21,12 @@ export interface Ports {
   get<T>(key: PortKey<T>): Result<T>;
   /** Whether an adapter is provided for `key`. */
   provides(key: BasePortKey): boolean;
+  /**
+   * The adapter for an optional port (ADR 2026-026): undefined when the host
+   * does not provide it, else exactly what get gives. Optional reads go
+   * through it, so they can be found. Never throws.
+   */
+  ifProvided<T>(key: PortKey<T>): Result<T> | undefined;
 }
 
 export interface PortsFactory {

@@ -58,7 +58,7 @@ type ValueOf<D> = D extends PointDeclaration<infer Value> ? Value : never;
 /** A declaration's point, or a group's record of member points. */
 type PointsOf<D, Id extends PackId> = D extends PointGroupDeclaration<infer Members> ? { readonly [J in keyof Members]: ExtensionPoint<ValueOf<Members[J]>, Id> } : ExtensionPoint<ValueOf<D>, Id>;
 
-/** A pack's ports section: the port keys it needs, by camelCase name. */
+/** A pack's ports section (or optional ports section): the port keys it needs (or may use), by camelCase name. */
 export type PortSection = Readonly<Record<string, BasePortKey>>;
 
 /** A group's member points, keyed by member: a frozen record without a prototype. */
@@ -74,6 +74,13 @@ export interface BasePack {
   readonly contributes: readonly Contribution<PackId>[];
   /** The adapters a host must provide through openProject({ ports }) when the pack is selected. */
   readonly ports: PortSection;
+  /**
+   * The adapters a host may provide (ADR 2026-026): composition never
+   * requires them, and the pack's checks read them with Ports.ifProvided. An
+   * optional port serves only output that never decides a verdict or a
+   * record: with or without it, every verdict and every record is the same.
+   */
+  readonly optionalPorts: PortSection;
   /**
    * What is wrong with the pack's shape, when it was built from untyped data
    * (a dependency that is not a pack, a point key that is not camelCase, a
@@ -116,6 +123,15 @@ export interface Pack<Id extends PackId, Points extends Declarations, Ports exte
   readonly ports: Ports;
 }
 
+/**
+ * What definePack makes: a Pack, with its optional ports typed by their keys
+ * when it declares any (ADR 2026-026). A pack without any is exactly a Pack,
+ * so the compiler's messages about it name no section it does not have.
+ */
+export type DefinedPack<Id extends PackId, Points extends Declarations, Ports extends PortSection, OptionalPorts extends PortSection> = [keyof OptionalPorts] extends [never]
+  ? Pack<Id, Points, Ports>
+  : Pack<Id, Points, Ports> & { readonly optionalPorts: OptionalPorts };
+
 /** Values one pack contributes to a point of the pack with id `Owner`. */
 export interface Contribution<Owner extends PackId> {
   readonly __brand: "Contribution";
@@ -125,7 +141,13 @@ export interface Contribution<Owner extends PackId> {
 }
 
 /** A pack's definition, its sections always in this order. */
-export interface PackSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[], Ports extends PortSection = Record<never, never>> {
+export interface PackSpec<
+  Id extends PackId,
+  Points extends Declarations,
+  Dependencies extends readonly BasePack[],
+  Ports extends PortSection = Record<never, never>,
+  OptionalPorts extends PortSection = Record<never, never>,
+> {
   readonly id: Id;
   readonly dependsOn?: Dependencies;
   /** What other packs contribute to. */
@@ -134,6 +156,8 @@ export interface PackSpec<Id extends PackId, Points extends Declarations, Depend
   readonly contributes?: readonly Contribution<NoInfer<Dependencies[number]["id"]>>[];
   /** Adapters a host must supply through openProject({ ports }) when the pack is selected. */
   readonly ports?: Ports;
+  /** Adapters a host may supply (ADR 2026-026), for output that decides no verdict and no record; read with Ports.ifProvided. */
+  readonly optionalPorts?: OptionalPorts;
 }
 
 type ExactId<Id> = [Id] extends [{ readonly value: infer Text extends string }] ? IsExact<Text> : false;
@@ -149,7 +173,13 @@ export type StrictMembers<Members> = {
 type Repeats<List extends readonly unknown[]> = List extends readonly [infer Head, ...infer Tail] ? ([Head] extends [Tail[number]] ? true : Repeats<Tail>) : false;
 
 /** What the compiler refuses beyond plain assignability. */
-export type StrictSpec<Id extends PackId, Points extends Declarations, Dependencies extends readonly BasePack[], Ports extends PortSection = Record<never, never>> = ([ExactId<Id>] extends [true]
+export type StrictSpec<
+  Id extends PackId,
+  Points extends Declarations,
+  Dependencies extends readonly BasePack[],
+  Ports extends PortSection = Record<never, never>,
+  OptionalPorts extends PortSection = Record<never, never>,
+> = ([ExactId<Id>] extends [true]
   ? unknown
   : { readonly id: Refused<"give the pack an exact id from packIdsFor(...)(...)"> }) & {
   readonly points?: { readonly [K in keyof Points]: CamelCase<K> extends true ? unknown : Refused<"point keys are camelCase words, such as protectedPaths"> };
@@ -158,6 +188,15 @@ export type StrictSpec<Id extends PackId, Points extends Declarations, Dependenc
       ? [Ports[K]["owner"]] extends [Id]
         ? unknown
         : Refused<"a pack declares only its own ports">
+      : Refused<"port keys are camelCase words, such as sourceFiles">;
+  };
+  readonly optionalPorts?: {
+    readonly [K in keyof OptionalPorts]: CamelCase<K> extends true
+      ? K extends keyof Ports
+        ? Refused<"a port is declared required or optional, not both">
+        : [OptionalPorts[K]["owner"]] extends [Id]
+          ? unknown
+          : Refused<"a pack declares only its own ports">
       : Refused<"port keys are camelCase words, such as sourceFiles">;
   };
 } & (Dependencies extends readonly []
@@ -243,9 +282,15 @@ type StructureContainsAny<T, Depth extends readonly unknown[]> = T extends Promi
 
 export interface PackFactory {
   /** Define a pack: its id, the packs it depends on, the points it declares and what it contributes. */
-  definePack<const Id extends PackId, const Points extends Declarations = Record<never, never>, const Dependencies extends readonly BasePack[] = [], const Ports extends PortSection = Record<never, never>>(
-    spec: PackSpec<Id, Points, Dependencies, Ports> & StrictSpec<Id, Points, Dependencies, Ports>,
-  ): Pack<Id, Points, Ports>;
+  definePack<
+    const Id extends PackId,
+    const Points extends Declarations = Record<never, never>,
+    const Dependencies extends readonly BasePack[] = [],
+    const Ports extends PortSection = Record<never, never>,
+    const OptionalPorts extends PortSection = Record<never, never>,
+  >(
+    spec: PackSpec<Id, Points, Dependencies, Ports, OptionalPorts> & StrictSpec<Id, Points, Dependencies, Ports, OptionalPorts>,
+  ): DefinedPack<Id, Points, Ports, OptionalPorts>;
   /**
    * Declare an extension point inside a pack definition; its value type is
    * what `check` returns. `unknown` is allowed (readers must narrow); `any`, anywhere

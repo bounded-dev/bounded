@@ -588,7 +588,7 @@ export function brandExportViolations(files: readonly SourceFile[]): string[] {
 }
 
 /** The sections of definePack, in the only order an overview may give them. */
-const SECTIONS = ["id", "dependsOn", "points", "contributes", "ports"];
+const SECTIONS = ["id", "dependsOn", "points", "contributes", "ports", "optionalPorts"];
 /** A shipped pack's file: its pack's directory (`src/packs/<name>`), the pack's name, and its path within that directory. */
 const packFileOf = (path: string): { readonly dir: string; readonly name: string; readonly rest: string } | undefined => {
   const within = withinUnit(path);
@@ -633,7 +633,7 @@ export function packLayoutViolations(paths: readonly string[]): string[] {
  * R7, overview: a pack is defined only in an overview file (`<name>.pack.ts`),
  * which holds imports and one `export const <x>: <Type> = definePack({…})`,
  * `<Type>` from `./<name>.contract.ts`; its sections are a subsequence of id,
- * dependsOn, points, contributes, ports; and every value is built from
+ * dependsOn, points, contributes, ports, optionalPorts; and every value is built from
  * imported names, property access, calls and array or object literals: no
  * functions, conditionals, operators or literal text. A shipped pack's
  * overview imports only its own domain/ and application/, its contract and
@@ -681,7 +681,7 @@ export function packOverviewViolations(files: readonly SourceFile[], domainExpor
     const spec = call.arguments[0] as ts.ObjectLiteralExpression;
     const keys = spec.properties.map((property) => (property.name !== undefined && ts.isIdentifier(property.name) ? property.name.text : "?"));
     const order = keys.map((key) => SECTIONS.indexOf(key));
-    if (order.some((index, i) => index < 0 || (i > 0 && index <= (order[i - 1] ?? -1)))) out.push(`${file.path} — an overview's sections are id, dependsOn, points, contributes, ports, in that order (it gives ${keys.join(", ")})`);
+    if (order.some((index, i) => index < 0 || (i > 0 && index <= (order[i - 1] ?? -1)))) out.push(`${file.path} — an overview's sections are id, dependsOn, points, contributes, ports, optionalPorts, in that order (it gives ${keys.join(", ")})`);
     const binding = (node: ts.Node): boolean =>
       ts.isIdentifier(node) ||
       (ts.isPropertyAccessExpression(node) && binding(node.expression)) ||
