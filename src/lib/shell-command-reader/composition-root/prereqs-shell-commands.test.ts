@@ -460,4 +460,27 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them 
     // sort -o writes its file.
     expect(reasonOf(await shell("sort -o src/a.ts README"))).toContain("which writes 'src/a.ts'");
   });
+
+  test("standard input reaching a program the reader does not interpret through a loop's or group's here-string, or a < from a process substitution, is code: refused while a rule does not hold (final review, M2)", async () => {
+    const { shell, reviewedByAll } = await opened();
+    const refused = [
+      ["while read l; do ssh host; done <<< 'terraform apply'", code("<<< 'terraform apply'")],
+      ["ssh host < <(echo terraform apply)", code("<(echo terraform apply)")],
+      ["{ ssh host; } <<< 'terraform apply'", code("<<< 'terraform apply'")],
+      // The over-refusal, stated: sed is a program the reader does not interpret, so piped input into it is code.
+      ["cat README | sed s/a/b/", code("(piped input)")],
+    ] as const;
+    for (const [command, part] of refused) expect({ command, part: cannotSeeOf(await shell(command)) }).toEqual({ command, part });
+    // A < from a file is a read, judged as one: allowed under an unmet rule (a named limit: what the program makes of it is not seen).
+    expect(reasonOf(await shell("ssh host < README"))).toBe("allowed");
+    await reviewedByAll();
+    for (const [command] of refused) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  });
+
+  test("limit: a glob or brace a program the reader does not interpret expands itself is not seen (final review, M1)", async () => {
+    const { shell } = await opened();
+    // ssh's remote shell expands them, so these may run terraform apply; bounded reads a literal word with no '$', backquote, ';',
+    // '&&', '|' or newline as text, so prettier --write 'src/**' and eslint's globs are not refused (the orchestrator's decision).
+    for (const command of ["ssh host '/*/bin/terrafor? apply'", "ssh host '/usr/bin/terra{form,} apply'"]) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  });
 });

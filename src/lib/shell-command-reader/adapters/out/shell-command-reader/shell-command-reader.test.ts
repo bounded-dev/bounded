@@ -1143,6 +1143,34 @@ describe("TreeSitterShellCommandReader — the reader's new readings (every read
     for (const command of ["mytool 'a b'", "mytool a-b", "echo '$HOME'", "grep '$x' f", "printf '%s;' a", "cat 'a;b'"]) expect({ command, code: codeOf(await read(command)) }).toEqual({ command, code: [] });
   });
 
+  test("standard input reaching a program the reader does not interpret through a group's, subshell's or loop's here-string, a pipe into one, or a < from a process substitution is code; a < from a file stays a read (final review, M2)", async () => {
+    for (const [command, code] of [
+      ["{ mytool; } <<< 'x'", ["<<< 'x'"]],
+      ["( mytool ) <<< 'x'", ["<<< 'x'"]],
+      ["while read l; do mytool; done <<< 'x'", ["<<< 'x'"]],
+      ["for f in a; do mytool; done <<< 'x'", ["<<< 'x'"]],
+      ["if true; then mytool; fi <<< x", ["<<< x"]],
+      ["cat a | { mytool; }", ["(piped input)"]],
+      ["cat a | while read l; do mytool; done", ["(piped input)"]],
+      ["mytool < <(echo x)", ["<(echo x)"]],
+      ["{ mytool; } < <(echo x)", ["<(echo x)"]],
+      // Known programs keep their reads.
+      ["{ cat; } <<< 'x'", []],
+      ["while read l; do grep x; done <<< 'x'", []],
+    ] as const) {
+      expect({ command, code: codeOf(await read(command)) }).toEqual({ command, code: [...code] });
+    }
+    // A named limit: a < from a file is a read, judged as one, never code (mytool < input.txt is not refused).
+    const fromFile = await read("mytool < input.txt");
+    expect(codeOf(fromFile)).toEqual([]);
+    expect(fromFile.fileEffects).toEqual([{ effect: { kind: "read", path: "input.txt" } }]);
+  });
+
+  test("xargs named by its path reads its runs as xargs does", async () => {
+    const byName = (await read('xargs "$W" rm x')).programs.slice(1).map(programLine);
+    expect((await read('/usr/bin/xargs "$W" rm x')).programs.slice(1).map(programLine)).toEqual(byName);
+  });
+
   test("what reaches a known wrapper's command reaches it too: piped input and a here-string into sudo's command the table does not know are code", async () => {
     expect(codeOf(await read("sudo mytool <<< 'x'"))).toEqual(["<<< 'x'"]);
     expect(codeOf(await read("cat a | env A=1 mytool"))).toEqual(["(piped input)"]);
