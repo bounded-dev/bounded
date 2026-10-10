@@ -6166,5 +6166,41 @@
       "case": "architecture > R7: a shipped pack's directory holds its overview, contract, index, their test and its README at its root, and only domain/, application/, adapters/ and examples/"
     },
     "reason": "a shipped pack's root holds its required README and its examples/ folder too (ADR 2026-013's R7, amended by pack-structure), so the case's title and the root-file message name them (final review of pack-structure)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > a run that passes terraform as an argument is refused while the rule does not hold, as cannot see",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > a run that passes terraform as an argument is refused while the rule does not hold: as running it where the reader now sees the run, as cannot see elsewhere"
+    },
+    "reason": "the reader now reads programs named by their path, trap's code and package runners, so these runs are seen as running terraform (ADR 2026-020, amended by shell-reader-coverage)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > terraform passed inside an argument is found past quotes, separators and unresolved words (final review, B1)",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > terraform passed inside an argument is found past quotes, separators and unresolved words; a shell named by its path, time and coproc are seen to run it"
+    },
+    "reason": "the reader now reads a shell named by its path, time and coproc as the commands they are, so /bin/bash -c '…', /bin/sh -c '…', time terraform apply and coproc terraform apply are seen as running terraform, no longer as cannot see (ADR 2026-020, amended by shell-reader-coverage)"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > limit, until shell-reader-coverage: terraform reached through an expansion inside an argument or input to a program the reader does not interpret is not seen",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > programs the reader does not interpret take what it cannot see as code; sudo and doas shells, sourced files and trap's code are code: refused while a rule does not hold, under execute and write rules"
+    },
+    "reason": "what the reader cannot see reaching a program it does not interpret is code, not a read; sudo/doas shells, sourced files and trap's code are read as code; so bounded/prereqs refuses them while a rule does not hold (ADR 2026-020, amended by shell-reader-coverage; the orchestrator's decisions for the maintainer). Two of its forms pass a literal word (ssh host 'terra``form apply', watch 'terra${x}form apply'): no reading makes a literal word code, so they stay allowed, a named limit in the case 'limit: terraform reached through a literal argument a program the reader does not interpret may run as code is not seen'"
+  },
+  {
+    "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+    "case": "bounded/prereqs judging shell commands from bounded's reading of them > limit: a script run through a shell, or sourced, is not seen to run; it is refused only because its name stands as an argument",
+    "successor": {
+      "file": "src/lib/shell-command-reader/composition-root/prereqs-shell-commands.test.ts",
+      "case": "bounded/prereqs judging shell commands from bounded's reading of them > limit: a script run through a shell is not seen to run; a sourced one is code bounded cannot read"
+    },
+    "reason": "`.` and `source` report their operand as code (ADR 2026-020, amended by shell-reader-coverage), so a sourced script is refused as code bounded cannot read, first under the rule before terraform apply"
   }
 ]

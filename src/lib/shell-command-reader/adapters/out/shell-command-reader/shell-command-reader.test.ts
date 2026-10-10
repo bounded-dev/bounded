@@ -980,3 +980,168 @@ describe("TreeSitterShellCommandReader — a range or a nested group gives every
     }
   }, 30_000);
 });
+
+describe("TreeSitterShellCommandReader — the reader's new readings (every reading adds)", () => {
+  const STDIN = { text: "(standard input)", role: "code" } as const;
+  const codeOf = (reading: Reading): string[] => reading.unresolved.filter((part) => part.role === "code").map((part) => part.text);
+
+  test("a program named by its path, or in another case, is also read as the table's program, keeping the run as written", async () => {
+    for (const command of ["/bin/rm x", "/usr/bin/env rm x", "./sudo rm x", "RM x", "/usr/bin/sudo -u root /bin/rm x"]) {
+      expect({ command, deletes: deletesOf(await read(command)) }).toEqual({ command, deletes: ["x"] });
+    }
+    expect((await read("/bin/rm x")).programs.map(programLine)).toEqual(["/bin/rm [x] @."]);
+    expect((await read("/usr/bin/env rm x")).programs.map(programLine)).toEqual(["/usr/bin/env [rm x] @.", "rm [x] @."]);
+  });
+
+  test("the remaining standard-input forms are code", async () => {
+    for (const command of ["sudo -s", "sudo -i", "doas -s", "sudo -u root -s", "sudo --login"]) {
+      expect({ command, unresolved: (await read(command)).unresolved }).toEqual({ command, unresolved: [STDIN] });
+    }
+    for (const [command, operand] of [
+      [". ./env.sh", "./env.sh"],
+      ["source x.sh", "x.sh"],
+      ["source /dev/stdin", "/dev/stdin"],
+      [". /dev/stdin", "/dev/stdin"],
+    ] as const) {
+      const reading = await read(command);
+      expect({ command, code: codeOf(reading) }).toEqual({ command, code: [operand] });
+    }
+    // Each still read, as before.
+    expect((await read(". ./env.sh")).fileEffects).toEqual([{ effect: { kind: "read", path: "env.sh" } }]);
+    expect((await read("source /dev/stdin")).unresolved).toContainEqual({ text: "/dev/stdin", role: "read" });
+    // Pins of prereqs-execute's and shell-every-reading's readings: each unchanged.
+    for (const command of ["bash -", "echo x | sh -", "bash -xs", "sh -es", "bash /dev/stdin", "bash /dev/fd/0", "bash /dev/./stdin", "bash /proc/self/fd/0", "bash --bogus-long-option", "bash -o pipefail", 'bash "$S"']) {
+      expect({ command, unresolved: (await read(command)).unresolved }).toEqual({ command, unresolved: expect.arrayContaining([STDIN]) });
+    }
+  });
+
+  test("-execdir and -okdir also run from nowhere known, unless already there", async () => {
+    for (const command of ["find . -execdir rm x \\;", "find . -okdir rm x \\;"]) {
+      const reading = await read(command);
+      expect({ command, deletes: deletesOf(reading), unresolved: reading.unresolved }).toEqual({ command, deletes: ["x"], unresolved: expect.arrayContaining([{ text: "x", role: "write" }]) });
+    }
+    // From a directory already nowhere known, the one reading.
+    const nowhere = await read('cd "$D" && find . -execdir rm x \\;');
+    expect(nowhere.programs.filter((program) => program.name.text === "rm")).toHaveLength(1);
+    expect(nowhere.unresolved.filter((part) => part.text === "x")).toEqual([{ text: "x", role: "write" }]);
+  });
+
+  test("coproc is read as bash reads it, from the grammar's recorded parse", async () => {
+    // Recorded with the repository's tree-sitter-bash (@vscode/tree-sitter-wasm 0.3.1), rootNode.toString():
+    //   coproc rm x          => (program (command name: (command_name (word)) argument: (word) argument: (word)))
+    //   coproc NAME { rm x; } => (program (command name: (command_name (word)) argument: (word) argument: (word) argument: (word) argument: (word)) (command name: (command_name (word))))
+    //   coproc NAME rm x     => (program (command name: (command_name (word)) argument: (word) argument: (word) argument: (word)))
+    //   coproc { rm x; }     => (program (command name: (command_name (word)) argument: (word) argument: (word) argument: (word)) (command name: (command_name (word))))
+    //   coproc (rm x)        => (program (command name: (command_name (word)) (subshell (command name: (command_name (word)) argument: (word)))))
+    // No coproc node: coproc is an ordinary command; a { … } body is cut at its first ';', '}' a command of its own; a ( … ) body a subshell child.
+    expect(deletesOf(await read("coproc rm x"))).toEqual(["x"]);
+    const named = await read("coproc NAME rm x");
+    expect(named.programs.map(programLine)).toContain("NAME [rm x] @.");
+    expect(deletesOf(named)).toEqual([]);
+    for (const command of ["coproc NAME { rm x; }", "coproc { rm x; }", "coproc { true; rm x; }"]) {
+      const reading = await read(command);
+      expect({ command, deletes: deletesOf(reading), code: codeOf(reading) }).toEqual({ command, deletes: ["x"], code: ["(coproc's { … } body)"] });
+    }
+    expect(deletesOf(await read("coproc (rm x)"))).toEqual(["x"]);
+    expect(deletesOf(await readIn("coproc (cd sub); rm x", ["sub"]))).toEqual(["x"]);
+  });
+
+  test("trap's code runs from here and from nowhere known; time is read as its recorded parse gives it; the install script's clone line is a clone", async () => {
+    // Recorded with the repository's tree-sitter-bash (@vscode/tree-sitter-wasm 0.3.1), rootNode.toString():
+    //   time rm x          => (program (command name: (command_name (word)) argument: (word) argument: (word)))
+    //   time -p rm x       => (program (command name: (command_name (word)) argument: (word) argument: (word) argument: (word)))
+    //   time cd sub; rm x  => (program (command name: (command_name (word)) argument: (word) argument: (word)) (command name: (command_name (word)) argument: (word)))
+    //   time { rm x; }     => (program (command name: (command_name (word)) argument: (word) argument: (word) argument: (word)) (command name: (command_name (word))))
+    //   /usr/bin/time rm x => (program (command name: (command_name (word)) argument: (word) argument: (word)))
+    //   time rm x | cat    => (program (pipeline (command name: (command_name (word)) argument: (word) argument: (word)) (command name: (command_name (word)))))
+    //   time (rm x)        => (program (command name: (command_name (word)) (subshell (command name: (command_name (word)) argument: (word)))))
+    // No keyword node: time is an ordinary command, read by the domain's wrapper; a { … } body is cut as coproc's is.
+    const trapped = await readIn("trap 'rm x' EXIT; cd sub", ["sub"]);
+    expect(deletesOf(trapped)).toEqual(["x"]);
+    expect(trapped.unresolved).toContainEqual({ text: "x", role: "write" });
+    expect((await read("trap 'terra$()form apply' EXIT")).programs.map((program) => program.name)).toContainEqual({ kind: "unresolved", text: "terra$()form" });
+    for (const command of ["time rm x", "time -p rm x", "time { rm x; }", "time (rm x)", "/usr/bin/time rm x", "time rm x | cat"]) expect({ command, deletes: deletesOf(await read(command)) }).toEqual({ command, deletes: ["x"] });
+    expect(codeOf(await readIn("time cd sub; rm x", ["sub"]))).toEqual(["(where time's command moves the shell)"]);
+    // The fixture's clone runs after a cd only the shell can place, so the directory it creates is a write only the shell can resolve.
+    const script = await read(await Bun.file(INSTALL_SCRIPT).text());
+    expect(script.unresolved).toContainEqual({ text: "vendor/postgres", role: "write" });
+    expect((await read('git clone --depth 1 "https://example.com/postgres.git" "vendor/postgres"')).fileEffects).toContainEqual({ effect: { kind: "write", path: "vendor/postgres", change: "create" } });
+  });
+
+  test("what the reader cannot see reaching a program it does not interpret is code; known programs keep their reads", async () => {
+    const reading = await read('mytool "$X"');
+    expect(reading.unresolved).toEqual([
+      { text: '"$X"', role: "read" },
+      { text: '"$X"', role: "code" },
+    ]);
+    for (const [command, word] of [
+      ['ssh host "terra$()form apply"', '"terra$()form apply"'],
+      ['watch "terra$()form apply"', '"terra$()form apply"'],
+      ['su -c "terra$()form apply"', '"terra$()form apply"'],
+      ['script -c "terra$()form apply"', '"terra$()form apply"'],
+    ] as const) {
+      expect({ command, code: codeOf(await read(command)) }).toEqual({ command, code: [word] });
+    }
+    expect(codeOf(await read("mytool <<< 'x'"))).toEqual(["<<< 'x'"]);
+    expect(codeOf(await read("cat a | mytool"))).toEqual(["(piped input)"]);
+    expect(codeOf(await read("cat a | sudo mytool"))).toEqual(["(piped input)"]);
+    expect(codeOf(await read("ls | xargs mytool"))).toEqual(["(input)"]);
+    // Its literal arguments are read as before.
+    expect((await read("mytool a.txt")).fileEffects).toEqual([{ effect: { kind: "read", path: "a.txt" } }]);
+    for (const command of ['echo "$HOME"', 'cat "$F"', "cat a | tee b", "ls | xargs rm", "cat a | grep x", "git log | head", "base64 -d <<< 'eA=='", "cat a | sudo grep x"]) {
+      expect({ command, code: codeOf(await read(command)) }).toEqual({ command, code: [] });
+    }
+  });
+
+  test("the common text programs are read as their entries say", async () => {
+    for (const command of ["cat a | grep x", "jq . f.json", "git log | head"]) expect({ command, code: codeOf(await read(command)) }).toEqual({ command, code: [] });
+    expect((await read("jq . f.json")).fileEffects).toContainEqual({ effect: { kind: "read", path: "f.json" } });
+    const sorted = await read("sort -o out.txt in.txt");
+    expect(sorted.fileEffects).toEqual([
+      { effect: { kind: "read", path: "out.txt" } },
+      { effect: { kind: "read", path: "in.txt" } },
+      { effect: { kind: "write", path: "out.txt", change: "create" } },
+    ]);
+  });
+
+  test("a git pathspec that names a directory reports the working tree; sudo's abbreviated long options are read", async () => {
+    expect((await readIn("git restore -s HEAD src", ["src"])).unresolved).toContainEqual({ text: "(the working tree)", role: "write" });
+    expect((await readIn("git checkout -- src", ["src"])).unresolved).toContainEqual({ text: "(the working tree)", role: "write" });
+    expect((await readIn("git checkout -- src/a.ts", ["src"])).unresolved).toEqual([]);
+    expect(deletesOf(await read("sudo --us root rm .env"))).toEqual([".env"]);
+  });
+
+  /** mulberry32 from a fixed seed: the same numbers in [0, 1) every run. */
+  const seededRandom = (seed: number) => (): number => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  test("fuzz: runners, paths to programs, time, coproc, trap, git's writing subcommands, the stdin forms, the text programs and uninterpreted programs, seeded, each read in under 250 ms, never throwing, never unread for time", async () => {
+    const random = seededRandom(0x2026_0025);
+    const pieces = ["npx ", "pnpm ", "exec ", "-r ", "-w ", "--filter ", "uvx ", "bun x ", "/bin/", "/usr/bin/env ", "RM ", "time ", "-p ", "coproc ", "NAME ", "{ ", "} ", "( ", ") ", "trap ", "alias ", "git ", "checkout ", "restore ", "stash ", "reset --hard ", "clone ", "--depth 1 ", "-f ", "-- ", ". ", "*.env ", ":/ ", "bash ", "-s ", "- ", "source ", "/dev/stdin ", "sudo -s ", "doas -s ", "find . -execdir ", "\\; ", '"$A" ', "mytool ", "grep ", "jq ", "sort -o ", "rg --pre ", "<<< ", "cd ", "rm ", "x ", "; ", "| "];
+    const reader = new TreeSitterShellCommandReader({ pathKindOf: () => "absent" });
+    let worst = 0;
+    let worstCommand = "";
+    for (let case_ = 0; case_ < 300; case_++) {
+      const count = Math.floor(random() * 40) + 1;
+      let text = "";
+      for (let piece = 0; piece < count; piece++) text += pieces[Math.floor(random() * pieces.length)];
+      const command = Command.parse(text.trim() === "" ? "x" : text);
+      if (!command.ok) continue;
+      const started = performance.now();
+      const answer = await reader.read(ROOT, command.value, null);
+      const elapsed = performance.now() - started;
+      if (elapsed > worst) {
+        worst = elapsed;
+        worstCommand = text;
+      }
+      const parsed = ShellCommandReading.parse(answer);
+      const unreadForTime = parsed.ok && parsed.value.outcome === "unread" && parsed.value.why.includes("within the time");
+      expect({ case_, fast: elapsed < 250, unreadForTime, parses: parsed.ok ? "ok" : parsed.error }).toEqual({ case_, fast: true, unreadForTime: false, parses: "ok" });
+    }
+    console.log(`slowest of 300 reads: ${worst.toFixed(1)} ms (${JSON.stringify(worstCommand.slice(0, 120))})`);
+  }, 600_000);
+});

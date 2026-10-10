@@ -134,50 +134,48 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
     }
   });
 
-  test("a run that passes terraform as an argument is refused while the rule does not hold, as cannot see", async () => {
+  test("a run that passes terraform as an argument is refused while the rule does not hold: as running it where the reader now sees the run, as cannot see elsewhere", async () => {
     const { shell, reviewedByAll } = await opened();
-    const commands = [
-      "/usr/bin/env terraform apply",
-      "/bin/bash -c 'terraform apply'",
-      "echo 'terraform apply' | bash -",
-      "trap 'terraform apply' EXIT",
+    // The reader now reads programs named by their path, trap's code and package runners (ADR 2026-020, amended by shell-reader-coverage).
+    const runs = ["/usr/bin/env terraform apply", "/bin/bash -c 'terraform apply'", "trap 'terraform apply' EXIT", "npx terraform apply"];
+    for (const command of runs) {
+      const verdict = await shell(command);
+      expect({ command, runs: reasonOf(verdict).includes("which runs 'terraform apply'"), redirect: redirectOf(verdict) }).toEqual({ command, runs: true, redirect: APPLY_REDIRECT });
+    }
+    const stdin = await shell("echo 'terraform apply' | bash -");
+    expect(reasonOf(stdin)).toContain("bounded cannot see whether it runs 'terraform apply': it runs code bounded cannot read ('(standard input)')");
+    expect(redirectOf(stdin)).toBe(APPLY_REDIRECT);
+    const cannotSee = [
       "aws-vault exec prof -- terraform apply",
       "op run -- terraform apply",
       "watch terraform apply",
       "ssh host terraform apply",
       "fish -c 'terraform apply'",
-      "npx terraform apply",
       // The over-refusal, stated: a run naming terraform may run it.
       "echo terraform",
       'git commit -m "bump terraform"',
     ];
-    for (const command of commands) {
+    for (const command of cannotSee) {
       const verdict = await shell(command);
       expect({ command, cannotSee: reasonOf(verdict).includes("bounded cannot see whether it runs 'terraform apply'"), redirect: redirectOf(verdict) }).toEqual({ command, cannotSee: true, redirect: APPLY_REDIRECT });
     }
     await reviewedByAll();
-    for (const command of commands) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    for (const command of [...runs, "echo 'terraform apply' | bash -", ...cannotSee]) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
-  test("terraform passed inside an argument is found past quotes, separators and unresolved words (final review, B1)", async () => {
+  test("terraform passed inside an argument is found past quotes, separators and unresolved words; a shell named by its path, time and coproc are seen to run it", async () => {
     const { shell, reviewedByAll } = await opened();
-    const commands = [
-      "/bin/bash -c 'cd infra;terraform apply'",
-      "/bin/sh -c '\"terraform\" apply'",
-      "ssh host 'cd infra&&terraform apply'",
-      'watch "terraform apply $FLAGS"',
-      '/bin/sh -c "terraform apply $X"',
-      "time terraform apply",
-      "coproc terraform apply",
-    ];
-    for (const command of commands) {
+    const passed = ["ssh host 'cd infra&&terraform apply'", 'watch "terraform apply $FLAGS"', '/bin/sh -c "terraform apply $X"'];
+    const ran = ["/bin/bash -c 'cd infra;terraform apply'", "/bin/sh -c '\"terraform\" apply'", "time terraform apply", "coproc terraform apply"];
+    for (const command of [...passed, ...ran]) {
       const verdict = await shell(command);
       expect({ command, refused: reasonOf(verdict).includes("terraform apply"), redirect: redirectOf(verdict) }).toEqual({ command, refused: true, redirect: APPLY_REDIRECT });
     }
-    // tree-sitter reads time and coproc as programs named so, given terraform as an argument: cannot see.
-    for (const command of commands) expect({ command, cannotSee: reasonOf(await shell(command)).includes("bounded cannot see whether it runs 'terraform apply'") }).toEqual({ command, cannotSee: true });
+    for (const command of passed) expect({ command, cannotSee: reasonOf(await shell(command)).includes("bounded cannot see whether it runs 'terraform apply'") }).toEqual({ command, cannotSee: true });
+    // A shell found by its path, time and coproc are read as the commands they are (ADR 2026-020, amended by shell-reader-coverage).
+    for (const command of ran) expect({ command, runs: reasonOf(await shell(command)).includes("which runs 'terraform apply'") }).toEqual({ command, runs: true });
     await reviewedByAll();
-    for (const command of commands) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    for (const command of [...passed, ...ran]) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
   test("a shell reading its code from standard input through -, /dev/stdin or /dev/fd/N is refused as cannot see (final review)", async () => {
@@ -225,39 +223,70 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them"
     }
   });
 
-  test("limit, until shell-reader-coverage: terraform reached through an expansion inside an argument or input to a program the reader does not interpret is not seen", async () => {
-    const { shell } = await opened();
-    // Today's outcome, asserted so that shell-reader-coverage supersedes this case knowingly: each is allowed while the rule is unmet.
-    for (const command of [
-      "/bin/bash -c 'terra$()form apply'",
-      "ssh host 'terra``form apply'",
-      "watch 'terra$" + "{x}form apply'", // the shell's ${x}, kept out of a template placeholder's look
-      "su -c $'\\x74erraform apply'",
-      'script -c "$(echo dGVycmFmb3JtIGFwcGx5 | base64 -d)"',
-      "time $TF apply",
-      "coproc $TF apply",
-      '/usr/bin/env "$TF" apply',
-      "/bin/sh <<< 'terraform apply'",
-      "cat commands.txt | xargs /usr/bin/env",
-      "sudo -s <<< 'terraform apply'",
-      "sudo -i <<< 'terraform apply'",
-      "doas -s <<< 'terraform apply'",
-      "source /dev/stdin <<< 'terraform apply'",
-      ". /dev/stdin <<< 'terraform apply'",
-      "trap 'terra$()form apply' EXIT",
-    ]) {
-      expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  test("programs the reader does not interpret take what it cannot see as code; sudo and doas shells, sourced files and trap's code are code: refused while a rule does not hold, under execute and write rules", async () => {
+    const { shell, reviewedBy, reviewedByAll } = await opened();
+    /** The cannot-see part of a refusal: what follows "cannot see whether it …: ". */
+    const cannotSeeOf = (verdict: { kind: string; reason?: string }): string => {
+      const reason = reasonOf(verdict);
+      const at = reason.indexOf("bounded cannot see whether it ");
+      if (at === -1) return reason;
+      const rest = reason.slice(at);
+      return rest.slice(rest.indexOf(": ") + 2);
+    };
+    const code = (word: string) => `it runs code bounded cannot read ('${word}')`;
+    const name = (word: string) => `it runs a program whose name only the shell can resolve ('${word}')`;
+    const STANDARD_INPUT = code("(standard input)");
+    const forms: readonly (readonly [string, string])[] = [
+      ['ssh host "terra$()form apply"', code('"terra$()form apply"')],
+      ['watch "terra$()form apply"', code('"terra$()form apply"')],
+      ['su -c "terra$()form apply"', code('"terra$()form apply"')],
+      ['script -c "terra$()form apply"', code('"terra$()form apply"')],
+      // prereqs-execute's limit case's forms, each now refused.
+      ["/bin/bash -c 'terra$()form apply'", name("terra$()form")],
+      ["su -c $'\\x74erraform apply'", code("$'\\x74erraform apply'")],
+      ['script -c "$(echo dGVycmFmb3JtIGFwcGx5 | base64 -d)"', code('"$(echo dGVycmFmb3JtIGFwcGx5 | base64 -d)"')],
+      ["time $TF apply", name("$TF")],
+      ["coproc $TF apply", name("$TF")],
+      ['/usr/bin/env "$TF" apply', name('"$TF"')],
+      ["/bin/sh <<< 'terraform apply'", STANDARD_INPUT],
+      ["sudo -s <<< 'terraform apply'", STANDARD_INPUT],
+      ["sudo -i <<< 'terraform apply'", STANDARD_INPUT],
+      ["doas -s <<< 'terraform apply'", STANDARD_INPUT],
+      ["source /dev/stdin <<< 'terraform apply'", code("/dev/stdin")],
+      [". /dev/stdin <<< 'terraform apply'", code("/dev/stdin")],
+      ["trap 'terra$()form apply' EXIT", name("terra$()form")],
+      // The over-refusal, stated: a program the table does not know, given a word only the shell can resolve or piped input.
+      ['mytool "$X"', code('"$X"')],
+      ["cat a | mytool", code("(piped input)")],
+    ];
+    for (const [command, part] of forms) expect({ command, part: cannotSeeOf(await shell(command)) }).toEqual({ command, part });
+    // xargs's input reaches the command env runs: what it names only the run can tell.
+    for (const command of ["base64 -d <<< 'dGVycmFmb3JtIGFwcGx5' | xargs /usr/bin/env", "cat commands.txt | xargs /usr/bin/env"]) {
+      expect({ command, part: cannotSeeOf(await shell(command)).endsWith("('(input)')") }).toEqual({ command, part: true });
     }
+    // Under the write rule before src/**, once the execute rule holds: each refused as cannot see.
+    await reviewedBy("infra-reviewer");
+    for (const [command] of forms) expect({ command, cannotSee: reasonOf(await shell(command)).includes("bounded cannot see whether it writes a path 'src/**' matches") }).toEqual({ command, cannotSee: true });
+    await reviewedByAll();
+    for (const [command] of forms) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
   });
 
-  test("limit: a script run through a shell, or sourced, is not seen to run; it is refused only because its name stands as an argument", async () => {
+  test("limit: terraform reached through a literal argument a program the reader does not interpret may run as code is not seen", async () => {
+    const { shell } = await opened();
+    // A literal word is resolved, so it is read, not code: what ssh's or watch's own shell makes of it is not seen (ADR 2026-020).
+    for (const command of ["ssh host 'terra``form apply'", "watch 'terra$" + "{x}form apply'"]) expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+  });
+
+  test("limit: a script run through a shell is not seen to run; a sourced one is code bounded cannot read", async () => {
     const { shell } = await opened();
     const direct = await shell("./deploy.sh");
     expect(reasonOf(direct)).toContain("which runs 'deploy.sh'");
     expect(redirectOf(direct)).toBe(DEPLOY_REDIRECT);
-    for (const command of ["bash deploy.sh", ". deploy.sh", "source deploy.sh"]) {
+    const run = reasonOf(await shell("bash deploy.sh"));
+    expect({ cannotSee: run.includes("bounded cannot see whether it runs 'deploy.sh'"), runs: run.includes("which runs 'deploy.sh'") }).toEqual({ cannotSee: true, runs: false });
+    for (const command of [". deploy.sh", "source deploy.sh"]) {
       const reason = reasonOf(await shell(command));
-      expect({ command, cannotSee: reason.includes("bounded cannot see whether it runs 'deploy.sh'"), runs: reason.includes("which runs 'deploy.sh'") }).toEqual({ command, cannotSee: true, runs: false });
+      expect({ command, code: reason.includes("it runs code bounded cannot read ('deploy.sh')"), runs: reason.includes("which runs 'deploy.sh'") }).toEqual({ command, code: true, runs: false });
     }
   });
 });
@@ -334,5 +363,84 @@ describe("bounded/prereqs judging shell commands from bounded's reading of them 
   test("a shell whose options only the shell can resolve may read its operand as code", async () => {
     const { shell } = await opened();
     expect(cannotSeeOf(await shell('bash "$S" "$1"'))).toBe(`it runs code bounded cannot read ('"$1"')`);
+  });
+});
+
+describe("bounded/prereqs judging shell commands from bounded's reading of them — the reader's new readings (ADR 2026-020, amended by shell-reader-coverage)", () => {
+  /** The cannot-see part of a refusal: what follows "cannot see whether it …: ". */
+  const cannotSeeOf = (verdict: { kind: string; reason?: string }): string => {
+    const reason = reasonOf(verdict);
+    const at = reason.indexOf("bounded cannot see whether it ");
+    if (at === -1) return reason;
+    const rest = reason.slice(at);
+    return rest.slice(rest.indexOf(": ") + 2);
+  };
+  const code = (word: string) => `it runs code bounded cannot read ('${word}')`;
+  const write = (word: string) => `it writes a path only the shell can resolve ('${word}')`;
+  const WORKING_TREE = write("(the working tree)");
+
+  test("forms that give only an unresolved write or code are refused while a write rule does not hold", async () => {
+    const { shell } = await opened();
+    for (const [command, part] of [
+      ["git stash pop", WORKING_TREE],
+      ["git checkout main", WORKING_TREE],
+      ["git switch main", WORKING_TREE],
+      ["git reset --hard", WORKING_TREE],
+      ["git apply p.patch", WORKING_TREE],
+      ["git checkout -- .", WORKING_TREE],
+      ["git restore :/src", WORKING_TREE],
+      ["git stash push -- src", WORKING_TREE],
+      ["git checkout -f main", WORKING_TREE],
+      ["git switch --discard-changes main", WORKING_TREE],
+      ["sudo -s", code("(standard input)")],
+      ["doas -s", code("(standard input)")],
+      ["coproc NAME { true; }", code("(coproc's { … } body)")],
+      ["time cd src; rm a.ts", code("(where time's command moves the shell)")],
+      [". ./env.sh", code("./env.sh")],
+      ["alias c='rm src/a.ts'", code("rm src/a.ts")],
+      ["pnpm -r exec rm src/a.ts", write("src/a.ts")],
+      ["find src -execdir rm a.ts \\;", write("a.ts")],
+      ["trap 'rm a.ts' EXIT; cd src", write("a.ts")],
+      // Pins: refused already, through prereqs-execute.
+      ["bash -", code("(standard input)")],
+      ["bash -xs", code("(standard input)")],
+    ] as const) {
+      expect({ command, part: cannotSeeOf(await shell(command)) }).toEqual({ command, part });
+    }
+    // A glob pathspec is also the literal path it spells, which the rule matches: refused for that write.
+    expect(reasonOf(await shell("git restore 'src/*'"))).toContain("which writes 'src/*'");
+  });
+
+  test("writes the new readings make under src/ are refused as definite", async () => {
+    const { shell } = await opened();
+    for (const command of [
+      "/bin/rm src/a.ts",
+      "time rm src/a.ts",
+      "trap 'rm src/a.ts' EXIT",
+      "git checkout -- src/a.ts",
+      "git restore src/a.ts",
+      "pnpm exec rm src/a.ts",
+      "coproc rm src/a.ts",
+      "coproc (rm src/a.ts)",
+      "sort -o src/a.ts in.txt",
+      "yq -i '.a=1' src/c.yaml",
+    ]) {
+      const verdict = await shell(command);
+      expect({ command, writes: reasonOf(verdict).includes("which writes 'src/"), redirect: redirectOf(verdict) }).toEqual({ command, writes: true, redirect: SRC_REDIRECT });
+    }
+  });
+
+  test("xargs's input reaches a program named by its path", async () => {
+    const { shell } = await opened();
+    expect(cannotSeeOf(await shell("ls src | xargs /bin/rm"))).toBe(write("(input)"));
+  });
+
+  test("the common text programs are read and allowed under an unmet rule", async () => {
+    const { shell } = await opened();
+    for (const command of ["cat a | grep x", "jq . f.json", "git log | head", "sort -o out.txt in.txt", 'echo "$HOME"', 'cat "$F"', "cat README | sort | uniq -c | head -n 3"]) {
+      expect({ command, verdict: reasonOf(await shell(command)) }).toEqual({ command, verdict: "allowed" });
+    }
+    // sort -o writes its file.
+    expect(reasonOf(await shell("sort -o src/a.ts README"))).toContain("which writes 'src/a.ts'");
   });
 });
