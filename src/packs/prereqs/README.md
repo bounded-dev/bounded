@@ -272,6 +272,31 @@ starts with none. The starts of delegations awaiting their result are in
 awaiting their finish are in `.bounded/prereqs/started/runs/`, kept seven
 days. The Bounded log keeps an audit record of each recorded run.
 
+## The status snapshot
+
+When the host provides the pack's optional status snapshot port (ADR
+2026-026), the pack saves the status of every rule after each finished call
+and each agent run's finish, in `.bounded/prereqs/status.json`, for a
+display such as a status band to show. It holds each requirement once, in
+the order the rules name it, with its status (`holds`, `pending`, `stale` or
+`missing`), how many files its patterns match and the run it waits on while
+pending; and each rule in contribution order, with its `before` and whether
+the gate would allow its action now. A reading that cannot be made, or does
+not finish within 2 s, is saved `unread`, saying why. The file also names
+the project's root; an older reading never replaces a newer one, so under
+concurrent hooks it may be one call behind; a failed save removes it.
+
+The snapshot decides nothing: every verdict and every record is the same
+without it. It sits in `.bounded/`, which drift never watches, so a shell
+write the protected-paths pack does not see can forge it; it can only
+mislead a display.
+
+Only the Claude Code hook `bounded` carries provides the port; pi does not,
+and pays nothing. A host that provides it adds up to 2.5 s to each finished
+call and each finish, so it must give its after-call and finish handling a
+budget above its other checks plus 2.5 s (Claude Code's hook deadline is 20
+s).
+
 ## The protection it relies on
 
 The guarantee rests on the protected-paths pack keeping agents off:
@@ -295,6 +320,12 @@ Claude Code and pi that `bounded` carries do.
   files a list of patterns names.
 - `prerequisiteRecords` (`PrerequisiteRecords`): the records, the starts
   kept by call id, and the starts kept by run id until the run's finish.
+
+A host may also provide its optional port, through
+`prereqsStatusSnapshotPortProvisions()`; the Claude Code hook does:
+
+- `prerequisiteStatusSnapshots` (`PrerequisiteStatusSnapshots`): where the
+  status snapshot is saved, and the store's time.
 
 ## Examples
 

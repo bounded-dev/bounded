@@ -74,7 +74,14 @@ when written; keep it current (AGENTS.md, "Working with the user").
   refused as pending ([ADR 2026-025](adr/2026-025-agent-run-finish.md),
   [ADR 2026-028](adr/2026-028-pi-agent-run-finish.md)). On pi a resume is a
   delegation to the agent bounded saw its run launched and finish as, or is
-  refused.
+  refused. From 3.3.0 a pack
+  may declare `optionalPorts`, adapters a host may provide, read with
+  `Ports.ifProvided` and serving only output that decides no verdict or
+  record; through one, which only Claude Code provides, `bounded/prereqs`
+  saves the status of every rule to `.bounded/prereqs/status.json` after
+  each call and each agent run's finish, read through the same evaluation
+  as its gate ([ADR 2026-026](adr/2026-026-prereqs-status-snapshot.md)).
+  Nothing reads the file yet: the status band is item B.
 - **The standard pack structure** (issue #68, step 1;
   [writing a pack](writing-a-pack.md); ADR 2026-013's R7 and ADR 2026-009,
   amended by `pack-structure`): every shipped pack has a README with the
@@ -154,6 +161,14 @@ when written; keep it current (AGENTS.md, "Working with the user").
   `scripts/install-bounded.ts` wraps the adapters' install helpers.
 
 ## 2. Known gaps and limits
+
+- **The prereqs status snapshot (ADR 2026-026)** costs, per finished call
+  and per finish in a Claude Code project selecting the pack, one
+  fingerprint per distinct requirement and one read of the records and
+  pending runs, bounded at 2.5 s. Under concurrent hooks the file may be one
+  call behind. It sits in `.bounded/`, which drift never watches, so a shell
+  write the protected-paths pack does not see can forge it; it decides
+  nothing.
 
 - **Bounded discourages agents and keeps a record; it is not a security
   boundary.** An agent running as the same user can always get round it.
@@ -472,6 +487,10 @@ when written; keep it current (AGENTS.md, "Working with the user").
     expects its words listed as a run too. 3.3.0 also gives the reader new
     readings (ADR 2026-020, amended by `shell-reader-coverage`): readings
     gain runs, writes and code parts, so a pack may refuse what it allowed.
+    3.3.0 also adds a pack's `optionalPorts` and `Ports.ifProvided`, and
+    `bounded/prereqs`'s status snapshot (ADR 2026-026), additively:
+    `BasePack` gains `optionalPorts`, which a hand-built look-alike must
+    give; no pack built with `definePack` changes.
     `--from <dir>` stays only for installing a
     local tarball during development. A `--from` install overrides `bounded` in `package.json`, each package
     manager in its own field: `$bounded` for npm (`overrides`) and pnpm
@@ -527,8 +546,9 @@ when written; keep it current (AGENTS.md, "Working with the user").
   below), no other command-line tool exists.
 - A file-backed pack catalog (only the in-memory catalog exists).
 - The prerequisites pack's next items (ADR 2026-019, "Future work"):
-  `require: { execute }`, and a Claude Code status widget listing each
-  requirement as holds, stale or missing.
+  `require: { execute }`, and the Claude Code status band that shows
+  the status snapshot (item B, `prereqs-status-band`, ADR 2026-027; the
+  snapshot it reads exists, ADR 2026-026).
 - Per-pack typed configuration, static (data) contribution lists, point
   summaries, and a provenance view of who contributed what.
 - A redaction hook for the Bounded log ([Bounded log](bounded-log.md),

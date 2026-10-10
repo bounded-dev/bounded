@@ -114,6 +114,14 @@ opening fails does not stop the project opening: its own guards refuse what
 they cannot check. Every port a selected pack declares must be provided, or
 every event is refused, naming the pack, the port and the fix.
 
+A pack may also declare `optionalPorts`, after `ports` (ADR 2026-026):
+adapters a host may provide, which composition never requires. Its checks
+read one with `context.ports.ifProvided(key)`, which is `undefined` when the
+host does not provide it. An optional port serves only output that decides
+no verdict and no record, such as `bounded/prereqs`'s status snapshot
+(`prereqsStatusSnapshotPortProvisions()` from `bounded/prereqs/adapters`),
+which only the Claude Code hook provides.
+
 Every execute effect carries a reading of its command, which the host
 adapter builds when it translates the host's tool call (ADR 2026-020): the
 programs it runs, the files it reads, lists and writes, and what only the
