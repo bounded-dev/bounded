@@ -228,10 +228,14 @@ step 1): a shipped pack's `examples/` sits outside its code (below,
 
 (Amended by `pack-structure`, issue #68, step 1.) A shipped pack's
 `examples/<slug>.config.ts` files are projects' configurations, not the
-pack's code. An example imports only `bounded/*` export paths, any pack's,
-as a project's `bounded.config.ts` does, never a relative path. No file
+pack's code. An example imports only `bounded/domain` and the shipped
+packs' own export paths (`bounded/<pack>`, any pack's), as a project's
+`bounded.config.ts` does: never a relative path, and never an internal
+export path (`bounded/application`, `bounded/adapters`,
+`bounded/<pack>/adapters`, `bounded/hosts/*`, `bounded/testing/*`). No file
 imports an example: not the pack's root, not its other layers, not another
-pack, and not a test under a composition root, with no exemption. Tests
+pack, not a test under a composition root, not the repository's tests
+(`src/test/`) and not any unit's `test/`, with no exemption. Tests
 reach an example only by opening a project whose `bounded.config.ts` is the
 example's text. The layout is ADR 2026-013's R7, amended.
 

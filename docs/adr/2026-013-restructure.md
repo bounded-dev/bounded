@@ -262,7 +262,8 @@ least one example in `examples/`, a folder outside the pack's code (below,
     defineConfig(...)`) whose default export's TSDoc gives its title (the
     first line) and description (the rest). An example is outside the
     pack's code ([ADR 2026-009](2026-009-path-gate-pack.md), amended): it
-    imports only `bounded/*` export paths, and no file imports it. The
+    imports only `bounded/domain` and the shipped packs' own export paths
+    (`bounded/<pack>`), and no file imports it. The
     other R-rules do not apply to it; the packs' declarations
     (`tsconfig.types.json`) leave it out, and the package ships it.
   - The architecture test checks the layout and the imports;

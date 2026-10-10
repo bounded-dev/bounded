@@ -3,6 +3,7 @@
 A pack shipped in `bounded` 3.2.0 ([ADR 2026-019](../../../docs/adr/2026-019-prereqs-pack.md));
 it counts runs at their finish from 3.3.0 ([ADR 2026-025](../../../docs/adr/2026-025-agent-run-finish.md)),
 and from 3.3.0 judges shell commands from their reading ([ADR 2026-020](../../../docs/adr/2026-020-shell-command-reading.md)).
+
 ## What it is for
 
 Making an agent's work follow the order a project's workflow sets: no

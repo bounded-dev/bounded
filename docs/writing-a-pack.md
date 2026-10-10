@@ -74,9 +74,11 @@ export default defineConfig({
 
 - The TSDoc on the default export gives the title (its first line) and the
   description (the rest).
-- An example imports only `bounded/*` export paths, any pack's, never a
-  relative path, and no file imports an example, tests included: an example
-  is outside the pack's code (ADR 2026-009).
+- An example imports only `bounded/domain` and the shipped packs' own
+  export paths (`bounded/<pack>`), never a relative path nor an internal
+  path (`bounded/<pack>/adapters` and the like), and no file imports an
+  example, tests included: an example is outside the pack's code (ADR
+  2026-009).
 - `src/core/composition-root/pack-examples.test.ts` opens each example as a
   project's `bounded.config.ts`, with the shipped packs' ports, and wants no
   problem: an example that drifts from the API fails the build.

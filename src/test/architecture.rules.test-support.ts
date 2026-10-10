@@ -600,13 +600,6 @@ const packFileOf = (path: string): { readonly dir: string; readonly name: string
 const EXAMPLE = /^examples\/[a-z0-9]+(-[a-z0-9]+)*\.config\.ts$/;
 
 /**
- * Whether a path is a shipped pack's example (`src/packs/<name>/examples/…`):
- * a project's configuration, outside the pack's code (ADR 2026-009), so the
- * rules on a pack's code (R3 to R7, the shape-check rule) skip it.
- */
-export const isPackExample = (path: string): boolean => packFileOf(path)?.rest.startsWith("examples/") === true;
-
-/**
  * R7, layout: a shipped pack's directory holds exactly its overview
  * (`<name>.pack.ts`), its contract (`<name>.contract.ts`), its index, the
  * overview's test and its README, and only the folders `domain/`,
@@ -627,7 +620,7 @@ export function packLayoutViolations(paths: readonly string[]): string[] {
       continue;
     }
     const allowed = rest.includes("/") ? ["domain", "application", "adapters"].includes(rest.split("/")[0] ?? "") : [`${name}.pack.ts`, `${name}.contract.ts`, `${name}.pack.test.ts`, "index.ts", "README.md"].includes(rest);
-    if (!allowed) out.push(`${path} — a pack's directory holds its overview, contract, index and their test at its root, and everything else in domain/, application/ or adapters/`);
+    if (!allowed) out.push(`${path} — a pack's directory holds its overview, contract, index, their test and its README at its root, and everything else in domain/, application/, adapters/ or examples/`);
   }
   for (const [dir, name] of dirs) {
     for (const needed of [`${name}.pack.ts`, `${name}.contract.ts`, "index.ts", "README.md"]) if (!paths.includes(`${dir}/${needed}`)) out.push(`${dir} — a shipped pack has ${needed}`);
@@ -650,8 +643,7 @@ export function packOverviewViolations(files: readonly SourceFile[], domainExpor
   const out: string[] = [];
   for (const file of files) {
     const within = withinUnit(file.path);
-    // An example is a project's configuration, outside the pack's code; R3 to R6 already scope it out (domain/, application/ and a pack's root).
-    if (isTest(file.path) || within === undefined || within.unit.kind === "app" || within.unit.layer === "test" || isPackExample(file.path)) continue;
+    if (isTest(file.path) || within === undefined || within.unit.kind === "app" || within.unit.layer === "test") continue;
     const source = parse(file);
     const overview = file.path.endsWith(".pack.ts");
     if (!overview) {
