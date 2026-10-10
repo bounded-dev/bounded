@@ -190,12 +190,12 @@ describe("translate — pi-subagents' subagent tool, read strictly", () => {
 
   test("a resume is a delegation to the agent the lookup gives, its finish unreported, and still invoked by name; without a tie it is refused with a redirect to start a new run", () => {
     const lookup = (id: string): string | undefined => (id === "r1" ? "plan-reviewer" : undefined);
-    const resume = (input: Record<string, unknown>, given: ((id: string) => string | undefined) | undefined = lookup): unknown =>
+    const resume = (input: Record<string, unknown>, given: ((id: string) => string | undefined) | undefined): unknown =>
       JSON.parse(JSON.stringify(translate({ toolName: "subagent", input: { action: "resume", message: "go on", ...input } }, ROOT, fake, given)));
     const tied = use("subagent", { kind: "delegate", agent: "plan-reviewer", finishUnreported: true }, { kind: "invoke", name: "subagent.resume" });
-    expect(resume({ id: "r1" })).toEqual(tied);
-    expect(resume({ runId: "r1" })).toEqual(tied);
-    expect(resume({ id: "r1", index: 0 })).toEqual(tied);
+    expect(resume({ id: "r1" }, lookup)).toEqual(tied);
+    expect(resume({ runId: "r1" }, lookup)).toEqual(tied);
+    expect(resume({ id: "r1", index: 0 }, lookup)).toEqual(tied);
     const untied: [Record<string, unknown>, ((id: string) => string | undefined) | undefined][] = [
       [{ id: "r1", index: 1 }, lookup],
       [{ id: "unknown" }, lookup],
@@ -212,7 +212,7 @@ describe("translate — pi-subagents' subagent tool, read strictly", () => {
       expect(result.error).toContain("cannot tell which agent");
       expect(result.redirect).toStartWith("Start a new run of the agent instead");
     }
-    const outside = resume({ dir: "../x" }) as { ok: boolean; error?: string; redirect?: string };
+    const outside = resume({ dir: "../x" }, lookup) as { ok: boolean; error?: string; redirect?: string };
     expect(outside.error).toContain("outside the project");
     expect(outside.redirect).toBeUndefined();
   });
