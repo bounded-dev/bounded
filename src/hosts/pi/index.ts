@@ -3,11 +3,11 @@ import { composeProject, shellCommandReading } from "./composition-root.ts";
 import { type ExtensionOptions, type Pi, piExtension } from "./extension.ts";
 
 export type { Effect, EffectJSON, ExecuteBeforeReadingJSON, PiCall, PiEffectJSON, ToolUse } from "./event.ts";
-export type { AdapterRefusal, ProjectJudgeForPi, ExtensionOptions, LoadJudge, Pi, PiBlock, PiHandler, PiResultPatch } from "./extension.ts";
+export type { AdapterRefusal, ProjectJudgeForPi, ExtensionOptions, LoadJudge, Pi, PiBlock, PiBusHandler, PiHandler, PiResultPatch } from "./extension.ts";
 export { piExtension } from "./extension.ts";
 export { type ProjectFile, piLoader } from "./install.ts";
 export { type Locate, type Located, locator, piRewrite } from "./pi-path.ts";
-export { type PiToolCall, translate } from "./translate.ts";
+export { type AgentOfRun, type PiToolCall, type TranslationRefusal, type TranslationResult, translate } from "./translate.ts";
 
 /** Timings a project may change: composing (15 s), each decision (3 s), and the back-off after composing times out (30 s). */
 export type BoundedOptions = Pick<ExtensionOptions, "deadlineMs" | "composeDeadlineMs" | "composeBackoffMs">;

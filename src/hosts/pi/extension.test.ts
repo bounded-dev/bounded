@@ -807,3 +807,40 @@ describe("piExtension — a delegated run's finish (ADR 2026-028)", () => {
     expect(await reused.resume({ id: R })).toEqual(TIED);
   });
 });
+
+describe("piExtension — pi-subagents' payloads, read without trusting them (ADR 2026-028)", () => {
+  test("a completion that is not an object, or whose fields cannot be read, records nothing and ties nothing", async () => {
+    const session = await finishSession();
+    await session.resulted(launch());
+    const hostile = new Proxy({}, { get: () => { throw new Error("trap"); }, getOwnPropertyDescriptor: () => { throw new Error("trap"); }, has: () => { throw new Error("trap"); } });
+    for (const payload of [null, "done", 3, [completion()], hostile]) await session.publish(COMPLETE, payload);
+    expect(session.finishes).toEqual([]);
+    blockedAsUnseen(await session.resume({ id: R }));
+  });
+
+  test("a synchronous child naming no valid agent is finished without one, and never ties a resume", async () => {
+    const session = await finishSession();
+    const unnamed = sync();
+    const [child] = unnamed.details.results;
+    if (child !== undefined) child.agent = "  ";
+    expect(await session.runsOf(unnamed)).toEqual([{ finished: true }]);
+    // Not remembered for a resume: pi-subagents did not say it ran the agent the call asked for.
+    blockedAsUnseen(await session.resume({ id: "call-review-2" }));
+  });
+
+  test("a synchronous result pi-subagents names by another run id is counted but never ties a resume", async () => {
+    const session = await finishSession();
+    const elsewhere = sync();
+    elsewhere.details.runId = "another-run";
+    expect(await session.runsOf(elsewhere)).toEqual([{ finished: true, resolvedAgent: "plan-reviewer" }]);
+    blockedAsUnseen(await session.resume({ id: "call-review-2" }));
+    blockedAsUnseen(await session.resume({ id: "another-run" }));
+  });
+
+  test("a completion that arrives before its launch's result ties nothing, and a later launch stays untied", async () => {
+    const session = await finishSession();
+    await session.publish(COMPLETE, completion());
+    await session.resulted(launch());
+    blockedAsUnseen(await session.resume({ id: R }));
+  });
+});
